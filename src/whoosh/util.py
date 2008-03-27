@@ -15,16 +15,7 @@
 #===============================================================================
 
 import math
-
-def inverse_doc_freq(term_count, num_items):
-    """Return the inverse document frequency for a term
-    that appears in term_count items in a collection with num_items
-    total items.
-    """
-    # implements IDF(q, t) = log(1 + N/f(t))
-    return math.log(float(num_items) / term_count) + 1.0
-
-_fib_cache = {}
+from bisect import insort
 
 def fib(n):
     global _fib_cache
@@ -35,6 +26,44 @@ def fib(n):
     return result
 
 
+def inv_doc_freq(N, freq):
+    if freq == 0:
+        return 0
+    else:
+        return math.log(1.0 + N / freq)
+
+
+class NBest(object):
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.sorted = []
+
+    def __len__(self):
+        return len(self.sorted)
+
+    def add(self, item, score):
+        self.add_all([(item, score)])
+
+    def add_all(self, sequence):
+        items, capacity = self.sorted, self.capacity
+        n = len(items)
+        for item, score in sequence:
+            if n >= capacity and score <= items[0][0]:
+                continue
+            
+            insort(items, (score, item))
+            if n == capacity:
+                del items[0]
+            else:
+                n += 1
+        assert n == len(items)
+
+    def best(self):
+        return reversed(self.sorted)
+
+    def __iter__(self):
+        for r in self.best():
+            yield r
 
         
         

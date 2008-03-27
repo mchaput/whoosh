@@ -14,81 +14,103 @@
 # limitations under the License.
 #===============================================================================
 
-def find_hilights(tokens, term_set, words_before = 5, words_after = 5, word_limit = 20, fragment_limit = 4):
-    hits = 0
+def highlights(tokens, termset, before = 5, after = 5, fragments = 4, limit = 20):
+    results = []
     
     queue = []
-    current = []
     countdown = 0
-    
-    for t in tokens:
-        if t in term_set:
-            if countdown == 0:
-                current += queue
-                queue = []
-                hits += 1
-            
-            current.append((t, ))
-            countdown = words_after
-        
-        elif countdown > 0:
-            current.append(t)
-            countdown -= 1
-            
-            if len(current) > word_limit:
-                countdown = 0
-            
-            if countdown == 0:
-                yield current
-                current = []
-                
-                if fragment_limit is not None and hits > fragment_limit:
-                    break
-        else:
-            if len(queue) >= words_before:
-                queue = queue[1:]
-            queue.append(t)
-    
-    if countdown > 0:
-        yield current
+    inside = False
 
-def format_fragment(frag):
-    result = ""
-    for t in frag:
-        if isinstance(t, tuple):
-            result += " <strong>%s</strong>" % t[0]
+    for t in tokens:
+        if t.lower() in termset:
+            if not inside:
+                results.append([queue, [], []])
+                queue = []
+                inside = True
+            results[-1][1].append(t)
         else:
-            result += " " + t
-    if result.startswith(" "):
-        result = result[1:]
+            if inside:
+                inside = False
+                countdown = after
+            
+            if countdown > 0:
+                results[-1][2].append(t)
+                countdown -= 1
+                
+                if countdown == 0 and len(results) >= fragments:
+                    break
+            else:
+                queue.append(t)
+                if len(queue) > before:
+                    queue.pop(0)
+    
+    return results
+
+def render(ls, start="<strong>", end="</strong"):
+    result = ""
+    last = None
+    for fragment in ls:
+        if last is not None and last[2] and fragment[0]:
+            result += " ... "
+        result += " ".join(fragment[0]) + " "
+        result += start + " ".join(fragment[1]) + end
+        result += " " + " ".join(fragment[2])
+        last = fragment
+    result += " ..."
     return result
 
-def associate(text, analyzer):
-    for t in analyzer.tokenizer(text):
-        g = analyzer.filter(t)
-        if g:
-            yield (t, g)
+#def ngram_highlights(size, tokens, inset, before = 20, after = 10, fragments = 4):
+#    hits = 0
+#    results = []
+#    output = ""
+#    queue = ""
+#    inside = False
+#    countdown = 0
+#    
+#    strip = 1-size
+#    tokens = iter(tokens)
+#    
+#    for t in tokens:
+#        if t in inset:
+#            if inside:
+#                output = output[:strip] + t
+#                
+#            else:
+#                if hits > 0:
+#                    output += "..."
+#                
+#                output += queue[:strip]
+#                queue = ""
+#                output += "<s>" + t
+#                
+#                inside = True
+#                hits += 1
+#        else:
+#            if inside:
+#                output += "</s>" + t[-1:] + " "*(size-1)
+#                for _ in xrange(0, size-1): tokens.next()
+#                inside = False
+#                countdown = after
+#            elif countdown > 0:
+#                output = output[:strip] + t
+#                countdown -= 1
+#                
+#                if countdown == 0 and hits >= fragments:
+#                    break
+#            else:
+#                queue = queue[:strip] + t
+#                if len(queue) > before:
+#                    queue = queue[1:]
+#                    
+#    return "".join(output)
+
+
 
 if __name__ == '__main__':
     import time
     import analysis
     
-    f = open("c:/dev/src/houdini/help/documents/nodes/sop/copy.txt", "rb")
-    txt = f.read()
-    f.close()
     
-    txt = txt[txt.rfind('"""'):]
-    
-    a = analysis.SimpleAnalyzer()
-    
-    for x in associate(txt, a):
-        print x
-    
-    t = time.clock()
-    for frag in find_hilights(a.words(txt), set(["sop"])):
-        pass
-        #print format_fragment(frag)
-    print time.clock() - t
     
     
     

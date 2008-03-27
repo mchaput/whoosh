@@ -22,10 +22,14 @@ def has_positions(field):
 
 
 class Field(object):
-    def __init__(self, name, analyzer, field_boost = 1.0, **options):
+    def __init__(self, name, analyzer, field_boost = 1.0,
+                 stored = False, indexed = True,
+                 **options):
         self.name = name
         self.analyzer = analyzer
         self.field_boost = field_boost
+        self.indexed = indexed
+        self.stored = stored
         self.number = -1
         self.options = options
         
@@ -44,6 +48,29 @@ class Field(object):
             and other.analyzer == self.analyzer\
             and other.boost == self.boost
 
+    def word_datas(self, value, **kwargs):
+        raise NotImplementedError
+    def write_postvalue(self, stream, data):
+        raise NotImplementedError
+    def read_postvalue(self, stream):
+        raise NotImplementedError
+    def data_to_weight(self, data):
+        raise NotImplementedError
+    def data_to_positions(self, data):
+        raise NotImplementedError
+    def data_to_position_boosts(self, data):
+        raise NotImplementedError
+
+
+class StoredField(Field):
+    stored = True
+    indexed = False
+    
+    def __init__(self, name, **options):
+        self.name = name
+        self.options = options
+        
+
 class IDField(Field):
     def word_datas(self, value, **kwargs):
         seen = set()
@@ -54,7 +81,7 @@ class IDField(Field):
             yield (w, None)
     
     def write_postvalue(self, stream, data):
-        return
+        return 0.0
     
     def read_postvalue(self, stream):
         return None
@@ -72,6 +99,7 @@ class FrequencyField(Field):
 
     def write_postvalue(self, stream, data):
         stream.write_varint(data)
+        return data
         
     def read_postvalue(self, stream):
         return stream.read_varint()
@@ -90,6 +118,7 @@ class DocBoostField(FrequencyField):
     def write_postvalue(self, stream, data):
         stream.write_varint(data[0])
         stream.write_8bitfloat(data[1]) # , self.options.get("limit", 8)
+        return data[0]
         
     def read_postvalue(self, stream):
         return (stream.read_varint(), stream.read_8bitfloat()) # , self.options.get("limit", 8)
@@ -98,10 +127,11 @@ class DocBoostField(FrequencyField):
         return data[0] * data[1] * self.field_boost
 
 class PositionField(Field):
-    def word_datas(self, value, **kwargs):
+    def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(list)
+        
         for pos, w in enumerate(self.analyzer.words(value)):
-            seen[w].append(pos)
+            seen[w].append(start_pos + pos)
             
         return seen.iteritems()
     
@@ -111,6 +141,7 @@ class PositionField(Field):
         for pos in data:
             stream.write_varint(pos - pos_base)
             pos_base = pos
+        return len(data)
             
     def read_postvalue(self, stream):
         pos_base = 0
@@ -128,7 +159,7 @@ class PositionField(Field):
 
 class PositionBoostField(PositionField):
     def word_datas(self, value, boosts = {}, **kwargs):
-        seen = defaultdict(list)
+        seen = defaultdict(iter)
         for pos, w in enumerate(self.analyzer.words(value)):
             seen[w].append((pos, boosts.get(pos, 1.0)))
             
@@ -137,10 +168,13 @@ class PositionBoostField(PositionField):
     def write_postvalue(self, stream, data):
         pos_base = 0
         stream.write_varint(len(data))
+        total_weight = 0.0
         for pos, boost in data:
             stream.write_varint(pos - pos_base)
             stream.write_8bitfloat(boost) # , self.options.get("limit", 8)
+            total_weight += boost
             pos_base = pos
+        return total_weight
 
     def read_postvalue(self, stream):
         freq = stream.read_varint()

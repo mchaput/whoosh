@@ -14,10 +14,10 @@
 # limitations under the License.
 #===============================================================================
 
-import re
-from bisect import bisect_right
+import os.path, re
+from bisect import bisect_left
 
-import reading, writing
+import reading, store, writing
 from support.bitvector import BitVector
 
 
@@ -37,7 +37,7 @@ def _last_generation(storage):
     """
     
     max = -1
-    for filename in storage.list():
+    for filename in storage:
         m = _toc_filename.match(filename)
         if m:
             num = int(m.group(1))
@@ -66,6 +66,12 @@ def read_index_file(storage, generation):
     return segments, schema, counter
 
 
+def open_dir(dirname):
+    if not os.path.exists(dirname):
+        raise IOError("Directory %s does not exist" % dirname)
+    return Index(store.FolderStorage(dirname))
+
+
 class Schema(object):
     def __init__(self, *fields):
         self.by_number = []
@@ -73,6 +79,11 @@ class Schema(object):
         
         for field in fields:
             self.add(field)
+    
+    def name_to_number(self, name):
+        return self.by_name[name].number
+    def number_to_name(self, number):
+        return self.by_number[number].name
     
     def has_name(self, name):
         return self.by_name.has_key(name)
@@ -99,13 +110,19 @@ class Index(object):
             self.reload()
     
     def field_by_name(self, name):
-        if name in self.schema.by_name:
-            return self.schema.by_name[name]
-        else:
-            raise ValueError("No field named '%s'" % name)
+        return self.schema.by_name[name]
+    
+    def fieldnum_by_name(self, name):
+        return self.schema.name_to_number(name)
     
     def doc_count(self):
-        return sum([s.max_doc - s.deleted_count() for s in self.segments])
+        return sum([s.doc_count() for s in self.segments])
+    def max_weight(self):
+        return max([s.max_weight for s in self.segments])
+    def term_total(self):
+        return sum([s.term_total for s in self.segments])
+    def term_count(self):
+        return sum([s.term_count for s in self.segments])
     
     def reader(self):
         segs = self.segments
@@ -114,6 +131,14 @@ class Index(object):
             return reading.SegmentReader(self, segs[0])
         else:
             return reading.MultiSegmentReader(self, segs)
+    
+    def doc(self, **kw):
+        for p in self.docs(**kw):
+            return p
+    
+    def docs(self, **kw):
+        reader = self.reader()
+        return reader.docs(**kw)
     
     def up_to_date(self):
         return self.generation == _last_generation(self.storage)
@@ -131,24 +156,28 @@ class Index(object):
         
         self.doc_offsets = []
         self.max_doc = 0
-        self.term_count_multiplied = 0.0
-        self.term_count_actual = 0
         
         for segment in self.segments:
             self.doc_offsets.append(self.max_doc)
             self.max_doc += segment.max_doc
-            self.term_count_multiplied += segment.term_count_multiplied
-            self.term_count_actual += segment.term_count_actual
     
     def _document_segment(self, docnum):
         if len(self.doc_offsets) == 1: return 0
-        return bisect_right(self.doc_offsets, docnum) - 1
+        return bisect_left(self.doc_offsets, docnum)
     
-    def delete_document(self, docnum):
+    def _segment_and_docnum(self, docnum):
         segmentnum = self._document_segment(docnum)
         offset = self.doc_offsets[segmentnum]
         segment = self.segments[segmentnum]
-        segment.delete_document(docnum - offset)
+        return segment, docnum - offset
+    
+    def delete_document(self, docnum):
+        segment, segdocnum = self._segment_and_docnum(docnum)
+        segment.delete_document(segdocnum)
+    
+    def is_deleted(self, docnum):
+        segment, segdocnum = self._segment_and_docnum(docnum)
+        return segment.is_deleted(segdocnum)
     
     def delete_by_term(self, fieldname, text):
         r = self.reader()
@@ -187,7 +216,7 @@ class Index(object):
         storage = self.storage
         current_segment_names = set([s.name for s in self.segments])
         
-        for filename in storage.list():
+        for filename in storage:
             m = _toc_filename.match(filename)
             if m:
                 num = int(m.group(1))
@@ -199,16 +228,17 @@ class Index(object):
                     name = m.group(1)
                     if name not in current_segment_names:
                         storage.delete_file(filename)
-                else:
-                    storage.delete_file(filename)
+                #else:
+                #    storage.delete_file(filename)
 
 
 class Segment(object):
-    def __init__(self, name, max_doc, term_count_multiplied, term_count_actual, deleted = None):
+    def __init__(self, name, max_doc, term_total, term_count, max_weight, deleted = None):
         self.name = name
         self.max_doc = max_doc
-        self.term_count_multiplied = term_count_multiplied
-        self.term_count_actual = term_count_actual
+        self.term_total = term_total
+        self.term_count = term_count
+        self.max_weight = max_weight
         self.deleted = deleted
     
     def __repr__(self):
@@ -221,6 +251,9 @@ class Segment(object):
         if self.deleted is None: return 0
         return self.deleted.count()
     
+    def doc_count(self):
+        return self.max_doc - self.deleted_count()
+    
     def delete_document(self, docnum):
         if self.deleted is None:
             self.deleted = BitVector(self.max_doc)
@@ -232,28 +265,55 @@ class Segment(object):
         return self.deleted.get(docnum)
     
 
-def dump_index(ix):
-    print "Index stored in", ix.storage
-    print "Index has %s segments:" % len(ix.segments)
+def dump_docs(ix):
+    print "Documents:"
     for seg in ix.segments:
-        print "Segment", seg.name
+        print "  Segment", seg.name
         reader = reading.SegmentReader(ix, seg)
         
-        print "  Documents:"
         docnum = 0
         for tcm, tca, payload in reader.doc_reader():
             d = "DEL" if reader.is_deleted(docnum) else "   "
             print "    ", d, "tcm=", tcm, "tca=", tca, "payload=", repr(payload)
             docnum += 1
-            
-        print "  Terms:"
+
+def dump_terms(ix):
+    print "Terms:"
+    for seg in ix.segments:
+        print "  Segment", seg.name
+        reader = reading.SegmentReader(ix, seg)
+        
         tr = reader.term_reader()
         by_number = ix.schema.by_number
         for fieldnum, text, freq in tr:
-            print "    %s:%s" % (by_number[fieldnum].name, text), "freq=", freq
+            print "    %s:%s" % (by_number[fieldnum].name, repr(text)), "freq=", freq
             for docnum, data in tr.postings():
                 print "      docnum=", docnum, "data=", repr(data)
-    
+
+def dump_index(ix):
+    print "Index stored in", ix.storage
+    print "Index has %s segments:" % len(ix.segments)
+    dump_docs(ix)
+    dump_terms(ix)
+
+def dump_field(ix, fieldname):
+    print "Field:", fieldname
+    fieldnum = ix.schema.by_name[fieldname].number
+    for seg in ix.segments:
+        print "  Segment", seg.name
+        reader = reading.SegmentReader(ix, seg)
+        tr = reader.term_reader()
+        tr.seek_term(fieldnum, "")
+        
+        trms = []
+        
+        for fn, text, freq in tr:
+            if fn > fieldnum:
+                break
+            trms.append((freq, text))
+        
+        trms.sort(reverse = True)
+        print "\n".join(["%s - %s" % ((repr(d[1])), d[0]) for d in trms])
     
     
     

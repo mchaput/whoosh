@@ -14,7 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-import os
+import bz2, os
 from cStringIO import StringIO
 
 from structfile import StructFile
@@ -35,6 +35,9 @@ class FolderStorage(object):
         files = self.list()
         for file in files:
             os.remove(os.path.join(path,file))
+    
+    def __iter__(self):
+        return iter(self.list())
     
     def list(self):
         try:
@@ -59,13 +62,21 @@ class FolderStorage(object):
             os.remove(self._fpath(to))
         os.rename(self._fpath(frm),self._fpath(to))
         
-    def create_file(self, name):
-        f = StructFile(file(self._fpath(name), "wb"))
+    def create_file(self, name, compressed = False):
+        if compressed:
+            u = bz2.BZ2File(self._fpath(name), "w")
+        else:
+            u = open(self._fpath(name), "wb")
+        f = StructFile(u)
         f._name = name
         return f
     
-    def open_file(self, name):
-        f = StructFile(file(self._fpath(name), "rb"))
+    def open_file(self, name, compressed = False):
+        if compressed:
+            u = bz2.BZ2File(self._fpath(name), "r")
+        else:
+            u = open(self._fpath(name), "rb")
+        f = StructFile(u)
         f._name = name
         return f
     
