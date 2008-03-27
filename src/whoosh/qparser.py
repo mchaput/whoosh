@@ -71,7 +71,7 @@ import query
 
 def _makeParser():
     #wordToken = Word(self.wordChars)
-    wordToken = Word(alphanums)
+    wordToken = Word(alphanums + ".")
     
     # A plain old word.
     plainWord = Group(wordToken).setResultsName("Word")
@@ -120,18 +120,42 @@ def _makeParser():
     
     return toplevel.parseString
 
+parser = _makeParser()
 
 class QueryParser(object):
     def __init__(self, analyzer, default_field, conjunction = query.And):
-        self.parser = _makeParser()
         self.conjunction = conjunction
         self.analyzer = analyzer
         self.default_field = default_field
-        self.original_words = set()
-        
-    def parse(self, input):
-        ast = self.parser(input)[0]
-        return self.eval(ast, self.default_field)
+    
+    def make_terms(self, fieldname, words):
+        return query.And([self.make_term(fieldname, w) for w in words])
+    def make_term(self, fieldname, text):
+        return query.Term(fieldname or self.default_field, text)
+    def make_phrase(self, fieldname, texts):
+        analyzed = []
+        for t in texts:
+            for token in self.analyzer.words(t):
+                analyzed.append(token)
+                break
+        return query.Phrase(fieldname or self.default_field, analyzed)
+    def make_prefix(self, fieldname, text):
+        return query.Prefix(fieldname or self.default_field, text)
+    def make_wildcard(self, fieldname, text):
+        return query.Wildcard(fieldname or self.default_field, text)
+    def make_and(self, qs):
+        return query.And(qs)
+    def make_or(self, qs):
+        return query.Or(qs)
+    def make_not(self, q):
+        return query.Not(q)
+    
+    def parse(self, input, normalize = True):
+        ast = parser(input)[0]
+        q = self.eval(ast, None)
+        if normalize:
+            q = q.normalize()
+        return q
     
     def eval(self, node, fieldname):
         name = node.getName()
@@ -140,57 +164,91 @@ class QueryParser(object):
     def Toplevel(self, node, fieldname):
         return self.conjunction([self.eval(s, fieldname) for s in node])
 
+    def Word(self, node, fieldname):
+        words = list(self.analyzer.words(node[0]))
+        if not words:
+            return None
+        elif len(words) == 1:
+            return self.make_term(fieldname, words[0])
+        else:
+            return self.make_terms(fieldname, words)
+    
+    def Quotes(self, node, fieldname):
+        return self.make_phrase(fieldname, [n[0] for n in node])
+
     def Prefix(self, node, fieldname):
-        return query.Prefix(fieldname, node[0])
+        return self.make_prefix(fieldname, node[0])
     
     def Wildcard(self, node, fieldname):
-        return query.Wildcard(fieldname, node[0])
+        return self.make_wildcard(fieldname, node[0])
     
     def And(self, node, fieldname):
-        return query.And([self.eval(s, fieldname) for s in node])
+        return self.make_and([self.eval(s, fieldname) for s in node])
     
     def Or(self, node, fieldname):
-        return query.Or([self.eval(s, fieldname) for s in node])
+        return self.make_or([self.eval(s, fieldname) for s in node])
     
-    def Word(self, node, fieldname):
-        return query.Term(fieldname, node[0])
+    def Not(self, node, fieldname):
+        return self.make_not(self.eval(node[0], fieldname))
     
     def Group(self, node, fieldname):
         return self.conjunction([self.eval(s, fieldname) for s in node])
     
-    def Not(self, node, fieldname):
-        return query.Not(self.eval(node[0], fieldname))
-    
     def Field(self, node, fieldname):
         return self.eval(node[1], node[0])
+
+
+class MultiFieldParser(QueryParser):
+    def __init__(self, analyzer, fieldnames, conjunction = query.And):
+        self.conjunction = conjunction
+        self.analyzer = analyzer
+        self.fieldnames = fieldnames
+        self.original_words = set()
     
-    def Quotes(self, node, fieldname):
-        return query.Phrase(fieldname, [n[0] for n in node])
+    def _make(self, type, fieldname, data):
+        if fieldname is not None:
+            return type(fieldname, data)
+        return query.Or([type(fn, data)
+                         for fn in self.fieldnames])
+    
+    def make_term(self, fieldname, text):
+        return self._make(query.Term, fieldname, text)
+    
+    def make_prefix(self, fieldname, text):
+        return self._make(query.Prefix, fieldname, text)
+    
+    def make_wildcard(self, fieldname, text):
+        return self._make(query.Wildcard, fieldname, text)
+    
+    def make_phrase(self, fieldname, texts):
+        return self._make(query.Phrase, fieldname, texts)
 
 
 if __name__=='__main__':
     import analysis
-    ana = analysis.StemmingAnalyzer
+    ana = analysis.StemmingAnalyzer()
     
-    qp = QueryParser()
+    print list(ana.words(u"hou.node.category()"))
     
-    b = qp.parse("a?bs*", ana, "content")
+    qp = MultiFieldParser(ana, ("content", "title"))
+    
+    b = qp.parse("a?bs*")
     print b
     print b.normalize()
     print
     
-    b = qp.parse("(a AND b) OR c NOT test", ana, "content")
+    b = qp.parse("(a AND b) OR c NOT test")
     print unicode(b)
     print unicode(b.normalize())
     print
     
-    b = qp.parse(u'hello "there my" friend', ana, "content")
+    b = qp.parse(u'hello blah:"there my" friend')
     print b
     print b.normalize()
     print unicode(b)
     print
     
-    b = qp.parse(u"NOT funny", ana, "content")
+    b = qp.parse(u"NOT funny")
     print b
     print b.normalize()
 

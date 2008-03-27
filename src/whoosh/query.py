@@ -15,7 +15,7 @@
 #===============================================================================
 
 import re
-from collections import defaultdict
+from bisect import bisect_left, bisect_right
 
 import reading
 from fields import has_positions
@@ -27,7 +27,7 @@ class QueryError(Exception): pass
 class Query(object):
     def get_field_num(self, schema, fieldname):
         try:
-            return schema.by_name[fieldname].number
+            return schema.name_to_number(fieldname)
         except KeyError:
             raise QueryError("Unknown field '%s'" % fieldname)
     
@@ -37,7 +37,10 @@ class Query(object):
             field_num = field.number
             return field, field_num
         except KeyError:
-            raise QueryError("Unknown field '%s'" % fieldname)
+            raise QueryError("Unknown field '%s' in %s" % (fieldname, self))
+    
+    def run(self, reader, terms, exclude_docs = None, boost = 1.0):
+        raise NotImplementedError
 
 class SimpleQuery(Query):
     def __init__(self, fieldname, text, boost = 1.0):
@@ -49,53 +52,66 @@ class SimpleQuery(Query):
         return self
     
     def __repr__(self):
-        return "%s(%s, %s, boost=%f)" % (self.__class__.__name__,
-                                         repr(self.fieldname), repr(self.text),
-                                         self.boost)
+        return "%s(%s, %s)" % (self.__class__.__name__,
+                                         repr(self.fieldname), repr(self.text))
 
-    def run(self, reader, exclude_docs = None):
-        raise NotImplemented
+    def __unicode__(self):
+        return "%s:%s" % (self.fieldname, self.text)
+
 
 class Term(SimpleQuery):
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
     
-    def run(self, reader, exclude_docs = set()):
+    def run(self, reader, terms, exclude_docs = set()):
         field_num = self.get_field_num(reader.schema, self.fieldname)
+        term = (field_num, self.text)
+        
+        if term in terms:
+            return set(terms[term].iterkeys())
+        
         try:
-            reader.find_term(field_num, self.text)
-            results = reader.weights(exclude_docs = exclude_docs, boost = self.boost)
-            return dict(results)
+            reader.find_term(*term)
+            weights = dict(reader.weights(exclude_docs = exclude_docs, boost = self.boost))
+            docset = set(weights.iterkeys())
             
+            terms[term] = weights
+            return docset
+        
         except reading.TermNotFound:
-            return {}
+            return set()
+
 
 class Prefix(SimpleQuery):
     def __unicode__(self):
         return "%s:%s*" % (self.fieldname, self.text)
-    
-    def run(self, reader, exclude_docs = set()):
-        results = defaultdict(float)
-        
+
+    def run(self, reader, terms, exclude_docs = set()):
         field_num = self.get_field_num(reader.schema, self.fieldname)
         prefix = self.text
-        boost = self.boost
         
         reader.seek_term(field_num, prefix)
-        while reader.field_num == field_num and reader.text.startswith(prefix):
-            for docnum, weight in reader.weights(exclude_docs = exclude_docs):
-                results[docnum] += weight
-            reader.next()
+        docset = set()
         
-        if boost != 1.0:
-            for docnum in results.iterkeys():
-                results[docnum] *= boost
-                
-        return results
+        try:
+            while reader.field_num == field_num and reader.text.startswith(prefix):
+                term = (field_num, reader.text)
+                if term in terms:
+                    docset |= set(terms[term].iterkeys())
+                else:
+                    weights = dict(reader.weights(exclude_docs = exclude_docs,
+                                                  boost = self.boost))
+                    terms[term] = weights
+                    docset |= set(weights.iterkeys())
+                reader.next()
+        except StopIteration:
+            pass
+        
+        return docset
 
 class Wildcard(SimpleQuery):
-    def __init__(self, fieldname, text, boost = 1.0):
-        super(self.__class__, self).__init__(fieldname, text, boost)
+    def __init__(self, fieldname, text):
+        super(self.__class__, self).__init__(fieldname, text)
         self.expression = re.compile(self.text.replace(".", "\\.").replace("*", ".?").replace("?", "."))
     
         qm = text.find("?")
@@ -109,36 +125,29 @@ class Wildcard(SimpleQuery):
         else:
             self.prefix = text[:min(st, qm)]
     
-    def __repr__(self):
-        return "%s(%s, %s, boost=%f)" % (self.__class__.__name__,
-                                         repr(self.fieldname), repr(self.text),
-                                         self.boost)
-    
-    def __unicode__(self):
-        return "%s:%s" % (self.fieldname, self.text)
-    
-    def run(self, reader, exclude_docs = set()):
-        results = defaultdict(float)
-        
+    def run(self, reader, terms, exclude_docs = set()):
         prefix = self.prefix
-        field, field_num = self.get_field(reader.schema, self.fieldname)
+        field_num = reader.schema.name_to_number(self.fieldname)
         exp = self.expression
-        boost = self.boost
         
         reader.seek_term(field_num, prefix)
+        docset = set()
+        
         try:
             while reader.field_num == field_num and reader.text.startswith(prefix) and exp.match(reader.text):
-                for docnum, weight in reader.weights(exclude_docs = exclude_docs):
-                    results[docnum] += weight
+                term = (field_num, reader.text)
+                if term in terms:
+                    docset |= set(terms[term].iterkeys())
+                else:
+                    weights = dict(reader.weights(exclude_docs = exclude_docs,
+                                                  boost = self.boost))
+                    terms[term] = weights
+                    docset |= set(weights.iterkeys())
                 reader.next()
         except StopIteration:
-            return {}
+            pass
         
-        if boost != 1.0:
-            for docnum in results.iterkeys():
-                results[docnum] *= boost
-                
-        return results
+        return docset
 
 class TermRange(Query):
     def __init__(self, fieldname, start, end, boost = 1.0):
@@ -147,10 +156,9 @@ class TermRange(Query):
         self.boost = boost
     
     def __repr__(self):
-        return '%s(%s, %s, %s, boost=%f)' % (self.__class__.__name__,
+        return '%s(%s, %s, %s)' % (self.__class__.__name__,
                                              repr(self.fieldname),
-                                             repr(self.start), repr(self.end),
-                                             self.boost)
+                                             repr(self.start), repr(self.end))
     
     def __unicode__(self):
         return u"%s:%s..%s" % (self.fieldname, self.start, self.end)
@@ -158,25 +166,27 @@ class TermRange(Query):
     def normalize(self):
         return self
     
-    def run(self, reader, exclude_docs = set()):
-        results = defaultdict(float)
-        field, field_num = self.get_field(reader.schema, self.fieldname)
-        boost = self.boost
+    def run(self, reader, terms, exclude_docs = set()):
+        field_num = reader.schema.name_to_number(self.fieldname)
         
         reader.seek_term(field_num, self.start)
+        docset = set()
+        
         try:
             while reader.field_num == field_num and reader.text <= self.end:
-                for docnum, weight in reader.weights(exclude_docs = exclude_docs):
-                    results[docnum] += weight
+                term = (field_num, reader.text)
+                if term in terms:
+                    docset |= set(terms[term].iterkeys())
+                else:
+                    weights = dict(reader.weights(exclude_docs = exclude_docs,
+                                                  boost = self.boost))
+                    terms[term] = weights
+                    docset |= set(weights.iterkeys())
                 reader.next()
         except StopIteration:
-            return {}
+            pass
             
-        if boost != 1.0:
-            for docnum in results.iterkeys():
-                results[docnum] *= boost
-                
-        return results
+        return docset
 
 class CompoundQuery(Query):
     def __init__(self, subqueries, notqueries = None, boost = 1.0):
@@ -194,13 +204,13 @@ class CompoundQuery(Query):
             
             self.subqueries = subqs
             self.notqueries = notqs
+            
         self.boost = boost
         
     def __repr__(self):
-        return '%s(%s, notqueries=%s, boost=%f)' % (self.__class__.__name__,
+        return '%s(%s, notqueries=%s)' % (self.__class__.__name__,
                                                     repr(self.subqueries),
-                                                    repr(self.notqueries),
-                                                    self.boost)
+                                                    repr(self.notqueries))
 
     def _uni(self, op):
         r = u"("
@@ -227,86 +237,48 @@ class CompoundQuery(Query):
             s = s.normalize()
             notqs.append(s)
         
-        return self.__class__(subqs, notqueries = notqs, boost = self.boost)
+        return self.__class__(subqs, notqueries = notqs)
 
 class And(CompoundQuery):
     def __unicode__(self):
         return self._uni(" AND ")
     
-    def run(self, reader, exclude_docs = set()):
+    def run(self, reader, terms, exclude_docs = set()):
         if len(self.subqueries) == 0: return {}
         
-        results = None
-        
         for query in self.notqueries:
-            exclude_docs |= set(query.run(reader, exclude_docs = exclude_docs).iterkeys())
+            exclude_docs |= query.run(reader, {})
         
-        for query in self.subqueries:
-            r = query.run(reader, exclude_docs = exclude_docs)
-            if len(r) == 0:
-                return {}
-            
-            # Initialize
-            if results is None:
-                results = dict([(docnum, value)
-                                for docnum, value in r.iteritems()
-                                if docnum not in exclude_docs])
-            # Subsequent loops
-            else:
-                if len(results) < len(r):
-                    a = results
-                    b = r
-                else:
-                    a = r
-                    b = results
-                
-                for docnum in a.keys():
-                    if docnum in b:
-                        a[docnum] += b[docnum]
-                    else:
-                        del a[docnum]
-                results = a
-                
-            if len(results) == 0:
-                return results
-        
-        if self.boost != 1.0:
-            boost = self.boost
-            for docnum in results.iterkeys():
-                results[docnum] *= boost
+        results = self.subqueries[0].run(reader, terms, exclude_docs = exclude_docs)
+        for query in self.subqueries[1:]:
+            results &= query.run(reader, terms, exclude_docs = exclude_docs)
         
         return results
-    
+
 class Or(CompoundQuery):
     def __unicode__(self):
         return self._uni(" OR ")
     
-    def run(self, reader, exclude_docs = set()):
+    def run(self, reader, terms, exclude_docs = set()):
         if len(self.subqueries) == 0: return {}
         
-        results = defaultdict(float)
-        boost = self.boost
-        
         for query in self.notqueries:
-            exclude_docs |= set(query.run(reader, exclude_docs = exclude_docs).iterkeys())
+            exclude_docs |= query.run(reader, {})
         
-        for query in self.subqueries:
-            r = query.run(reader, exclude_docs = exclude_docs)
-            for docnum in r:
-                if docnum not in exclude_docs:
-                    results[docnum] += r[docnum] * boost
-                    
+        results = self.subqueries[0].run(reader, terms, exclude_docs = exclude_docs)
+        for query in self.subqueries[1:]:
+            results |= query.run(reader, terms, exclude_docs = exclude_docs)
+        
         return results
 
 class Not(Term):
     def __init__(self, query, boost = 1.0):
         self.query = query
-        self.boost = 1.0
+        self.boost = boost
         
     def __repr__(self):
-        return "%s(%s, boost=%f)" % (self.__class__.__name__,
-                                     repr(self.query),
-                                     self.boost)
+        return "%s(%s)" % (self.__class__.__name__,
+                                     repr(self.query))
     
     def __unicode__(self):
         return "NOT " + unicode(self.query)
@@ -314,59 +286,67 @@ class Not(Term):
     def normalize(self):
         return self
     
-    def run(self, reader, exclude_docs = None):
-        return self.query.run(reader)
+    def run(self, reader, terms, exclude_docs = None):
+        return self.query.run(reader, terms)
 
-#class Combination(Query):
-#    def __init__(self, required, optional, forbidden, boost = 1.0):
-#        self.required = required
-#        self.optional = optional
-#        self.forbidden = forbidden
-#        self.boost = boost
-#        
-#    def __repr__(self):
-#        return "%s(%s, %s, %s, boost=%f)" % (self.__class__.__name__,
-#                                             self.required,
-#                                             self.optional,
-#                                             self.forbidden,
-#                                             self.boost)
-#    
-#    def run(self, reader, exclude_docs = None):
-#        if not exclude_docs:
-#            exclude_docs = set()
-#        if self.forbidden:
-#            exclude_docs |= set(self.forbidden.run(reader, exclude_docs = exclude_docs).keys())
-#        
-#        boost = self.boost
-#        
-#        if self.required:
-#            results = self.required.run(reader, exclude_docs = exclude_docs)
-#            if boost != 1.0:
-#                for docnum in results.iterkeys():
-#                    results[docnum] *= boost
-#        
-#        if self.optional:
-#            for docnum, value in self.optional.run(reader, exclude_docs = exclude_docs):
-#                if (not self.required or docnum in results) and docnum not in exclude_docs:
-#                    results[docnum] += value * boost
-#        
-#        return results
+
+class Combination(Query):
+    def __init__(self, required = None, optional = None, forbidden = None, boost = 1.0):
+        self.required = required
+        self.optional = optional
+        self.forbidden = forbidden
+        self.boost = boost
+    
+    def __repr__(self):
+        return "%s(%s, %s, %s)" % (self.__class__.__name__,
+                                             self.required,
+                                             self.optional,
+                                             self.forbidden)
+    
+    def normalize(self):
+        reqd = optn = forb = None
+        if self.required:
+            reqd = [q.normalize() for q in self.required]
+        if self.optional:
+            optn = [q.normalize() for q in self.optional]
+        if self.forbidden:
+            forb = [q.normalize() for q in self.forbidden]
+        
+        return Combination(required = reqd, optional = optn, forbidden = forb)
+    
+    def run(self, reader, terms, exclude_docs = None):
+        if not exclude_docs:
+            exclude_docs = set()
+        if self.forbidden:
+            for query in self.forbidden:
+                exclude_docs |= query.run(reader, {})
+        
+        if self.required and self.optional:
+            q = Or([And(self.required)] + self.optional)
+        elif self.required:
+            q = And(self.required)
+        elif self.optional:
+            q = Or(self.optional)
+        else:
+            return set()
+        
+        return q.run(reader, terms, exclude_docs = exclude_docs)
 
 class Phrase(Query):
-    def __init__(self, fieldname, words, boost = 1.0, slop = 1):
+    def __init__(self, fieldname, words, slop = 1, boost = 1.0):
         for w in words:
             if not isinstance(w, unicode):
                 raise ValueError("'%s' is not unicode" % w)
         
         self.fieldname = fieldname
         self.words = words
+        self.slop = slop
         self.boost = boost
         
     def __repr__(self):
-        return "%s(%s, %s, boost=%f)" % (self.__class__.__name__,
+        return "%s(%s, %s)" % (self.__class__.__name__,
                                          repr(self.fieldname),
-                                         repr(self.words),
-                                         self.boost)
+                                         repr(self.words))
         
     def __unicode__(self):
         return u'%s:"%s"' % (self.fieldname, " ".join(self.words))
@@ -374,47 +354,95 @@ class Phrase(Query):
     def normalize(self):
         return self
     
-    def run(self, reader, exclude_docs = set()):
+    def run(self, reader, terms, exclude_docs = set()):
         if len(self.words) == 0: return {}
+        
+        slop = self.slop
+        boost = self.boost
         
         field, field_num = self.get_field(reader.schema, self.fieldname)
         if not has_positions(field):
             raise QueryError("'%s' field does not support phrase searching")
         
-        current = {}
+        pterms = {}
+        current = None
         for w in self.words:
+            term = (field_num, w)
             try:
-                reader.find_term(field_num, w)
+                reader.find_term(*term)
                 
-                if current == {}:
-                    for docnum, positions in reader.positions():
-                        if docnum not in exclude_docs:
-                            current[docnum] = positions
+                weights = {}
+                if current is None:
+                    current = {}
+                    for docnum, positions in reader.positions(exclude_docs = exclude_docs):
+                        weights[docnum] = len(positions) * boost
+                        current[docnum] = positions
                 else:
-                    for docnum, positions in reader.positions():
+                    newcurrent = {}
+                    for docnum, positions in reader.positions(exclude_docs = exclude_docs):
+                        weights[docnum] = len(positions) * boost
                         if docnum in current:
-                            new_poses = []
-                            for pos in current[docnum]:
-                                if pos + 1 in positions:
-                                    new_poses.append(pos + 1)
-                            
-                            if len(new_poses) > 0:
-                                current[docnum] = new_poses
-                            else:
-                                del current[docnum]
+                            newposes = []
+                            curposes = current[docnum]
+                            for cpos in curposes:
+                                start = bisect_left(positions, cpos - slop)
+                                end = bisect_right(positions, cpos + slop)
+                                for p in positions[start:end]:
+                                    if abs(cpos - p) <= slop:
+                                        newposes.append(p)
+                                        
+                            if len(newposes) > 0:
+                                newcurrent[docnum] = newposes
+                    
+                    current = newcurrent
                 
+                terms[term] = weights
+            
             except reading.TermNotFound:
-                return {}
-
+                return set()
+            
         if current and len(current) > 0:
-            return dict([(docnum, len(positions) * self.boost)
-                          for docnum, positions in current.iteritems()])
+            terms.update(pterms)
+            return set(current.iterkeys())
         else:
-            return {}
+            return set()
 
-
-
-
+    
+if __name__ == '__main__':
+    import time
+    import analysis, index, qparser, searching
+    ix = index.open_dir("c:/workspace/Help2/test_index")
+    reader = ix.reader()
+    dr = reader.doc_reader()
+    
+    ana = analysis.StemmingAnalyzer()
+    q = qparser.QueryParser(ana, "title").parse(u'"physically based rendering"')
+    terms = {}
+    
+    st = time.time()
+    docset = q.run(reader.term_reader(), terms)
+    print "time=", time.time() - st
+    print "docset=", docset
+    print "terms=", terms
+    for docnum in docset:
+        print docnum, repr(dr[docnum].get("title"))
+    
+#    ls = range(0, 6000)
+#    import random
+#    random.shuffle(ls)
+#    st = time.time()
+#    for docnum in ls:
+#        fields = dr[docnum]
+#    print time.time() - st
+    
+#    tr = reader.term_reader()
+#    st = time.time()
+#    tr.find_term(0, u"this")
+#    for docnum, data in tr.postings():
+#        pass
+#    print time.time() - st
+    
+    #index.dump_field(ix, "content")
 
 
 

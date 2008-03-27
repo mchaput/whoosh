@@ -82,7 +82,7 @@ class StructFile(object):
         self.write_byte(int(f * denom))
     
     def write_varint(self, i):
-        if i < _varint_cache_size:
+        if i < len(_varint_cache):
             self.file.write(_varint_cache[i])
             return
         while (i & ~0x7F) != 0:
@@ -104,6 +104,10 @@ class StructFile(object):
     def read_string(self):
         length = self.read_varint()
         return read(self.file, length)
+    def skip_string(self):
+        length = self.read_varint()
+        self.file.seek(self.tell() + length)
+    
     def read_pickle(self):
         return cPickle.load(self.file)
     def read_compressed_pickle(self):
