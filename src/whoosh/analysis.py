@@ -17,15 +17,6 @@
 import re
 
 from whoosh.support.porter import stem
-def StemFilter(ws):
-    for w in ws:
-        yield stem(w)
-
-def SimpleTokenizer(text):
-    exp = re.compile(r"\W|_", re.UNICODE)
-    for w in exp.split(text):
-        if w and len(w) > 0:
-            yield w
 
 try:
     # Use C extensions for splitting and stemming from zopyx,
@@ -35,12 +26,17 @@ try:
     #SimpleTokenizer = splitter.Splitter().split
 except ImportError:
     pass
-    
 
-_defaultStopWords = ["the", "to", "of", "a", "and", "is", "in", "this",
-                     "you", "for", "be", "on", "or", "will", "if", "can", "are",
-                     "that", "by", "with", "it", "as", "from", "an", "when",
-                     "not", "may", "tbd", "yet"]
+def SimpleTokenizer(text):
+    exp = re.compile(r"\W|_", re.UNICODE)
+    for w in exp.split(text):
+        if w and len(w) > 0:
+            yield w
+
+_STOP_WORDS = ["the", "to", "of", "a", "and", "is", "in", "this",
+               "you", "for", "be", "on", "or", "will", "if", "can", "are",
+               "that", "by", "with", "it", "as", "from", "an", "when",
+               "not", "may", "tbd", "yet"]
 
 _split_exp = re.compile(r"(\s|,)+")
 def ListTokenizer(text):
@@ -65,6 +61,22 @@ class NgramTokenizer(object):
             for pos in xrange(0, limit):
                 yield text[pos:pos + gram]
 
+class StemFilter(object):
+    def __init__(self):
+        self.cache = {}
+    
+    def clear(self):
+        self.cache.clear()
+    
+    def __call__(self, ws):
+        cache = self.cache
+        for w in ws:
+            if w in cache:
+                yield cache[w]
+            else:
+                s = stem(w)
+                cache[w] = s
+                yield s
 
 _camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
 def CamelFilter(ws):
@@ -73,8 +85,8 @@ def CamelFilter(ws):
             yield match.group(0)
 
 class StopFilter(object):
-    def __init__(self, stop_words):
-        self.stops = frozenset(stop_words)
+    def __init__(self, stoplist):
+        self.stops = frozenset(stoplist)
     
     def __call__(self, ws):
         for w in ws:
@@ -92,6 +104,10 @@ class Analyzer(object):
     
     def words(self, text):
         return self.filter(SimpleTokenizer(text))
+    
+    def position_words(self, text, start_pos = 0):
+        for i, w in enumerate(self.words(text)):
+            yield (start_pos + i, w)
 
 class SimpleAnalyzer(Analyzer):
     def words(self, text):
@@ -106,18 +122,23 @@ class LCAnalyzer(Analyzer):
         return LowerCaseFilter(ws)
 
 class StopAnalyzer(Analyzer):
-    def __init__(self, stop_words = _defaultStopWords):
-        self.stopper = StopFilter(stop_words)
+    def __init__(self, stopwords = _STOP_WORDS):
+        self.stopwords = stopwords
+        self.stopper = StopFilter(stopwords)
     
     def filter(self, ws):
-        return self.stopper(ws)
+        return self.stopper(LowerCaseFilter(ws))
     
 class StemmingAnalyzer(Analyzer):
-    def __init__(self, stop_words = _defaultStopWords):
+    def __init__(self, stop_words = _STOP_WORDS):
+        self.stemmer = StemFilter()
         self.stopper = StopFilter(stop_words)
     
+    def clear(self):
+        self.stemmer.clear()
+    
     def filter(self, ws):
-        return StemFilter(list(LowerCaseFilter(CamelFilter(self.stopper(ws)))))
+        return self.stemmer(list(LowerCaseFilter(CamelFilter(self.stopper(ws)))))
     
 class IDAnalyzer(Analyzer):
     def __init__(self):
@@ -142,7 +163,12 @@ class NgramAnalyzer(Analyzer):
     def filter(self, ws):
         return LowerCaseFilter(ws)
 
-    
+
+
+
+
+
+
 
 
 

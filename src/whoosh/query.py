@@ -31,6 +31,9 @@ class Query(object):
         except KeyError:
             raise QueryError("Unknown field '%s'" % fieldname)
     
+    def to_phrase(self):
+        return []
+    
     def get_field(self, schema, fieldname):
         try:
             field = schema.by_name[fieldname]
@@ -79,6 +82,7 @@ class Term(SimpleQuery):
             return docset
         
         except reading.TermNotFound:
+            terms[term] = {}
             return set()
 
 
@@ -206,7 +210,7 @@ class CompoundQuery(Query):
             self.notqueries = notqs
             
         self.boost = boost
-        
+    
     def __repr__(self):
         return '%s(%s, notqueries=%s)' % (self.__class__.__name__,
                                                     repr(self.subqueries),
@@ -219,6 +223,13 @@ class CompoundQuery(Query):
             r += " " + " ".join([unicode(s) for s in self.notqueries])
         r += u")"
         return r
+
+    def to_phrase(self):
+        ls = []
+        for t in self.subqueries:
+            if isinstance(t, Term):
+                ls.append(t.text)
+        return ls
 
     def normalize(self):
         if len(self.subqueries) == 1 and len(self.notqueries) == 0:
@@ -385,10 +396,11 @@ class Phrase(Query):
                             newposes = []
                             curposes = current[docnum]
                             for cpos in curposes:
-                                start = bisect_left(positions, cpos - slop)
+                                start = bisect_left(positions, cpos)
                                 end = bisect_right(positions, cpos + slop)
                                 for p in positions[start:end]:
-                                    if abs(cpos - p) <= slop:
+                                    diff = p - cpos
+                                    if diff >= 0 and diff <= slop:
                                         newposes.append(p)
                                         
                             if len(newposes) > 0:

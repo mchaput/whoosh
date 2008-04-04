@@ -59,7 +59,7 @@ class NBest(object):
         assert n == len(items)
 
     def best(self):
-        return reversed(self.sorted)
+        return [(docnum, score) for score, docnum in reversed(self.sorted)]
 
     def __iter__(self):
         for r in self.best():

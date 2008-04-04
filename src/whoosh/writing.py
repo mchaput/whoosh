@@ -35,8 +35,7 @@ class IndexWriter(object):
         return self.segment_writer
     
     def add_document(self, **fields):
-        writer = self.get_segment_writer()
-        writer.add_document(fields)
+        self.get_segment_writer().add_document(fields)
     
     def optimize(self):
         self._merge_segments(True)
@@ -95,7 +94,9 @@ class IndexWriter(object):
         self.segment_writer = None
         
         self.index._set_segments(new_segment_list)
-        self.index.checkpoint()
+        print "Committing..."
+        self.index.commit()
+
 
 class SegmentWriter(object):
     def __init__(self, index, name = None):
@@ -118,7 +119,7 @@ class SegmentWriter(object):
         self.docs_file = self.storage.create_file(self.name + ".dcs")
         self.term_index = self.storage.create_file(self.name + ".tix")
         self.post_file = self.storage.create_file(self.name + ".pst")
-        self.forward_index = self.storage.create_file(self.name + ".fix")
+        #self.forward_index = self.storage.create_file(self.name + ".fix")
         
         self.last_skip_pointer = None
         
@@ -129,7 +130,7 @@ class SegmentWriter(object):
         self.docs_file.close()
         self.term_index.close()
         self.post_file.close()
-        self.forward_index.close()
+        #self.forward_index.close()
 
     def add_index(self, other_ix):
         for s in other_ix.segments:
@@ -302,7 +303,7 @@ class SegmentWriter(object):
                         raise ValueError("Indexable content must be unicode (found %s of type %s in field %s)" % (repr(value), type(value), field.name))
                     
                     #map = defaultdict(float)
-                    field_tcm, field_tca = self.add_words(docnum, field, value)
+                    field_tcm, field_tca = self.add_text(docnum, field, value)
                     
                     #if field.options.get("forward_indexed"):
                     #    self.forward_index.write_int(len(map))
@@ -318,15 +319,23 @@ class SegmentWriter(object):
         
         self.write_doc_entry(tcm, tca, payload)
     
-    def add_words(self, docnum, field, value, start_pos = 0):
+    def add_text(self, docnum, field, value, start_pos = 0):
+        assert isinstance(value, unicode)
+        
+        if isinstance(field, basestring):
+            field = self.schema.by_name[field]
+            
+        return self.add_terms(docnum, field, field.word_datas(value, start_pos = start_pos))
+
+    def add_terms(self, docnum, field, worddatalist):
         total = 0
         count = 0
         
         if isinstance(field, basestring):
             field = self.schema.by_name[field]
         boost = field.field_boost
-        
-        for w, data in field.word_datas(value, start_pos = start_pos):
+
+        for w, data in worddatalist:
             #if w not in self.lexicon:
             #    self.lexicon[w] = self.wordnum
             #    self.wordnum += 1
@@ -340,8 +349,13 @@ class SegmentWriter(object):
             
         self.term_total += total
         self.term_count += count
-        return (total, count)
+        return (total, count)          
 
-        
+
+
+
+
+
+
         
         
