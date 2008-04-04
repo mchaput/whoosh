@@ -67,17 +67,20 @@ class SegmentReader(object):
     
     def term_frequency(self, fieldname, text):
         tr = self.term_reader()
-        tr.find_term(self.schema.name_to_number(fieldname), text)
-        return tr.doc_freq
+        try:
+            tr.find_term(self.schema.name_to_number(fieldname), text)
+            return tr.doc_freq
+        except TermNotFound:
+            return 0
+        
     
     def field_terms(self, fieldname):
         tr = self.term_reader()
         field_num = self.schema.name_to_number(fieldname)
         tr.seek_term(field_num, '')
-        terms = []
         while tr.field_num == field_num:
-            terms.append(tr.text)
-        return terms
+            yield tr.text
+            tr.next()
     
     def run_query(self, q):
         return q.run(self.term_reader())
@@ -488,16 +491,69 @@ def read_all_docs(reader):
         pass
     return cache
 
+def create_quick_index(reader, fieldname, outfile):
+    import array
+    arr = array.array('l')
+    
+    dr = reader.doc_reader()
+    dr.reset()
+    try:
+        while True:
+            dr.next()
+            fields = dr.payload()
+            arr.append(o.tell())
+            outfile.write_string(fields[fieldname].encode("utf-8"))
+    except EOFError:
+        pass
+
+    return arr
+
+def create_stem_map(reader, fieldnames):
+    if isinstance(fieldnames, basestring):
+        fieldnames = [fieldnames]
+    
+    from support.porter import stem
+    from collections import defaultdict
+    map = defaultdict(set)
+    for fieldname in fieldnames:
+        for w in reader.field_terms(fieldname):
+            s = stem(w)
+            if s != w:
+                map[s].add(w)
+    return map
+
 
 if __name__ == '__main__':
+    import time
     import index
     ix = index.open_dir("c:/workspace/Help2/test_index")
     r = ix.reader()
-    import time
+    
+    o = ix.storage.create_file("title.qix")
     t = time.time()
-    c = read_all_docs(r)
+    arr = create_quick_index(r, "title", o)
     print time.time() - t
     
+    o.close()
+    
+    o = ix.storage.open_file("title.qix")
+    
+    import random
+    ls = [random.randint(0, 6000) for i in xrange(0, 100)]
+    
+    dr = r.doc_reader()
+    t = time.clock()
+    for dn in ls:
+        f = dr[dn]["title"]
+    print time.clock() - t
+    
+    t = time.clock()
+    for dn in ls:
+        o.seek(arr[dn])
+        f = o.read_string().decode("utf-8")
+    print time.clock() - t
+    
+
 
 
 

@@ -123,13 +123,16 @@ def _makeParser():
 parser = _makeParser()
 
 class QueryParser(object):
-    def __init__(self, analyzer, default_field, conjunction = query.And):
+    def __init__(self, analyzer, default_field,
+                 conjunction = query.And,
+                 multiword_conjunction = query.Or):
         self.conjunction = conjunction
+        self.multiword_conjunction = multiword_conjunction
         self.analyzer = analyzer
         self.default_field = default_field
     
     def make_terms(self, fieldname, words):
-        return query.And([self.make_term(fieldname, w) for w in words])
+        return self.multiword_conjunction([self.make_term(fieldname, w) for w in words])
     def make_term(self, fieldname, text):
         return query.Term(fieldname or self.default_field, text)
     def make_phrase(self, fieldname, texts):
@@ -199,8 +202,11 @@ class QueryParser(object):
 
 
 class MultiFieldParser(QueryParser):
-    def __init__(self, analyzer, fieldnames, conjunction = query.And):
+    def __init__(self, analyzer, fieldnames,
+                 conjunction = query.And,
+                 multiword_conjunction = query.Or):
         self.conjunction = conjunction
+        self.multiword_conjunction = multiword_conjunction
         self.analyzer = analyzer
         self.fieldnames = fieldnames
         self.original_words = set()

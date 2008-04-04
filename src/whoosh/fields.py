@@ -130,7 +130,7 @@ class PositionField(Field):
     def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(list)
         
-        for pos, w in enumerate(self.analyzer.words(value)):
+        for pos, w in self.analyzer.position_words(value, start_pos = start_pos):
             seen[w].append(start_pos + pos)
             
         return seen.iteritems()
@@ -158,11 +158,11 @@ class PositionField(Field):
         return data
 
 class PositionBoostField(PositionField):
-    def word_datas(self, value, boosts = {}, **kwargs):
+    def word_datas(self, value, start_pos = 0, boosts = {}, **kwargs):
         seen = defaultdict(iter)
-        for pos, w in enumerate(self.analyzer.words(value)):
+        for pos, w in self.analyzer.position_words(value, start_pos = start_pos):
             seen[w].append((pos, boosts.get(pos, 1.0)))
-            
+        
         return seen.iteritems()
     
     def write_postvalue(self, stream, data):

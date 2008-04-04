@@ -21,40 +21,52 @@ import reading
 from util import inv_doc_freq, NBest
 
 
+def find_docs(reader, query):
+    tr = reader.term_reader()
+    terms = {}
+    
+    docset = query.run(tr, terms)
+    return docset, terms
+    
 def run(reader, query, scorer = None, upper = 50):
     if scorer == None:
         scorer = CosineScorer()
     
-    tr = reader.term_reader()
-    dr = reader.doc_reader()
-    terms = {}
-    
-    docset = query.run(tr, terms)
+    docset, terms = find_docs(reader, query)
     total = len(docset)
-    if total == 0:
-        return ResultSet(dr, [], set(), set())
-    
-    nbest = NBest(upper)
-    nbest.add_all(scorer.score(reader, terms, docset))
+    dr = reader.doc_reader()
     
     n2n = reader.schema.number_to_name
-    return ResultSet(dr, list(nbest.best()), docset,
-                     set([(n2n(fieldnum), text) for fieldnum, text in terms.iterkeys()])
-                     )
+    freqmap = dict([
+                    ((n2n(term[0]), term[1]), len(weights))
+                    for term, weights in terms.iteritems()
+                    ])
+    
+    if total == 0:
+        return ResultSet(dr, [], set(), freqmap)
+    
+    nbest = NBest(upper)
+    if scorer:
+        nbest.add_all(scorer.score(reader, terms, docset))
+        doclist = nbest.best()
+    else:
+        doclist = [(docnum, 1.0) for docnum in docset]
+    
+    return ResultSet(dr, doclist, docset, freqmap)
 
 
 class ResultSet(object):
-    def __init__(self, doc_reader, sorted, docset, termset):
+    def __init__(self, doc_reader, sorted, docset, freqmap):
         self.doc_reader = doc_reader
         
-        # List of (score, docnum) pairs
+        # List of (docnum, score) pairs
         self.sorted = sorted
         
         # Set of docnums
         self.docset = docset
         
-        # List of terms
-        self.termset = termset
+        # term -> frequency dictionary
+        self.freqmap = freqmap
     
     def __len__(self):
         return len(self.sorted)
@@ -63,16 +75,26 @@ class ResultSet(object):
         return len(self.docset)
     
     def __getitem__(self, n):
-        return self.doc_reader[self.sorted[n][1]]
+        return self.doc_reader[self.docnum(n)]
     
-    def score(self, n):
-        return self.sorted[n][0]
+    def words(self, field = None):
+        return [text for f, text
+                in self.freqmap.keys()
+                if field is None or field == f]
+    
+    def missing_words(self, field = None):
+        return [term[1] for term, freq
+                in self.freqmap.iteritems()
+                if (field is None or field == term[0]) and freq == 0]
+    
     def docnum(self, n):
+        return self.sorted[n][0]
+    def score(self, n):
         return self.sorted[n][1]
     
     def __iter__(self):
         dr = self.doc_reader
-        for _, docnum in self.sorted:
+        for docnum, _ in self.sorted:
             yield dr[docnum]
             
     def append(self, resultset):
@@ -80,10 +102,16 @@ class ResultSet(object):
         theirs = resultset.sorted
         
         # Only add docs that aren't already in this resultset
-        self.sorted.extend([item for item in theirs if item[1] not in ds])
+        self.sorted.extend([(docnum, score) for docnum, score in theirs if docnum not in ds])
         
         # Merge the docsets
         self.docset |= resultset.docset
+        
+        # Merge the freqmaps
+        freqmap = self.freqmap
+        for term, freq in resultset.freqmap:
+            if term not in freqmap or (freqmap[term] == 0 and freq != 0):
+                freqmap[term] = freq
 
 
 class BM25Scorer(object):

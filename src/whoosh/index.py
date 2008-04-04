@@ -21,14 +21,19 @@ import reading, store, writing
 from support.bitvector import BitVector
 
 
-_toc_filename = re.compile("_toc([0-9]+)")
-_segment_filename = re.compile("(_[0-9]+)\\.(dcs|dcx|pst|tix)")
+_DEF_INDEX_NAME = "MAIN"
 
 
 class OutOfDateError(Exception): pass
+class EmptyIndexError(Exception): pass
 
 
-def _last_generation(storage):
+def toc_pattern(name):
+    return re.compile("_%s_([0-9]+).toc" % name)
+def segment_pattern(name):
+    return re.compile("(_%s_[0-9]+).(dcs|dcx|pst|tix|fix)" % name)
+
+def _last_generation(storage, name):
     """
     Utility function to find the most recent
     generation number of the index. The index will use
@@ -36,40 +41,60 @@ def _last_generation(storage):
     this to check if it's up to date.
     """
     
+    pattern = toc_pattern(name)
+    
     max = -1
     for filename in storage:
-        m = _toc_filename.match(filename)
+        m = pattern.match(filename)
         if m:
             num = int(m.group(1))
             if num > max: max = num
     return max
 
-def create(storage, schema):
+def clear_index(storage, indexname):
+    prefix = "_%s_" % indexname
+    for filename in storage:
+        if filename.startswith(prefix):
+            storage.delete_file(filename)
+
+def has_index(storage, indexname):
+    if storage.exists("_%s.toc" % indexname):
+        try:
+            Index(storage, indexname)
+            return True
+        except:
+            pass
+    
+    return False
+
+def create(storage, schema, name = _DEF_INDEX_NAME):
     """
     Creates an index in the specified storage object,
     using the specified field schema.
     """
     
-    storage.clean()
-    write_index_file(storage, 0, [], schema, 0)
-    return Index(storage)
+    clear_index(storage, name)
+    _write_index_file(storage, name, 0, [], schema, 0)
+    return Index(storage, name)
 
-def write_index_file(storage, generation, segments, schema, counter):
-    stream = storage.create_file("_toc%s" % generation)
+def _write_index_file(storage, name, generation, segments, schema, counter):
+    stream = storage.create_file("_%s_%s.toc" % (name, generation))
     stream.write_pickle((segments, schema, counter))
     stream.close()
 
-def read_index_file(storage, generation):
-    stream = storage.open_file("_toc%s" % generation)
+def _read_index_file(storage, name, generation):
+    stream = storage.open_file("_%s_%s.toc" % (name, generation))
     segments, schema, counter = stream.read_pickle()
     stream.close()
     return segments, schema, counter
 
 
-def open_dir(dirname):
+def open_dir(dirname, indexname = _DEF_INDEX_NAME):
     if not os.path.exists(dirname):
         raise IOError("Directory %s does not exist" % dirname)
-    return Index(store.FolderStorage(dirname))
+    
+    return Index(store.FolderStorage(dirname), indexname)
+
 
 
 class Schema(object):
@@ -102,10 +127,11 @@ class Schema(object):
 
 
 class Index(object):
-    def __init__(self, storage):
+    def __init__(self, storage, indexname = _DEF_INDEX_NAME):
         self.storage = storage
+        self.name = indexname
         
-        self.generation = _last_generation(storage)
+        self.generation = _last_generation(storage, indexname)
         if self.generation >= 0:
             self.reload()
     
@@ -126,7 +152,8 @@ class Index(object):
     
     def reader(self):
         segs = self.segments
-        if len(segs) == 0: return None
+        if len(segs) == 0:
+            raise EmptyIndexError
         if len(segs) == 1:
             return reading.SegmentReader(self, segs[0])
         else:
@@ -141,14 +168,14 @@ class Index(object):
         return reader.docs(**kw)
     
     def up_to_date(self):
-        return self.generation == _last_generation(self.storage)
+        return self.generation == _last_generation(self.storage, self.name)
     
     def next_segment_name(self):
         self.counter += 1
-        return "_%s" % self.counter
+        return "_%s_%s" % (self.name, self.counter)
     
     def reload(self):
-        segments, self.schema, self.counter = read_index_file(self.storage, self.generation)
+        segments, self.schema, self.counter = _read_index_file(self.storage, self.name, self.generation)
         self._set_segments(segments)
     
     def _set_segments(self, segments):
@@ -204,26 +231,29 @@ class Index(object):
         w.optimize()
         w.close()
     
-    def checkpoint(self):
+    def commit(self):
         if not self.up_to_date():
             raise OutOfDateError
         
         self.generation += 1
-        write_index_file(self.storage, self.generation, self.segments, self.schema, self.counter)
+        _write_index_file(self.storage, self.name, self.generation, self.segments, self.schema, self.counter)
         self.clean_files()
     
     def clean_files(self):
         storage = self.storage
         current_segment_names = set([s.name for s in self.segments])
         
+        tocpattern = toc_pattern(self.name)
+        segpattern = segment_pattern(self.name)
+        
         for filename in storage:
-            m = _toc_filename.match(filename)
+            m = tocpattern.match(filename)
             if m:
                 num = int(m.group(1))
                 if num != self.generation:
                     storage.delete_file(filename)
             else:
-                m = _segment_filename.match(filename)
+                m = segpattern.match(filename)
                 if m:
                     name = m.group(1)
                     if name not in current_segment_names:
