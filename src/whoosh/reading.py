@@ -14,546 +14,530 @@
 # limitations under the License.
 #===============================================================================
 
-from bisect import bisect_left, bisect_right, insort_left
-from whoosh.structfile import StructFile
+"""
+This module contains classes that allow reading from an index.
+"""
 
-import structfile
+from bisect import bisect_right
+from heapq import heapify, heapreplace, heappop
 
-_unsignedlong_size = structfile._unsignedlong_size
-_int_size = structfile._int_size
+from tables import TableReader, PostingTableReader, RecordReader
 
-class TermNotFound(Exception): pass
+# Exceptions
 
-class SegmentReader(object):
-    def __init__(self, index, segment):
-        self.index = index
-        self.storage = index.storage
-        self.schema = index.schema
-        self.segment = segment
-        
-        self.doc_index = self.storage.open_file(segment.name + ".dcx")
-        self.doc_file = self.storage.open_file(segment.name + ".dcs")
-        self.term_index = self.storage.open_file(segment.name + ".tix")
-        self.post_file = self.storage.open_file(segment.name + ".pst")
+class TermNotFound(Exception):
+    pass
+class UnknownFieldError(Exception):
+    pass
+
+# Utility classes
+
+class EndOfIndex(object):
+    # This singleton is intended as a marker that always sorts to the end of
+    # a list, hence the implementation of __cmp__.
     
-    def doc_count(self):
-        return self.index.doc_count()
-    def max_weight(self):
-        return self.index.max_weight()
-    def term_total(self):
-        return self.index.term_total()
-    def term_count(self):
-        return self.index.term_count()
-    
-    def close(self):
-        del self.index
-        
-        self.doc_index.close()
-        self.doc_file.close()
-        self.term_index.close()
-        self.post_file.close()
-    
-    def has_deletions(self):
-        return self.segment.has_deletions()
-    
-    def is_deleted(self, docnum):
-        return self.segment.is_deleted(docnum)
-    
-    def doc_reader(self):
-        return DocReader(self.doc_index, self.doc_file)
-    
-    def term_reader(self):
-        return TermReader(self.segment, self.schema, self.term_index, self.post_file)
-    
-    def term_frequency(self, fieldname, text):
-        tr = self.term_reader()
-        try:
-            tr.find_term(self.schema.name_to_number(fieldname), text)
-            return tr.doc_freq
-        except TermNotFound:
+    def __cmp__(self, x):
+        if type(x) is type(self):
             return 0
-        
+        return 1
     
-    def field_terms(self, fieldname):
-        tr = self.term_reader()
-        field_num = self.schema.name_to_number(fieldname)
-        tr.seek_term(field_num, '')
-        while tr.field_num == field_num:
-            yield tr.text
-            tr.next()
-    
-    def run_query(self, q):
-        return q.run(self.term_reader())
-    
-    def stored(self, docnum):
-        return self.doc_reader()[docnum]
-    
-    def doc(self, **kw):
-        for p in self.docs(**kw):
-            return p
-        
-    def docs(self, **kw):
-        tr = self.term_reader()
-        results = set()
-        for k, v in kw.iteritems():
-            fieldnum = self.schema.name_to_number(k)
-            
-            if isinstance(v, unicode):
-                v = (v, )
-            elif isinstance(v, (tuple, list)):
-                pass
-            elif isinstance(v, str):
-                raise ValueError("Search values must be unicode ('%s' for field '%s')" % (v, k))
-            else:
-                raise ValueError("Don't know what to do with value '%s' for field '%s'" % (v, k))
-            
-            for value in v:
-                tr.find_term(fieldnum, value)
-                results &= set([docnum for docnum, _ in tr.postings()])
-        
-        dr = self.doc_reader()
-        for docnum in results:
-            if not self.is_deleted(docnum):
-                yield dr[docnum]
-    
-class MultiSegmentReader(SegmentReader):
-    def __init__(self, index, segments):
-        self.index = index
-        self.segments = segments
-        self.readers = None
-    
-    def is_deleted(self, docnum):
-        return self.index.is_deleted(docnum)
-    
-    def close(self):
-        if self.readers:
-            for r in self.readers: r.close()
-    
-    def _get_readers(self):
-        if not self.readers:
-            self.readers = [SegmentReader(self.index, s) for s in self.segments]
-        return self.readers
-    
-    def doc_reader(self):
-        return MultiDocReader([s.doc_reader() for s in self._get_readers()],
-                              self.index.doc_offsets)
-    
-    def term_reader(self):
-        return MultiTermReader([s.term_reader() for s in self._get_readers()],
-                               self.index.doc_offsets)                           
+    def __repr__(self):
+        return "EndOfIndex()"
 
+end_of_index = EndOfIndex()
+
+# Reader classes
 
 class DocReader(object):
-    def __init__(self, doc_index, doc_file):
-        self.doc_index = doc_index
-        self.doc_file = doc_file
+    """
+    Do not instantiate this object directly. Instead use Index.doc_reader().
     
-    def find(self, docnum):
-        self.doc_index.seek(docnum * _unsignedlong_size)
-        self.doc_file.seek(self.doc_index.read_ulong())
-        return self.next()
+    Reads document-related information from a segment. The main
+    interface is to either iterate on this object to yield the document
+    stored fields, or use e.g. docreader[10] to get the stored
+    fields for a specific document number.
     
-    def next(self):
-        try:
-            control = self.doc_file.read_byte()
-            if control == 0:
-                self.term_total = self.term_count = self.doc_file.read_int()
-            else:
-                self.term_total = self.doc_file.read_float()
-                self.term_count = self.doc_file.read_int()
-            
-            return (self.term_total, self.term_count)
-        except structfile.EndOfFile:
-            return None
+    Each DocReader represents two open files. Be sure to close() the
+    reader when you're finished with it.
+    """
     
-    def reset(self):
-        self.doc_file.seek(0)
+    def __init__(self, storage, segment, schema):
+        self.storage = storage
+        self.segment = segment
+        self.schema = schema
+        
+        doclength_file = storage.open_file(segment.doclen_filename)
+        self.doclength_records = RecordReader(doclength_file, "!ii")
+        
+        docs_file = storage.open_file(segment.docs_filename)
+        self.docs_table = TableReader(docs_file)
+        
+        self.vector_table = None
+        self.is_closed = False
     
-    def payload(self):
-        return self.doc_file.read_pickle()
+    def _open_vectors(self):
+        if not self.vector_table:
+            vector_file = self.storage.open_file(self.segment.vector_filename)
+            self.vector_table = PostingTableReader(vector_file)
     
-    def total(self, docnum):
-        return self.find(docnum)[0]
+    def close(self):
+        """
+        Closes the open files associated with this reader.
+        """
+        
+        self.doclength_records.close()
+        self.docs_table.close()
+        if self.vector_table:
+            self.vector_table.close()
+        self.is_closed = True
     
-    def count(self, docnum):
-        return self.find(docnum)[1]
+    def _doc_info(self, docnum):
+        return self.doclength_records[docnum]
+    
+    def doc_length(self, docnum):
+        """
+        Returns the total number of terms in a given document.
+        This is used by some scoring algorithms.
+        """
+        return self._doc_info(docnum)[0]
+    
+    def unique_count(self, docnum):
+        """
+        Returns the number of UNIQUE terms in a given document.
+        This is used by some scoring algorithms.
+        """
+        return self._doc_info(docnum)[1]
+    
+    def _vector(self, fieldnum):
+        self._open_vectors()
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.schema.name_to_number(fieldnum)
+        
+        field = self.schema.by_number[fieldnum]
+        if not field.vector:
+            raise KeyError("Field %r has no term vectors" % field)
+        
+        return field.vector
+    
+    def _posvector(self, fieldnum):
+        v = self._vector(fieldnum)
+        if not v.has_positions:
+            raise KeyError("Field %r has no position vectors" % fieldnum)
+        return v
+    
+    def _base_vectordata(self, docnum, fieldnum):
+        v = self._vector(fieldnum)
+        return v.base_data(self.vector_table, docnum, fieldnum)
+    
+    def vectored_frequencies(self, docnum, fieldnum):
+        v = self._vector(fieldnum)
+        return v.freqs(self.vector_table, docnum, fieldnum)
+    
+    def vectored_positions(self, docnum, fieldnum):
+        v = self._posvector(fieldnum)
+        return v.positions(self.vector_table, docnum, fieldnum)
+    
+    def vectored_positions_from(self, docnum, fieldnum, startid):
+        v = self._posvector(fieldnum)
+        return v.positions_from(self.vector_table, docnum, fieldnum, startid)
+    
+    def __getitem__(self, docnum):
+        """
+        Returns the stored fields for the given document.
+        """
+        return self.docs_table.get(docnum)
     
     def __iter__(self):
-        self.reset()
-        try:
-            while True:
-                yield self.next()
-        except structfile.EndOfFile:
-            raise StopIteration
+        """
+        Yields the stored fields for all documents.
+        """
         
-    def __getitem__(self, docnum):
-        self.find(docnum)
-        return self.payload()
-    
+        is_deleted = self.segment.is_deleted
+        for docnum in xrange(0, self.segment.max_doc):
+            if not is_deleted(docnum):
+                yield self.docs_table.get(docnum)
+
+
 class MultiDocReader(DocReader):
+    """
+    Do not instantiate this object directly. Instead use Index.doc_reader().
+    
+    Reads document-related information by aggregating the results from
+    multiple segments. The main interface is to either iterate on this
+    object to yield the document stored fields, or use getitem (e.g. docreader[10])
+    to get the stored fields for a specific document number.
+    
+    Each MultiDocReader represents (number of segments * 2) open files.
+    Be sure to close() the reader when you're finished with it.
+    """
+    
     def __init__(self, doc_readers, doc_offsets):
         self.doc_readers = doc_readers
         self.doc_offsets = doc_offsets
-        self.term_total = None
-        self.term_count = None
-        self._payload = None
-        self.current = 0
-        self.reset()
+        self.is_closed = False
+    
+    def close(self):
+        """
+        Closes the open files associated with this reader.
+        """
+        
+        for d in self.doc_readers:
+            d.close()
+        self.is_closed = True
     
     def _document_segment(self, docnum):
-        if len(self.doc_offsets) == 1: return 0
-        return bisect_left(self.doc_offsets, docnum)
+        return bisect_right(self.doc_offsets, docnum) - 1
     
     def _segment_and_docnum(self, docnum):
         segmentnum = self._document_segment(docnum)
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
     
-    def find(self, docnum):
-        current, docn = self._document_segment(docnum)
-        self.current = current
-        return self.doc_readers[current].find(docn)
+    def _doc_info(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum]._doc_info(segmentdoc)
     
-    def next(self):
-        if self.current > len(self.doc_readers):
-            return
-        
-        try:
-            self.term_total, self.term_count = self.doc_readers[self.current].next()
-            self._payload = self.doc_readers[self.current].payload()
-            return (self.term_total, self.term_count)
-        except structfile.EndOfFile:
-            self.current += 1
-            if self.current >= len(self.doc_readers):
-                return
-            return self.next()
+    def __getitem__(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum].__getitem__(segmentdoc)
     
-    def payload(self):
-        return self.doc_readers[self.current].payload()
+    def __iter__(self):
+        for reader in self.doc_readers:
+            for result in reader:
+                yield result
     
-    def reset(self):
-        for r in self.docReaders:
-            r.reset()
-        self.current = 0
-    
+
 class TermReader(object):
-    def __init__(self, segment, schema, term_index, post_file, preindex = True):
+    """
+    Do not instantiate this object directly. Instead use Index.term_reader().
+    
+    Reads term information from a segment.
+    
+    Each TermReader represents two open files. Remember to close() the reader when
+    you're done with it.
+    """
+    
+    def __init__(self, storage, segment, schema):
+        """
+        storage is the storage object of the index.
+        segment is an index.Segment object. schema is an index.Schema object.
+        """
+        
         self.segment = segment
         self.schema = schema
-        self.term_index = term_index
-        self.post_file = post_file
         
-        self.version = None
-        self.postfile_offset = None
+        term_file = storage.open_file(segment.term_filename)
+        self.term_table = PostingTableReader(term_file)
+        self.is_closed = False
         
-        self.skiplist = None
-        if preindex:
-            self.index_skips()
-        
-        self.reset()
-    
-    def reset(self):
-        term_index = self.term_index
-        term_index.seek(0)
-        
-        self.version = term_index.read_int()
-        assert self.version == -100 # Version
-        assert term_index.read_int() == 0 # Reserved
-        assert term_index.read_int() == 0 # Reserved
-        assert term_index.read_int() == 0 # Reserved
-        assert term_index.read_int() == 0 # Reserved
-        
-        self.state = 0 # 0 = on skip pointer, 1 = in block, -1 = last block
-        self.next_block = 0
-    
-    def index_skips(self):
-        self.reset()
-        term_index = self.term_index
-        
-        skiplist = None #[(0, '', term_index.tell())]
-        
-        while True:
-            here = term_index.tell()
-            pointer = term_index.read_ulong()
-            
-            text = term_index.read_string()
-            field_num = term_index.read_varint()
-            
-            if skiplist is None: skiplist = [(0, '', here)]
-            skiplist.append((field_num, text, here))
-            
-            if pointer == 0:
-                break
-            term_index.seek(pointer)
-        
-        self.skiplist = skiplist
-    
-    def find_term(self, field_num, text):
-        try:
-            self.seek_term(field_num, text)
-            if not(self.field_num == field_num and self.text == text):
-                raise TermNotFound
-        except structfile.EndOfFile:
-            raise TermNotFound
-    
-    def seek_term(self, field_num, text):
-        if not self.skiplist:
-            self.index_skips()
-        
-        skipindex = bisect_left(self.skiplist, (field_num, text)) - 1
-        
-        if skipindex >= 0:
-            self.term_index.seek(self.skiplist[skipindex][2])
-            self.state = 0
-            self.next()
+    def fieldname_to_num(self, fieldname):
+        """
+        Returns the field number corresponding to the given field name.
+        """
+        if fieldname in self.schema.by_name:
+            return self.schema.name_to_number(fieldname)
         else:
-            self.reset()
-            self.next()
-        
-        if not (self.field_num == field_num and self.text == text):
-            while self.field_num < field_num or (self.field_num == field_num and self.text < text):
-                self.next()
+            raise UnknownFieldError(fieldname)
+    
+    def field(self, fieldname):
+        """
+        Returns the field object corresponding to the given field name.
+        """
+        if fieldname in self.schema.by_name:
+            return self.schema.by_name[fieldname]
+        else:
+            raise UnknownFieldError(fieldname)
+    
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__, self.segment)
+    
+    def close(self):
+        """
+        Closes the open files associated with this reader.
+        """
+        self.term_table.close()
+        self.is_closed = True
+    
+    def _term_info(self, fieldnum, text):
+        try:
+            return self.term_table.get((fieldnum, text))
+        except KeyError:
+            raise TermNotFound("%s:%r" % (fieldnum, text))
     
     def __iter__(self):
-        try:
-            while True:
-                yield self.next()
-        except structfile.EndOfFile:
-            raise StopIteration
+        for (fn, t), (offsets, docfreq, termcount) in self.term_table:
+            yield (fn, t, docfreq, termcount)
     
-    def next(self):
-        term_index = self.term_index
-        
-        if self.state == 1 and term_index.tell() == self.next_block:
-            self.state = 0
+    def iter_from(self, fieldnum, text):
+        for (fn, t), (offsets, docfreq, termcount) in self.term_table.iter_from((fieldnum, text)):
+            yield (fn, t, docfreq, termcount)
+    
+    def __contains__(self, term):
+        fieldnum = term[0]
+        if isinstance(fieldnum, basestring):
+            term = (self.schema.name_to_number(fieldnum), term[1])
             
-        if self.state == 0:
-            self.next_block = term_index.read_ulong()
-            if self.next_block == 0:
-                self.state = -1
-            else:
-                self.state = 1
-                
-        self.text = term_index.read_string().decode("utf8")
-        self.field_num = term_index.read_varint()
-        self.current_field = self.schema.by_number[self.field_num]
-        
-        self.doc_freq = term_index.read_varint()
-        self.total_weight = term_index.read_float()
-        self.postfile_offset = term_index.read_ulong()
-        
-        return (self.field_num, self.text, self.doc_freq)
+        return term in self.term_table
     
-    def postings(self, exclude_docs = set()):
+    def doc_frequency(self, fieldnum, text):
+        """
+        Returns the document frequency of the given term (that is,
+        how many documents the term appears in).
+        """
+        
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.fieldname_to_num(fieldnum)
+            
+        if (fieldnum, text) not in self:
+            return 0
+        
+        return self._term_info(fieldnum, text)[1]
+    
+    def term_count(self, fieldnum, text):
+        """
+        Returns the total number of instances of the given term
+        in the index.
+        """
+        
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.fieldname_to_num(fieldnum)
+        
+        if (fieldnum, text) not in self:
+            return 0
+        
+        return self._term_info(fieldnum, text)[2]
+    
+    # Posting retrieval methods
+    
+    def postings(self, fieldnum, text, exclude_docs = None):
+        """
+        Yields raw (docnum, data) tuples for each document containing
+        the current term. This is useful if you simply want to know
+        which documents contain the current term. Use weights() or
+        positions() if you need to term weight or positions in each
+        document.
+        
+        exclude_docs can be a set of document numbers to ignore. This
+        is used by queries to skip documents that have already been
+        eliminated from consideration.
+        """
+        
         is_deleted = self.segment.is_deleted
         
-        post_file = self.post_file
-        post_file.seek(self.postfile_offset)
+        # The field object is actually responsible for parsing the
+        # posting data from disk.
+        readfn = self.schema.by_number[fieldnum].read_postvalue
         
-        readfn = self.current_field.read_postvalue
-        
-        docnum = 0
-        for i in xrange(0, self.doc_freq): #@UnusedVariable
-            delta = post_file.read_varint()
-            docnum += delta
-            
-            data = readfn(post_file)
-            
-            if not is_deleted(docnum) and not docnum in exclude_docs:
+        for docnum, data in self.term_table.postings((fieldnum, text), readfn = readfn):
+            if not is_deleted(docnum)\
+               and (exclude_docs is None or docnum not in exclude_docs):
                 yield docnum, data
     
-    def weights(self, exclude_docs = set(), boost = 1.0):
-        field = self.current_field
-        for docnum, data in self.postings(exclude_docs = exclude_docs):
+    def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
+        """
+        Yields (docnum, term_weight) tuples for each document containing
+        the current term. The current field must have stored term weights
+        for this to work.
+        
+        exclude_docs can be a set of document numbers to ignore. This
+        is used by queries to skip documents that have already been
+        eliminated from consideration.
+        boost is a factor by which to multiply each weight.
+        """
+        
+        field = self.schema.by_number[fieldnum]
+        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
             yield (docnum, field.data_to_weight(data) * boost)
 
-    def positions(self, exclude_docs = set(), boost = 1.0):
-        field = self.current_field
-        for docnum, data in self.postings(exclude_docs = exclude_docs):
+    def positions(self, fieldnum, text, exclude_docs = None):
+        """
+        Yields (docnum, [positions]) tuples for each document containing
+        the current term. The current field must have stored positions
+        for this to work.
+        
+        exclude_docs can be a set of document numbers to ignore. This
+        is used by queries to skip documents that have already been
+        eliminated from consideration.
+        """
+        
+        field = self.schema.by_number[fieldnum]
+        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
             yield (docnum, field.data_to_positions(data))
 
+    def position_boosts(self, fieldnum, text, exclude_docs = None):
+        """
+        Yields (docnum, [(position, boost)]) tuples for each document containing
+        the current term. The current field must have stored positions and
+        position boosts for this to work.
+        
+        exclude_docs can be a set of document numbers to ignore. This
+        is used by queries to skip documents that have already been
+        eliminated from consideration.
+        """
+        
+        field = self.schema.by_number[fieldnum]
+        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
+            yield (docnum, field.data_to_position_boosts(data))
+    
+    # Convenience methods
+    
+    def expand_prefix(self, fieldname, prefix):
+        """
+        Yields terms in the given field that start with the given prefix.
+        """
+        
+        fieldnum = self.fieldname_to_num(fieldname)
+        for fn, t, _, _ in self.iter_from(fieldnum, prefix):
+            if fn != fieldnum or not t.startswith(prefix):
+                return
+            yield t
+    
+    def all_terms(self):
+        """
+        Yields (fieldname, text) tuples for every term in the index.
+        """
+        
+        current_fieldnum = None
+        current_fieldname = None
+        for fn, t, _, _ in self:
+            if fn != current_fieldnum:
+                current_fieldnum = fn
+                current_fieldname = self.schema.number_to_name(fn)
+            yield (current_fieldname, t)
+    
+    def field_words(self, fieldnum):
+        """
+        Yields all tokens in the given field.
+        """
+        
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.schema.name_to_number(fieldnum)
+        
+        for fn, t, _, _ in self.iter_from(fieldnum, ''):
+            if fn != fieldnum:
+                return
+            yield t
+        
+    def list_substring(self, fieldname, substring):
+        for text in self.field_words(fieldname):
+            if text.find(substring) > -1:
+                yield text
+    
 
 class MultiTermReader(TermReader):
+    """
+    Do not instantiate this object directly. Instead use Index.term_reader().
+    
+    Reads term information by aggregating the results from
+    multiple segments.
+    
+    Each MultiTermReader represents (number of segments * 2) open files.
+    Be sure to close() the reader when you're finished with it.
+    """
+    
     def __init__(self, term_readers, doc_offsets):
         self.term_readers = term_readers
+        self.schema = term_readers[0].schema
         self.doc_offsets = doc_offsets
-        self.reset()
-        
-    def reset(self):
-        self.waitlist = None
-        self.current_readers = None
-        
-        for r in self.term_readers:
-            r.reset()
+        self.is_closed = False
     
-    def index_skips(self):
-        raise NotImplementedError
+    def close(self):
+        """
+        Closes the open files associated with this reader.
+        """
+        
+        for tr in self.term_readers:
+            tr.close()
+        self.is_closed = True
     
-    def seek_term(self, field_num, text):
-        for r in self.term_readers:
-            r.reset()
-            r.seek_term(field_num, text)
+    def __contains__(self, term):
+        return any(tr.__contains__(term) for tr in self.term_readers)
+    
+    def doc_frequency(self, fieldnum, text):
+        if (fieldnum, text) not in self:
+            return 0
+        
+        return sum(r.doc_frequency(fieldnum, text) for r in self.term_readers)
+    
+    def term_count(self, fieldnum, text):
+        if (fieldnum, text) not in self:
+            return 0
+        
+        return sum(r.term_count(fieldnum, text) for r in self.term_readers)
+    
+    def _merge_iters(self, iterlist):
+        # Merge-sorts terms coming from a list of
+        # term iterators (TermReader.__iter__() or
+        # TermReader.iter_from()).
+        
+        # Fill in the list with the head term from each iterator.
+        # infos is a list of [headterm, iterator] lists.
+        
+        current = []
+        for it in iterlist:
+            fnum, text, docfreq, termcount = it.next()
+            current.append((fnum, text, docfreq, termcount, it))
+        heapify(current)
+        
+        # Number of active iterators
+        active = len(current)
+        while active > 0:
+            # Peek at the first term in the sorted list
+            fnum, text = current[0][:2]
+            docfreq = 0
+            termcount = 0
+            
+            # Add together all terms matching the first
+            # term in the list.
+            while current[0][0] == fnum and current[0][1] == text:
+                docfreq += current[0][2]
+                termcount += current[0][3]
+                it = current[0][4]
+                try:
+                    fn, t, df, tc = it.next()
+                    heapreplace(current, (fn, t, df, tc, it))
+                except StopIteration:
+                    heappop(current)
+                    active -= 1
+            
+            # Yield the term with the summed frequency and
+            # term count.
+            yield (fnum, text, docfreq, termcount)
             
     def __iter__(self):
-        while True:
-            # This isn't really an infinite loop... it will
-            # eventually pass through a StopIteration exception
-            # from the next() method.
-            
-            yield self.next()
-            
-    def next(self):
-        # This method does a merge sort of the terms coming off
-        # the sub-readers.
-
-        # The waiting list is a list of the "head" term from each
-        # sub-reader, so we can sort them. On the first call to
-        # next(), this is None.
-        waitlist = self.waitlist
-        
-        # On first run, we need to fill in the waiting list. We do
-        # this by making the code that follows, which replenishes
-        # the list, replenish from ALL readers.
-        if waitlist is None:
-            waitlist = []
-            self.current_readers = self.term_readers[:]
-        
-        # Replace the terms taken in the last iteration with new
-        # terms. On the first call to next(), thanks to the code
-        # above, this initializes the waiting list.
-        
-        if self.current_readers:
-            for r in self.current_readers:
-                field_num, text, doc_freq = r.next()
-                insort_left(waitlist, (field_num, text, doc_freq, r))
-        
-        # Take the lowest term from the head of the waiting list.
-        current = waitlist[0]
-        
-        # Set this reader's attributes to those of the term
-        
-        self.field_num = current[0]
-        self.field = self.schema.by_number[self.field_num]
-        self.text = current[1]
-        
-        doc_freq = current[2]
-        total_weight = current[3].total_weight
-        
-        # We need to calculate the doc_freq (doc frequency) by
-        # adding up the doc counts from each reader with this
-        # term. (If several readers include the same term, each
-        # copy of the term should be at the head of the waiting list
-        # right now).
-        
-        right = 1
-        while right < len(waitlist) and waitlist[right][0] == field_num and waitlist[right][1] == text:
-            doc_freq += waitlist[right][2]
-            total_weight += waitlist[right][3].total_weight
-            right += 1
-        
-        self.doc_count = doc_freq
-        self.total_weight = total_weight
-        
-        # Remember the readers that have the "current" term.
-        # We'll need to iterate through them to get postings.
-        # And on the next call to next(), we'll need to get
-        # new terms from them to replenish the waiting list.
-        
-        self.currentReaders = [r for
-                               fieldNum, text, docCount, r
-                               in waitlist[:right] ]
-        
-        # Now that the readers are recorded, we can remove
-        # the (one or more copies of the) current term from the
-        # waiting list.
-        self.waitlist = waitlist[right:]
-        
-        return (fieldNum, text, docCount)
-        
-    def postings(self):
-        for i, r in enumerate(self.current_readers):
-            for docnum, data in r.postings():
-                self.docnum = docnum + self.doc_offsets[i]
-                self.data = data
-                yield self.docnum, data
-                
+        return self._merge_iters([iter(r) for r in self.term_readers])
     
-def read_all_docs(reader):
-    dr = reader.doc_reader()
-    dr.reset()
-    cache = {}
-    try:
-        while True:
-            dr.next()
-            fields = dr.payload()
-            cache[fields["path"]] = fields
-    except EOFError:
-        pass
-    return cache
-
-def create_quick_index(reader, fieldname, outfile):
-    import array
-    arr = array.array('l')
+    def iter_from(self, fieldnum, text):
+        return self._merge_iters([r.iter_from(fieldnum, text) for r in self.term_readers])
     
-    dr = reader.doc_reader()
-    dr.reset()
-    try:
-        while True:
-            dr.next()
-            fields = dr.payload()
-            arr.append(o.tell())
-            outfile.write_string(fields[fieldname].encode("utf-8"))
-    except EOFError:
-        pass
-
-    return arr
-
-def create_stem_map(reader, fieldnames):
-    if isinstance(fieldnames, basestring):
-        fieldnames = [fieldnames]
-    
-    from support.porter import stem
-    from collections import defaultdict
-    map = defaultdict(set)
-    for fieldname in fieldnames:
-        for w in reader.field_terms(fieldname):
-            s = stem(w)
-            if s != w:
-                map[s].add(w)
-    return map
+    def postings(self, fieldnum, text, exclude_docs = set()):
+        """
+        Yields raw (docnum, data) tuples for each document containing
+        the current term. This is useful if you simply want to know
+        which documents contain the current term. Use weights() or
+        positions() if you need to term weight or positions in each
+        document.
+        
+        exclude_docs can be a set of document numbers to ignore. This
+        is used by queries to skip documents that have already been
+        eliminated from consideration.
+        """
+        
+        for i, r in enumerate(self.term_readers):
+            offset = self.doc_offsets[i]
+            if (fieldnum, text) in r:
+                for docnum, data in r.postings(fieldnum, text, exclude_docs = exclude_docs):
+                    yield (docnum + offset, data)
 
 
 if __name__ == '__main__':
-    import time
     import index
-    ix = index.open_dir("c:/workspace/Help2/test_index")
-    r = ix.reader()
-    
-    o = ix.storage.create_file("title.qix")
-    t = time.time()
-    arr = create_quick_index(r, "title", o)
-    print time.time() - t
-    
-    o.close()
-    
-    o = ix.storage.open_file("title.qix")
-    
-    import random
-    ls = [random.randint(0, 6000) for i in xrange(0, 100)]
-    
-    dr = r.doc_reader()
-    t = time.clock()
-    for dn in ls:
-        f = dr[dn]["title"]
-    print time.clock() - t
-    
-    t = time.clock()
-    for dn in ls:
-        o.seek(arr[dn])
-        f = o.read_string().decode("utf-8")
-    print time.clock() - t
-    
-
+    ix = index.open_dir("../kinobenchindex")
+    tr = ix.term_reader()
+    c = 0
+    for x in tr:
+        c += 1
+    print c
 
 
 

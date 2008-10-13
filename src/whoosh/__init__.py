@@ -1,5 +1,5 @@
 #===============================================================================
-# Copyright 2007 Matt Chaput
+# Copyright 2008 Matt Chaput
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,3 @@
 # limitations under the License.
 #===============================================================================
 
-import logging, sys
-
-log = logging.getLogger("whoosh")
-log.addHandler(logging.StreamHandler(sys.stderr))

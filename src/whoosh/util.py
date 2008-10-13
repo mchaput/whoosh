@@ -14,56 +14,121 @@
 # limitations under the License.
 #===============================================================================
 
-import math
-from bisect import insort
+"""
+Miscellaneous utility functions and classes.
+"""
 
+from heapq import heappush, heapreplace
+
+from support.bitvector import BitVector
+
+# Functions
+
+_fib_cache = {}
 def fib(n):
-    global _fib_cache
+    """
+    Returns the nth value in the Fibonacci sequence.
+    """
+    
     if n <= 2: return n
-    if _fib_cache.has_key(n): return _fib_cache[n]
+    if n in _fib_cache: return _fib_cache[n]
     result = fib(n - 1) + fib(n - 2)
     _fib_cache[n] = result
     return result
 
-
-def inv_doc_freq(N, freq):
-    if freq == 0:
-        return 0
+def permute(ls):
+    if len(ls) == 1:
+        yield ls
     else:
-        return math.log(1.0 + N / freq)
+        for i in range(len(ls)):
+            this = ls[i]
+            rest = ls[:i] + ls[i+1:]
+            for p in permute(rest):
+                yield [this] + p
 
+# Classes
 
-class NBest(object):
-    def __init__(self, capacity):
+class TopDocs(object):
+    """
+    This is like a list that only remembers the top N values that are added
+    to it. This increases efficiency when you only want the top N values, since
+    you don't have to sort most of the values (once the object reaches capacity
+    and the next item to consider has a lower score than the lowest item in the
+    collection, you can just throw it away).
+    
+    The reason to use this over heapq.nlargest is that this object keeps track
+    of all docnums that were added, even if they're not in the "top N". It also
+    allows you to call add_all multiple times, if necessary.
+    """
+    
+    def __init__(self, capacity, max_doc):
         self.capacity = capacity
-        self.sorted = []
+        self.docs = BitVector(max_doc)
+        self.heap = []
+        self._total = 0
 
     def __len__(self):
         return len(self.sorted)
 
-    def add(self, item, score):
-        self.add_all([(item, score)])
-
     def add_all(self, sequence):
-        items, capacity = self.sorted, self.capacity
-        n = len(items)
-        for item, score in sequence:
-            if n >= capacity and score <= items[0][0]:
-                continue
+        heap = self.heap
+        docs = self.docs
+        capacity = self.capacity
+        
+        subtotal = 0
+        for docnum, score in sequence:
+            docs.set(docnum)
+            subtotal += 1
             
-            insort(items, (score, item))
-            if n == capacity:
-                del items[0]
+            if len(heap) >= capacity:
+                if score <= heap[0][0]:
+                    continue
+                else:
+                    heapreplace(heap, (score, docnum))
             else:
-                n += 1
-        assert n == len(items)
+                heappush(heap, (score, docnum))
+        
+        self._total += subtotal
+
+    def total(self):
+        return self._total
 
     def best(self):
-        return [(docnum, score) for score, docnum in reversed(self.sorted)]
+        """
+        Returns the "top N" items. Note that this call
+        involves sorting and reversing the internal queue, so you may
+        want to cache the results rather than calling this method
+        multiple times.
+        """
+        return [item for score, item in reversed(sorted(self.heap))]
 
-    def __iter__(self):
-        for r in self.best():
-            yield r
 
+class UtilityIndex(object):
+    """
+    Base class for objects such as SpellChecker that use an index
+    as backend storage.
+    """
+    
+    def __init__(self):
+        raise NotImplemented
         
+    def index(self):
+        """
+        Returns the backend index of this object (instantiating it if
+        it didn't already exist).
+        """
         
+        import index
+        if not self._index:
+            self._index = index.Index(self.storage, indexname = self.indexname)
+        return self._index
+    
+    def schema(self):
+        raise NotImplemented
+        
+    def create_index(self):
+        import index
+        self._index = index.create(self.storage, self.schema(), self.indexname)
+
+
+

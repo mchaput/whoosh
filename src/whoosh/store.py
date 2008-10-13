@@ -14,15 +14,29 @@
 # limitations under the License.
 #===============================================================================
 
-import bz2, os
+"""
+This module contains objects that implement storage of index files.
+Abstracting storage behind this simple interface allows indexes to
+be stored in other media besides as a folder of files. For example,
+RamStorage keeps the "files" in memory.
+"""
+
+import os
 from cStringIO import StringIO
 
 from structfile import StructFile
 
 
-class FolderStorage(object):
+class FileStorage(object):
+    """
+    Storage object that stores the index as files in a directory on disk.
+    """
+    
     def __init__(self, path):
         self.folder = path
+        
+        if not os.path.exists(path):
+            raise IOError("Directory %s does not exist" % path)
     
     def _fpath(self, fname):
         return os.path.join(self.folder, fname)
@@ -62,33 +76,39 @@ class FolderStorage(object):
             os.remove(self._fpath(to))
         os.rename(self._fpath(frm),self._fpath(to))
         
-    def create_file(self, name, compressed = False):
-        if compressed:
-            u = bz2.BZ2File(self._fpath(name), "w")
-        else:
-            u = open(self._fpath(name), "wb")
-        f = StructFile(u)
+    def create_file(self, name):
+        f = StructFile(open(self._fpath(name), "wb"))
         f._name = name
         return f
     
     def open_file(self, name, compressed = False):
-        if compressed:
-            u = bz2.BZ2File(self._fpath(name), "r")
-        else:
-            u = open(self._fpath(name), "rb")
-        f = StructFile(u)
+        f = StructFile(open(self._fpath(name), "rb"))
         f._name = name
         return f
     
     def close(self):
         pass
     
+    def make_dir(self, name):
+        os.mkdir(self._fpath(name))
+        
+    def remove_dir(self, name):
+        os.removedirs(self._fpath(name))
+    
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
-    
+
+
 class RamStorage(object):
+    """
+    Storage object that keeps the index in memory.
+    """
+    
     def __init__(self):
         self.files = {}
+    
+    def __iter__(self):
+        return iter(self.list())
     
     def list(self):
         return self.files.keys()
@@ -97,10 +117,7 @@ class RamStorage(object):
         self.files = {}
 
     def total_size(self):
-        total = 0
-        for f in self.list():
-            total += self.file_length(f)
-        return total
+        return sum(self.file_length(f) for f in self.list())
 
     def file_exists(self, name):
         return self.files.has_key(name)
@@ -118,7 +135,7 @@ class RamStorage(object):
         self.files[newName] = file
 
     def create_file(self, name):
-        f = StructFile(StringIO(), False)
+        f = StructFile(StringIO())
         f._name = name
         self.files[name] = f
         return f
@@ -132,5 +149,19 @@ class RamStorage(object):
         pass
 
 
-
+def copy_to_ram(storage):
+    """
+    Creates a RamStorage object, copies the contents of the given
+    storage object into it, and returns it.
+    """
+    
+    import shutil #, time
+    #t = time.time()
+    ram = RamStorage()
+    for name in storage.list():
+        f = storage.open_file(name)
+        r = ram.create_file(name)
+        shutil.copyfileobj(f.file, r.file)
+    #print time.time() - t, "to load index into ram"
+    return ram
 
