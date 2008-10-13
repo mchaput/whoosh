@@ -14,34 +14,54 @@
 # limitations under the License.
 #===============================================================================
 
+"""
+This module contains functions/classes using a Whoosh index
+as a backend for a spell-checking engine.
+"""
+
 from collections import defaultdict
 
-import analysis, fields, index, query, searching, store, writing
+import analysis, fields, index, query, searching, writing
 from support.levenshtein import relative, distance
+from util import UtilityIndex
 
-class SpellChecker():
-    def __init__(self, storage, indexname,
+class SpellChecker(UtilityIndex):
+    """
+    Implements a spell-checking engine with a Whoosh-based backend
+    dictionary. This class is based on the Lucene spell-checker
+    contributed code.
+    """
+    
+    def __init__(self, storage, indexname = "SPELL",
                  booststart = 2.0, boostend = 1.0,
                  mingram = 3, maxgram = 4,
                  minscore = 0.5):
+        """
+        storage is a Whoosh storage object in which to create
+        the spelling dictionary index.  indexname is the name
+        of the sub-index; the default is "SPELL". booststart is
+        a floating point value describing how much to boost matches
+        of the first N-gram (the beginning of the word); default is
+        2.0. boostend is how much to boost matches of the last N-gram
+        (the end of the word); default is 1.0 (no boost). mingram is
+        the shortest N-gram to store. maxgram is the longest N-gram to
+        store. minscore is the minimum score matches must achieve to
+        be returned; default is 0.5.
+        """
+        
         self.storage = storage
         self.indexname = indexname
         
         self._index = None
-        self._reader = None
         
         self.booststart = booststart
         self.boostend = boostend
         self.mingram = mingram
         self.maxgram = maxgram
     
-    def index(self):
-        if not self._index:
-            self._index = index.Index(self.storage, indexname = self.indexname)
-        return self._index
-    
     def schema(self):
-        fls = [fields.IDField("word", analysis.LCAnalyzer(), stored = True)]
+        fls = [fields.StoredField("word"),
+               fields.StoredField("score")]
         for size in xrange(self.mingram, self.maxgram + 1):
             fls.extend([fields.IDField("start%s" % size, analysis.SimpleAnalyzer()),
                         fields.IDField("end%s" % size, analysis.SimpleAnalyzer()),
@@ -49,16 +69,14 @@ class SpellChecker():
                         ])
         return index.Schema(*fls)
     
-    def reader(self):
-        if not self._reader:
-            self._reader = self.index().reader()
-        return self._reader
-    
-    def close_reader(self):
-        if self._reader:
-            self._reader.close()
-    
-    def suggest(self, text, number = 3, fieldname = None, morepopular = False):
+    def suggest(self, text, number = 3, usescores = False):
+        """
+        Suggests alternate spellings for a word. text is the text of the word
+        to check. number is the number of suggestions to return. fieldname.
+        if morepopular is True, the suggestions are computed based on their frequency
+        in the source index, rather than distance from the original text.
+        """
+        
         grams = defaultdict(list)
         for size in xrange(self.mingram, self.maxgram + 1):
             key = "gram%s" % size
@@ -67,7 +85,7 @@ class SpellChecker():
                 grams[key].append(gram)
         
         queries = []
-        for size in xrange(self.mingram, self.maxgram + 1):
+        for size in xrange(self.mingram, min(self.maxgram + 1, len(text))):
             key = "gram%s" % size
             gramlist = grams[key]
             queries.append(query.Term("start%s" % size, gramlist[0], boost = self.booststart))
@@ -76,74 +94,81 @@ class SpellChecker():
                 queries.append(query.Term(key, gram))
         
         q = query.Or(queries)
-        r = self.reader()
-        dr = r.doc_reader()
+        ix = self.index()
         
-        scorer = searching.CosineScorer()
-        docset, terms = searching.find_docs(r, q)
-        scored = list(scorer.score(r, terms, docset))
-        scored.sort(key = lambda x: x[1], reverse = True)
-        if len(scored) > number*2:
-            scored = scored[:len(scored)//2]
+        s = searching.Searcher(ix)
+        try:
+            results = s.search(q)
+            
+            if len(results) > number*2:
+                fieldlist = results[:len(results)//2]
+            
+            suggestions = []
+            for fields in fieldlist:
+                word = fields["word"]
+                if word == text: continue
+                suggestions.append((word, fields["score"]))
+            
+            if usescores:
+                def keyfn(a):
+                    return 0 - (1/distance(text, a[0])) * a[1]
+            else:
+                def keyfn(a):
+                    return distance(text, a[0])
+            
+            suggestions.sort(key = keyfn)
+        finally:
+            s.close()
         
-        suggestions = []
-        for docnum, _ in scored:
-            word = dr[docnum]["word"]
-            if word == text: continue
-            suggestions.append(word)
+        return [word for word, _ in suggestions[:number]]
         
-        if morepopular:
-            def keyfn(a):
-                return 0-len(terms[a])
-        else:
-            def keyfn(a):
-                return distance(text, a)
-        suggestions.sort(key = keyfn)
-        return suggestions[:number]
+    def add_field(self, ix, fieldname):
+        """
+        Adds the terms in a field from another index to the backend dictionary.
+        term_reader is a term reader object for the source index. fieldname is the
+        name of the field in the source index from which to load the terms.
+        """
         
-    def create_index(self):
-        self._index = index.create(self.storage, self.schema(), self.indexname)
+        tr = ix.term_reader()
+        try:
+            self.add_words(tr.field_words(fieldname))
+        finally:
+            tr.close()
     
-    def add_field(self, reader, fieldname):
-        self.add_words(reader.field_terms(fieldname))
-        
-    def add_words(self, ws):
-        self.close_reader()
-        #exists = self.exists
+    def add_words(self, ws, score = 0):
+        """
+        Adds words to the backend dictionary from an iterable. This method
+        takes a list of words. score is the score to use for all words
+        (default is 0). You can use this if you are planning to use the
+        'usescores' keyword argument of the suggestions() method. However,
+        in that case, you might want to use add_scored_words() instead.
+        """
+        self.add_ranked_words((w, 0) for w in ws)
+    
+    def add_scored_words(self, ws):
+        """
+        Adds words to the backend dictionary from a sequence of
+        (word, score) tuples. You can use this if you are planning to
+        use the 'usescores' keyword argument of the suggestions() method.
+        Otherwise, just use add_words().
+        """
         
         writer = writing.IndexWriter(self.index())
-        for text in ws:
-            #if not exists("word", text):
-            fields = {"word": text}
-            for size in xrange(self.mingram, self.maxgram + 1):
-                nga = analysis.NgramAnalyzer(size)
-                gramlist = list(nga.words(text))
-                if len(gramlist) > 0:
-                    fields["start%s" % size] = gramlist[0]
-                    fields["end%s" % size] = gramlist[-1]
-                    fields["gram%s" % size] = " ".join(gramlist)
-            writer.add_document(**fields)
+        for text, score in ws.iteritems():
+            if text.isalpha():
+                fields = {"word": text, "score": score}
+                for size in xrange(self.mingram, self.maxgram + 1):
+                    nga = analysis.NgramAnalyzer(size)
+                    gramlist = list(nga.words(text))
+                    if len(gramlist) > 0:
+                        fields["start%s" % size] = gramlist[0]
+                        fields["end%s" % size] = gramlist[-1]
+                        fields["gram%s" % size] = " ".join(gramlist)
+                writer.add_document(**fields)
         writer.close()
     
-    def exists(self, field, text):
-        return self.reader.term_frequency(field, text) > 0
-    
-    
 if __name__ == '__main__':
-    import time
-    storage = store.FolderStorage("c:/workspace/Help2/test_index")
-    sc = SpellChecker(storage, "spell")
-    
-    t = time.time()
-    sc.create_index()
-    ix = index.Index(storage)
-    sc.add_field(ix.reader(), "content")
-    print time.time() - t
-    
-    print "-----------------------"
-    t = time.time()
-    print sc.suggest("renderling", number = 5)
-    print time.time() - t
+    pass
     
     
 

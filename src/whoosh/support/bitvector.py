@@ -1,3 +1,4 @@
+import operator
 from array import array
 
 # Table of the number of '1' bits in each byte (0-255)
@@ -29,27 +30,56 @@ class BitVector(object):
         else:
             self.bits = array("B", ([0x00] * ((size >> 3) + 1)))
             
-        self.bitCount = None
+        self.bcount = None
         
+    def __len__(self):
+        return self.size
+    
+    def __contains__(self, index):
+        return self[index]
+    
+    def __iter__(self):
+        get = self.__getitem__
+        for i in xrange(0, self.size):
+            if get(i):
+                yield i
+    
+    def __repr__(self):
+        return "<BitVector %s>" % self.__str__()
+    
+    def __str__(self):
+        get = self.__getitem__
+        return "".join("1" if get(i) else "0"
+                       for i in xrange(0, self.size)) 
+    
+    def __getitem__(self, index):
+        return self.bits[index >> 3] & (1 << (index & 7)) != 0
+    
+    def _logic(self, op, bitv):
+        if self.size != bitv.size:
+            raise ValueError("Can't combine bitvectors of different sizes")
+        res = BitVector(size = self.size )
+        lpb = map(op, self.bits, bitv.bits)
+        res.bits = array('B', lpb )
+        return res
+    
+    def __and__(self, bitv):
+        return self._logic(operator.__and__, bitv)
+    
+    def __or__(self, bitv):
+        return self._logic(operator.__or__, bitv)
+    
+    def __xor__(self, bitv):
+        return self._logic(operator.__xor__, bitv)
+    
     def count(self):
-        if self.bitCount is None:
+        if self.bcount is None:
             c = 0
             for b in self.bits:
                 c += BYTE_COUNTS[b & 0xFF]
             
-            self.bitCount = c
-        return self.bitCount
-    
-    def __str__(self):
-        def one_or_zero(b):
-            if b: return "1"
-            return "0"
-        
-        return "".join([one_or_zero(self.get(i))
-                        for i in xrange(0, self.size)]) 
-    
-    def get(self, index):
-        return (self.bits[index >> 3] & (1 << (index & 7)) != 0)
+            self.bcount = c
+        return self.bcount
     
     def set(self, index):
         self.bits[index >> 3] |= 1 << (index & 7)
@@ -58,6 +88,9 @@ class BitVector(object):
     def clear(self, index):
         self.bits[index >> 3] &= ~(1 << (index & 7))
         self.bcount = None
+        
+    def copy(self):
+        return BitVector(self.size, bits = self.bits)
 
 
 if __name__ == "__main__":
@@ -66,8 +99,22 @@ if __name__ == "__main__":
     b.set(9)
     b.set(5)
     print b
-    print b.get(2)
-    print b.get(5) 
+    print b[2]
+    print b[5]
     b.clear(5)
-    print b.get(5)
+    print b[5]
     print b
+    
+    c = BitVector(10)
+    c.set(1)
+    c.set(5)
+    print " ", b
+    print "^", c
+    print "=", b ^ c
+    
+    
+    
+    
+    
+    
+    

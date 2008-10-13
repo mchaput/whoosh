@@ -1,5 +1,5 @@
 """
-== Search query parser ==
+This module contains the default search query parser.
 
 This uses the excellent Pyparsing module 
 (http://pyparsing.sourceforge.net/) to parse search query strings
@@ -27,51 +27,50 @@ http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 
 This code was made available by the authors under the following copyright
 and conditions:
-
------
-
-Copyright (c) 2006, Estrate, the Netherlands
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation 
-  and/or other materials provided with the distribution.
-* Neither the name of Estrate nor the names of its contributors may be used
-  to endorse or promote products derived from this software without specific
-  prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; 
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON 
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-CONTRIBUTORS:
-- Steven Mooij
-- Rudolph Froger
-- Paul McGuire
 """
 
-import logging
+# Copyright (c) 2006, Estrate, the Netherlands
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification,
+# are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation 
+#   and/or other materials provided with the distribution.
+# * Neither the name of Estrate nor the names of its contributors may be used
+#   to endorse or promote products derived from this software without specific
+#   prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; 
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON 
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# CONTRIBUTORS:
+# - Steven Mooij
+# - Rudolph Froger
+# - Paul McGuire
+
 from whoosh.support.pyparsing import \
-CharsNotIn, Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, alphanums, Keyword,\
-Empty, StringEnd
+Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, alphanums, Keyword,\
+Empty, StringEnd, ParserElement
 
 import query
 
 def _makeParser():
+    ParserElement.setDefaultWhitespaceChars(" \n\t\r-'")
+    
     #wordToken = Word(self.wordChars)
-    wordToken = Word(alphanums + ".")
+    wordToken = Word(alphanums + "._/")
     
     # A plain old word.
     plainWord = Group(wordToken).setResultsName("Word")
@@ -123,33 +122,64 @@ def _makeParser():
 parser = _makeParser()
 
 class QueryParser(object):
-    def __init__(self, analyzer, default_field,
+    def __init__(self, schema, default_field = None,
                  conjunction = query.And,
-                 multiword_conjunction = query.Or):
+                 multiword_conjunction = query.Or,
+                 termclass = query.Term,
+                 **kwargs):
+        self.schema = schema
+        self.default_field = default_field or schema.number_to_name(0)
+        
         self.conjunction = conjunction
         self.multiword_conjunction = multiword_conjunction
-        self.analyzer = analyzer
-        self.default_field = default_field
+        self.termclass = termclass
+        self._build_field_analyzers(kwargs)
+    
+    def _build_field_analyzers(self, kwargs):
+        # Initialize the field->analyzer map with the analyzer
+        # associated with each field.
+        self.field_analyzers = dict((fname, field.analyzer)
+                                    for fname, field in self.schema.by_name.iteritems())
+        
+        # Look for overrides in the keyword arguments
+        for k, v in kwargs.iteritems():
+            if k.endswith("_analyzer"):
+                fieldname = k[:-9]
+                if fieldname in self.schema.by_name:
+                    self.field_analyzers[fieldname] = v
+                else:
+                    raise KeyError("Found keyword argument %r but there is no field %r" % (k, fieldname))
+    
+    def _analyzer(self, fieldname):
+        return self.field_analyzers[fieldname or self.default_field]
     
     def make_terms(self, fieldname, words):
         return self.multiword_conjunction([self.make_term(fieldname, w) for w in words])
+    
     def make_term(self, fieldname, text):
-        return query.Term(fieldname or self.default_field, text)
-    def make_phrase(self, fieldname, texts):
+        return self.termclass(fieldname or self.default_field, text)
+    
+    def make_phrase(self, fieldname, texts, boost = 1.0):
         analyzed = []
+        analyzer = self._analyzer(fieldname)
         for t in texts:
-            for token in self.analyzer.words(t):
+            for token in analyzer.words(t):
                 analyzed.append(token)
                 break
-        return query.Phrase(fieldname or self.default_field, analyzed)
+        return query.Phrase(fieldname or self.default_field, analyzed, boost = boost)
+    
     def make_prefix(self, fieldname, text):
         return query.Prefix(fieldname or self.default_field, text)
+    
     def make_wildcard(self, fieldname, text):
         return query.Wildcard(fieldname or self.default_field, text)
+    
     def make_and(self, qs):
         return query.And(qs)
+    
     def make_or(self, qs):
         return query.Or(qs)
+    
     def make_not(self, q):
         return query.Not(q)
     
@@ -168,7 +198,9 @@ class QueryParser(object):
         return self.conjunction([self.eval(s, fieldname) for s in node])
 
     def Word(self, node, fieldname):
-        words = list(self.analyzer.words(node[0]))
+        analyzer = self._analyzer(fieldname)
+        words = list(analyzer.words(node[0]))
+        
         if not words:
             return None
         elif len(words) == 1:
@@ -201,24 +233,41 @@ class QueryParser(object):
         return self.eval(node[1], node[0])
 
 
-class MultiFieldParser(QueryParser):
-    def __init__(self, analyzer, fieldnames,
+class MultifieldParser(QueryParser):
+    def __init__(self, schema, fieldnames,
                  conjunction = query.And,
-                 multiword_conjunction = query.Or):
+                 multiword_conjunction = query.Or,
+                 termclass = query.Term,
+                 **kwargs):
         self.conjunction = conjunction
+        self.termclass = termclass
         self.multiword_conjunction = multiword_conjunction
-        self.analyzer = analyzer
+        self.schema = schema
         self.fieldnames = fieldnames
-        self.original_words = set()
+        
+        self.field_values = dict([(fieldname, 1.0) for fieldname in fieldnames])
+        for k, v in kwargs.iteritems():
+            if not k.endswith("_analyzer") and k not in self.field_values:
+                raise KeyError("You specified a value for field %r but did not include the field" % k)
+            self.field_values[k] = v
+            
+        self._build_field_analyzers(kwargs)
+    
+    def _analyzer(self, fieldname):
+        if fieldname is None:
+            return self.field_analyzers[self.fieldnames[0]]
+        else:
+            return self.field_analyzers[fieldname]
     
     def _make(self, type, fieldname, data):
         if fieldname is not None:
             return type(fieldname, data)
-        return query.Or([type(fn, data)
+        
+        return query.Or([type(fn, data, boost = self.field_values[fn])
                          for fn in self.fieldnames])
     
     def make_term(self, fieldname, text):
-        return self._make(query.Term, fieldname, text)
+        return self._make(self.termclass, fieldname, text)
     
     def make_prefix(self, fieldname, text):
         return self._make(query.Prefix, fieldname, text)
@@ -227,35 +276,17 @@ class MultiFieldParser(QueryParser):
         return self._make(query.Wildcard, fieldname, text)
     
     def make_phrase(self, fieldname, texts):
-        return self._make(query.Phrase, fieldname, texts)
+        return query.Or([super(self.__class__, self).make_phrase(fn, texts, boost = self.field_values[fn])
+                         for fn in self.fieldnames])
 
 
 if __name__=='__main__':
-    import analysis
-    ana = analysis.StemmingAnalyzer()
-    
-    print list(ana.words(u"hou.node.category()"))
-    
-    qp = MultiFieldParser(ana, ("content", "title"))
-    
-    b = qp.parse("a?bs*")
-    print b
-    print b.normalize()
-    print
-    
-    b = qp.parse("(a AND b) OR c NOT test")
-    print unicode(b)
-    print unicode(b.normalize())
-    print
-    
-    b = qp.parse(u'hello blah:"there my" friend')
-    print b
-    print b.normalize()
-    print unicode(b)
-    print
-    
-    b = qp.parse(u"NOT funny")
-    print b
-    print b.normalize()
+    pass
+
+
+
+
+
+
 
 

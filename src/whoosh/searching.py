@@ -15,382 +15,270 @@
 #===============================================================================
 
 from __future__ import division
-from math import log, sqrt, pi
 
-import reading
-from util import inv_doc_freq, NBest
+import time
 
+import query, scoring
+from util import TopDocs
 
-def find_docs(reader, query):
-    tr = reader.term_reader()
-    terms = {}
-    
-    docset = query.run(tr, terms)
-    return docset, terms
-    
-def run(reader, query, scorer = None, upper = 50):
-    if scorer == None:
-        scorer = CosineScorer()
-    
-    docset, terms = find_docs(reader, query)
-    total = len(docset)
-    dr = reader.doc_reader()
-    
-    n2n = reader.schema.number_to_name
-    freqmap = dict([
-                    ((n2n(term[0]), term[1]), len(weights))
-                    for term, weights in terms.iteritems()
-                    ])
-    
-    if total == 0:
-        return ResultSet(dr, [], set(), freqmap)
-    
-    nbest = NBest(upper)
-    if scorer:
-        nbest.add_all(scorer.score(reader, terms, docset))
-        doclist = nbest.best()
-    else:
-        doclist = [(docnum, 1.0) for docnum in docset]
-    
-    return ResultSet(dr, doclist, docset, freqmap)
+"""
+This module contains classes and functions related to searching the index.
+"""
 
+# Searcher class
 
-class ResultSet(object):
-    def __init__(self, doc_reader, sorted, docset, freqmap):
+class Searcher(object):
+    """
+    Object for searching an index. Produces Results objects.
+    """
+    
+    def __init__(self, ix, weighting = None, sorter = None):
+        self.index = ix
+        self.term_reader = ix.term_reader()
+        self.doc_reader = ix.doc_reader()
+        
+        self.doc_count = ix.doc_count_all()
+        self.weighting = weighting or scoring.BM25F()
+        self.weighting.set_searcher(self)
+        self.sorters = {}
+    
+    def __del__(self):
+        del self.index
+    
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__, self.index)
+    
+    def _sorter(self, fieldname):
+        if fieldname not in self.sorters:
+            self.sorters[fieldname] = scoring.FieldSorter(self, fieldname)
+        return self.sorters[fieldname]
+    
+    def close(self):
+        self.term_reader.close()
+        self.doc_reader.close()
+    
+    def refresh(self):
+        self.term_reader.close()
+        self.doc_reader.close()
+        
+        self.index = self.index.refresh()
+        self.term_reader = self.index.term_reader()
+        self.doc_reader = self.index.doc_reader()
+    
+    def doc(self, **kw):
+        """
+        Convenience function returns the stored fields of a document
+        matching the given keyword arguments, where the keyword keys are
+        field names and the values are terms that must appear in the field.
+        
+        Where Searcher.docs() returns a generator, this function returns either
+        a dictionary or None. Use it when you assume the given keyword arguments
+        either match zero or one documents (i.e. at least one of the fields is
+        a unique key).
+        """
+        
+        for p in self.docs(**kw):
+            return p
+    
+    def docs(self, **kw):
+        """
+        Convenience function returns the stored fields of a document
+        matching the given keyword arguments, where the keyword keys are
+        field names and the values are terms that must appear in the field.
+        
+        Returns a list (not a generator, so as not to keep the readers open)
+        of dictionaries containing the stored fields of any documents matching
+        the keyword arguments.
+        """
+        
+        ls = []
+        
+        q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
+        dr = self.doc_reader
+        for docnum in q.docs(self):
+            ls.append(dr[docnum])
+        
+        return ls
+    
+    def search(self, query, upper = 5000, weighting = None, sortfield = None, reversed = False):
+        if sortfield == '':
+            # Don't sort
+            gen = ((docnum, 1) for docnum in query.docs(self))
+        elif sortfield is not None:
+            # Sort by the contents of an indexed field
+            sorter = self._sorter(sortfield)
+            gen = sorter.doc_orders(query.docs(self), reversed = reversed)
+        else:
+            # Sort by scores
+            if weighting is not None:
+                weighting.set_searcher(self)
+            gen = query.doc_scores(self, weighting = weighting)
+        
+        return Results(self.index, self.doc_reader, query, gen, upper)
+    
+    def fieldname_to_num(self, fieldname):
+        return self.index.schema.name_to_number(fieldname)
+    
+    def field(self, fieldname):
+        return self.index.schema.by_name[fieldname]
+    
+    def field_has_vectors(self, fieldname):
+        return self.index.schema.by_name[fieldname] is not None
+    
+
+# Results class
+
+class Results(object):
+    """
+    The results of a search of the index.
+    """
+    
+    def __init__(self, ix, doc_reader, query, sequence, upper):
+        """
+        index is the index to search.
+        query is a query object (from the query module).
+        scorer is a scorer object to use. The default is CosineScorer();
+        specify None to not score the results.
+        upper is the maximum number of documents to return for a scored
+        search; the default is 5000. Unscored searches always return all
+        results.
+        """
+        
+        self.index = ix
         self.doc_reader = doc_reader
+        self.query = query
+        self.upper = upper
         
-        # List of (docnum, score) pairs
-        self.sorted = sorted
+        # Use a TopDocs object to sort the (docnum, score) pairs in 'sequence'.
+        t = time.time()
+        self.topdocs = TopDocs(upper, ix.doc_count_all())
+        self.topdocs.add_all(sequence)
+        self.scored_list = self.topdocs.best()
         
-        # Set of docnums
-        self.docset = docset
+        # A BitVector of all the docs found by this search, even if they're not
+        # in the "top N".
+        self.docs = self.topdocs.docs
         
-        # term -> frequency dictionary
-        self.freqmap = freqmap
+        self.runtime = time.time() - t
+    
+    def __repr__(self):
+        return "<%s/%s Results for %r runtime=%s>" % (len(self), self.docs.count(),
+                                                      self.query,
+                                                      self.runtime)
+    
+    def _check_index(self, start, end):
+        last = len(self.scored_list)
+        if start > last or end > last:
+            raise IndexError("Tried to retrieve item %s but results only has top %s" % (end, self.upper))
     
     def __len__(self):
-        return len(self.sorted)
-    
-    def total(self):
-        return len(self.docset)
+        """
+        Returns the number of documents found by this search. Note this
+        may be fewer than the number of ranked documents.
+        """
+        return len(self.scored_list)
     
     def __getitem__(self, n):
-        return self.doc_reader[self.docnum(n)]
+        self._check_index(n, n)
+        return self.doc_reader[self.scored_list[n]] 
     
-    def words(self, field = None):
-        return [text for f, text
-                in self.freqmap.keys()
-                if field is None or field == f]
-    
-    def missing_words(self, field = None):
-        return [term[1] for term, freq
-                in self.freqmap.iteritems()
-                if (field is None or field == term[0]) and freq == 0]
-    
-    def docnum(self, n):
-        return self.sorted[n][0]
-    def score(self, n):
-        return self.sorted[n][1]
+    def __getslice__(self, start, end):
+        self._check_index(start, end)
+        dr = self.doc_reader
+        return [dr[docnum] for docnum in self.scored_list[start:end]]
     
     def __iter__(self):
+        """
+        Yields the stored fields of each result document in ranked order.
+        """
         dr = self.doc_reader
-        for docnum, _ in self.sorted:
+        for docnum, _ in self.scored_list:
             yield dr[docnum]
-            
-    def append(self, resultset):
-        ds = self.docset
-        theirs = resultset.sorted
-        
-        # Only add docs that aren't already in this resultset
-        self.sorted.extend([(docnum, score) for docnum, score in theirs if docnum not in ds])
-        
-        # Merge the docsets
-        self.docset |= resultset.docset
-        
-        # Merge the freqmaps
-        freqmap = self.freqmap
-        for term, freq in resultset.freqmap:
-            if term not in freqmap or (freqmap[term] == 0 and freq != 0):
-                freqmap[term] = freq
-
-
-class BM25Scorer(object):
-    def __init__(self, K1 = 1.2, B = 0.75):
-        assert K1 >= 0.0
-        assert 0.0 <= B <= 1.0
-        
-        self.K1 = K1
-        self.B = B
-        self.K1_plus1 = K1 + 1.0
-        self.B_from1 = 1.0 - B
     
-    def score(self, reader, terms, docset):
-        dr = reader.doc_reader()
+    def docnum(self, n):
+        """
+        Returns the document number of the result at position n in the
+        list of ranked documents. Use __getitem__ (i.e. Results[n]) to
+        get the stored fields directly.
+        """
         
-        K1, B, K1_plus1, B_from1 = self.K1, self.B, self.K1_plus1, self.B_from1
-        N = reader.doc_count()
-        mean_length = reader.term_total() / N
-        
-        idf = {}
-        for term, weights in terms.iteritems():
-            doc_freq = len(weights)
-            idf[term] = inv_doc_freq(N, doc_freq)
-        
-        for docnum in docset:
-            normsize = dr.total(docnum) / mean_length
-            score = 0.0
-            for term in terms:
-                if docnum in terms[term]:
-                    weight = terms[term][docnum]
-                    score += idf[term] * (weight + K1_plus1) / (weight + K1 * (B_from1 + B * normsize))
-            
-            if score > 0:
-                yield docnum, score
-
-
-class CosineScorer(object):
-    def score(self, reader, terms, docset):
-        N = reader.doc_count()
-        
-        idf = {}
-        for term, weights in terms.iteritems():
-            doc_freq = len(weights)
-            idf[term] = inv_doc_freq(N, doc_freq)
-        
-        for docnum in docset:
-            score = 0.0
-            for term in terms:
-                if docnum in terms[term]:
-                    weight = terms[term][docnum]
-                    
-                    if weight == 0:
-                        DTW = 0.0
-                    else:
-                        DTW = (1.0 + log(weight)) * idf[term]
-                    
-                    QTF = QMF = 1.0
-                    QTW = ((0.5 + (0.5 * QTF / QMF))) * idf[term]
-                    
-                    score += (DTW * QTW)
-            
-            if score > 0:
-                score = score / sqrt(score)
-                yield docnum, score
-
-
-class DFReeScorer(object):
-    def score(self, reader, terms, docset):
-        dr = reader.doc_reader()
-        
-        tf_in_collection = {}
-        for term in terms:
-            tf_in_collection[term] = sum(terms[term])
-        
-        for docnum in docset:
-            doclen = dr.total(docnum)
-            score = 0.0
-            for term in terms:
-                if docnum in terms[term]:
-                    tf = terms[term][docnum]
-                    
-                    prior = tf / doclen
-                    post = (tf + 1.0) / (doclen + 1)
-                    invprior = reader.term_total() / tf_in_collection[term]
-                    
-                    norm = tf * log(post / prior, 2)
-                    tf_in_query = 1.0 # TODO: fix this
-                    
-                    score -= tf_in_query * norm * (tf * (- log(prior * invprior, 2)) + (tf + 1.0) * (+ log(post * invprior, 2)) + 0.5 * log(post/prior, 2))
-            
-            yield docnum, score
-
-
-class DLH13Scorer(object):
-    def __init__(self, k = 0.5):
-        self.k = k
+        self._check_index(n, n)
+        return self.sorted_list[n]
     
-    def score(self, reader, terms, docset):
-        k = self.k
-        N = reader.doc_count()
-        mean_length = reader.term_total() / N
-        dr = reader.doc_reader()
+    def extend(self, results, addterms = True):
+        """
+        Appends the results another Search object to the end of the results
+        of this one.
         
-        tf_in_collection = {}
-        for term in terms:
-            tf_in_collection[term] = sum(terms[term])
+        results is another results object.
+        addterms is whether to add the terms from the other search's
+        term frequency map to this object's term frequency map.
+        """
         
-        for docnum in docset:
-            doclen = dr.total(docnum)
-            score = 0.0
-            for term in terms:
-                if docnum in terms[term]:
-                    tf = terms[term][docnum]
-                    f  = tf / doclen
-                    tf_in_query = 1.0 # TODO: fix this
-                    
-                    score -= tf_in_query * (tf * log((tf * mean_length / doclen) * (N / tf_in_collection[term]), 2) + 0.5 * log(2.0 * pi * tf * (1.0 - f))) / (tf + k)
-            
-            yield docnum, score
-
-class InL2Scorer(object):
-    def __init__(self, c = 1.0):
-        self.c = c
-    
-    def score(self, reader, terms, docset):
-        c = self.c
-        N = reader.doc_count()
-        mean_length = reader.term_total() / N
-        dr = reader.doc_reader()
+        docs = self.docs
+        self.scored_list.extend(docnum for docnum in results.scored_list
+                                if docnum not in docs)
+        self.docs = docs | results.docs
         
-        def idfDFR(d):
-            return log((N + 1) / (d + 0.5), 2)
+        # TODO: merge the terms
+    
+    def filter(self, results):
+        """
+        Removes any hits that are not also in the 'othersearch' results object.
+        """
         
-        for docnum in docset:
-            doclen = dr.total(docnum)
-            score = 0.0
-            for term in terms:
-                docfreq = len(terms[term])
-                if docnum in terms[term]:
-                    tf = terms[term][docnum]
-                    TF = tf * log(1.0 + (c * mean_length) / doclen)
-                    norm = 1.0 / (TF + 1.0)
-                    tf_in_query = 1.0 # TODO: Fix this
-                    score += TF * idfDFR(docfreq) * tf_in_query
-            
-            yield docnum, score
+        docs = self.docs & results.docs
+        self.scored_list = [docnum for docnum in self.scored_list if docnum in docs]
+        self.docs = docs
 
-class IdfScorer(object):
-    def score(self, reader, terms, docset):
-        N = reader.doc_count()
-        for docnum in docset:
-            score = 0.0
-            for term in terms:
-                if docnum in terms[term]:
-                    score += inv_doc_freq(N, terms[term][docnum])
-            
-            yield docnum, score
+# Utilities
 
-class FrequencyScorer(object):
-    def score(self, reader, terms, docset):
-        for docnum in docset:
-            score = 0.0
-            for term in terms:
-                score += terms[term].get(docnum, 0)
-            
-            yield docnum, score
-
-#class Bo1QueryExpander(object):
-#    def Bo1(self, reader, terms, sorted, top = 10, tf_in_collection, top_size, collection_size, score):
-#        N = reader.doc_total()
-#        mean_length = reader.term_total() / N
-#        
-#        tf_in_collection = {}
-#        max_tf = 0
-#        for term in terms:
-#            tf = sum(terms[term].itervalues())
-#            if tf > max_tf: max_tf = tf
-#            tf_in_collection[term] = tf
-#            
-#        f = max_tf / N
-#        norm = (max_tf * log((1.0 + f) / f) + log(1.0 + f)) / log(2.0)
-#        
-#        tf_in_top = {}
-#        for term in terms:
-#            tf = 0.0
-#            for docnum in sorted[:top]:
-#                if docnum in terms[term]:
-#                    tf += terms[term][docnum]
-#            tf_in_top[term] = tf
-#        
-#        doctotal = reader.doc_total()
-#        f = tf / doctotal
-
-
-class Expander(object):
-    def __init__(self, reader, model = None):
-        self.reader = reader
-        self.terms = {}
-        self.top_total = 0
-        self.model = model or Bo1Model(reader)
+class Paginator(object):
+    """
+    Helper class that divides search results into pages, for use in
+    displaying the results.
+    """
     
-    def add(self, field_num, docnum, wordmap):
-        terms = self.terms
-        tr = self.reader.term_reader()
-        top_weight = 0
-        for word, weight in wordmap.iteritems():
-            term = (field_num, word)
-            top_weight += weight
-            
-            if term in terms:
-                data = terms[term]
-                data[1] += weight
-                data[2] += 1
-            else:
-                try:
-                    tr.find_term(*term)
-                    terms[term] = [tr.total_weight, weight, 1]
-                except reading.TermNotFound:
-                    print "Term not found: (%s:%s)" % term
-        self.top_total += top_weight
-    
-    def expanded_terms(self, number, normalize = True, min_docs = 2):
-        model = self.model
-        tlist = []
-        maxweight = 0
-        for t, d in self.terms.iteritems():
-            score = model.score(d[1], d[0], self.top_total)
-            if score > maxweight: maxweight = score
-            tlist.append((score, t))
+    def __init__(self, results, perpage):
+        """
+        search is a Search object. perpage is the number of results
+        in each page.
+        """
         
-        if normalize:
-            norm = model.normalizer(maxweight, self.top_total)
-        else:
-            norm = maxweight
-        tlist = [(weight / norm, t) for weight, t in tlist]
-        tlist.sort(reverse = True)
+        self.results = results
+        self.perpage = perpage
+    
+    def from_to(self, pagenum):
+        lr = len(self.results)
+        perpage = self.perpage
         
-        return [(t, weight) for weight, t in tlist[:number]]
+        lower = (pagenum - 1) * perpage
+        upper = lower + perpage
+        if upper > lr:
+            upper = lr
         
-
-class ExpansionModel(object):
-    def __init__(self, reader):
-        self.reader = reader
-        self.N = reader.doc_count()
-        self.collection_total = reader.term_total()
-        self.mean_length = self.collection_total / self.N
-
-class Bo1Model(ExpansionModel):
-    def normalizer(self, maxweight, top_total):
-        f = maxweight / self.N
-        return (maxweight * log((1.0 + f) / f) + log(1.0 + f)) / log(2.0)
+        return (lower, upper)
     
-    def score(self, weight_in_top, weight_in_collection, top_total):
-        f = weight_in_collection / self.N
-        return weight_in_top * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
+    def pagecount(self):
+        """
+        Returns the total number of pages of results.
+        """
+        
+        return len(self.results) // self.perpage + 1
     
-class Bo2Model(ExpansionModel):
-    def normalizer(self, maxweight, top_total):
-        f = maxweight * self.N / self.collection_total
-        return (maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2))
-    
-    def score(self, weight_in_top, weight_in_collection, top_total):
-        f = weight_in_top * top_total / self.collection_total
-        return weight_in_top * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
-
-class KLModel(ExpansionModel):
-    def normalizer(self, maxweight, top_total):
-        return maxweight * log(self.collection_total / top_total) / log(2.0) * top_total
-    
-    def score(self, weight_in_top, weight_in_collection, top_total):
-        if weight_in_top / top_total < weight_in_collection / self.collection_total:
-            return 0
-        else:
-            return weight_in_top / top_total * log((weight_in_top / top_total) / (weight_in_top / self.collection_total), 2)
+    def page(self, pagenum):
+        """
+        Returns a list of the stored fields for the documents
+        on the given page.
+        """
+        
+        lower, upper = self.from_to(pagenum)
+        return self.results[lower:upper]
 
 
 
-
-
+if __name__ == '__main__':
+    pass
 
 
 
