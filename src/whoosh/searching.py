@@ -125,6 +125,18 @@ class Searcher(object):
     def field_has_vectors(self, fieldname):
         return self.index.schema.by_name[fieldname] is not None
     
+    def doc_frequency(self, fieldnum, text):
+        return self.term_reader.doc_frequency(fieldnum, text)
+    
+    def term_count(self, fieldnum, text):
+        return self.term_reader.term_count(fieldnum, text)
+    
+    def doc_length(self, docnum):
+        return self.doc_reader.doc_length(docnum)
+    
+    def doc_unique_count(self, docnum):
+        return self.doc_reader.unique_count(docnum)
+    
 
 # Results class
 
