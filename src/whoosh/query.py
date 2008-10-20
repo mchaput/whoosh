@@ -108,6 +108,12 @@ class Query(object):
         (if oldtext was in this query).
         """
         return self
+    
+    def __or__(self, query):
+        return Or([self, query]).normalize()
+    
+    def __and__(self, query):
+        return And([self, query]).normalize()
 
 
 class MultifieldTerm(Query):
