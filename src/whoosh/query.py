@@ -97,8 +97,8 @@ class Query(object):
     
     def normalize(self):
         """
-        Returns a "normalized" form of this query. The normalized form removes
-        redundancy and empty queries. For example,
+        Returns a recursively "normalized" form of this query. The normalized
+        form removes redundancy and empty queries. For example,
         AND(AND(a, b), c, Or()) -> AND(a, b, c).
         """
         return self
@@ -303,14 +303,16 @@ class CompoundQuery(Query):
             q.existing_terms(term_reader, termset, reverse = reverse)
 
     def normalize(self):
-        if not self.subqueries and not self.notqueries:
-            return None
+        # Combine the subquery lists and do an initial check for Nones.
+        subqueries = [q for q in self.subqueries + self.notqueries if q is not None]
         
-        subqueries = [q for q in self.subqueries if q is not None]
+        if not subqueries:
+            return None
         
         if len(subqueries) == 1 and not self.notqueries:
             return subqueries[0].normalize()
         
+        # Normalize the subqueries and eliminate duplicate terms.
         subqs = []
         seenterms = set()
         for s in subqueries:
@@ -329,8 +331,6 @@ class CompoundQuery(Query):
                 subqs += s.notqueries
             else:
                 subqs.append(s)
-        
-        subqs += [s.normalize() for s in self.notqueries if s is not None]
         
         return self.__class__(subqs)
     
