@@ -453,7 +453,7 @@ class Or(CompoundQuery):
         return scores.iteritems()
 
 
-class Not(Term):
+class Not(Query):
     """
     Excludes documents that match the subquery.
     
