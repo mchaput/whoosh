@@ -118,8 +118,6 @@ class Query(object):
     
     def __sub__(self, query):
         q = And([self, Not(query)])
-        print "q=", q
-        print "n=", q.normalize()
         return q.normalize()
 
 
