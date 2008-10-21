@@ -97,8 +97,9 @@ class Query(object):
     
     def normalize(self):
         """
-        Returns a "normalized" form of this query. For example,
-        AND(AND(a, b), c) -> AND(a, b, c).
+        Returns a "normalized" form of this query. The normalized form removes
+        redundancy and empty queries. For example,
+        AND(AND(a, b), c, Or()) -> AND(a, b, c).
         """
         return self
     
@@ -114,6 +115,12 @@ class Query(object):
     
     def __and__(self, query):
         return And([self, query]).normalize()
+    
+    def __sub__(self, query):
+        q = And([self, Not(query)])
+        print "q=", q
+        print "n=", q.normalize()
+        return q.normalize()
 
 
 class MultifieldTerm(Query):
@@ -319,12 +326,13 @@ class CompoundQuery(Query):
                 
             if isinstance(s, self.__class__):
                 subqs += s.subqueries
+                subqs += s.notqueries
             else:
                 subqs.append(s)
         
-        notqs = [s.normalize() for s in self.notqueries if s is not None]
+        subqs += [s.normalize() for s in self.notqueries if s is not None]
         
-        return self.__class__(subqs + notqs)
+        return self.__class__(subqs)
     
     def _not_vector(self, searcher, sourcevector):
         # Returns a BitVector where the positions are docnums
@@ -805,68 +813,12 @@ class Phrase(MultiTerm):
             if current:
                 yield docnum, score * len(current)
 
-#class Passage(MultiTerm):
-#    def __init__(self, fieldname, words, boost = 1.0, all = False):
-#        super(self.__class__, self).__init__(fieldname, words, boost = boost)
-#        self.all = all
-#    
-#    def passages(self, words, positions):
-#        pass
-#    
-#    def doc_scores(self, searcher, exclude_docs = None):
-#        fieldname = self.fieldname
-#        words = self.words
-#        wordset = frozenset(words)
-#        minword = min(wordset)
-#        maxword = max(wordset)
-#        dr = searcher.doc_reader
-#        passages = self.passages
-#        field = searcher.field(fieldname)
-#        fieldnum = field.number
-#        
-#        if not (field.vector and field.vector.has_positions):
-#            raise QueryError("Passages need position vectors on field %r" % field.name)
-#        
-#        querytype = And if self.all else Or
-#        prequery = querytype([Term(fieldname, word) for word in words])
-#        
-#        positions = {}
-#        for docnum, score in prequery.doc_scores(searcher, exclude_docs = exclude_docs):
-#            #print "docnum=", docnum, dr[docnum].get("path"), "score=", score
-#            
-#            pass
-#            for word, poslist in dr.vectored_positions_from(docnum, fieldnum, minword):
-#                if word > maxword: break
-#                if word in wordset:
-#                    positions[word] = poslist
+
             
 
 if __name__ == '__main__':
     pass
-#    import cProfile, pstats, time
-#    import index, scoring, searching
-#    ix = index.open_dir("../index")
-#    s = searching.Searcher(ix, weighting = scoring.Hiemstra_LM())
-#    
-#    #t = time.clock()
-#    #ls = list(Term("content", "rendering").doc_scores(s))
-#    #print "term=", time.clock() - t
-#    
-#    ws = [u"having", u"houdini", u"automatically", u"press"]
-#    ts = [Term("content", w) for w in ws]
-#    
-#    p = Phrase("content", ws)
-#    t = time.clock()
-#    list(p.doc_scores(s))
-#    print "phrase=", time.clock() - t
-#    
-#    #print "aq=", len(list(And(ts).docs(s))), And(ts).estimate_size(s)
-#    #print "oq=", len(list(Or(ts).docs(s))), Or(ts).estimate_size(s)
-#    
-#    p = Passage("content", ws, all = False)
-#    t = time.clock()
-#    print p.doc_scores(s)
-#    print "passage=", time.clock() - t
+
     
     
     
