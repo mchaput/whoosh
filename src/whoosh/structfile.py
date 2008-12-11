@@ -19,9 +19,9 @@ Contains a class for reading/writing a data stream to a file using binary
 encoding and compression methods such as variable-length encoded integers.
 """
 
-import cPickle
-import struct
+import cPickle, cStringIO
 from struct import calcsize, pack, unpack
+from struct import error as structerror
 
 _int_size = calcsize("!i")
 _long_size = calcsize("!l")
@@ -48,7 +48,7 @@ def read(f, c):
     were in the file).
     
     This is probably a huge performance bottleneck, but
-    I don't want to have to worry about and check the
+    I don't want to have to worry about or check the
     size of every read throughout the code.
     """
     
@@ -56,8 +56,33 @@ def read(f, c):
     if len(s) == 0:
         raise EndOfFile
     if len(s) < c:
-        raise struct.error
+        raise structerror
     return s
+
+def float_to_byte(value, mantissabits = 5, zeroexp = 2):
+    # Assume int size == float size
+    
+    fzero = (63 - zeroexp) << mantissabits
+    bits = unpack("i", pack("f", value))[0]
+    smallfloat = bits >> (24 - mantissabits)
+    if smallfloat < fzero:
+        # Map negative numbers and 0 to 0
+        # Map underflow to next smallest non-zero number
+        return 0 if bits <= 0 else 1
+    elif smallfloat >= fzero + 0x100:
+        # Map overflow to largest number
+        return 255
+    else:
+        return smallfloat - fzero
+    
+def byte_to_float(b, mantissabits = 5, zeroexp = 2):
+    if b == 0:
+        return 0.0
+    
+    bits = (b & 0xff) << (24 - mantissabits)
+    bits += (63 - zeroexp) << 24
+    return unpack("f", pack("i", bits))[0]
+    
 
 # Varint cache
 
@@ -76,6 +101,7 @@ for i in xrange(0, _varint_cache_size):
     _varint_cache.append(s)
 _varint_cache = tuple(_varint_cache)
 
+
 # Main class
 
 class StructFile(object):
@@ -88,13 +114,14 @@ class StructFile(object):
     tell() for writing, and read(), tell(), and seek() for reading.
     """
     
-    def __init__(self, file):
+    def __init__(self, file, name = None, onclose = None):
         """
         file is the file-like object to wrap.
         """
         
         self.file = file
-        self._name = None
+        self.onclose = onclose
+        self._name = name
         
         self.tell = self.file.tell
         self.seek = self.file.seek
@@ -106,9 +133,15 @@ class StructFile(object):
             self.write = self.file.write
         else:
             self.write = None
+            
+        self.closed = False
     
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
+    
+    def __del__(self):
+        if not self.closed:
+            self.close()
     
     def write_byte(self, n):
         """
@@ -160,19 +193,16 @@ class StructFile(object):
         """
         cPickle.dump(obj, self.file, -1)
     
-    def write_8bitfloat(self, f, denom = 40):
+    def write_8bitfloat(self, f, mantissabits = 5, zeroexp = 2):
         """
         Writes a byte-sized representation of floating point value
-        f to the wrapped file. This simply multiplies and floors f
-        and writes the resulting integer, which must be within
-        0-255. denom is the value to multiply by.
-        
-        (This was going to be a more fancy implementation that
-        really wrote an 8-bit float with mantissa etc., but this
-        simplistic implementation works well enough for the index.)
+        f to the wrapped file.
+        mantissabits is the number of bits to use for the mantissa
+        (with the rest used for the exponent).
+        zeroexp is the zero point for the exponent.
         """
-        assert f >= 0 and f <= 255/denom
-        self.write_byte(int(f * denom))
+        
+        self.write_byte(float_to_byte(f, mantissabits, zeroexp))
     
     def write_varint(self, i):
         """
@@ -249,16 +279,14 @@ class StructFile(object):
         """
         return cPickle.load(self.file)
     
-    def read_8bitfloat(self, denom = 40):
+    def read_8bitfloat(self, mantissabits = 5, zeroexp = 2):
         """
-        Reads a byte-sized representation of a floating point
-        value. This simply divides the byte value by denom.
-        
-        (This was going to be a more fancy implementation that
-        really wrote an 8-bit float with mantissa etc., but this
-        simplistic implementation works well enough for the index.)
+        Reads a byte-sized representation of a floating point value.
+        mantissabits is the number of bits to use for the mantissa
+        (with the rest used for the exponent).
+        zeroexp is the zero point for the exponent.
         """
-        return self.read_byte() / denom
+        return byte_to_float(self.read_byte(), mantissabits, zeroexp)
     
     def read_varint(self):
         """
@@ -292,11 +320,18 @@ class StructFile(object):
         Closes the wrapped file. This is a no-op
         if the wrapped file does not have a close method.
         """
+        if self.onclose:
+            self.onclose(self)
         if hasattr(self.file, "close"):
             self.file.close()
+        self.closed = True
         
 
-
+if __name__ == '__main__':
+    x = 0.0
+    for i in xrange(0, 200):
+        x += 0.25
+        print x, byte_to_float(float_to_byte(x))
 
 
     

@@ -23,8 +23,13 @@ RamStorage keeps the "files" in memory.
 
 import os
 from cStringIO import StringIO
+from threading import Lock
 
-from structfile import StructFile
+from whoosh.structfile import StructFile
+
+
+class LockError(Exception):
+    pass
 
 
 class FileStorage(object):
@@ -89,10 +94,10 @@ class FileStorage(object):
     def close(self):
         pass
     
-    def make_dir(self, name):
+    def lock(self, name):
         os.mkdir(self._fpath(name))
-        
-    def remove_dir(self, name):
+    
+    def unlock(self, name):
         os.removedirs(self._fpath(name))
     
     def __repr__(self):
@@ -106,6 +111,7 @@ class RamStorage(object):
     
     def __init__(self):
         self.files = {}
+        self.locks = {}
     
     def __iter__(self):
         return iter(self.list())
@@ -120,30 +126,44 @@ class RamStorage(object):
         return sum(self.file_length(f) for f in self.list())
 
     def file_exists(self, name):
-        return self.files.has_key(name)
+        return name in self.files
     
     def file_length(self, name):
-        f = self.files[name]
-        return len(f.file.getvalue())
+        if name not in self.files:
+            raise NameError
+        return len(self.files[name])
 
     def delete_file(self, name):
-        del(self.files[name])
+        if name not in self.files:
+            raise NameError
+        del self.files[name]
 
-    def rename_file(self, name, newName):
-        file = self.files[name]
-        del(self.files[name])
-        self.files[newName] = file
+    def rename_file(self, name, newname):
+        if name not in self.files:
+            raise NameError
+        content = self.files[name]
+        del self.files[name]
+        self.files[newname] = content
 
     def create_file(self, name):
-        f = StructFile(StringIO())
-        f._name = name
-        self.files[name] = f
+        def onclose_fn(sfile):
+            self.files[name] = sfile.file.getvalue()
+        f = StructFile(StringIO(), name = name, onclose = onclose_fn)
         return f
 
     def open_file(self, name):
-        if not self.files.has_key(name):
+        if name not in self.files:
             raise NameError
-        return StructFile(StringIO(self.files[name].file.getvalue()))
+        return StructFile(StringIO(self.files[name]))
+    
+    def lock(self, name):
+        if name not in self.locks:
+            self.locks[name] = Lock()
+        if not self.locks[name].acquire(False):
+            raise LockError("Could not lock %r" % name)
+    
+    def unlock(self, name):
+        self.locks[name].release()
     
     def close(self):
         pass

@@ -20,7 +20,7 @@ Miscellaneous utility functions and classes.
 
 from heapq import heappush, heapreplace
 
-from support.bitvector import BitVector
+from whoosh.support.bitvector import BitVector
 
 # Functions
 
@@ -128,7 +128,7 @@ class UtilityIndex(object):
         
     def create_index(self):
         import index
-        self._index = index.create(self.storage, self.schema(), self.indexname)
+        self._index = index.Index(self.storage, self.schema(), self.indexname, create = True)
 
 
 

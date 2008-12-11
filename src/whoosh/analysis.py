@@ -15,8 +15,8 @@
 #===============================================================================
 
 """
-This module contains functions and classes for turning a piece of
-text into an indexable stream of words.
+TFunctions and classes for turning a piece of text into an
+indexable stream of words.
 
 This module defines three types of functions/classes:
 
@@ -24,15 +24,13 @@ Tokenizers: callables that take a string and yield tokenized "words".
 
 Filters: callables that take a "word" generator and filter it.
 
-Analyzers: classes that implement Analyzer.words() and
-Analyzer.positioned_words(). Analyzers package up a tokenizer and
-zero or more filters into a high-level interface used by other code.
-When you create an index, you specify an Analyzer for each field.
+Analyzers: a callable that combines a tokenizer and filters for
+convenience.
 """
 
 import re
 
-from lang.porter import stem
+from whoosh.lang.porter import stem
 
 # Default list of stop words (words so common it's usually
 # wasteful to index them). This list is used by the StopFilter
@@ -43,6 +41,18 @@ STOP_WORDS = ["the", "to", "of", "a", "and", "is", "in", "this",
               "you", "for", "be", "on", "or", "will", "if", "can", "are",
               "that", "by", "with", "it", "as", "from", "an", "when",
               "not", "may", "tbd", "yet"]
+
+# Token object
+
+class Token(object):
+    __slots__ = ("positions", "chars",
+                 "orig", "text", "pos", "startchar", "endchar",
+                 "stopped")
+    
+    def __init__(self, positions, chars):
+        self.positions = positions
+        self.chars = chars
+        self.stopped = False
 
 # Support functions
 
@@ -62,63 +72,111 @@ def gram(text, min, max):
 
 # Tokenizers
 
-def SimpleTokenizer(text):
+def IDTokenizer(value, positions = False, chars = False, start_pos = 0, start_char = 0):
     """
-    Uses a regular expression to pull words out of text.
+    Returns the entire input string as a single token. For use
+    in indexed but untokenized fields, such as a document's path.
     """
     
-    exp = re.compile(r"\W", re.UNICODE)
-    for w in exp.split(text):
-        if w and len(w) > 0:
-            yield w
+    t = Token(positions, chars)
+    t.orig = t.text = value
+    if positions:
+        t.pos = start_pos + 1
+    if chars:
+        t.startchar = start_char
+        t.endchar = start_char + len(value)
+    yield t
+    
 
-_space_split_exp = re.compile(r"(\s|,)+")
-def ListTokenizer(text):
+class RegexTokenizer(object):
     """
-    Instead of splitting words by ALL punctuation and whitespace, this
-    tokenizer only splits by whitespace and commas. This is useful for
-    lists of IDs.
+    Uses a regular expression to extract tokens from text.
     """
     
-    for w in _space_split_exp.split(text):
-        if w and len(w) > 0:
-            yield w
-            
-_comma_split_exp = re.compile("\s*,\s*")
-def CommaTokenizer(text):
+    default_expression = re.compile("\w+", re.UNICODE)
+    
+    def __init__(self, expression = None):
+        self.expression = expression or self.default_expression
+        
+    def __call__(self, value, positions = False, chars = False,
+                 start_pos = 0, start_char = 0):
+        t = Token(positions, chars)
+        
+        for pos, match in enumerate(self.expression.finditer(value)):
+            t.orig = t.text = match.group(0)
+            t.stopped = False
+            if positions:
+                t.pos = start_pos + pos
+            if chars:
+                t.startchar = start_char + match.start()
+                t.endchar = start_char + match.end()
+            yield t
+
+
+class SpaceSeparatedTokenizer(RegexTokenizer):
     """
-    Instead of splitting words by ALL punctuation and whitespace, this
-    tokenizer only splits by commas. This is useful for lists of tokens
-    that might contain spaces.
+    Splits tokens by whitespace.
     """
     
-    for w in _comma_split_exp.split(text):
-        if w and len(w) > 0:
-            yield w
+    default_expression = re.compile("[^ \t\r\n]+")
+
+
+class CommaSeparatedTokenizer(RegexTokenizer):
+    """
+    Splits tokens by commas with optional whitespace.
+    """
+    
+    default_expression = re.compile("[^,]+")
+    
+    def __call__(self, value, positions = False, chars = False,
+                 start_pos = 0, start_char = 0):
+        t = Token(positions, chars)
+        
+        for pos, match in enumerate(self.expression.finditer(value)):
+            t.orig = t.text = match.group(0).strip()
+            t.stopped = False
+            if positions:
+                t.pos = start_pos + pos
+            if chars:
+                t.startchar = start_char + match.start()
+                t.endchar = start_char + match.end()
+            yield t
+
 
 class NgramTokenizer(object):
     """
     Splits input text into Ngrams instead of words.
     """
     
-    def __init__(self, min, max, normalize = r"\W+"):
+    def __init__(self, minsize, maxsize = None):
         """
         min is the minimum length of the Ngrams to output, max is the
         maximum length to output. normalize is a regular expression that
         is globally replaced by spaces (used to eliminate punctuation).
         """
         
-        self.min = min
-        self.max = max
+        self.min = minsize
+        self.max = maxsize or minsize
         
-        self.normalize = normalize
-        if normalize:
-            self.normalize_exp = re.compile(normalize)
-    
-    def __call__(self, text):
-        if self.normalize:
-            text = self.normalize_exp.sub(" ", " %s " % text).strip()
-        return gram(text, self.min, self.max)
+    def __call__(self, value, positions = False, chars = False,
+                 start_pos = 0, start_char = 0):
+        inLen = len(value)
+        t = Token(positions, chars)
+        
+        pos = start_pos
+        for size in xrange(self.min, self.max + 1):
+            limit = inLen - size + 1
+            for start in xrange(0, limit):
+                end = start + size
+                t.orig = t.text = value[start : end]
+                t.stopped = False
+                if positions:
+                    t.pos = pos
+                if chars:
+                    t.startchar = start_char + start
+                    t.endchar = start_char + end
+                yield t
+                pos += 1
 
 # Filters
 
@@ -145,33 +203,56 @@ class StemFilter(object):
     def clear(self):
         self.cache.clear()
     
-    def __call__(self, ws):
+    def __call__(self, tokens):
         cache = self.cache
         ignores = self.ignores
         
-        for w in ws:
-            if w in ignores:
-                yield w
-            elif w in cache:
-                yield cache[w]
+        for t in tokens:
+            if t.stopped:
+                yield t
+                continue
+            
+            text = t.text
+            if text in ignores:
+                yield t
+            elif text in cache:
+                t.text = cache[text]
+                yield t
             else:
-                s = stem(w)
-                cache[w] = s
+                t.text = s = stem(text)
+                cache[text] = s
                 yield s
 
+
 _camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-def CamelFilter(ws):
+def CamelFilter(tokens):
     """
     Splits CamelCased words into multiple words. For example,
-    splits "getProcessedToken" into "get", "Processed", and "Token".
+    the string "getProcessedToken" yields tokens
+    "getProcessedToken", "get", "Processed", and "Token".
+    
+    Obviously this filter needs to precede LowerCaseFilter in a filter
+    chain.
     """
     
-    for w in ws:
-        yield w
-        for match in _camel_exp.finditer(w):
-            sw = match.group(0)
-            if sw != w:
-                yield sw
+    for t in tokens:
+        yield t
+        text = t.text
+        
+        if text and not text.islower() and not text.isupper() and not text.isdigit():
+            chars = t.chars
+            if chars:
+                oldstart = t.startchar
+            
+            for match in _camel_exp.finditer(text):
+                sub = match.group(0)
+                if sub != text:
+                    t.text = sub
+                    if chars:
+                        t.startchar = oldstart + match.start()
+                        t.endchar = oldstart + match.end()
+                    yield t
+
 
 class StopFilter(object):
     """
@@ -193,195 +274,129 @@ class StopFilter(object):
         self.stops = frozenset(stoplist)
         self.min = minsize
     
-    def __call__(self, ws):
+    def __call__(self, tokens):
         stoplist = self.stops
         minsize = self.min
         
-        for w in ws:
-            if len(w) > minsize and not w in stoplist:
-                yield w
+        for t in tokens:
+            text = t.text
+            if len(text) < minsize or text in stoplist:
+                t.stopped = True
+            yield t
 
-def LowerCaseFilter(ws):
+
+def LowerCaseFilter(tokens):
     """
-    Lowercases (using str.lower()) words in the stream.
+    Lowercases (using .lower()) words in the stream.
     """
     
-    for w in ws:
-        yield w.lower()
+    for t in tokens:
+        t.text = t.text.lower()
+        yield t
 
 # Analyzers
 
 class Analyzer(object):
-    """
-    Base class for "analyzers" -- classes that package up
-    a tokenizer and zero or more filters to provide higher-level
-    functionality.
-    """
+    def __repr__(self):
+        return "%s()" % self.__class__.__name__
+
+
+class IDAnalyzer(Analyzer):
+    def __init__(self, strip = True):
+        self.strip = strip
     
-    def filter(self, ws):
-        """
-        If a derived class accepts the default tokenizer
-        (SimpleTokenizer) used by the base class, it only needs
-        to override this method. Otherwise they can override
-        Analyzer.words() instead for complete control.
-        """
-        
-        return ws
+    def __call__(self, value, **kwargs):
+        if self.strip: value = value.strip()
+        return IDTokenizer(value, **kwargs)
+
+
+class SpaceSeparatedAnalyzer(Analyzer):
+    def __init__(self):
+        self.tokenizer = SpaceSeparatedTokenizer()
     
-    def words(self, text):
-        """
-        Takes the text to index and yields a series of terms.
-        """
+    def __call__(self, value, **kwargs):
+        return self.tokenizer(value, **kwargs)
+
+
+class CommaSeparatedAnalyzer(Analyzer):
+    def __init__(self):
+        self.tokenizer = CommaSeparatedTokenizer()
         
-        return self.filter(SimpleTokenizer(text))
-    
-    def position_words(self, text, start_pos = 0):
-        """
-        Takes the text to index and yields a series of (position, term)
-        tuples. The base method simply enumerates the terms from the
-        words() method, but if you want something more complex you can
-        override this method.
-        start_pos is the base position to start numbering at.
-        """
-        
-        for i, w in enumerate(self.words(text)):
-            yield (start_pos + i, w)
+    def __call__(self, value, **kwargs):
+        return self.tokenizer(value, **kwargs)
+
 
 class SimpleAnalyzer(Analyzer):
     """
-    Simple analyzer: does nothing but return the result of the
-    SimpleTokenizer.
-    """
-    
-    def words(self, text):
-        return SimpleTokenizer(text)
-
-class IDAnalyzer(Analyzer):
-    """
-    Does no tokenization or analysis of the text at all: simply passes it
-    through as a single term.
+    Uses a RegexTokenizer and applies a LowerCaseFilter.
     """
     
     def __init__(self):
-        self.tokenizer = None
-        self.filters = []
-    
-    def words(self, text):
-        yield text
-
-class KeywordAnalyzer(Analyzer):
-    """
-    Simple analyzer: does nothing but return the result of the
-    ListTokenizer.
-    """
-    
-    def words(self, text):
-        return ListTokenizer(text)
-
-class CommaAnalyzer(Analyzer):
-    """
-    Simple analyzer: does nothing but return the result of the
-    CommaTokenizer.
-    """
-    
-    def words(self, text):
-        return CommaTokenizer(text)
-
-class LCAnalyzer(Analyzer):
-    """
-    Filters SimpleTokenizer through the LowerCaseFilter.
-    """
-    
-    def filter(self, ws):
-        return LowerCaseFilter(ws)
-
-class StopAnalyzer(Analyzer):
-    """
-    Filters SimpleTokenizer through LowerCaseFilter and StopFilter.
-    """
-    
-    def __init__(self, stopwords = None):
-        """
-        stopwords is a sequence of words not to index; the default
-        is a list of common words.
-        """
+        self.tokenizer = RegexTokenizer()
         
-        self.stopwords = stopwords
-        self.stopper = StopFilter(stopwords)
-    
-    def filter(self, ws):
-        return self.stopper(LowerCaseFilter(ws))
-    
-class StemmingAnalyzer(Analyzer):
+    def __call__(self, value, **kwargs):
+        return LowerCaseFilter(self.tokenizer(value, **kwargs))
+
+
+class StandardAnalyzer(Analyzer):
     """
-    Filters SimpleTokenizer through LowerCaseFilter, StopFilter,
-    and StemFilter.
+    Uses a RegexTokenizer (by default) and applies a LowerCaseFilter
+    and StopFilter.
     """
     
-    def __init__(self, stopwords = None):
-        """
-        stopwords is a sequence of words not to index; the default
-        is a list of common words.
-        """
+    def __init__(self, stoplist = None, minsize = 2):
+        self.tokenizer = RegexTokenizer()
+        self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
-        self.stemmer = StemFilter()
-        self.stopper = StopFilter(stopwords)
+    def __call__(self, value, **kwargs):
+        return self.stopper(LowerCaseFilter(
+                            self.tokenizer(value, **kwargs)))
+
+
+class FancyAnalyzer(Analyzer):
+    """
+    Uses a RegexTokenizer (by default) and applies a CamelFilter,
+    LowerCaseFilter, and StopFilter.
+    """
     
-    def clear(self):
-        """
-        Releases memory used by the stem cache.
-        """
+    def __init__(self, stoplist = None, minsize = 2):
+        self.tokenizer = RegexTokenizer()
+        self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
-        self.stemmer.clear()
-    
-    def filter(self, ws):
-        return self.stemmer(self.stopper(LowerCaseFilter(CamelFilter(ws))))
-    
+    def __call__(self, value, **kwargs):
+        return self.stopper(LowerCaseFilter(
+                            CamelFilter(
+                            self.tokenizer(value, **kwargs))))
+
+
 class NgramAnalyzer(Analyzer):
     """
-    Converts a string into a stream of (lower-case) N-grams
-    instead of words.
+    Uses an NgramTokenizer and applies a LowerCaseFilter.
     """
     
-    def __init__(self, min = 3, max = None, normalize = r"\W+"):
-        """
-        min is the minimum length of the Ngrams to output, max is the
-        maximum length to output. normalize is a regular expression that
-        is globally replaced by spaces (used to eliminate punctuation).
-        """
+    def __init__(self, minsize, maxsize = None):
+        self.tokenizer = NgramTokenizer(minsize, maxsize = maxsize)
         
-        if max is None: max = min
-        assert type(min) == type(max) == int
-        self.min = min
-        self.max = max
-        
-        self.tokenizer = NgramTokenizer(min, max, normalize = normalize)
-    
-    def words(self, text):
-        for w in self.filter(self.tokenizer(text)):
-            yield w
-    
-    def filter(self, ws):
-        return LowerCaseFilter(ws)
+    def __call__(self, value, positions = False, chars = False):
+        return LowerCaseFilter(self.tokenizer(value,
+                                              positions = positions, chars = chars))
 
 
 if __name__ == '__main__':
-    import time
-    import index
-    from collections import defaultdict
+    import timeit
     
-    st = time.time()
-    map = defaultdict(list)
-    ix = index.open_dir("../index")
-    tr = ix.term_reader()
+    fix = """
+from whoosh.analysis import CamelFilter, FancyAnalyzer, StandardAnalyzer
+d = open("/Volumes/Storage/Development/help/documents/nodes/sop/copy.txt").read()
+sa = StandardAnalyzer()
+fa = FancyAnalyzer()
+"""
     
-    c = 0
-    for t in tr.field_words("content"):
-        map[stem(t)].append(t)
-        c += 1
+    t = timeit.Timer("l = [t.text for t in sa(d)]", fix)
+    print t.timeit(100)
     
-    print time.time() - st
-    print "\n".join("%r %r" % (stm, lst) for stm, lst in map.iteritems())
+    t = timeit.Timer("l = [t.text for t in fa(d)]", fix)
+    print t.timeit(100)
 
 
 

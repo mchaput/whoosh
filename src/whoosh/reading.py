@@ -18,10 +18,12 @@
 This module contains classes that allow reading from an index.
 """
 
+from array import array
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop
 
-from tables import TableReader, PostingTableReader, RecordReader
+from whoosh.tables import TableReader, PostingTableReader #, RecordReader
+from whoosh.fields import FieldConfigurationError
 
 # Exceptions
 
@@ -32,20 +34,36 @@ class UnknownFieldError(Exception):
 
 # Utility classes
 
-class EndOfIndex(object):
-    # This singleton is intended as a marker that always sorts to the end of
-    # a list, hence the implementation of __cmp__.
-    
-    def __cmp__(self, x):
-        if type(x) is type(self):
-            return 0
-        return 1
-    
-    def __repr__(self):
-        return "EndOfIndex()"
-
-end_of_index = EndOfIndex()
-
+#class FifoCache(object):
+#    """
+#    Simple FIFO cache wrapping a dictionary. Only allows integers as keys.
+#    """
+#    
+#    def __init__(self, size = 20):
+#        assert size >= 2
+#        self.size = size
+#        self.lst = array("i")
+#        self.dct = {}
+#        
+#    def __contains__(self, key):
+#        return key in self.dct
+#    
+#    def __getitem__(self, key):
+#        return self.dct[key]
+#        
+#    def __setitem__(self, key, value):
+#        lst = self.lst
+#        dct = self.dct
+#        
+#        if key in self:
+#            del self[key]
+#
+#        lst.append(key)
+#        dct[key] = value
+#
+#        if len(lst) > self.size:
+#            del dct[lst.pop(0)]
+        
 # Reader classes
 
 class DocReader(object):
@@ -65,15 +83,24 @@ class DocReader(object):
         self.storage = storage
         self.segment = segment
         self.schema = schema
+        self._scorable_fields = schema.scorable_fields()
         
+        #self._setup_scorable_indices()
         doclength_file = storage.open_file(segment.doclen_filename)
-        self.doclength_records = RecordReader(doclength_file, "!ii")
+        self.doclength_records = TableReader(doclength_file) #RecordReader(doclength_file)
         
         docs_file = storage.open_file(segment.docs_filename)
         self.docs_table = TableReader(docs_file)
+        #self.cache = FifoCache()
         
         self.vector_table = None
         self.is_closed = False
+    
+    #def _setup_scorable_indices(self):
+    #    # Create a map from field number to its position in the
+    #    # list of fields that store length information.
+    #    self.scorable_indices = dict((n, i) for i, n
+    #                               in enumerate(self.schema.scorable_fields()))
     
     def _open_vectors(self):
         if not self.vector_table:
@@ -91,55 +118,127 @@ class DocReader(object):
             self.vector_table.close()
         self.is_closed = True
     
-    def _doc_info(self, docnum):
-        return self.doclength_records[docnum]
+    def fieldname_to_num(self, fieldname):
+        """
+        Returns the field number corresponding to the given field name.
+        """
+        if fieldname in self.schema:
+            return self.schema.name_to_number(fieldname)
+        else:
+            raise UnknownFieldError(fieldname)
+    
+    def doc_count_all(self):
+        """
+        Returns the total number of documents, DELETED OR UNDELETED,
+        in this reader.
+        """
+        return self.segment.doc_count_all()
+    
+    def doc_count(self):
+        """
+        Returns the total number of UNDELETED documents in this reader.
+        """
+        return self.segment.doc_count()
+    
+    def field_length(self, fieldnum):
+        """
+        Returns the total number of terms in the given field.
+        """
+        
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.fieldname_to_num(fieldnum)
+        return self.segment.field_length(fieldnum)
+    
+    def vector_format(self, fieldnum):
+        """
+        Returns the vector format object associated with the given
+        field, or None if the field is not vectored.
+        """
+        return self.schema.field_by_number(fieldnum).vector
+    
+    def vector_supports(self, fieldnum, name):
+        """
+        Returns true if the vector format for the given field supports
+        the data interpretation.
+        """
+        format = self.vector_format(fieldnum)
+        if format is None: return False
+        return format.supports(name)
+    
+    def vector(self, docnum, fieldnum):
+        """
+        Returns a sequence of raw (text, data) tuples representing
+        the term vector for the given document and field.
+        """
+        
+        self._open_vectors()
+        readfn = self.vector_format(fieldnum).read_postvalue
+        return self.vector_table.postings((docnum, fieldnum), readfn)
+    
+    def vector_as(self, docnum, fieldnum, astype):
+        """
+        Returns a sequence of interpreted (text, data) tuples
+        representing the term vector for the given document and
+        field.
+        
+        This method uses the vector format object's 'data_to_*'
+        method to interpret the data. For example, if the vector
+        format has a 'data_to_positions()' method, you can use
+        vector_as(x, y, "positions") to get a positions vector.
+        """
+        
+        format = self.vector_format(fieldnum)
+        
+        if format is None:
+            raise FieldConfigurationError("Field %r is not vectored" % self.schema.number_to_name(fieldnum))
+        elif not format.supports(astype):
+            raise FieldConfigurationError("Field %r does not support %r" % (self.schema.number_to_name(fieldnum),
+                                                                            astype))
+        
+        xform = getattr(format, "data_to_" + astype)
+        for text, data in self.vector(docnum, fieldnum):
+            yield (text, xform(data))
+    
+    def _doc_info(self, docnum, key):
+        #cache = self.cache
+        #if docnum in cache:
+        #    return cache[docnum]
+        #else:
+        #    di = self.doclength_records[docnum]
+        #    cache[docnum] = di
+        #    return di
+        return self.doclength_records.get((docnum, key))
     
     def doc_length(self, docnum):
         """
         Returns the total number of terms in a given document.
         This is used by some scoring algorithms.
         """
-        return self._doc_info(docnum)[0]
+        
+        #return self._doc_info(docnum)[0]
+        return self._doc_info(docnum, -1)
     
     def unique_count(self, docnum):
         """
         Returns the number of UNIQUE terms in a given document.
         This is used by some scoring algorithms.
         """
-        return self._doc_info(docnum)[1]
+        #return self._doc_info(docnum)[1]
+        return self._doc_info(docnum, -2)
     
-    def _vector(self, fieldnum):
-        self._open_vectors()
+    def doc_field_length(self, docnum, fieldnum):
+        """
+        Returns the number of terms in the given field in the
+        given document. This is used by some scoring algorithms.
+        """
+        
         if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.name_to_number(fieldnum)
+            fieldnum = self.fieldname_to_num(fieldnum)
         
-        field = self.schema.by_number[fieldnum]
-        if not field.vector:
-            raise KeyError("Field %r has no term vectors" % field)
-        
-        return field.vector
-    
-    def _posvector(self, fieldnum):
-        v = self._vector(fieldnum)
-        if not v.has_positions:
-            raise KeyError("Field %r has no position vectors" % fieldnum)
-        return v
-    
-    def _base_vectordata(self, docnum, fieldnum):
-        v = self._vector(fieldnum)
-        return v.base_data(self.vector_table, docnum, fieldnum)
-    
-    def vectored_frequencies(self, docnum, fieldnum):
-        v = self._vector(fieldnum)
-        return v.freqs(self.vector_table, docnum, fieldnum)
-    
-    def vectored_positions(self, docnum, fieldnum):
-        v = self._posvector(fieldnum)
-        return v.positions(self.vector_table, docnum, fieldnum)
-    
-    def vectored_positions_from(self, docnum, fieldnum, startid):
-        v = self._posvector(fieldnum)
-        return v.positions_from(self.vector_table, docnum, fieldnum, startid)
+        if fieldnum not in self._scorable_fields:
+            raise FieldConfigurationError("Field %r does not store lengths" % fieldnum)
+            
+        return self._doc_info(docnum, fieldnum)
     
     def __getitem__(self, docnum):
         """
@@ -171,11 +270,14 @@ class MultiDocReader(DocReader):
     Be sure to close() the reader when you're finished with it.
     """
     
-    def __init__(self, doc_readers, doc_offsets):
-        self.doc_readers = doc_readers
-        self.doc_offsets = doc_offsets
+    def __init__(self, storage, segments, schema):
+        self.doc_readers = [DocReader(storage, s, schema)
+                            for s in segments]
+        self.doc_offsets = segments.doc_offsets()
+        self.schema = schema
+        self._scorable_fields = self.schema.scorable_fields()
         self.is_closed = False
-    
+        
     def close(self):
         """
         Closes the open files associated with this reader.
@@ -185,6 +287,15 @@ class MultiDocReader(DocReader):
             d.close()
         self.is_closed = True
     
+    def doc_count_all(self):
+        return sum(dr.doc_count_all() for dr in self.doc_readers)
+    
+    def doc_count(self):
+        return sum(dr.doc_count() for dr in self.doc_readers)
+    
+    def field_length(self, fieldnum):
+        return sum(dr.field_length(fieldnum) for dr in self.doc_readers)
+    
     def _document_segment(self, docnum):
         return bisect_right(self.doc_offsets, docnum) - 1
     
@@ -193,9 +304,13 @@ class MultiDocReader(DocReader):
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
     
-    def _doc_info(self, docnum):
+    def vector(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum]._doc_info(segmentdoc)
+        return self.doc_readers[segmentnum].vector(segmentdoc)
+    
+    def _doc_info(self, docnum, key):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum]._doc_info(segmentdoc, key)
     
     def __getitem__(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -234,17 +349,17 @@ class TermReader(object):
         """
         Returns the field number corresponding to the given field name.
         """
-        if fieldname in self.schema.by_name:
+        if fieldname in self.schema:
             return self.schema.name_to_number(fieldname)
         else:
             raise UnknownFieldError(fieldname)
     
-    def field(self, fieldname):
+    def format(self, fieldname):
         """
-        Returns the field object corresponding to the given field name.
+        Returns the Format object corresponding to the given field name.
         """
-        if fieldname in self.schema.by_name:
-            return self.schema.by_name[fieldname]
+        if fieldname in self.schema:
+            return self.schema.field_by_name(fieldname).format
         else:
             raise UnknownFieldError(fieldname)
     
@@ -265,12 +380,26 @@ class TermReader(object):
             raise TermNotFound("%s:%r" % (fieldnum, text))
     
     def __iter__(self):
-        for (fn, t), (offsets, docfreq, termcount) in self.term_table:
-            yield (fn, t, docfreq, termcount)
+        """
+        Yields (fieldnum, token, docfreq, indexfreq) tuples for
+        each term in the reader, in lexical order.
+        """
+        
+        tt = self.term_table
+        # Maybe this is a bad idea: instead of using the "public" API
+        # (__iter__ and postingcount()) to pull the information out
+        # of the term table, which would lead to a bunch of extra work,
+        # I use _raw_iter to pull out the raw information. This is
+        # probably a bad idea, because the internal format might change,
+        # but it is more performant for large data sets.
+        for (fn, t), (_, postingcount, termcount) in tt._raw_iter():
+            yield (fn, t, postingcount, termcount)
     
     def iter_from(self, fieldnum, text):
-        for (fn, t), (offsets, docfreq, termcount) in self.term_table.iter_from((fieldnum, text)):
-            yield (fn, t, docfreq, termcount)
+        tt = self.term_table
+        postingcount = tt.posting_count
+        for (fn, t), termcount in tt.iter_from((fieldnum, text)):
+            yield (fn, t, postingcount((fn, t)), termcount)
     
     def __contains__(self, term):
         fieldnum = term[0]
@@ -291,12 +420,12 @@ class TermReader(object):
         if (fieldnum, text) not in self:
             return 0
         
-        return self._term_info(fieldnum, text)[1]
+        return self.term_table.posting_count((fieldnum, text))
     
     def term_count(self, fieldnum, text):
         """
         Returns the total number of instances of the given term
-        in the index.
+        in the corpus.
         """
         
         if isinstance(fieldnum, basestring):
@@ -305,7 +434,14 @@ class TermReader(object):
         if (fieldnum, text) not in self:
             return 0
         
-        return self._term_info(fieldnum, text)[2]
+        return self.term_table.get((fieldnum, text))
+    
+    def doc_count_all(self):
+        """
+        Returns the total number of documents, DELETED OR UNDELETED,
+        in this reader.
+        """
+        return self.segment.doc_count_all()
     
     # Posting retrieval methods
     
@@ -324,14 +460,25 @@ class TermReader(object):
         
         is_deleted = self.segment.is_deleted
         
-        # The field object is actually responsible for parsing the
+        # The format object is actually responsible for parsing the
         # posting data from disk.
-        readfn = self.schema.by_number[fieldnum].read_postvalue
+        readfn = self.schema.field_by_number(fieldnum).format.read_postvalue
         
         for docnum, data in self.term_table.postings((fieldnum, text), readfn = readfn):
             if not is_deleted(docnum)\
                and (exclude_docs is None or docnum not in exclude_docs):
                 yield docnum, data
+    
+    def postings_as(self, fieldnum, text, astype, exclude_docs = None):
+        format = self.schema.field_by_number(fieldnum).format
+        
+        if not format.supports(astype):
+            raise FieldConfigurationError("Field %r format does not support %r" % (self.schema.name_to_number(fieldnum),
+                                                                                   astype))
+        
+        xform = getattr(format, "data_to_" + astype)
+        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
+            yield (docnum, xform(data))
     
     def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
         """
@@ -345,9 +492,10 @@ class TermReader(object):
         boost is a factor by which to multiply each weight.
         """
         
-        field = self.schema.by_number[fieldnum]
+        format = self.schema.field_by_number(fieldnum)
+        xform = format.data_to_weight
         for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, field.data_to_weight(data) * boost)
+            yield (docnum, xform(data) * boost)
 
     def positions(self, fieldnum, text, exclude_docs = None):
         """
@@ -360,27 +508,8 @@ class TermReader(object):
         eliminated from consideration.
         """
         
-        field = self.schema.by_number[fieldnum]
-        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, field.data_to_positions(data))
+        return self.postings_as(fieldnum, text, "positions", exclude_docs = exclude_docs)
 
-    def position_boosts(self, fieldnum, text, exclude_docs = None):
-        """
-        Yields (docnum, [(position, boost)]) tuples for each document containing
-        the current term. The current field must have stored positions and
-        position boosts for this to work.
-        
-        exclude_docs can be a set of document numbers to ignore. This
-        is used by queries to skip documents that have already been
-        eliminated from consideration.
-        """
-        
-        field = self.schema.by_number[fieldnum]
-        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, field.data_to_position_boosts(data))
-    
-    # Convenience methods
-    
     def expand_prefix(self, fieldname, prefix):
         """
         Yields terms in the given field that start with the given prefix.
@@ -435,10 +564,11 @@ class MultiTermReader(TermReader):
     Be sure to close() the reader when you're finished with it.
     """
     
-    def __init__(self, term_readers, doc_offsets):
-        self.term_readers = term_readers
-        self.schema = term_readers[0].schema
-        self.doc_offsets = doc_offsets
+    def __init__(self, storage, segments, schema):
+        self.term_readers = [TermReader(storage, s, schema)
+                             for s in segments]
+        self.doc_offsets = segments.doc_offsets()
+        self.schema = schema
         self.is_closed = False
     
     def close(self):
@@ -489,7 +619,7 @@ class MultiTermReader(TermReader):
             
             # Add together all terms matching the first
             # term in the list.
-            while current[0][0] == fnum and current[0][1] == text:
+            while current and current[0][0] == fnum and current[0][1] == text:
                 docfreq += current[0][2]
                 termcount += current[0][3]
                 it = current[0][4]
@@ -499,7 +629,7 @@ class MultiTermReader(TermReader):
                 except StopIteration:
                     heappop(current)
                     active -= 1
-            
+                
             # Yield the term with the summed frequency and
             # term count.
             yield (fnum, text, docfreq, termcount)

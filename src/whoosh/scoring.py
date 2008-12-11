@@ -22,6 +22,7 @@ from __future__ import division
 from math import log, sqrt, pi
 from array import array
 
+
 class Weighting(object):
     """
     The base class for objects that score documents. The base object
@@ -55,14 +56,13 @@ class Weighting(object):
         """
         
         self.searcher = searcher
-        ix = searcher.index
         
-        self.doc_count = ix.doc_count_all()
-        self.index_length = ix.term_count()
+        self.doc_count = searcher.doc_count_all()
+        self.index_length = searcher.total_term_count()
         #self.max_doc_freq = ix.max_doc_freq()
         #self.unique_term_count = ix.unique_term_count()
         self.avg_doc_length = self.index_length / self.doc_count
-        
+    
     def score(self, fieldnum, text, docnum, weight):
         """
         Calculate the score for a given term in the given
@@ -86,7 +86,7 @@ class Weighting(object):
         Returns the total number of terms in the current field
         across the entire collection.
         """
-        return self.searcher.index.field_length(fieldnum)
+        return self.searcher.field_length(fieldnum)
     
     def avg_field_length(self, fieldnum):
         """
@@ -94,10 +94,6 @@ class Weighting(object):
         (i.e. total field length / total number of documents)
         """
         return self.field_length(fieldnum) / self.doc_count
-    
-    def doc_field_length(self, docnum, fieldnum):
-        # TODO: Really calculate this value instead of faking it
-        return self.searcher.doc_length(docnum)
     
     def l_over_avl(self, docnum, fieldnum):
         """
@@ -113,7 +109,7 @@ class Weighting(object):
         document divided by the average length of the field
         across all documents. This is used by some scoring algorithms.
         """
-        return self.doc_field_length(docnum, fieldnum) / self.avg_field_length(fieldnum)
+        return self.searcher.doc_field_length(docnum, fieldnum) / self.avg_field_length(fieldnum)
     
 # Scoring classes
 
@@ -135,11 +131,12 @@ class BM25F(Weighting):
         if field_B is None: field_B = {}
         self._field_B = field_B
         
-        if field_boost is None: field_boost = {}
         self._field_boost = field_boost
 
     def score(self, fieldnum, text, docnum, weight, QTF = 1):
-        weight = weight * self._field_boost.get(self.fieldnum, 1.0)
+        if self._field_boost:
+            weight = weight * self._field_boost.get(self.fieldnum, 1.0)
+        
         B = self._field_B.get(self.fieldnum, self.B)
         K1 = self.K1
         idf = self.idf(fieldnum, text)
@@ -260,15 +257,22 @@ class FieldSorter(object):
         searcher = self.searcher
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         
+        doc_count = searcher.doc_count
+        if doc_count > 65535:
+            typecode = "L"
+        elif doc_count > 255:
+            typecode = "I"
+        else:
+            typecode = "B"
+        
         # Create an array of an unsigned int for every document
         # in the index.
-        cache = array("I", xrange(0, searcher.doc_count))
+        cache = array(typecode, xrange(0, doc_count))
         
         # For every document containing every term in the field, set
         # its array value to the term's (inherently sorted) position.
-        tr = searcher.term_reader
-        for i, word in enumerate(tr.field_words(fieldnum)):
-            for docnum, _ in tr.postings(fieldnum, word):
+        for i, word in enumerate(searcher.field_words(fieldnum)):
+            for docnum, _ in searcher.postings(fieldnum, word):
                 cache[docnum] = i
         
         self.limit = i
