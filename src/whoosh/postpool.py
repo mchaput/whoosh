@@ -22,7 +22,7 @@ This module implements the KinoSearch indexing model.
 import cPickle, struct, tempfile
 from heapq import heapify, heapreplace, heappop
 
-import structfile
+from whoosh import structfile
 
 _intSize = struct.calcsize("!i")
 

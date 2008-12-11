@@ -15,7 +15,7 @@
 #===============================================================================
 
 """
-This module contains functions/classes to support creating highlighted
+Functions/classes to support creating highlighted
 excerpts from result documents, similar to what Google displays under
 each result link.
 
@@ -26,8 +26,6 @@ from __future__ import division
 import re
 from collections import defaultdict
 from heapq import heappush, heappop, heapreplace, nlargest
-
-from analysis import SimpleTokenizer
 
 
 IN, OUT = 1, 0

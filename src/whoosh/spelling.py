@@ -21,9 +21,9 @@ as a backend for a spell-checking engine.
 
 from collections import defaultdict
 
-import analysis, fields, index, query, searching, writing
-from support.levenshtein import relative, distance
-from util import UtilityIndex
+from whoosh import analysis, fields, query, searching, writing
+from whoosh.support.levenshtein import relative, distance
+from whoosh.util import UtilityIndex
 
 class SpellChecker(UtilityIndex):
     """
@@ -60,14 +60,17 @@ class SpellChecker(UtilityIndex):
         self.maxgram = maxgram
     
     def schema(self):
-        fls = [fields.StoredField("word"),
-               fields.StoredField("score")]
+        from fields import Schema, Frequency, ID, Stored
+        from analysis import SimpleAnalyzer
+        
+        sa = SimpleAnalyzer()
+        fls = [("word", Stored()), ("score", Stored())]
         for size in xrange(self.mingram, self.maxgram + 1):
-            fls.extend([fields.IDField("start%s" % size, analysis.SimpleAnalyzer()),
-                        fields.IDField("end%s" % size, analysis.SimpleAnalyzer()),
-                        fields.FrequencyField("gram%s" % size, analysis.SimpleAnalyzer())
-                        ])
-        return index.Schema(*fls)
+            fls.extend([("start%s" % size, ID(sa)),
+                        ("end%s" % size, ID(sa)),
+                        ("gram%s" % size, Frequency(sa))])
+            
+        return Schema(*fls)
     
     def suggest(self, text, number = 3, usescores = False):
         """
@@ -131,6 +134,8 @@ class SpellChecker(UtilityIndex):
         
         tr = ix.term_reader()
         try:
+            # TODO: This should score the words using frequency somehow
+            # and call add_scored_words instead.
             self.add_words(tr.field_words(fieldname))
         finally:
             tr.close()
@@ -143,7 +148,7 @@ class SpellChecker(UtilityIndex):
         'usescores' keyword argument of the suggestions() method. However,
         in that case, you might want to use add_scored_words() instead.
         """
-        self.add_ranked_words((w, 0) for w in ws)
+        self.add_scored_words((w, 0) for w in ws)
     
     def add_scored_words(self, ws):
         """
@@ -159,7 +164,7 @@ class SpellChecker(UtilityIndex):
                 fields = {"word": text, "score": score}
                 for size in xrange(self.mingram, self.maxgram + 1):
                     nga = analysis.NgramAnalyzer(size)
-                    gramlist = list(nga.words(text))
+                    gramlist = [t.text for t in nga(text)]
                     if len(gramlist) > 0:
                         fields["start%s" % size] = gramlist[0]
                         fields["end%s" % size] = gramlist[-1]

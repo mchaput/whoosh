@@ -64,10 +64,10 @@ from whoosh.support.pyparsing import \
 Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, alphanums, Keyword,\
 Empty, StringEnd, ParserElement
 
-import query
+import analysis, query
 
 def _makeParser():
-    ParserElement.setDefaultWhitespaceChars(" \n\t\r-'")
+    ParserElement.setDefaultWhitespaceChars(" \n\t\r'-")
     
     #wordToken = Word(self.wordChars)
     wordToken = Word(alphanums + "._/")
@@ -82,8 +82,11 @@ def _makeParser():
     # A wildcard word containing * or ?.
     wildcard = Group(Regex(r"\w*(?:[\?\*]\w*)+")).setResultsName("Wildcard")
     
-    # A word in general is either a plain word or a prefix word.
-    generalWord = prefixWord | wildcard | plainWord
+    # A range of terms
+    range = Group(plainWord + Suppress(">>") + plainWord).setResultsName("Range")
+    
+    # A word-like thing
+    generalWord = range | prefixWord | wildcard | plainWord
     
     # A quoted phrase can only contain plain words.
     quotedPhrase = Group(Suppress('"') + OneOrMore(plainWord) + Suppress('"')).setResultsName("Quotes")
@@ -122,7 +125,7 @@ def _makeParser():
 parser = _makeParser()
 
 class QueryParser(object):
-    def __init__(self, schema, default_field = None,
+    def __init__(self, default_field, schema = None,
                  conjunction = query.And,
                  multiword_conjunction = query.Or,
                  termclass = query.Term,
@@ -133,25 +136,29 @@ class QueryParser(object):
         self.conjunction = conjunction
         self.multiword_conjunction = multiword_conjunction
         self.termclass = termclass
-        self._build_field_analyzers(kwargs)
+        
+        if schema is not None:
+            self._build_field_analyzers(kwargs)
     
     def _build_field_analyzers(self, kwargs):
         # Initialize the field->analyzer map with the analyzer
         # associated with each field.
-        self.field_analyzers = dict((fname, field.analyzer)
-                                    for fname, field in self.schema.by_name.iteritems())
+        self.field_analyzers = dict((fname, field.format.analyzer)
+                                    for fname, field in self.schema.fields())
         
         # Look for overrides in the keyword arguments
         for k, v in kwargs.iteritems():
             if k.endswith("_analyzer"):
                 fieldname = k[:-9]
-                if fieldname in self.schema.by_name:
+                if fieldname in self.schema.names():
                     self.field_analyzers[fieldname] = v
                 else:
                     raise KeyError("Found keyword argument %r but there is no field %r" % (k, fieldname))
     
     def _analyzer(self, fieldname):
-        return self.field_analyzers[fieldname or self.default_field]
+        if self.schema:
+            return self.field_analyzers[fieldname or self.default_field]
+        return analysis.SimpleAnalyzer()
     
     def make_terms(self, fieldname, words):
         return self.multiword_conjunction([self.make_term(fieldname, w) for w in words])
@@ -174,6 +181,9 @@ class QueryParser(object):
     def make_wildcard(self, fieldname, text):
         return query.Wildcard(fieldname or self.default_field, text)
     
+    def make_range(self, fieldname, start, end):
+        return query.TermRange(fieldname or self.default_field, start, end)
+    
     def make_and(self, qs):
         return query.And(qs)
     
@@ -192,7 +202,7 @@ class QueryParser(object):
     
     def eval(self, node, fieldname):
         name = node.getName()
-        return self.__getattribute__(name)(node, fieldname)
+        return getattr(self, name)(node, fieldname)
         
     def Toplevel(self, node, fieldname):
         return self.conjunction([self.eval(s, fieldname) for s in node])
@@ -213,6 +223,9 @@ class QueryParser(object):
 
     def Prefix(self, node, fieldname):
         return self.make_prefix(fieldname, node[0])
+    
+    def Range(self, node, fieldname):
+        return self.make_range(fieldname, node[0][0], node[1][0])
     
     def Wildcard(self, node, fieldname):
         return self.make_wildcard(fieldname, node[0])
@@ -281,7 +294,11 @@ class MultifieldParser(QueryParser):
 
 
 if __name__=='__main__':
-    pass
+    qp = QueryParser(None, default_field = "content")
+    pn = qp.parse("title:b >> e", normalize = False)
+    print "pn=", pn
+    n = pn.normalize()
+    print "n=", n
 
 
 

@@ -18,8 +18,8 @@ from __future__ import division
 
 import time
 
-import query, scoring
-from util import TopDocs
+from whoosh import query, reading, scoring
+from whoosh.util import TopDocs
 
 """
 This module contains classes and functions related to searching the index.
@@ -33,20 +33,21 @@ class Searcher(object):
     """
     
     def __init__(self, ix, weighting = None, sorter = None):
-        self.index = ix
         self.term_reader = ix.term_reader()
         self.doc_reader = ix.doc_reader()
+        self.schema = ix.schema
+        self._total_term_count = ix.total_term_count()
+        self._doc_count_all = self.doc_reader.doc_count_all()
         
-        self.doc_count = ix.doc_count_all()
         self.weighting = weighting or scoring.BM25F()
         self.weighting.set_searcher(self)
         self.sorters = {}
     
-    def __del__(self):
-        del self.index
+    def doc_count_all(self):
+        return self._doc_count_all
     
-    def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, self.index)
+    def total_term_count(self):
+        return self._total_term_count
     
     def _sorter(self, fieldname):
         if fieldname not in self.sorters:
@@ -56,14 +57,6 @@ class Searcher(object):
     def close(self):
         self.term_reader.close()
         self.doc_reader.close()
-    
-    def refresh(self):
-        self.term_reader.close()
-        self.doc_reader.close()
-        
-        self.index = self.index.refresh()
-        self.term_reader = self.index.term_reader()
-        self.doc_reader = self.index.doc_reader()
     
     def doc(self, **kw):
         """
@@ -114,16 +107,31 @@ class Searcher(object):
                 weighting.set_searcher(self)
             gen = query.doc_scores(self, weighting = weighting)
         
-        return Results(self.index, self.doc_reader, query, gen, upper)
+        return Results(self.doc_reader, query, gen, upper)
     
     def fieldname_to_num(self, fieldname):
-        return self.index.schema.name_to_number(fieldname)
+        return self.schema.name_to_number(fieldname)
     
     def field(self, fieldname):
-        return self.index.schema.by_name[fieldname]
+        return self.schema.field_by_name(fieldname)
     
-    def field_has_vectors(self, fieldname):
-        return self.index.schema.by_name[fieldname] is not None
+    def __iter__(self):
+        return self.term_reader.__iter__()
+    
+    def __contains__(self, term):
+        return term in self.term_reader
+    
+    def field_length(self, fieldnum):
+        return self.doc_reader.field_length(fieldnum)
+    
+    def field_words(self, fieldnum):
+        return self.term_reader.field_words(fieldnum)
+    
+    def expand_prefix(self, fieldnum, prefix):
+        return self.term_reader.expand_prefix(fieldnum, prefix)
+    
+    def iter_from(self, fieldnum, text):
+        return self.term_reader.iter_from(fieldnum, text)
     
     def doc_frequency(self, fieldnum, text):
         return self.term_reader.doc_frequency(fieldnum, text)
@@ -131,12 +139,24 @@ class Searcher(object):
     def term_count(self, fieldnum, text):
         return self.term_reader.term_count(fieldnum, text)
     
+    def postings(self, fieldnum, text, exclude_docs = None):
+        return self.term_reader.postings(fieldnum, text, exclude_docs = exclude_docs)
+    
+    def weights(self, fieldnum, text):
+        return self.term_reader.weights(fieldnum, text)
+    
+    def positions(self, fieldnum, text):
+        return self.term_reader.positions(fieldnum, text)
+    
     def doc_length(self, docnum):
         return self.doc_reader.doc_length(docnum)
     
+    def doc_field_length(self, docnum, fieldnum):
+        return self.doc_reader.doc_field_length(docnum, fieldnum)
+    
     def doc_unique_count(self, docnum):
         return self.doc_reader.unique_count(docnum)
-    
+
 
 # Results class
 
@@ -145,7 +165,7 @@ class Results(object):
     The results of a search of the index.
     """
     
-    def __init__(self, ix, doc_reader, query, sequence, upper):
+    def __init__(self, doc_reader, query, sequence, upper):
         """
         index is the index to search.
         query is a query object (from the query module).
@@ -156,14 +176,13 @@ class Results(object):
         results.
         """
         
-        self.index = ix
         self.doc_reader = doc_reader
         self.query = query
         self.upper = upper
         
         # Use a TopDocs object to sort the (docnum, score) pairs in 'sequence'.
         t = time.time()
-        self.topdocs = TopDocs(upper, ix.doc_count_all())
+        self.topdocs = TopDocs(upper, doc_reader.doc_count_all())
         self.topdocs.add_all(sequence)
         self.scored_list = self.topdocs.best()
         

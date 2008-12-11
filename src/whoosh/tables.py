@@ -37,16 +37,16 @@ static "Record" files made up of fixed-length records based on the
 struct module.
 """
 
-import cPickle, cStringIO, shutil, struct, tempfile
+import cPickle, shutil, struct, tempfile
 from bisect import bisect_right
 
 try:
     from zlib import compress, decompress
-    _zlib = True
+    has_zlib = True
 except ImportError:
-    _zlib = False
+    has_zlib = False
 
-from structfile import StructFile
+from whoosh.structfile import StructFile
 
 # Exceptions
 
@@ -60,7 +60,7 @@ class TableWriter(object):
         self.table_file = table_file
         self.blocksize = blocksize
         
-        if compressed > 0 and not _zlib:
+        if compressed > 0 and not has_zlib:
             raise Exception("zlib is not available: cannot compress table")
         self.compressed = compressed
         
@@ -208,7 +208,7 @@ class TableReader(object):
         self.blockcount = len(dir)
         
         self.compressed = self.options.get("compressed", 0)
-        if self.compressed > 0 and not _zlib:
+        if self.compressed > 0 and not has_zlib:
             raise Exception("zlib is not available: cannot decompress table")
         
         self.currentblock = None
@@ -249,25 +249,28 @@ class TableReader(object):
         self._load_block(key)
         return key in self.itemdict
     
+    def _value(self, value):
+        return value
+    
     def get(self, key):
         self._load_block(key)
-        return self.itemdict[key]
+        return self._value(self.itemdict[key])
     
     def __iter__(self):
         for i in xrange(0, len(self.blockindex)):
             self._load_block_num(i)
-            for item in self.itemlist:
-                yield item
+            for key, value in self.itemlist:
+                yield (key, value)
     
     def keys(self):
-        for key, _ in self:
-            yield key
+        return (key for key, _ in self)
     
     def values(self):
-        for _, value in self:
-            yield value
+        return (value for _, value in self)
     
     def iter_from(self, key):
+        _value = self._value
+        
         self._load_block(key)
         blockcount = self.blockcount
         itemlist = self.itemlist
@@ -276,7 +279,7 @@ class TableReader(object):
         # Scan through the list past any terms prior to the target.
         p = 0
         while p < itemlen:
-            k, data = itemlist[p]
+            k, value = itemlist[p]
             if k < key:
                 p += 1
             else:
@@ -285,7 +288,7 @@ class TableReader(object):
         # Keep yielding terms until we reach the end of the last
         # block or the caller stops iterating.
         while True:
-            yield (k, data)
+            yield (k, _value(value))
             
             p += 1
             if p >= itemlen:
@@ -295,7 +298,7 @@ class TableReader(object):
                 itemlist = self.itemlist
                 itemlen = len(itemlist)
                 p = 0
-            k, data = itemlist[p]
+            k, value = itemlist[p]
     
 
 class PostingTableReader(TableReader):
@@ -307,21 +310,30 @@ class PostingTableReader(TableReader):
         self.usevarints = self.options.get("usevarints", True)
 
     def _raw_data(self, key):
-        (offset, length), count, data = self.get(key)
+        (offset, length), count, data = self._get(key)
         tf = self.table_file
         tf.seek(self.postpos + offset)
         postings = tf.read(length)
         return (data, count, postings)
 
+    def __iter__(self):
+        _value = self._value
+        for i in xrange(0, len(self.blockindex)):
+            self._load_block_num(i)
+            for key, value in self.itemlist:
+                yield (key, _value(value))
+
+    def _raw_iter(self):
+        for i in xrange(0, len(self.blockindex)):
+            self._load_block_num(i)
+            for key, value in self.itemlist:
+                yield (key, value)
+
     def _seek_postings(self, key):
-        (offset, length), count = self.get(key)[:2]
+        (offset, length), count = self._get(key)[:2]
         tf = self.table_file
         tf.seek(self.postpos + offset)
-        if length >= 1024 and length <= 32768:
-            pfile = StructFile(cStringIO.StringIO(tf.read(length)))
-        else:
-            pfile = tf
-        return (pfile, count)
+        return (tf, count)
 
     def _read_id(self, postfile, id):
         if self.usevarints:
@@ -341,8 +353,19 @@ class PostingTableReader(TableReader):
     def _skip_postingdata(self, postfile):
         self._read_postingdata(postfile)
 
+    def _value(self, value):
+        # The writer spliced the posting count and offsets into the
+        # data, so ignore them when returning values.
+        return value[2]
+
+    def _get(self, key):
+        # Returns the "actual" value of the key, including the posting
+        # count and offset values the writer spliced in.
+        self._load_block(key)
+        return self.itemdict[key]
+
     def posting_count(self, key):
-        return self.get(key)[1]
+        return self._get(key)[1]
 
     def postings(self, key, readfn = None):
         pfile, count = self._seek_postings(key)
@@ -353,20 +376,6 @@ class PostingTableReader(TableReader):
             id = self._read_id(pfile, id)
             yield (id, readfn(pfile))
     
-    def postings_from(self, key, startid, readfn = None, skipfn = None):
-        pfile, count = self._seek_postings(key)
-        readfn = readfn or self._read_postingdata
-        skipfn = skipfn or self._skip_postingdata
-        
-        id = 0
-        for _ in xrange(0, count):
-            id = self._read_id(pfile, id)
-            
-            if id < startid:
-                skipfn(pfile)
-                continue
-            
-            yield (id, readfn(pfile))
 
 # Classes for storing arrays of records
 
@@ -374,11 +383,12 @@ class RecordWriter(object):
     def __init__(self, arrayfile, format):
         self.file = arrayfile
         self.format = format
+        self.file.write_string(format)
     
     def close(self):
         self.file.close()
     
-    def append(self, *data):
+    def add(self, *data):
         self.file.write_struct(self.format, data)
         
     def extend(self, iterable):
@@ -390,10 +400,11 @@ class RecordWriter(object):
 
 
 class RecordReader(object):
-    def __init__(self, arrayfile, format):
+    def __init__(self, arrayfile):
         self.file = arrayfile
-        self.format = format
+        self.format = format = self.file.read_string()
         self.recordsize = struct.calcsize(format)
+        self.offset = self.file.tell()
         
         if format[0] in "@=!<>":
             self.singlevalue = not len(format) > 2
@@ -404,7 +415,7 @@ class RecordReader(object):
         self.file.close()
         
     def __getitem__(self, num):
-        self.file.seek(self.recordsize * num)
+        self.file.seek(self.recordsize * num + self.offset)
         st = self.file.read_struct(self.format)
         if self.singlevalue:
             return st[0]
@@ -413,15 +424,7 @@ class RecordReader(object):
         
 
 if __name__ == '__main__':
-    import time
-    import index
-    ix = index.open_dir("../index")
-    tr = ix.term_reader()
-    t = time.clock()
-    for fieldnum, text, _, _ in tr:
-        for p in tr.postings(fieldnum, text):
-            pass
-    print time.clock() - t
+    pass
     
     
     

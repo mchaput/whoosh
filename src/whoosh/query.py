@@ -30,6 +30,26 @@ import fnmatch, re
 from whoosh.support.bitvector import BitVector
 from whoosh.lang.morph_en import variations
 
+# Utility functions
+
+def _not_vector(notqueries, searcher, sourcevector):
+    # Returns a BitVector where the positions are docnums
+    # and True means the docnum is banned from the results.
+    # 'sourcevector' is the incoming exclude_docs. This
+    # function makes a copy of it and adds the documents
+    # from notqueries
+    
+    if sourcevector is None:
+        nvector = BitVector(searcher.doc_count)
+    else:
+        nvector = sourcevector.copy()
+    
+    for nquery in notqueries:
+        for docnum in nquery.docs(searcher):
+            nvector.set(docnum)
+            
+    return nvector
+
 # 
 
 class QueryError(Exception):
@@ -54,7 +74,7 @@ class Query(object):
         """
         pass
     
-    def existing_terms(self, term_reader, termset, reverse = False):
+    def existing_terms(self, searcher, termset, reverse = False):
         """
         Adds the term(s) in the query (and its subqueries, where
         applicable) IF AND AS EXIST IN THE INDEX to termset.
@@ -137,22 +157,21 @@ class MultifieldTerm(Query):
         for fn in self.fieldnames:
             termset.add((fn, self.text))
     
-    def existing_terms(self, term_reader, termset, reverse = False):
+    def existing_terms(self, searcher, termset, reverse = False):
         for fn in self.fieldnames:
             t = (fn, self.text)
-            contains = t in term_reader
+            contains = t in searcher
             if reverse: contains = not contains
             if contains:
                 termset.add(t)
     
     def estimate_size(self, searcher):
         max_df = 0
-        term_reader = searcher.term_reader
         text = self.text
         
         for fieldname in self.fieldnames:
             fieldnum = searcher.fieldname_to_num(fieldname)
-            df = term_reader.doc_frequency(fieldnum, text)
+            df = searcher.doc_frequency(fieldnum, text)
             if df > max_df:
                 max_df = df
                 
@@ -160,27 +179,29 @@ class MultifieldTerm(Query):
     
     def docs(self, searcher, exclude_docs = None):
         vector = BitVector(searcher.doc_count)
+        text = self.text
+        
         for fieldname in self.fieldnames:
             fieldnum = searcher.fieldname_to_num(fieldname)
-            for docnum, _ in searcher.term_vector.postings(fieldnum, self.text,
-                                                           exclude_docs = exclude_docs):
-                vector.set(docnum)
+            
+            if (fieldnum, text) in searcher:
+                for docnum, _ in searcher.postings(fieldnum, self.text,
+                                                      exclude_docs = exclude_docs):
+                    vector.set(docnum)
                 
         return iter(vector)
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         text = self.text
-        term_reader = searcher.term_reader
         weighting = weighting or searcher.weighting
         
         accumulators = defaultdict(float)
         for fieldname in self.fieldnames:
             fieldnum = searcher.fieldname_to_num(fieldname)
-            if (fieldnum, text) in term_reader:
-                
-                for docnum, weight in term_reader.weights(fieldnum, text,
-                                                          exclude_docs = exclude_docs,
-                                                          boost = self.boost):
+            if (fieldnum, text) in searcher:
+                for docnum, weight in searcher.weights(fieldnum, text,
+                                                       exclude_docs = exclude_docs,
+                                                       boost = self.boost):
                     accumulators[docnum] += weighting.score(fieldnum, text, docnum, weight)
         
         return accumulators.iteritems()
@@ -212,13 +233,13 @@ class SimpleQuery(Query):
     def all_terms(self, termset):
         termset.add((self.fieldname, self.text))
     
-    def existing_terms(self, term_reader, termset, reverse = False):
+    def existing_terms(self, searcher, termset, reverse = False):
         fname, text = self.fieldname, self.text
-        fnum = term_reader.fieldname_to_num(fname)
-        contains = (fnum, text) in term_reader
+        fnum = searcher.fieldname_to_num(fname)
+        contains = (fnum, text) in searcher
         if reverse: contains = not contains
         if contains:
-            termset.add((fname, term_reader.text))
+            termset.add((fname, text))
 
 
 class Term(SimpleQuery):
@@ -234,28 +255,26 @@ class Term(SimpleQuery):
     
     def estimate_size(self, searcher):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
-        return searcher.term_reader.doc_frequency(fieldnum, self.text)
+        return searcher.doc_frequency(fieldnum, self.text)
     
     def docs(self, searcher, exclude_docs = None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         text = self.text
-        tr = searcher.term_reader
-        if (fieldnum, text) in tr:
-            for docnum, _ in tr.postings(fieldnum, text, exclude_docs = exclude_docs):
+        
+        if (fieldnum, text) in searcher:
+            for docnum, _ in searcher.postings(fieldnum, text, exclude_docs = exclude_docs):
                 yield docnum
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         text = self.text
-        
-        tr = searcher.term_reader
-        if (fieldnum, text) in tr:
+        if (fieldnum, text) in searcher:
             weighting = weighting or searcher.weighting
-            for docnum, weight in tr.weights(fieldnum, self.text,
-                                             exclude_docs = exclude_docs,
-                                             boost = self.boost):
+            for docnum, weight in searcher.weights(fieldnum, self.text,
+                                                   exclude_docs = exclude_docs,
+                                                   boost = self.boost):
                 yield docnum, weighting.score(fieldnum, text, docnum, weight)
-            
+
 
 class CompoundQuery(Query):
     """
@@ -270,44 +289,44 @@ class CompoundQuery(Query):
         results matched by this query.
         """
         
-        # Sort the Not queries and other queries into two separate lists.
-        # This will let us run the Not queries first to build an exclusion
-        # list.
-        self.subqueries = [q for q in subqueries if not isinstance(q, Not)]
-        self.notqueries = [q for q in subqueries if isinstance(q, Not)]
-        
+        self.subqueries = subqueries
+        self._notqueries = None
         self.boost = boost
     
     def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__,
-                           self.subqueries + self.notqueries)
+        return '%s(%r)' % (self.__class__.__name__, self.subqueries)
 
     def __unicode__(self):
         r = u"("
-        r += (self.JOINT).join([unicode(s) for s in (self.subqueries + self.notqueries)])
+        r += (self.JOINT).join([unicode(s) for s in self.subqueries])
         r += u")"
         return r
 
+    def _split_queries(self):
+        if self._notqueries is None:
+            self._subqueries = [q for q in self.subqueries if not isinstance(q, Not)]
+            self._notqueries = [q for q in self.subqueries if isinstance(q, Not)]
+
     def replace(self, oldtext, newtext):
-        return self.__class__([q.replace(oldtext, newtext) for q in self.subqueries + self.notqueries],
+        return self.__class__([q.replace(oldtext, newtext) for q in self.subqueries],
                               boost = self.boost)
 
     def all_terms(self, termset):
         for q in self.subqueries:
             q.all_terms(termset)
 
-    def existing_terms(self, term_reader, termset, reverse = False):
+    def existing_terms(self, searcher, termset, reverse = False):
         for q in self.subqueries:
-            q.existing_terms(term_reader, termset, reverse = reverse)
+            q.existing_terms(searcher, termset, reverse = reverse)
 
     def normalize(self):
-        # Combine the subquery lists and do an initial check for Nones.
-        subqueries = [q for q in self.subqueries + self.notqueries if q is not None]
+        # Do an initial check for Nones.
+        subqueries = [q for q in self.subqueries if q is not None]
         
         if not subqueries:
             return None
         
-        if len(subqueries) == 1 and not self.notqueries:
+        if len(subqueries) == 1:
             return subqueries[0].normalize()
         
         # Normalize the subqueries and eliminate duplicate terms.
@@ -326,29 +345,41 @@ class CompoundQuery(Query):
                 
             if isinstance(s, self.__class__):
                 subqs += s.subqueries
-                subqs += s.notqueries
             else:
                 subqs.append(s)
         
         return self.__class__(subqs)
     
-    def _not_vector(self, searcher, sourcevector):
-        # Returns a BitVector where the positions are docnums
-        # and True means the docnum is banned from the results.
-        # 'sourcevector' is the incoming exclude_docs. This
-        # function makes a copy of it and adds the documents
-        # from this query's 'Not' subqueries.
+
+class Require(CompoundQuery):
+    """
+    Binary query returns results from the first query that also appear in the
+    second query, but only uses the scores from the first query. This lets you
+    filter results without affecting scores.
+    """
+    
+    JOINT = " REQUIRE "
+    
+    def __init__(self, query, filterquery, boost = 1.0):
+        self.subqueries = [query, filterquery]
+        self.boost = boost
         
-        if sourcevector is None:
-            nvector = BitVector(searcher.doc_count)
-        else:
-            nvector = sourcevector.copy()
+    def __repr__(self):
+        return '%s(%r, %r)' % (self.__class__.__name__, self.query, self.filterquery)
+    
+    def docs(self, searcher, exclude_docs = None):
+        return And(self.subqueries).docs(searcher, exclude_docs = exclude_docs)
+    
+    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
+        query, filterquery = self.subqueries
         
-        for nquery in self.notqueries:
-            for docnum in nquery.docs(searcher):
-                nvector.set(docnum)
-                
-        return nvector
+        filter = BitVector(searcher.doc_count)
+        for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
+            filter.set(docnum)
+            
+        for docnum, score in query.doc_scores(searcher, weighting = weighting):
+            if docnum not in filter: continue
+            yield docnum, score
     
 
 class And(CompoundQuery):
@@ -365,11 +396,14 @@ class And(CompoundQuery):
     def docs(self, searcher, exclude_docs = None):
         if not self.subqueries:
             return []
-        exclude_docs = self._not_vector(searcher, exclude_docs)
+        
+        self._split_queries()
+        if self._notqueries:
+            exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
         type = "B" if len(self.subqueries) <= 255 else "i"
         counters = array(type, (0 for _ in xrange(0, searcher.doc_count)))
-        for q in self.subqueries:
+        for q in self._subqueries:
             for docnum in q.docs(searcher, exclude_docs = exclude_docs):
                 counters[docnum] += 1
         
@@ -379,13 +413,16 @@ class And(CompoundQuery):
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         if not self.subqueries:
             return []
-        exclude_docs = self._not_vector(searcher, exclude_docs)
+        
+        self._split_queries()
+        if self._notqueries:
+            exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
         # Sort the subqueries by their estimated size, smallest to
         # largest. Can't just do .sort(key = ) because I want to check
         # the smallest value later and I don't want to call estimate_size()
         # twice because it is potentially expensive.
-        subqs = [(q.estimate_size(searcher), q) for q in self.subqueries]
+        subqs = [(q.estimate_size(searcher), q) for q in self._subqueries]
         subqs.sort()
         
         # If the smallest estimated size is 0, nothing will match.
@@ -395,8 +432,13 @@ class And(CompoundQuery):
         # Removed the estimated sizes, leaving just the sorted subqueries.
         subqs = [q for _, q in subqs]
         
-        type = "B" if len(self.subqueries) <= 255 else "i"
-        counters = array("B", (0 for _ in xrange(0, searcher.doc_count)))
+        # Space saving optimization(?): if the number of subqueries is small enough to
+        # fit in a byte, use an array of bytes to represent the number of matched
+        # subqueries per document, instead of a dictionary.
+        if len(self.subqueries) <= 255:
+            counters = array("B", (0 for _ in xrange(0, searcher.doc_count)))
+        else:
+            counters = defaultdict(int)
         scores = defaultdict(float)
         
         for i, q in enumerate(subqs):
@@ -430,9 +472,12 @@ class Or(CompoundQuery):
             return []
         
         hits = BitVector(searcher.doc_count)
-        exclude_docs = self._not_vector(searcher, exclude_docs)
         
-        for q in self.subqueries:
+        self._split_queries()
+        if self._notqueries:
+            exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
+        
+        for q in self._subqueries:
             for docnum in q.docs(searcher, exclude_docs = exclude_docs):
                 hits.set(docnum)
         
@@ -442,9 +487,12 @@ class Or(CompoundQuery):
         if not self.subqueries:
             return []
         
-        exclude_docs = self._not_vector(searcher, exclude_docs)
+        self._split_queries()
+        if self._notqueries:
+            exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
+        
         scores = defaultdict(float)
-        for query in self.subqueries:
+        for query in self._subqueries:
             for docnum, weight in query.doc_scores(searcher, weighting = weighting, exclude_docs = exclude_docs):
                 scores[docnum] += weight
                 
@@ -453,16 +501,7 @@ class Or(CompoundQuery):
 
 class Not(Query):
     """
-    Excludes documents that match the subquery.
-    
-    NOTE this query works somewhat counter-intuitively: is not a "logical not".
-    It does not match documents that don't match the subquery, as you might
-    expect, for efficiency reasons. In fact, by itself the Not class acts more
-    or less exactly like its subquery.
-    
-    This class is more of a "marker" used by other classes, which implement the
-    actual "not" behavior. That is, when classes such as And and Or see a
-    Not query, they exclude any documents it matches rather than include them.
+    Excludes any documents that match the subquery.
     """
     
     def __init__(self, query, boost = 1.0):
@@ -497,8 +536,75 @@ class Not(Query):
     def all_terms(self, termset):
         self.query.all_terms(termset)
         
-    def existing_terms(self, term_reader, termset, reverse = False):
-        self.query.existing_terms(term_reader, termset, reverse = reverse)
+    def existing_terms(self, searcher, termset, reverse = False):
+        self.query.existing_terms(searcher, termset, reverse = reverse)
+
+
+class AndNot(Query):
+    """
+    Binary boolean query of the form 'a AND NOT b', where documents that match
+    b are removed from the matches for a. This form can lead to counter-intuitive
+    results when there is another "not" query on the right side (so the double-
+    negative leads to documents the user might have meant to exclude being
+    included). For this reason, you may want to use Not() (which excludes the
+    results of a subclause) instead of this logical operator, especially when
+    parsing user input.
+    """
+    
+    def __init__(self, positive, negative, boost = 1.0):
+        """
+        positive is a query to INCLUDE.
+        negative is a list of queries whose matches should be
+        EXCLUDED.
+        boost is a boost factor that should be applied to the raw score of
+        results matched by this query.
+        """
+        
+        self.positive = positive
+        self.negative = negative
+        self.boost = boost
+    
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.positive, self.negative)
+    
+    def __unicode__(self):
+        return u"%s ANDNOT %s" % (self.postive, self.negative)
+    
+    def normalize(self):
+        if self.positive is None:
+            return None
+        elif self.negative is None:
+            return self.positive.normalize()
+        
+        pos = self.positive.normalize()
+        neg = self.negative.normalize()
+        
+        if pos is None:
+            return None
+        elif neg is None:
+            return pos
+        
+        return AndNot(pos, neg, boost = self.boost)
+    
+    def replace(self, oldtext, newtext):
+        return AndNot(self.positive.replace(oldtext, newtext),
+                      self.negative.replace(oldtext, newtext),
+                      boost = self.boost)
+    
+    def all_terms(self, termset):
+        self.positive.all_terms(termset)
+        
+    def existing_terms(self, searcher, termset, reverse = False):
+        self.positive.existing_terms(searcher, termset, reverse = reverse)
+    
+    def docs(self, searcher, exclude_docs = None):
+        excl = _not_vector([self.negative], searcher, exclude_docs)
+        return self.positive.docs(searcher, exclude_docs = excl)
+    
+    def doc_scores(self, searcher, exclude_docs = None):
+        excl = _not_vector([self.negative], searcher, exclude_docs)
+        return self.positive.doc_scores(searcher, exclude_docs = excl)
 
 
 class MultiTerm(Query):
@@ -516,16 +622,16 @@ class MultiTerm(Query):
         return "%s(%r, %r)" % (self.__class__.__name__,
                                self.fieldname, self.words)
     
-    def _or_query(self, term_reader):
+    def _or_query(self, searcher):
         fn = self.fieldname
-        return Or([Term(fn, word) for word in self._words(term_reader)])
+        return Or([Term(fn, word) for word in self._words(searcher)])
     
     def normalize(self):
         return self.__class__(self.fieldname,
                               [w for w in self.words if w is not None],
                               boost = self.boost)
     
-    def _words(self, term_reader):
+    def _words(self, searcher):
         return self.words
     
     def all_terms(self, termset):
@@ -533,26 +639,25 @@ class MultiTerm(Query):
         for word in self.words:
             termset.add(fieldname, word)
     
-    def existing_terms(self, term_reader, termset, reverse = False):
+    def existing_terms(self, searcher, termset, reverse = False):
         fieldname = self.fieldname
-        for word in self._words(term_reader):
+        for word in self._words(searcher):
             t = (fieldname, word)
-            contains = t in term_reader
+            contains = t in searcher
             if reverse: contains = not contains
             if contains:
                 termset.add(t)
     
     def estimate_size(self, searcher):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
-        tr = searcher.term_reader
-        return sum(tr.doc_frequency(fieldnum, text)
-                   for text in self._words(searcher.term_reader))
+        return sum(searcher.doc_frequency(fieldnum, text)
+                   for text in self._words(searcher))
 
     def docs(self, searcher, exclude_docs = None):
-        return self._or_query(searcher.term_reader).docs(searcher, exclude_docs = exclude_docs)
+        return self._or_query(searcher).docs(searcher, exclude_docs = exclude_docs)
 
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        return self._or_query(searcher.term_reader).doc_scores(searcher,
+        return self._or_query(searcher).doc_scores(searcher,
                                                                weighting = weighting,
                                                                exclude_docs = exclude_docs)
 
@@ -587,8 +692,8 @@ class Prefix(ExpandingTerm):
     Matches documents that contain any terms that start with the given text.
     """
     
-    def _words(self, term_reader):
-        return term_reader.expand_prefix(self.fieldname, self.text)
+    def _words(self, searcher):
+        return searcher.expand_prefix(self.fieldname, self.text)
 
 
 _wildcard_exp = re.compile("(.*?)([?*]|$)");
@@ -625,14 +730,14 @@ class Wildcard(ExpandingTerm):
         else:
             self.prefix = text[:min(st, qm)]
     
-    def _words(self, term_reader):
+    def _words(self, searcher):
         if self.prefix:
-            candidates = term_reader.expand_prefix(self.fieldname, self.prefix)
+            candidates = searcher.expand_prefix(self.fieldname, self.prefix)
         else:
-            candidates = term_reader.field_words(self.fieldname)
+            candidates = searcher.field_words(self.fieldname)
         
         exp = self.expression
-        for text in candidates(term_reader):
+        for text in candidates(searcher):
             if exp.match(text):
                 yield text
                 
@@ -678,15 +783,15 @@ class TermRange(MultiTerm):
         else:
             return self
     
-    def _words(self, term_reader):
-        fieldnum = term_reader.fieldname_to_num(self.fieldname)
+    def _words(self, searcher):
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
         end = self.end
         
-        for fnum, t, _, _ in term_reader.iter_from(fieldnum, self.start):
+        for fnum, t, _, _ in searcher.iter_from(fieldnum, self.start):
             while fnum == fieldnum and t <= end:
                 yield t
     
-    def all_terms(self, term_reader, termset):
+    def all_terms(self, searcher, termset):
         pass
     
 
@@ -709,7 +814,6 @@ class Variations(ExpandingTerm):
         return self._or_query().docs(searcher, exclude_docs = exclude_docs)
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        weighting = weighting or searcher.weighting
         return self._or_query(searcher).doc_scores(searcher,
                                                    weighting = weighting,
                                                    exclude_docs = exclude_docs)
@@ -768,10 +872,10 @@ class Phrase(MultiTerm):
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         field = searcher.field(self.fieldname)
-        if not (field.vector and field.vector.has_positions):
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        if not (field.vector and field.vector.has("positions")):
             raise QueryError("Phrase search: %r has no position vectors" % self.fieldname)
         
-        fieldnum = field.number
         dr = searcher.doc_reader
         words = self.words
         wordset = frozenset(words)
