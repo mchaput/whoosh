@@ -30,6 +30,12 @@ from whoosh.util import fib
 class IndexingError(Exception):
     pass
 
+# Constants
+
+NO_MERGE = -1
+MERGE_SMALL = 0
+OPTIMIZE = 1
+
 # Writing classes
 
 class IndexWriter(object):
@@ -104,7 +110,7 @@ class IndexWriter(object):
         """
         self._merge_segments(1)
     
-    def close(self, mergetype = 0):
+    def close(self, mergetype = MERGE_SMALL):
         """
         Finishes writing and unlocks the index.
         """
@@ -115,19 +121,14 @@ class IndexWriter(object):
         # Release the lock
         if self.locked:
             self.index.unlock()
-        del self.index
     
     def _merge_segments(self, mergetype):
-        # mergetype = -1: Do not merge small segments
-        # mergetype = 0: Merge small segments (the default)
-        # mergetype = 1: Merge ALL segments (i.e. optimize)
-        
         sw = self.get_segment_writer()
         
         segments = self.segments
         new_segments = index.SegmentSet()
         
-        if mergetype > 0:
+        if mergetype == OPTIMIZE:
             # Merge all segments
             for seg in segments:
                 sw.add_segment(self.index, seg)
@@ -138,7 +139,7 @@ class IndexWriter(object):
             sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
             total_docs = 0
             
-            if mergetype >= 0:
+            if mergetype != NO_MERGE:
                 # Merge sparse segments into the one we're
                 # currently writing
                 for i, (count, seg) in enumerate(sorted_segment_list):
@@ -360,7 +361,7 @@ class SegmentWriter(object):
         schema = self.schema
         for name in fieldnames:
             if name not in schema:
-                raise UnknownFieldError(name)
+                raise UnknownFieldError("There is no field named %r" % name)
         
         fieldnames.sort(key = schema.name_to_number)
         for name in fieldnames:
@@ -375,7 +376,7 @@ class SegmentWriter(object):
         # Get the field information
         schema = self.schema
         if fieldname not in schema:
-            raise KeyError("There is no field named '%s'" % fieldname)
+            raise UnknownFieldError("There is no field named %r" % fieldname)
         fieldnum = schema.name_to_number(fieldname)
         field = schema.field_by_name(fieldname)
         format = field.format

@@ -320,7 +320,7 @@ class MultiDocReader(DocReader):
         for reader in self.doc_readers:
             for result in reader:
                 yield result
-    
+
 
 class TermReader(object):
     """
@@ -492,7 +492,7 @@ class TermReader(object):
         boost is a factor by which to multiply each weight.
         """
         
-        format = self.schema.field_by_number(fieldnum)
+        format = self.schema.field_by_number(fieldnum).format
         xform = format.data_to_weight
         for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
             yield (docnum, xform(data) * boost)

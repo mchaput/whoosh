@@ -40,7 +40,7 @@ def _not_vector(notqueries, searcher, sourcevector):
     # from notqueries
     
     if sourcevector is None:
-        nvector = BitVector(searcher.doc_count)
+        nvector = BitVector(searcher.doc_count_all())
     else:
         nvector = sourcevector.copy()
     
@@ -178,7 +178,7 @@ class MultifieldTerm(Query):
         return max_df
     
     def docs(self, searcher, exclude_docs = None):
-        vector = BitVector(searcher.doc_count)
+        vector = BitVector(searcher.doc_count_all())
         text = self.text
         
         for fieldname in self.fieldnames:
@@ -268,12 +268,13 @@ class Term(SimpleQuery):
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         text = self.text
+        boost = self.boost
         if (fieldnum, text) in searcher:
             weighting = weighting or searcher.weighting
             for docnum, weight in searcher.weights(fieldnum, self.text,
-                                                   exclude_docs = exclude_docs,
-                                                   boost = self.boost):
-                yield docnum, weighting.score(fieldnum, text, docnum, weight)
+                                                   exclude_docs = exclude_docs):
+                yield docnum, weighting.score(fieldnum, text, docnum,
+                                              weight * boost)
 
 
 class CompoundQuery(Query):
@@ -373,7 +374,7 @@ class Require(CompoundQuery):
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         query, filterquery = self.subqueries
         
-        filter = BitVector(searcher.doc_count)
+        filter = BitVector(searcher.doc_count_all())
         for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
             filter.set(docnum)
             
@@ -402,7 +403,7 @@ class And(CompoundQuery):
             exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
         type = "B" if len(self.subqueries) <= 255 else "i"
-        counters = array(type, (0 for _ in xrange(0, searcher.doc_count)))
+        counters = array(type, (0 for _ in xrange(0, searcher.doc_count_all())))
         for q in self._subqueries:
             for docnum in q.docs(searcher, exclude_docs = exclude_docs):
                 counters[docnum] += 1
@@ -436,7 +437,7 @@ class And(CompoundQuery):
         # fit in a byte, use an array of bytes to represent the number of matched
         # subqueries per document, instead of a dictionary.
         if len(self.subqueries) <= 255:
-            counters = array("B", (0 for _ in xrange(0, searcher.doc_count)))
+            counters = array("B", (0 for _ in xrange(0, searcher.doc_count_all())))
         else:
             counters = defaultdict(int)
         scores = defaultdict(float)
@@ -471,7 +472,7 @@ class Or(CompoundQuery):
         if not self.subqueries:
             return []
         
-        hits = BitVector(searcher.doc_count)
+        hits = BitVector(searcher.doc_count_all())
         
         self._split_queries()
         if self._notqueries:

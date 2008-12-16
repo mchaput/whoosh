@@ -18,7 +18,7 @@ from __future__ import division
 
 import time
 
-from whoosh import query, reading, scoring
+from whoosh import query, scoring
 from whoosh.util import TopDocs
 
 """
@@ -121,8 +121,20 @@ class Searcher(object):
     def __contains__(self, term):
         return term in self.term_reader
     
+    def stored_fields(self, docnum):
+        return self.doc_reader[docnum]
+    
     def field_length(self, fieldnum):
         return self.doc_reader.field_length(fieldnum)
+    
+    def doc_length(self, docnum):
+        return self.doc_reader.doc_length(docnum)
+    
+    def doc_field_length(self, docnum, fieldnum):
+        return self.doc_reader.doc_field_length(docnum, fieldnum)
+    
+    def doc_unique_count(self, docnum):
+        return self.doc_reader.unique_count(docnum)
     
     def field_words(self, fieldnum):
         return self.term_reader.field_words(fieldnum)
@@ -142,20 +154,11 @@ class Searcher(object):
     def postings(self, fieldnum, text, exclude_docs = None):
         return self.term_reader.postings(fieldnum, text, exclude_docs = exclude_docs)
     
-    def weights(self, fieldnum, text):
-        return self.term_reader.weights(fieldnum, text)
+    def weights(self, fieldnum, text, exclude_docs = None):
+        return self.term_reader.weights(fieldnum, text, exclude_docs = exclude_docs)
     
-    def positions(self, fieldnum, text):
-        return self.term_reader.positions(fieldnum, text)
-    
-    def doc_length(self, docnum):
-        return self.doc_reader.doc_length(docnum)
-    
-    def doc_field_length(self, docnum, fieldnum):
-        return self.doc_reader.doc_field_length(docnum, fieldnum)
-    
-    def doc_unique_count(self, docnum):
-        return self.doc_reader.unique_count(docnum)
+    def positions(self, fieldnum, text, exclude_docs = None):
+        return self.term_reader.positions(fieldnum, text, exclude_docs = exclude_docs)
 
 
 # Results class
