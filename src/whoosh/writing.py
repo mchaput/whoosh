@@ -32,6 +32,10 @@ class IndexingError(Exception):
 
 # Constants
 
+# TODO: it might be better style to have these classes actually
+# implement the given merge policy, rather than just using them
+# as constants.
+
 class NO_MERGE(object): pass
 class MERGE_SMALL(object): pass
 class OPTIMIZE(object): pass
