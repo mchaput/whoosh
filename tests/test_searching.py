@@ -12,11 +12,11 @@ class TestReading(unittest.TestCase):
         ix = index.Index(st, s, create = True)
         
         w = writing.IndexWriter(ix)
-        w.add_document(key = u"A", name = u"Yellow brown", value = u"Blue red green purple?")
+        w.add_document(key = u"A", name = u"Yellow brown", value = u"Blue red green render purple?")
         w.add_document(key = u"B", name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
-        w.add_document(key = u"C", name = u"One two", value = u"Three four five.")
+        w.add_document(key = u"C", name = u"One two", value = u"Three rendered four five.")
         w.add_document(key = u"D", name = u"Quick went", value = u"Every red town.")
-        w.add_document(key = u"E", name = u"Yellow uptown", value = u"Interest outer photo!")
+        w.add_document(key = u"E", name = u"Yellow uptown", value = u"Interest rendering outer photo!")
         w.close()
         
         self.ix = ix
@@ -57,7 +57,8 @@ class TestReading(unittest.TestCase):
                  (Or([Term("value", u"red"), Term("name", u"yellow"), Not(Term("name", u"quick"))]),
                   [u"A", u"E"]),
                  (AndNot(Term("name", u"yellow"), Term("value", u"purple")),
-                  [u"E"])
+                  [u"E"]),
+                 (Variations("value", u"render"), [u"A", u"C", u"E"])
                 ]
         
         for query, result in tests:

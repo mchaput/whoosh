@@ -127,6 +127,9 @@ class IndexWriter(object):
             self.index.unlock()
     
     def _merge_segments(self, mergetype):
+        if mergetype not in (NO_MERGE, MERGE_SMALL, OPTIMIZE):
+            raise ValueError("Unknown merge type: %r" % mergetype)
+        
         sw = self.get_segment_writer()
         
         segments = self.segments

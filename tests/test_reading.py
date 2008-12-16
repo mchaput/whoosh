@@ -33,11 +33,11 @@ class TestReading(unittest.TestCase):
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
         w.add_document(f1 = u"A A A", f2 = u"2 3 5", f3 = u"Y R Z")
-        w.close(-1)
+        w.close(writing.NO_MERGE)
         
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B", f2 = u"1 2", f3 = u"X Y")
-        w.close(-1)
+        w.close(writing.NO_MERGE)
         
         return ix
     

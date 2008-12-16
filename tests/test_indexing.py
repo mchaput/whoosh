@@ -86,12 +86,12 @@ class TestIndexing(unittest.TestCase):
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A", f2 = u"B C D E X Y")
         w.add_document(f1 = u"B C", f2 = u"X")
-        w.close(-1)
+        w.close(writing.NO_MERGE)
         
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B X Y Z", f2 = u"B C")
         w.add_document(f1 = u"Y X", f2 = u"A B")
-        w.close(-1)
+        w.close(writing.NO_MERGE)
         
         dr = ix.doc_reader()
         self.assertEqual(dr.doc_field_length(0, "f1"), 3)
