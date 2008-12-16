@@ -25,8 +25,8 @@ from array import array
 
 class Weighting(object):
     """
-    The base class for objects that score documents. The base object
-    contains a number of collection-level, document-level, and
+    The abstract base class for objects that score documents. The base
+    object contains a number of collection-level, document-level, and
     result-level statistics for the scoring algorithm to use in its
     calculation (the collection-level attributes are set by set_searcher()
     when the object is attached to a searcher; the other statistics are
@@ -62,14 +62,6 @@ class Weighting(object):
         #self.max_doc_freq = ix.max_doc_freq()
         #self.unique_term_count = ix.unique_term_count()
         self.avg_doc_length = self.index_length / self.doc_count
-    
-    def score(self, fieldnum, text, docnum, weight):
-        """
-        Calculate the score for a given term in the given
-        document. weight is the frequency * boost of the
-        term.
-        """
-        raise NotImplementedError
     
     def idf(self, fieldnum, text):
         """
@@ -111,6 +103,15 @@ class Weighting(object):
         """
         return self.searcher.doc_field_length(docnum, fieldnum) / self.avg_field_length(fieldnum)
     
+    def score(self, fieldnum, text, docnum, weight, QTF = 1):
+        """
+        Calculate the score for a given term in the given
+        document. weight is the frequency * boost of the
+        term.
+        """
+        
+        raise NotImplementedError
+    
 # Scoring classes
 
 class BM25F(Weighting):
@@ -137,7 +138,7 @@ class BM25F(Weighting):
         if self._field_boost:
             weight = weight * self._field_boost.get(self.fieldnum, 1.0)
         
-        B = self._field_B.get(self.fieldnum, self.B)
+        B = self._field_B.get(fieldnum, self.B)
         K1 = self.K1
         idf = self.idf(fieldnum, text)
         fl_over_avl = self.fl_over_avfl(docnum, fieldnum)

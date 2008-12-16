@@ -160,23 +160,26 @@ class NgramTokenizer(object):
         
     def __call__(self, value, positions = False, chars = False,
                  start_pos = 0, start_char = 0):
-        inLen = len(value)
+        inlen = len(value)
         t = Token(positions, chars)
         
         pos = start_pos
-        for size in xrange(self.min, self.max + 1):
-            limit = inLen - size + 1
-            for start in xrange(0, limit):
+        for start in xrange(0, inlen - self.min):
+            for size in xrange(self.min, self.max + 1):
                 end = start + size
-                t.orig = t.text = value[start : end]
+                if end > inlen: continue
+                
+                t.orig = t.text = value[start:end]
                 t.stopped = False
                 if positions:
                     t.pos = pos
                 if chars:
                     t.startchar = start_char + start
                     t.endchar = start_char + end
+                
                 yield t
-                pos += 1
+            pos += 1
+                    
 
 # Filters
 
