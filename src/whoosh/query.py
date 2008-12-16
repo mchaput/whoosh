@@ -402,13 +402,18 @@ class And(CompoundQuery):
         if self._notqueries:
             exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
-        type = "B" if len(self.subqueries) <= 255 else "i"
+        target = len(self.subqueries)
+        
+        # Create an array representing the number of subqueries that hit each
+        # document.
+        type = "B" if target <= 255 else "i"
         counters = array(type, (0 for _ in xrange(0, searcher.doc_count_all())))
         for q in self._subqueries:
             for docnum in q.docs(searcher, exclude_docs = exclude_docs):
                 counters[docnum] += 1
         
-        target = len(self.subqueries)
+        # Return the doc numbers where the correspoding number of "hits" in
+        # the array equal the number of subqueries.
         return (i for i, count in enumerate(counters) if count == target)
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
@@ -433,13 +438,12 @@ class And(CompoundQuery):
         # Removed the estimated sizes, leaving just the sorted subqueries.
         subqs = [q for _, q in subqs]
         
-        # Space saving optimization(?): if the number of subqueries is small enough to
-        # fit in a byte, use an array of bytes to represent the number of matched
-        # subqueries per document, instead of a dictionary.
-        if len(self.subqueries) <= 255:
-            counters = array("B", (0 for _ in xrange(0, searcher.doc_count_all())))
-        else:
-            counters = defaultdict(int)
+        # Create an array representing the number of subqueries that hit each
+        # document.
+        target = len(subqs)
+        type = "B" if target <= 255 else "i"
+        counters = array(type, (0 for _ in xrange(0, searcher.doc_count_all())))
+        
         scores = defaultdict(float)
         
         for i, q in enumerate(subqs):
@@ -453,7 +457,6 @@ class And(CompoundQuery):
             if (not atleastone):
                 return
         
-        target = len(subqs)
         return ((i, s) for i, s in enumerate(scores) if counters[i] == target)
 
 
@@ -665,7 +668,7 @@ class MultiTerm(Query):
 
 class ExpandingTerm(MultiTerm):
     """
-    Base class for queries that take one term and expand it into
+    Abstract base class for queries that take one term and expand it into
     multiple terms, such as Prefix and Wildcard.
     """
     
@@ -812,7 +815,7 @@ class Variations(ExpandingTerm):
         return u"<%s>" % self.text
     
     def docs(self, searcher, exclude_docs = None):
-        return self._or_query().docs(searcher, exclude_docs = exclude_docs)
+        return self._or_query(searcher).docs(searcher, exclude_docs = exclude_docs)
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         return self._or_query(searcher).doc_scores(searcher,
