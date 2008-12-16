@@ -32,9 +32,9 @@ class IndexingError(Exception):
 
 # Constants
 
-NO_MERGE = -1
-MERGE_SMALL = 0
-OPTIMIZE = 1
+class NO_MERGE(object): pass
+class MERGE_SMALL(object): pass
+class OPTIMIZE(object): pass
 
 # Writing classes
 
@@ -108,7 +108,7 @@ class IndexWriter(object):
         If the index has multiple segments, merges them into a single
         segment.
         """
-        self._merge_segments(1)
+        self._merge_segments(OPTIMIZE)
     
     def close(self, mergetype = MERGE_SMALL):
         """
@@ -128,7 +128,7 @@ class IndexWriter(object):
         segments = self.segments
         new_segments = index.SegmentSet()
         
-        if mergetype == OPTIMIZE:
+        if mergetype is OPTIMIZE:
             # Merge all segments
             for seg in segments:
                 sw.add_segment(self.index, seg)
@@ -139,7 +139,7 @@ class IndexWriter(object):
             sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
             total_docs = 0
             
-            if mergetype != NO_MERGE:
+            if mergetype is not NO_MERGE:
                 # Merge sparse segments into the one we're
                 # currently writing
                 for i, (count, seg) in enumerate(sorted_segment_list):
