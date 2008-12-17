@@ -37,7 +37,13 @@ class Expander(object):
         
         self.index = ix
         self.fieldname = fieldname
-        self.model = model or Bo1Model(ix)
+        
+        if model is None:
+            self.model = Bo1Model(ix)
+        elif isinstance(model, type):
+            self.model = model(ix)
+        else:
+            self.model = model
         
         # Cache the collection weight of every term in this
         # field. This turns out to be much faster than reading each
@@ -99,7 +105,7 @@ class ExpansionModel(object):
         self.N = ix.doc_count()
         self.collection_total = ix.term_total()
         self.mean_length = self.collection_total / self.N
-        
+    
     def normalizer(self, maxweight, top_total):
         raise NotImplementedError
     
@@ -132,8 +138,11 @@ class KLModel(ExpansionModel):
         return maxweight * log(self.collection_total / top_total) / log(2.0) * top_total
     
     def score(self, weight_in_top, weight_in_collection, top_total):
-        if weight_in_top / top_total < weight_in_collection / self.collection_total:
+        wit_over_tt = weight_in_top / top_total
+        wic_over_ct = weight_in_collection / self.collection_total
+        
+        if wit_over_tt < wic_over_ct:
             return 0
         else:
-            return weight_in_top / top_total * log((weight_in_top / top_total) / (weight_in_top / self.collection_total), 2)
+            return wit_over_tt * log((wit_over_tt) / (weight_in_top / self.collection_total), 2)
 
