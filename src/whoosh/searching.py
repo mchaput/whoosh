@@ -39,8 +39,13 @@ class Searcher(object):
         self._total_term_count = ix.total_term_count()
         self._doc_count_all = self.doc_reader.doc_count_all()
         
-        self.weighting = weighting or scoring.BM25F()
-        self.weighting.set_searcher(self)
+        if weighting is None:
+            self.weighting = scoring.BM25F()
+        if isinstance(weighting, type):
+            self.weighting = weighting()
+        else:
+            self.weighting = weighting
+        
         self.sorters = {}
     
     def doc_count_all(self):
@@ -103,8 +108,6 @@ class Searcher(object):
             gen = sorter.doc_orders(query.docs(self), reversed = reversed)
         else:
             # Sort by scores
-            if weighting is not None:
-                weighting.set_searcher(self)
             gen = query.doc_scores(self, weighting = weighting)
         
         return Results(self.doc_reader, query, gen, upper)

@@ -33,77 +33,46 @@ class Weighting(object):
     set by set(), which should be called by score()).
     """
     
-    def __init__(self):
-        self.searcher = None
-        
-        # Collection level statistics
-        self.doc_count = None
-        self.index_length = None
-        #self.max_doc_freq = None
-        #self.unique_term_count = None
-        self.avg_doc_length = None
+    #self.doc_count = searcher.doc_count_all()
+    #self.index_length = searcher.total_term_count()
+    #self.max_doc_freq = ix.max_doc_freq()
+    #self.unique_term_count = ix.unique_term_count()
+    #self.avg_doc_length = self.index_length / self.doc_count
     
-    def __del__(self):
-        if hasattr(self, "searcher"):
-            del self.searcher
-    
-    def set_searcher(self, searcher):
-        """
-        Sets the searcher this object should use to get
-        statistics. This is called by the searcher itself
-        when this object is passed to its constructor using
-        the 'weighting' keyword.
-        """
-        
-        self.searcher = searcher
-        
-        self.doc_count = searcher.doc_count_all()
-        self.index_length = searcher.total_term_count()
-        #self.max_doc_freq = ix.max_doc_freq()
-        #self.unique_term_count = ix.unique_term_count()
-        self.avg_doc_length = self.index_length / self.doc_count
-    
-    def idf(self, fieldnum, text):
+    def idf(self, searcher, fieldnum, text):
         """
         Calculates the Inverse Document Frequency of the
         current term. Subclasses may want to override this.
         """
         
         # TODO: Cache this?
-        df = self.searcher.doc_frequency(fieldnum, text)
-        return log(self.doc_count / (df + 1)) + 1.0
+        df = searcher.doc_frequency(fieldnum, text)
+        return log(searcher.doc_count_all() / (df + 1)) + 1.0
 
-    def field_length(self, fieldnum):
-        """
-        Returns the total number of terms in the current field
-        across the entire collection.
-        """
-        return self.searcher.field_length(fieldnum)
-    
-    def avg_field_length(self, fieldnum):
+    def avg_field_length(self, searcher, fieldnum):
         """
         Returns the average length of the field per document.
         (i.e. total field length / total number of documents)
         """
-        return self.field_length(fieldnum) / self.doc_count
+        return searcher.field_length(fieldnum) / searcher.doc_count_all()
     
-    def l_over_avl(self, docnum, fieldnum):
+    def l_over_avl(self, searcher, docnum, fieldnum):
         """
         Returns the length of the current document divided
         by the average length of all documents. This is used
         by some scoring algorithms.
         """
-        return self.searher.doc_length(docnum) / self.avg_doc_length(fieldnum)
+        return searcher.doc_length(docnum) / self.avg_doc_length(searcher, fieldnum)
     
-    def fl_over_avfl(self, docnum, fieldnum):
+    def fl_over_avfl(self, searcher, docnum, fieldnum):
         """
         Returns the length of the current field in the current
         document divided by the average length of the field
         across all documents. This is used by some scoring algorithms.
         """
-        return self.searcher.doc_field_length(docnum, fieldnum) / self.avg_field_length(fieldnum)
+        return searcher.doc_field_length(docnum, fieldnum) / self.avg_field_length(searcher, fieldnum)
     
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         """
         Calculate the score for a given term in the given
         document. weight is the frequency * boost of the
@@ -134,14 +103,14 @@ class BM25F(Weighting):
         
         self._field_boost = field_boost
 
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         if self._field_boost:
             weight = weight * self._field_boost.get(self.fieldnum, 1.0)
         
         B = self._field_B.get(fieldnum, self.B)
         K1 = self.K1
-        idf = self.idf(fieldnum, text)
-        fl_over_avl = self.fl_over_avfl(docnum, fieldnum)
+        idf = self.idf(searcher, fieldnum, text)
+        fl_over_avl = self.fl_over_avfl(searcher, docnum, fieldnum)
         
         return idf * (weight + (K1 + 1)) / (weight + K1 * ((1.0 - B) + B * fl_over_avl))
 
@@ -149,8 +118,8 @@ class BM25F(Weighting):
 # the Terrier search engine's uk.ac.gla.terrier.matching.models package.
 
 class Cosine(Weighting):
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
-        idf = self.idf(fieldnum, text)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        idf = self.idf(searcher, fieldnum, text)
         
         DTW = (1.0 + log(weight)) * idf
         QMF = 1.0 # TODO: Fix this
@@ -159,12 +128,12 @@ class Cosine(Weighting):
 
 
 class DFree(Weighting):
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
-        doclen = self.searcher.doc_length(docnum)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        doclen = searcher.doc_length(docnum)
         
         prior = weight / doclen
         post = (weight + 1.0) / doclen
-        invprior = self.field_length(fieldnum) / self.searcher.term_count(fieldnum, text)
+        invprior = searcher.field_length(fieldnum) / searcher.term_count(fieldnum, text)
         norm = weight * log(post / prior, 2)
         
         return 0 - QTF\
@@ -178,13 +147,15 @@ class DLH13(Weighting):
         super(self.__class__, self).__init__()
         self.k = k
 
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         k = self.k
         
-        dl = self.searcher.doc_length(docnum)
+        dl = searcher.doc_length(docnum)
         f = weight / dl
-        tc = self.searcher.term_count(fieldnum, text)
-        return 0 - QTF * (weight * log((weight * self.avg_doc_length / dl) * (self.doc_count / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
+        tc = searcher.term_count(fieldnum, text)
+        doc_count = searcher.doc_count_all()
+        avg_doc_length = self.avg_field_length(searcher, fieldnum)
+        return 0 - QTF * (weight * log((weight * avg_doc_length / dl) * (doc_count / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
 
 
 class Hiemstra_LM(Weighting):
@@ -192,11 +163,11 @@ class Hiemstra_LM(Weighting):
         super(self.__class__, self).__init__()
         self.c = c
         
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         c = self.c
-        tc = self.searcher.term_count(fieldnum, text)
-        dl = self.searcher.doc_length(docnum)
-        return log(1 + (c * weight * self.field_length(fieldnum)) / ((1 - c) * tc * dl))
+        tc = searcher.term_count(fieldnum, text)
+        dl = searcher.doc_length(docnum)
+        return log(1 + (c * weight * searcher.field_length(fieldnum)) / ((1 - c) * tc * dl))
 
 
 class InL2(Weighting):
@@ -204,12 +175,12 @@ class InL2(Weighting):
         super(self.__class__, self).__init__()
         self.c = c
     
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
-        dl = self.searcher.doc_length(docnum)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        dl = searcher.doc_length(docnum)
         TF = weight * log(1.0 + (self.c * self.avg_doc_length) / dl)
         norm = 1.0 / (TF + 1.0)
-        df = self.searcher.doc_frequency(fieldnum, text)
-        idf_dfr = log((self.doc_count + 1) / (df + 0.5), 2)
+        df = searcher.doc_frequency(fieldnum, text)
+        idf_dfr = log((searcher.doc_count_all() + 1) / (df + 0.5), 2)
         
         return TF * idf_dfr * QTF * norm
 
@@ -218,8 +189,8 @@ class TF_IDF(Weighting):
     """
     Instead of doing any real scoring, this simply returns tf * idf.
     """
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
-        return weight * self.idf(fieldnum, text)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        return weight * self.idf(searcher, fieldnum, text)
 
 
 class Frequency(Weighting):
@@ -228,8 +199,8 @@ class Frequency(Weighting):
     term frequency. This may be useful when you don't care about
     normalization and weighting.
     """
-    def score(self, fieldnum, text, docnum, weight, QTF = 1):
-        return self.searcher.term_count(fieldnum, text)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        return self.searcher.term_count(searcher, fieldnum, text)
 
 # Sorting classes
 
