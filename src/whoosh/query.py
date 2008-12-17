@@ -202,7 +202,7 @@ class MultifieldTerm(Query):
                 for docnum, weight in searcher.weights(fieldnum, text,
                                                        exclude_docs = exclude_docs,
                                                        boost = self.boost):
-                    accumulators[docnum] += weighting.score(fieldnum, text, docnum, weight)
+                    accumulators[docnum] += weighting.score(searcher, fieldnum, text, docnum, weight)
         
         return accumulators.iteritems()
     
@@ -224,8 +224,8 @@ class SimpleQuery(Query):
         self.boost = boost
     
     def __repr__(self):
-        return "%s(%s, %s)" % (self.__class__.__name__,
-                                         repr(self.fieldname), repr(self.text))
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.fieldname, self.text)
 
     def __unicode__(self):
         return u"%s:%s" % (self.fieldname, self.text)
@@ -273,7 +273,7 @@ class Term(SimpleQuery):
             weighting = weighting or searcher.weighting
             for docnum, weight in searcher.weights(fieldnum, self.text,
                                                    exclude_docs = exclude_docs):
-                yield docnum, weighting.score(fieldnum, text, docnum,
+                yield docnum, weighting.score(searcher, fieldnum, text, docnum,
                                               weight * boost)
 
 
