@@ -37,7 +37,7 @@ static "Record" files made up of fixed-length records based on the
 struct module.
 """
 
-import cPickle, shutil, struct, tempfile
+import cPickle, shutil, tempfile
 from bisect import bisect_right
 
 try:
@@ -52,6 +52,38 @@ from whoosh.structfile import StructFile
 
 class ItemNotFound(Exception):
     pass
+
+# Utility functions
+
+def copy_data(treader, key, twriter, postings = False, buffersize = 32 * 1024):
+    """
+    Copies the data associated with the key from the
+    "reader" table to the "writer" table, along with the
+    raw postings if postings = True.
+    """
+    
+    if postings:
+        (offset, length), postcount, data = treader._get(key)
+        super(twriter.__class__, twriter).add_row(twriter, key,
+                                                  ((twriter.offset, length), postcount, data))
+        
+        # Copy the raw posting data
+        infile = treader.table_file
+        infile.seek(treader.postpos + offset)
+        outfile = twriter.posting_file
+        if length <= buffersize:
+            outfile.write(infile.read(length))
+        else:
+            sofar = 0
+            while sofar < length:
+                readsize = min(buffersize, length - sofar)
+                outfile.write(infile.read(readsize))
+                sofar += readsize
+        
+        twriter.offset = outfile.tell()
+    else:
+        twriter.add_row(key, treader[key])
+
 
 # Table writer classes
 
@@ -186,11 +218,6 @@ class PostingTableWriter(TableWriter):
         self.offset = endoffset
         self.postcount = 0
         self.lastpostid = None
-        
-    def _add_raw_data(self, key, data, count, postings):
-        super(self.__class__, self).add_row(key, ((self.offset, len(postings)), count, data))
-        self.posting_file.write(postings)
-        self.offset = self.posting_file.tell()
 
 
 # Table reader classes
@@ -252,7 +279,7 @@ class TableReader(object):
     def _value(self, value):
         return value
     
-    def get(self, key):
+    def __getitem__(self, key):
         self._load_block(key)
         return self._value(self.itemdict[key])
     
@@ -268,7 +295,7 @@ class TableReader(object):
     def values(self):
         return (value for _, value in self)
     
-    def iter_from(self, key):
+    def from_(self, key):
         _value = self._value
         
         self._load_block(key)
@@ -309,13 +336,6 @@ class PostingTableReader(TableReader):
         
         self.usevarints = self.options.get("usevarints", True)
 
-    def _raw_data(self, key):
-        (offset, length), count, data = self._get(key)
-        tf = self.table_file
-        tf.seek(self.postpos + offset)
-        postings = tf.read(length)
-        return (data, count, postings)
-
     def __iter__(self):
         _value = self._value
         for i in xrange(0, len(self.blockindex)):
@@ -350,9 +370,6 @@ class PostingTableReader(TableReader):
         # more clever function.
         return postfile.read_pickle()
 
-    def _skip_postingdata(self, postfile):
-        self._read_postingdata(postfile)
-
     def _value(self, value):
         # The writer spliced the posting count and offsets into the
         # data, so ignore them when returning values.
@@ -377,50 +394,200 @@ class PostingTableReader(TableReader):
             yield (id, readfn(pfile))
     
 
+# Table writer/reader pair that keep their tables in a SQLite database
+
+#class SQLWriter(object):
+#    def __init__(self, con, name, **kwargs):
+#        self.con = con
+#        self.name = name
+#        
+#    def close(self):
+#        pass
+#        
+#    def add_row(self, key, data):
+#        pck = cPickle.dumps(data)
+#        #compressed = self.compressed
+#        #if compressed:
+#        #    pck = compress(pck, compressed)
+#        self.con.execute("INSERT INTO %s VALUES (?, ?)" % self.name,
+#                         (repr(key), pck))
+#    
+#
+#class PostingSQLWriter(SQLWriter):
+#    def __init__(self, con, name, posting_file, stringids = False, **kwargs):
+#        super(PostingSQLWriter, self).__init__(con, name)
+#        self.posting_file = posting_file
+#        
+#        self.usevarints = not stringids
+#        self.offset = 0
+#        self.postcount = 0
+#        self.lastpostid = None
+#        
+#    def close(self):
+#        self.posting_file.close()
+#    
+#    def add_row(self, key, data = None):
+#        # Note: call this AFTER you add the postings!
+#        # Overrides TableWriter.add_row() to stick the posting file offset
+#        # and posting count on before the data.
+#        
+#        endoffset = self.posting_file.tell()
+#        length = endoffset - self.offset
+#        
+#        pck = cPickle.dumps(data)
+#        #compressed = self.compressed
+#        #if compressed:
+#        #    pck = compress(pck, compressed)
+#        self.con.execute("INSERT INTO %s VALUES (?, ?, ?, ?, ?)" % self.name,
+#                         (repr(key), self.offset, length, self.postcount, pck))
+#        
+#        # Reset the posting variables
+#        self.offset = endoffset
+#        self.postcount = 0
+#        self.lastpostid = None
+#        
+#    def _write_postingdata(self, postfile, data):
+#        # The default posting writer simple pickles the data. Callers
+#        # of write_posting() can override this with a more clever
+#        # function.
+#        postfile.write_pickle(data)
+#    
+#    def write_posting(self, id, data, writefn = None):
+#        # IDs must be added in increasing order
+#        if id <= self.lastpostid:
+#            raise IndexError("IDs must increase: %r..%r" % (self.lastpostid, id))
+#        
+#        pf = self.posting_file
+#        writefn = writefn or self._write_postingdata
+#        
+#        if self.usevarints:
+#            lastpostid = self.lastpostid or 0
+#            pf.write_varint(id - lastpostid)
+#        else:
+#            pf.write_string(id.encode("utf8"))
+#        
+#        self.lastpostid = id
+#        self.postcount += 1
+#        
+#        return writefn(pf, data)
+#
+#
+#class SQLReader(object):
+#    def __init__(self, con, name):
+#        self.con = con
+#        self.name = name
+#        
+#        self.currentblock = None
+#        self.itemlist = None
+#        self.itemdict = None
+#    
+#    def close(self):
+#        pass
+#    
+#    def __contains__(self, key):
+#        for row in self.con.execute("SELECT key FROM %s WHERE key = ? LIMIT 1" % self.name, (key, )):
+#            return True
+#        return False
+#    
+#    def get(self, key):
+#        row = self.con.execute("SELECT value FROM %s WHERE key = ? LIMIT 1" % self.name, (key, ))
+#        return row[0]
+#    
+#    def __iter__(self):
+#        for row in self.con.execute("SELECT key, value FROM %s ORDER BY key" % self.name):
+#            yield row
+#    
+#    def keys(self):
+#        return (key for key, _ in self)
+#    
+#    def values(self):
+#        return (value for _, value in self)
+#    
+#    def from_(self, key):
+#        for row in self.con.execute("SELECT key, value FROM %s WHERE key > ? ORDER BY key" % self.name, (key, )):
+#            yield row
+#    
+#
+#class PostingSQLReader(SQLReader):
+#    def __init__(self, con, name, posting_file, stringids = False):
+#        super(self.__class__, self).__init__(con, name)
+#        self.usevarints = not stringids
+#        self.posting_file = posting_file
+#
+#    _read_postingdata = PostingTableReader._read_postingdata
+#    _read_id = PostingTableReader._read_id
+#
+#    def close(self):
+#        self.posting_file.close()
+#
+#    def _seek_postings(self, key):
+#        row = self.con.execute("SELECT offset, count FROM %s WHERE key = ?" % self.name, (key, ))
+#        offset = row[0]
+#        count = row[1]
+#        
+#        self.posting_file.seek(offset)
+#        return count
+#
+#    def posting_count(self, key):
+#        row = self.con.execute("SELECT count FROM %s WHERE key = ?" % self.name, (key, ))
+#        return row[0]
+#
+#    def postings(self, key, readfn = None):
+#        pfile = self.posting_file
+#        count = self._seek_postings(key)
+#        readfn = readfn or self._read_postingdata
+#        
+#        id = 0
+#        for _ in xrange(0, count):
+#            id = self._read_id(pfile, id)
+#            yield (id, readfn(pfile))
+
+
+
 # Classes for storing arrays of records
 
-class RecordWriter(object):
-    def __init__(self, arrayfile, format):
-        self.file = arrayfile
-        self.format = format
-        self.file.write_string(format)
-    
-    def close(self):
-        self.file.close()
-    
-    def add(self, *data):
-        self.file.write_struct(self.format, data)
-        
-    def extend(self, iterable):
-        write_struct = self.file.write_struct
-        format = self.format
-        
-        for data in iterable:
-            write_struct(format, data)
-
-
-class RecordReader(object):
-    def __init__(self, arrayfile):
-        self.file = arrayfile
-        self.format = format = self.file.read_string()
-        self.recordsize = struct.calcsize(format)
-        self.offset = self.file.tell()
-        
-        if format[0] in "@=!<>":
-            self.singlevalue = not len(format) > 2
-        else:
-            self.singlevalue = not len(format) > 1
-        
-    def close(self):
-        self.file.close()
-        
-    def __getitem__(self, num):
-        self.file.seek(self.recordsize * num + self.offset)
-        st = self.file.read_struct(self.format)
-        if self.singlevalue:
-            return st[0]
-        else:
-            return st
+#class RecordWriter(object):
+#    def __init__(self, arrayfile, format):
+#        self.file = arrayfile
+#        self.format = format
+#        self.file.write_string(format)
+#    
+#    def close(self):
+#        self.file.close()
+#    (fn, t), termcount
+#    def add(self, *data):
+#        self.file.write_struct(self.format, data)
+#        
+#    def extend(self, iterable):
+#        write_struct = self.file.write_struct
+#        format = self.format
+#        
+#        for data in iterable:
+#            write_struct(format, data)
+#
+#
+#class RecordReader(object):
+#    def __init__(self, arrayfile):
+#        self.file = arrayfile
+#        self.format = format = self.file.read_string()
+#        self.recordsize = struct.calcsize(format)
+#        self.offset = self.file.tell()
+#        
+#        if format[0] in "@=!<>":
+#            self.singlevalue = not len(format) > 2
+#        else:
+#            self.singlevalue = not len(format) > 1
+#        
+#    def close(self):
+#        self.file.close()
+#        
+#    def __getitem__(self, num):
+#        self.file.seek(self.recordsize * num + self.offset)
+#        st = self.file.read_struct(self.format)
+#        if self.singlevalue:
+#            return st[0]
+#        else:
+#            return st
         
 
 if __name__ == '__main__':

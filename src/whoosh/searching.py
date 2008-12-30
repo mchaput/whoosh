@@ -139,14 +139,14 @@ class Searcher(object):
     def doc_unique_count(self, docnum):
         return self.doc_reader.unique_count(docnum)
     
-    def field_words(self, fieldnum):
-        return self.term_reader.field_words(fieldnum)
+    def lexicon(self, fieldnum):
+        return self.term_reader.lexicon(fieldnum)
     
     def expand_prefix(self, fieldnum, prefix):
         return self.term_reader.expand_prefix(fieldnum, prefix)
     
-    def iter_from(self, fieldnum, text):
-        return self.term_reader.iter_from(fieldnum, text)
+    def from_(self, fieldnum, text):
+        return self.term_reader.from_(fieldnum, text)
     
     def doc_frequency(self, fieldnum, text):
         return self.term_reader.doc_frequency(fieldnum, text)

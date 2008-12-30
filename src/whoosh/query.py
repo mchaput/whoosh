@@ -738,7 +738,7 @@ class Wildcard(ExpandingTerm):
         if self.prefix:
             candidates = searcher.expand_prefix(self.fieldname, self.prefix)
         else:
-            candidates = searcher.field_words(self.fieldname)
+            candidates = searcher.lexicon(self.fieldname)
         
         exp = self.expression
         for text in candidates(searcher):
@@ -791,7 +791,7 @@ class TermRange(MultiTerm):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         end = self.end
         
-        for fnum, t, _, _ in searcher.iter_from(fieldnum, self.start):
+        for fnum, t, _, _ in searcher.from_(fieldnum, self.start):
             while fnum == fieldnum and t <= end:
                 yield t
     

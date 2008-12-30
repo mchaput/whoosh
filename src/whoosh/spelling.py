@@ -25,7 +25,6 @@ from whoosh import analysis, fields, query, searching, writing
 from whoosh.support.levenshtein import relative, distance
 from whoosh.util import UtilityIndex
 
-
 class SpellChecker(UtilityIndex):
     """
     Implements a spell-checking engine with a Whoosh-based backend
@@ -77,7 +76,7 @@ class SpellChecker(UtilityIndex):
         """
         Suggests alternate spellings for a word. text is the text of the word
         to check. number is the number of suggestions to return. fieldname.
-        if usescores is True, the suggestions are computed based on their frequency
+        if morepopular is True, the suggestions are computed based on their frequency
         in the source index, rather than distance from the original text.
         """
         
@@ -129,16 +128,15 @@ class SpellChecker(UtilityIndex):
     def add_field(self, ix, fieldname):
         """
         Adds the terms in a field from another index to the backend dictionary.
-        fieldname is the name of the field in the source index from which to load the terms.
+        term_reader is a term reader object for the source index. fieldname is the
+        name of the field in the source index from which to load the terms.
         """
         
         tr = ix.term_reader()
         try:
             # TODO: This should score the words using frequency somehow
             # and call add_scored_words instead.
-            fieldnum = ix.schema.name_to_number(fieldname)
-            self.add_scored_words((text, tr.term_count(fieldnum, text))
-                                  for text in tr.field_words(fieldnum))
+            self.add_words(tr.lexicon(fieldname))
         finally:
             tr.close()
     
@@ -146,7 +144,9 @@ class SpellChecker(UtilityIndex):
         """
         Adds words to the backend dictionary from an iterable. This method
         takes a list of words. score is the score to use for all words
-        (default is 0).
+        (default is 0). You can use this if you are planning to use the
+        'usescores' keyword argument of the suggestions() method. However,
+        in that case, you might want to use add_scored_words() instead.
         """
         self.add_scored_words((w, 0) for w in ws)
     

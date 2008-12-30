@@ -45,7 +45,7 @@ class TestIndexing(unittest.TestCase):
         tr = ix.term_reader()
         self.assertEqual(ix.doc_count_all(), 3)
         self.assertEqual(ix.total_term_count(), 17)
-        self.assertEqual(list(tr.field_words("name")), ["alpha", "beta", "brown", "one", "two", "yellow"])
+        self.assertEqual(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one", "two", "yellow"])
     
     def test_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(scorable = True),
@@ -150,7 +150,7 @@ class TestIndexing(unittest.TestCase):
         ix.optimize()
         tr = ix.term_reader()
         self.assertEqual(ix.doc_count(), 2)
-        self.assertEqual(list(tr.field_words("name")), ["brown", "one", "two", "yellow"])
+        self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
         
         
 if __name__ == '__main__':

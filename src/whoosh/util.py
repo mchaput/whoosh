@@ -56,14 +56,13 @@ class TopDocs(object):
     and the next item to consider has a lower score than the lowest item in the
     collection, you can just throw it away).
     
-    The reason to use this over heapq.nlargest is that this object keeps track
-    of all docnums that were added, even if they're not in the "top N". It also
-    allows you to call add_all multiple times, if necessary.
+    The reason we use this instead of heapq.nlargest is this object keeps
+    track of all docnums that were added, even if they're not in the "top N".
     """
     
-    def __init__(self, capacity, max_doc):
+    def __init__(self, capacity, max_doc, docvector = None):
         self.capacity = capacity
-        self.docs = BitVector(max_doc)
+        self.docs = docvector or BitVector(max_doc)
         self.heap = []
         self._total = 0
 

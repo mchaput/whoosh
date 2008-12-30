@@ -51,7 +51,7 @@ class Expander(object):
         tr = ix.term_reader()
         try:
             collection_weight = {}
-            for word in tr.field_words(fieldname):
+            for word in tr.lexicon(fieldname):
                 collection_weight[word] = tr.term_count(fieldname, word)
             self.collection_weight = collection_weight
         finally:

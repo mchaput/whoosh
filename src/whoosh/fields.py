@@ -100,7 +100,7 @@ class Schema(object):
             self.add(name, fields[name])
         
     def __repr__(self):
-        return "<Schema: %s>" % repr(self.names)
+        return "<Schema: %s>" % repr(self._names)
     
     def __iter__(self):
         return iter(self._by_number)
@@ -125,7 +125,10 @@ class Schema(object):
     def fields(self):
         return self._by_name.iteritems()
     
-    def names(self):
+    def field_names(self):
+        """
+        Returns a list of the names of the fields in this schema.
+        """
         return self._names
     
     def add(self, name, fieldtype, **kwargs):
@@ -149,12 +152,6 @@ class Schema(object):
         self._names.append(name)
         self._by_name[name] = fieldtype
         
-    def field_names(self):
-        """
-        Returns a list of the names of the fields in this schema.
-        """
-        return self._names
-    
     def name_to_number(self, name):
         """
         Given a field name, returns the field's number.

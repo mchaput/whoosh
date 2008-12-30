@@ -37,10 +37,10 @@ from whoosh.lang.porter import stem
 # class, which allows you to supply an optional list to override
 # this one.
 
-STOP_WORDS = ["the", "to", "of", "a", "and", "is", "in", "this",
-              "you", "for", "be", "on", "or", "will", "if", "can", "are",
-              "that", "by", "with", "it", "as", "from", "an", "when",
-              "not", "may", "tbd", "yet"]
+STOP_WORDS = frozenset(("the", "to", "of", "a", "and", "is", "in", "this",
+                        "you", "for", "be", "on", "or", "will", "if", "can", "are",
+                        "that", "by", "with", "it", "as", "from", "an", "when",
+                        "not", "may", "tbd", "yet"))
 
 # Token object
 
@@ -183,6 +183,11 @@ class NgramTokenizer(object):
 
 # Filters
 
+def PassFilter(tokens):
+    for t in tokens:
+        yield t
+
+
 class StemFilter(object):
     """
     Stems (removes suffixes from) words using the Porter stemming algorithm.
@@ -256,6 +261,35 @@ def CamelFilter(tokens):
                         t.endchar = oldstart + match.end()
                     yield t
 
+_underscore_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
+def UnderscoreFilter(tokens):
+    """
+    Splits words with underscores into multiple words. For example,
+    the string "get_processed_token" yields tokens
+    "get_processed_token", "get", "processed", and "token".
+    
+    Obviously you should not split words on underscores in the
+    tokenizer if you want to use this filter.
+    """
+    
+    for t in tokens:
+        yield t
+        text = t.text
+        
+        if text:
+            chars = t.chars
+            if chars:
+                oldstart = t.startchar
+            
+            for match in _underscore_exp.finditer(text):
+                sub = match.group(0)
+                if sub != text:
+                    t.text = sub
+                    if chars:
+                        t.startchar = oldstart + match.start()
+                        t.endchar = oldstart + match.end()
+                    yield t
+
 
 class StopFilter(object):
     """
@@ -263,7 +297,7 @@ class StopFilter(object):
     the stream.
     """
 
-    def __init__(self, stoplist = None, minsize = 2):
+    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
         """
         Stoplist is a sequence of words to remove from the stream (this
         is converted to a frozenset); the default is a list of common
@@ -272,9 +306,9 @@ class StopFilter(object):
         minsize are removed from the stream.
         """
         
-        if stoplist is None:
-            stoplist = STOP_WORDS
-        self.stops = frozenset(stoplist)
+        if not isinstance(stoplist, (set, frozenset)):
+            stoplist = frozenset(stoplist)
+        self.stops = stoplist
         self.min = minsize
     
     def __call__(self, tokens):
@@ -283,10 +317,8 @@ class StopFilter(object):
         
         for t in tokens:
             text = t.text
-            if len(text) < minsize or text in stoplist:
-                t.stopped = True
-            yield t
-
+            if len(text) >= minsize and text not in stoplist:
+                yield t
 
 def LowerCaseFilter(tokens):
     """
@@ -343,13 +375,16 @@ class SimpleAnalyzer(Analyzer):
 
 class StandardAnalyzer(Analyzer):
     """
-    Uses a RegexTokenizer (by default) and applies a LowerCaseFilter
-    and StopFilter.
+    Uses a RegexTokenizer and applies a LowerCaseFilter and StopFilter.
     """
     
-    def __init__(self, stoplist = None, minsize = 2):
+    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
         self.tokenizer = RegexTokenizer()
-        self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
+        
+        if stoplist is None:
+            self.stopper = PassFilter
+        else:
+            self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
     def __call__(self, value, **kwargs):
         return self.stopper(LowerCaseFilter(
@@ -359,17 +394,18 @@ class StandardAnalyzer(Analyzer):
 class FancyAnalyzer(Analyzer):
     """
     Uses a RegexTokenizer (by default) and applies a CamelFilter,
-    LowerCaseFilter, and StopFilter.
+    UnderscoreFilter, LowerCaseFilter, and StopFilter.
     """
     
-    def __init__(self, stoplist = None, minsize = 2):
+    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
         self.tokenizer = RegexTokenizer()
         self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
     def __call__(self, value, **kwargs):
-        return self.stopper(LowerCaseFilter(
+        return self.stopper(UnderscoreFilter(
+                            LowerCaseFilter(
                             CamelFilter(
-                            self.tokenizer(value, **kwargs))))
+                            self.tokenizer(value, **kwargs)))))
 
 
 class NgramAnalyzer(Analyzer):
