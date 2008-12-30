@@ -243,7 +243,7 @@ class FieldSorter(object):
         
         # For every document containing every term in the field, set
         # its array value to the term's (inherently sorted) position.
-        for i, word in enumerate(searcher.field_words(fieldnum)):
+        for i, word in enumerate(searcher.lexicon(fieldnum)):
             for docnum, _ in searcher.postings(fieldnum, word):
                 cache[docnum] = i
         
@@ -270,7 +270,6 @@ class FieldSorter(object):
         else:
             for docnum in docnums:
                 yield (docnum, limit - cache[docnum])
-
 
 
 

@@ -20,9 +20,8 @@ This module contains classes for writing to an index.
 
 from collections import defaultdict
 
-from whoosh import postpool, reading, index
+from whoosh import index, postpool, reading, tables
 from whoosh.reading import UnknownFieldError
-from whoosh.tables import TableWriter, PostingTableWriter #, RecordWriter
 from whoosh.util import fib
 
 # Exceptions
@@ -226,21 +225,16 @@ class SegmentWriter(object):
         tempseg = index.Segment(self.name, 0, 0, 0, None)
         
         # Open files for writing
-        term_file = self.storage.create_file(tempseg.term_filename)
-        self.term_table = PostingTableWriter(term_file, blocksize = blocksize)
-        
-        doclength_file = self.storage.create_file(tempseg.doclen_filename)
-        
-        #recordfmt = "!ii" + ("i" * len(self.schema.scorable_fields()))
-        self.doclength_records = TableWriter(doclength_file) #RecordWriter(doclength_file, recordfmt)
-        
-        docs_file = self.storage.create_file(tempseg.docs_filename)
-        self.docs_table = TableWriter(docs_file, blocksize = blocksize, compressed = 9)
+        self.term_table = self.storage.create_table(tempseg.term_filename, postings = True)
+        self.doclength_records = self.storage.create_table(tempseg.doclen_filename)
+        self.docs_table = self.storage.create_table(tempseg.docs_filename,
+                                                    blocksize = blocksize, compressed = 9)
         
         self.vector_table = None
         if self.schema.has_vectored_fields():
-            vector_file = self.storage.create_file(tempseg.vector_filename)
-            self.vector_table = PostingTableWriter(vector_file, stringids = True)
+            self.vector_table = self.storage.create_table(tempseg.vector_filename,
+                                                          postings = True,
+                                                          stringids = True)
             
     def segment(self):
         """
@@ -318,9 +312,8 @@ class SegmentWriter(object):
                     
                     for fieldnum in vectored_fieldnums:
                         if (docnum, fieldnum) in inv:
-                            data, count, postings = inv._raw_data((docnum, fieldnum))
-                            outv._add_raw_data((self.max_doc, fieldnum), data, count, postings)
-                    
+                            tables.copy_data(inv, (docnum, fieldnum), outv, postings = True)
+                            
                     fcs = ds.field_counts
                     for fieldnum in self._scorable_fields:
                         fcs[fieldnum] = doc_reader.doc_field_length(docnum, fieldnum)

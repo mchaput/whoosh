@@ -25,6 +25,7 @@ import os
 from cStringIO import StringIO
 from threading import Lock
 
+from whoosh import tables
 from whoosh.structfile import StructFile
 
 
@@ -32,7 +33,33 @@ class LockError(Exception):
     pass
 
 
-class FileStorage(object):
+
+class Storage(object):
+    """
+    Abstract base class for storage objects.
+    """
+    
+    def __iter__(self):
+        return iter(self.list())
+    
+    def create_table(self, name, postings = False, **kwargs):
+        f = self.create_file(name)
+        classname = tables.PostingTableWriter if postings else tables.TableWriter
+        return classname(f, **kwargs)
+    
+    def open_table(self, name, postings = False, **kwargs):
+        f = self.open_file(name)
+        classname = tables.PostingTableReader if postings else tables.TableReader
+        return classname(f, **kwargs)
+
+    def close(self):
+        pass
+    
+    def optimize(self):
+        pass
+
+
+class FileStorage(Storage):
     """
     Storage object that stores the index as files in a directory on disk.
     """
@@ -54,9 +81,6 @@ class FileStorage(object):
         files = self.list()
         for file in files:
             os.remove(os.path.join(path,file))
-    
-    def __iter__(self):
-        return iter(self.list())
     
     def list(self):
         try:
@@ -91,9 +115,6 @@ class FileStorage(object):
         f._name = name
         return f
     
-    def close(self):
-        pass
-    
     def lock(self, name):
         os.mkdir(self._fpath(name))
     
@@ -104,7 +125,41 @@ class FileStorage(object):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
 
 
-class RamStorage(object):
+#class SqliteStorage(FileStorage):
+#    """
+#    Storage object that keeps tables in a sqlite database.
+#    """
+#    
+#    def __init__(self, path):
+#        super(SqliteStorage, self).__init__(path)
+#        self.con = sqlite3.connect(os.path.join(path, "tables.db"))
+#
+#    def create_table(self, name, postings = False, **kwargs):
+#        name = name.replace(".", "_")
+#        if postings:
+#            self.con.execute("CREATE TABLE %s (key TEXT, offset INTEGER, length INTEGER, count INTEGER, value BLOB)" % name)
+#            posting_file = self.create_file("%s_postings" % name)
+#            return tables.PostingSQLWriter(self.con, name, posting_file, **kwargs)
+#        else:
+#            self.con.execute("CREATE TABLE %s (key TEXT, value BLOB)" % name)
+#            return tables.SQLWriter(self.con, name, **kwargs)
+#            
+#    def open_table(self, name, postings = False, **kwargs):
+#        name = name.replace(".", "_")
+#        if postings:
+#            posting_file = self.open_file("%s_postings" % name)
+#            return tables.PostingSQLReader(self.con, name, posting_file, **kwargs)
+#        else:
+#            return tables.SQLReader(self.con, name, **kwargs)
+#        
+#    def lock(self, name):
+#        return True
+#    
+#    def unlock(self, name):
+#        pass
+        
+
+class RamStorage(Storage):
     """
     Storage object that keeps the index in memory.
     """

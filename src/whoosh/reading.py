@@ -20,9 +20,8 @@ This module contains classes that allow reading from an index.
 
 from array import array
 from bisect import bisect_right
-from heapq import heapify, heapreplace, heappop
+from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh.tables import TableReader, PostingTableReader #, RecordReader
 from whoosh.fields import FieldConfigurationError
 
 # Exceptions
@@ -85,12 +84,8 @@ class DocReader(object):
         self.schema = schema
         self._scorable_fields = schema.scorable_fields()
         
-        #self._setup_scorable_indices()
-        doclength_file = storage.open_file(segment.doclen_filename)
-        self.doclength_records = TableReader(doclength_file) #RecordReader(doclength_file)
-        
-        docs_file = storage.open_file(segment.docs_filename)
-        self.docs_table = TableReader(docs_file)
+        self.doclength_records = storage.open_table(segment.doclen_filename)
+        self.docs_table = storage.open_table(segment.docs_filename)
         #self.cache = FifoCache()
         
         self.vector_table = None
@@ -104,8 +99,8 @@ class DocReader(object):
     
     def _open_vectors(self):
         if not self.vector_table:
-            vector_file = self.storage.open_file(self.segment.vector_filename)
-            self.vector_table = PostingTableReader(vector_file)
+            self.vector_table = self.storage.open_table(self.segment.vector_filename,
+                                                        postings = True)
     
     def close(self):
         """
@@ -207,7 +202,7 @@ class DocReader(object):
         #    di = self.doclength_records[docnum]
         #    cache[docnum] = di
         #    return di
-        return self.doclength_records.get((docnum, key))
+        return self.doclength_records[(docnum, key)]
     
     def doc_length(self, docnum):
         """
@@ -244,7 +239,7 @@ class DocReader(object):
         """
         Returns the stored fields for the given document.
         """
-        return self.docs_table.get(docnum)
+        return self.docs_table[docnum]
     
     def __iter__(self):
         """
@@ -254,7 +249,7 @@ class DocReader(object):
         is_deleted = self.segment.is_deleted
         for docnum in xrange(0, self.segment.max_doc):
             if not is_deleted(docnum):
-                yield self.docs_table.get(docnum)
+                yield self.docs_table[docnum]
 
 
 class MultiDocReader(DocReader):
@@ -341,8 +336,7 @@ class TermReader(object):
         self.segment = segment
         self.schema = schema
         
-        term_file = storage.open_file(segment.term_filename)
-        self.term_table = PostingTableReader(term_file)
+        self.term_table = storage.open_table(segment.term_filename, postings = True)
         self.is_closed = False
         
     def fieldname_to_num(self, fieldname):
@@ -375,7 +369,7 @@ class TermReader(object):
     
     def _term_info(self, fieldnum, text):
         try:
-            return self.term_table.get((fieldnum, text))
+            return self.term_table[(fieldnum, text)]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldnum, text))
     
@@ -386,19 +380,13 @@ class TermReader(object):
         """
         
         tt = self.term_table
-        # Maybe this is a bad idea: instead of using the "public" API
-        # (__iter__ and postingcount()) to pull the information out
-        # of the term table, which would lead to a bunch of extra work,
-        # I use _raw_iter to pull out the raw information. This is
-        # probably a bad idea, because the internal format might change,
-        # but it is more performant for large data sets.
-        for (fn, t), (_, postingcount, termcount) in tt._raw_iter():
-            yield (fn, t, postingcount, termcount)
+        for (fn, t), termcount in tt:
+            yield (fn, t, tt.posting_count((fn, t)), termcount)
     
-    def iter_from(self, fieldnum, text):
+    def from_(self, fieldnum, text):
         tt = self.term_table
         postingcount = tt.posting_count
-        for (fn, t), termcount in tt.iter_from((fieldnum, text)):
+        for (fn, t), termcount in tt.from_((fieldnum, text)):
             yield (fn, t, postingcount((fn, t)), termcount)
     
     def __contains__(self, term):
@@ -434,7 +422,7 @@ class TermReader(object):
         if (fieldnum, text) not in self:
             return 0
         
-        return self.term_table.get((fieldnum, text))
+        return self.term_table[(fieldnum, text)]
     
     def doc_count_all(self):
         """
@@ -516,7 +504,7 @@ class TermReader(object):
         """
         
         fieldnum = self.fieldname_to_num(fieldname)
-        for fn, t, _, _ in self.iter_from(fieldnum, prefix):
+        for fn, t, _, _ in self.from_(fieldnum, prefix):
             if fn != fieldnum or not t.startswith(prefix):
                 return
             yield t
@@ -534,7 +522,7 @@ class TermReader(object):
                 current_fieldname = self.schema.number_to_name(fn)
             yield (current_fieldname, t)
     
-    def field_words(self, fieldnum):
+    def lexicon(self, fieldnum):
         """
         Yields all tokens in the given field.
         """
@@ -542,13 +530,22 @@ class TermReader(object):
         if isinstance(fieldnum, basestring):
             fieldnum = self.schema.name_to_number(fieldnum)
         
-        for fn, t, _, _ in self.iter_from(fieldnum, ''):
+        for fn, t, _, _ in self.from_(fieldnum, ''):
             if fn != fieldnum:
                 return
             yield t
-        
+    
+    def most_frequent_terms(self, fieldnum, number = 5):
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.schema.name_to_number(fieldnum)
+            
+        return nlargest(number,
+                        ((indexfreq, token)
+                         for fieldnum, token, docfreq, indexfreq
+                         in self))
+    
     def list_substring(self, fieldname, substring):
-        for text in self.field_words(fieldname):
+        for text in self.lexicon(fieldname):
             if text.find(substring) > -1:
                 yield text
     
@@ -598,7 +595,7 @@ class MultiTermReader(TermReader):
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of
         # term iterators (TermReader.__iter__() or
-        # TermReader.iter_from()).
+        # TermReader.from_()).
         
         # Fill in the list with the head term from each iterator.
         # infos is a list of [headterm, iterator] lists.
@@ -637,8 +634,8 @@ class MultiTermReader(TermReader):
     def __iter__(self):
         return self._merge_iters([iter(r) for r in self.term_readers])
     
-    def iter_from(self, fieldnum, text):
-        return self._merge_iters([r.iter_from(fieldnum, text) for r in self.term_readers])
+    def from_(self, fieldnum, text):
+        return self._merge_iters([r.from_(fieldnum, text) for r in self.term_readers])
     
     def postings(self, fieldnum, text, exclude_docs = set()):
         """

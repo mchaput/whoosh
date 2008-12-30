@@ -267,7 +267,7 @@ if __name__ == '__main__':
     print time.clock() - t
     
     #tr = ix.term_reader()
-    #for w in tr.field_words(0):
+    #for w in tr.lexicon(0):
     #    if tr.term_count(0, w) == 1:
     #        docnum, _ = tr.postings(0, w).next()
     #        print w, dr[docnum]['path']

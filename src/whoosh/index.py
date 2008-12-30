@@ -24,7 +24,7 @@ import re
 from bisect import bisect_right
 import cPickle
 
-from whoosh import store
+from whoosh import fields, store
 
 
 _DEF_INDEX_NAME = "MAIN"
@@ -107,7 +107,7 @@ def open_dir(dirname, indexname = None):
     if indexname is None:
         indexname = _DEF_INDEX_NAME
     
-    return Index(store.FileStorage(dirname), indexname)
+    return Index(store.FileStorage(dirname), indexname = indexname)
 
 
 class Index(object):
@@ -124,6 +124,9 @@ class Index(object):
         
         self.storage = storage
         self.indexname = indexname
+        
+        if schema is not None and not isinstance(schema, fields.Schema):
+            raise ValueError("%r is not a Schema object" % schema)
         
         if create:
             if schema is None:
@@ -192,6 +195,7 @@ class Index(object):
     
     def _read(self, schema):
         # Reads the content of this index from the .toc file.
+        self.generation = self.latest_generation()
         stream = self.storage.open_file(self._toc_filename())
         
         # If the user supplied a schema object with the constructor,
@@ -201,8 +205,9 @@ class Index(object):
             stream.skip_string()
         else:
             self.schema = cPickle.loads(stream.read_string())
-            
-        self.generation = stream.read_int()
+        
+        generation = stream.read_int()
+        assert generation == self.generation
         self.segment_counter = stream.read_int()
         self.segments = stream.read_pickle()
         stream.close()
