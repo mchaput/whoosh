@@ -35,15 +35,22 @@ class IndexingError(Exception):
 # implement the given merge policy, rather than just using them
 # as constants.
 
-class NO_MERGE(object): pass
-class MERGE_SMALL(object): pass
-class OPTIMIZE(object): pass
+class NO_MERGE(object):
+    """Indicates the writer should NOT merge small segments upon completion."""
+    def __init__(self): raise NotImplementedError
+
+class MERGE_SMALL(object):
+    """Indicates the writer should merge small segments upon completion."""
+    def __init__(self): raise NotImplementedError
+
+class OPTIMIZE(object):
+    """Indicates the writer should merge ALL segments upon completion."""
+    def __init__(self): raise NotImplementedError
 
 # Writing classes
 
-class IndexWriter(object):
-    """
-    High-level object for writing to an index. This object takes care of
+class IndexWriter(object, index.SupportsDeletion):
+    """High-level object for writing to an index. This object takes care of
     instantiating a SegmentWriter to create a new segment as you add documents,
     as well as merging existing segments (if necessary) when you finish.
     """
@@ -53,7 +60,8 @@ class IndexWriter(object):
     
     def __init__(self, ix, blocksize = 32 * 1024):
         """
-        index is the Index object representing the index you want to write to.
+        @param ix: the Index object you want to write to.
+        @param blocksize: the block size for tables created by this writer.
         """
         
         # Obtain a lock
@@ -64,66 +72,73 @@ class IndexWriter(object):
         self.blocksize = blocksize
         self.segment_writer = None
     
+    def _finish(self):
+        self.segment_writer = None
+        # Release the lock
+        if self.locked:
+            self.index.unlock()
+    
     def get_segment_writer(self):
-        """
-        Returns the underlying SegmentWriter object.
-        """
+        """Returns the underlying SegmentWriter object."""
         
         if not self.segment_writer:
             self.segment_writer = SegmentWriter(self.index, blocksize = self.blocksize)
         return self.segment_writer
     
     def start_document(self):
-        """
-        Starts recording information for a new document. This should be followed by
+        """Starts recording information for a new document. This should be followed by
         add_field() calls, and must be followed by an end_document() call.
         Alternatively you can use add_document() to add all fields at once.
         """
         self.get_segment_writer().start_document()
         
-    def add_field(self, fieldname, value, stored_value = None):
+    def add_field(self, fieldname, text, stored_value = None):
+        """Adds a the value of a field to the document opened with start_document().
+        
+        @param fieldname: The name of the field in which to index/store the text.
+        @param text: The text to index.
+        @type fieldname: string
+        @type text: unicode
         """
-        Adds a the value of a field to the document opened with start_document().
-        """
-        self.segment_writer.add_field(fieldname, value, stored_value = stored_value)
+        self.get_segment_writer().add_field(fieldname, text, stored_value = stored_value)
         
     def end_document(self):
         """
         Closes a document opened with start_document().
         """
-        self.segment_writer.end_document()
+        self.get_segment_writer().end_document()
     
     def add_document(self, **fields):
-        """
-        Adds all the fields of a document at once. This is an alternative to calling
+        """Adds all the fields of a document at once. This is an alternative to calling
         start_document(), add_field() [...], end_document().
         
-        The keyword args map field names to the values to store and/or index.
+        The keyword arguments map field names to the values to index/store.
         
-        The default for stored and indexed fields is to store the indexed
-        source text, but you can optionally specify a specific string to store by
-        including a "_stored_<fieldname>" key in the 'fields' dictionary.
+        For fields that are both indexed and stored, you can specify an alternate
+        value to store using a keyword argument in the form "_stored_<fieldname>".
+        For example, if you have a field named "title" and you want to index the
+        text "a b c" but store the text "e f g", use keyword arguments like this::
+        
+            add_document(title=u"a b c" _stored_title=u"e f g)
         """
         self.get_segment_writer().add_document(fields)
     
-    def optimize(self):
-        """
-        If the index has multiple segments, merges them into a single
-        segment.
-        """
-        self._merge_segments(OPTIMIZE)
-    
-    def close(self, mergetype = MERGE_SMALL):
-        """
-        Finishes writing and unlocks the index.
-        """
+    def commit(self, mergetype = MERGE_SMALL):
+        """Finishes writing and unlocks the index.
         
+        @param mergetype: How to merge existing segments.
+        @type mergetype: one of NO_MERGE, MERGE_SMALL, or OPTIMIZE
+        """
         if self.segment_writer:
             self._merge_segments(mergetype)
+        self.index.commit(self.segments)
+        self._finish()
         
-        # Release the lock
-        if self.locked:
-            self.index.unlock()
+    def cancel(self):
+        """Cancels any documents/deletions added by this object
+        and unlocks the index.
+        """
+        self._finish()
     
     def _merge_segments(self, mergetype):
         if mergetype not in (NO_MERGE, MERGE_SMALL, OPTIMIZE):
@@ -160,11 +175,8 @@ class IndexWriter(object):
         
         self.segment_writer.close()
         new_segments.append(sw.segment())
+        self.segments = new_segments
         
-        # TODO: This means iw.optimize() silently commits! Is there a better way?
-        self.segment_writer = None
-        self.index.commit(new_segments)
-
 
 class SegmentWriter(object):
     """
@@ -179,27 +191,26 @@ class SegmentWriter(object):
             self.reset()
         
         def reset(self):
+            #: Whether a document is currently in progress.
             self.active = False
-            # term_count: the number of terms in the document (a.k.a. document length)
+            #: Number of terms in the document (a.k.a. document length)
             self.term_count = 0
-            # unique_count: the number of UNIQUE terms in the document
+            #: Number of UNIQUE terms in the document
             self.unique_count = 0
-            # field_counts: number of terms in each scorable field. The positions in
-            # the list correspond to the positions in the scorable_fields list.
+            #: Number of terms in each scorable field.
             self.field_counts = defaultdict(int)
-            # stored_fields: Maps field name -> stored field content for this document
+            #: Maps field names to stored field contents for this document
             self.stored_fields = {}
-            # Shortcut if you have the docinfo already.
+            #: Shortcut if you have the docinfo already.
             self.docinfo = None
-            # Keep track of the last field that was added.
+            #: Keeps track of the last field that was added.
             self.prev_fieldnum = None
     
     def __init__(self, ix, name = None, blocksize = 32 * 1024):
         """
-        index is the Index object representing the index in which to write the new segment.
-        name is the name of the segment. zipmode is either zipfile.ZIP_DEFLATED or
-        zipfile.ZIP_STORED; this whether stored fields are compressed. The default is
-        ZIP_DEFLATED.
+        @param ix: the Index object in which to write the new segment.
+        @param name: the name of the segment.
+        @param blocksize: the block size to use for tables created by this writer.
         """
         
         self.index = ix
@@ -237,16 +248,13 @@ class SegmentWriter(object):
                                                           stringids = True)
             
     def segment(self):
-        """
-        Returns an index.Segment object for the segment being written.
-        """
+        """Returns an index.Segment object for the segment being written."""
         return index.Segment(self.name, self.max_doc,
                              self.term_count, self.max_count,
                              dict(self.field_counts))
     
     def close(self):
-        """
-        Finishes writing the segment (flushes the posting pool out to disk) and
+        """Finishes writing the segment (flushes the posting pool out to disk) and
         closes all open files.
         """
         
@@ -263,8 +271,7 @@ class SegmentWriter(object):
             self.vector_table.close()
         
     def add_index(self, other_ix):
-        """
-        Adds the contents of another Index object to this segment.
+        """Adds the contents of another Index object to this segment.
         This currently does NO checking of whether the schemas match up.
         """
         
@@ -272,9 +279,13 @@ class SegmentWriter(object):
             self.add_segment(other_ix, seg)
 
     def add_segment(self, ix, segment):
-        """
-        Adds the contents of another segment to this one. This is used
+        """Adds the contents of another segment to this one. This is used
         to merge existing segments into the new one before deleting them.
+        
+        @param ix: The index containing the segment to merge.
+        @param segment: The segment to merge into this one.
+        @type ix: index.Index
+        @type segment: index.Segment
         """
         
         start_doc = self.max_doc
