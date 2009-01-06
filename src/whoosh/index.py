@@ -110,7 +110,92 @@ def open_dir(dirname, indexname = None):
     return Index(store.FileStorage(dirname), indexname = indexname)
 
 
-class Index(object):
+# SupportsDeletion is a mix-in that adds methods for deleting
+# documents from self.segments. These methods are on IndexWriter as
+# well as Index for convenience, so they're broken out here.
+
+class SupportsDeletion(object):
+    """Mix-in for classes that support deleting documents from self.segments."""
+    
+    def delete_document(self, docnum, delete = True):
+        """
+        Deletes a document by number.
+        """
+        self.segments.delete_document(docnum, delete = delete)
+    
+    def deleted_count(self):
+        """
+        Returns the total number of deleted documents in this index.
+        """
+        return self.segments.deleted_count()
+    
+    def is_deleted(self, docnum):
+        """
+        Returns True if a given document number is deleted but
+        not yet optimized out of the index.
+        """
+        return self.segments.is_deleted(docnum)
+    
+    def has_deletions(self):
+        """
+        Returns True if this index has documents that are marked
+        deleted but haven't been optimized out of the index yet.
+        """
+        return self.segments.has_deletions()
+    
+    def delete_by_term(self, fieldname, text, searcher = None):
+        """
+        Deletes any documents containing "term" in the "fieldname"
+        field. This is useful when you have an indexed field containing
+        a unique ID (such as "pathname") for each document.
+        
+        Note that this method opens and closes a Searcher. If you are calling
+        this method repeatedly (for example, deleting changed documents before
+        reindexing them), you will want to open your own Searcher object and
+        pass it in with the 'searcher' keyword argument for efficiency.
+        
+        @return: the number of documents deleted.
+        """
+        
+        from whoosh.query import Term
+        q = Term(fieldname, text)
+        return self.delete_by_query(q, searcher = searcher)
+    
+    def delete_by_query(self, q, searcher = None):
+        """
+        Deletes any documents matching a query object.
+        
+        Note that this method opens and closes a Searcher. If you are calling
+        this method repeatedly (for example, deleting changed documents before
+        reindexing them), you should open your own Searcher object and
+        pass it in with the 'searcher' keyword argument for efficiency.
+        
+        @return: the number of documents deleted.
+        """
+        
+        if searcher is None:
+            from whoosh.searching import Searcher
+            s = Searcher(self)
+        else:
+            s = searcher  
+        
+        count = 0
+        try:
+            for docnum in q.docs(s):
+                self.delete_document(docnum)
+                count += 1
+            return count
+        
+        finally:
+            if searcher is None:
+                s.close()
+        
+        return count
+
+
+# Index class
+
+class Index(object, SupportsDeletion):
     """
     Represents (a generation of) an index. You must create the index using
     index.create() or index.create_index_in() before you can instantiate this
@@ -274,9 +359,9 @@ class Index(object):
         w.optimize()
         w.close()
     
-    def commit(self, newsegments = None):
+    def commit(self, new_segments = None):
         """
-        Commits pending edits (such as deletions) to this index object.
+        Commits pending deletions to this index object.
         Raises OutOfDateError if this index is not the latest generation
         (that is, if some code has updated the index since you opened
         this object).
@@ -285,8 +370,8 @@ class Index(object):
         if not self.up_to_date():
             raise OutOfDateError
         
-        if newsegments:
-            self.segments = newsegments
+        if new_segments:
+            self.segments = new_segments
         
         self.generation += 1
         self._write()
@@ -409,91 +494,6 @@ class Index(object):
             
         return self.searcher().search(parser.parse(querystring), **kwargs)
     
-    def delete_document(self, docnum, delete = True):
-        """
-        Deletes a document by number.
-
-        You must call Index.commit() for the deletion to be written to disk.
-        """
-        self.segments.delete_document(docnum, delete = delete)
-    
-    def deleted_count(self):
-        """
-        Returns the total number of deleted documents in this index.
-        """
-        return self.segments.deleted_count()
-    
-    def is_deleted(self, docnum):
-        """
-        Returns True if a given document number is deleted but
-        not yet optimized out of the index.
-        
-        You must call Index.commit() for the deletion to be written to disk.
-        """
-        return self.segments.is_deleted(docnum)
-    
-    def has_deletions(self):
-        """
-        Returns True if this index has documents that are marked
-        deleted but haven't been optimized out of the index yet.
-        This includes deletions that haven't been written to disk
-        with Index.commit() yet.
-        """
-        return self.segments.has_deletions()
-    
-    def delete_by_term(self, fieldname, text, searcher = None):
-        """
-        Deletes any documents containing "term" in the "fieldname"
-        field. This is useful when you have an indexed field containing
-        a unique ID (such as "pathname") for each document.
-        
-        You must call Index.commit() for the deletion to be written to disk.
-        
-        Note that this method opens and closes a Searcher. If you are calling
-        this method repeatedly (for example, deleting changed documents before
-        reindexing them), you will want to open your own Searcher object and
-        pass it in with the 'searcher' keyword argument for efficiency.
-        
-        Returns the number of documents deleted.
-        """
-        
-        import query
-        q = query.Term(fieldname, text)
-        return self.delete_by_query(q, searcher = searcher)
-    
-    def delete_by_query(self, q, searcher = None):
-        """
-        Deletes any documents matching a query object.
-        
-        You must call Index.commit() for the deletion to be written to disk.
-        
-        Note that this method opens and closes a Searcher. If you are calling
-        this method repeatedly (for example, deleting changed documents before
-        reindexing them), you should open your own Searcher object and
-        pass it in with the 'searcher' keyword argument for efficiency.
-        
-        Returns the number of documents deleted.
-        """
-        
-        if searcher is None:
-            from searching import Searcher
-            s = Searcher(self)
-        else:
-            s = searcher  
-        
-        count = 0
-        try:
-            for docnum in q.docs(s):
-                self.delete_document(docnum)
-                count += 1
-            return count
-        
-        finally:
-            if searcher is None:
-                s.close()
-        
-        return count
-
 
 class SegmentSet(object):
     def __init__(self, segments = None):
@@ -503,7 +503,7 @@ class SegmentSet(object):
             self.segments = segments
         
         self._doc_offsets = self.doc_offsets()
-            
+    
     def __len__(self):
         return len(self.segments)
     
@@ -531,8 +531,7 @@ class SegmentSet(object):
         return bisect_right(offsets, docnum) - 1
     
     def _segment_and_docnum(self, docnum):
-        """
-        Returns an (index.Segment, segment_docnum) tuple for the
+        """Returns an (index.Segment, segment_docnum) tuple for the
         given document number.
         """
         
@@ -542,7 +541,8 @@ class SegmentSet(object):
         return segment, docnum - offset
     
     def copy(self):
-        return SegmentSet([s.copy() for s in self.segments])
+        """Returns a deep copy of this set."""
+        return self.__class__([s.copy() for s in self.segments])
     
     def doc_offsets(self):
         offsets = []
@@ -604,7 +604,7 @@ class SegmentSet(object):
 
 class Segment(object):
     """
-    This object is never instantiated by the user. It is used by the Index
+    Do not instantiate this object directly. It is used by the Index
     object to hold information about a segment. A list of objects of this
     class are pickled as part of the TOC file.
     
