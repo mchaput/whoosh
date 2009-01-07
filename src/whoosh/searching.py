@@ -27,7 +27,7 @@ This module contains classes and functions related to searching the index.
 
 # Searcher class
 
-class Searcher(object, util.ClosableMixin):
+class Searcher(util.ClosableMixin):
     """
     Object for searching an index. Produces Results objects.
     """

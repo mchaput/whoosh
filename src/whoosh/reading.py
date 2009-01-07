@@ -65,7 +65,7 @@ class UnknownFieldError(Exception):
         
 # Reader classes
 
-class DocReader(object, util.ClosableMixin):
+class DocReader(util.ClosableMixin):
     """
     Do not instantiate this object directly. Instead use Index.doc_reader().
     
@@ -317,7 +317,7 @@ class MultiDocReader(DocReader):
                 yield result
 
 
-class TermReader(object, util.ClosableMixin):
+class TermReader(util.ClosableMixin):
     """
     Do not instantiate this object directly. Instead use Index.term_reader().
     
