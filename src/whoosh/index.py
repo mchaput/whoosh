@@ -182,7 +182,7 @@ class DeletionMixin(object):
 
 # Index class
 
-class Index(object, DeletionMixin):
+class Index(DeletionMixin):
     """Represents an indexed collection of documents.
     """
     

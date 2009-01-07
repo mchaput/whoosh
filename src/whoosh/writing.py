@@ -50,7 +50,7 @@ class OPTIMIZE(object):
 
 # Writing classes
 
-class IndexWriter(object, index.DeletionMixin):
+class IndexWriter(index.DeletionMixin):
     """High-level object for writing to an index. This object takes care of
     instantiating a SegmentWriter to create a new segment as you add documents,
     as well as merging existing segments (if necessary) when you finish.
