@@ -14,3 +14,4 @@
 # limitations under the License.
 #===============================================================================
 
+from whoosh.index import open_dir, create_index_in

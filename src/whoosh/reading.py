@@ -18,10 +18,10 @@
 This module contains classes that allow reading from an index.
 """
 
-from array import array
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
+from whoosh import util
 from whoosh.fields import FieldConfigurationError
 
 # Exceptions
@@ -65,7 +65,7 @@ class UnknownFieldError(Exception):
         
 # Reader classes
 
-class DocReader(object):
+class DocReader(object, util.ClosableMixin):
     """
     Do not instantiate this object directly. Instead use Index.doc_reader().
     
@@ -317,7 +317,7 @@ class MultiDocReader(DocReader):
                 yield result
 
 
-class TermReader(object):
+class TermReader(object, util.ClosableMixin):
     """
     Do not instantiate this object directly. Instead use Index.term_reader().
     
@@ -395,6 +395,10 @@ class TermReader(object):
             term = (self.schema.name_to_number(fieldnum), term[1])
             
         return term in self.term_table
+    
+    def __enter__(self): pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
     
     def doc_frequency(self, fieldnum, text):
         """
@@ -522,6 +526,15 @@ class TermReader(object):
                 current_fieldname = self.schema.number_to_name(fn)
             yield (current_fieldname, t)
     
+    def iter_field(self, fieldnum):
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.schema.name_to_number(fieldnum)
+        
+        for fn, t, docfreq, freq in self.from_(fieldnum, ''):
+            if fn != fieldnum:
+                return
+            yield t, docfreq, freq
+    
     def lexicon(self, fieldnum):
         """
         Yields all tokens in the given field.
@@ -530,19 +543,14 @@ class TermReader(object):
         if isinstance(fieldnum, basestring):
             fieldnum = self.schema.name_to_number(fieldnum)
         
-        for fn, t, _, _ in self.from_(fieldnum, ''):
-            if fn != fieldnum:
-                return
+        for t, _, _ in self.iter_field(fieldnum):
             yield t
     
     def most_frequent_terms(self, fieldnum, number = 5):
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.name_to_number(fieldnum)
-            
         return nlargest(number,
                         ((indexfreq, token)
-                         for fieldnum, token, docfreq, indexfreq
-                         in self))
+                         for token, _, indexfreq
+                         in self.iter_field(fieldnum)))
     
     def list_substring(self, fieldname, substring):
         for text in self.lexicon(fieldname):

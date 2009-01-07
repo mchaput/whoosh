@@ -117,6 +117,7 @@ class FileStorage(Storage):
     
     def lock(self, name):
         os.mkdir(self._fpath(name))
+        return True
     
     def unlock(self, name):
         os.removedirs(self._fpath(name))
@@ -216,6 +217,7 @@ class RamStorage(Storage):
             self.locks[name] = Lock()
         if not self.locks[name].acquire(False):
             raise LockError("Could not lock %r" % name)
+        return True
     
     def unlock(self, name):
         self.locks[name].release()

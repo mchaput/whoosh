@@ -46,6 +46,21 @@ def permute(ls):
             for p in permute(rest):
                 yield [this] + p
 
+# Decorators
+
+def synchronized(lock):
+    """ Synchronization decorator. """
+
+    def wrap(f):
+        def newFunction(*args, **kw):
+            lock.acquire()
+            try:
+                return f(*args, **kw)
+            finally:
+                lock.release()
+        return newFunction
+    return wrap
+
 # Classes
 
 class TopDocs(object):
@@ -101,33 +116,21 @@ class TopDocs(object):
         """
         return [item for score, item in reversed(sorted(self.heap))]
 
+# Mix-in for objects with a close() method that allows them to be
+# used as a context manager.
 
-class UtilityIndex(object):
-    """
-    Base class for objects such as SpellChecker that use an index
-    as backend storage.
+class ClosableMixin(object):
+    """Mix-in for classes with a close() method to allow them to be
+    used as a context manager.
     """
     
-    def __init__(self):
-        raise NotImplemented
-        
-    def index(self):
-        """
-        Returns the backend index of this object (instantiating it if
-        it didn't already exist).
-        """
-        
-        import index
-        if not self._index:
-            self._index = index.Index(self.storage, indexname = self.indexname)
-        return self._index
+    def __enter__(self):
+        return self
     
-    def schema(self):
-        raise NotImplemented
-        
-    def create_index(self):
-        import index
-        self._index = index.Index(self.storage, self.schema(), self.indexname, create = True)
+    def __exit__(self, *exc_info):
+        self.close()
+
+
 
 
 

@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-Contains the main functions/classes for creating, maintaining, and using
+"""Contains the main functions/classes for creating, maintaining, and using
 an index.
 """
 
@@ -23,8 +22,10 @@ from __future__ import division
 import re
 from bisect import bisect_right
 import cPickle
+from threading import Lock
 
 from whoosh import fields, store
+from whoosh.util import synchronized
 
 
 _DEF_INDEX_NAME = "MAIN"
@@ -33,52 +34,44 @@ _EXTENSIONS = "dci|dcz|pst|tiz|fvz"
 # Exceptions
 
 class OutOfDateError(Exception):
-    """
-    Raised when you try to commit changes to an index which is not
+    """Raised when you try to commit changes to an index which is not
     the latest generation.
     """
     pass
 
 class EmptyIndexError(Exception):
-    """
-    Raised when you try to work with an index that has no indexed terms.
+    """Raised when you try to work with an index that has no indexed terms.
     """
     pass
 
 class IndexLockedError(Exception):
-    """
-    Raised when you try to write to or lock an already-locked index (or
+    """Raised when you try to write to or lock an already-locked index (or
     one that was accidentally left in a locked state).
     """
     pass
 
 class IndexError(Exception):
-    """
-    Generic index error.
-    """
+    """Generic index error."""
     pass
 
 # Utility functions
 
 def _toc_pattern(indexname):
-    """
-    Returns a regular expression object that matches TOC filenames.
+    """Returns a regular expression object that matches TOC filenames.
     name is the name of the index.
     """
     
     return re.compile("_%s_([0-9]+).toc" % indexname)
 
 def _segment_pattern(indexname):
-    """
-    Returns a regular expression object that matches segment filenames.
+    """Returns a regular expression object that matches segment filenames.
     name is the name of the index.
     """
     
     return re.compile("(_%s_[0-9]+).(%s)" % (indexname, _EXTENSIONS))
 
-def create_index_in(dirname, schema, indexname = None):
-    """
-    Convenience function to create an index in a directory. Takes care of creating
+def create_index_in(dirname, schema = None, indexname = None, **kwargs):
+    """Convenience function to create an index in a directory. Takes care of creating
     a FileStorage object for you. dirname is the filename of the directory in
     which to create the index. schema is a fields.Schema object describing the
     index's fields. indexname is the name of the index to create; you only need to
@@ -88,15 +81,17 @@ def create_index_in(dirname, schema, indexname = None):
     Returns an Index object.
     """
     
-    if indexname is None:
+    if not indexname:
         indexname = _DEF_INDEX_NAME
     
     storage = store.FileStorage(dirname)
+    if schema is None:
+        schema = fields.Schema(**kwargs)
+    
     return Index(storage, schema, indexname = indexname)
 
 def open_dir(dirname, indexname = None):
-    """
-    Convenience function for opening an index in a directory. Takes care of creating
+    """Convenience function for opening an index in a directory. Takes care of creating
     a FileStorage object for you. dirname is the filename of the directory in
     containing the index. indexname is the name of the index to create; you only need to
     specify this if you have multiple indexes within the same storage object.
@@ -114,38 +109,32 @@ def open_dir(dirname, indexname = None):
 # documents from self.segments. These methods are on IndexWriter as
 # well as Index for convenience, so they're broken out here.
 
-class SupportsDeletion(object):
+class DeletionMixin(object):
     """Mix-in for classes that support deleting documents from self.segments."""
     
     def delete_document(self, docnum, delete = True):
-        """
-        Deletes a document by number.
-        """
+        """Deletes a document by number."""
         self.segments.delete_document(docnum, delete = delete)
     
     def deleted_count(self):
-        """
-        Returns the total number of deleted documents in this index.
+        """Returns the total number of deleted documents in this index.
         """
         return self.segments.deleted_count()
     
     def is_deleted(self, docnum):
-        """
-        Returns True if a given document number is deleted but
+        """Returns True if a given document number is deleted but
         not yet optimized out of the index.
         """
         return self.segments.is_deleted(docnum)
     
     def has_deletions(self):
-        """
-        Returns True if this index has documents that are marked
+        """Returns True if this index has documents that are marked
         deleted but haven't been optimized out of the index yet.
         """
         return self.segments.has_deletions()
     
     def delete_by_term(self, fieldname, text, searcher = None):
-        """
-        Deletes any documents containing "term" in the "fieldname"
+        """Deletes any documents containing "term" in the "fieldname"
         field. This is useful when you have an indexed field containing
         a unique ID (such as "pathname") for each document.
         
@@ -162,8 +151,7 @@ class SupportsDeletion(object):
         return self.delete_by_query(q, searcher = searcher)
     
     def delete_by_query(self, q, searcher = None):
-        """
-        Deletes any documents matching a query object.
+        """Deletes any documents matching a query object.
         
         Note that this method opens and closes a Searcher. If you are calling
         this method repeatedly (for example, deleting changed documents before
@@ -192,19 +180,26 @@ class SupportsDeletion(object):
         
         return count
 
-
 # Index class
 
-class Index(object, SupportsDeletion):
-    """
-    Represents (a generation of) an index. You must create the index using
-    index.create() or index.create_index_in() before you can instantiate this
-    object (otherwise it will raise index.EmptyIndexError).
+class Index(object, DeletionMixin):
+    """Represents an indexed collection of documents.
     """
     
     def __init__(self, storage, schema = None, create = False, indexname = _DEF_INDEX_NAME):
         """
-        
+        @param storage: The Storage object in which this index resides.
+            See the store module for more details.
+        @param schema: A Schema object defining the fields of this index. If you omit
+            this argument for an existing index, the object will load the pickled Schema
+            object that was saved with the index. If you are creating a new index
+            (create = True), you must supply this argument.
+        @param create: Whether to create a new index. If this is True, you must supply
+            a Schema instance using the schema keyword argument.
+        @param indexname: An optional name to use for the index. Use this if you need
+            to keep multiple indexes in the same storage object.
+        @type storage: store.Storage
+        @type schema: fields.Schema
         """
         
         self.storage = storage
@@ -212,6 +207,10 @@ class Index(object, SupportsDeletion):
         
         if schema is not None and not isinstance(schema, fields.Schema):
             raise ValueError("%r is not a Schema object" % schema)
+        
+        self.generation = self.latest_generation()
+        if self.generation < 0:
+            create = True
         
         if create:
             if schema is None:
@@ -232,9 +231,10 @@ class Index(object, SupportsDeletion):
         else:
             self._read(schema)
             
+        self.segment_num_lock = Lock()
+            
     def latest_generation(self):
-        """
-        Returns the generation number of the latest generation of this
+        """Returns the generation number of the latest generation of this
         index.
         """
         
@@ -249,10 +249,10 @@ class Index(object, SupportsDeletion):
         return max
     
     def refresh(self):
-        """
-        Returns a new Index object representing the latest generation
+        """Returns a new Index object representing the latest generation
         of this index (if this object is the latest generation, returns
         self).
+        @return: index.Index
         """
         
         if not self.up_to_date():
@@ -261,8 +261,7 @@ class Index(object, SupportsDeletion):
             return self
     
     def up_to_date(self):
-        """
-        Returns True if this object represents the latest generation of
+        """Returns True if this object represents the latest generation of
         this index. Returns False if this object is not the latest
         generation (that is, someone else has updated the index since
         you opened this object).
@@ -280,7 +279,6 @@ class Index(object, SupportsDeletion):
     
     def _read(self, schema):
         # Reads the content of this index from the .toc file.
-        self.generation = self.latest_generation()
         stream = self.storage.open_file(self._toc_filename())
         
         # If the user supplied a schema object with the constructor,
@@ -297,18 +295,24 @@ class Index(object, SupportsDeletion):
         self.segments = stream.read_pickle()
         stream.close()
     
-    def next_segment_name(self):
+    def _next_segment_name(self):
         #Returns the name of the next segment in sequence.
-        
-        self.segment_counter += 1
-        return "_%s_%s" % (self.indexname, self.segment_counter)
+        if self.segment_num_lock.acquire():
+            try:
+                self.segment_counter += 1
+                return "_%s_%s" % (self.indexname, self.segment_counter)
+            finally:
+                self.segment_num_lock.release()
+        else:
+            raise IndexLockedError
     
     def _toc_filename(self):
+        # Returns the computed filename of the TOC for this
+        # index name and generation.
         return "_%s_%s.toc" % (self.indexname, self.generation)
     
     def last_modified(self):
-        """
-        Returns the last modified time of the .toc file.
+        """Returns the last modified time of the .toc file.
         """
         return self.storage.file_modified(self._toc_filename())
     
@@ -316,39 +320,27 @@ class Index(object, SupportsDeletion):
         return "%s(%r, %r)" % (self.__class__.__name__, self.storage, self.indexname)
     
     def lock(self):
+        """Locks this index for writing, or raises an error if the index
+        is already locked. Returns true if the index was successfully
+        locked.
         """
-        Locks this index for writing, or raises IndexLockedError if the index
-        is already locked.
-        """
-        
-        self.storage.lock("_%s_LOCK" % self.indexname)
-        return True
+        return self.storage.lock("_%s_LOCK" % self.indexname)
     
     def unlock(self):
-        """
-        Unlocks the index. Only call this if you were the one who locked
+        """Unlocks the index. Only call this if you were the one who locked
         it (without getting an exception) in the first place!
         """
-        
-        try:
-            self.storage.unlock("_%s_LOCK" % self.indexname)
-        except:
-            pass
+        self.storage.unlock("_%s_LOCK" % self.indexname)
     
     def is_empty(self):
-        """
-        Returns True if this index is empty (that is, it has never
+        """Returns True if this index is empty (that is, it has never
         had any documents successfully written to it.
         """
-        
         return len(self.segments) == 0
     
     def optimize(self):
-        """
-        Optimizes this index's segments.
-        
-        This opens and closes a writing.IndexWriter object, so it may
-        fail if the index is already locked for writing.
+        """Optimizes this index's segments. This will fail if the index
+        is already locked for writing.
         """
         
         if len(self.segments) < 2 and not self.segments.has_deletions():
@@ -360,11 +352,14 @@ class Index(object, SupportsDeletion):
         w.close()
     
     def commit(self, new_segments = None):
-        """
-        Commits pending deletions to this index object.
+        """Commits pending edits (such as deletions) to this index object.
         Raises OutOfDateError if this index is not the latest generation
-        (that is, if some code has updated the index since you opened
+        (that is, if someone has updated the index since you opened
         this object).
+        
+        @param new_segments: a replacement SegmentSet. This is used by
+            IndexWriter to update the index after it finishes
+            writing.
         """
         
         if not self.up_to_date():
@@ -378,8 +373,7 @@ class Index(object, SupportsDeletion):
         self.clean_files()
     
     def clean_files(self):
-        """
-        Attempts to remove unused index files (called when a new generation
+        """Attempts to remove unused index files (called when a new generation
         is created). If existing Index and/or reader objects have the files
         open, they may not get deleted immediately (i.e. on Windows)
         but will probably be deleted eventually by a later call to clean_files.
@@ -405,36 +399,31 @@ class Index(object, SupportsDeletion):
                         storage.delete_file(filename)
     
     def doc_count_all(self):
-        """
-        Returns the total number of documents, DELETED OR UNDELETED,
+        """Returns the total number of documents, DELETED OR UNDELETED,
         in this index.
         """
         return self.segments.doc_count_all()
     
     def doc_count(self):
-        """
-        Returns the total number of UNDELETED documents in this index.
+        """Returns the total number of UNDELETED documents in this index.
         """
         return self.segments.doc_count()
     
-    def max_count(self):
-        """
-        Returns the maximum term weight in this index.
+    def max_weight(self):
+        """Returns the maximum term weight in this index.
         This is used by some scoring algorithms.
         """
-        return max(s.max_count for s in self.segments)
+        return self.segments.max_weight()
     
     def total_term_count(self):
-        """
-        Returns the total term count across all fields in all documents.
+        """Returns the total term count across all fields in all documents.
         This is used by some scoring algorithms. Note that this
         necessarily includes terms in deleted documents.
         """
-        return sum(s.term_count for s in self.segments)
+        return self.segments.total_term_count()
     
     def field_length(self, fieldnum):
-        """
-        Returns the total number of terms in a given field (the "field length").
+        """Returns the total number of terms in a given field (the "field length").
         This is used by some scoring algorithms. Note that this
         necessarily includes terms in deleted documents.
         """
@@ -445,8 +434,9 @@ class Index(object, SupportsDeletion):
         return sum(s.field_length(fieldnum) for s in self.segments)
     
     def term_reader(self):
-        """
-        Returns a TermReader object for this index.
+        """Returns a TermReader object for this index.
+        
+        @return: reading.TermReader
         """
         
         from whoosh import reading
@@ -458,8 +448,9 @@ class Index(object, SupportsDeletion):
             return reading.MultiTermReader(self.storage, segments, self.schema)
     
     def doc_reader(self):
-        """
-        Returns a DocReader object for this index.
+        """Returns a DocReader object for this index.
+        
+        @return: reading.DocReader
         """
         
         from whoosh import reading
@@ -471,31 +462,52 @@ class Index(object, SupportsDeletion):
             return reading.MultiDocReader(self.storage, segments, schema)
     
     def searcher(self):
-        """
-        Returns a Searcher object for this index.
+        """Returns a Searcher object for this index.
+        
+        @return: searching.Searcher
         """
         
         from whoosh.searching import Searcher
         return Searcher(self)
     
-    def find(self, querystring, parser = None, **kwargs):
-        """
-        Searches for querystring and returns a Results object. By default,
-        this method uses a standard qparser.QueryParser object to parse the
-        querystring. You can specify a different parser using the parser
-        keyword argument. This object must implement a 'parse' method which
-        takes a query string as the sole argument and returns a query.Query
-        object.
-        """
+    def writer(self):
+        """Returns an IndexWriter object for this index.
         
+        @return: writing.IndexWriter
+        """
+        from whoosh.writing import IndexWriter
+        return IndexWriter(self)
+    
+    def find(self, querystring, parser = None, **kwargs):
+        """Parses querystring, runs the query in this index, and returns a
+        Result object. Any additional keyword arguments are passed to
+        Searcher.search() along with the parsed query.
+
+        @param querystring: The query string to parse and search for.
+        @param parser: A Parser object to use to parse 'querystring'.
+            The default is to use a standard qparser.QueryParser.
+            This object must implement a parse(str) method which returns a
+            query.Query instance.
+        @return: searching.Results
+        """
+
         if parser is None:
             from whoosh.qparser import QueryParser
             parser = QueryParser(self.schema)
             
         return self.searcher().search(parser.parse(querystring), **kwargs)
     
+    
+
+
+# SegmentSet object
+
 
 class SegmentSet(object):
+    """This class is never instantiated by the user. It is used by the Index
+    object to keep track of the segments in the index.
+    """
+
     def __init__(self, segments = None):
         if segments is None:
             self.segments = []
@@ -505,12 +517,15 @@ class SegmentSet(object):
         self._doc_offsets = self.doc_offsets()
     
     def __len__(self):
+        """@return: the number of segments in this set."""
         return len(self.segments)
     
     def __iter__(self):
         return iter(self.segments)
     
     def append(self, segment):
+        """Adds a segment to this set."""
+        
         if self._doc_offsets:
             self._doc_offsets.append(self._doc_offsets[-1] + segment.doc_count_all())
         else:
@@ -521,8 +536,7 @@ class SegmentSet(object):
         return self.segments.__getitem__(n)
     
     def _document_segment(self, docnum):
-        """
-        Returns the index.Segment object containing the given document
+        """Returns the index.Segment object containing the given document
         number.
         """
         
@@ -531,8 +545,8 @@ class SegmentSet(object):
         return bisect_right(offsets, docnum) - 1
     
     def _segment_and_docnum(self, docnum):
-        """Returns an (index.Segment, segment_docnum) tuple for the
-        given document number.
+        """Returns an (index.Segment, segment_docnum) pair for the
+        segment containing the given document number.
         """
         
         segmentnum = self._document_segment(docnum)
@@ -541,10 +555,12 @@ class SegmentSet(object):
         return segment, docnum - offset
     
     def copy(self):
-        """Returns a deep copy of this set."""
+        """@return: a deep copy of this set."""
         return self.__class__([s.copy() for s in self.segments])
     
     def doc_offsets(self):
+        # Recomputes the document offset list. This must be called if you
+        # change self.segments.
         offsets = []
         base = 0
         for s in self.segments:
@@ -554,29 +570,42 @@ class SegmentSet(object):
     
     def doc_count_all(self):
         """
-        Returns the total number of documents, DELETED or
-        UNDELETED, in this set.
+        @return: the total number of documents, DELETED or
+            UNDELETED, in this set.
         """
         return sum(s.doc_count_all() for s in self.segments)
     
     def doc_count(self):
         """
-        Returns the number of undeleted documents.
+        @return: the number of undeleted documents in this set.
         """
         return sum(s.doc_count() for s in self.segments)
     
+    
+    def max_weight(self):
+        """
+        @return: the maximum frequency of any term in the set.
+        """
+        return max(s.max_weight for s in self.segments)
+    
+    def total_term_count(self):
+        """
+        @return: the total number of terms in the set. Note that this
+            necessarily includes deleted documents.
+        """
+        return sum(s.term_count for s in self.segments)
+    
     def has_deletions(self):
         """
-        Returns True if this index has documents that are marked
-        deleted but haven't been optimized out of the index yet.
-        This includes deletions that haven't been written to disk
-        with Index.commit() yet.
+        @return: True if this index has documents that are marked
+            deleted but haven't been optimized out of the index yet.
+            This includes deletions that haven't been written to disk
+            with Index.commit() yet.
         """
         return any(s.has_deletions() for s in self.segments)
     
     def delete_document(self, docnum, delete = True):
-        """
-        Deletes a document by number.
+        """Deletes a document by number.
 
         You must call Index.commit() for the deletion to be written to disk.
         """
@@ -586,16 +615,14 @@ class SegmentSet(object):
     
     def deleted_count(self):
         """
-        Returns the total number of deleted documents in this index.
+        @return: the total number of deleted documents in this index.
         """
         return sum(s.deleted_count() for s in self.segments)
     
     def is_deleted(self, docnum):
         """
-        Returns True if a given document number is deleted but
-        not yet optimized out of the index.
-        
-        You must call Index.() for the deletion to be written to disk.
+        @return: True if a given document number is deleted but not yet
+            optimized out of the index.
         """
         
         segment, segdocnum = self._segment_and_docnum(docnum)
@@ -603,8 +630,7 @@ class SegmentSet(object):
     
 
 class Segment(object):
-    """
-    Do not instantiate this object directly. It is used by the Index
+    """Do not instantiate this object directly. It is used by the Index
     object to hold information about a segment. A list of objects of this
     class are pickled as part of the TOC file.
     
@@ -617,20 +643,21 @@ class Segment(object):
     along the way).
     """
     
-    def __init__(self, name, max_doc, term_count, max_count, field_counts, deleted = None):
+    def __init__(self, name, max_doc, term_count, max_weight, field_counts, deleted = None):
         """
-        name is the name of the segment (the Index object computes this from its
-        name and the generation). max_doc is the maximum document number in the
-        segment.
-        term_count is the total count of all terms in all documents. max_count is
-        the maximum count of any term in the segment. deleted is a set of deleted
-        document numbers, or None if no documents are deleted in this segment.
+        @param name: The name of the segment (the Index object computes this from its
+            name and the generation).
+        @param max_doc: The maximum document number in the segment.
+        @param term_count: Total count of all terms in all documents.
+        @param max_count: The maximum count of any term in the segment.
+        @param deleted: A collection of deleted document numbers, or None
+            if no deleted documents exist in this segment.
         """
         
         self.name = name
         self.max_doc = max_doc
         self.term_count = term_count
-        self.max_count = max_count
+        self.max_weight = max_weight
         self.field_counts = field_counts
         self.deleted = deleted
         
@@ -644,46 +671,42 @@ class Segment(object):
     
     def copy(self):
         return Segment(self.name, self.max_doc,
-                       self.term_count, self.max_count, self.field_counts,
+                       self.term_count, self.max_weight, self.field_counts,
                        self.deleted)
     
     def doc_count_all(self):
         """
-        Returns the total number of documents, DELETED OR UNDELETED,
-        in this segment.
+        @return: the total number of documents, DELETED OR UNDELETED,
+            in this segment.
         """
         return self.max_doc
     
     def doc_count(self):
-        """
-        Returns the number of (undeleted) documents in this segment.
-        """
+        """@return: the number of (undeleted) documents in this segment."""
         return self.max_doc - self.deleted_count()
     
     def has_deletions(self):
-        """
-        Returns True if any documents in this segment are deleted.
-        """
+        """@return: True if any documents in this segment are deleted."""
         return self.deleted_count() > 0
     
     def deleted_count(self):
-        """
-        Returns the total number of deleted documents in this segment.
-        """
+        """@return: the total number of deleted documents in this segment."""
         if self.deleted is None: return 0
         return len(self.deleted)
     
     def field_length(self, fieldnum):
+        """Returns the total number of terms in the given field."""
         return self.field_counts.get(fieldnum, 0)
     
-    def delete_document(self, docnum, delete = True):
-        """
-        Deletes the given document number. The document is not actually
+    def delete_document(self, docnum, undelete = False):
+        """Deletes the given document number. The document is not actually
         removed from the index until it is optimized.
-        if delete = False, this undeletes a deleted document.
+
+        @param docnum: The document number to delete.
+        @param undelete: If True, this undeletes a deleted document.
         """
         
-        if delete:
+        if not undelete:
             if self.deleted is None:
                 self.deleted = set()
             elif docnum in self.deleted:
@@ -697,9 +720,8 @@ class Segment(object):
             self.deleted.remove(docnum)
     
     def is_deleted(self, docnum):
-        """
-        Returns True if the given document number is deleted.
-        """
+        """@return: True if the given document number is deleted."""
+        
         if self.deleted is None: return False
         return docnum in self.deleted
 
