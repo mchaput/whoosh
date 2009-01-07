@@ -18,6 +18,7 @@
 This module contains classes for writing to an index.
 """
 
+from __future__ import with_statement
 from collections import defaultdict
 
 from whoosh import index, postpool, reading, tables
@@ -49,10 +50,14 @@ class OPTIMIZE(object):
 
 # Writing classes
 
-class IndexWriter(object, index.SupportsDeletion):
+class IndexWriter(object, index.DeletionMixin):
     """High-level object for writing to an index. This object takes care of
     instantiating a SegmentWriter to create a new segment as you add documents,
     as well as merging existing segments (if necessary) when you finish.
+    
+    You can use this object as a context manager. If an exception is thrown
+    from within the context it calls cancel(), otherwise it calls commit()
+    when the context ends.
     """
     
     # This class is mostly a shell for SegmentWriter. It exists to handle
@@ -71,6 +76,15 @@ class IndexWriter(object, index.SupportsDeletion):
         self.segments = ix.segments.copy()
         self.blocksize = blocksize
         self.segment_writer = None
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.cancel()
+        else:
+            self.commit()
     
     def _finish(self):
         self.segment_writer = None
@@ -216,11 +230,11 @@ class SegmentWriter(object):
         self.index = ix
         self.schema = ix.schema
         self.storage = ix.storage
-        self.name = name or ix.next_segment_name()
+        self.name = name or ix._next_segment_name()
         
         self.max_doc = 0
         self.term_count = 0
-        self.max_count = 0
+        self.max_weight = 0
         self.field_counts = defaultdict(int)
         
         # Records the state of the writer wrt start_document/end_document.
@@ -250,7 +264,7 @@ class SegmentWriter(object):
     def segment(self):
         """Returns an index.Segment object for the segment being written."""
         return index.Segment(self.name, self.max_doc,
-                             self.term_count, self.max_count,
+                             self.term_count, self.max_weight,
                              dict(self.field_counts))
     
     def close(self):
@@ -298,8 +312,7 @@ class SegmentWriter(object):
         docnum = 0
         schema = ix.schema
         
-        try:
-            doc_reader = reading.DocReader(ix.storage, segment, schema)
+        with reading.DocReader(ix.storage, segment, schema) as doc_reader:
             _doc_info = doc_reader._doc_info
             
             vectored_fieldnums = ix.schema.vectored_fields()
@@ -333,12 +346,9 @@ class SegmentWriter(object):
                     self.max_doc += 1
                 
                 docnum += 1
-        finally:
-            doc_reader.close()
         
         # Merge terms
-        term_reader = reading.TermReader(ix.storage, segment, ix.schema)
-        try:
+        with reading.TermReader(ix.storage, segment, ix.schema) as term_reader:
             for fieldnum, text, _, _ in term_reader:
                 for docnum, data in term_reader.postings(fieldnum, text):
                     if has_deletions:
@@ -347,8 +357,6 @@ class SegmentWriter(object):
                         newdoc = start_doc + docnum
                     
                     self.pool.add_posting(fieldnum, text, newdoc, data)
-        finally:
-            term_reader.close()
 
     def start_document(self):
         ds = self._doc_state
@@ -479,7 +487,7 @@ class SegmentWriter(object):
         current_fieldnum = None # Field number of the current term
         current_text = None # Text of the current term
         first = True
-        term_count = 0
+        current_weight = 0
         
         # Loop through the postings in the pool.
         # Postings always come out of the pool in field number/alphabetic order.
@@ -493,15 +501,15 @@ class SegmentWriter(object):
                 # If we've already written at least one posting, write the
                 # previous term to the index.
                 if not first:
-                    term_table.add_row((current_fieldnum, current_text), term_count)
+                    term_table.add_row((current_fieldnum, current_text), current_weight)
                     
-                    if term_count > self.max_count:
-                        self.max_count = term_count
+                    if current_weight > self.max_weight:
+                        self.max_weight = current_weight
                 
                 # Reset term variables
                 current_fieldnum = fieldnum
                 current_text = text
-                term_count = 0
+                current_weight = 0
                 first = False
             
             elif fieldnum < current_fieldnum or (fieldnum == current_fieldnum and text < current_text):
@@ -509,13 +517,13 @@ class SegmentWriter(object):
                 raise Exception("Postings are out of order: %s:%s .. %s:%s" %
                                 (current_fieldnum, current_text, fieldnum, text))
             
-            term_count += term_table.write_posting(docnum, data, write_posting_method)
+            current_weight += term_table.write_posting(docnum, data, write_posting_method)
         
         # Finish up the last term
         if not first:
-            term_table.add_row((current_fieldnum, current_text), term_count)
-            if term_count > self.max_count:
-                self.max_count = term_count
+            term_table.add_row((current_fieldnum, current_text), current_weight)
+            if current_weight > self.max_weight:
+                self.max_weight = current_weight
 
 
 if __name__ == '__main__':

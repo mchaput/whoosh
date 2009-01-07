@@ -18,7 +18,7 @@
 Classes and functions for classifying and extracting information from documents.
 """
 
-from __future__ import division
+from __future__ import division, with_statement
 from collections import defaultdict
 from math import log
 
@@ -31,8 +31,13 @@ class Expander(object):
     
     def __init__(self, ix, fieldname, model = None):
         """
-        ix is an Index object.
-        model is an ExpansionModel object. The default is Bo1Model.
+        @param ix: The index to search.
+        @param fieldname: The name of the field in which to search.
+        @param model: The model to use for expanding the query terms. If you
+            omit this parameter, the expander uses Bo1Model by default.
+        @type ix: index.Index
+        @type fieldname: string
+        @type model: classify.ExpansionModel
         """
         
         self.index = ix
@@ -40,7 +45,7 @@ class Expander(object):
         
         if model is None:
             self.model = Bo1Model(ix)
-        elif isinstance(model, type):
+        elif callable(model):
             self.model = model(ix)
         else:
             self.model = model
@@ -48,14 +53,11 @@ class Expander(object):
         # Cache the collection weight of every term in this
         # field. This turns out to be much faster than reading each
         # individual weight from the term index as we add words.
-        tr = ix.term_reader()
-        try:
+        with ix.term_reader() as tr:
             collection_weight = {}
             for word in tr.lexicon(fieldname):
                 collection_weight[word] = tr.term_count(fieldname, word)
             self.collection_weight = collection_weight
-        finally:
-            tr.close()
         
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)
@@ -66,7 +68,8 @@ class Expander(object):
     def add(self, term_vector):
         """
         Adds forward-index information about one of the "top N" documents.
-        term_vector is a dictionary mapping term text to weight in the document.
+        
+        @param term_vector: a dictionary mapping term text to weight in the document.
         """
         
         total_weight = 0
@@ -78,7 +81,15 @@ class Expander(object):
             
         self.top_total += total_weight
     
-    def expanded_terms(self, number, normalize = True, min_docs = 2):
+    def expanded_terms(self, number, normalize = True):
+        """
+        Returns the N most important terms in the vectors added so far.
+        
+        @param number: The number of terms to return.
+        @param normalize: Whether to normalize the weights.
+        @return: A list of ("term", weight) tuples.
+        """
+        
         model = self.model
         tlist = []
         maxweight = 0
@@ -97,6 +108,7 @@ class Expander(object):
         tlist.sort(reverse = True)
         
         return [(t, weight) for weight, t in tlist[:number]]
+
 
 # Expansion models
 

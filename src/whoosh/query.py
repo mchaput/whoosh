@@ -808,11 +808,13 @@ class Variations(ExpandingTerm):
     def __init__(self, fieldname, text, boost = 1.0):
         self.fieldname = fieldname
         self.text = text
-        self.words = variations(text)
         self.boost = boost
     
     def __unicode__(self):
         return u"<%s>" % self.text
+    
+    def _words(self, searcher):
+        return variations(self.text)
     
     def docs(self, searcher, exclude_docs = None):
         return self._or_query(searcher).docs(searcher, exclude_docs = exclude_docs)

@@ -1,3 +1,9 @@
+from whoosh.support.pyparsing import \
+Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, alphanums, Keyword,\
+Empty, StringEnd, ParserElement
+
+import analysis, query
+
 """
 This module contains the default search query parser.
 
@@ -7,19 +13,10 @@ into nodes from the query module.
 
 This parser handles:
 
-* 'and', 'or', 'not'
-* grouping with parentheses
-* quoted phrase searching
-* wildcards at the end of a search prefix (help*);
-
-TO DO:
-    The parser currently works by FIRST allowing pyparsing to build an
-    abstract syntax tree (AST), and then walking the AST with the
-    eval* functions to replace the AST nodes with query.* objects.
-    This is inefficient and should be replaced by attaching pyparsing
-    parseAction methods on the rules to generate query.* objects
-    directly. However, this isn't straightforward, and I don't have
-    time to work on it now. -- MattChaput
+    - 'and', 'or', 'not'
+    - grouping with parentheses
+    - quoted phrase searching
+    - wildcards at the end of a search prefix (help*)
 
 This parser is based on the searchparser example code available at:
 
@@ -27,7 +24,6 @@ http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 
 This code was made available by the authors under the following copyright
 and conditions:
-"""
 
 # Copyright (c) 2006, Estrate, the Netherlands
 # All rights reserved.
@@ -59,12 +55,7 @@ and conditions:
 # - Steven Mooij
 # - Rudolph Froger
 # - Paul McGuire
-
-from whoosh.support.pyparsing import \
-Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, alphanums, Keyword,\
-Empty, StringEnd, ParserElement
-
-import analysis, query
+"""
 
 def _makeParser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'-")
@@ -124,29 +115,76 @@ def _makeParser():
 
 parser = _makeParser()
 
+
+# Query parser objects
+
 class QueryParser(object):
     def __init__(self, default_field, schema = None,
+                 analyzer = analysis.SimpleAnalyzer,
                  conjunction = query.And,
                  multiword_conjunction = query.Or,
                  termclass = query.Term,
                  **kwargs):
+        """
+        The query parser needs to break the parsed query terms similarly
+        to the indexed source text. You can either pass the index's
+        Schema object using the 'schema' keyword (in which case the parser
+        will use the analyzer associated with each field), or specify
+        a default analyzer for all fields using the 'analyzer' keyword.
+        In either case, you can specify an "override" analyzer for specific
+        fields by passing a <fieldname>_analyzer keyword argument with
+        an Analyzer instance for each field you want to override.
+
+        @param default_field: Use this as the field for any terms without
+            an explicit field. For example, if the query string is
+            "hello f1:there" and the default field is "f2", the parsed
+            query will be as if the user had entered "f2:hello f1:there".
+            This argument is required.
+        @param schema: The schema of the Index where this query will be
+            run. This is used to know which analyzers to use to analyze
+            the query text. If you can't or don't want to specify a schema,
+            you can specify a default analyzer for all fields using the
+            analyzer keyword argument, and overrides using <name>_analyzer
+            keyword arguments.
+        @param analyzer: The analyzer to use to analyze query text if
+            the schema argument is None.
+        @param conjuction: Use this query class to join together clauses
+            where the user has not explictly specified a join. For example,
+            if this is query.And, the query string "a b c" will be parsed as
+            "a AND b AND c". If this is query.Or, the string will be parsed as
+            "a OR b OR c".
+        @param multiword_conjuction: Use this query class to join together
+            sub-words when an analyzer parses a query term into multiple
+            tokens.
+        @param termclass: Use this query class for bare terms. For example,
+            query.Term or query.Variations.
+
+        @type default_field: string
+        @type schema: fields.Schema
+        @type analyzer: analysis.Analyzer
+        @type conjuction: query.Query
+        @type multiword_conjuction: query.Query
+        @type termclass: query.Query
+        """
+
         self.schema = schema
-        self.default_field = default_field or schema.number_to_name(0)
-        
-        self.conjunction = conjunction
-        self.multiword_conjunction = multiword_conjunction
-        self.termclass = termclass
-        
-        if schema is not None:
-            self._build_field_analyzers(kwargs)
-    
-    def _build_field_analyzers(self, kwargs):
-        # Initialize the field->analyzer map with the analyzer
-        # associated with each field.
-        self.field_analyzers = dict((fname, field.format.analyzer)
-                                    for fname, field in self.schema.fields())
-        
-        # Look for overrides in the keyword arguments
+        self.default_field = default_field
+
+        # Work out the analyzers to use
+        if not schema and not analyzer:
+            raise Exception("You must specify 'schema' and/or 'analyzer'")
+
+        # If the analyzer is a class, instantiate it
+        if callable(analyzer):
+            analyzer = analyzer()
+
+        self.analyzer = analyzer
+        self.field_analyzers = {}
+        if schema:
+            self.field_analyzers = dict((fname, field.format.analyzer)
+                                        for fname, field in self.schema.fields())
+
+        # Look in the keyword arguments for analyzer overrides
         for k, v in kwargs.iteritems():
             if k.endswith("_analyzer"):
                 fieldname = k[:-9]
@@ -154,14 +192,28 @@ class QueryParser(object):
                     self.field_analyzers[fieldname] = v
                 else:
                     raise KeyError("Found keyword argument %r but there is no field %r" % (k, fieldname))
-    
+
+        self.conjunction = conjunction
+        self.multiword_conjunction = multiword_conjunction
+        self.termclass = termclass
+        
     def _analyzer(self, fieldname):
-        if self.schema:
-            return self.field_analyzers[fieldname or self.default_field]
-        return analysis.SimpleAnalyzer()
-    
+        # Returns the analyzer associated with a field name.
+
+        # If fieldname is None, that means use the default field
+        fieldname = fieldname or self.default_field
+
+        if fieldname in self.field_analyzers:
+            self.field_analyzers[fieldname]
+        else:
+            return self.analyzer
+
+    # These methods are called by the parsing code to generate query
+    # objects. They are useful for subclassing.
+
     def make_terms(self, fieldname, words):
-        return self.multiword_conjunction([self.make_term(fieldname, w) for w in words])
+        return self.multiword_conjunction([self.make_term(fieldname, w)
+                                           for w in words])
     
     def make_term(self, fieldname, text):
         return self.termclass(fieldname or self.default_field, text)
@@ -195,19 +247,25 @@ class QueryParser(object):
     
     def parse(self, input, normalize = True):
         ast = parser(input)[0]
-        q = self.eval(ast, None)
+        q = self._eval(ast, None)
         if normalize:
             q = q.normalize()
         return q
     
-    def eval(self, node, fieldname):
+    def _eval(self, node, fieldname):
+        # Get the name of the AST node and call the corresponding
+        # method to get a query object
         name = node.getName()
-        return getattr(self, name)(node, fieldname)
-        
-    def Toplevel(self, node, fieldname):
-        return self.conjunction([self.eval(s, fieldname) for s in node])
+        return getattr(self, "_" + name)(node, fieldname)
 
-    def Word(self, node, fieldname):
+    # These methods take the AST from pyparsing, extract the
+    # relevant data, and call the appropriate make_* methods to
+    # create query objects.
+
+    def _Toplevel(self, node, fieldname):
+        return self.conjunction([self._eval(s, fieldname) for s in node])
+
+    def _Word(self, node, fieldname):
         analyzer = self._analyzer(fieldname)
         words = list(analyzer.words(node[0]))
         
@@ -218,65 +276,68 @@ class QueryParser(object):
         else:
             return self.make_terms(fieldname, words)
     
-    def Quotes(self, node, fieldname):
+    def _Quotes(self, node, fieldname):
         return self.make_phrase(fieldname, [n[0] for n in node])
 
-    def Prefix(self, node, fieldname):
+    def _Prefix(self, node, fieldname):
         return self.make_prefix(fieldname, node[0])
     
-    def Range(self, node, fieldname):
+    def _Range(self, node, fieldname):
         return self.make_range(fieldname, node[0][0], node[1][0])
     
-    def Wildcard(self, node, fieldname):
+    def _Wildcard(self, node, fieldname):
         return self.make_wildcard(fieldname, node[0])
     
-    def And(self, node, fieldname):
-        return self.make_and([self.eval(s, fieldname) for s in node])
+    def _And(self, node, fieldname):
+        return self.make_and([self._eval(s, fieldname) for s in node])
     
-    def Or(self, node, fieldname):
-        return self.make_or([self.eval(s, fieldname) for s in node])
+    def _Or(self, node, fieldname):
+        return self.make_or([self._eval(s, fieldname) for s in node])
     
-    def Not(self, node, fieldname):
-        return self.make_not(self.eval(node[0], fieldname))
+    def _Not(self, node, fieldname):
+        return self.make_not(self._eval(node[0], fieldname))
     
-    def Group(self, node, fieldname):
-        return self.conjunction([self.eval(s, fieldname) for s in node])
+    def _Group(self, node, fieldname):
+        return self.conjunction([self._eval(s, fieldname) for s in node])
     
-    def Field(self, node, fieldname):
-        return self.eval(node[1], node[0])
+    def _Field(self, node, fieldname):
+        return self._eval(node[1], node[0])
 
 
 class MultifieldParser(QueryParser):
-    def __init__(self, schema, fieldnames,
+    """A subclass of QueryParser. Instead of assigning unfielded clauses
+    to a default field, this class transforms them into an OR clause that
+    searches a list of fields. For example, if the list of multi-fields
+    is "f1", "f2" and the query string is "hello there", the class will
+    parse "(f1:hello OR f2:hello) (f1:there OR f2:there)". This is very
+    useful when you have two textual fields (e.g. "title" and "content")
+    you want to search by default.
+    """
+
+    def __init__(self, fieldnames, schema = None,
+                 analyzer = None,
                  conjunction = query.And,
                  multiword_conjunction = query.Or,
                  termclass = query.Term,
                  **kwargs):
-        self.conjunction = conjunction
-        self.termclass = termclass
-        self.multiword_conjunction = multiword_conjunction
-        self.schema = schema
+        super(MultifieldParser, self).__init__(fieldnames[0],
+                                               schema = schema,
+                                               analyzer = analyzer,
+                                               conjunction = conjunction,
+                                               multiword_conjuction = multiword_conjunction,
+                                               termclass = termclass,
+                                               **kwargs)
         self.fieldnames = fieldnames
-        
-        self.field_values = dict([(fieldname, 1.0) for fieldname in fieldnames])
-        for k, v in kwargs.iteritems():
-            if not k.endswith("_analyzer") and k not in self.field_values:
-                raise KeyError("You specified a value for field %r but did not include the field" % k)
-            self.field_values[k] = v
-            
-        self._build_field_analyzers(kwargs)
-    
-    def _analyzer(self, fieldname):
-        if fieldname is None:
-            return self.field_analyzers[self.fieldnames[0]]
-        else:
-            return self.field_analyzers[fieldname]
-    
-    def _make(self, type, fieldname, data):
+        self.field_values = {}
+
+    # Override the superclass's make_* methods with versions that convert
+    # the clauses to multifield ORs.
+
+    def _make(self, typename, fieldname, data):
         if fieldname is not None:
-            return type(fieldname, data)
+            return typename(fieldname, data)
         
-        return query.Or([type(fn, data, boost = self.field_values[fn])
+        return query.Or([typename(fn, data, boost = self.field_values.get(fn))
                          for fn in self.fieldnames])
     
     def make_term(self, fieldname, text):
@@ -289,7 +350,7 @@ class MultifieldParser(QueryParser):
         return self._make(query.Wildcard, fieldname, text)
     
     def make_phrase(self, fieldname, texts):
-        return query.Or([super(self.__class__, self).make_phrase(fn, texts, boost = self.field_values[fn])
+        return query.Or([super(MultifieldParser, self).make_phrase(fn, texts, boost = self.field_values.get(fn))
                          for fn in self.fieldnames])
 
 

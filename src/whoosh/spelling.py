@@ -19,17 +19,24 @@ This module contains functions/classes using a Whoosh index
 as a backend for a spell-checking engine.
 """
 
+from __future__ import with_statement
 from collections import defaultdict
 
 from whoosh import analysis, fields, query, searching, writing
 from whoosh.support.levenshtein import relative, distance
-from whoosh.util import UtilityIndex
 
-class SpellChecker(UtilityIndex):
+class SpellChecker(object):
     """
-    Implements a spell-checking engine with a Whoosh-based backend
-    dictionary. This class is based on the Lucene spell-checker
-    contributed code.
+    Implements a spell-checking engine using a search index for the
+    backend storage and lookup. This class is based on the Lucene
+    contributed spell-checker code.
+    
+    To use this object::
+    
+        st = store.FileStorage("spelldict")
+        sc = SpellChecker(st)
+        sc.create_index()
+        
     """
     
     def __init__(self, storage, indexname = "SPELL",
@@ -37,16 +44,19 @@ class SpellChecker(UtilityIndex):
                  mingram = 3, maxgram = 4,
                  minscore = 0.5):
         """
-        storage is a Whoosh storage object in which to create
-        the spelling dictionary index.  indexname is the name
-        of the sub-index; the default is "SPELL". booststart is
-        a floating point value describing how much to boost matches
-        of the first N-gram (the beginning of the word); default is
-        2.0. boostend is how much to boost matches of the last N-gram
-        (the end of the word); default is 1.0 (no boost). mingram is
-        the shortest N-gram to store. maxgram is the longest N-gram to
-        store. minscore is the minimum score matches must achieve to
-        be returned; default is 0.5.
+        @param storage: The storage object in which to create the
+            spell-checker's dictionary index.
+        @param indexname: The name to use for the spell-checker's
+            dictionary index. You only need to change this if you
+            have multiple spelling indexes in the same storage.
+        @param booststart: How much to boost matches of the first
+            N-gram (the beginning of the word).
+        @param boostend: How much to boost matches of the last
+            N-gram (the end of the word).
+        @param mingram: The minimum gram length to store.
+        @param maxgram: The maximum gram length to store.
+        @param minscore: The minimum score matches much achieve to
+            be returned.
         """
         
         self.storage = storage
@@ -59,25 +69,44 @@ class SpellChecker(UtilityIndex):
         self.mingram = mingram
         self.maxgram = maxgram
     
-    def schema(self):
-        from fields import Schema, Frequency, ID, Stored
+    def index(self):
+        """
+        Returns the backend index of this object (instantiating it if
+        it didn't already exist).
+        """
+        
+        import index
+        if not self._index:
+            self._index = index.Index(self.storage, schema = self._schema(), indexname = self.indexname)
+        return self._index
+    
+    def _schema(self):
+        # Creates a schema given this object's mingram and maxgram attributes.
+        
+        from fields import Schema, FieldType, Frequency, ID, STORED
         from analysis import SimpleAnalyzer
         
-        sa = SimpleAnalyzer()
-        fls = [("word", Stored()), ("score", Stored())]
+        idtype = ID()
+        freqtype = FieldType(Frequency(SimpleAnalyzer()))
+        
+        fls = [("word", STORED), ("score", STORED)]
         for size in xrange(self.mingram, self.maxgram + 1):
-            fls.extend([("start%s" % size, ID(sa)),
-                        ("end%s" % size, ID(sa)),
-                        ("gram%s" % size, Frequency(sa))])
+            fls.extend([("start%s" % size, idtype),
+                        ("end%s" % size, idtype),
+                        ("gram%s" % size, freqtype)])
             
-        return Schema(*fls)
+        return Schema(**dict(fls))
     
     def suggest(self, text, number = 3, usescores = False):
         """
-        Suggests alternate spellings for a word. text is the text of the word
-        to check. number is the number of suggestions to return. fieldname.
-        if morepopular is True, the suggestions are computed based on their frequency
-        in the source index, rather than distance from the original text.
+        Returns a list of suggested alternative spellings of 'text'. You must
+        add words to the dictionary (using add_field, add_words, and/or add_scored_words)
+        before you can use this.
+        
+        @param text: The word to check.
+        @param number: The maximum number of suggestions to return.
+        @param usescores: Use the per-word score to influence the suggestions.
+        @return: list
         """
         
         grams = defaultdict(list)
@@ -99,18 +128,17 @@ class SpellChecker(UtilityIndex):
         q = query.Or(queries)
         ix = self.index()
         
-        s = searching.Searcher(ix)
-        try:
+        with searching.Searcher(ix) as s:
             results = s.search(q)
             
+            length = len(results)
             if len(results) > number*2:
-                fieldlist = results[:len(results)//2]
+                length = len(results)//2
+            fieldlist = results[:length]
             
-            suggestions = []
-            for fields in fieldlist:
-                word = fields["word"]
-                if word == text: continue
-                suggestions.append((word, fields["score"]))
+            suggestions = [(fs["word"], fs["score"])
+                           for fs in fieldlist
+                           if fs["word"] != text]
             
             if usescores:
                 def keyfn(a):
@@ -120,42 +148,46 @@ class SpellChecker(UtilityIndex):
                     return distance(text, a[0])
             
             suggestions.sort(key = keyfn)
-        finally:
-            s.close()
         
         return [word for word, _ in suggestions[:number]]
         
     def add_field(self, ix, fieldname):
         """
         Adds the terms in a field from another index to the backend dictionary.
-        term_reader is a term reader object for the source index. fieldname is the
-        name of the field in the source index from which to load the terms.
+        This method calls add_scored_words() and uses each term's frequency as the
+        score. As a result, more common words will be suggested before rare words.
+        If you want to calculate the scores differently, use add_scored_words()
+        directly.
+        
+        @param ix: The index from which to add terms.
+        @param fieldname: The field name (or number) of a field in the source
+            index. All the indexed terms from this field will be added to the
+            dictionary.
+        @type ix: index.Index
         """
         
-        tr = ix.term_reader()
-        try:
-            # TODO: This should score the words using frequency somehow
-            # and call add_scored_words instead.
-            self.add_words(tr.lexicon(fieldname))
-        finally:
-            tr.close()
+        with ix.term_reader() as tr:
+            self.add_scored_words((w, freq) for w, _, freq in tr.iter_field(fieldname))
     
     def add_words(self, ws, score = 0):
         """
-        Adds words to the backend dictionary from an iterable. This method
-        takes a list of words. score is the score to use for all words
-        (default is 0). You can use this if you are planning to use the
-        'usescores' keyword argument of the suggestions() method. However,
-        in that case, you might want to use add_scored_words() instead.
+        Adds a list of words to the backend dictionary.
+        
+        @param ws: A sequence of words (strings) to add to the dictionary.
+        @param score: An optional score to use for ALL the words in 'ws'.
+        @type ws: iterable
         """
         self.add_scored_words((w, 0) for w in ws)
     
     def add_scored_words(self, ws):
         """
-        Adds words to the backend dictionary from a sequence of
-        (word, score) tuples. You can use this if you are planning to
-        use the 'usescores' keyword argument of the suggestions() method.
-        Otherwise, just use add_words().
+        Adds a list of ("word", score) tuples to the backend dictionary.
+        Associating words with a score lets you use the 'usescores' keyword
+        argument of the suggest() method to order the suggestions using the
+        scores.
+        
+        @param ws: A sequence of ("word", score) tuples.
+        @type ws: iterable
         """
         
         writer = writing.IndexWriter(self.index())

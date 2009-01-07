@@ -19,7 +19,7 @@ Functions/classes to support creating highlighted
 excerpts from result documents, similar to what Google displays under
 each result link.
 
-This module is unfinished.
+This module is still experimental and unfinished.
 """
 
 from __future__ import division

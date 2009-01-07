@@ -18,7 +18,7 @@ from __future__ import division
 
 import time
 
-from whoosh import query, scoring
+from whoosh import query, scoring, util
 from whoosh.util import TopDocs
 
 """
@@ -27,24 +27,22 @@ This module contains classes and functions related to searching the index.
 
 # Searcher class
 
-class Searcher(object):
+class Searcher(object, util.ClosableMixin):
     """
     Object for searching an index. Produces Results objects.
     """
     
-    def __init__(self, ix, weighting = None, sorter = None):
+    def __init__(self, ix, weighting = scoring.BM25F, sorter = None):
         self.term_reader = ix.term_reader()
         self.doc_reader = ix.doc_reader()
         self.schema = ix.schema
         self._total_term_count = ix.total_term_count()
+        self._max_weight = ix.max_weight()
         self._doc_count_all = self.doc_reader.doc_count_all()
         
-        if weighting is None:
-            self.weighting = scoring.BM25F()
-        if isinstance(weighting, type):
-            self.weighting = weighting()
-        else:
-            self.weighting = weighting
+        if callable(weighting):
+            weighting = weighting()
+        self.weighting = weighting
         
         self.sorters = {}
     
@@ -53,6 +51,9 @@ class Searcher(object):
     
     def total_term_count(self):
         return self._total_term_count
+    
+    def max_weight(self):
+        return self._max_weight
     
     def _sorter(self, fieldname):
         if fieldname not in self.sorters:
@@ -203,11 +204,6 @@ class Results(object):
                                                       self.query,
                                                       self.runtime)
     
-    def _check_index(self, start, end):
-        last = len(self.scored_list)
-        if start > last or end > last:
-            raise IndexError("Tried to retrieve item %s but results only has top %s" % (end, self.upper))
-    
     def __len__(self):
         """
         Returns the number of documents found by this search. Note this
@@ -216,8 +212,10 @@ class Results(object):
         return len(self.scored_list)
     
     def __getitem__(self, n):
-        self._check_index(n, n)
-        return self.doc_reader[self.scored_list[n]] 
+        if isinstance(n, slice):
+            return [self.doc_reader[i] for i in self.scored_list.__getitem__(n)] 
+        else:
+            return self.doc_reader[self.scored_list[n]] 
     
     def __getslice__(self, start, end):
         self._check_index(start, end)

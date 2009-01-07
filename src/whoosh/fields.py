@@ -16,6 +16,8 @@
 
 """
 This module contains functions and classes related to fields.
+
+
 """
 
 from collections import defaultdict
@@ -26,37 +28,83 @@ from whoosh import analysis
 class FieldConfigurationError(Exception):
     pass
 
+
 # Field Types
 
 class FieldType(object):
+    """
+    Represents a field configuration.
+    
+    The FieldType object supports the following attributes:
+    
+        - format (fields.Format): the storage format for the field's contents.
+        
+        - vector (fields.Format): the storage format for the field's vectors.
+        
+        - scorable (boolean): whether searches against this field may be scored.
+          This controls whether the index stores per-document field lengths for
+          this field.
+          
+        - stored (boolean): whether the content of this field is stored for each
+          document. For example, in addition to indexing the title of a document,
+          you usually want to store the title so it can be presented as part of
+          the search results.
+      
+    The constructor for the base field type simply lets you supply your
+    own configured field format, vector format, and scorable and stored
+    values. Subclasses may configure some or all of this for you.
+    """
+    
     format = vector = scorable = stored = None
     
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError
-
-
-class CUSTOM(FieldType):
     def __init__(self, format, vector = None,
                  scorable = False, stored = False):
         self.format = format
         self.vector = vector
         self.scorable = scorable
+        self.stored = stored
 
 
 class ID(FieldType):
+    """
+    Configured field type that indexes the entire value of the field as one
+    token. This is useful for data you don't want to tokenize, such as the
+    path of a file.
+    """
+    
     def __init__(self, stored = False):
+        """
+        @param stored: Whether the value of this field is stored with the document.
+        """
         self.format = Existance(analyzer = analysis.IDAnalyzer())
         self.stored = stored
 
 
 class STORED(FieldType):
+    """
+    Configured field type for fields you want to store but not index.
+    """
+    
     def __init__(self):
         self.format = Stored()
         self.stored = True
 
 
 class KEYWORD(FieldType):
+    """
+    Configured field type for fields containing space-separated or comma-separated
+    keyword-like data (such as tags). The default is to not store positional information
+    (so phrase searching is not allowed in this field) and to not make the field scorable.
+    """
+    
     def __init__(self, stored = False, comma = False, scorable = False):
+        """
+        @param stored: Whether to store the value of the field with the document.
+        @param comma: Whether this is a comma-separated field. If this is False
+            (the default), it is treated as a space-separated field.
+        @param scorable: Whether this field is scorable.
+        """
+        
         ana = analysis.CommaSeparatedAnalyzer if comma else analysis.SpaceSeparatedAnalyzer()
         self.format = Frequency(analyzer = ana)
         self.scorable = scorable
@@ -64,7 +112,25 @@ class KEYWORD(FieldType):
 
 
 class TEXT(FieldType):
+    """
+    Configured field type for text fields (for example, the body text of an article). The
+    default is to store positional information to allow phrase searching. This field type
+    is always scorable.
+    """
+    
     def __init__(self, stored = False, phrase = True, analyzer = None):
+        """
+        @param stored: Whether to store the value of this field with the document. Since
+            this field type generally contains a lot of text, you should avoid storing it
+            with the document unless you need to, for example to allow fast excerpts in the
+            search results.
+        @param phrase: Whether the store positional information to allow phrase searching.
+        @param analyzer: The analyzer to use to index the field contents. See the analysis
+            module for more information. If you omit this argument, the field uses
+            analysis.StandardAnalyzer.
+        @type analyzer: analysis.Analyzer
+        """
+        
         ana = analyzer or analysis.StandardAnalyzer()
         self.format = Frequency(analyzer = ana)
         
@@ -76,7 +142,22 @@ class TEXT(FieldType):
 
 
 class NGRAM(FieldType):
-    def __init__(self, stored = False, minsize = 2, maxsize = 4):
+    """
+    Configured field that indexes text as N-grams. For example, with a field type
+    NGRAM(3,4), the value "hello" will be indexed as tokens
+    "hel", "hell", "ell", "ello", "llo".
+    """
+    
+    def __init__(self, minsize = 2, maxsize = 4, stored = False):
+        """
+        @param stored: Whether to store the value of this field with the document. Since
+            this field type generally contains a lot of text, you should avoid storing it
+            with the document unless you need to, for example to allow fast excerpts in the
+            search results.
+        @param minsize: The minimum length of the N-grams.
+        @param maxsize: The maximum length of the N-grams.
+        """
+        
         self.format = Frequency(analyzer = analysis.NgramAnalyzer(minsize, maxsize))
         self.scorable = True
         self.stored = stored
@@ -86,11 +167,28 @@ class NGRAM(FieldType):
 
 class Schema(object):
     """
-    Represents the fields in an index. Maps names to FieldType objects
-    which define the behavior of each field.
+    Represents the collection of fields in an index. Maps field names to
+    FieldType objects which define the behavior of each field.
+    
+    Low-level parts of the index use field numbers instead of field names
+    for compactness. This class has several methods for converting between
+    the field name, field number, and field object itself.
     """
     
     def __init__(self, **fields):
+        """
+        All keyword arguments to the constructor are treated as fieldname = fieldtype
+        pairs. The fieldtype can be an instantiated FieldType object, or a FieldType
+        sub-class (in which case the Schema will instantiate it with the default
+        constructor before adding it).
+        
+        For example::
+        
+            s = Schema(content = TEXT,
+                       title = TEXT(stored = True),
+                       tags = KEYWORD(stored = True))
+        """
+        
         self._by_number = []
         self._names = []
         self._by_name = {}
@@ -103,26 +201,59 @@ class Schema(object):
         return "<Schema: %s>" % repr(self._names)
     
     def __iter__(self):
+        """
+        Yields the sequence of fields in this schema.
+        """
+        
         return iter(self._by_number)
     
     def __getitem__(self, id):
+        """
+        Returns the field associated with the given field name or number.
+        
+        @param id: A field name or field number.
+        """
+        
         if isinstance(id, basestring):
             return self._by_name[id]
         return self._by_number[id]
     
     def __len__(self):
+        """
+        Returns the number of fields in this schema.
+        """
         return len(self._by_number)
     
-    def __contains__(self, field):
-        return field in self._by_name
+    def __contains__(self, fieldname):
+        """
+        Returns True if a field by the given name is in this schema.
+        
+        @param fieldname: The name of the field.
+        @type fieldname: string
+        """
+        return fieldname in self._by_name
     
     def field_by_name(self, name):
+        """
+        Returns the field object associated with the given name.
+        
+        @param name: The name of the field to retrieve.
+        """
         return self._by_name[name]
     
     def field_by_number(self, number):
+        """
+        Returns the field object associated with the given number.
+        
+        @param number: The number of the field to retrieve.
+        """
         return self._by_number[number]
     
     def fields(self):
+        """
+        Yields ("fieldname", field_object) pairs for the fields
+        in this schema.
+        """
         return self._by_name.iteritems()
     
     def field_names(self):
@@ -131,9 +262,16 @@ class Schema(object):
         """
         return self._names
     
-    def add(self, name, fieldtype, **kwargs):
+    def add(self, name, fieldtype):
         """
         Adds a field to this schema.
+        
+        @param name: The name of the field.
+        @param fieldtype: An instantiated FieldType object, or a FieldType subclass.
+            If you pass an instantiated object, the schema will use that as the field
+            configuration for this field. If you pass a FieldType subclass, the schema
+            will automatically instantiate it with the default constructor.
+        @type fieldtype: fields.FieldType
         """
         
         if name.startswith("_"):
@@ -141,8 +279,8 @@ class Schema(object):
         elif name in self._by_name:
             raise FieldConfigurationError("Schema already has a field named %s" % name)
         
-        if isinstance(fieldtype, type):
-            fieldtype = fieldtype(**kwargs)
+        if callable(fieldtype):
+            fieldtype = fieldtype()
         if not isinstance(fieldtype, FieldType):
             raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
         
@@ -201,17 +339,21 @@ class Schema(object):
 
 class Format(object):
     """
-    Abstract base class representing a field in an indexed document.
+    Abstract base class representing a storage format for a field or vector.
+    Format objects are responsible for writing and reading the low-level
+    representation of a field. It controls what kind/level of information
+    to store about the indexed fields.
     """
     
     def __init__(self, analyzer, field_boost = 1.0, **options):
         """
-        analyzer is an analyzer object to use to
-        index this field (see the analysis module). Set the analyzer
-        to None if the field should not be indexed/searchable.
-        field_boost is a floating point factor to apply to the score of any
-        results from this field. stored controls whether the contents of this
-        field are stored in the index.
+        @param analyzer: The analyzer object to use to index this field.
+            See the analysis module for more information. If this value
+            is None, the field is not indexed/searchable.
+        @param field_boost: A constant boost factor to add to the score
+            of all queries matching terms in this field.
+        @type analyzer: analysis.Analyzer
+        @type field_boost: float
         """
         
         self.analyzer = analyzer
@@ -224,13 +366,15 @@ class Format(object):
     
     def word_datas(self, value, **kwargs):
         """
-        Yields a series of "data" tuples from a string.
-        Applies the field's analyzer to get a stream of tokens from
-        the string, then turns the stream of words into a stream of
-        (word, freq, data) tuples, where "data" is field-specific information
-        about the word. The data may also be the frequency (eg in
-        a Frequency field, 'freq' and 'data' would be the same in the absence
-        of any boost).
+        Takes the text value to be indexed and yields a series of
+        ("tokentext", frequency, data) tuples, where frequency is the number
+        of times "tokentext" appeared in the value, and data is field-specific
+        posting data for the token. For example, in a Frequency format, data
+        would be the same as frequency; in a Positions format, data would be a
+        list of token positions at which "tokentext" occured.
+        
+        @param value: The text to index.
+        @type value: unicode
         """
         raise NotImplementedError
     
@@ -248,20 +392,20 @@ class Format(object):
         
         raise NotImplementedError
     
-    def data_to_frequency(self, data):
-        """
-        Returns the 'data' interpreted as term frequency.
-        """
-        raise NotImplementedError
-
-    def data_to_weight(self, data):
-        """
-        Returns the 'data' interpreted as a term weight.
-        """
-        raise NotImplementedError
-
     def supports(self, name):
+        """
+        Returns True if this format supports interpreting its posting
+        data as 'name' (e.g. "frequency" or "positions").
+        """
         return hasattr(self, "data_to_" + name)
+    
+    def data_to(self, data, name):
+        """
+        Interprets the given data as 'name', where 'name' is for example
+        "frequency" or "positions". This object must have a corresponding
+        .data_to_<name>() method.
+        """
+        return getattr(self, "data_to_"+name)(data)
     
 
 # Concrete field classes
@@ -284,19 +428,11 @@ class Existance(Format):
     """
     Only indexes whether a given term occurred in
     a given document; it does not store frequencies or positions.
-    For example, use this format to store a field like "filepath".
+    This is useful for fields that should be searchable but not
+    scorable, such as file path.
     """
     
     def __init__(self, analyzer, field_boost = 1.0, **options):
-        """
-        analyzer is an analyzer object to use to
-        index this field (see the analysis module). field_boost is a
-        floating point factor to apply to the score of any results
-        from this field. stored controls whether the contents of this
-        field are stored in the index. indexed controls whether the
-        contents of this field are searchable.
-        """
-        
         self.analyzer = analyzer
         self.field_boost = field_boost
         self.options = options
@@ -385,6 +521,8 @@ class Positions(Format):
     A vector that stores position information in each posting, to
     allow phrase searching and "near" queries.
     """
+    
+    _supports = ("frequency", "weight", "positions")
     
     def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(list)
@@ -478,17 +616,17 @@ class Characters(Format):
 
 class PositionBoosts(Format):
     """
-    A format that stores position and per-position boost information
+    A format that stores positions and per-position boost information
     in each posting.
     """
     
-    def word_datas(self, value, start_pos = 0, boosts = None, **kwargs):
-        if boosts is None: boosts = {}
-        
+    def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(iter)
         for t in self.analyzer(value, positions = True, start_pos = start_pos):
             pos = t.pos
-            seen[t.text].append((pos, boosts.get(pos, 1.0)))
+            if t.boosts:
+                boost = t.boost
+            seen[t.text].append((pos, boost))
         
         return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
     
@@ -512,11 +650,17 @@ class PositionBoosts(Format):
             pos_list.append((pos_base, stream.read_8bitfloat())) # , self.options.get("limit", 8)
         return (freq, pos_list)
 
+    def data_to_frequency(self, data):
+        return len(data)
+    
+    def data_to_weight(self, data):
+        return len(data) * sum(d[1] for d in data) * self.field_boost
+
     def data_to_positions(self, data):
-        return [d[0] for d in data[1]]
+        return [d[0] for d in data]
 
     def data_to_position_boosts(self, data):
-        return data[1]
+        return data
 
 
 if __name__ == '__main__':

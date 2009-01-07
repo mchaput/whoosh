@@ -15,8 +15,8 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-This module implements the KinoSearch indexing model.
+"""Support functions and classes implementing the KinoSearch-like external sort
+merging model. This module does not contain any user-level objects.
 """
 
 import cPickle, struct, tempfile
@@ -24,14 +24,12 @@ from heapq import heapify, heapreplace, heappop
 
 from whoosh import structfile
 
-_intSize = struct.calcsize("!i")
+_int_size = struct.calcsize("!i")
 
 # Utility functions
 
 def encode_posting(fieldNum, text, doc, data):
-    """
-    Encodes a posting as a string, for sorting.
-    """
+    """Encodes a posting as a string, for sorting."""
     
     return "".join([struct.pack("!i", fieldNum),
                     text.encode("utf8"),
@@ -41,24 +39,20 @@ def encode_posting(fieldNum, text, doc, data):
                     ])
 
 def decode_posting(posting):
-    """
-    Decodes an encoded posting string into a
+    """Decodes an encoded posting string into a
     (field_number, text, document_number, data) tuple.
     """
     
-    pointer = 0
+    field_num = struct.unpack("!i", posting[:_int_size])[0]
     
-    field_num = struct.unpack("!i", posting[pointer:pointer + _intSize])[0]
-    pointer += _intSize
+    zero = posting.find(chr(0), _int_size)
+    text = posting[_int_size:zero].decode("utf8")
     
-    zero = posting.find(chr(0), pointer)
-    text = posting[pointer:zero].decode("utf8")
-    pointer = zero + 1
+    docstart = zero + 1
+    docend = docstart + _int_size
+    doc = struct.unpack("!i", posting[docstart:docend])[0]
     
-    doc = struct.unpack("!i", posting[pointer:pointer + _intSize])[0]
-    pointer += _intSize
-    
-    data = cPickle.loads(posting[pointer:])
+    data = cPickle.loads(posting[docend:])
     
     return field_num, text, doc, data
 
@@ -143,8 +137,7 @@ def merge(run_readers, max_chunk_size):
 # Classes
 
 class RunReader(object):
-    """
-    An iterator that yields posting strings from a "run" on disk.
+    """An iterator that yields posting strings from a "run" on disk.
     This class buffers the reads to improve efficiency.
     """
     
@@ -162,9 +155,7 @@ class RunReader(object):
         self.finished = False
         
     def _fill(self):
-        """
-        Clears and refills the buffer.
-        """
+        # Clears and refills the buffer.
         
         # If this reader is exhausted, do nothing.
         if self.finished:
@@ -310,22 +301,22 @@ class PostingPool(object):
         self.finished = True
 
 
-class RamPostingPool(object):
-    """
-    An experimental alternate implementation of PostingPool that
-    just keeps everything in memory instead of doing an external
-    sort on disk. This is very memory inefficient and, as it turns
-    out, not much faster.
-    """
-    
-    def __init__(self):
-        self.postings = []
-
-    def add_posting(self, field_num, text, doc, data):
-        self.postings.append((field_num, text, doc, data))
-        
-    def __iter__(self):
-        return iter(sorted(self.postings))
+#class RamPostingPool(object):
+#    """
+#    An experimental alternate implementation of PostingPool that
+#    just keeps everything in memory instead of doing an external
+#    sort on disk. This is very memory inefficient and, as it turns
+#    out, not much faster.
+#    """
+#
+#    def __init__(self):
+#        self.postings = []
+#
+#    def add_posting(self, field_num, text, doc, data):
+#        self.postings.append((field_num, text, doc, data))
+#
+#    def __iter__(self):
+#        return iter(sorted(self.postings))
 
 
 
