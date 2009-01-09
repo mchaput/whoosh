@@ -203,8 +203,7 @@ class RunReader(object):
 
 
 class PostingPool(object):
-    """
-    Represents the "pool" of all postings to be sorted. As documents are added,
+    """Represents the "pool" of all postings to be sorted. As documents are added,
     this object writes out "runs" of sorted encoded postings. When all documents
     have been added, this object merge sorts the runs from disk, yielding decoded
     postings to the SegmentWriter.
@@ -212,8 +211,8 @@ class PostingPool(object):
     
     def __init__(self, limit = 8 * 1024 * 1024):
         """
-        limit is the maximum amount of memory to use at once
-        for adding postings and the merge sort.
+        @param limit: the maximum amount of memory to use at once
+            for adding postings and the merge sort.
         """
         
         self.run_count = 0
@@ -225,9 +224,7 @@ class PostingPool(object):
         self.temp_files = []
     
     def add_posting(self, field_num, text, doc, data):
-        """
-        Adds a posting to the pool.
-        """
+        """Adds a posting to the pool."""
         
         if self.finished:
             raise Exception("Can't add postings after you iterate over the pool")

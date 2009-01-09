@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-This module contains objects that implement storage of index files.
+"""This module contains objects that implement storage of index files.
 Abstracting storage behind this simple interface allows indexes to
 be stored in other media besides as a folder of files. For example,
 RamStorage keeps the "files" in memory.
@@ -35,8 +34,7 @@ class LockError(Exception):
 
 
 class Storage(object):
-    """
-    Abstract base class for storage objects.
+    """Abstract base class for storage objects.
     """
     
     def __iter__(self):
@@ -60,8 +58,7 @@ class Storage(object):
 
 
 class FileStorage(Storage):
-    """
-    Storage object that stores the index as files in a directory on disk.
+    """Storage object that stores the index as files in a directory on disk.
     """
     
     def __init__(self, path):
@@ -161,8 +158,7 @@ class FileStorage(Storage):
         
 
 class RamStorage(Storage):
-    """
-    Storage object that keeps the index in memory.
+    """Storage object that keeps the index in memory.
     """
     
     def __init__(self):
@@ -227,8 +223,7 @@ class RamStorage(Storage):
 
 
 def copy_to_ram(storage):
-    """
-    Creates a RamStorage object, copies the contents of the given
+    """Creates a RamStorage object, copies the contents of the given
     storage object into it, and returns it.
     """
     

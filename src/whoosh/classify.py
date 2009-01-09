@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-Classes and functions for classifying and extracting information from documents.
+"""Classes and functions for classifying and extracting information from documents.
 """
 
 from __future__ import division, with_statement
@@ -24,8 +23,7 @@ from math import log
 
 
 class Expander(object):
-    """
-    Uses an ExpansionModel to expand the set of query terms based on
+    """Uses an ExpansionModel to expand the set of query terms based on
     the top N result documents.
     """
     
@@ -66,8 +64,7 @@ class Expander(object):
         self.top_total = 0
         
     def add(self, term_vector):
-        """
-        Adds forward-index information about one of the "top N" documents.
+        """Adds forward-index information about one of the "top N" documents.
         
         @param term_vector: a dictionary mapping term text to weight in the document.
         """
@@ -82,8 +79,7 @@ class Expander(object):
         self.top_total += total_weight
     
     def expanded_terms(self, number, normalize = True):
-        """
-        Returns the N most important terms in the vectors added so far.
+        """Returns the N most important terms in the vectors added so far.
         
         @param number: The number of terms to return.
         @param normalize: Whether to normalize the weights.

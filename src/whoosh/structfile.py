@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-Contains a class for reading/writing a data stream to a file using binary
+"""Contains a class for reading/writing a data stream to a file using binary
 encoding and compression methods such as variable-length encoded integers.
 """
 
@@ -31,8 +30,7 @@ _float_size = calcsize("!f")
 # Exceptions
 
 class EndOfFile(Exception):
-    """
-    Thrown by a StructFile object when you try to read
+    """Thrown by a StructFile object when you try to read
     at the end of a file.
     """
     pass
@@ -40,8 +38,7 @@ class EndOfFile(Exception):
 # Utility functions
 
 def read(f, c):
-    """
-    Custom read function that reads c bytes from file f,
+    """Custom read function that reads c bytes from file f,
     and raises EndOfFile if the read returns 0 bytes, or
     struct.error if the read returns fewer bytes than
     expected (meaning you weren't where you thought you
@@ -105,8 +102,7 @@ _varint_cache = tuple(_varint_cache)
 # Main class
 
 class StructFile(object):
-    """
-    Wraps a normal file (or file-like) object and provides additional
+    """Wraps a normal file (or file-like) object and provides additional
     methods for reading and writing indexes, especially variable-length
     integers (varints) for efficient space usage.
     
@@ -144,43 +140,37 @@ class StructFile(object):
             self.close()
     
     def write_byte(self, n):
-        """
-        Writes a single byte to the wrapped file, shortcut for
+        """Writes a single byte to the wrapped file, shortcut for
         file.write(chr(n)).
         """
         self.file.write(chr(n))
     
     def write_sbyte(self, n):
-        """
-        Writes a signed byte value to the wrapped file, using
+        """Writes a signed byte value to the wrapped file, using
         the struct.pack function.
         """
         self.file.write(pack("!b", n))
     
     def write_int(self, n):
-        """
-        Writes a binary integer value to the wrapped file, using
+        """Writes a binary integer value to the wrapped file, using
         the struct.pack function.
         """
         self.file.write(pack("!i", n))
         
     def write_ulong(self, n):
-        """
-        Writes a unsigned binary integer value to the wrapped file, using
+        """Writes a unsigned binary integer value to the wrapped file, using
         the struct.pack function.
         """
         self.file.write(pack("!L", n))
         
     def write_float(self, n):
-        """
-        Writes a binary float value to the wrapped file, using
+        """Writes a binary float value to the wrapped file, using
         the struct.pack function.
         """
         self.file.write(pack("!f", n))
         
     def write_string(self, s):
-        """
-        Writes a string to the wrapped file. This method writes the
+        """Writes a string to the wrapped file. This method writes the
         length of the string first, so you can read the string back
         without having to know how long it was.
         """
@@ -188,14 +178,12 @@ class StructFile(object):
         self.file.write(s)
         
     def write_pickle(self, obj):
-        """
-        Writes a pickled representation of obj to the wrapped file.
+        """Writes a pickled representation of obj to the wrapped file.
         """
         cPickle.dump(obj, self.file, -1)
     
     def write_8bitfloat(self, f, mantissabits = 5, zeroexp = 2):
-        """
-        Writes a byte-sized representation of floating point value
+        """Writes a byte-sized representation of floating point value
         f to the wrapped file.
         mantissabits is the number of bits to use for the mantissa
         (with the rest used for the exponent).
@@ -205,61 +193,55 @@ class StructFile(object):
         self.write_byte(float_to_byte(f, mantissabits, zeroexp))
     
     def write_varint(self, i):
-        """
-        Writes a variable-length integer to the wrapped file.
+        """Writes a variable-length integer to the wrapped file.
         """
         if i < len(_varint_cache):
             self.file.write(_varint_cache[i])
             return
+        s = ""
         while (i & ~0x7F) != 0:
-            self.file.write(chr((i & 0x7F) | 0x80))
+            s += chr((i & 0x7F) | 0x80)
             i = i >> 7
-        self.file.write(chr(i))
+        s += chr(i)
+        self.file.write(s)
     
     def write_struct(self, format, data):
-        """
-        Writes struct data to the wrapped file.
+        """Writes struct data to the wrapped file.
         """
         self.file.write(pack(format, *data))
     
     def read_byte(self):
-        """
-        Reads a single byte value from the wrapped file,
+        """Reads a single byte value from the wrapped file,
         shortcut for ord(file.read(1)).
         """
         return ord(read(self.file, 1))
     
     def read_sbyte(self):
-        """
-        Reads a signed byte value from the wrapped file,
+        """Reads a signed byte value from the wrapped file,
         using the struct.unpack function.
         """
         return unpack("!b", read(self.file, 1))[0]
     
     def read_int(self):
-        """
-        Reads a binary integer value from the wrapped file,
+        """Reads a binary integer value from the wrapped file,
         using the struct.unpack function.
         """
         return unpack("!i", read(self.file, _int_size))[0]
     
     def read_ulong(self):
-        """
-        Reads an unsigned binary integer value from the wrapped file,
+        """Reads an unsigned binary integer value from the wrapped file,
         using the struct.unpack function.
         """
         return unpack("!L", read(self.file, _unsignedlong_size))[0]
     
     def read_float(self):
-        """
-        Reads a binary floating point value from the wrapped file,
+        """Reads a binary floating point value from the wrapped file,
         using the struct.unpack function.
         """
         return unpack("!f", read(self.file, _float_size))[0]
     
     def read_string(self):
-        """
-        Reads a string from the wrapped file.
+        """Reads a string from the wrapped file.
         """
         length = self.read_varint()
         if length > 0:
@@ -267,21 +249,18 @@ class StructFile(object):
         return ""
     
     def skip_string(self):
-        """
-        Skips a string value by seeking past it.
+        """Skips a string value by seeking past it.
         """
         length = self.read_varint()
         self.file.seek(length, 1)
     
     def read_pickle(self):
-        """
-        Reads a pickled object from the wrapped file.
+        """Reads a pickled object from the wrapped file.
         """
         return cPickle.load(self.file)
     
     def read_8bitfloat(self, mantissabits = 5, zeroexp = 2):
-        """
-        Reads a byte-sized representation of a floating point value.
+        """Reads a byte-sized representation of a floating point value.
         mantissabits is the number of bits to use for the mantissa
         (with the rest used for the exponent).
         zeroexp is the zero point for the exponent.
@@ -289,8 +268,7 @@ class StructFile(object):
         return byte_to_float(self.read_byte(), mantissabits, zeroexp)
     
     def read_varint(self):
-        """
-        Reads a variable-length encoded integer from the wrapped
+        """Reads a variable-length encoded integer from the wrapped
         file.
         """
         b = ord(read(self.file, 1))
@@ -308,16 +286,14 @@ class StructFile(object):
         return unpack(format, read(self.file, length))
     
     def flush(self):
-        """
-        Flushes the buffer of the wrapped file. This is a no-op
+        """Flushes the buffer of the wrapped file. This is a no-op
         if the wrapped file does not have a flush method.
         """
         if hasattr(self.file, "flush"):
             self.file.flush()
     
     def close(self):
-        """
-        Closes the wrapped file. This is a no-op
+        """Closes the wrapped file. This is a no-op
         if the wrapped file does not have a close method.
         """
         if self.onclose:

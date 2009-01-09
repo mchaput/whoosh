@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-This module contains functions/classes using a Whoosh index
+"""This module contains functions/classes using a Whoosh index
 as a backend for a spell-checking engine.
 """
 
@@ -26,8 +25,7 @@ from whoosh import analysis, fields, query, searching, writing
 from whoosh.support.levenshtein import relative, distance
 
 class SpellChecker(object):
-    """
-    Implements a spell-checking engine using a search index for the
+    """Implements a spell-checking engine using a search index for the
     backend storage and lookup. This class is based on the Lucene
     contributed spell-checker code.
     
@@ -70,8 +68,7 @@ class SpellChecker(object):
         self.maxgram = maxgram
     
     def index(self):
-        """
-        Returns the backend index of this object (instantiating it if
+        """Returns the backend index of this object (instantiating it if
         it didn't already exist).
         """
         
@@ -98,8 +95,7 @@ class SpellChecker(object):
         return Schema(**dict(fls))
     
     def suggest(self, text, number = 3, usescores = False):
-        """
-        Returns a list of suggested alternative spellings of 'text'. You must
+        """Returns a list of suggested alternative spellings of 'text'. You must
         add words to the dictionary (using add_field, add_words, and/or add_scored_words)
         before you can use this.
         
@@ -152,8 +148,7 @@ class SpellChecker(object):
         return [word for word, _ in suggestions[:number]]
         
     def add_field(self, ix, fieldname):
-        """
-        Adds the terms in a field from another index to the backend dictionary.
+        """Adds the terms in a field from another index to the backend dictionary.
         This method calls add_scored_words() and uses each term's frequency as the
         score. As a result, more common words will be suggested before rare words.
         If you want to calculate the scores differently, use add_scored_words()
@@ -170,8 +165,7 @@ class SpellChecker(object):
             self.add_scored_words((w, freq) for w, _, freq in tr.iter_field(fieldname))
     
     def add_words(self, ws, score = 0):
-        """
-        Adds a list of words to the backend dictionary.
+        """Adds a list of words to the backend dictionary.
         
         @param ws: A sequence of words (strings) to add to the dictionary.
         @param score: An optional score to use for ALL the words in 'ws'.
@@ -180,8 +174,7 @@ class SpellChecker(object):
         self.add_scored_words((w, 0) for w in ws)
     
     def add_scored_words(self, ws):
-        """
-        Adds a list of ("word", score) tuples to the backend dictionary.
+        """Adds a list of ("word", score) tuples to the backend dictionary.
         Associating words with a score lets you use the 'usescores' keyword
         argument of the suggest() method to order the suggestions using the
         scores.

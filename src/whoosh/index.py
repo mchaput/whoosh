@@ -29,7 +29,7 @@ from whoosh.util import synchronized
 
 
 _DEF_INDEX_NAME = "MAIN"
-_EXTENSIONS = "dci|dcz|pst|tiz|fvz"
+_EXTENSIONS = "dci|dcz|tiz|fvz"
 
 # Exceptions
 
@@ -88,7 +88,7 @@ def create_index_in(dirname, schema = None, indexname = None, **kwargs):
     if schema is None:
         schema = fields.Schema(**kwargs)
     
-    return Index(storage, schema, indexname = indexname)
+    return Index(storage, schema = schema, indexname = indexname, create = True)
 
 def open_dir(dirname, indexname = None):
     """Convenience function for opening an index in a directory. Takes care of creating
@@ -523,6 +523,9 @@ class SegmentSet(object):
     def __iter__(self):
         return iter(self.segments)
     
+    def __getitem__(self, n):
+        return self.segments.__getitem__(n)
+    
     def append(self, segment):
         """Adds a segment to this set."""
         
@@ -531,9 +534,6 @@ class SegmentSet(object):
         else:
             self._doc_offsets = [0]
         self.segments.append(segment)
-    
-    def __getitem__(self, n):
-        return self.segments.__getitem__(n)
     
     def _document_segment(self, docnum):
         """Returns the index.Segment object containing the given document
