@@ -64,6 +64,16 @@ class Query(object):
     Abstract base class for all queries.
     """
     
+    def __or__(self, query):
+        return Or([self, query]).normalize()
+    
+    def __and__(self, query):
+        return And([self, query]).normalize()
+    
+    def __sub__(self, query):
+        q = And([self, Not(query)])
+        return q.normalize()
+    
     def all_terms(self, termset):
         """
         Adds the term(s) in this query (and its subqueries, where
@@ -130,16 +140,6 @@ class Query(object):
         """
         return self
     
-    def __or__(self, query):
-        return Or([self, query]).normalize()
-    
-    def __and__(self, query):
-        return And([self, query]).normalize()
-    
-    def __sub__(self, query):
-        q = And([self, Not(query)])
-        return q.normalize()
-
 
 class MultifieldTerm(Query):
     def __init__(self, fieldnames, text, boost = 1.0):

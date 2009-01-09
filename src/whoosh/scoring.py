@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-This module contains classes for scoring (and sorting) search results.
+"""This module contains classes for scoring (and sorting) search results.
 """
 
 from __future__ import division
@@ -24,8 +23,7 @@ from array import array
 
 
 class Weighting(object):
-    """
-    The abstract base class for objects that score documents. The base
+    """The abstract base class for objects that score documents. The base
     object contains a number of collection-level, document-level, and
     result-level statistics for the scoring algorithm to use in its
     calculation (the collection-level attributes are set by set_searcher()
@@ -40,8 +38,7 @@ class Weighting(object):
     #self.avg_doc_length = self.index_length / self.doc_count
     
     def idf(self, searcher, fieldnum, text):
-        """
-        Calculates the Inverse Document Frequency of the
+        """Calculates the Inverse Document Frequency of the
         current term. Subclasses may want to override this.
         """
         
@@ -50,31 +47,27 @@ class Weighting(object):
         return log(searcher.doc_count_all() / (df + 1)) + 1.0
 
     def avg_field_length(self, searcher, fieldnum):
-        """
-        Returns the average length of the field per document.
+        """Returns the average length of the field per document.
         (i.e. total field length / total number of documents)
         """
         return searcher.field_length(fieldnum) / searcher.doc_count_all()
     
     def l_over_avl(self, searcher, docnum, fieldnum):
-        """
-        Returns the length of the current document divided
+        """Returns the length of the current document divided
         by the average length of all documents. This is used
         by some scoring algorithms.
         """
         return searcher.doc_length(docnum) / self.avg_doc_length(searcher, fieldnum)
     
     def fl_over_avfl(self, searcher, docnum, fieldnum):
-        """
-        Returns the length of the current field in the current
+        """Returns the length of the current field in the current
         document divided by the average length of the field
         across all documents. This is used by some scoring algorithms.
         """
         return searcher.doc_field_length(docnum, fieldnum) / self.avg_field_length(searcher, fieldnum)
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        """
-        Calculate the score for a given term in the given
+        """Calculate the score for a given term in the given
         document. weight is the frequency * boost of the
         term.
         """
@@ -84,13 +77,11 @@ class Weighting(object):
 # Scoring classes
 
 class BM25F(Weighting):
-    """
-    Generates a BM25F score.
+    """Generates a BM25F score.
     """
     
     def __init__(self, B = 0.75, K1 = 1.2, field_B = None, field_boost = None):
-        """
-        B and K1 are free parameters, see the BM25 literature.
+        """B and K1 are free parameters, see the BM25 literature.
         field_B can be a dictionary mapping fieldnums to field-specific B values.
         field_boost can be a dictionary mapping fieldnums to field boost factors.
         """
@@ -186,27 +177,26 @@ class InL2(Weighting):
 
 
 class TF_IDF(Weighting):
+    """Instead of doing any real scoring, this simply returns tf * idf.
     """
-    Instead of doing any real scoring, this simply returns tf * idf.
-    """
+    
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         return weight * self.idf(searcher, fieldnum, text)
 
 
 class Frequency(Weighting):
-    """
-    Instead of doing any real scoring, this simply returns the
+    """Instead of doing any real scoring, this simply returns the
     term frequency. This may be useful when you don't care about
     normalization and weighting.
     """
+    
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         return self.searcher.term_count(searcher, fieldnum, text)
 
 # Sorting classes
 
 class FieldSorter(object):
-    """
-    Used by searching.Searcher to sort document results based on the
+    """Used by searching.Searcher to sort document results based on the
     value of an indexed field, rather than score (see the 'sortfield'
     keyword argument of Searcher.search()).
     
@@ -251,8 +241,7 @@ class FieldSorter(object):
         self.cache = cache
                 
     def doc_orders(self, docnums, reversed = False):
-        """
-        Takes a sequence of docnums (produced by query.docs()) and
+        """Takes a sequence of docnums (produced by query.docs()) and
         yields (docnum, order) tuples. Hence, wrapping this method
         around query.docs() is the sorted equivalent of
         query.doc_scores(), which yields (docnum, score) tuples.

@@ -31,38 +31,6 @@ class TermNotFound(Exception):
 class UnknownFieldError(Exception):
     pass
 
-# Utility classes
-
-#class FifoCache(object):
-#    """
-#    Simple FIFO cache wrapping a dictionary. Only allows integers as keys.
-#    """
-#    
-#    def __init__(self, size = 20):
-#        assert size >= 2
-#        self.size = size
-#        self.lst = array("i")
-#        self.dct = {}
-#        
-#    def __contains__(self, key):
-#        return key in self.dct
-#    
-#    def __getitem__(self, key):
-#        return self.dct[key]
-#        
-#    def __setitem__(self, key, value):
-#        lst = self.lst
-#        dct = self.dct
-#        
-#        if key in self:
-#            del self[key]
-#
-#        lst.append(key)
-#        dct[key] = value
-#
-#        if len(lst) > self.size:
-#            del dct[lst.pop(0)]
-        
 # Reader classes
 
 class DocReader(util.ClosableMixin):
@@ -91,11 +59,19 @@ class DocReader(util.ClosableMixin):
         self.vector_table = None
         self.is_closed = False
     
-    #def _setup_scorable_indices(self):
-    #    # Create a map from field number to its position in the
-    #    # list of fields that store length information.
-    #    self.scorable_indices = dict((n, i) for i, n
-    #                               in enumerate(self.schema.scorable_fields()))
+    def __getitem__(self, docnum):
+        """Returns the stored fields for the given document.
+        """
+        return self.docs_table[docnum]
+    
+    def __iter__(self):
+        """Yields the stored fields for all documents.
+        """
+        
+        is_deleted = self.segment.is_deleted
+        for docnum in xrange(0, self.segment.max_doc):
+            if not is_deleted(docnum):
+                yield self.docs_table[docnum]
     
     def _open_vectors(self):
         if not self.vector_table:
@@ -103,8 +79,7 @@ class DocReader(util.ClosableMixin):
                                                         postings = True)
     
     def close(self):
-        """
-        Closes the open files associated with this reader.
+        """Closes the open files associated with this reader.
         """
         
         self.doclength_records.close()
@@ -114,8 +89,7 @@ class DocReader(util.ClosableMixin):
         self.is_closed = True
     
     def fieldname_to_num(self, fieldname):
-        """
-        Returns the field number corresponding to the given field name.
+        """Returns the field number corresponding to the given field name.
         """
         if fieldname in self.schema:
             return self.schema.name_to_number(fieldname)
@@ -123,21 +97,18 @@ class DocReader(util.ClosableMixin):
             raise UnknownFieldError(fieldname)
     
     def doc_count_all(self):
-        """
-        Returns the total number of documents, DELETED OR UNDELETED,
+        """Returns the total number of documents, DELETED OR UNDELETED,
         in this reader.
         """
         return self.segment.doc_count_all()
     
     def doc_count(self):
-        """
-        Returns the total number of UNDELETED documents in this reader.
+        """Returns the total number of UNDELETED documents in this reader.
         """
         return self.segment.doc_count()
     
     def field_length(self, fieldnum):
-        """
-        Returns the total number of terms in the given field.
+        """Returns the total number of terms in the given field.
         """
         
         if isinstance(fieldnum, basestring):
@@ -235,22 +206,6 @@ class DocReader(util.ClosableMixin):
             
         return self._doc_info(docnum, fieldnum)
     
-    def __getitem__(self, docnum):
-        """
-        Returns the stored fields for the given document.
-        """
-        return self.docs_table[docnum]
-    
-    def __iter__(self):
-        """
-        Yields the stored fields for all documents.
-        """
-        
-        is_deleted = self.segment.is_deleted
-        for docnum in xrange(0, self.segment.max_doc):
-            if not is_deleted(docnum):
-                yield self.docs_table[docnum]
-
 
 class MultiDocReader(DocReader):
     """
@@ -272,7 +227,16 @@ class MultiDocReader(DocReader):
         self.schema = schema
         self._scorable_fields = self.schema.scorable_fields()
         self.is_closed = False
-        
+    
+    def __getitem__(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum].__getitem__(segmentdoc)
+    
+    def __iter__(self):
+        for reader in self.doc_readers:
+            for result in reader:
+                yield result
+    
     def close(self):
         """
         Closes the open files associated with this reader.
@@ -307,15 +271,6 @@ class MultiDocReader(DocReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.doc_readers[segmentnum]._doc_info(segmentdoc, key)
     
-    def __getitem__(self, docnum):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].__getitem__(segmentdoc)
-    
-    def __iter__(self):
-        for reader in self.doc_readers:
-            for result in reader:
-                yield result
-
 
 class TermReader(util.ClosableMixin):
     """
@@ -338,40 +293,9 @@ class TermReader(util.ClosableMixin):
         
         self.term_table = storage.open_table(segment.term_filename, postings = True)
         self.is_closed = False
-        
-    def fieldname_to_num(self, fieldname):
-        """
-        Returns the field number corresponding to the given field name.
-        """
-        if fieldname in self.schema:
-            return self.schema.name_to_number(fieldname)
-        else:
-            raise UnknownFieldError(fieldname)
-    
-    def format(self, fieldname):
-        """
-        Returns the Format object corresponding to the given field name.
-        """
-        if fieldname in self.schema:
-            return self.schema.field_by_name(fieldname).format
-        else:
-            raise UnknownFieldError(fieldname)
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
-    
-    def close(self):
-        """
-        Closes the open files associated with this reader.
-        """
-        self.term_table.close()
-        self.is_closed = True
-    
-    def _term_info(self, fieldnum, text):
-        try:
-            return self.term_table[(fieldnum, text)]
-        except KeyError:
-            raise TermNotFound("%s:%r" % (fieldnum, text))
     
     def __iter__(self):
         """
@@ -396,9 +320,36 @@ class TermReader(util.ClosableMixin):
             
         return term in self.term_table
     
-    def __enter__(self): pass
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+    def fieldname_to_num(self, fieldname):
+        """
+        Returns the field number corresponding to the given field name.
+        """
+        if fieldname in self.schema:
+            return self.schema.name_to_number(fieldname)
+        else:
+            raise UnknownFieldError(fieldname)
+    
+    def format(self, fieldname):
+        """
+        Returns the Format object corresponding to the given field name.
+        """
+        if fieldname in self.schema:
+            return self.schema.field_by_name(fieldname).format
+        else:
+            raise UnknownFieldError(fieldname)
+    
+    def close(self):
+        """
+        Closes the open files associated with this reader.
+        """
+        self.term_table.close()
+        self.is_closed = True
+    
+    def _term_info(self, fieldnum, text):
+        try:
+            return self.term_table[(fieldnum, text)]
+        except KeyError:
+            raise TermNotFound("%s:%r" % (fieldnum, text))
     
     def doc_frequency(self, fieldnum, text):
         """
@@ -527,6 +478,9 @@ class TermReader(util.ClosableMixin):
             yield (current_fieldname, t)
     
     def iter_field(self, fieldnum):
+        """Yields (text, doc_frequency, term_frequency) tuples for
+        all terms in the given field.
+        """
         if isinstance(fieldnum, basestring):
             fieldnum = self.schema.name_to_number(fieldnum)
         
@@ -536,9 +490,7 @@ class TermReader(util.ClosableMixin):
             yield t, docfreq, freq
     
     def lexicon(self, fieldnum):
-        """
-        Yields all tokens in the given field.
-        """
+        """Yields all terms in the given field."""
         
         if isinstance(fieldnum, basestring):
             fieldnum = self.schema.name_to_number(fieldnum)
@@ -547,20 +499,17 @@ class TermReader(util.ClosableMixin):
             yield t
     
     def most_frequent_terms(self, fieldnum, number = 5):
+        """Yields the top (number) most frequent terms in
+        the given field.
+        """
         return nlargest(number,
                         ((indexfreq, token)
                          for token, _, indexfreq
                          in self.iter_field(fieldnum)))
     
-    def list_substring(self, fieldname, substring):
-        for text in self.lexicon(fieldname):
-            if text.find(substring) > -1:
-                yield text
-    
 
 class MultiTermReader(TermReader):
-    """
-    Do not instantiate this object directly. Instead use Index.term_reader().
+    """Do not instantiate this object directly. Instead use Index.term_reader().
     
     Reads term information by aggregating the results from
     multiple segments.
@@ -576,6 +525,15 @@ class MultiTermReader(TermReader):
         self.schema = schema
         self.is_closed = False
     
+    def __contains__(self, term):
+        return any(tr.__contains__(term) for tr in self.term_readers)
+    
+    def __iter__(self):
+        return self._merge_iters([iter(r) for r in self.term_readers])
+    
+    def from_(self, fieldnum, text):
+        return self._merge_iters([r.from_(fieldnum, text) for r in self.term_readers])
+    
     def close(self):
         """
         Closes the open files associated with this reader.
@@ -584,9 +542,6 @@ class MultiTermReader(TermReader):
         for tr in self.term_readers:
             tr.close()
         self.is_closed = True
-    
-    def __contains__(self, term):
-        return any(tr.__contains__(term) for tr in self.term_readers)
     
     def doc_frequency(self, fieldnum, text):
         if (fieldnum, text) not in self:
@@ -639,12 +594,6 @@ class MultiTermReader(TermReader):
             # term count.
             yield (fnum, text, docfreq, termcount)
             
-    def __iter__(self):
-        return self._merge_iters([iter(r) for r in self.term_readers])
-    
-    def from_(self, fieldnum, text):
-        return self._merge_iters([r.from_(fieldnum, text) for r in self.term_readers])
-    
     def postings(self, fieldnum, text, exclude_docs = set()):
         """
         Yields raw (docnum, data) tuples for each document containing
