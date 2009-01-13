@@ -132,8 +132,7 @@ class DocReader(util.ClosableMixin):
         return format.supports(name)
     
     def vector(self, docnum, fieldnum):
-        """
-        Returns a sequence of raw (text, data) tuples representing
+        """Yields a sequence of raw (text, data) tuples representing
         the term vector for the given document and field.
         """
         
@@ -142,8 +141,7 @@ class DocReader(util.ClosableMixin):
         return self.vector_table.postings((docnum, fieldnum), readfn)
     
     def vector_as(self, docnum, fieldnum, astype):
-        """
-        Returns a sequence of interpreted (text, data) tuples
+        """Yields a sequence of interpreted (text, data) tuples
         representing the term vector for the given document and
         field.
         
@@ -161,9 +159,9 @@ class DocReader(util.ClosableMixin):
             raise FieldConfigurationError("Field %r does not support %r" % (self.schema.number_to_name(fieldnum),
                                                                             astype))
         
-        xform = getattr(format, "data_to_" + astype)
+        interpreter = format.interpreter(astype)
         for text, data in self.vector(docnum, fieldnum):
-            yield (text, xform(data))
+            yield (text, interpreter(data))
     
     def _doc_info(self, docnum, key):
         #cache = self.cache
