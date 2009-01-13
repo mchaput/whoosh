@@ -25,7 +25,6 @@ import cPickle
 from threading import Lock
 
 from whoosh import fields, store
-from whoosh.util import synchronized
 
 
 _DEF_INDEX_NAME = "MAIN"
