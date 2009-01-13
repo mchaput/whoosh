@@ -122,7 +122,8 @@ class Token(object):
 
 # Tokenizers
 
-def IDTokenizer(value, positions = False, chars = False, start_pos = 0, start_char = 0):
+def IDTokenizer(value, positions = False, chars = False,
+                start_pos = 0, start_char = 0):
     """
     Yields the entire input string as a single token. For use
     in indexed but untokenized fields, such as a document's path.
