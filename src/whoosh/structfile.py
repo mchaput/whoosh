@@ -18,7 +18,7 @@
 encoding and compression methods such as variable-length encoded integers.
 """
 
-import cPickle, cStringIO
+import cPickle
 from struct import calcsize, pack, unpack
 from struct import error as structerror
 
