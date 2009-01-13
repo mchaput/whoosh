@@ -26,9 +26,7 @@ from whoosh.support.bitvector import BitVector
 
 _fib_cache = {}
 def fib(n):
-    """
-    Returns the nth value in the Fibonacci sequence.
-    """
+    """Returns the nth value in the Fibonacci sequence."""
     
     if n <= 2: return n
     if n in _fib_cache: return _fib_cache[n]
@@ -37,6 +35,7 @@ def fib(n):
     return result
 
 def permute(ls):
+    """Yields all permutations of a list."""
     if len(ls) == 1:
         yield ls
     else:
@@ -64,8 +63,7 @@ def synchronized(lock):
 # Classes
 
 class TopDocs(object):
-    """
-    This is like a list that only remembers the top N values that are added
+    """This is like a list that only remembers the top N values that are added
     to it. This increases efficiency when you only want the top N values, since
     you don't have to sort most of the values (once the object reaches capacity
     and the next item to consider has a lower score than the lowest item in the
@@ -114,7 +112,9 @@ class TopDocs(object):
         want to cache the results rather than calling this method
         multiple times.
         """
-        return [item for score, item in reversed(sorted(self.heap))]
+        
+        # Throw away the score and just return a list of items
+        return [item for _, item in reversed(sorted(self.heap))]
 
 # Mix-in for objects with a close() method that allows them to be
 # used as a context manager.
