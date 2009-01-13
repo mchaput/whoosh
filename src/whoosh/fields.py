@@ -338,8 +338,7 @@ class Schema(object):
 # Format base class
 
 class Format(object):
-    """
-    Abstract base class representing a storage format for a field or vector.
+    """Abstract base class representing a storage format for a field or vector.
     Format objects are responsible for writing and reading the low-level
     representation of a field. It controls what kind/level of information
     to store about the indexed fields.
@@ -365,8 +364,7 @@ class Format(object):
                                        self.analyzer, self.field_boost)
     
     def word_datas(self, value, **kwargs):
-        """
-        Takes the text value to be indexed and yields a series of
+        """Takes the text value to be indexed and yields a series of
         ("tokentext", frequency, data) tuples, where frequency is the number
         of times "tokentext" appeared in the value, and data is field-specific
         posting data for the token. For example, in a Frequency format, data
@@ -379,41 +377,38 @@ class Format(object):
         raise NotImplementedError
     
     def write_postvalue(self, stream, data):
-        """
-        Writes a posting to a filestream.
-        """
-        
+        """Writes a posting to a filestream."""
         raise NotImplementedError
     
     def read_postvalue(self, stream):
-        """
-        Reads a posting from a filestream.
-        """
-        
+        """Reads a posting from a filestream."""
         raise NotImplementedError
     
     def supports(self, name):
-        """
-        Returns True if this format supports interpreting its posting
+        """Returns True if this format supports interpreting its posting
         data as 'name' (e.g. "frequency" or "positions").
         """
         return hasattr(self, "data_to_" + name)
     
-    def data_to(self, data, name):
+    def interpreter(self, name):
+        """Returns the bound method for interpreting data as 'name',
+        where 'name' is for example "frequency" or "positions". This
+        object must have a corresponding .data_to_<name>() method.
         """
-        Interprets the given data as 'name', where 'name' is for example
+        return getattr(self, "data_to_" + name)
+    
+    def data_to(self, data, name):
+        """Interprets the given data as 'name', where 'name' is for example
         "frequency" or "positions". This object must have a corresponding
         .data_to_<name>() method.
         """
-        return getattr(self, "data_to_"+name)(data)
+        return self.interpreter(name)(data)
     
 
 # Concrete field classes
 
 class Stored(Format):
-    """
-    A field that's stored but not indexed.
-    """
+    """A field that's stored but not indexed."""
     
     analyzer = None
     
@@ -425,8 +420,7 @@ class Stored(Format):
         
 
 class Existance(Format):
-    """
-    Only indexes whether a given term occurred in
+    """Only indexes whether a given term occurred in
     a given document; it does not store frequencies or positions.
     This is useful for fields that should be searchable but not
     scorable, such as file path.
@@ -458,8 +452,7 @@ class Existance(Format):
 
 
 class Frequency(Format):
-    """
-    Stores frequency information for each posting.
+    """Stores frequency information for each posting.
     """
     
     def word_datas(self, value, **kwargs):
@@ -487,8 +480,7 @@ class Frequency(Format):
 
 
 class DocBoosts(Frequency):
-    """
-    A Field that stores frequency and per-document boost information
+    """A Field that stores frequency and per-document boost information
     for each posting.
     """
     
@@ -501,11 +493,11 @@ class DocBoosts(Frequency):
     
     def write_postvalue(self, stream, data):
         stream.write_varint(data[0])
-        stream.write_8bitfloat(data[1]) # , self.options.get("limit", 8)
+        stream.write_8bitfloat(data[1])
         return data[0]
         
     def read_postvalue(self, stream):
-        return (stream.read_varint(), stream.read_8bitfloat()) # , self.options.get("limit", 8)
+        return (stream.read_varint(), stream.read_8bitfloat())
     
     def data_to_frequency(self, data):
         return data[0]
@@ -517,8 +509,7 @@ class DocBoosts(Frequency):
 # Vector formats
 
 class Positions(Format):
-    """
-    A vector that stores position information in each posting, to
+    """A vector that stores position information in each posting, to
     allow phrase searching and "near" queries.
     """
     
@@ -542,7 +533,7 @@ class Positions(Format):
     def read_postvalue(self, stream):
         pos_base = 0
         pos_list = []
-        for i in xrange(stream.read_varint()): #@UnusedVariable
+        for _ in xrange(stream.read_varint()):
             pos_base += stream.read_varint()
             pos_list.append(pos_base)
         return pos_list
@@ -558,8 +549,7 @@ class Positions(Format):
 
 
 class Characters(Format):
-    """
-    Stores token position and character start and end information
+    """Stores token position and character start and end information
     for each posting.
     """
     
@@ -585,7 +575,7 @@ class Characters(Format):
             char_base = endchar
         
         return len(data)
-            
+    
     def read_postvalue(self, stream):
         pos_base = 0
         char_base = 0
@@ -597,7 +587,7 @@ class Characters(Format):
             startchar = char_base
             char_base += stream.read_varint() # End char
             
-            ls.append(pos_base, startchar, char_base)
+            ls.append((pos_base, startchar, char_base))
         
         return ls
     
@@ -615,17 +605,16 @@ class Characters(Format):
 
 
 class PositionBoosts(Format):
-    """
-    A format that stores positions and per-position boost information
+    """A format that stores positions and per-position boost information
     in each posting.
     """
     
     def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(iter)
-        for t in self.analyzer(value, positions = True, start_pos = start_pos):
+        for t in self.analyzer(value, positions = True, boosts = True,
+                               start_pos = start_pos):
             pos = t.pos
-            if t.boosts:
-                boost = t.boost
+            boost = t.boost
             seen[t.text].append((pos, boost))
         
         return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
@@ -633,21 +622,19 @@ class PositionBoosts(Format):
     def write_postvalue(self, stream, data):
         pos_base = 0
         stream.write_varint(len(data))
-        count = 0
         for pos, boost in data:
             stream.write_varint(pos - pos_base)
-            stream.write_8bitfloat(boost) # , self.options.get("limit", 8)
-            count += 1
+            stream.write_8bitfloat(boost)
             pos_base = pos
-        return count
+        return len(data)
 
     def read_postvalue(self, stream):
         freq = stream.read_varint()
         pos_base = 0
         pos_list = []
-        for i in xrange(freq): #@UnusedVariable
+        for _ in xrange(freq):
             pos_base += stream.read_varint()
-            pos_list.append((pos_base, stream.read_8bitfloat())) # , self.options.get("limit", 8)
+            pos_list.append((pos_base, stream.read_8bitfloat()))
         return (freq, pos_list)
 
     def data_to_frequency(self, data):
@@ -661,6 +648,71 @@ class PositionBoosts(Format):
 
     def data_to_position_boosts(self, data):
         return data
+    
+
+class CharacterBoosts(Format):
+    """A format that stores positions, character start and end, and
+    per-position boost information in each posting.
+    """
+    
+    def word_datas(self, value, start_pos = 0, start_char = 0, **kwargs):
+        seen = defaultdict(iter)
+        for t in self.analyzer(value, positions = True, characters = True,
+                               boosts = True,
+                               start_pos = start_pos, start_char = start_char):
+            seen[t.text].append((t.pos,
+                                 start_char + t.startchar, start_char + t.endchar,
+                                 t.boost))
+        
+        return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
+    
+    def write_postvalue(self, stream, data):
+        pos_base = 0
+        char_base = 0
+        stream.write_varint(len(data))
+        for pos, startchar, endchar, boost in data:
+            stream.write_varint(pos - pos_base)
+            pos_base = pos
+            
+            stream.write_varint(startchar - char_base)
+            stream.write_varint(endchar - startchar)
+            char_base = endchar
+            
+            stream.write_8bitfloat(boost)
+        
+        return len(data)
+
+    def read_postvalue(self, stream):
+        pos_base = 0
+        char_base = 0
+        ls = []
+        for _ in xrange(stream.read_varint()):
+            pos_base += stream.read_varint()
+            
+            char_base += stream.read_varint()
+            startchar = char_base
+            char_base += stream.read_varint() # End char
+            boost = stream.read_8bitfloat()
+            
+            ls.append((pos_base, startchar, char_base, boost))
+        
+        return ls
+
+    def data_to_frequency(self, data):
+        return len(data)
+    
+    def data_to_weight(self, data):
+        return len(data) * sum(d[1] for d in data) * self.field_boost
+
+    def data_to_positions(self, data):
+        return [d[0] for d in data]
+
+    def data_to_position_boosts(self, data):
+        return [(pos, boost) for pos, _, _, boost in data]
+
+    def data_to_character_boosts(self, data):
+        return data
+
 
 
 if __name__ == '__main__':
