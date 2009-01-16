@@ -21,19 +21,17 @@ This module contains classes that allow reading from an index.
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh import util
-from whoosh.fields import FieldConfigurationError
+from whoosh.util import ClosableMixin, checkclosed
+from whoosh.fields import FieldConfigurationError, UnknownFieldError
 
 # Exceptions
 
 class TermNotFound(Exception):
     pass
-class UnknownFieldError(Exception):
-    pass
 
 # Reader classes
 
-class DocReader(util.ClosableMixin):
+class DocReader(ClosableMixin):
     """
     Do not instantiate this object directly. Instead use Index.doc_reader().
     
@@ -59,11 +57,13 @@ class DocReader(util.ClosableMixin):
         self.vector_table = None
         self.is_closed = False
     
+    @checkclosed
     def __getitem__(self, docnum):
         """Returns the stored fields for the given document.
         """
         return self.docs_table[docnum]
     
+    @checkclosed
     def __iter__(self):
         """Yields the stored fields for all documents.
         """
@@ -131,6 +131,7 @@ class DocReader(util.ClosableMixin):
         if format is None: return False
         return format.supports(name)
     
+    @checkclosed
     def vector(self, docnum, fieldnum):
         """Yields a sequence of raw (text, data) tuples representing
         the term vector for the given document and field.
@@ -140,6 +141,7 @@ class DocReader(util.ClosableMixin):
         readfn = self.vector_format(fieldnum).read_postvalue
         return self.vector_table.postings((docnum, fieldnum), readfn)
     
+    @checkclosed
     def vector_as(self, docnum, fieldnum, astype):
         """Yields a sequence of interpreted (text, data) tuples
         representing the term vector for the given document and
@@ -163,36 +165,26 @@ class DocReader(util.ClosableMixin):
         for text, data in self.vector(docnum, fieldnum):
             yield (text, interpreter(data))
     
+    @checkclosed
     def _doc_info(self, docnum, key):
-        #cache = self.cache
-        #if docnum in cache:
-        #    return cache[docnum]
-        #else:
-        #    di = self.doclength_records[docnum]
-        #    cache[docnum] = di
-        #    return di
         return self.doclength_records[(docnum, key)]
     
     def doc_length(self, docnum):
-        """
-        Returns the total number of terms in a given document.
+        """Returns the total number of terms in a given document.
         This is used by some scoring algorithms.
         """
         
-        #return self._doc_info(docnum)[0]
         return self._doc_info(docnum, -1)
     
     def unique_count(self, docnum):
-        """
-        Returns the number of UNIQUE terms in a given document.
+        """Returns the number of UNIQUE terms in a given document.
         This is used by some scoring algorithms.
         """
         #return self._doc_info(docnum)[1]
         return self._doc_info(docnum, -2)
     
     def doc_field_length(self, docnum, fieldnum):
-        """
-        Returns the number of terms in the given field in the
+        """Returns the number of terms in the given field in the
         given document. This is used by some scoring algorithms.
         """
         
@@ -226,10 +218,12 @@ class MultiDocReader(DocReader):
         self._scorable_fields = self.schema.scorable_fields()
         self.is_closed = False
     
+    @checkclosed
     def __getitem__(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.doc_readers[segmentnum].__getitem__(segmentdoc)
     
+    @checkclosed
     def __iter__(self):
         for reader in self.doc_readers:
             for result in reader:
@@ -270,7 +264,7 @@ class MultiDocReader(DocReader):
         return self.doc_readers[segmentnum]._doc_info(segmentdoc, key)
     
 
-class TermReader(util.ClosableMixin):
+class TermReader(ClosableMixin):
     """
     Do not instantiate this object directly. Instead use Index.term_reader().
     
@@ -282,8 +276,9 @@ class TermReader(util.ClosableMixin):
     
     def __init__(self, storage, segment, schema):
         """
-        storage is the storage object of the index.
-        segment is an index.Segment object. schema is an index.Schema object.
+        @param storage: The storage object in which the segment resides.
+        @param segment: The segment to read from.
+        @param schema: The index's schema object.
         """
         
         self.segment = segment
@@ -295,9 +290,9 @@ class TermReader(util.ClosableMixin):
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
     
+    @checkclosed
     def __iter__(self):
-        """
-        Yields (fieldnum, token, docfreq, indexfreq) tuples for
+        """Yields (fieldnum, token, docfreq, indexfreq) tuples for
         each term in the reader, in lexical order.
         """
         
@@ -305,12 +300,14 @@ class TermReader(util.ClosableMixin):
         for (fn, t), termcount in tt:
             yield (fn, t, tt.posting_count((fn, t)), termcount)
     
+    @checkclosed
     def from_(self, fieldnum, text):
         tt = self.term_table
         postingcount = tt.posting_count
         for (fn, t), termcount in tt.from_((fieldnum, text)):
             yield (fn, t, postingcount((fn, t)), termcount)
     
+    @checkclosed
     def __contains__(self, term):
         fieldnum = term[0]
         if isinstance(fieldnum, basestring):
@@ -318,9 +315,14 @@ class TermReader(util.ClosableMixin):
             
         return term in self.term_table
     
-    def fieldname_to_num(self, fieldname):
+    def close(self):
+        """Closes the open files associated with this reader.
         """
-        Returns the field number corresponding to the given field name.
+        self.term_table.close()
+        self.is_closed = True
+    
+    def fieldname_to_num(self, fieldname):
+        """Returns the field number corresponding to the given field name.
         """
         if fieldname in self.schema:
             return self.schema.name_to_number(fieldname)
@@ -328,30 +330,23 @@ class TermReader(util.ClosableMixin):
             raise UnknownFieldError(fieldname)
     
     def format(self, fieldname):
-        """
-        Returns the Format object corresponding to the given field name.
+        """Returns the Format object corresponding to the given field name.
         """
         if fieldname in self.schema:
             return self.schema.field_by_name(fieldname).format
         else:
             raise UnknownFieldError(fieldname)
     
-    def close(self):
-        """
-        Closes the open files associated with this reader.
-        """
-        self.term_table.close()
-        self.is_closed = True
-    
+    @checkclosed
     def _term_info(self, fieldnum, text):
         try:
             return self.term_table[(fieldnum, text)]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldnum, text))
     
+    @checkclosed
     def doc_frequency(self, fieldnum, text):
-        """
-        Returns the document frequency of the given term (that is,
+        """Returns the document frequency of the given term (that is,
         how many documents the term appears in).
         """
         
@@ -363,6 +358,7 @@ class TermReader(util.ClosableMixin):
         
         return self.term_table.posting_count((fieldnum, text))
     
+    @checkclosed
     def term_count(self, fieldnum, text):
         """
         Returns the total number of instances of the given term
@@ -386,6 +382,7 @@ class TermReader(util.ClosableMixin):
     
     # Posting retrieval methods
     
+    @checkclosed
     def postings(self, fieldnum, text, exclude_docs = None):
         """
         Yields raw (docnum, data) tuples for each document containing
@@ -497,8 +494,8 @@ class TermReader(util.ClosableMixin):
             yield t
     
     def most_frequent_terms(self, fieldnum, number = 5):
-        """Yields the top (number) most frequent terms in
-        the given field.
+        """Yields the top 'number' most frequent terms in the given field as
+        a series of (frequency, text) tuples.
         """
         return nlargest(number,
                         ((indexfreq, token)

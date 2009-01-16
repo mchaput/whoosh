@@ -22,12 +22,14 @@ This module contains functions and classes related to fields.
 
 from collections import defaultdict
 from whoosh import analysis
+from whoosh.analysis import unstopped
 
 # Exceptions
 
 class FieldConfigurationError(Exception):
     pass
-
+class UnknownFieldError(Exception):
+    pass
 
 # Field Types
 
@@ -55,14 +57,16 @@ class FieldType(object):
     values. Subclasses may configure some or all of this for you.
     """
     
-    format = vector = scorable = stored = None
+    format = vector = scorable = stored = unique = None
     
     def __init__(self, format, vector = None,
-                 scorable = False, stored = False):
+                 scorable = False, stored = False,
+                 unique = False):
         self.format = format
         self.vector = vector
         self.scorable = scorable
         self.stored = stored
+        self.unique = unique
 
 
 class ID(FieldType):
@@ -72,12 +76,13 @@ class ID(FieldType):
     path of a file.
     """
     
-    def __init__(self, stored = False):
+    def __init__(self, stored = False, unique = False):
         """
         @param stored: Whether the value of this field is stored with the document.
         """
         self.format = Existance(analyzer = analysis.IDAnalyzer())
         self.stored = stored
+        self.unique = unique
 
 
 class STORED(FieldType):
@@ -97,7 +102,8 @@ class KEYWORD(FieldType):
     (so phrase searching is not allowed in this field) and to not make the field scorable.
     """
     
-    def __init__(self, stored = False, comma = False, scorable = False):
+    def __init__(self, stored = False, lowercase = False, commas = False,
+                 scorable = False, unique = False, field_boost = 1.0):
         """
         @param stored: Whether to store the value of the field with the document.
         @param comma: Whether this is a comma-separated field. If this is False
@@ -105,10 +111,11 @@ class KEYWORD(FieldType):
         @param scorable: Whether this field is scorable.
         """
         
-        ana = analysis.CommaSeparatedAnalyzer if comma else analysis.SpaceSeparatedAnalyzer()
-        self.format = Frequency(analyzer = ana)
+        ana = analysis.KeywordAnalyzer(lowercase = lowercase, commas = commas)
+        self.format = Frequency(analyzer = ana, field_boost = field_boost)
         self.scorable = scorable
         self.stored = stored
+        self.unique = unique
 
 
 class TEXT(FieldType):
@@ -118,7 +125,7 @@ class TEXT(FieldType):
     is always scorable.
     """
     
-    def __init__(self, stored = False, phrase = True, analyzer = None):
+    def __init__(self, stored = False, phrase = True, analyzer = None, field_boost = 1.0):
         """
         @param stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
@@ -132,7 +139,7 @@ class TEXT(FieldType):
         """
         
         ana = analyzer or analysis.StandardAnalyzer()
-        self.format = Frequency(analyzer = ana)
+        self.format = Frequency(analyzer = ana, field_boost = field_boost)
         
         if phrase:
             self.vector = Positions(analyzer = ana)
@@ -302,12 +309,6 @@ class Schema(object):
         """
         return self._names[number]
     
-    def is_vectored(self, fieldnum):
-        """
-        Returns True if the given field stores vector information.
-        """
-        return self._by_number[fieldnum].vector is not None
-    
     def has_vectored_fields(self):
         """
         Returns True if any of the fields in this schema store term vectors.
@@ -320,12 +321,6 @@ class Schema(object):
         vectored.
         """
         return [i for i, ftype in enumerate(self._by_number) if ftype.vector]
-    
-    def is_scorable(self, fieldnum):
-        """
-        Returns True if the given field stores length information.
-        """
-        return self._by_number[fieldnum].scorable
     
     def scorable_fields(self):
         """
@@ -433,7 +428,7 @@ class Existance(Format):
     
     def word_datas(self, value, **kwargs):
         seen = set()
-        for t in self.analyzer(value):
+        for t in unstopped(self.analyzer(value)):
             seen.add(t.text)
         
         return ((w, 1, None) for w in seen)
@@ -457,9 +452,9 @@ class Frequency(Format):
     
     def word_datas(self, value, **kwargs):
         seen = defaultdict(int)
-        for t in self.analyzer(value):
+        for t in unstopped(self.analyzer(value)):
             seen[t.text] += 1
-        
+            
         return ((w, freq, freq) for w, freq in seen.iteritems())
 
     def write_postvalue(self, stream, data):
@@ -486,8 +481,8 @@ class DocBoosts(Frequency):
     
     def word_datas(self, value, doc_boost = 1.0, **kwargs):
         seen = defaultdict(int)
-        for w in self.analyzer(value):
-            seen[w] += 1
+        for t in unstopped(self.analyzer(value)):
+            seen[t.text] += 1
         
         return ((w, freq, (freq, doc_boost)) for w, freq in seen.iteritems())
     
@@ -517,7 +512,7 @@ class Positions(Format):
     
     def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(list)
-        for t in self.analyzer(value, positions = True, start_pos = start_pos):
+        for t in unstopped(self.analyzer(value, positions = True, start_pos = start_pos)):
             seen[t.text].append(start_pos + t.pos)
         
         return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
@@ -556,8 +551,8 @@ class Characters(Format):
     def word_datas(self, value, start_pos = 0, start_char = 0, **kwargs):
         seen = defaultdict(list)
         
-        for t in self.analyzer(value, positions = True, chars = True,
-                               start_pos = start_pos, start_char = start_char):
+        for t in unstopped(self.analyzer(value, positions = True, chars = True,
+                                         start_pos = start_pos, start_char = start_char)):
             seen[t.text].append((t.pos, start_char + t.startchar, start_char + t.endchar))
         
         return ((w, len(ls), ls) for w, ls in seen.iteritems())
@@ -611,8 +606,8 @@ class PositionBoosts(Format):
     
     def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(iter)
-        for t in self.analyzer(value, positions = True, boosts = True,
-                               start_pos = start_pos):
+        for t in unstopped(self.analyzer(value, positions = True, boosts = True,
+                                         start_pos = start_pos)):
             pos = t.pos
             boost = t.boost
             seen[t.text].append((pos, boost))
@@ -641,7 +636,7 @@ class PositionBoosts(Format):
         return len(data)
     
     def data_to_weight(self, data):
-        return len(data) * sum(d[1] for d in data) * self.field_boost
+        return sum(d[1] for d in data) * self.field_boost
 
     def data_to_positions(self, data):
         return [d[0] for d in data]
@@ -657,9 +652,9 @@ class CharacterBoosts(Format):
     
     def word_datas(self, value, start_pos = 0, start_char = 0, **kwargs):
         seen = defaultdict(iter)
-        for t in self.analyzer(value, positions = True, characters = True,
-                               boosts = True,
-                               start_pos = start_pos, start_char = start_char):
+        for t in unstopped(self.analyzer(value, positions = True, characters = True,
+                                         boosts = True,
+                                         start_pos = start_pos, start_char = start_char)):
             seen[t.text].append((t.pos,
                                  start_char + t.startchar, start_char + t.endchar,
                                  t.boost))
@@ -702,7 +697,7 @@ class CharacterBoosts(Format):
         return len(data)
     
     def data_to_weight(self, data):
-        return len(data) * sum(d[1] for d in data) * self.field_boost
+        return sum(d[3] for d in data) * self.field_boost
 
     def data_to_positions(self, data):
         return [d[0] for d in data]

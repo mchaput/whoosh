@@ -218,13 +218,11 @@ class RamStorage(Storage):
     def unlock(self, name):
         self.locks[name].release()
     
-    def close(self):
-        pass
-
 
 def copy_to_ram(storage):
-    """Creates a RamStorage object, copies the contents of the given
-    storage object into it, and returns it.
+    """Copies the given storage object into a new
+    RamStorage object.
+    @return: storage.RamStorage
     """
     
     import shutil #, time

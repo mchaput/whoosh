@@ -104,7 +104,7 @@ def open_dir(dirname, indexname = None):
     return Index(store.FileStorage(dirname), indexname = indexname)
 
 
-# SupportsDeletion is a mix-in that adds methods for deleting
+# A mix-in that adds methods for deleting
 # documents from self.segments. These methods are on IndexWriter as
 # well as Index for convenience, so they're broken out here.
 
@@ -347,8 +347,7 @@ class Index(DeletionMixin):
         
         from whoosh import writing
         w = writing.IndexWriter(self)
-        w.optimize()
-        w.close()
+        w.commit(writing.OPTIMIZE)
     
     def commit(self, new_segments = None):
         """Commits pending edits (such as deletions) to this index object.
@@ -697,15 +696,15 @@ class Segment(object):
         """Returns the total number of terms in the given field."""
         return self.field_counts.get(fieldnum, 0)
     
-    def delete_document(self, docnum, undelete = False):
+    def delete_document(self, docnum, delete = True):
         """Deletes the given document number. The document is not actually
         removed from the index until it is optimized.
 
         @param docnum: The document number to delete.
-        @param undelete: If True, this undeletes a deleted document.
+        @param delete: If False, this undeletes a deleted document.
         """
         
-        if not undelete:
+        if delete:
             if self.deleted is None:
                 self.deleted = set()
             elif docnum in self.deleted:

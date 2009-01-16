@@ -130,7 +130,16 @@ class ClosableMixin(object):
     def __exit__(self, *exc_info):
         self.close()
 
-
+def checkclosed(fn):
+    """Decorator for methods that should check whether the object is
+    closed (self.is_closed) before proceeding.
+    """
+    def wrapper(self, *args, **kwargs):
+        if self.is_closed:
+            raise Exception("This object has been closed")
+        return fn(self, *args, **kwargs)
+    wrapper.__doc__ = fn.__doc__
+    return wrapper
 
 
 

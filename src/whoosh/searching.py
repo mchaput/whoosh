@@ -15,10 +15,10 @@
 #===============================================================================
 
 from __future__ import division
-
 import time
 
-from whoosh import query, scoring, util
+from whoosh import classify, query, scoring, util
+from whoosh.support.bitvector import BitVector
 from whoosh.util import TopDocs
 
 """
@@ -28,11 +28,20 @@ This module contains classes and functions related to searching the index.
 # Searcher class
 
 class Searcher(util.ClosableMixin):
-    """
-    Object for searching an index. Produces Results objects.
+    """Object for searching an index. Produces Results objects.
     """
     
-    def __init__(self, ix, weighting = scoring.BM25F, sorter = None):
+    def __init__(self, ix, weighting = scoring.BM25F):
+        """
+        @param ix: the index to search.
+        @param weighting: a Weighting implementation to use to score
+            the hits. If this is a class it will automatically be
+            instantiated.
+        
+        @type ix: index.Index
+        @type weighting: scoring.Weighting
+        """
+        
         self.term_reader = ix.term_reader()
         self.doc_reader = ix.doc_reader()
         self.schema = ix.schema
@@ -44,8 +53,8 @@ class Searcher(util.ClosableMixin):
             weighting = weighting()
         self.weighting = weighting
         
-        self.sorters = {}
-    
+        self.is_closed = False
+        
     def doc_count_all(self):
         return self._doc_count_all
     
@@ -55,16 +64,12 @@ class Searcher(util.ClosableMixin):
     def max_weight(self):
         return self._max_weight
     
-    def _sorter(self, fieldname):
-        if fieldname not in self.sorters:
-            self.sorters[fieldname] = scoring.FieldSorter(self, fieldname)
-        return self.sorters[fieldname]
-    
     def close(self):
         self.term_reader.close()
         self.doc_reader.close()
+        self.is_closed = True
     
-    def doc(self, **kw):
+    def document(self, **kw):
         """
         Convenience function returns the stored fields of a document
         matching the given keyword arguments, where the keyword keys are
@@ -76,10 +81,10 @@ class Searcher(util.ClosableMixin):
         a unique key).
         """
         
-        for p in self.docs(**kw):
+        for p in self.documents(**kw):
             return p
     
-    def docs(self, **kw):
+    def documents(self, **kw):
         """
         Convenience function returns the stored fields of a document
         matching the given keyword arguments, where the keyword keys are
@@ -90,28 +95,73 @@ class Searcher(util.ClosableMixin):
         the keyword arguments.
         """
         
-        ls = []
-        
         q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
-        dr = self.doc_reader
-        for docnum in q.docs(self):
-            ls.append(dr[docnum])
-        
-        return ls
+        doc_reader = self.doc_reader
+        return [doc_reader[docnum] for docnum in q.docs(self)]
     
-    def search(self, query, upper = 5000, weighting = None, sortfield = None, reversed = False):
-        if sortfield == '':
-            # Don't sort
-            gen = ((docnum, 1) for docnum in query.docs(self))
-        elif sortfield is not None:
-            # Sort by the contents of an indexed field
-            sorter = self._sorter(sortfield)
-            gen = sorter.doc_orders(query.docs(self), reversed = reversed)
+    def search(self, query, upper = 5000, sortedby = None, reverse = False):
+        """Runs the query represented by the query object and returns a Results object.
+        
+        @param query: a query.Query object representing the search query. You can translate
+            a query string into a query object with e.g. qparser.QueryParser.
+        @param upper: the maximum number of documents to score. If you're only interested in
+            the top N documents, you can set upper=N to limit the scoring for a faster
+            search.
+        @param sortedby: if this parameter is not None, the results are sorted instead of scored.
+            If this value is a string, the results are sorted by the field named in the string.
+            If this value is a list or tuple, it is assumed to be a sequence of strings and the
+            results are sorted by the fieldnames in the sequence. Otherwise this value should be a
+            scoring.Sorter object.
+            
+            The fields you want to sort by must be indexed.
+            
+            For example, to sort the results by the 'path' field::
+            
+                searcher.search(q, sortedby = "path")
+                
+            To sort the results by the 'path' field and then the 'category' field::
+                
+                searcher.search(q, sortedby = ("path", "category"))
+                
+            To use a sorting object::
+            
+                searcher.search(q, sortedby = scoring.NullSorter)
+        
+        @param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
+        
+        @type sorter: string, list, tuple, or scoring.Sorter
+        @type reverse: bool
+        """
+        
+        doc_reader = self.doc_reader
+        
+        t = time.time()
+        if sortedby is not None:
+            if isinstance(sortedby, basestring):
+                sortedby = scoring.FieldSorter(sortedby)
+            elif isinstance(sortedby, (list, tuple)):
+                sortedby = scoring.MultiFieldSorter(sortedby)
+            elif callable(sortedby):
+                sortedby = sortedby()
+            
+            scored_list = sortedby.order(self, query.docs(self), reverse = reverse)
+            docvector = BitVector(doc_reader.doc_count_all(),
+                                  source = scored_list)
+            if len(scored_list > upper):
+                scored_list = scored_list[:upper]
         else:
             # Sort by scores
-            gen = query.doc_scores(self, weighting = weighting)
-        
-        return Results(self.doc_reader, query, gen, upper)
+            topdocs = TopDocs(upper, doc_reader.doc_count_all())
+            topdocs.add_all(query.doc_scores(self, weighting = self.weighting))
+            scored_list = topdocs.best()
+            docvector = topdocs.docs
+        t = time.time() - t
+            
+        return Results(self,
+                       query,
+                       scored_list,
+                       docvector,
+                       runtime = t)
     
     def fieldname_to_num(self, fieldname):
         return self.schema.name_to_number(fieldname)
@@ -169,35 +219,31 @@ class Searcher(util.ClosableMixin):
 
 class Results(object):
     """
-    The results of a search of the index.
+    This object is not instantiated by the user; it is returned by a Searcher.
+    This object represents the results of a search query. You can mostly
+    use it as if it was a list of dictionaries, where each dictionary
+    is the stored fields of the document at that position in the results.
     """
     
-    def __init__(self, doc_reader, query, sequence, upper):
+    def __init__(self, searcher, query, scored_list, docvector, runtime = 0):
         """
-        index is the index to search.
-        query is a query object (from the query module).
-        scorer is a scorer object to use. The default is CosineScorer();
-        specify None to not score the results.
-        upper is the maximum number of documents to return for a scored
-        search; the default is 5000. Unscored searches always return all
-        results.
+        @param doc_reader: a reading.DocReader object from which to fetch
+            the fields for result documents.
+        @param query: the original query that created these results.
+        @param scored_list: an ordered list of document numbers
+            representing the 'hits'.
+        @param docvector: a BitVector object where the indices are
+            document numbers and an 'on' bit means that document is
+            present in the results.
+        @param runtime: the time it took to run this search.
         """
         
-        self.doc_reader = doc_reader
+        self.searcher = searcher
         self.query = query
-        self.upper = upper
         
-        # Use a TopDocs object to sort the (docnum, score) pairs in 'sequence'.
-        t = time.time()
-        self.topdocs = TopDocs(upper, doc_reader.doc_count_all())
-        self.topdocs.add_all(sequence)
-        self.scored_list = self.topdocs.best()
-        
-        # A BitVector of all the docs found by this search, even if they're not
-        # in the "top N".
-        self.docs = self.topdocs.docs
-        
-        self.runtime = time.time() - t
+        self.scored_list = scored_list
+        self.docs = docvector
+        self.runtime = runtime
     
     def __repr__(self):
         return "<%s/%s Results for %r runtime=%s>" % (len(self), self.docs.count(),
@@ -205,44 +251,65 @@ class Results(object):
                                                       self.runtime)
     
     def __len__(self):
+        """Returns the TOTAL number of documents found by this search. Note this
+        may be greater than the number of ranked documents.
         """
-        Returns the number of documents found by this search. Note this
-        may be fewer than the number of ranked documents.
-        """
-        return len(self.scored_list)
+        return len(self.docs)
     
     def __getitem__(self, n):
+        doc_reader = self.searcher.doc_reader
         if isinstance(n, slice):
-            return [self.doc_reader[i] for i in self.scored_list.__getitem__(n)] 
+            return [doc_reader[i] for i in self.scored_list.__getitem__(n)] 
         else:
-            return self.doc_reader[self.scored_list[n]] 
-    
-    def __getslice__(self, start, end):
-        self._check_index(start, end)
-        dr = self.doc_reader
-        return [dr[docnum] for docnum in self.scored_list[start:end]]
+            return doc_reader[self.scored_list[n]] 
     
     def __iter__(self):
+        """Yields the stored fields of each result document in ranked order.
         """
-        Yields the stored fields of each result document in ranked order.
-        """
-        dr = self.doc_reader
+        doc_reader = self.searcher.doc_reader
         for docnum, _ in self.scored_list:
-            yield dr[docnum]
+            yield doc_reader[docnum]
+    
+    def key_terms(self, fieldname, docs = 10, terms = 5,
+                  model = classify.Bo1Model, normalize = True):
+        """Returns the 'numterms' most important terms from the top 'numdocs' documents
+        in these results. "Most important" is generally defined as terms that occur
+        frequently in the top hits but relatively infrequently in the collection as
+        a whole.
+        
+        @param fieldname: Look at the terms in this field. This field store vectors.
+        @param docs: Look at this many of the top documents of the results.
+        @param terms: Return this number of important terms.
+        @param model: The expansion model to use. See the classify module.
+        @type model: classify.ExpansionModel
+        """
+        term_reader = self.searcher.term_reader
+        doc_reader = self.searcher.doc_reader
+        fieldnum = self.searcher.fieldname_to_num(fieldname)
+        
+        expander = classify.Expander(term_reader, fieldnum, model = model)
+        for docnum in self.scored_list[:docs]:
+            expander.add(doc_reader.vector_as(docnum, fieldnum, "weight"))
+        
+        return expander.expanded_terms(terms, normalize = normalize)
+
+    def upper(self):
+        """Returns the number of RANKED documents. Note this may be fewer
+        than the total number of documents the query matched, if you used
+        the 'upper' keyword of the Searcher.search() method to limit the
+        ranking."""
+        
+        return len(self.scored_list)
     
     def docnum(self, n):
-        """
-        Returns the document number of the result at position n in the
+        """Returns the document number of the result at position n in the
         list of ranked documents. Use __getitem__ (i.e. Results[n]) to
         get the stored fields directly.
         """
-        
-        self._check_index(n, n)
-        return self.sorted_list[n]
+        return self.scored_list[n]
     
     def extend(self, results, addterms = True):
-        """
-        Appends the results another Search object to the end of the results
+        """Appends the results another Search object to the end of the results
         of this one.
         
         results is another results object.
@@ -258,13 +325,13 @@ class Results(object):
         # TODO: merge the terms
     
     def filter(self, results):
-        """
-        Removes any hits that are not also in the 'othersearch' results object.
+        """Removes any hits that are not also in the other results object.
         """
         
         docs = self.docs & results.docs
         self.scored_list = [docnum for docnum in self.scored_list if docnum in docs]
         self.docs = docs
+        
 
 # Utilities
 
@@ -274,16 +341,22 @@ class Paginator(object):
     displaying the results.
     """
     
-    def __init__(self, results, perpage):
+    def __init__(self, results, perpage = 10):
         """
-        search is a Search object. perpage is the number of results
-        in each page.
+        @param results: the results of a search.
+        @param perpage: the number of hits on each page.
+        @type results: searching.Results
         """
         
         self.results = results
         self.perpage = perpage
     
     def from_to(self, pagenum):
+        """Returns the lowest and highest indices on the given
+        page. For example, with 10 results per page, from_to(1)
+        would return (0, 9).
+        """
+        
         lr = len(self.results)
         perpage = self.perpage
         
@@ -295,15 +368,13 @@ class Paginator(object):
         return (lower, upper)
     
     def pagecount(self):
-        """
-        Returns the total number of pages of results.
+        """Returns the total number of pages of results.
         """
         
         return len(self.results) // self.perpage + 1
     
     def page(self, pagenum):
-        """
-        Returns a list of the stored fields for the documents
+        """Returns a list of the stored fields for the documents
         on the given page.
         """
         

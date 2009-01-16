@@ -130,13 +130,13 @@ class StructFile(object):
         else:
             self.write = None
             
-        self.closed = False
+        self.is_closed = False
     
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
     
     def __del__(self):
-        if not self.closed:
+        if not self.is_closed:
             self.close()
     
     def write_byte(self, n):
@@ -300,7 +300,7 @@ class StructFile(object):
             self.onclose(self)
         if hasattr(self.file, "close"):
             self.file.close()
-        self.closed = True
+        self.is_closed = True
         
 
 if __name__ == '__main__':
