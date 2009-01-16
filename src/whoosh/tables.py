@@ -55,7 +55,7 @@ class ItemNotFound(Exception):
 
 # Utility functions
 
-def copy_data(treader, key, twriter, postings = False, buffersize = 32 * 1024):
+def copy_data(treader, inkey, twriter, outkey, postings = False, buffersize = 32 * 1024):
     """
     Copies the data associated with the key from the
     "reader" table to the "writer" table, along with the
@@ -63,9 +63,8 @@ def copy_data(treader, key, twriter, postings = False, buffersize = 32 * 1024):
     """
     
     if postings:
-        (offset, length), postcount, data = treader._get(key)
-        super(twriter.__class__, twriter).add_row(twriter, key,
-                                                  ((twriter.offset, length), postcount, data))
+        (offset, length), postcount, data = treader._get(inkey)
+        super(twriter.__class__, twriter).add_row(outkey, ((twriter.offset, length), postcount, data))
         
         # Copy the raw posting data
         infile = treader.table_file
@@ -82,7 +81,7 @@ def copy_data(treader, key, twriter, postings = False, buffersize = 32 * 1024):
         
         twriter.offset = outfile.tell()
     else:
-        twriter.add_row(key, treader[key])
+        twriter.add_row(outkey, treader[inkey])
 
 
 # Table writer classes

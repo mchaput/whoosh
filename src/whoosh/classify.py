@@ -22,90 +22,6 @@ from collections import defaultdict
 from math import log
 
 
-class Expander(object):
-    """Uses an ExpansionModel to expand the set of query terms based on
-    the top N result documents.
-    """
-    
-    def __init__(self, ix, fieldname, model = None):
-        """
-        @param ix: The index to search.
-        @param fieldname: The name of the field in which to search.
-        @param model: The model to use for expanding the query terms. If you
-            omit this parameter, the expander uses Bo1Model by default.
-        @type ix: index.Index
-        @type fieldname: string
-        @type model: classify.ExpansionModel
-        """
-        
-        self.index = ix
-        self.fieldname = fieldname
-        
-        if model is None:
-            self.model = Bo1Model(ix)
-        elif callable(model):
-            self.model = model(ix)
-        else:
-            self.model = model
-        
-        # Cache the collection weight of every term in this
-        # field. This turns out to be much faster than reading each
-        # individual weight from the term index as we add words.
-        with ix.term_reader() as tr:
-            collection_weight = {}
-            for word in tr.lexicon(fieldname):
-                collection_weight[word] = tr.term_count(fieldname, word)
-            self.collection_weight = collection_weight
-        
-        # Maps words to their weight in the top N documents.
-        self.topN_weight = defaultdict(float)
-        
-        # Total weight of all terms in the top N documents.
-        self.top_total = 0
-        
-    def add(self, term_vector):
-        """Adds forward-index information about one of the "top N" documents.
-        
-        @param term_vector: a dictionary mapping term text to weight in the document.
-        """
-        
-        total_weight = 0
-        topN_weight = self.topN_weight
-        
-        for word, weight in term_vector.iteritems():
-            total_weight += weight
-            topN_weight[word] += weight
-            
-        self.top_total += total_weight
-    
-    def expanded_terms(self, number, normalize = True):
-        """Returns the N most important terms in the vectors added so far.
-        
-        @param number: The number of terms to return.
-        @param normalize: Whether to normalize the weights.
-        @return: A list of ("term", weight) tuples.
-        """
-        
-        model = self.model
-        tlist = []
-        maxweight = 0
-        collection_weight = self.collection_weight
-        
-        for word, weight in self.topN_weight.iteritems():
-            score = model.score(weight, collection_weight[word], self.top_total)
-            if score > maxweight: maxweight = score
-            tlist.append((score, word))
-        
-        if normalize:
-            norm = model.normalizer(maxweight, self.top_total)
-        else:
-            norm = maxweight
-        tlist = [(weight / norm, t) for weight, t in tlist]
-        tlist.sort(reverse = True)
-        
-        return [(t, weight) for weight, t in tlist[:number]]
-
-
 # Expansion models
 
 class ExpansionModel(object):
@@ -153,4 +69,85 @@ class KLModel(ExpansionModel):
             return 0
         else:
             return wit_over_tt * log((wit_over_tt) / (weight_in_top / self.collection_total), 2)
+
+
+class Expander(object):
+    """Uses an ExpansionModel to expand the set of query terms based on
+    the top N result documents.
+    """
+    
+    def __init__(self, term_reader, fieldname, model = Bo1Model):
+        """
+        @param ix: The index to search.
+        @param fieldname: The name of the field in which to search.
+        @param model: The model to use for expanding the query terms. If you
+            omit this parameter, the expander uses Bo1Model by default.
+        @type ix: index.Index
+        @type fieldname: string
+        @type model: classify.ExpansionModel
+        """
+        
+        self.fieldname = fieldname
+        
+        if callable(model):
+            model = model(ix)
+        self.model = model
+        
+        # Cache the collection frequency of every term in this
+        # field. This turns out to be much faster than reading each
+        # individual weight from the term index as we add words.
+        self.collection_freq = dict((word, freq) for word, _, freq
+                                      in term_reader.iter_field(fieldname))
+        
+        # Maps words to their weight in the top N documents.
+        self.topN_weight = defaultdict(float)
+        
+        # Total weight of all terms in the top N documents.
+        self.top_total = 0
+        
+    def add(self, vector):
+        """Adds forward-index information about one of the "top N" documents.
+        
+        @param vector: A series of (text, weight) tuples, such as is
+            returned by DocReader.vector_as(docnum, fieldnum, "weight").
+        """
+        
+        total_weight = 0
+        topN_weight = self.topN_weight
+        
+        for word, weight in vector:
+            total_weight += weight
+            topN_weight[word] += weight
+            
+        self.top_total += total_weight
+    
+    def expanded_terms(self, number, normalize = True):
+        """Returns the N most important terms in the vectors added so far.
+        
+        @param number: The number of terms to return.
+        @param normalize: Whether to normalize the weights.
+        @return: A list of ("term", weight) tuples.
+        """
+        
+        model = self.model
+        tlist = []
+        maxweight = 0
+        collection_freq = self.collection_freq
+        
+        for word, weight in self.topN_weight.iteritems():
+            score = model.score(weight, collection_freq[word], self.top_total)
+            if score > maxweight: maxweight = score
+            tlist.append((score, word))
+        
+        if normalize:
+            norm = model.normalizer(maxweight, self.top_total)
+        else:
+            norm = maxweight
+        tlist = [(weight / norm, t) for weight, t in tlist]
+        tlist.sort(reverse = True)
+        
+        return [(t, weight) for weight, t in tlist[:number]]
+
+
+
 

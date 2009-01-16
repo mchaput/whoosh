@@ -18,17 +18,18 @@
 """
 
 from __future__ import division
-from math import log, sqrt, pi
 from array import array
+from math import log, sqrt, pi
+import weakref
 
 
 class Weighting(object):
-    """The abstract base class for objects that score documents. The base
-    object contains a number of collection-level, document-level, and
-    result-level statistics for the scoring algorithm to use in its
-    calculation (the collection-level attributes are set by set_searcher()
-    when the object is attached to a searcher; the other statistics are
-    set by set(), which should be called by score()).
+    """Abstract base class for weighting objects. A weighting
+    object implements a scoring algorithm.
+    
+    Concrete subclasses must implement the score() method, which
+    returns a score given a term and a document in which that term
+    appears.
     """
     
     #self.doc_count = searcher.doc_count_all()
@@ -52,13 +53,6 @@ class Weighting(object):
         """
         return searcher.field_length(fieldnum) / searcher.doc_count_all()
     
-    def l_over_avl(self, searcher, docnum, fieldnum):
-        """Returns the length of the current document divided
-        by the average length of all documents. This is used
-        by some scoring algorithms.
-        """
-        return searcher.doc_length(docnum) / self.avg_doc_length(searcher, fieldnum)
-    
     def fl_over_avfl(self, searcher, docnum, fieldnum):
         """Returns the length of the current field in the current
         document divided by the average length of the field
@@ -67,13 +61,17 @@ class Weighting(object):
         return searcher.doc_field_length(docnum, fieldnum) / self.avg_field_length(searcher, fieldnum)
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        """Calculate the score for a given term in the given
-        document. weight is the frequency * boost of the
-        term.
-        """
+        """Returns the score for a given term in the given document.
         
+        @param searcher: the searcher doing the scoring.
+        @param fieldnum: the field number of the term being scored.
+        @param text: the text of the term being scored.
+        @param docnum: the doc number of the document being scored.
+        @param weight: the frequency * boost of the term in this document.
+        @param QTF: the frequency of the term in the query.
+        """
         raise NotImplementedError
-    
+
 # Scoring classes
 
 class BM25F(Weighting):
@@ -109,6 +107,9 @@ class BM25F(Weighting):
 # the Terrier search engine's uk.ac.gla.terrier.matching.models package.
 
 class Cosine(Weighting):
+    """A cosine vector-space scoring algorithm similar to Lucene's.
+    """
+    
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         idf = self.idf(searcher, fieldnum, text)
         
@@ -119,6 +120,10 @@ class Cosine(Weighting):
 
 
 class DFree(Weighting):
+    """The DFree probabilistic weighting algorithm, translated into Python
+    from Terrier's Java implementation.
+    """
+    
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         doclen = searcher.doc_length(docnum)
         
@@ -134,6 +139,10 @@ class DFree(Weighting):
 
 
 class DLH13(Weighting):
+    """The DLH13 probabilistic weighting algorithm, translated into Python
+    from Terrier's Java implementation.
+    """
+    
     def __init__(self, k = 0.5):
         super(self.__class__, self).__init__()
         self.k = k
@@ -150,6 +159,10 @@ class DLH13(Weighting):
 
 
 class Hiemstra_LM(Weighting):
+    """The Hiemstra LM probabilistic weighting algorithm, translated into Python
+    from Terrier's Java implementation.
+    """
+    
     def __init__(self, c = 0.15):
         super(self.__class__, self).__init__()
         self.c = c
@@ -162,6 +175,10 @@ class Hiemstra_LM(Weighting):
 
 
 class InL2(Weighting):
+    """The InL2 LM probabilistic weighting algorithm, translated into Python
+    from Terrier's Java implementation.
+    """
+    
     def __init__(self, c = 1.0):
         super(self.__class__, self).__init__()
         self.c = c
@@ -185,7 +202,7 @@ class TF_IDF(Weighting):
 
 
 class Frequency(Weighting):
-    """Instead of doing any real scoring, this simply returns the
+    """Instead of doing any real scoring, simply returns the
     term frequency. This may be useful when you don't care about
     normalization and weighting.
     """
@@ -193,43 +210,60 @@ class Frequency(Weighting):
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         return self.searcher.term_count(searcher, fieldnum, text)
 
+
 # Sorting classes
 
-class FieldSorter(object):
+class Sorter(object):
+    """Abstract base class for sorter objects. See the 'sortedby'
+    keyword argument to searching.Searcher.search().
+    
+    Concrete subclasses must implement the order() method, which
+    takes a sequence of doc numbers and returns it sorted.
+    """
+    
+    def order(self, searcher, docnums, reverse = False):
+        """Returns a sorted list of document numbers.
+        """
+        raise NotImplementedError
+
+
+class NullSorter(Sorter):
+    """Sorter that does nothing."""
+    
+    def order(self, searcher, docnums, reverse = False):
+        """Returns docnums as-is. The 'reverse' keyword is ignored."""
+        return docnums
+
+
+class FieldSorter(Sorter):
     """Used by searching.Searcher to sort document results based on the
-    value of an indexed field, rather than score (see the 'sortfield'
-    keyword argument of Searcher.search()).
+    value of an indexed field, rather than score. See the 'sortedby'
+    keyword argument to searching.Searcher.search().
     
-    Upon the first sorted search of a field, this object will build a
-    cache of the sorting order for documents based on the values in
-    the field. This per-field cache will consume
-    (number of documents * size of unsigned int).
-    
-    Creating the cache will make the first sorted search of a field
+    This object creates a cache of document orders for the given field.
+    Creating the cache may make the first sorted search of a field
     seem slow, but subsequent sorted searches of the same field will
     be much faster.
     """
     
-    def __init__(self, searcher, fieldname):
-        self.searcher = searcher
+    def __init__(self, fieldname):
+        """
+        @param fieldname: The name of the field to sort by.
+        """
+        
         self.fieldname = fieldname
-        self.cache = None
+        self._searcher = None
+        self._cache = None
 
-    def _create_cache(self):
-        searcher = self.searcher
+    def _make_cache(self, searcher):
+        # Is this searcher already cached?
+        if self._cache and self._searcher and self._searcher() == searcher:
+            return
+        
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         
-        doc_count = searcher.doc_count
-        if doc_count > 65535:
-            typecode = "L"
-        elif doc_count > 255:
-            typecode = "I"
-        else:
-            typecode = "B"
-        
-        # Create an array of an unsigned int for every document
-        # in the index.
-        cache = array(typecode, xrange(0, doc_count))
+        # Create an array of an int for every document in the index.
+        cache = array("i", xrange(0, searcher.doc_count_all()))
         
         # For every document containing every term in the field, set
         # its array value to the term's (inherently sorted) position.
@@ -238,32 +272,40 @@ class FieldSorter(object):
                 cache[docnum] = i
         
         self.limit = i
-        self.cache = cache
-                
-    def doc_orders(self, docnums, reversed = False):
-        """Takes a sequence of docnums (produced by query.docs()) and
-        yields (docnum, order) tuples. Hence, wrapping this method
-        around query.docs() is the sorted equivalent of
-        query.doc_scores(), which yields (docnum, score) tuples.
+        self._cache = cache
+        self._searcher = weakref.ref(searcher, self._delete_cache)
+    
+    def _delete_cache(self):
+        self._cache = self._searcher = None
+    
+    def order(self, searcher, docnums, reverse = False):
+        """Takes a sequence of docnums (as produced by query.docs()) and
+        returns a list of docnums sorted by the field values.
         """
         
-        if self.cache is None:
-            self._create_cache()
+        self._make_cache(searcher)
+        return sorted(docnums,
+                      key = self._cache.__getitem__,
+                      reverse = reverse)
+
+
+class MultiFieldSorter(FieldSorter):
+    def __init__(self, fieldnames):
+        """
+        @param fieldnames: A list of field names to sort by.
+        """
         
-        cache = self.cache
-        limit = self.limit
+        self.fieldnames = fieldnames
+        self.sorters = [FieldSorter(fn) for fn in fieldnames]
+    
+    def order(self, searcher, docnums, reverse = False):
+        sorters = self.sorters
+        for s in sorters:
+            s._make_cache(searcher)
         
-        if reversed:
-            for docnum in docnums:
-                yield (docnum, cache[docnum])
-        else:
-            for docnum in docnums:
-                yield (docnum, limit - cache[docnum])
-
-
-
-
-
+        return sorted(docnums,
+                      key = lambda x: tuple((s._cache[x] for s in sorters)),
+                      reverse = reverse)
 
 
 

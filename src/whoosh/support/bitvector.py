@@ -22,14 +22,18 @@ BYTE_COUNTS = array('B',[
 
 
 class BitVector(object):
-    def __init__(self, size, bits = None):
+    def __init__(self, size, bits = None, source = None):
         self.size = size
         
         if bits:
             self.bits = bits
         else:
             self.bits = array("B", ([0x00] * ((size >> 3) + 1)))
-            
+        
+        if source:
+            for num in source:
+                self.set(num)
+        
         self.bcount = None
         
     def __len__(self):

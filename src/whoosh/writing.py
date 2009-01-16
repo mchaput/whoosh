@@ -22,7 +22,7 @@ from __future__ import with_statement
 from collections import defaultdict
 
 from whoosh import index, postpool, reading, tables
-from whoosh.reading import UnknownFieldError
+from whoosh.fields import UnknownFieldError
 from whoosh.util import fib
 
 # Exceptions
@@ -75,7 +75,8 @@ class IndexWriter(index.DeletionMixin):
         self.index = ix
         self.segments = ix.segments.copy()
         self.blocksize = blocksize
-        self.segment_writer = None
+        self._segment_writer = None
+        self._searcher = None
     
     def __enter__(self):
         return self
@@ -87,24 +88,30 @@ class IndexWriter(index.DeletionMixin):
             self.commit()
     
     def _finish(self):
-        self.segment_writer = None
+        self._segment_writer = None
         # Release the lock
         if self.locked:
             self.index.unlock()
     
-    def get_segment_writer(self):
+    def segment_writer(self):
         """Returns the underlying SegmentWriter object."""
         
-        if not self.segment_writer:
-            self.segment_writer = SegmentWriter(self.index, blocksize = self.blocksize)
-        return self.segment_writer
+        if not self._segment_writer:
+            self._segment_writer = SegmentWriter(self.index, blocksize = self.blocksize)
+        return self._segment_writer
+    
+    def searcher(self):
+        """Returns a searcher for the existing index."""
+        if not self._searcher:
+            self._searcher = self.index.searcher()
+        return self._searcher
     
     def start_document(self):
         """Starts recording information for a new document. This should be followed by
         add_field() calls, and must be followed by an end_document() call.
         Alternatively you can use add_document() to add all fields at once.
         """
-        self.get_segment_writer().start_document()
+        self.segment_writer().start_document()
         
     def add_field(self, fieldname, text, stored_value = None):
         """Adds a the value of a field to the document opened with start_document().
@@ -114,13 +121,13 @@ class IndexWriter(index.DeletionMixin):
         @type fieldname: string
         @type text: unicode
         """
-        self.get_segment_writer().add_field(fieldname, text, stored_value = stored_value)
+        self.segment_writer().add_field(fieldname, text, stored_value = stored_value)
         
     def end_document(self):
         """
         Closes a document opened with start_document().
         """
-        self.get_segment_writer().end_document()
+        self.segment_writer().end_document()
     
     def add_document(self, **fields):
         """Adds all the fields of a document at once. This is an alternative to calling
@@ -135,7 +142,36 @@ class IndexWriter(index.DeletionMixin):
         
             add_document(title=u"a b c" _stored_title=u"e f g)
         """
-        self.get_segment_writer().add_document(fields)
+        self.segment_writer().add_document(fields)
+    
+    def update_document(self, **fields):
+        """Adds or replaces a document. At least one of the fields for which you
+        supply values must be marked as 'unique' in the index's schema.
+        
+        The keyword arguments map field names to the values to index/store.
+        
+        For fields that are both indexed and stored, you can specify an alternate
+        value to store using a keyword argument in the form "_stored_<fieldname>".
+        For example, if you have a field named "title" and you want to index the
+        text "a b c" but store the text "e f g", use keyword arguments like this::
+        
+            update_document(title=u"a b c" _stored_title=u"e f g)
+        """
+        
+        # Check which of the supplied fields are unique
+        unique_fields = [name for name, field
+                         in self.index.schema.fields()
+                         if name in fields and field.unique]
+        if not unique_fields:
+            raise IndexingError("None of the fields in %r are unique" % fields.keys())
+        
+        # Delete documents in which the supplied unique fields match
+        searcher = self.searcher()
+        for name in unique_fields:
+            self.delete_by_term(name, fields[name], searcher = searcher)
+        
+        # Add the given fields
+        self.add_document(**fields)
     
     def commit(self, mergetype = MERGE_SMALL):
         """Finishes writing and unlocks the index.
@@ -143,7 +179,8 @@ class IndexWriter(index.DeletionMixin):
         @param mergetype: How to merge existing segments.
         @type mergetype: one of NO_MERGE, MERGE_SMALL, or OPTIMIZE
         """
-        if self.segment_writer:
+        
+        if self._segment_writer or mergetype is OPTIMIZE:
             self._merge_segments(mergetype)
         self.index.commit(self.segments)
         self._finish()
@@ -158,7 +195,7 @@ class IndexWriter(index.DeletionMixin):
         if mergetype not in (NO_MERGE, MERGE_SMALL, OPTIMIZE):
             raise ValueError("Unknown merge type: %r" % mergetype)
         
-        sw = self.get_segment_writer()
+        sw = self.segment_writer()
         
         segments = self.segments
         new_segments = index.SegmentSet()
@@ -187,7 +224,7 @@ class IndexWriter(index.DeletionMixin):
             else:
                 new_segments = segments
         
-        self.segment_writer.close()
+        self._segment_writer.close()
         new_segments.append(sw.segment())
         self.segments = new_segments
         
@@ -242,7 +279,7 @@ class SegmentWriter(object):
         self._doc_state = SegmentWriter.DocumentState()
         self._scorable_fields = self.schema.scorable_fields()
         
-        self.pool = postpool.PostingPool(self.name)
+        self.pool = postpool.PostingPool()
         
         # Create a temporary segment object just so we can access
         # its *_filename attributes (so if we want to change the
@@ -251,7 +288,7 @@ class SegmentWriter(object):
         
         # Open files for writing
         self.term_table = self.storage.create_table(tempseg.term_filename, postings = True)
-        self.doclength_records = self.storage.create_table(tempseg.doclen_filename)
+        self.doclength_records = self.storage.create_table(tempseg.doclen_filename, compressed = 1)
         self.docs_table = self.storage.create_table(tempseg.docs_filename,
                                                     blocksize = blocksize, compressed = 9)
         
@@ -336,8 +373,10 @@ class SegmentWriter(object):
                     
                     for fieldnum in vectored_fieldnums:
                         if (docnum, fieldnum) in inv:
-                            tables.copy_data(inv, (docnum, fieldnum), outv, postings = True)
-                            
+                            tables.copy_data(inv, (docnum, fieldnum),
+                                             outv, (self.max_doc, fieldnum),
+                                             postings = True)
+                    
                     fcs = ds.field_counts
                     for fieldnum in self._scorable_fields:
                         fcs[fieldnum] = doc_reader.doc_field_length(docnum, fieldnum)

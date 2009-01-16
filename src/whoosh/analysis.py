@@ -24,11 +24,11 @@ three general types of classes/functions involved in analysis:
       object over and over, for performance reasons) corresponding to the
       tokens (words) in the text.
       
-      Every tokenizer is simply a callable that takes a string and returns a
+      Every tokenizer is a callable that takes a string and returns a
       generator of tokens.
       
     - Filters take the tokens from the tokenizer and perform various
-      transformations on them. For example, the LowerCaseFilter converts
+      transformations on them. For example, the LowercaseFilter converts
       all tokens to lowercase, which is usually necessary when indexing
       regular English text.
       
@@ -39,10 +39,11 @@ three general types of classes/functions involved in analysis:
       tokenizer and zero or more filters into a single unit, so you
       don't have to construct the tokenizer-filter-filter-etc. pipeline
       yourself. For example, the StandardAnalyzer combines a RegexTokenizer,
-      LowerCaseFilter, and StopFilter.
+      LowercaseFilter, and StopFilter.
     
-      Every analyzer is simply a callable that takes a string and returns a
-      token generator.
+      Every analyzer is a callable that takes a string and returns a
+      token generator. (So Tokenizers can be used as Analyzers if you
+      don't need any filtering).
 """
 
 import re
@@ -58,6 +59,14 @@ STOP_WORDS = frozenset(("the", "to", "of", "a", "and", "is", "in", "this",
                         "you", "for", "be", "on", "or", "will", "if", "can", "are",
                         "that", "by", "with", "it", "as", "from", "an", "when",
                         "not", "may", "tbd", "yet"))
+
+
+# Utility functions
+
+def unstopped(tokenstream):
+    """Removes tokens from a token stream where token.stopped = True."""
+    return (t for t in tokenstream if not t.stopped)
+
 
 # Token object
 
@@ -106,7 +115,13 @@ class Token(object):
                  "original", "text", "pos", "startchar", "endchar",
                  "stopped", "boost")
     
-    def __init__(self, positions, chars, boosts = False):
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__,
+                           ", ".join(["%s=%r" % (name, getattr(self, name))
+                                      for name in self.__slots__
+                                      if hasattr(self, name)]))
+    
+    def __init__(self, positions, chars, boosts = False, removestops = False):
         """
         @param positions: Whether this token should have the token position in
             the 'pos' attribute.
@@ -188,32 +203,21 @@ class RegexTokenizer(object):
 
 
 class SpaceSeparatedTokenizer(RegexTokenizer):
-    """
-    Splits tokens by whitespace.
+    """Splits tokens by whitespace.
     """
     
     _default_expression = re.compile("[^ \t\r\n]+")
 
 
 class CommaSeparatedTokenizer(RegexTokenizer):
-    """
-    Splits tokens by commas with optional whitespace.
+    """Splits tokens by commas surrounded by optional whitespace.
     """
     
     _default_expression = re.compile("[^,]+")
     
-    def __call__(self, value, positions = False, chars = False,
-                 start_pos = 0, start_char = 0):
-        t = Token(positions, chars)
-        
-        for pos, match in enumerate(self.expression.finditer(value)):
-            t.original = t.text = match.group(0).strip()
-            t.stopped = False
-            if positions:
-                t.pos = start_pos + pos
-            if chars:
-                t.startchar = start_char + match.start()
-                t.endchar = start_char + match.end()
+    def __call__(self, value, **kwargs):
+        for t in super(self.__class__, self).__call__(value, **kwargs):
+            t.text = t.text.strip()
             yield t
 
 
@@ -252,6 +256,7 @@ class NgramTokenizer(object):
                 end = start + size
                 if end > inlen: continue
                 
+                t.original = t.text = value[start:end]
                 t.stopped = False
                 if positions:
                     t.pos = pos
@@ -266,17 +271,14 @@ class NgramTokenizer(object):
 # Filters
 
 def PassFilter(tokens):
+    """An identity filter: passes the tokens through untouched.
     """
-    An identity filter: passes the tokens through untouched.
-    """
-    
     for t in tokens:
         yield t
 
 
 class NgramFilter(object):
-    """
-    Splits token text into N-grams. For example,
+    """Splits token text into N-grams. For example,
     NgramFilter(3, 4), for token "hello" will yield token texts
     "hel", "hell", "ell", "ello", "llo".
     """
@@ -315,13 +317,12 @@ class NgramFilter(object):
 
 
 class StemFilter(object):
-    """
-    Stems (removes suffixes from) the text of tokens using the Porter stemming
+    """Stems (removes suffixes from) the text of tokens using the Porter stemming
     algorithm. Stemming attempts to reduce multiple forms of the same root word
     (for example, "rendering", "renders", "rendered", etc.) to a single word in
     the index.
     
-    Note that I recommed you use a strategy of morphologically expanding the
+    Note that I recommend you use a strategy of morphologically expanding the
     query terms (see query.Variations) rather than stemming the indexed words.
     """
     
@@ -369,12 +370,11 @@ class StemFilter(object):
 
 _camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
 def CamelFilter(tokens):
-    """
-    Splits CamelCased words into multiple words. For example,
+    """Splits CamelCased words into multiple words. For example,
     the string "getProcessedToken" yields tokens
     "getProcessedToken", "get", "Processed", and "Token".
     
-    Obviously this filter needs to precede LowerCaseFilter in a filter
+    Obviously this filter needs to precede LowercaseFilter in a filter
     chain.
     """
     
@@ -399,8 +399,7 @@ def CamelFilter(tokens):
 
 _underscore_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
 def UnderscoreFilter(tokens):
-    """
-    Splits words with underscores into multiple words. For example,
+    """Splits words with underscores into multiple words. For example,
     the string "get_processed_token" yields tokens
     "get_processed_token", "get", "processed", and "token".
     
@@ -428,19 +427,23 @@ def UnderscoreFilter(tokens):
 
 
 class StopFilter(object):
-    """
-    Removes "stop" words (words too common to index) from
-    the stream.
+    """Marks "stop" words (words too common to index) in the stream (and by default
+    removes them).
     """
 
-    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
+    def __init__(self, stoplist = STOP_WORDS, minsize = 2,
+                 renumber = True, remove = True):
         """
         @param stoplist: A collection of words to remove from the stream.
             This is converted to a frozenset. The default is a list of
             common stop words.
         @param minsize: The minimum length of token texts. Tokens with
             text smaller than this will be stopped.
-        @type stoplist: sequence
+        @param renumber: Change the 'pos' attribute of unstopped tokens
+            to reflect their position with the stopped words removed.
+        @param remove: Whether to remove the stopped words from the stream
+            entirely. This is not normally necessary, since the indexing
+            code will ignore tokens it receives with stopped=True.
         """
         
         if stoplist is None:
@@ -448,18 +451,33 @@ class StopFilter(object):
         else:
             self.stops = frozenset(stoplist)
         self.min = minsize
+        self.renumber = renumber
+        self.remove = remove
     
     def __call__(self, tokens):
         stoplist = self.stops
         minsize = self.min
+        renumber = self.renumber
+        remove = self.remove
         
+        delta = 0
         for t in tokens:
             text = t.text
             if len(text) >= minsize and text not in stoplist:
+                # This is not a stop word
+                if renumber and t.positions:
+                    t.pos = t.pos - delta
                 yield t
+            elif not remove:
+                # This IS a stop word
+                if renumber:
+                    delta += 1
+                if not remove:
+                    t.stopped = True
+                    yield t
 
 
-def LowerCaseFilter(tokens):
+def LowercaseFilter(tokens):
     """
     Uses str.lower() to lowercase token text. For example, tokens
     "This","is","a","TEST" become "this","is","a","test".
@@ -489,59 +507,53 @@ class IDAnalyzer(Analyzer):
     you don't want to tokenize, such as the path of a file.
     """
     
-    def __init__(self, strip = True):
+    def __init__(self, strip = True, lowercase = False):
         """
         @param strip: Whether to use str.strip() to strip whitespace
             from the value before yielding it as a token.
+        @param lowercase: Whether to convert the token to lowercase
+            before indexing.
         @type strip: boolean
         """
         self.strip = strip
+        self.lowercase = lowercase
     
     def __call__(self, value, **kwargs):
         if self.strip: value = value.strip()
-        return IDTokenizer(value, **kwargs)
+        if self.lowercase:
+            return LowercaseFilter(IDTokenizer(value, **kwargs))
+        else:
+            return IDTokenizer(value, **kwargs)
 
 
-class SpaceSeparatedAnalyzer(Analyzer):
-    """
-    Parses space-separated tokens.
+class KeywordAnalyzer(Analyzer):
+    """Parses space-separated tokens.
     """
     
-    def __init__(self):
-        self.tokenizer = SpaceSeparatedTokenizer()
+    def __init__(self, lowercase = False, commas = False):
+        self.lowercase = lowercase
+        self.tokenizer = CommaSeparatedTokenizer() if commas else SpaceSeparatedTokenizer()
     
     def __call__(self, value, **kwargs):
-        return self.tokenizer(value, **kwargs)
-
-
-class CommaSeparatedAnalyzer(Analyzer):
-    """
-    Parses comma-separated tokens (with optional whitespace surrounding
-    the commas).
-    """
-    
-    def __init__(self):
-        self.tokenizer = CommaSeparatedTokenizer()
-        
-    def __call__(self, value, **kwargs):
-        return self.tokenizer(value, **kwargs)
+        if self.lowercase:
+            return LowercaseFilter(self.tokenizer(value, **kwargs))
+        else:
+            return self.tokenizer(value, **kwargs)
 
 
 class SimpleAnalyzer(Analyzer):
-    """
-    Uses a RegexTokenizer and applies a LowerCaseFilter.
+    """Uses a RegexTokenizer and applies a LowercaseFilter.
     """
     
     def __init__(self):
         self.tokenizer = RegexTokenizer()
         
     def __call__(self, value, **kwargs):
-        return LowerCaseFilter(self.tokenizer(value, **kwargs))
+        return LowercaseFilter(self.tokenizer(value, **kwargs))
 
 
 class StandardAnalyzer(Analyzer):
-    """
-    Uses a RegexTokenizer and applies a LowerCaseFilter and StopFilter.
+    """Uses a RegexTokenizer and applies a LowercaseFilter and StopFilter.
     """
     
     def __init__(self, stoplist = STOP_WORDS, minsize = 2):
@@ -558,14 +570,13 @@ class StandardAnalyzer(Analyzer):
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
     def __call__(self, value, **kwargs):
-        return self.stopper(LowerCaseFilter(
+        return self.stopper(LowercaseFilter(
                             self.tokenizer(value, **kwargs)))
 
 
 class FancyAnalyzer(Analyzer):
-    """
-    Uses a RegexTokenizer and applies a CamelFilter,
-    UnderscoreFilter, LowerCaseFilter, and StopFilter.
+    """Uses a RegexTokenizer and applies a CamelFilter,
+    UnderscoreFilter, LowercaseFilter, and StopFilter.
     """
     
     def __init__(self, stoplist = STOP_WORDS, minsize = 2):
@@ -579,14 +590,13 @@ class FancyAnalyzer(Analyzer):
         
     def __call__(self, value, **kwargs):
         return self.stopper(UnderscoreFilter(
-                            LowerCaseFilter(
+                            LowercaseFilter(
                             CamelFilter(
                             self.tokenizer(value, **kwargs)))))
 
 
 class NgramAnalyzer(Analyzer):
-    """
-    Uses an NgramTokenizer and applies a LowerCaseFilter.
+    """Uses an NgramTokenizer and applies a LowercaseFilter.
     """
     
     def __init__(self, minsize, maxsize = None):
@@ -595,16 +605,21 @@ class NgramAnalyzer(Analyzer):
         """
         self.tokenizer = NgramTokenizer(minsize, maxsize = maxsize)
         
-    def __call__(self, value, positions = False, chars = False):
-        return LowerCaseFilter(self.tokenizer(value,
-                                              positions = positions, chars = chars))
-
+    def __call__(self, value, **kwargs):
+        return LowercaseFilter(self.tokenizer(value, **kwargs))
+    
 
 if __name__ == '__main__':
-    pass
+    import time
+    txt = open("/Volumes/Storage/Development/help/documents/nodes/sop/copy.txt", "rb").read().decode("utf8")
+    st = time.time()
+    print [t.text for t in StopFilter()(LowercaseFilter(RegexTokenizer()(txt, positions = True)))]
+    print time.time() - st
 
-
-
+    st = time.time()
+    print [t.text for t in StopFilter(remove = False)(LowercaseFilter(RegexTokenizer()(txt, positions = True)))]
+    print time.time() - st
+    
 
 
 
