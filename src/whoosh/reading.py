@@ -210,10 +210,9 @@ class MultiDocReader(DocReader):
     Be sure to close() the reader when you're finished with it.
     """
     
-    def __init__(self, storage, segments, schema):
-        self.doc_readers = [DocReader(storage, s, schema)
-                            for s in segments]
-        self.doc_offsets = segments.doc_offsets()
+    def __init__(self, doc_readers, doc_offsets, schema):
+        self.doc_readers = doc_readers
+        self.doc_offsets = doc_offsets
         self.schema = schema
         self._scorable_fields = self.schema.scorable_fields()
         self.is_closed = False
@@ -513,10 +512,9 @@ class MultiTermReader(TermReader):
     Be sure to close() the reader when you're finished with it.
     """
     
-    def __init__(self, storage, segments, schema):
-        self.term_readers = [TermReader(storage, s, schema)
-                             for s in segments]
-        self.doc_offsets = segments.doc_offsets()
+    def __init__(self, term_readers, doc_offsets, schema):
+        self.term_readers = term_readers
+        self.doc_offsets = doc_offsets
         self.schema = schema
         self.is_closed = False
     

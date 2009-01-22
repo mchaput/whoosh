@@ -443,7 +443,10 @@ class Index(DeletionMixin):
         if len(segments) == 1:
             return reading.TermReader(self.storage, segments[0], self.schema)
         else:
-            return reading.MultiTermReader(self.storage, segments, self.schema)
+            term_readers = [reading.TermReader(self.storage, s, self.schema)
+                            for s in segments]
+            doc_offsets = segments.doc_offsets()
+            return reading.MultiTermReader(term_readers, doc_offsets, self.schema)
     
     def doc_reader(self):
         """Returns a DocReader object for this index.
@@ -457,7 +460,10 @@ class Index(DeletionMixin):
         if len(segments) == 1:
             return reading.DocReader(self.storage, segments[0], schema)
         else:
-            return reading.MultiDocReader(self.storage, segments, schema)
+            doc_readers = [reading.DocReader(self.storage, s, self.schema)
+                           for s in segments]
+            doc_offsets = segments.doc_offsets()
+            return reading.MultiDocReader(doc_readers, doc_offsets, schema)
     
     def searcher(self):
         """Returns a Searcher object for this index.
