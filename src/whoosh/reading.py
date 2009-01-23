@@ -304,13 +304,6 @@ class TermReader(ClosableMixin):
             yield (fn, t, tt.posting_count((fn, t)), termcount)
     
     @protected
-    def from_(self, fieldnum, text):
-        tt = self.term_table
-        postingcount = tt.posting_count
-        for (fn, t), termcount in tt.from_((fieldnum, text)):
-            yield (fn, t, postingcount((fn, t)), termcount)
-    
-    @protected
     def __contains__(self, term):
         fieldnum = term[0]
         if isinstance(fieldnum, basestring):
@@ -383,6 +376,67 @@ class TermReader(ClosableMixin):
         """
         return self.segment.doc_count_all()
     
+    def expand_prefix(self, fieldname, prefix):
+        """
+        Yields terms in the given field that start with the given prefix.
+        """
+        
+        fieldnum = self.fieldname_to_num(fieldname)
+        for fn, t, _, _ in self.iter_from(fieldnum, prefix):
+            if fn != fieldnum or not t.startswith(prefix):
+                return
+            yield t
+    
+    @protected
+    def iter_from(self, fieldnum, text):
+        tt = self.term_table
+        postingcount = tt.posting_count
+        for (fn, t), termcount in tt.iter_from((fieldnum, text)):
+            yield (fn, t, postingcount((fn, t)), termcount)
+    
+    def all_terms(self):
+        """
+        Yields (fieldname, text) tuples for every term in the index.
+        """
+        
+        current_fieldnum = None
+        current_fieldname = None
+        for fn, t, _, _ in self:
+            if fn != current_fieldnum:
+                current_fieldnum = fn
+                current_fieldname = self.schema.number_to_name(fn)
+            yield (current_fieldname, t)
+    
+    def iter_field(self, fieldnum):
+        """Yields (text, doc_frequency, term_frequency) tuples for
+        all terms in the given field.
+        """
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.schema.name_to_number(fieldnum)
+        
+        for fn, t, docfreq, freq in self.iter_from(fieldnum, ''):
+            if fn != fieldnum:
+                return
+            yield t, docfreq, freq
+    
+    def lexicon(self, fieldnum):
+        """Yields all terms in the given field."""
+        
+        if isinstance(fieldnum, basestring):
+            fieldnum = self.schema.name_to_number(fieldnum)
+        
+        for t, _, _ in self.iter_field(fieldnum):
+            yield t
+    
+    def most_frequent_terms(self, fieldnum, number = 5):
+        """Yields the top 'number' most frequent terms in the given field as
+        a series of (frequency, text) tuples.
+        """
+        return nlargest(number,
+                        ((indexfreq, token)
+                         for token, _, indexfreq
+                         in self.iter_field(fieldnum)))
+    
     # Posting retrieval methods
     
     @protected
@@ -451,60 +505,6 @@ class TermReader(ClosableMixin):
         
         return self.postings_as(fieldnum, text, "positions", exclude_docs = exclude_docs)
 
-    def expand_prefix(self, fieldname, prefix):
-        """
-        Yields terms in the given field that start with the given prefix.
-        """
-        
-        fieldnum = self.fieldname_to_num(fieldname)
-        for fn, t, _, _ in self.from_(fieldnum, prefix):
-            if fn != fieldnum or not t.startswith(prefix):
-                return
-            yield t
-    
-    def all_terms(self):
-        """
-        Yields (fieldname, text) tuples for every term in the index.
-        """
-        
-        current_fieldnum = None
-        current_fieldname = None
-        for fn, t, _, _ in self:
-            if fn != current_fieldnum:
-                current_fieldnum = fn
-                current_fieldname = self.schema.number_to_name(fn)
-            yield (current_fieldname, t)
-    
-    def iter_field(self, fieldnum):
-        """Yields (text, doc_frequency, term_frequency) tuples for
-        all terms in the given field.
-        """
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.name_to_number(fieldnum)
-        
-        for fn, t, docfreq, freq in self.from_(fieldnum, ''):
-            if fn != fieldnum:
-                return
-            yield t, docfreq, freq
-    
-    def lexicon(self, fieldnum):
-        """Yields all terms in the given field."""
-        
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.name_to_number(fieldnum)
-        
-        for t, _, _ in self.iter_field(fieldnum):
-            yield t
-    
-    def most_frequent_terms(self, fieldnum, number = 5):
-        """Yields the top 'number' most frequent terms in the given field as
-        a series of (frequency, text) tuples.
-        """
-        return nlargest(number,
-                        ((indexfreq, token)
-                         for token, _, indexfreq
-                         in self.iter_field(fieldnum)))
-    
 
 class MultiTermReader(TermReader):
     """Do not instantiate this object directly. Instead use Index.term_reader().
@@ -530,8 +530,8 @@ class MultiTermReader(TermReader):
     def __iter__(self):
         return self._merge_iters([iter(r) for r in self.term_readers])
     
-    def from_(self, fieldnum, text):
-        return self._merge_iters([r.from_(fieldnum, text) for r in self.term_readers])
+    def iter_from(self, fieldnum, text):
+        return self._merge_iters([r.iter_from(fieldnum, text) for r in self.term_readers])
     
     def close(self):
         """
@@ -557,7 +557,7 @@ class MultiTermReader(TermReader):
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of
         # term iterators (TermReader.__iter__() or
-        # TermReader.from_()).
+        # TermReader.iter_from()).
         
         # Fill in the list with the head term from each iterator.
         # infos is a list of [headterm, iterator] lists.

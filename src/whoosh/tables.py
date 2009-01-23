@@ -294,7 +294,7 @@ class TableReader(object):
     def values(self):
         return (value for _, value in self)
     
-    def from_(self, key):
+    def iter_from(self, key):
         _value = self._value
         
         self._load_block(key)
@@ -349,7 +349,7 @@ class PostingTableReader(TableReader):
                 yield (key, value)
 
     def _seek_postings(self, key):
-        (offset, length), count = self._get(key)[:2]
+        (offset, length), count = self._get(key)[:2] #@UnusedVariable
         tf = self.table_file
         tf.seek(self.postpos + offset)
         return (tf, count)
@@ -502,7 +502,7 @@ class PostingTableReader(TableReader):
 #    def values(self):
 #        return (value for _, value in self)
 #    
-#    def from_(self, key):
+#    def iter_from(self, key):
 #        for row in self.con.execute("SELECT key, value FROM %s WHERE key > ? ORDER BY key" % self.name, (key, )):
 #            yield row
 #    
