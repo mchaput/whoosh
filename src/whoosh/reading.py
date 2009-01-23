@@ -20,8 +20,9 @@ This module contains classes that allow reading from an index.
 
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
+from threading import Lock
 
-from whoosh.util import ClosableMixin, checkclosed
+from whoosh.util import ClosableMixin, protected
 from whoosh.fields import FieldConfigurationError, UnknownFieldError
 
 # Exceptions
@@ -56,14 +57,15 @@ class DocReader(ClosableMixin):
         
         self.vector_table = None
         self.is_closed = False
+        self._sync_lock = Lock()
     
-    @checkclosed
+    @protected
     def __getitem__(self, docnum):
         """Returns the stored fields for the given document.
         """
         return self.docs_table[docnum]
     
-    @checkclosed
+    @protected
     def __iter__(self):
         """Yields the stored fields for all documents.
         """
@@ -131,7 +133,7 @@ class DocReader(ClosableMixin):
         if format is None: return False
         return format.supports(name)
     
-    @checkclosed
+    @protected
     def vector(self, docnum, fieldnum):
         """Yields a sequence of raw (text, data) tuples representing
         the term vector for the given document and field.
@@ -141,7 +143,7 @@ class DocReader(ClosableMixin):
         readfn = self.vector_format(fieldnum).read_postvalue
         return self.vector_table.postings((docnum, fieldnum), readfn)
     
-    @checkclosed
+    @protected
     def vector_as(self, docnum, fieldnum, astype):
         """Yields a sequence of interpreted (text, data) tuples
         representing the term vector for the given document and
@@ -165,7 +167,7 @@ class DocReader(ClosableMixin):
         for text, data in self.vector(docnum, fieldnum):
             yield (text, interpreter(data))
     
-    @checkclosed
+    @protected
     def _doc_info(self, docnum, key):
         return self.doclength_records[(docnum, key)]
     
@@ -215,22 +217,23 @@ class MultiDocReader(DocReader):
         self.doc_offsets = doc_offsets
         self.schema = schema
         self._scorable_fields = self.schema.scorable_fields()
+        
         self.is_closed = False
+        self._sync_lock = Lock()
     
-    @checkclosed
+    @protected
     def __getitem__(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.doc_readers[segmentnum].__getitem__(segmentdoc)
     
-    @checkclosed
+    @protected
     def __iter__(self):
         for reader in self.doc_readers:
             for result in reader:
                 yield result
     
     def close(self):
-        """
-        Closes the open files associated with this reader.
+        """Closes the open files associated with this reader.
         """
         
         for d in self.doc_readers:
@@ -285,11 +288,12 @@ class TermReader(ClosableMixin):
         
         self.term_table = storage.open_table(segment.term_filename, postings = True)
         self.is_closed = False
+        self._sync_lock = Lock()
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
     
-    @checkclosed
+    @protected
     def __iter__(self):
         """Yields (fieldnum, token, docfreq, indexfreq) tuples for
         each term in the reader, in lexical order.
@@ -299,14 +303,14 @@ class TermReader(ClosableMixin):
         for (fn, t), termcount in tt:
             yield (fn, t, tt.posting_count((fn, t)), termcount)
     
-    @checkclosed
+    @protected
     def from_(self, fieldnum, text):
         tt = self.term_table
         postingcount = tt.posting_count
         for (fn, t), termcount in tt.from_((fieldnum, text)):
             yield (fn, t, postingcount((fn, t)), termcount)
     
-    @checkclosed
+    @protected
     def __contains__(self, term):
         fieldnum = term[0]
         if isinstance(fieldnum, basestring):
@@ -336,14 +340,14 @@ class TermReader(ClosableMixin):
         else:
             raise UnknownFieldError(fieldname)
     
-    @checkclosed
+    @protected
     def _term_info(self, fieldnum, text):
         try:
             return self.term_table[(fieldnum, text)]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldnum, text))
     
-    @checkclosed
+    @protected
     def doc_frequency(self, fieldnum, text):
         """Returns the document frequency of the given term (that is,
         how many documents the term appears in).
@@ -357,7 +361,7 @@ class TermReader(ClosableMixin):
         
         return self.term_table.posting_count((fieldnum, text))
     
-    @checkclosed
+    @protected
     def term_count(self, fieldnum, text):
         """
         Returns the total number of instances of the given term
@@ -381,7 +385,7 @@ class TermReader(ClosableMixin):
     
     # Posting retrieval methods
     
-    @checkclosed
+    @protected
     def postings(self, fieldnum, text, exclude_docs = None):
         """
         Yields raw (docnum, data) tuples for each document containing
@@ -516,7 +520,9 @@ class MultiTermReader(TermReader):
         self.term_readers = term_readers
         self.doc_offsets = doc_offsets
         self.schema = schema
+        
         self.is_closed = False
+        self._sync_lock = Lock()
     
     def __contains__(self, term):
         return any(tr.__contains__(term) for tr in self.term_readers)
@@ -586,7 +592,7 @@ class MultiTermReader(TermReader):
             # Yield the term with the summed frequency and
             # term count.
             yield (fnum, text, docfreq, termcount)
-            
+    
     def postings(self, fieldnum, text, exclude_docs = set()):
         """
         Yields raw (docnum, data) tuples for each document containing
@@ -608,13 +614,7 @@ class MultiTermReader(TermReader):
 
 
 if __name__ == '__main__':
-    import index
-    ix = index.open_dir("../kinobenchindex")
-    tr = ix.term_reader()
-    c = 0
-    for x in tr:
-        c += 1
-    print c
+    pass
 
 
 

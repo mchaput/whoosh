@@ -18,6 +18,7 @@
 Miscellaneous utility functions and classes.
 """
 
+from __future__ import with_statement
 from heapq import heappush, heapreplace
 
 from whoosh.support.bitvector import BitVector
@@ -44,21 +45,6 @@ def permute(ls):
             rest = ls[:i] + ls[i+1:]
             for p in permute(rest):
                 yield [this] + p
-
-# Decorators
-
-def synchronized(lock):
-    """ Synchronization decorator. """
-
-    def wrap(f):
-        def newFunction(*args, **kw):
-            lock.acquire()
-            try:
-                return f(*args, **kw)
-            finally:
-                lock.release()
-        return newFunction
-    return wrap
 
 # Classes
 
@@ -130,16 +116,19 @@ class ClosableMixin(object):
     def __exit__(self, *exc_info):
         self.close()
 
-def checkclosed(fn):
-    """Decorator for methods that should check whether the object is
-    closed (self.is_closed) before proceeding.
+
+def protected(func):
+    """Decorator for storage-access methods. This decorator
+    (a) checks if the object has already been closed, and
+    (b) synchronizes on a threading lock. The parent object must
+    have 'is_closed' and '_sync_lock' attributes.
     """
     def wrapper(self, *args, **kwargs):
         if self.is_closed:
             raise Exception("This object has been closed")
-        return fn(self, *args, **kwargs)
-    wrapper.__doc__ = fn.__doc__
+        with self._sync_lock:
+            return func(self, *args, **kwargs)
+    wrapper.__doc__ = func.__doc__
     return wrapper
-
 
 
