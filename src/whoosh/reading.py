@@ -90,14 +90,6 @@ class DocReader(ClosableMixin):
             self.vector_table.close()
         self.is_closed = True
     
-    def fieldname_to_num(self, fieldname):
-        """Returns the field number corresponding to the given field name.
-        """
-        if fieldname in self.schema:
-            return self.schema.name_to_number(fieldname)
-        else:
-            raise UnknownFieldError(fieldname)
-    
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this reader.
@@ -109,13 +101,12 @@ class DocReader(ClosableMixin):
         """
         return self.segment.doc_count()
     
-    def field_length(self, fieldnum):
+    def field_length(self, fieldid):
         """Returns the total number of terms in the given field.
         """
         
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.fieldname_to_num(fieldnum)
-        return self.segment.field_length(fieldnum)
+        fieldid = self.schema.to_number(fieldid)
+        return self.segment.field_length(fieldid)
     
     def vector_format(self, fieldnum):
         """
@@ -185,18 +176,16 @@ class DocReader(ClosableMixin):
         #return self._doc_info(docnum)[1]
         return self._doc_info(docnum, -2)
     
-    def doc_field_length(self, docnum, fieldnum):
+    def doc_field_length(self, docnum, fieldid):
         """Returns the number of terms in the given field in the
         given document. This is used by some scoring algorithms.
         """
         
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.fieldname_to_num(fieldnum)
-        
-        if fieldnum not in self._scorable_fields:
-            raise FieldConfigurationError("Field %r does not store lengths" % fieldnum)
+        fieldid = self.schema.to_number(fieldid)
+        if fieldid not in self._scorable_fields:
+            raise FieldConfigurationError("Field %r does not store lengths" % fieldid)
             
-        return self._doc_info(docnum, fieldnum)
+        return self._doc_info(docnum, fieldid)
     
 
 class MultiDocReader(DocReader):
@@ -305,10 +294,8 @@ class TermReader(ClosableMixin):
     
     @protected
     def __contains__(self, term):
-        fieldnum = term[0]
-        if isinstance(fieldnum, basestring):
-            term = (self.schema.name_to_number(fieldnum), term[1])
-            
+        fieldid, text = term
+        term = (self.schema.to_number(fieldid), text)
         return term in self.term_table
     
     def close(self):
@@ -316,14 +303,6 @@ class TermReader(ClosableMixin):
         """
         self.term_table.close()
         self.is_closed = True
-    
-    def fieldname_to_num(self, fieldname):
-        """Returns the field number corresponding to the given field name.
-        """
-        if fieldname in self.schema:
-            return self.schema.name_to_number(fieldname)
-        else:
-            raise UnknownFieldError(fieldname)
     
     def format(self, fieldname):
         """Returns the Format object corresponding to the given field name.
@@ -341,33 +320,27 @@ class TermReader(ClosableMixin):
             raise TermNotFound("%s:%r" % (fieldnum, text))
     
     @protected
-    def doc_frequency(self, fieldnum, text):
+    def doc_frequency(self, fieldid, text):
         """Returns the document frequency of the given term (that is,
         how many documents the term appears in).
         """
         
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.fieldname_to_num(fieldnum)
-            
-        if (fieldnum, text) not in self:
+        fieldid = self.schema.to_number(fieldid)
+        if (fieldid, text) not in self:
             return 0
-        
-        return self.term_table.posting_count((fieldnum, text))
+        return self.term_table.posting_count((fieldid, text))
     
     @protected
-    def term_count(self, fieldnum, text):
+    def term_count(self, fieldid, text):
         """
         Returns the total number of instances of the given term
         in the corpus.
         """
         
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.fieldname_to_num(fieldnum)
-        
-        if (fieldnum, text) not in self:
+        fieldid = self.schema.to_number(fieldid)
+        if (fieldid, text) not in self:
             return 0
-        
-        return self.term_table[(fieldnum, text)]
+        return self.term_table[(fieldid, text)]
     
     def doc_count_all(self):
         """
@@ -376,66 +349,68 @@ class TermReader(ClosableMixin):
         """
         return self.segment.doc_count_all()
     
-    def expand_prefix(self, fieldname, prefix):
-        """
-        Yields terms in the given field that start with the given prefix.
-        """
-        
-        fieldnum = self.fieldname_to_num(fieldname)
-        for fn, t, _, _ in self.iter_from(fieldnum, prefix):
-            if fn != fieldnum or not t.startswith(prefix):
-                return
-            yield t
-    
     @protected
     def iter_from(self, fieldnum, text):
+        """Yields (field_num, text, doc_freq, collection_frequency) tuples
+        for all terms in the reader, starting at the given term.
+        """
+        
         tt = self.term_table
         postingcount = tt.posting_count
         for (fn, t), termcount in tt.iter_from((fieldnum, text)):
             yield (fn, t, postingcount((fn, t)), termcount)
     
-    def all_terms(self):
-        """
-        Yields (fieldname, text) tuples for every term in the index.
+    def expand_prefix(self, fieldid, prefix):
+        """Yields terms in the given field that start with the given prefix.
         """
         
+        fieldid = self.schema.to_number(fieldid)
+        for fn, t, _, _ in self.iter_from(fieldid, prefix):
+            if fn != fieldid or not t.startswith(prefix):
+                return
+            yield t
+    
+    def all_terms(self):
+        """Yields (fieldname, text) tuples for every term in the index.
+        """
+        
+        num2name = self.schema.number_to_name
         current_fieldnum = None
         current_fieldname = None
+        
         for fn, t, _, _ in self:
+            # Only call self.schema.number_to_name when the
+            # field number changes.
             if fn != current_fieldnum:
                 current_fieldnum = fn
-                current_fieldname = self.schema.number_to_name(fn)
+                current_fieldname = num2name(fn)
             yield (current_fieldname, t)
     
-    def iter_field(self, fieldnum):
+    def iter_field(self, fieldid):
         """Yields (text, doc_frequency, term_frequency) tuples for
         all terms in the given field.
         """
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.name_to_number(fieldnum)
         
-        for fn, t, docfreq, freq in self.iter_from(fieldnum, ''):
-            if fn != fieldnum:
+        fieldid = self.schema.to_number(fieldid)
+        for fn, t, docfreq, freq in self.iter_from(fieldid, ''):
+            if fn != fieldid:
                 return
             yield t, docfreq, freq
     
-    def lexicon(self, fieldnum):
+    def lexicon(self, fieldid):
         """Yields all terms in the given field."""
         
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.name_to_number(fieldnum)
-        
-        for t, _, _ in self.iter_field(fieldnum):
+        for t, _, _ in self.iter_field(fieldid):
             yield t
     
-    def most_frequent_terms(self, fieldnum, number = 5):
+    def most_frequent_terms(self, fieldid, number = 5):
         """Yields the top 'number' most frequent terms in the given field as
         a series of (frequency, text) tuples.
         """
         return nlargest(number,
                         ((indexfreq, token)
                          for token, _, indexfreq
-                         in self.iter_field(fieldnum)))
+                         in self.iter_field(fieldid)))
     
     # Posting retrieval methods
     

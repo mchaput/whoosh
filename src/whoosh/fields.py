@@ -296,7 +296,13 @@ class Schema(object):
         self._by_number.append(fieldtype)
         self._names.append(name)
         self._by_name[name] = fieldtype
-        
+    
+    def to_number(self, id):
+        """Given a field name or number, return the field's number.
+        """
+        if isinstance(id, int): return id
+        return self.name_to_number(id)
+    
     def name_to_number(self, name):
         """
         Given a field name, returns the field's number.
