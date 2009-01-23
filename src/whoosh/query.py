@@ -234,12 +234,12 @@ class SimpleQuery(Query):
         termset.add((self.fieldname, self.text))
     
     def existing_terms(self, searcher, termset, reverse = False):
-        fname, text = self.fieldname, self.text
-        fnum = searcher.fieldname_to_num(fname)
-        contains = (fnum, text) in searcher
+        fieldname, text = self.fieldname, self.text
+        fieldnum = searcher.fieldname_to_num(fieldname)
+        contains = (fieldnum, text) in searcher
         if reverse: contains = not contains
         if contains:
-            termset.add((fname, text))
+            termset.add((fieldname, text))
 
 
 class Term(SimpleQuery):
