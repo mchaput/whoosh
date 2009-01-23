@@ -196,8 +196,8 @@ class Searcher(util.ClosableMixin):
     def expand_prefix(self, fieldnum, prefix):
         return self.term_reader.expand_prefix(fieldnum, prefix)
     
-    def from_(self, fieldnum, text):
-        return self.term_reader.from_(fieldnum, text)
+    def iter_from(self, fieldnum, text):
+        return self.term_reader.iter_from(fieldnum, text)
     
     def doc_frequency(self, fieldnum, text):
         return self.term_reader.doc_frequency(fieldnum, text)

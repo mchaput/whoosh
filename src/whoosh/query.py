@@ -791,7 +791,7 @@ class TermRange(MultiTerm):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         end = self.end
         
-        for fnum, t, _, _ in searcher.from_(fieldnum, self.start):
+        for fnum, t, _, _ in searcher.iter_from(fieldnum, self.start):
             while fnum == fieldnum and t <= end:
                 yield t
     
