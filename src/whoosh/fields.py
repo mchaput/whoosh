@@ -21,8 +21,8 @@ This module contains functions and classes related to fields.
 """
 
 from collections import defaultdict
-from whoosh import analysis
-from whoosh.analysis import unstopped
+
+from whoosh.analysis import Token, unstopped, IDAnalyzer, KeywordAnalyzer, StandardAnalyzer, NgramAnalyzer
 
 # Exceptions
 
@@ -80,7 +80,7 @@ class ID(FieldType):
         """
         @param stored: Whether the value of this field is stored with the document.
         """
-        self.format = Existance(analyzer = analysis.IDAnalyzer())
+        self.format = Existance(analyzer = IDAnalyzer())
         self.stored = stored
         self.unique = unique
 
@@ -111,7 +111,7 @@ class KEYWORD(FieldType):
         @param scorable: Whether this field is scorable.
         """
         
-        ana = analysis.KeywordAnalyzer(lowercase = lowercase, commas = commas)
+        ana = KeywordAnalyzer(lowercase = lowercase, commas = commas)
         self.format = Frequency(analyzer = ana, field_boost = field_boost)
         self.scorable = scorable
         self.stored = stored
@@ -138,7 +138,7 @@ class TEXT(FieldType):
         @type analyzer: analysis.Analyzer
         """
         
-        ana = analyzer or analysis.StandardAnalyzer()
+        ana = analyzer or StandardAnalyzer()
         self.format = Frequency(analyzer = ana, field_boost = field_boost)
         
         if phrase:
@@ -165,7 +165,7 @@ class NGRAM(FieldType):
         @param maxsize: The maximum length of the N-grams.
         """
         
-        self.format = Frequency(analyzer = analysis.NgramAnalyzer(minsize, maxsize))
+        self.format = Frequency(analyzer = NgramAnalyzer(minsize, maxsize))
         self.scorable = True
         self.stored = stored
 
@@ -478,7 +478,7 @@ class Frequency(Format):
     
     def data_to_weight(self, data):
         return data * self.field_boost
-
+    
 
 class DocBoosts(Frequency):
     """A Field that stores frequency and per-document boost information
@@ -505,7 +505,7 @@ class DocBoosts(Frequency):
     
     def data_to_weight(self, data):
         return data[0] * data[1] * self.field_boost
-
+    
 
 # Vector formats
 
@@ -547,7 +547,7 @@ class Positions(Format):
     
     def data_to_positions(self, data):
         return data
-
+    
 
 class Characters(Format):
     """Stores token position and character start and end information

@@ -446,9 +446,9 @@ class TermReader(ClosableMixin):
             raise FieldConfigurationError("Field %r format does not support %r" % (self.schema.name_to_number(fieldnum),
                                                                                    astype))
         
-        xform = getattr(format, "data_to_" + astype)
+        interp = format.interpreter(astype)
         for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, xform(data))
+            yield (docnum, interp(data))
     
     def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
         """
@@ -463,9 +463,9 @@ class TermReader(ClosableMixin):
         """
         
         format = self.schema.field_by_number(fieldnum).format
-        xform = format.data_to_weight
+        interp = format.interpreter("weight")
         for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, xform(data) * boost)
+            yield (docnum, interp(data) * boost)
 
     def positions(self, fieldnum, text, exclude_docs = None):
         """
