@@ -46,7 +46,7 @@ three general types of classes/functions involved in analysis:
       don't need any filtering).
 """
 
-import re
+import copy, re
 
 from whoosh.lang.porter import stem
 
@@ -109,19 +109,13 @@ class Token(object):
           filter (not currently used).
         - boosts (boolean): whether this token contains a per-token boost. If this
           is True, the 'boost' attribute should be set to the current boost factor.
+        - removestops (boolean): whether stopped tokens should be removed from
+          the token stream. If this is true, the 'stopped' attribute will indicate
+          whether the current token is a "stop" word.
     """
     
-    __slots__ = ("positions", "chars", "boosts",
-                 "original", "text", "pos", "startchar", "endchar",
-                 "stopped", "boost")
-    
-    def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__,
-                           ", ".join(["%s=%r" % (name, getattr(self, name))
-                                      for name in self.__slots__
-                                      if hasattr(self, name)]))
-    
-    def __init__(self, positions, chars, boosts = False, removestops = False):
+    def __init__(self, positions = False, chars = False, boosts = False, removestops = True,
+                 **kwargs):
         """
         @param positions: Whether this token should have the token position in
             the 'pos' attribute.
@@ -134,18 +128,32 @@ class Token(object):
         self.boosts = boosts
         self.stopped = False
         self.boost = 1.0
+        self.removestops = removestops
+        self.__dict__.update(kwargs)
+    
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__,
+                           ", ".join(["%s=%r" % (name, value)
+                                      for name, value in self.__dict__.iteritems()]))
+        
+    def copy(self):
+        return copy.copy(self)
+
 
 # Tokenizers
 
 def IDTokenizer(value, positions = False, chars = False,
+                keeporiginal = False, removestops = True,
                 start_pos = 0, start_char = 0):
     """
     Yields the entire input string as a single token. For use
     in indexed but untokenized fields, such as a document's path.
     """
     
-    t = Token(positions, chars)
-    t.original = t.text = value
+    t = Token(positions, chars, removestops = removestops)
+    t.text = value
+    if keeporiginal:
+        t.original = value
     if positions:
         t.pos = start_pos + 1
     if chars:
@@ -175,6 +183,7 @@ class RegexTokenizer(object):
         self.expression = expression or self._default_expression
     
     def __call__(self, value, positions = False, chars = False,
+                 keeporiginal = False, removestops = True,
                  start_pos = 0, start_char = 0):
         """
         @param value: The text to tokenize.
@@ -189,10 +198,12 @@ class RegexTokenizer(object):
         @type value: string
         """
         
-        t = Token(positions, chars)
+        t = Token(positions, chars, removestops = removestops)
         
         for pos, match in enumerate(self.expression.finditer(value)):
-            t.original = t.text = match.group(0)
+            t.text = match.group(0)
+            if keeporiginal:
+                t.original = t.text
             t.stopped = False
             if positions:
                 t.pos = start_pos + pos
@@ -246,9 +257,10 @@ class NgramTokenizer(object):
         self.max = maxsize or minsize
         
     def __call__(self, value, positions = False, chars = False,
+                 keeporiginal = False, removestops = True,
                  start_pos = 0, start_char = 0):
         inlen = len(value)
-        t = Token(positions, chars)
+        t = Token(positions, chars, removestops = removestops)
         
         pos = start_pos
         for start in xrange(0, inlen - self.min):
@@ -256,7 +268,9 @@ class NgramTokenizer(object):
                 end = start + size
                 if end > inlen: continue
                 
-                t.original = t.text = value[start:end]
+                t.text = value[start:end]
+                if keeporiginal:
+                    t.original = t.text
                 t.stopped = False
                 if positions:
                     t.pos = pos
@@ -365,7 +379,7 @@ class StemFilter(object):
             else:
                 t.text = s = stem(text)
                 cache[text] = s
-                yield s
+                yield t
 
 
 _camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
@@ -432,7 +446,7 @@ class StopFilter(object):
     """
 
     def __init__(self, stoplist = STOP_WORDS, minsize = 2,
-                 renumber = True, remove = True):
+                 renumber = True):
         """
         @param stoplist: A collection of words to remove from the stream.
             This is converted to a frozenset. The default is a list of
@@ -452,13 +466,11 @@ class StopFilter(object):
             self.stops = frozenset(stoplist)
         self.min = minsize
         self.renumber = renumber
-        self.remove = remove
     
     def __call__(self, tokens):
         stoplist = self.stops
         minsize = self.min
         renumber = self.renumber
-        remove = self.remove
         
         delta = 0
         for t in tokens:
@@ -468,11 +480,13 @@ class StopFilter(object):
                 if renumber and t.positions:
                     t.pos = t.pos - delta
                 yield t
-            elif not remove:
-                # This IS a stop word
+            else:
+                # This is a stop word
                 if renumber:
                     delta += 1
-                if not remove:
+                
+                if not t.removestops:
+                    # This IS a stop word, but we're not removing them
                     t.stopped = True
                     yield t
 
@@ -550,6 +564,18 @@ class SimpleAnalyzer(Analyzer):
         
     def __call__(self, value, **kwargs):
         return LowercaseFilter(self.tokenizer(value, **kwargs))
+
+
+class StemmingAnalyzer(Analyzer):
+    def __init__(self):
+        self.tokenizer = RegexTokenizer()
+        self.stemfilter = StemFilter()
+        
+    def clear(self):
+        self.stemfilter.clear()
+        
+    def __call__(self, value, **kwargs):
+        return self.stemfilter(LowercaseFilter(self.tokenizer(value, **kwargs)))
 
 
 class StandardAnalyzer(Analyzer):
