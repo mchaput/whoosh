@@ -41,7 +41,8 @@ class FieldType(object):
     
         - format (fields.Format): the storage format for the field's contents.
         
-        - vector (fields.Format): the storage format for the field's vectors.
+        - vector (fields.Format): the storage format for the field's vectors
+          (forward index), or None if the field should not store vectors.
         
         - scorable (boolean): whether searches against this field may be scored.
           This controls whether the index stores per-document field lengths for
@@ -51,6 +52,11 @@ class FieldType(object):
           document. For example, in addition to indexing the title of a document,
           you usually want to store the title so it can be presented as part of
           the search results.
+          
+        - unique (boolean): whether this field's value is unique to each document.
+          For example, 'path' or 'ID'. IndexWriter.update_document() will use
+          fields marked as 'unique' to find the previous version of a document
+          being updated.
       
     The constructor for the base field type simply lets you supply your
     own configured field format, vector format, and scorable and stored
@@ -298,7 +304,7 @@ class Schema(object):
         self._by_name[name] = fieldtype
     
     def to_number(self, id):
-        """Given a field name or number, return the field's number.
+        """Given a field name or number, returns the field's number.
         """
         if isinstance(id, int): return id
         return self.name_to_number(id)
