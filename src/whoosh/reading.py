@@ -20,7 +20,7 @@ This module contains classes that allow reading from an index.
 
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
-from threading import Lock
+from threading import RLock
 
 from whoosh.util import ClosableMixin, protected
 from whoosh.fields import FieldConfigurationError, UnknownFieldError
@@ -57,7 +57,7 @@ class DocReader(ClosableMixin):
         
         self.vector_table = None
         self.is_closed = False
-        self._sync_lock = Lock()
+        self._sync_lock = RLock()
     
     @protected
     def __getitem__(self, docnum):
@@ -75,6 +75,7 @@ class DocReader(ClosableMixin):
             if not is_deleted(docnum):
                 yield self.docs_table[docnum]
     
+    @protected
     def _open_vectors(self):
         if not self.vector_table:
             self.vector_table = self.storage.open_table(self.segment.vector_filename,
@@ -208,7 +209,7 @@ class MultiDocReader(DocReader):
         self._scorable_fields = self.schema.scorable_fields()
         
         self.is_closed = False
-        self._sync_lock = Lock()
+        self._sync_lock = RLock()
     
     @protected
     def __getitem__(self, docnum):
@@ -277,7 +278,7 @@ class TermReader(ClosableMixin):
         
         self.term_table = storage.open_table(segment.term_filename, postings = True)
         self.is_closed = False
-        self._sync_lock = Lock()
+        self._sync_lock = RLock()
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
@@ -497,7 +498,7 @@ class MultiTermReader(TermReader):
         self.schema = schema
         
         self.is_closed = False
-        self._sync_lock = Lock()
+        self._sync_lock = RLock()
     
     def __contains__(self, term):
         return any(tr.__contains__(term) for tr in self.term_readers)
