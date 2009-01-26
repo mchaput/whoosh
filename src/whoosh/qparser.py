@@ -22,8 +22,8 @@ This parser is based on the searchparser example code available at:
 
 http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 
-This code was made available by the authors under the following copyright
-and conditions:
+The code upon which this parser is based was made available by the authors under
+the following copyright and conditions:
 
 # Copyright (c) 2006, Estrate, the Netherlands
 # All rights reserved.
@@ -350,7 +350,7 @@ class MultifieldParser(QueryParser):
         return self._make(query.Wildcard, fieldname, text)
     
     def make_phrase(self, fieldname, texts):
-        return query.Or([super(MultifieldParser, self).make_phrase(fn, texts, boost = self.field_values.get(fn))
+        return query.Or([super(self.__class__, self).make_phrase(fn, texts, boost = self.field_values.get(fn))
                          for fn in self.fieldnames])
 
 

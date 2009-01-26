@@ -23,43 +23,27 @@ from heapq import nlargest
 
 class Fragment(object):
     def __init__(self, tokens, charsbefore = 0, charsafter = 0, textlen = 999999):
-        self.tokens = tokens
-        self.charsbefore = charsbefore
-        self.charsafter = charsafter
-        self.textlen = textlen
-    
-    def __iter__(self):
-        return iter(self.tokens)
+        self.startchar = max(0, tokens[0].startchar - charsbefore)
+        self.endchar = min(textlen, tokens[-1].endchar + charsafter)
+        self.matches = [t for t in tokens if t.matched]
+        self.matched_terms = frozenset(t.text for t in self.matches)
     
     def __len__(self):
-        return self.endchar() - self.startchar()
-    
-    def startchar(self):
-        return max(0, self.tokens[0].startchar - self.charsbefore)
-    
-    def endchar(self):
-        return min(self.textlen, self.tokens[-1].endchar + self.charsafter)
-    
-    def matched_terms(self):
-        return frozenset(t.text for t in self.tokens if t.matched)
+        return self.endchar - self.startchar
     
     def overlaps(self, fragment):
-        sc = self.startchar()
-        ec = self.endchar()
-        fsc = fragment.startchar()
-        fec = fragment.endchar()
+        sc = self.startchar
+        ec = self.endchar
+        fsc = fragment.startchar
+        fec = fragment.endchar
         return (fsc > sc and fsc < ec) or (fec > sc and fec < ec)
     
     def overlapped_length(self, fragment):
-        sc = self.startchar()
-        ec = self.endchar()
-        fsc = fragment.startchar()
-        fec = fragment.endchar()
+        sc = self.startchar
+        ec = self.endchar
+        fsc = fragment.startchar
+        fec = fragment.endchar
         return max(ec, fec) - min(sc, fsc)
-    
-    def merge(self, fragment):
-        self.tokens += fragment.tokens
-        self.tokens.sort(key = attrgetter("startchar"))
     
     def has_matches(self):
         return any(t.matched for t in self.tokens)
@@ -116,20 +100,22 @@ class SimpleFragmenter(object):
 
 
 class SentenceFragmenter(object):
-    """"Breaks the text up on periods. This object works by looking
-    in the original text for a period as the next character after each
-    token's 'endchar'.
+    """"Breaks the text up on sentence end punctuation characters (".", "!", or "?").
+    This object works by looking in the original text for a sentence end as the next
+    character after each token's 'endchar'.
     """
     
-    def __init__(self, maxchars = 200):
+    def __init__(self, maxchars = 200, sentencechars = ".!?"):
         """
         @param maxchars: The maximum number of characters allowed in a fragment.
         """
         
         self.maxchars = maxchars
-        
+        self.sentencechars = frozenset(sentencechars)
+    
     def __call__(self, text, tokens):
         maxchars = self.maxchars
+        sentencechars = self.sentencechars
         textlen = len(text)
         first = None
         frag = []
@@ -146,10 +132,11 @@ class SentenceFragmenter(object):
                 frag = []
             
             frag.append(t)
-            if frag and endchar < textlen and text[endchar] == ".":
+            if frag and endchar < textlen and text[endchar] in sentencechars:
                 # Don't break for two periods in a row (e.g. ignore "...")
-                if endchar+1 < textlen and text[endchar + 1] == ".":
+                if endchar+1 < textlen and text[endchar + 1] in sentencechars:
                     continue
+                
                 yield Fragment(frag, charsafter = 1)
                 frag = []
                 first = None
@@ -261,11 +248,11 @@ class ContextFragmenter(object):
 
 def BasicFragmentScorer(f):
     # Add up the boosts for the matched terms in this passage
-    score = sum(t.boost for t in f.tokens if t.matched)
+    score = sum(t.boost for t in f.matches)
     
     # Favor diversity: multiply score by the number of separate
     # terms matched
-    score *= len(f.matched_terms()) * 100
+    score *= len(f.matched_terms) * 100
     
     return score
 
@@ -277,7 +264,7 @@ def SCORE(fragment):
     return None
 def FIRST(fragment):
     "Sorts passages from earlier in the document first."
-    return fragment.startchar()
+    return fragment.startchar
 def LONGER(fragment):
     "Sorts longer passages first."
     return 0 - len(fragment)
@@ -294,9 +281,9 @@ class UppercaseFormatter(object):
         
     def _format_fragment(self, text, fragment):
         output = []
-        index = fragment.startchar()
+        index = fragment.startchar
         
-        for t in fragment.tokens:
+        for t in fragment.matches:
             if t.startchar > index:
                 output.append(text[index:t.startchar])
             
@@ -310,6 +297,7 @@ class UppercaseFormatter(object):
     def __call__(self, text, fragments):
         return self.between.join((self._format_fragment(text, fragment)
                                   for fragment in fragments))
+
 
 class GenshiFormatter(object):
     def __init__(self, qname, between = "..."):
@@ -330,23 +318,20 @@ class GenshiFormatter(object):
         qname = self.qname
         output = []
         
-        index = fragment.startchar()
+        index = fragment.startchar
         lastmatched = False
-        for t in fragment.tokens:
+        for t in fragment.matches:
             if t.startchar > index:
+                if lastmatched:
+                    output.append((END, qname, (None, -1, -1)))
+                    lastmatched = False
                 self._add_text(text[index:t.startchar], output)
             
             ttxt = text[t.startchar:t.endchar]
-            if t.matched:
-                if not lastmatched:
-                    output.append((START, (qname, Attrs()), (None, -1, -1)))
-                    lastmatched = True
-                output.append((TEXT, ttxt, (None, -1, -1)))
-            else:
-                if lastmatched:
-                    output.append((END, qname, (None, -1, -1)))
-                self._add_text(ttxt, output)
-                lastmatched = False
+            if not lastmatched:
+                output.append((START, (qname, Attrs()), (None, -1, -1)))
+                lastmatched = True
+            output.append((TEXT, ttxt, (None, -1, -1)))
                                     
             index = t.endchar
         
@@ -367,7 +352,7 @@ class GenshiFormatter(object):
         return self.Stream(output)
 
 
-# Highlighter
+# Highlighting
 
 def top_fragments(text, terms, analyzer, fragmenter, top = 3,
                   scorer = BasicFragmentScorer, minscore = 1):
@@ -392,10 +377,10 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
 if __name__ == '__main__':
     import re, time
     from whoosh import analysis
-    from genshi import QName
+    #from genshi import QName
     
     sa = analysis.StemmingAnalyzer()
-    txt = open("c:/dev/src/houdini/help/documents/nodes/sop/copy.txt").read().decode("utf8")
+    txt = open("/Volumes/Storage/Development/help/documents/nodes/sop/copy.txt").read().decode("utf8")
     txt = re.sub("[\t\r\n ]+", " ", txt)
     t = time.time()
     fs = highlight(txt, ["templat", "geometri"], sa, SentenceFragmenter(), UppercaseFormatter())
