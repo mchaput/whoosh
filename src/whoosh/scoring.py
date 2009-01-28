@@ -37,15 +37,22 @@ class Weighting(object):
     #self.max_doc_freq = ix.max_doc_freq()
     #self.unique_term_count = ix.unique_term_count()
     #self.avg_doc_length = self.index_length / self.doc_count
+
+    def __init__(self):
+        self._idf_cache = {}
     
     def idf(self, searcher, fieldnum, text):
         """Calculates the Inverse Document Frequency of the
         current term. Subclasses may want to override this.
         """
         
-        # TODO: Cache this?
+        cache = self._idf_cache
+        term = (fieldnum, text)
+        if term in cache: return cache[term]
         df = searcher.doc_frequency(fieldnum, text)
-        return log(searcher.doc_count_all() / (df + 1)) + 1.0
+        idf = log(searcher.doc_count_all() / (df + 1)) + 1.0
+        cache[term] = idf
+        return idf
 
     def avg_field_length(self, searcher, fieldnum):
         """Returns the average length of the field per document.
@@ -78,30 +85,29 @@ class BM25F(Weighting):
     """Generates a BM25F score.
     """
     
-    def __init__(self, B = 0.75, K1 = 1.2, field_B = None, field_boost = None):
+    def __init__(self, B = 0.75, K1 = 1.2, field_B = None):
         """B and K1 are free parameters, see the BM25 literature.
         field_B can be a dictionary mapping fieldnums to field-specific B values.
         field_boost can be a dictionary mapping fieldnums to field boost factors.
         """
         
+        super(self.__class__, self).__init__()
         self.K1 = K1
         self.B = B
         
         if field_B is None: field_B = {}
         self._field_B = field_B
-        
-        self._field_boost = field_boost
-
+    
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        if self._field_boost:
-            weight = weight * self._field_boost.get(self.fieldnum, 1.0)
-        
         B = self._field_B.get(fieldnum, self.B)
-        K1 = self.K1
+        avl = self.avg_field_length(searcher, fieldnum)
         idf = self.idf(searcher, fieldnum, text)
-        fl_over_avl = self.fl_over_avfl(searcher, docnum, fieldnum)
+        l = searcher.doc_field_length(docnum, fieldnum)
         
-        return idf * (weight + (K1 + 1)) / (weight + K1 * ((1.0 - B) + B * fl_over_avl))
+        w = weight / ((1 - B) + B * (l / avl))
+        #print "field=", searcher.schema.number_to_name(fieldnum), "text=", text, "weight=", weight, "rel=", idf * (w / (self.K1 + w))
+        return idf * (w / (self.K1 + w))
+        
 
 # The following scoring algorithms are translated from classes in
 # the Terrier search engine's uk.ac.gla.terrier.matching.models package.
@@ -125,17 +131,17 @@ class DFree(Weighting):
     """
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        doclen = searcher.doc_length(docnum)
+        fieldlen = searcher.doc_field_length(docnum, fieldnum)
         
-        prior = weight / doclen
-        post = (weight + 1.0) / doclen
-        invprior = searcher.field_length(fieldnum) / searcher.term_count(fieldnum, text)
+        prior = weight / fieldlen
+        post = (weight + 1.0) / fieldlen
+        invprior = searcher.field_length(fieldnum) / searcher.frequency(fieldnum, text)
         norm = weight * log(post / prior, 2)
         
-        return 0 - QTF\
-                   * norm\
-                   * (weight * (- log(prior * invprior, 2))
-                      + (weight + 1.0) * (+ log(post * invprior, 2)) + 0.5 * log(post/prior, 2))
+        return QTF\
+                * norm\
+                * (weight * (- log(prior * invprior, 2))
+                   + (weight + 1.0) * (+ log(post * invprior, 2)) + 0.5 * log(post/prior, 2))
 
 
 class DLH13(Weighting):
@@ -150,12 +156,12 @@ class DLH13(Weighting):
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         k = self.k
         
-        dl = searcher.doc_length(docnum)
+        dl = searcher.doc_field_length(docnum, fieldnum)
         f = weight / dl
-        tc = searcher.term_count(fieldnum, text)
+        tc = searcher.frequency(fieldnum, text)
         doc_count = searcher.doc_count_all()
-        avg_doc_length = self.avg_field_length(searcher, fieldnum)
-        return 0 - QTF * (weight * log((weight * avg_doc_length / dl) * (doc_count / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
+        avg_field_length = self.avg_field_length(searcher, fieldnum)
+        return QTF * (weight * log((weight * avg_field_length / dl) * (doc_count / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
 
 
 class Hiemstra_LM(Weighting):
@@ -169,8 +175,8 @@ class Hiemstra_LM(Weighting):
         
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         c = self.c
-        tc = searcher.term_count(fieldnum, text)
-        dl = searcher.doc_length(docnum)
+        tc = searcher.frequency(fieldnum, text)
+        dl = searcher.doc_field_length(docnum, fieldnum)
         return log(1 + (c * weight * searcher.field_length(fieldnum)) / ((1 - c) * tc * dl))
 
 
@@ -184,8 +190,8 @@ class InL2(Weighting):
         self.c = c
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        dl = searcher.doc_length(docnum)
-        TF = weight * log(1.0 + (self.c * self.avg_doc_length) / dl)
+        dl = searcher.doc_field_length(docnum, fieldnum)
+        TF = weight * log(1.0 + (self.c * self.avg_field_length(searcher, fieldnum)) / dl)
         norm = 1.0 / (TF + 1.0)
         df = searcher.doc_frequency(fieldnum, text)
         idf_dfr = log((searcher.doc_count_all() + 1) / (df + 0.5), 2)
@@ -208,7 +214,7 @@ class Frequency(Weighting):
     """
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        return self.searcher.term_count(searcher, fieldnum, text)
+        return self.searcher.frequency(searcher, fieldnum, text)
 
 
 # Sorting classes
