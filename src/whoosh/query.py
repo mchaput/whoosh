@@ -433,31 +433,34 @@ class And(CompoundQuery):
         
         # If the smallest estimated size is 0, nothing will match.
         if subqs[0][0] == 0:
-            return
+            return []
         
         # Removed the estimated sizes, leaving just the sorted subqueries.
         subqs = [q for _, q in subqs]
         
-        # Create an array representing the number of subqueries that hit each
-        # document.
-        target = len(subqs)
-        type = "B" if target <= 255 else "i"
-        counters = array(type, (0 for _ in xrange(0, searcher.doc_count_all())))
+        counters = {}
+        scores = {}
         
-        scores = defaultdict(float)
-        
-        for i, q in enumerate(subqs):
-            atleastone = False
+        first = True
+        for q in subqs:
+            atleastone = first
             for docnum, score in q.doc_scores(searcher, weighting = weighting, exclude_docs = exclude_docs):
-                if counters[docnum] == i:
-                    atleastone = True
-                    counters[docnum] += 1
+                if first:
+                    scores[docnum] = score
+                    counters[docnum] = 1
+                elif docnum in scores:
                     scores[docnum] += score
+                    counters[docnum] += 1
+                    atleastone = True
             
-            if (not atleastone):
-                return
+            first = False
+                
+            if not atleastone:
+                return []
         
-        return ((i, s) for i, s in enumerate(scores) if counters[i] == target)
+        target = len(subqs)
+        return ((docnum, score) for docnum, score in scores.iteritems()
+                if counters[docnum] == target)
 
 
 class Or(CompoundQuery):
@@ -473,7 +476,7 @@ class Or(CompoundQuery):
     
     def docs(self, searcher, exclude_docs = None):
         if not self.subqueries:
-            return []
+            return
         
         hits = BitVector(searcher.doc_count_all())
         
@@ -481,11 +484,13 @@ class Or(CompoundQuery):
         if self._notqueries:
             exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
+        getbit = hits.__getitem__
+        setbit = hits.set
         for q in self._subqueries:
             for docnum in q.docs(searcher, exclude_docs = exclude_docs):
-                hits.set(docnum)
-        
-        return iter(hits)
+                if not getbit(docnum):
+                    yield docnum
+                setbit(docnum)
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
         if not self.subqueries:
@@ -496,11 +501,14 @@ class Or(CompoundQuery):
             exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
         scores = defaultdict(float)
+        #N = searcher.doc_count_all()
+        #scores = array("f", [0] * N)
         for query in self._subqueries:
             for docnum, weight in query.doc_scores(searcher, weighting = weighting, exclude_docs = exclude_docs):
                 scores[docnum] += weight
-                
+        
         return scores.iteritems()
+        #return ((i, score) for i, score in enumerate(scores) if score)
 
 
 class Not(Query):
@@ -689,7 +697,7 @@ class ExpandingTerm(MultiTerm):
     
     def normalize(self):
         return self
-    
+
 
 class Prefix(ExpandingTerm):
     """
@@ -809,12 +817,10 @@ class Variations(ExpandingTerm):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
+        self.words = variations(self.text)
     
     def __unicode__(self):
         return u"<%s>" % self.text
-    
-    def _words(self, searcher):
-        return variations(self.text)
     
     def docs(self, searcher, exclude_docs = None):
         return self._or_query(searcher).docs(searcher, exclude_docs = exclude_docs)
@@ -871,28 +877,69 @@ class Phrase(MultiTerm):
     def estimate_size(self, searcher):
         return self._and_query().estimate_size(searcher)
     
-    def docs(self, searcher, weighting = None, exclude_docs = None):
+    def docs(self, searcher, exclude_docs = None):
         return (docnum for docnum, _ in self.doc_scores(searcher,
-                                                        weighting = weighting,
                                                         exclude_docs = exclude_docs))
     
-    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        field = searcher.field(self.fieldname)
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
-        if not (field.vector and field.vector.has("positions")):
-            raise QueryError("Phrase search: %r has no position vectors" % self.fieldname)
+    def _posting_impl(self, searcher, fieldnum, weighting, exclude_docs):
+        words = self.words
+        slop = self.slop
         
+        # Get the set of documents that contain all the words
+        docs = frozenset(self._and_query().docs(searcher))
+        
+        # Maps docnums to lists of valid positions
+        current = {}
+        # Maps docnums to scores
+        scores = {}
+        first = True
+        for word in words:
+            #print "word=", word
+            for docnum, positions in searcher.positions(fieldnum, word, exclude_docs = exclude_docs):
+                if docnum not in docs: continue
+                #print "  docnum=", docnum
+                
+                # TODO: Use position boosts if available
+                if first:
+                    current[docnum] = positions
+                    #print "    *current=", positions
+                    scores[docnum] = weighting.score(searcher, fieldnum, word, docnum, 1.0)
+                elif docnum in current:
+                    currentpositions = current[docnum]
+                    #print "    current=", currentpositions
+                    #print "    positions=", positions
+                    newpositions = []
+                    for newpos in positions:
+                        start = bisect_left(currentpositions, newpos - slop)
+                        end = bisect_right(currentpositions, newpos + slop)
+                        for curpos in currentpositions[start:end]:
+                            if abs(newpos - curpos) <= slop:
+                                newpositions.append(newpos)
+                    
+                    #print "    newpositions=", newpositions
+                    if not newpositions:
+                        del current[docnum]
+                        del scores[docnum]
+                    else:
+                        current[docnum] = newpositions
+                        scores[docnum] += weighting.score(searcher, fieldnum, word, docnum, 1.0)
+            
+            first = False
+        
+        #print "scores=", scores
+        return scores.iteritems()
+    
+    def _vector_impl(self, searcher, fieldnum, weighting, exclude_docs):
         dr = searcher.doc_reader
         words = self.words
         wordset = frozenset(words)
-        minword, maxword = min(wordset), max(wordset)
+        maxword = max(wordset)
         slop = self.slop
         
-        for docnum, score in self._and_query().doc_scores(searcher,
-                                                          weighting = weighting,
-                                                          exclude_docs = exclude_docs):
+        aq = self._and_query()
+        for docnum, score in aq.doc_scores(searcher, weighting = weighting, exclude_docs = exclude_docs):
             positions = {}
-            for w, poslist in dr.vectored_positions_from(docnum, fieldnum, minword):
+            for w, poslist in dr.vector_as(docnum, fieldnum, "positions"):
                 if w in wordset:
                     positions[w] = poslist
                 elif w > maxword:
@@ -904,25 +951,39 @@ class Phrase(MultiTerm):
             
             for w in words[1:]:
                 poslist = positions[w]
+                newcurrent = []
                 for pos in poslist:
-                    newcurrent = []
                     start = bisect_left(current, pos - slop)
                     end = bisect_right(current, pos + slop)
                     for cpos in current[start:end]:
                         if abs(cpos - pos) <= slop:
                             newcurrent.append(pos)
                             break
-                    
-                    current = newcurrent
-                    
+                
+                current = newcurrent
                 if not current:
                     break
         
             if current:
                 yield docnum, score * len(current)
-
-
-            
+    
+    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        
+        # Shortcut the query if one of the words doesn't exist.
+        for word in self.words:
+            if (fieldnum, word) not in searcher: return []
+        
+        field = searcher.field(self.fieldname)
+        weighting = weighting or searcher.weighting
+        if field.format and field.format.supports("positions"):
+            return self._posting_impl(searcher, fieldnum, weighting, exclude_docs)
+        elif field.vector and field.vector.supports("positions"):
+            return self._vector_impl(searcher, fieldnum, weighting, exclude_docs)
+        else:
+            raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
+        
+        
 
 if __name__ == '__main__':
     pass
