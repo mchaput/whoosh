@@ -145,10 +145,9 @@ class TEXT(FieldType):
         """
         
         ana = analyzer or StandardAnalyzer()
-        self.format = Frequency(analyzer = ana, field_boost = field_boost)
         
-        if phrase:
-            self.vector = Positions(analyzer = ana)
+        formatclass = Positions if phrase else Frequency
+        self.format = formatclass(analyzer = ana, field_boost = field_boost)
         
         self.scorable = True
         self.stored = stored
