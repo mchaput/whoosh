@@ -501,8 +501,7 @@ class Or(CompoundQuery):
             exclude_docs = _not_vector(self._notqueries, searcher, exclude_docs)
         
         scores = defaultdict(float)
-        #N = searcher.doc_count_all()
-        #scores = array("f", [0] * N)
+        #scores = array("f", [0] * searcher.doc_count_all())
         for query in self._subqueries:
             for docnum, weight in query.doc_scores(searcher, weighting = weighting, exclude_docs = exclude_docs):
                 scores[docnum] += weight
