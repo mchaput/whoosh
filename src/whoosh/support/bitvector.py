@@ -59,6 +59,12 @@ class BitVector(object):
     def __getitem__(self, index):
         return self.bits[index >> 3] & (1 << (index & 7)) != 0
     
+    def __setitem__(self, index, value):
+        if value:
+            self.set(index)
+        else:
+            self.clear(index)
+    
     def _logic(self, op, bitv):
         if self.size != bitv.size:
             raise ValueError("Can't combine bitvectors of different sizes")
