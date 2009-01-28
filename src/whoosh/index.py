@@ -221,6 +221,7 @@ class Index(DeletionMixin):
             self.segments = SegmentSet()
             
             # Clear existing files
+            self.unlock()
             prefix = "_%s_" % self.indexname
             for filename in self.storage:
                 if filename.startswith(prefix):
@@ -421,7 +422,7 @@ class Index(DeletionMixin):
         return self.segments.total_term_count()
     
     def field_length(self, fieldnum):
-        """Returns the total number of terms in a given field (the "field length").
+        """Returns the total number of terms in a given field.
         This is used by some scoring algorithms. Note that this
         necessarily includes terms in deleted documents.
         """
@@ -465,14 +466,15 @@ class Index(DeletionMixin):
             doc_offsets = segments.doc_offsets()
             return reading.MultiDocReader(doc_readers, doc_offsets, schema)
     
-    def searcher(self):
-        """Returns a Searcher object for this index.
+    def searcher(self, **kwargs):
+        """Returns a Searcher object for this index. Keyword arguments
+        are passed to the Searcher object's constructor.
         
         @return: searching.Searcher
         """
         
         from whoosh.searching import Searcher
-        return Searcher(self)
+        return Searcher(self, **kwargs)
     
     def writer(self):
         """Returns an IndexWriter object for this index.
