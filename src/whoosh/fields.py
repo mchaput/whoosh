@@ -356,7 +356,7 @@ class Format(object):
         @param analyzer: The analyzer object to use to index this field.
             See the analysis module for more information. If this value
             is None, the field is not indexed/searchable.
-        @param field_boost: A constant boost factor to add to the score
+        @param field_boost: A constant boost factor to scale to the score
             of all queries matching terms in this field.
         @type analyzer: analysis.Analyzer
         @type field_boost: float
@@ -519,8 +519,6 @@ class Positions(Format):
     """A vector that stores position information in each posting, to
     allow phrase searching and "near" queries.
     """
-    
-    _supports = ("frequency", "weight", "positions")
     
     def word_datas(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(list)
