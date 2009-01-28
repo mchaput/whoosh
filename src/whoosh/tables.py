@@ -87,7 +87,7 @@ def copy_data(treader, inkey, twriter, outkey, postings = False, buffersize = 32
 # Table writer classes
 
 class TableWriter(object):
-    def __init__(self, table_file, blocksize = 32 * 1024, compressed = 0):
+    def __init__(self, table_file, blocksize = 64 * 1024, compressed = 0):
         self.table_file = table_file
         self.blocksize = blocksize
         
@@ -252,7 +252,7 @@ class TableReader(object):
         self.table_file.seek(pos)
         
         if self.compressed:
-            pck =self.table_file.read_string()
+            pck = self.table_file.read_string()
             itemlist = cPickle.loads(decompress(pck))
         else:
             itemlist = self.table_file.read_pickle()
