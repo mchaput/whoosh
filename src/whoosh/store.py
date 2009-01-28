@@ -117,7 +117,9 @@ class FileStorage(Storage):
         return True
     
     def unlock(self, name):
-        os.removedirs(self._fpath(name))
+        fpath = self._fpath(name)
+        if os.path.exists(fpath):
+            os.rmdir(fpath)
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
