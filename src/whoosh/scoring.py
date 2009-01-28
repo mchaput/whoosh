@@ -19,7 +19,7 @@
 
 from __future__ import division
 from array import array
-from math import log, sqrt, pi
+from math import log, pi
 import weakref
 
 
@@ -49,6 +49,7 @@ class Weighting(object):
         cache = self._idf_cache
         term = (fieldnum, text)
         if term in cache: return cache[term]
+        
         df = searcher.doc_frequency(fieldnum, text)
         idf = log(searcher.doc_count_all() / (df + 1)) + 1.0
         cache[term] = idf
@@ -105,7 +106,6 @@ class BM25F(Weighting):
         l = searcher.doc_field_length(docnum, fieldnum)
         
         w = weight / ((1 - B) + B * (l / avl))
-        #print "field=", searcher.schema.number_to_name(fieldnum), "text=", text, "weight=", weight, "rel=", idf * (w / (self.K1 + w))
         return idf * (w / (self.K1 + w))
         
 
@@ -159,9 +159,10 @@ class DLH13(Weighting):
         dl = searcher.doc_field_length(docnum, fieldnum)
         f = weight / dl
         tc = searcher.frequency(fieldnum, text)
-        doc_count = searcher.doc_count_all()
-        avg_field_length = self.avg_field_length(searcher, fieldnum)
-        return QTF * (weight * log((weight * avg_field_length / dl) * (doc_count / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
+        dc = searcher.doc_count_all()
+        avl = self.avg_field_length(searcher, fieldnum)
+        
+        return QTF * (weight * log((weight * avl / dl) * (dc / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
 
 
 class Hiemstra_LM(Weighting):
@@ -252,16 +253,20 @@ class FieldSorter(Sorter):
     be much faster.
     """
     
-    def __init__(self, fieldname):
+    def __init__(self, fieldname, missingfirst = False):
         """
         @param fieldname: The name of the field to sort by.
+        @param missingfirst: Place documents which don't have the given
+            field first in the sorted results. The default is to put those
+            documents last (after all documents that have the given field).
         """
         
         self.fieldname = fieldname
+        self.missingfirst = missingfirst
         self._searcher = None
         self._cache = None
 
-    def _make_cache(self, searcher):
+    def _make_cache(self, searcher, missingfirst):
         # Is this searcher already cached?
         if self._cache and self._searcher and self._searcher() == searcher:
             return
@@ -269,7 +274,9 @@ class FieldSorter(Sorter):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         
         # Create an array of an int for every document in the index.
-        cache = array("i", xrange(0, searcher.doc_count_all()))
+        N = searcher.doc_count_all()
+        default = -1 if missingfirst else N + 1
+        cache = array("i", [default] * N)
         
         # For every document containing every term in the field, set
         # its array value to the term's (inherently sorted) position.
@@ -289,7 +296,7 @@ class FieldSorter(Sorter):
         returns a list of docnums sorted by the field values.
         """
         
-        self._make_cache(searcher)
+        self._make_cache(searcher, self.missingfirst)
         return sorted(docnums,
                       key = self._cache.__getitem__,
                       reverse = reverse)
