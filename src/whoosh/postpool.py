@@ -209,7 +209,7 @@ class PostingPool(object):
     postings to the SegmentWriter.
     """
     
-    def __init__(self, limit = 8 * 1024 * 1024):
+    def __init__(self, limit = 4 * 1024 * 1024):
         """
         @param limit: the maximum amount of memory to use at once
             for adding postings and the merge sort.
@@ -241,7 +241,9 @@ class PostingPool(object):
         # Sorts the buffer and writes the current buffer to a "run" on disk.
         
         if self.size > 0:
-            run = self.temp_files[-1]
+            run = structfile.StructFile(tempfile.TemporaryFile())
+            self.temp_files.append(run)
+            
             self.postings.sort()
             for p in self.postings:
                 run.write_string(p)
@@ -250,7 +252,6 @@ class PostingPool(object):
             run.seek(0)
             
             self.run_count += 1
-            self.term_files.append(structfile.StructFile(tempfile.TemporaryFile()))
             self.postings = []
             self.size = 0
     
@@ -276,7 +277,7 @@ class PostingPool(object):
                 yield decode_posting(p)
             return
         
-        elif self.size > 0:
+        if self.postings:
             self._flush_run()
         
         #This method does an external merge to yield postings
