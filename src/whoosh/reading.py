@@ -58,6 +58,15 @@ class DocReader(ClosableMixin):
         self.vector_table = None
         self.is_closed = False
         self._sync_lock = RLock()
+        self._cached_fieldnum = None
+        self._cached_field_lengths = None
+    
+    @protected
+    def _doc_field_lengths(self, fieldnum):
+        if self._cached_fieldnum != fieldnum:
+            self._cached_field_lengths = self.doclength_records[fieldnum]
+            self._cached_fieldnum = fieldnum
+        return self._cached_field_lengths
     
     @protected
     def __getitem__(self, docnum):
@@ -101,6 +110,26 @@ class DocReader(ClosableMixin):
         """Returns the total number of UNDELETED documents in this reader.
         """
         return self.segment.doc_count()
+    
+    @protected
+    def doc_length(self, docnum):
+        """Returns the total number of terms in a given document.
+        This is used by some scoring algorithms.
+        """
+        
+        if self._total_counts_cache is None:
+            self._total_counts_cache = self.doclength_records[-1]
+        return self._total_counts_cache[docnum]
+    
+    @protected
+    def unique_count(self, docnum):
+        """Returns the number of UNIQUE terms in a given document.
+        This is used by some scoring algorithms.
+        """
+        
+        if self._unique_counts_cache is None:
+            self._unique_counts_cache = self.doclength_records[-2]
+        return self._unique_counts_cache[docnum]
     
     def field_length(self, fieldid):
         """Returns the total number of terms in the given field.
@@ -159,24 +188,6 @@ class DocReader(ClosableMixin):
         for text, data in self.vector(docnum, fieldnum):
             yield (text, interpreter(data))
     
-    @protected
-    def _doc_info(self, docnum, key):
-        return self.doclength_records[(docnum, key)]
-    
-    def doc_length(self, docnum):
-        """Returns the total number of terms in a given document.
-        This is used by some scoring algorithms.
-        """
-        
-        return self._doc_info(docnum, -1)
-    
-    def unique_count(self, docnum):
-        """Returns the number of UNIQUE terms in a given document.
-        This is used by some scoring algorithms.
-        """
-        #return self._doc_info(docnum)[1]
-        return self._doc_info(docnum, -2)
-    
     def doc_field_length(self, docnum, fieldid):
         """Returns the number of terms in the given field in the
         given document. This is used by some scoring algorithms.
@@ -185,9 +196,9 @@ class DocReader(ClosableMixin):
         fieldid = self.schema.to_number(fieldid)
         if fieldid not in self._scorable_fields:
             raise FieldConfigurationError("Field %r does not store lengths" % fieldid)
-            
-        return self._doc_info(docnum, fieldid)
-    
+        
+        return self._doc_field_lengths(fieldid)[docnum]
+
 
 class MultiDocReader(DocReader):
     """
@@ -332,10 +343,9 @@ class TermReader(ClosableMixin):
         return self.term_table.posting_count((fieldid, text))
     
     @protected
-    def term_count(self, fieldid, text):
-        """
-        Returns the total number of instances of the given term
-        in the corpus.
+    def frequency(self, fieldid, text):
+        """Returns the total number of instances of the given term
+        in the collection.
         """
         
         fieldid = self.schema.to_number(fieldid)
@@ -344,8 +354,7 @@ class TermReader(ClosableMixin):
         return self.term_table[(fieldid, text)]
     
     def doc_count_all(self):
-        """
-        Returns the total number of documents, DELETED OR UNDELETED,
+        """Returns the total number of documents, DELETED OR UNDELETED,
         in this reader.
         """
         return self.segment.doc_count_all()
@@ -524,11 +533,11 @@ class MultiTermReader(TermReader):
         
         return sum(r.doc_frequency(fieldnum, text) for r in self.term_readers)
     
-    def term_count(self, fieldnum, text):
+    def frequency(self, fieldnum, text):
         if (fieldnum, text) not in self:
             return 0
         
-        return sum(r.term_count(fieldnum, text) for r in self.term_readers)
+        return sum(r.frequency(fieldnum, text) for r in self.term_readers)
     
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of

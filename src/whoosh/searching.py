@@ -202,8 +202,8 @@ class Searcher(util.ClosableMixin):
     def doc_frequency(self, fieldnum, text):
         return self.term_reader.doc_frequency(fieldnum, text)
     
-    def term_count(self, fieldnum, text):
-        return self.term_reader.term_count(fieldnum, text)
+    def frequency(self, fieldnum, text):
+        return self.term_reader.frequency(fieldnum, text)
     
     def postings(self, fieldnum, text, exclude_docs = None):
         return self.term_reader.postings(fieldnum, text, exclude_docs = exclude_docs)
@@ -254,7 +254,7 @@ class Results(object):
         """Returns the TOTAL number of documents found by this search. Note this
         may be greater than the number of ranked documents.
         """
-        return len(self.docs)
+        return self.docs.count()
     
     def __getitem__(self, n):
         doc_reader = self.searcher.doc_reader
@@ -267,7 +267,7 @@ class Results(object):
         """Yields the stored fields of each result document in ranked order.
         """
         doc_reader = self.searcher.doc_reader
-        for docnum, _ in self.scored_list:
+        for docnum in self.scored_list:
             yield doc_reader[docnum]
     
     def key_terms(self, fieldname, docs = 10, terms = 5,

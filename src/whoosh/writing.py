@@ -19,6 +19,7 @@ This module contains classes for writing to an index.
 """
 
 from __future__ import with_statement
+from array import array
 from collections import defaultdict
 
 from whoosh import index, postpool, reading, tables
@@ -63,7 +64,7 @@ class IndexWriter(index.DeletionMixin):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
     
-    def __init__(self, ix, blocksize = 32 * 1024):
+    def __init__(self, ix, blocksize = 64 * 1024):
         """
         @param ix: the Index object you want to write to.
         @param blocksize: the block size for tables created by this writer.
@@ -227,7 +228,10 @@ class IndexWriter(index.DeletionMixin):
         self._segment_writer.close()
         new_segments.append(sw.segment())
         self.segments = new_segments
-        
+
+# Constants for "special" fields
+UNIQUE_COUNT = -2
+TOTAL_COUNT = -1
 
 class SegmentWriter(object):
     """
@@ -244,16 +248,8 @@ class SegmentWriter(object):
         def reset(self):
             #: Whether a document is currently in progress.
             self.active = False
-            #: Number of terms in the document (a.k.a. document length)
-            self.term_count = 0
-            #: Number of UNIQUE terms in the document
-            self.unique_count = 0
-            #: Number of terms in each scorable field.
-            self.field_counts = defaultdict(int)
             #: Maps field names to stored field contents for this document
             self.stored_fields = {}
-            #: Shortcut if you have the docinfo already.
-            self.docinfo = None
             #: Keeps track of the last field that was added.
             self.prev_fieldnum = None
     
@@ -272,7 +268,8 @@ class SegmentWriter(object):
         self.max_doc = 0
         self.term_count = 0
         self.max_weight = 0
-        self.field_counts = defaultdict(int)
+        self.doc_field_lengths = defaultdict(list)
+        self.field_length_totals = defaultdict(int)
         
         # Records the state of the writer wrt start_document/end_document.
         # None == not "in" a document.
@@ -302,7 +299,7 @@ class SegmentWriter(object):
         """Returns an index.Segment object for the segment being written."""
         return index.Segment(self.name, self.max_doc,
                              self.term_count, self.max_weight,
-                             dict(self.field_counts))
+                             dict(self.field_length_totals))
     
     def close(self):
         """Finishes writing the segment (flushes the posting pool out to disk) and
@@ -314,7 +311,13 @@ class SegmentWriter(object):
         
         self._flush_pool()
         
+        self.doclength_records.add_row((UNIQUE_COUNT), self.doc_field_lengths[UNIQUE_COUNT])
+        self.doclength_records.add_row((TOTAL_COUNT), self.doc_field_lengths[TOTAL_COUNT])
+        for fieldnum in self._scorable_fields:
+            arr = array("i", self.doc_field_lengths[fieldnum])
+            self.doclength_records.add_row((fieldnum), arr)
         self.doclength_records.close()
+        
         self.docs_table.close()
         self.term_table.close()
         
@@ -361,12 +364,9 @@ class SegmentWriter(object):
             ds = SegmentWriter.DocumentState()
             for docnum in xrange(0, segment.max_doc):
                 if not segment.is_deleted(docnum):
-                    doclen = doc_reader.doc_length(docnum)
-                    ds.term_count = doclen
-                    ds.unique_count = doc_reader.unique_count(docnum)
                     ds.stored_fields = doc_reader[docnum]
                     
-                    self.term_count += doclen
+                    self.term_count += doc_reader.doc_length(docnum)
                     
                     if has_deletions:
                         doc_map[docnum] = self.max_doc
@@ -377,14 +377,17 @@ class SegmentWriter(object):
                                              outv, (self.max_doc, fieldnum),
                                              postings = True)
                     
-                    fcs = ds.field_counts
-                    for fieldnum in self._scorable_fields:
-                        fcs[fieldnum] = doc_reader.doc_field_length(docnum, fieldnum)
-                    
                     self._write_doc_entry(ds)
                     self.max_doc += 1
                 
                 docnum += 1
+        
+            # Append per-document field lengths
+            self.doc_field_lengths[UNIQUE_COUNT].extend(doc_reader._unique_counts())
+            self.doc_field_lengths[TOTAL_COUNT].extend(doc_reader._total_counts())
+            for fieldnum in self._scorable_fields:
+                arr = doc_reader._doc_field_lengths(fieldnum)
+                self.doc_field_lengths[fieldnum].extend(arr)
         
         # Merge terms
         with reading.TermReader(ix.storage, segment, ix.schema) as term_reader:
@@ -402,6 +405,11 @@ class SegmentWriter(object):
         if ds.active:
             raise IndexingError("Called start_document() when a document was already opened")
         ds.active = True
+        
+        self.doc_field_lengths[UNIQUE_COUNT].append(0)
+        self.doc_field_lengths[TOTAL_COUNT].append(0)
+        for fieldnum in self._scorable_fields:
+            self.doc_field_lengths[fieldnum].append(0)
     
     def end_document(self):
         ds = self._doc_state
@@ -423,7 +431,9 @@ class SegmentWriter(object):
         
         fieldnames.sort(key = schema.name_to_number)
         for name in fieldnames:
-            self.add_field(name, fields[name], stored_value = fields.get("_stored_%s" % name))
+            value = fields.get(name)
+            if value:
+                self.add_field(name, value, stored_value = fields.get("_stored_%s" % name))
         self.end_document()
     
     def add_field(self, fieldname, value, stored_value = None,
@@ -439,7 +449,7 @@ class SegmentWriter(object):
         field = schema.field_by_name(fieldname)
         format = field.format
         
-        # Check that the user added the fields in lexical order
+        # Check that the user added the fields in schema order
         docstate = self._doc_state
         if fieldnum < docstate.prev_fieldnum:
             raise IndexingError("Added field %r out of order (add fields in schema order)" % fieldname)
@@ -463,18 +473,17 @@ class SegmentWriter(object):
                 unique += 1
             
             # Add the term count to the total for this field
-            self.field_counts[fieldnum] += count
+            self.field_length_totals[fieldnum] += count
+            # Add the term count to the per-document field length
+            if field.scorable:
+                self.doc_field_lengths[fieldnum][-1] += count
             # Add the term count to the total for the entire index
             self.term_count += count
             
-            if field.scorable:
-                # Add the term count to the field length for this document
-                docstate.field_counts[fieldnum] += count
-            
             # Add the term count to the total for this document
-            docstate.term_count += count
+            self.doc_field_lengths[TOTAL_COUNT][-1] += count
             # Add to the number of unique terms in this document
-            docstate.unique_count += unique
+            self.doc_field_lengths[UNIQUE_COUNT][-1] += unique
         
         # If the field is vectored, add the words in the value to
         # the vector table
@@ -496,20 +505,7 @@ class SegmentWriter(object):
             docstate.stored_fields[fieldname] = stored_value
         
     def _write_doc_entry(self, ds):
-        #if ds.docinfo:
-        #    docinfo = ds.docinfo
-        #else:
-        #    fc = ds.field_counts
-        #    docinfo = [ds.term_count, ds.unique_count] + [fc[n] for n in sorted(fc.keys())]
-        #self.doclength_records.add(*docinfo)
         docnum = self.max_doc
-        
-        self.doclength_records.add_row((docnum, -2), ds.unique_count)
-        self.doclength_records.add_row((docnum, -1), ds.term_count)
-        fcs = ds.field_counts
-        for fieldnum in self._scorable_fields:
-            self.doclength_records.add_row((docnum, fieldnum), fcs[fieldnum])
-            
         self.docs_table.add_row(docnum, ds.stored_fields)
 
     def _flush_pool(self):
