@@ -75,10 +75,10 @@ class Searcher(util.ClosableMixin):
         matching the given keyword arguments, where the keyword keys are
         field names and the values are terms that must appear in the field.
         
-        Where Searcher.docs() returns a generator, this function returns either
-        a dictionary or None. Use it when you assume the given keyword arguments
-        either match zero or one documents (i.e. at least one of the fields is
-        a unique key).
+        Where Searcher.documents() returns a generator, this function returns
+        either a dictionary or None. Use it when you assume the given keyword
+        arguments either match zero or one documents (i.e. at least one of the
+        fields is a unique key).
         """
         
         for p in self.documents(**kw):
@@ -90,14 +90,13 @@ class Searcher(util.ClosableMixin):
         matching the given keyword arguments, where the keyword keys are
         field names and the values are terms that must appear in the field.
         
-        Returns a list (not a generator, so as not to keep the readers open)
-        of dictionaries containing the stored fields of any documents matching
-        the keyword arguments.
+        Returns a generator of dictionaries containing the
+        stored fields of any documents matching the keyword arguments.
         """
         
         q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
         doc_reader = self.doc_reader
-        return [doc_reader[docnum] for docnum in q.docs(self)]
+        return (doc_reader[docnum] for docnum in q.docs(self))
     
     def search(self, query, upper = 5000, sortedby = None, reverse = False):
         """Runs the query represented by the query object and returns a Results object.
@@ -110,8 +109,8 @@ class Searcher(util.ClosableMixin):
         @param sortedby: if this parameter is not None, the results are sorted instead of scored.
             If this value is a string, the results are sorted by the field named in the string.
             If this value is a list or tuple, it is assumed to be a sequence of strings and the
-            results are sorted by the fieldnames in the sequence. Otherwise this value should be a
-            scoring.Sorter object.
+            results are sorted by the fieldnames in the sequence. Otherwise 'sortedby' should be
+            a scoring.Sorter object.
             
             The fields you want to sort by must be indexed.
             
@@ -128,8 +127,7 @@ class Searcher(util.ClosableMixin):
                 searcher.search(q, sortedby = scoring.NullSorter)
         
         @param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
-        
-        @type sorter: string, list, tuple, or scoring.Sorter
+        @type sortedby: None, string, list, tuple, or scoring.Sorter
         @type reverse: bool
         """
         
@@ -178,42 +176,44 @@ class Searcher(util.ClosableMixin):
     def stored_fields(self, docnum):
         return self.doc_reader[docnum]
     
-    def field_length(self, fieldnum):
-        return self.doc_reader.field_length(fieldnum)
+    def field_length(self, fieldid):
+        return self.doc_reader.field_length(fieldid)
     
     def doc_length(self, docnum):
         return self.doc_reader.doc_length(docnum)
     
-    def doc_field_length(self, docnum, fieldnum):
-        return self.doc_reader.doc_field_length(docnum, fieldnum)
+    def doc_field_length(self, docnum, fieldid):
+        return self.doc_reader.doc_field_length(docnum, fieldid)
     
     def doc_unique_count(self, docnum):
         return self.doc_reader.unique_count(docnum)
     
-    def lexicon(self, fieldnum):
-        return self.term_reader.lexicon(fieldnum)
+    def lexicon(self, fieldid):
+        return self.term_reader.lexicon(fieldid)
     
-    def expand_prefix(self, fieldnum, prefix):
-        return self.term_reader.expand_prefix(fieldnum, prefix)
+    def expand_prefix(self, fieldid, prefix):
+        return self.term_reader.expand_prefix(fieldid, prefix)
     
-    def iter_from(self, fieldnum, text):
-        return self.term_reader.iter_from(fieldnum, text)
+    def iter_from(self, fieldid, text):
+        return self.term_reader.iter_from(fieldid, text)
     
-    def doc_frequency(self, fieldnum, text):
-        return self.term_reader.doc_frequency(fieldnum, text)
+    def doc_frequency(self, fieldid, text):
+        return self.term_reader.doc_frequency(fieldid, text)
     
-    def frequency(self, fieldnum, text):
-        return self.term_reader.frequency(fieldnum, text)
+    def frequency(self, fieldid, text):
+        return self.term_reader.frequency(fieldid, text)
     
-    def postings(self, fieldnum, text, exclude_docs = None):
-        return self.term_reader.postings(fieldnum, text, exclude_docs = exclude_docs)
+    def postings(self, fieldid, text, exclude_docs = None):
+        return self.term_reader.postings(fieldid, text, exclude_docs = exclude_docs)
     
-    def weights(self, fieldnum, text, exclude_docs = None):
-        return self.term_reader.weights(fieldnum, text, exclude_docs = exclude_docs)
+    def weights(self, fieldid, text, exclude_docs = None):
+        return self.term_reader.weights(fieldid, text, exclude_docs = exclude_docs)
     
-    def positions(self, fieldnum, text, exclude_docs = None):
-        return self.term_reader.positions(fieldnum, text, exclude_docs = exclude_docs)
+    def positions(self, fieldid, text, exclude_docs = None):
+        return self.term_reader.positions(fieldid, text, exclude_docs = exclude_docs)
 
+    def scorable(self, fieldid):
+        return self.schema[fieldid].scorable
 
 # Results class
 
@@ -308,13 +308,11 @@ class Results(object):
         """
         return self.scored_list[n]
     
-    def extend(self, results, addterms = True):
-        """Appends the results another Search object to the end of the results
-        of this one.
+    def extend(self, results):
+        """Appends hits from 'results' (that are not already in this
+        results object) to the end of these results.
         
-        results is another results object.
-        addterms is whether to add the terms from the other search's
-        term frequency map to this object's term frequency map.
+        @param results: another results object.
         """
         
         docs = self.docs
@@ -322,7 +320,7 @@ class Results(object):
                                 if docnum not in docs)
         self.docs = docs | results.docs
         
-        # TODO: merge the terms
+        # TODO: merge the query terms?
     
     def filter(self, results):
         """Removes any hits that are not also in the other results object.
@@ -331,6 +329,46 @@ class Results(object):
         docs = self.docs & results.docs
         self.scored_list = [docnum for docnum in self.scored_list if docnum in docs]
         self.docs = docs
+    
+    def increase(self, results, reverse = False):
+        """Re-sorts the results so any hits that are also in 'results' appear before
+        hits not in 'results', otherwise keeping their current relative positions.
+        This does not add the documents in the other results object to this one.
+        
+        @param results: another results object.
+        @param reverse: if True, lower the position of hits in the other
+            results object instead of raising them.
+        """
+        
+        scored_list = self.scored_list
+        otherdocs = results.docs
+        arein = [docnum for docnum in scored_list if docnum in otherdocs]
+        notin = [docnum for docnum in scored_list if docnum not in otherdocs]
+        
+        if reverse:
+            self.scored_list = notin + arein
+        else:
+            self.scored_list = arein + notin
+            
+    def increase_and_extend(self, results):
+        """Combines the effects of extend() and increase(): hits that are
+        also in 'results' are raised. Then any hits from 'results' that are
+        not in this results object are appended to the end of these
+        results.
+        
+        @param results: another results object.
+        """
+        
+        docs = self.docs
+        otherdocs = results.docs
+        scored_list = self.scored_list
+        
+        arein = [docnum for docnum in scored_list if docnum in otherdocs]
+        notin = [docnum for docnum in scored_list if docnum not in otherdocs]
+        other = [docnum for docnum in results.scored_list if docnum not in docs]
+        
+        self.docs = docs & otherdocs
+        self.scored_list = arein + notin + other
         
 
 # Utilities
