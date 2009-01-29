@@ -58,15 +58,11 @@ class DocReader(ClosableMixin):
         self.vector_table = None
         self.is_closed = False
         self._sync_lock = RLock()
+        
         self._cached_fieldnum = None
         self._cached_field_lengths = None
-    
-    @protected
-    def _doc_field_lengths(self, fieldnum):
-        if self._cached_fieldnum != fieldnum:
-            self._cached_field_lengths = self.doclength_records[fieldnum]
-            self._cached_fieldnum = fieldnum
-        return self._cached_field_lengths
+        self._unique_counts_cache = None
+        self._total_counts_cache = None
     
     @protected
     def __getitem__(self, docnum):
@@ -83,6 +79,25 @@ class DocReader(ClosableMixin):
         for docnum in xrange(0, self.segment.max_doc):
             if not is_deleted(docnum):
                 yield self.docs_table[docnum]
+    
+    @protected
+    def _doc_field_lengths(self, fieldnum):
+        if self._cached_fieldnum != fieldnum:
+            self._cached_field_lengths = self.doclength_records[fieldnum]
+            self._cached_fieldnum = fieldnum
+        return self._cached_field_lengths
+    
+    @protected
+    def _unique_counts(self):
+        if self._unique_counts_cache: return self._unique_counts_cache
+        uc = self._unique_counts_cache = self.doclength_records[-2]
+        return uc
+    
+    @protected
+    def _total_counts(self):
+        if self._total_counts_cache: return self._total_counts_cache
+        tc = self._total_counts_cache = self.doclength_records[-1]
+        return tc
     
     @protected
     def _open_vectors(self):
@@ -117,9 +132,7 @@ class DocReader(ClosableMixin):
         This is used by some scoring algorithms.
         """
         
-        if self._total_counts_cache is None:
-            self._total_counts_cache = self.doclength_records[-1]
-        return self._total_counts_cache[docnum]
+        return self._total_counts()[docnum]
     
     @protected
     def unique_count(self, docnum):
@@ -127,9 +140,7 @@ class DocReader(ClosableMixin):
         This is used by some scoring algorithms.
         """
         
-        if self._unique_counts_cache is None:
-            self._unique_counts_cache = self.doclength_records[-2]
-        return self._unique_counts_cache[docnum]
+        return self._unique_counts()[docnum]
     
     def field_length(self, fieldid):
         """Returns the total number of terms in the given field.
@@ -221,7 +232,7 @@ class MultiDocReader(DocReader):
         
         self.is_closed = False
         self._sync_lock = RLock()
-    
+        
     @protected
     def __getitem__(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -250,8 +261,21 @@ class MultiDocReader(DocReader):
     def field_length(self, fieldnum):
         return sum(dr.field_length(fieldnum) for dr in self.doc_readers)
     
+    def doc_field_length(self, docnum, fieldid):
+        fieldid = self.schema.to_number(fieldid)
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum].doc_field_length(segmentdoc, fieldid)
+    
+    def doc_length(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum].doc_length(segmentdoc)
+    
+    def unique_count(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.doc_readers[segmentnum].unique_count(segmentdoc)
+    
     def _document_segment(self, docnum):
-        return bisect_right(self.doc_offsets, docnum) - 1
+        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
     
     def _segment_and_docnum(self, docnum):
         segmentnum = self._document_segment(docnum)
@@ -287,7 +311,7 @@ class TermReader(ClosableMixin):
         self.segment = segment
         self.schema = schema
         
-        self.term_table = storage.open_table(segment.term_filename, postings = True)
+        self.term_table = storage.open_table(segment.term_filename)
         self.is_closed = False
         self._sync_lock = RLock()
     
