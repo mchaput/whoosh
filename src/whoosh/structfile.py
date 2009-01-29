@@ -27,34 +27,8 @@ _long_size = calcsize("!l")
 _unsignedlong_size = calcsize("!L")
 _float_size = calcsize("!f")
 
-# Exceptions
-
-class EndOfFile(Exception):
-    """Thrown by a StructFile object when you try to read
-    at the end of a file.
-    """
-    pass
 
 # Utility functions
-
-def read(f, c):
-    """Custom read function that reads c bytes from file f,
-    and raises EndOfFile if the read returns 0 bytes, or
-    struct.error if the read returns fewer bytes than
-    expected (meaning you weren't where you thought you
-    were in the file).
-    
-    This is probably a huge performance bottleneck, but
-    I don't want to have to worry about or check the
-    size of every read throughout the code.
-    """
-    
-    s = f.read(c)
-    if len(s) == 0:
-        raise EndOfFile
-    if len(s) < c:
-        raise structerror
-    return s
 
 def float_to_byte(value, mantissabits = 5, zeroexp = 2):
     # Assume int size == float size
@@ -87,7 +61,7 @@ def byte_to_float(b, mantissabits = 5, zeroexp = 2):
 # N integers, so we don't have to constantly recalculate them
 # on the fly. This makes a small but noticeable difference.
 
-_varint_cache_size = 500
+_varint_cache_size = 512
 _varint_cache = []
 for i in xrange(0, _varint_cache_size):
     s = ""
@@ -214,38 +188,38 @@ class StructFile(object):
         """Reads a single byte value from the wrapped file,
         shortcut for ord(file.read(1)).
         """
-        return ord(read(self.file, 1))
+        return ord(self.file.read(1))
     
     def read_sbyte(self):
         """Reads a signed byte value from the wrapped file,
         using the struct.unpack function.
         """
-        return unpack("!b", read(self.file, 1))[0]
+        return unpack("!b", self.file.read(1))[0]
     
     def read_int(self):
         """Reads a binary integer value from the wrapped file,
         using the struct.unpack function.
         """
-        return unpack("!i", read(self.file, _int_size))[0]
+        return unpack("!i", self.file.read(_int_size))[0]
     
     def read_ulong(self):
         """Reads an unsigned binary integer value from the wrapped file,
         using the struct.unpack function.
         """
-        return unpack("!L", read(self.file, _unsignedlong_size))[0]
+        return unpack("!L", self.file.read(_unsignedlong_size))[0]
     
     def read_float(self):
         """Reads a binary floating point value from the wrapped file,
         using the struct.unpack function.
         """
-        return unpack("!f", read(self.file, _float_size))[0]
+        return unpack("!f", self.file.read(_float_size))[0]
     
     def read_string(self):
         """Reads a string from the wrapped file.
         """
         length = self.read_varint()
         if length > 0:
-            return read(self.file, length)
+            return self.file.read(length)
         return ""
     
     def skip_string(self):
@@ -271,19 +245,20 @@ class StructFile(object):
         """Reads a variable-length encoded integer from the wrapped
         file.
         """
-        b = ord(read(self.file, 1))
+        read = self.read_byte
+        b = read()
         i = b & 0x7F
 
         shift = 7
         while b & 0x80 != 0:
-            b = self.read_byte()
+            b = read()
             i |= (b & 0x7F) << shift
             shift += 7
         return i
     
     def read_struct(self, format):
         length = calcsize(format)
-        return unpack(format, read(self.file, length))
+        return unpack(format, self.file.read(length))
     
     def flush(self):
         """Flushes the buffer of the wrapped file. This is a no-op
