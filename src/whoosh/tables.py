@@ -87,7 +87,7 @@ def copy_data(treader, inkey, twriter, outkey, postings = False, buffersize = 32
 # Table writer classes
 
 class TableWriter(object):
-    def __init__(self, table_file, blocksize = 64 * 1024,
+    def __init__(self, table_file, blocksize = 16 * 1024,
                  compressed = 0, postings = False, stringids = False):
         self.table_file = table_file
         self.blocksize = blocksize
