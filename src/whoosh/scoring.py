@@ -100,6 +100,8 @@ class BM25F(Weighting):
         self._field_B = field_B
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        if not searcher.scorable(fieldnum): return weight
+        
         B = self._field_B.get(fieldnum, self.B)
         avl = self.avg_field_length(searcher, fieldnum)
         idf = self.idf(searcher, fieldnum, text)
@@ -131,8 +133,9 @@ class DFree(Weighting):
     """
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        fieldlen = searcher.doc_field_length(docnum, fieldnum)
+        if not searcher.scorable(fieldnum): return weight
         
+        fieldlen = searcher.doc_field_length(docnum, fieldnum)
         prior = weight / fieldlen
         post = (weight + 1.0) / fieldlen
         invprior = searcher.field_length(fieldnum) / searcher.frequency(fieldnum, text)
@@ -154,8 +157,9 @@ class DLH13(Weighting):
         self.k = k
 
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        k = self.k
+        if not searcher.scorable(fieldnum): return weight
         
+        k = self.k
         dl = searcher.doc_field_length(docnum, fieldnum)
         f = weight / dl
         tc = searcher.frequency(fieldnum, text)
@@ -175,6 +179,8 @@ class Hiemstra_LM(Weighting):
         self.c = c
         
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        if not searcher.scorable(fieldnum): return weight
+        
         c = self.c
         tc = searcher.frequency(fieldnum, text)
         dl = searcher.doc_field_length(docnum, fieldnum)
@@ -191,6 +197,8 @@ class InL2(Weighting):
         self.c = c
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        if not searcher.scorable(fieldnum): return weight
+        
         dl = searcher.doc_field_length(docnum, fieldnum)
         TF = weight * log(1.0 + (self.c * self.avg_field_length(searcher, fieldnum)) / dl)
         norm = 1.0 / (TF + 1.0)
@@ -303,18 +311,33 @@ class FieldSorter(Sorter):
 
 
 class MultiFieldSorter(FieldSorter):
-    def __init__(self, fieldnames):
+    """Used by searching.Searcher to sort document results based on the
+    value of an indexed field, rather than score. See the 'sortedby'
+    keyword argument to searching.Searcher.search().
+    
+    This sorter uses multiple fields, so if for two documents the first
+    field has the same value, it will use the second field to sort them,
+    and so on.
+    """
+    
+    def __init__(self, fieldnames, missingfirst = False):
         """
         @param fieldnames: A list of field names to sort by.
+        @param missingfirst: Place documents which don't have the given
+            field first in the sorted results. The default is to put those
+            documents last (after all documents that have the given field).
         """
         
         self.fieldnames = fieldnames
-        self.sorters = [FieldSorter(fn) for fn in fieldnames]
+        self.sorters = [FieldSorter(fn)
+                        for fn in fieldnames]
+        self.missingfirst = missingfirst
     
     def order(self, searcher, docnums, reverse = False):
         sorters = self.sorters
+        missingfirst = self.missingfirst
         for s in sorters:
-            s._make_cache(searcher)
+            s._make_cache(searcher, missingfirst)
         
         return sorted(docnums,
                       key = lambda x: tuple((s._cache[x] for s in sorters)),
