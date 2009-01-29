@@ -286,8 +286,8 @@ class SegmentWriter(object):
         # Open files for writing
         self.term_table = self.storage.create_table(tempseg.term_filename, postings = True,
                                                     blocksize = blocksize)
-        self.doclength_records = self.storage.create_table(tempseg.doclen_filename,
-                                                           blocksize = blocksize)
+        self.doclength_table = self.storage.create_table(tempseg.doclen_filename,
+                                                         blocksize = blocksize)
         self.docs_table = self.storage.create_table(tempseg.docs_filename,
                                                     blocksize = blocksize, compressed = 9)
         
@@ -313,12 +313,12 @@ class SegmentWriter(object):
         
         self._flush_pool()
         
-        self.doclength_records.add_row((UNIQUE_COUNT), self.doc_field_lengths[UNIQUE_COUNT])
-        self.doclength_records.add_row((TOTAL_COUNT), self.doc_field_lengths[TOTAL_COUNT])
+        self.doclength_table.add_row((UNIQUE_COUNT), self.doc_field_lengths[UNIQUE_COUNT])
+        self.doclength_table.add_row((TOTAL_COUNT), self.doc_field_lengths[TOTAL_COUNT])
         for fieldnum in self._scorable_fields:
             arr = array("i", self.doc_field_lengths[fieldnum])
-            self.doclength_records.add_row((fieldnum), arr)
-        self.doclength_records.close()
+            self.doclength_table.add_row((fieldnum), arr)
+        self.doclength_table.close()
         
         self.docs_table.close()
         self.term_table.close()
