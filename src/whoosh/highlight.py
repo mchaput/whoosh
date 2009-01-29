@@ -15,7 +15,6 @@
 #===============================================================================
 
 from __future__ import division
-from operator import attrgetter
 from heapq import nlargest
 
 
