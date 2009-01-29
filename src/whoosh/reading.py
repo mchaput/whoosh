@@ -68,7 +68,7 @@ class DocReader(ClosableMixin):
     def __getitem__(self, docnum):
         """Returns the stored fields for the given document.
         """
-        return self.docs_table[docnum]
+        return self.docs_table.get(docnum)
     
     @protected
     def __iter__(self):
@@ -78,25 +78,25 @@ class DocReader(ClosableMixin):
         is_deleted = self.segment.is_deleted
         for docnum in xrange(0, self.segment.max_doc):
             if not is_deleted(docnum):
-                yield self.docs_table[docnum]
+                yield self.docs_table.get(docnum)
     
     @protected
     def _doc_field_lengths(self, fieldnum):
         if self._cached_fieldnum != fieldnum:
-            self._cached_field_lengths = self.doclength_records[fieldnum]
+            self._cached_field_lengths = self.doclength_records.get(fieldnum)
             self._cached_fieldnum = fieldnum
         return self._cached_field_lengths
     
     @protected
     def _unique_counts(self):
         if self._unique_counts_cache: return self._unique_counts_cache
-        uc = self._unique_counts_cache = self.doclength_records[-2]
+        uc = self._unique_counts_cache = self.doclength_records.get(-2)
         return uc
     
     @protected
     def _total_counts(self):
         if self._total_counts_cache: return self._total_counts_cache
-        tc = self._total_counts_cache = self.doclength_records[-1]
+        tc = self._total_counts_cache = self.doclength_records.get(-1)
         return tc
     
     @protected
@@ -351,7 +351,7 @@ class TermReader(ClosableMixin):
     @protected
     def _term_info(self, fieldnum, text):
         try:
-            return self.term_table[(fieldnum, text)]
+            return self.term_table.get((fieldnum, text))
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldnum, text))
     
@@ -375,7 +375,7 @@ class TermReader(ClosableMixin):
         fieldid = self.schema.to_number(fieldid)
         if (fieldid, text) not in self:
             return 0
-        return self.term_table[(fieldid, text)]
+        return self.term_table.get((fieldid, text))
     
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
@@ -452,17 +452,16 @@ class TermReader(ClosableMixin):
     def postings(self, fieldnum, text, exclude_docs = None):
         """
         Yields raw (docnum, data) tuples for each document containing
-        the current term. This is useful if you simply want to know
-        which documents contain the current term. Use weights() or
-        positions() if you need to term weight or positions in each
-        document.
+        the current term.
         
-        exclude_docs can be a set of document numbers to ignore. This
-        is used by queries to skip documents that have already been
-        eliminated from consideration.
+        @param exclude_docs: a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        @param boost: a factor by which to multiply each weight.
         """
         
         is_deleted = self.segment.is_deleted
+        no_exclude = exclude_docs is None
         
         # The format object is actually responsible for parsing the
         # posting data from disk.
@@ -470,10 +469,47 @@ class TermReader(ClosableMixin):
         
         for docnum, data in self.term_table.postings((fieldnum, text), readfn = readfn):
             if not is_deleted(docnum)\
-               and (exclude_docs is None or docnum not in exclude_docs):
+               and (no_exclude or docnum not in exclude_docs):
                 yield docnum, data
     
+    def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
+        """
+        Yields (docnum, term_weight) tuples for each document containing
+        the given term. The current field must have stored term weights
+        for this to work.
+        
+        @param exclude_docs: a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        @param boost: a factor by which to multiply each weight.
+        """
+        
+        
+        is_deleted = self.segment.is_deleted
+        no_exclude = exclude_docs is None
+        
+        # The format object is actually responsible for parsing the
+        # posting data from disk.
+        readfn = self.schema.field_by_number(fieldnum).format.read_weight
+        
+        for docnum, weight in self.term_table.postings((fieldnum, text), readfn = readfn):
+            if not is_deleted(docnum)\
+               and (no_exclude or docnum not in exclude_docs):
+                yield docnum, weight * boost
+    
     def postings_as(self, fieldnum, text, astype, exclude_docs = None):
+        """Yields interpreted data for each document containing
+        the given term. The current field must have stored positions
+        for this to work.
+        
+        @param astype: how to interpret the posting data, for example
+            "positions". The field must support the interpretation.
+        @param exclude_docs: a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        @param boost: a factor by which to multiply each weight.
+        """
+        
         format = self.schema.field_by_number(fieldnum).format
         
         if not format.supports(astype):
@@ -484,32 +520,16 @@ class TermReader(ClosableMixin):
         for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
             yield (docnum, interp(data))
     
-    def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
-        """
-        Yields (docnum, term_weight) tuples for each document containing
-        the current term. The current field must have stored term weights
-        for this to work.
-        
-        exclude_docs can be a set of document numbers to ignore. This
-        is used by queries to skip documents that have already been
-        eliminated from consideration.
-        boost is a factor by which to multiply each weight.
-        """
-        
-        format = self.schema.field_by_number(fieldnum).format
-        interp = format.interpreter("weight")
-        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, interp(data) * boost)
-
     def positions(self, fieldnum, text, exclude_docs = None):
         """
         Yields (docnum, [positions]) tuples for each document containing
-        the current term. The current field must have stored positions
+        the given term. The current field must have stored positions
         for this to work.
         
-        exclude_docs can be a set of document numbers to ignore. This
-        is used by queries to skip documents that have already been
-        eliminated from consideration.
+        @param exclude_docs: a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        @param boost: a factor by which to multiply each weight.
         """
         
         return self.postings_as(fieldnum, text, "positions", exclude_docs = exclude_docs)
@@ -602,7 +622,7 @@ class MultiTermReader(TermReader):
             # term count.
             yield (fnum, text, docfreq, termcount)
     
-    def postings(self, fieldnum, text, exclude_docs = set()):
+    def postings(self, fieldnum, text, exclude_docs = None):
         """
         Yields raw (docnum, data) tuples for each document containing
         the current term. This is useful if you simply want to know
@@ -620,6 +640,15 @@ class MultiTermReader(TermReader):
             if (fieldnum, text) in r:
                 for docnum, data in r.postings(fieldnum, text, exclude_docs = exclude_docs):
                     yield (docnum + offset, data)
+                    
+    def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
+        for i, r in enumerate(self.term_readers):
+            offset = self.doc_offsets[i]
+            if (fieldnum, text) in r:
+                for docnum, weight in r.weights(fieldnum, text,
+                                                exclude_docs = exclude_docs, boost = boost):
+                    yield (docnum + offset, weight)
+
 
 
 if __name__ == '__main__':
