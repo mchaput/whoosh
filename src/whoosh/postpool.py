@@ -141,27 +141,30 @@ class RunReader(object):
     This class buffers the reads to improve efficiency.
     """
     
-    def __init__(self, stream, buffer_size):
+    def __init__(self, stream, count, buffer_size):
         """
-        stream is the file from which to read.
-        buffer_size is the size (in bytes) of the read buffer to use.
+        @param stream: the file from which to read.
+        @param count: the number of postings in the stream.
+        @param buffer_size: the size (in bytes) of the read buffer to use.
         """
         
         self.stream = stream
+        self.count = count
         self.buffer_size = buffer_size
         
         self.buffer = []
         self.pointer = 0
         self.finished = False
-        
+    
+    def close(self):
+        self.stream.close()
+    
     def _fill(self):
         # Clears and refills the buffer.
         
         # If this reader is exhausted, do nothing.
         if self.finished:
             return
-        
-        buffer_size = self.buffer_size
         
         # Clear the buffer.
         buffer = self.buffer = []
@@ -172,14 +175,17 @@ class RunReader(object):
         
         # How much we've read so far.
         so_far = 0
+        count = self.count
         
-        while so_far < buffer_size:
-            try:
-                p = self.stream.read_string()
-                buffer.append(p)
-                so_far += len(p)
-            except structfile.EndOfFile:
+        while so_far < self.buffer_size:
+            if count <= 0:
                 break
+            p = self.stream.read_string()
+            buffer.append(p)
+            so_far += len(p)
+            count -= 1
+        
+        self.count = count
     
     def __iter__(self):
         return self
@@ -215,13 +221,13 @@ class PostingPool(object):
             for adding postings and the merge sort.
         """
         
-        self.run_count = 0
         self.limit = limit
         self.size = 0
         self.postings = []
         self.finished = False
         
-        self.temp_files = []
+        self.runs = []
+        self.count = 0
     
     def add_posting(self, field_num, text, doc, data):
         """Adds a posting to the pool."""
@@ -235,29 +241,26 @@ class PostingPool(object):
         posting = encode_posting(field_num, text, doc, data)
         self.size += len(posting)
         self.postings.append(posting)
-        
+        self.count += 1
+    
     def _flush_run(self):
         # Called when the memory buffer (of size self.limit) fills up.
         # Sorts the buffer and writes the current buffer to a "run" on disk.
         
         if self.size > 0:
-            run = structfile.StructFile(tempfile.TemporaryFile())
-            self.temp_files.append(run)
+            run_file = structfile.StructFile(tempfile.TemporaryFile())
             
             self.postings.sort()
             for p in self.postings:
-                run.write_string(p)
-            run.flush()
-            # Return to the start of the file for reading later
-            run.seek(0)
+                run_file.write_string(p)
+            run_file.flush()
+            run_file.seek(0)
             
-            self.run_count += 1
+            self.runs.append((run_file, self.count))
+            
             self.postings = []
             self.size = 0
-    
-    def _cleanup(self):
-        for t in self.temp_files:
-            t.close()
+            self.count = 0
     
     def __iter__(self):
         # Iterating the PostingPool object performs a merge sort of
@@ -267,7 +270,8 @@ class PostingPool(object):
         if self.finished:
             raise Exception("Tried to iterate on PostingPool twice")
         
-        if self.postings and self.run_count == 0:
+        run_count = len(self.runs)
+        if self.postings and run_count == 0:
             # Special case: we never accumulated enough postings to flush
             # to disk, so the postings are still in memory: just yield
             # them from there.
@@ -286,16 +290,19 @@ class PostingPool(object):
         
         # Divide up the posting pool's memory limit between the
         # number of runs plus an output buffer.
-        max_chunk_size = int(self.limit / (self.run_count + 1))
+        max_chunk_size = int(self.limit / (run_count + 1))
         
-        run_readers = [RunReader(t, max_chunk_size)
-                       for t in self.temp_files]
+        run_readers = [RunReader(run_file, count, max_chunk_size)
+                       for run_file, count in self.runs]
         
         for decoded_posting in merge(run_readers, max_chunk_size):
             yield decoded_posting
         
+        for rr in run_readers:
+            assert rr.count == 0
+            rr.close()
+        
         # And we're done.
-        self._cleanup()
         self.finished = True
 
 
