@@ -64,7 +64,7 @@ class IndexWriter(index.DeletionMixin):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
     
-    def __init__(self, ix, blocksize = 16 * 1024):
+    def __init__(self, ix, blocksize = 8 * 1024):
         """
         @param ix: the Index object you want to write to.
         @param blocksize: the block size for tables created by this writer.
