@@ -18,9 +18,9 @@
 encoding and compression methods such as variable-length encoded integers.
 """
 
-import cPickle
+from cPickle import dump as dump_pickle
+from cPickle import load as load_pickle
 from struct import calcsize, pack, unpack
-from struct import error as structerror
 
 _int_size = calcsize("!i")
 _long_size = calcsize("!l")
@@ -154,7 +154,7 @@ class StructFile(object):
     def write_pickle(self, obj):
         """Writes a pickled representation of obj to the wrapped file.
         """
-        cPickle.dump(obj, self.file, -1)
+        dump_pickle(obj, self.file, -1)
     
     def write_8bitfloat(self, f, mantissabits = 5, zeroexp = 2):
         """Writes a byte-sized representation of floating point value
@@ -231,7 +231,7 @@ class StructFile(object):
     def read_pickle(self):
         """Reads a pickled object from the wrapped file.
         """
-        return cPickle.load(self.file)
+        return load_pickle(self.file)
     
     def read_8bitfloat(self, mantissabits = 5, zeroexp = 2):
         """Reads a byte-sized representation of a floating point value.
