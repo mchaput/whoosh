@@ -58,7 +58,7 @@ from whoosh.lang.porter import stem
 STOP_WORDS = frozenset(("the", "to", "of", "a", "and", "is", "in", "this",
                         "you", "for", "be", "on", "or", "will", "if", "can", "are",
                         "that", "by", "with", "it", "as", "from", "an", "when",
-                        "not", "may", "tbd", "yet"))
+                        "not", "may", "tbd", "us", "yet"))
 
 
 # Utility functions
