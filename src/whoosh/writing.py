@@ -64,7 +64,7 @@ class IndexWriter(index.DeletionMixin):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
     
-    def __init__(self, ix, blocksize = 64 * 1024):
+    def __init__(self, ix, blocksize = 16 * 1024):
         """
         @param ix: the Index object you want to write to.
         @param blocksize: the block size for tables created by this writer.
@@ -98,7 +98,7 @@ class IndexWriter(index.DeletionMixin):
         """Returns the underlying SegmentWriter object."""
         
         if not self._segment_writer:
-            self._segment_writer = SegmentWriter(self.index, blocksize = self.blocksize)
+            self._segment_writer = SegmentWriter(self.index, self.blocksize)
         return self._segment_writer
     
     def searcher(self):
@@ -253,7 +253,7 @@ class SegmentWriter(object):
             #: Keeps track of the last field that was added.
             self.prev_fieldnum = None
     
-    def __init__(self, ix, name = None, blocksize = 32 * 1024):
+    def __init__(self, ix, blocksize, name = None):
         """
         @param ix: the Index object in which to write the new segment.
         @param name: the name of the segment.
@@ -284,8 +284,10 @@ class SegmentWriter(object):
         tempseg = index.Segment(self.name, 0, 0, 0, None)
         
         # Open files for writing
-        self.term_table = self.storage.create_table(tempseg.term_filename, postings = True)
-        self.doclength_records = self.storage.create_table(tempseg.doclen_filename, compressed = 1)
+        self.term_table = self.storage.create_table(tempseg.term_filename, postings = True,
+                                                    blocksize = blocksize)
+        self.doclength_records = self.storage.create_table(tempseg.doclen_filename,
+                                                           blocksize = blocksize)
         self.docs_table = self.storage.create_table(tempseg.docs_filename,
                                                     blocksize = blocksize, compressed = 9)
         
