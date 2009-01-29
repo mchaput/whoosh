@@ -73,6 +73,10 @@ class FieldType(object):
         self.scorable = scorable
         self.stored = stored
         self.unique = unique
+        
+    def clean(self):
+        if self.format: self.format.clean()
+        if self.vector: self.vector.clean()
 
 
 class ID(FieldType):
@@ -370,6 +374,10 @@ class Format(object):
     def __repr__(self):
         return "%s(%r, boost = %s)" % (self.__class__.__name__,
                                        self.analyzer, self.field_boost)
+    
+    def clean(self):
+        if self.analyzer:
+            self.analyzer.clean()
     
     def word_datas(self, value, **kwargs):
         """Takes the text value to be indexed and yields a series of

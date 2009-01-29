@@ -568,6 +568,9 @@ class Analyzer(object):
 
     def __call__(self, value):
         raise NotImplementedError
+    
+    def clean(self):
+        pass
 
 
 class IDAnalyzer(Analyzer):
@@ -629,7 +632,7 @@ class StemmingAnalyzer(Analyzer):
         if stoplist is not None:
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
-    def clear(self):
+    def clean(self):
         self.stemfilter.clear()
         
     def __call__(self, value, **kwargs):
@@ -653,7 +656,7 @@ class StandardAnalyzer(Analyzer):
         self.stopper = None
         if stoplist is not None:
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-        
+    
     def __call__(self, value, **kwargs):
         gen = LowercaseFilter(self.tokenizer(value, **kwargs))
         if self.stopper:
