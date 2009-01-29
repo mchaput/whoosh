@@ -40,15 +40,13 @@ class Storage(object):
     def __iter__(self):
         return iter(self.list())
     
-    def create_table(self, name, postings = False, **kwargs):
+    def create_table(self, name, **kwargs):
         f = self.create_file(name)
-        classname = tables.PostingTableWriter if postings else tables.TableWriter
-        return classname(f, **kwargs)
+        return tables.TableWriter(f, **kwargs)
     
-    def open_table(self, name, postings = False, **kwargs):
+    def open_table(self, name, **kwargs):
         f = self.open_file(name)
-        classname = tables.PostingTableReader if postings else tables.TableReader
-        return classname(f, **kwargs)
+        return tables.TableReader(f, **kwargs)
 
     def close(self):
         pass
@@ -218,7 +216,8 @@ class RamStorage(Storage):
         return True
     
     def unlock(self, name):
-        self.locks[name].release()
+        if name in self.locks:
+            self.locks[name].release()
     
 
 def copy_to_ram(storage):

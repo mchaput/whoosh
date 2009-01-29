@@ -353,8 +353,6 @@ class SegmentWriter(object):
         schema = ix.schema
         
         with reading.DocReader(ix.storage, segment, schema) as doc_reader:
-            _doc_info = doc_reader._doc_info
-            
             vectored_fieldnums = ix.schema.vectored_fields()
             if vectored_fieldnums:
                 doc_reader._open_vectors()
