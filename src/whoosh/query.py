@@ -557,18 +557,17 @@ class AndNot(Query):
     b are removed from the matches for a. This form can lead to counter-intuitive
     results when there is another "not" query on the right side (so the double-
     negative leads to documents the user might have meant to exclude being
-    included). For this reason, you may want to use Not() (which excludes the
+    included). For this reason, you probably want to use Not() (which excludes the
     results of a subclause) instead of this logical operator, especially when
     parsing user input.
     """
     
     def __init__(self, positive, negative, boost = 1.0):
         """
-        positive is a query to INCLUDE.
-        negative is a list of queries whose matches should be
-        EXCLUDED.
-        boost is a boost factor that should be applied to the raw score of
-        results matched by this query.
+        @param positive: query to INCLUDE.
+        @param negative: query whose matches should be EXCLUDED.
+        @param boost: boost factor that should be applied to the raw score of
+            results matched by this query.
         """
         
         self.positive = positive
