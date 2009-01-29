@@ -492,14 +492,69 @@ class StopFilter(object):
 
 
 def LowercaseFilter(tokens):
-    """
-    Uses str.lower() to lowercase token text. For example, tokens
+    """Uses str.lower() to lowercase token text. For example, tokens
     "This","is","a","TEST" become "this","is","a","test".
     """
     
     for t in tokens:
         t.text = t.text.lower()
         yield t
+
+
+class BoostTextFilter(object):
+    """Advanced filter. Looks for embedded boost markers in the actual text of
+    each token and extracts them to set the token's boost. This might be useful
+    to let users boost individual terms.
+    
+    For example, if you added a filter:
+    
+      BoostTextFilter("\\^([0-9.]+)$")
+    
+    The user could then write keywords with an optional boost encoded in them,
+    like this:
+    
+      image render^2 file^0.5
+    
+    (Of course, you might want to write a better pattern for the number part.)
+    
+     - Note that the pattern is run on EACH TOKEN, not the source text as a whole.
+     
+     - Because this filter runs a regular expression match on every token,
+       for performance reasons it is probably only suitable for short fields.
+       
+     - You may use this filter in a Frequency-formatted field, where
+       the Frequency format object has boost_as_freq = True. Bear in mind that
+       in that case, you can only use integer "boosts".
+    """
+    
+    def __init__(self, expression, group = 1, default = 1.0):
+        """
+        @param expression: a compiled regular expression object representing
+        the pattern to look for within each token.
+        @param group: the group name or number to use as the boost number
+            (what to pass to match.group()). The string value of this group is
+            passed to float().
+        @param default: the default boost to use for tokens that don't have
+            the marker.
+        """
+        
+        self.expression = expression
+        self.default = default
+        
+    def __call__(self, tokens):
+        expression = self.expression
+        default = self.default
+    
+        for t in tokens:
+            text = t.text
+            m = expression.match(text)
+            if m:
+                text = text[:m.start()] + text[m.end():]
+                t.boost = float(m.group(1))
+            else:
+                t.boost = default
+                
+            yield t
 
 # Analyzers
 
@@ -567,15 +622,21 @@ class SimpleAnalyzer(Analyzer):
 
 
 class StemmingAnalyzer(Analyzer):
-    def __init__(self):
+    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
         self.tokenizer = RegexTokenizer()
         self.stemfilter = StemFilter()
+        self.stopper = None
+        if stoplist is not None:
+            self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
     def clear(self):
         self.stemfilter.clear()
         
     def __call__(self, value, **kwargs):
-        return self.stemfilter(LowercaseFilter(self.tokenizer(value, **kwargs)))
+        gen = LowercaseFilter(self.tokenizer(value, **kwargs))
+        if self.stopper:
+            gen = self.stopper(gen)
+        return self.stemfilter(gen)
 
 
 class StandardAnalyzer(Analyzer):
@@ -589,15 +650,16 @@ class StandardAnalyzer(Analyzer):
         """
         
         self.tokenizer = RegexTokenizer()
-        
-        if stoplist is None:
-            self.stopper = PassFilter
-        else:
+        self.stopper = None
+        if stoplist is not None:
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
         
     def __call__(self, value, **kwargs):
-        return self.stopper(LowercaseFilter(
-                            self.tokenizer(value, **kwargs)))
+        gen = LowercaseFilter(self.tokenizer(value, **kwargs))
+        if self.stopper:
+            return self.stopper(gen)
+        else:
+            return gen
 
 
 class FancyAnalyzer(Analyzer):
