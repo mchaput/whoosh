@@ -20,7 +20,7 @@ This module contains classes that allow reading from an index.
 
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
-from threading import RLock
+from threading import Lock, RLock
 
 from whoosh.util import ClosableMixin, protected
 from whoosh.fields import FieldConfigurationError, UnknownFieldError
@@ -51,13 +51,13 @@ class DocReader(ClosableMixin):
         self.schema = schema
         self._scorable_fields = schema.scorable_fields()
         
-        self.doclength_records = storage.open_table(segment.doclen_filename)
+        self.doclength_table = storage.open_table(segment.doclen_filename)
         self.docs_table = storage.open_table(segment.docs_filename)
         #self.cache = FifoCache()
         
         self.vector_table = None
         self.is_closed = False
-        self._sync_lock = RLock()
+        self._sync_lock = Lock()
         
         self._cached_fieldnum = None
         self._cached_field_lengths = None
@@ -83,23 +83,22 @@ class DocReader(ClosableMixin):
     @protected
     def _doc_field_lengths(self, fieldnum):
         if self._cached_fieldnum != fieldnum:
-            self._cached_field_lengths = self.doclength_records.get(fieldnum)
+            self._cached_field_lengths = self.doclength_table.get(fieldnum)
             self._cached_fieldnum = fieldnum
         return self._cached_field_lengths
     
     @protected
     def _unique_counts(self):
         if self._unique_counts_cache: return self._unique_counts_cache
-        uc = self._unique_counts_cache = self.doclength_records.get(-2)
+        uc = self._unique_counts_cache = self.doclength_table.get(-2)
         return uc
     
     @protected
     def _total_counts(self):
         if self._total_counts_cache: return self._total_counts_cache
-        tc = self._total_counts_cache = self.doclength_records.get(-1)
+        tc = self._total_counts_cache = self.doclength_table.get(-1)
         return tc
     
-    @protected
     def _open_vectors(self):
         if not self.vector_table:
             self.vector_table = self.storage.open_table(self.segment.vector_filename,
@@ -109,7 +108,7 @@ class DocReader(ClosableMixin):
         """Closes the open files associated with this reader.
         """
         
-        self.doclength_records.close()
+        self.doclength_table.close()
         self.docs_table.close()
         if self.vector_table:
             self.vector_table.close()
@@ -126,7 +125,6 @@ class DocReader(ClosableMixin):
         """
         return self.segment.doc_count()
     
-    @protected
     def doc_length(self, docnum):
         """Returns the total number of terms in a given document.
         This is used by some scoring algorithms.
@@ -134,7 +132,6 @@ class DocReader(ClosableMixin):
         
         return self._total_counts()[docnum]
     
-    @protected
     def unique_count(self, docnum):
         """Returns the number of UNIQUE terms in a given document.
         This is used by some scoring algorithms.
@@ -175,7 +172,6 @@ class DocReader(ClosableMixin):
         readfn = self.vector_format(fieldnum).read_postvalue
         return self.vector_table.postings((docnum, fieldnum), readfn)
     
-    @protected
     def vector_as(self, docnum, fieldnum, astype):
         """Yields a sequence of interpreted (text, data) tuples
         representing the term vector for the given document and
@@ -231,14 +227,12 @@ class MultiDocReader(DocReader):
         self._scorable_fields = self.schema.scorable_fields()
         
         self.is_closed = False
-        self._sync_lock = RLock()
+        self._sync_lock = Lock()
         
-    @protected
     def __getitem__(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.doc_readers[segmentnum].__getitem__(segmentdoc)
     
-    @protected
     def __iter__(self):
         for reader in self.doc_readers:
             for result in reader:
@@ -313,7 +307,7 @@ class TermReader(ClosableMixin):
         
         self.term_table = storage.open_table(segment.term_filename)
         self.is_closed = False
-        self._sync_lock = RLock()
+        self._sync_lock = Lock()
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
@@ -330,9 +324,10 @@ class TermReader(ClosableMixin):
     
     @protected
     def __contains__(self, term):
-        fieldid, text = term
-        term = (self.schema.to_number(fieldid), text)
-        return term in self.term_table
+        """Returns True if the given term tuple (fieldid, text) is
+        in this reader.
+        """
+        return (self.schema.to_number(term[0]), term[1]) in self.term_table
     
     def close(self):
         """Closes the open files associated with this reader.
@@ -362,7 +357,7 @@ class TermReader(ClosableMixin):
         """
         
         fieldid = self.schema.to_number(fieldid)
-        if (fieldid, text) not in self:
+        if (fieldid, text) not in self.term_table:
             return 0
         return self.term_table.posting_count((fieldid, text))
     
@@ -551,7 +546,7 @@ class MultiTermReader(TermReader):
         self.schema = schema
         
         self.is_closed = False
-        self._sync_lock = RLock()
+        self._sync_lock = Lock()
     
     def __contains__(self, term):
         return any(tr.__contains__(term) for tr in self.term_readers)
