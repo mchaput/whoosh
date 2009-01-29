@@ -134,21 +134,24 @@ class TableWriter(object):
         # Write the directory
         tf.write_pickle((tuple(self.dir), self.options))
         
-        # Copy the postings onto the end of the table file
         if haspostings:
+            # Remember where we started the postings
             postpos = tf.tell()
+            # Seek back to the beginning of the postings and
+            # copy them onto the end of the table file.
             self.posting_file.seek(0)
             shutil.copyfileobj(self.posting_file, tf)
+            self.posting_file.close()
         
         # Seek back to where we started writing and write a
         # pointer to the directory
         tf.seek(self.start)
         tf.write_ulong(dirpos)
         
-        # Write a pointer to the postings
         if haspostings:
+            # Write a pointer to the postings
             tf.write_ulong(postpos)
-            self.posting_file.close()
+        
         tf.close()
     
     def _write_block(self):
@@ -184,9 +187,10 @@ class TableWriter(object):
         return writefn(pf, data)
     
     def add_row(self, key, data):
+        # Note: call this AFTER you add any postings!
         # Keys must be added in increasing order
         if key <= self.lastkey:
-            raise IndexError("IDs must increase: %r..%r" % (self.lastkey, key))
+            raise IndexError("Keys must increase: %r..%r" % (self.lastkey, key))
         
         rb = self.rowbuffer
         
@@ -241,15 +245,17 @@ class TableReader(object):
         
         if self.haspostings:
             self._read_id = self._read_id_string if self.stringids else self._read_id_varint
+            self.get = self._get_ignore_postinfo
+        else:
+            self.get = self._get_plain
     
     def __contains__(self, key):
         self._load_block(key)
         return key in self.itemdict
     
-    def __getitem__(self, key):
+    def _get_ignore_postinfo(self, key):
         self._load_block(key)
-        if self.haspostings: return self.itemdict[key][3]
-        return self.itemdict[key]
+        return self.itemdict[key][3]
     
     def _get_plain(self, key):
         self._load_block(key)
@@ -266,10 +272,9 @@ class TableReader(object):
                 self._load_block_num(i)
                 for key, value in self.itemlist:
                     yield (key, value)
-                
+    
     def _read_id_varint(self, lastid):
-        delta = self.table_file.read_varint()
-        return lastid + delta
+        return lastid + self.table_file.read_varint()
     
     def _read_id_string(self, lastid):
         return self.table_file.read_string().decode("utf8")
@@ -316,11 +321,10 @@ class TableReader(object):
     
     def postings(self, key, readfn):
         postfile = self.table_file
-        count = self._seek_postings(key)
-        
+        _read_id = self._read_id
         id = 0
-        for _ in xrange(0, count):
-            id = self._read_id(id)
+        for _ in xrange(0, self._seek_postings(key)):
+            id = _read_id(id)
             yield (id, readfn(postfile))
     
     def _load_block_num(self, bn):
@@ -348,7 +352,7 @@ class TableReader(object):
             self._load_block_num(bn)
 
     def _seek_postings(self, key):
-        offset, length, count = self._get_plain(key)[1:] #@UnusedVariable
+        offset, length, count = self._get_plain(key)[:3] #@UnusedVariable
         self.table_file.seek(self.postpos + offset)
         return count
 

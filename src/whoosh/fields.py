@@ -22,7 +22,7 @@ This module contains functions and classes related to fields.
 
 from collections import defaultdict
 
-from whoosh.analysis import Token, unstopped, IDAnalyzer, KeywordAnalyzer, StandardAnalyzer, NgramAnalyzer
+from whoosh.analysis import unstopped, IDAnalyzer, KeywordAnalyzer, StandardAnalyzer, NgramAnalyzer
 
 # Exceptions
 
@@ -131,7 +131,8 @@ class TEXT(FieldType):
     is always scorable.
     """
     
-    def __init__(self, stored = False, phrase = True, analyzer = None, field_boost = 1.0):
+    def __init__(self, analyzer = None, phrase = True, vector = None,
+                 stored = False, field_boost = 1.0):
         """
         @param stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
@@ -148,6 +149,7 @@ class TEXT(FieldType):
         
         formatclass = Positions if phrase else Frequency
         self.format = formatclass(analyzer = ana, field_boost = field_boost)
+        self.vector = vector
         
         self.scorable = True
         self.stored = stored
@@ -390,6 +392,19 @@ class Format(object):
         """Reads a posting from a filestream."""
         raise NotImplementedError
     
+    def read_weight(self, stream):
+        """Shortcut to read a posting from a filestream and return only the
+        weight, rather than all the data. This is equivalent to:
+        
+          self.data_to_weight(self.read_postvalue(stream))
+          
+        ..and in fact, that is the default implementation. However, subclassed
+        Formats can be more clever about skipping reads when all the caller
+        wants is the weight.
+        """
+        
+        return self.data_to_weight(self.read_postvalue(stream))
+    
     def supports(self, name):
         """Returns True if this format supports interpreting its posting
         data as 'name' (e.g. "frequency" or "positions").
@@ -461,10 +476,32 @@ class Frequency(Format):
     """Stores frequency information for each posting.
     """
     
+    def __init__(self, analyzer, field_boost = 1.0, boost_as_freq = False, **options):
+        """
+        @param analyzer: The analyzer object to use to index this field.
+            See the analysis module for more information. If this value
+            is None, the field is not indexed/searchable.
+        @param field_boost: A constant boost factor to scale to the score
+            of all queries matching terms in this field.
+        @param boost_as_freq: if True, take the integer value of each token's
+            boost attribute and use it as the token's frequency.
+        @type analyzer: analysis.Analyzer
+        @type field_boost: float
+        """
+        
+        self.analyzer = analyzer
+        self.field_boost = field_boost
+        self.boost_as_freq = boost_as_freq
+        self.options = options
+        
     def word_datas(self, value, **kwargs):
         seen = defaultdict(int)
-        for t in unstopped(self.analyzer(value)):
-            seen[t.text] += 1
+        if self.boost_as_freq:
+            for t in unstopped(self.analyzer(value, boosts = True)):
+                seen[t.text] += int(t.boost)
+        else:
+            for t in unstopped(self.analyzer(value)):
+                seen[t.text] += 1
             
         return ((w, freq, freq) for w, freq in seen.iteritems())
 
@@ -477,6 +514,9 @@ class Frequency(Format):
         
     def read_postvalue(self, stream):
         return stream.read_varint()
+    
+    def read_weight(self, stream):
+        return stream.read_varint() * self.field_boost
     
     def data_to_frequency(self, data):
         return data
@@ -529,18 +569,50 @@ class Positions(Format):
     def write_postvalue(self, stream, data):
         pos_base = 0
         stream.write_varint(len(data))
+        
+        if len(data) > 10:
+            streampos = stream.tell()
+            stream.write_ulong(0)
+            postingstart = stream.tell()
+            
         for pos in data:
             stream.write_varint(pos - pos_base)
             pos_base = pos
-        return len(data)
             
+        if len(data) > 10:
+            postingend = stream.tell()
+            stream.seek(streampos)
+            stream.write_ulong(postingend - postingstart)
+            stream.seek(postingend)
+        
+        return len(data)
+    
     def read_postvalue(self, stream):
         pos_base = 0
         pos_list = []
-        for _ in xrange(stream.read_varint()):
-            pos_base += stream.read_varint()
+        rv = stream.read_varint
+        freq = rv()
+        
+        if freq > 10:
+            stream.read_ulong()
+        
+        for _ in xrange():
+            pos_base += rv()
             pos_list.append(pos_base)
+        
         return pos_list
+    
+    def read_weight(self, stream):
+        rv = stream.read_varint
+        freq = rv()
+        
+        if freq > 10:
+            length = stream.read_ulong()
+            stream.seek(length, 1)
+        else:
+            for _ in xrange(0, freq): rv()
+        
+        return freq * self.field_boost
     
     def data_to_frequency(self, data):
         return len(data)
@@ -570,6 +642,12 @@ class Characters(Format):
         pos_base = 0
         char_base = 0
         stream.write_varint(len(data))
+        
+        if len(data) > 10:
+            streampos = stream.tell()
+            stream.write_ulong(0)
+            postingstart = stream.tell()
+        
         for pos, startchar, endchar in data:
             stream.write_varint(pos - pos_base)
             pos_base = pos
@@ -577,6 +655,12 @@ class Characters(Format):
             stream.write_varint(startchar - char_base)
             stream.write_varint(endchar - startchar)
             char_base = endchar
+            
+        if len(data) > 10:
+            postingend = stream.tell()
+            stream.seek(streampos)
+            stream.write_ulong(postingend - postingstart)
+            stream.seek(postingend)
         
         return len(data)
     
@@ -584,7 +668,12 @@ class Characters(Format):
         pos_base = 0
         char_base = 0
         ls = []
-        for i in xrange(stream.read_varint()): #@UnusedVariable
+        freq = stream.read_varint()
+        
+        if freq > 10:
+            stream.read_ulong()
+        
+        for i in xrange(freq): #@UnusedVariable
             pos_base += stream.read_varint()
             
             char_base += stream.read_varint()
@@ -594,6 +683,18 @@ class Characters(Format):
             ls.append((pos_base, startchar, char_base))
         
         return ls
+    
+    def read_weight(self, stream):
+        rv = stream.read_varint
+        freq = rv()
+        
+        if freq > 10:
+            length = stream.read_ulong()
+            stream.seek(length, 1)
+        else:
+            for _ in xrange(0, freq): rv()
+        
+        return freq * self.field_boost
     
     def data_to_frequency(self, data):
         return len(data)
