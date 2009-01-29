@@ -495,7 +495,7 @@ class SegmentWriter(object):
             write_postvalue = vector.write_postvalue
             for word in sorted(vdata.keys()):
                 vtable.write_posting(word, vdata[word], writefn = write_postvalue)
-            vtable.add_row((self.max_doc, fieldnum))
+            vtable.add_row((self.max_doc, fieldnum), None)
         
         # If the field is stored, add the value to the doc state
         if field.stored:
@@ -526,7 +526,6 @@ class SegmentWriter(object):
         # Postings always come out of the pool in field number/alphabetic order.
         for fieldnum, text, docnum, data in self.pool:
             # If we're starting a new term, reset everything
-            
             if write_posting_method is None or fieldnum > current_fieldnum or text > current_text:
                 if fieldnum != current_fieldnum:
                     write_posting_method = self.schema.field_by_number(fieldnum).format.write_postvalue
