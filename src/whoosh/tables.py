@@ -37,8 +37,10 @@ static "Record" files made up of fixed-length records based on the
 struct module.
 """
 
-import cPickle, shutil, tempfile
+import shutil, tempfile
 from bisect import bisect_left, bisect_right
+from cPickle import loads as load_pickle_str
+from cPickle import dumps as dump_pickle_str
 
 try:
     from zlib import compress, decompress
@@ -161,7 +163,7 @@ class TableWriter(object):
         
         self.dir.append((key, self.table_file.tell()))
         if compressed:
-            pck = cPickle.dumps(buf)
+            pck = dump_pickle_str(buf, -1)
             self.table_file.write_string(compress(pck, compressed))
         else:
             self.table_file.write_pickle(buf)
@@ -195,7 +197,7 @@ class TableWriter(object):
         rb = self.rowbuffer
         
         # Ugh! We're pickling twice! At least it's fast.
-        self.blockfilled += len(cPickle.dumps(data, -1))
+        self.blockfilled += len(dump_pickle_str(data, -1))
         self.lastkey = key
         
         if self.haspostings:
@@ -250,6 +252,8 @@ class TableReader(object):
             self.get = self._get_plain
     
     def __contains__(self, key):
+        if key < self.blockindex[0]:
+            return False
         self._load_block(key)
         return key in self.itemdict
     
@@ -328,15 +332,17 @@ class TableReader(object):
             yield (id, readfn(postfile))
     
     def _load_block_num(self, bn):
-        if bn < 0 or bn >= len(self.blockindex):
-            raise ValueError("Block number %s/%s" % (bn, len(self.blockindex)))
+        blockcount = len(self.blockindex)
+        if bn < 0 or bn >= blockcount:
+            raise ValueError("Block number %s/%s" % (bn, blockcount))
         
         pos = self.blockpositions[bn]
         self.table_file.seek(pos)
         
+        # Sooooooo sloooooow...
         if self.compressed:
             pck = self.table_file.read_string()
-            itemlist = cPickle.loads(decompress(pck))
+            itemlist = load_pickle_str(decompress(pck))
         else:
             itemlist = self.table_file.read_pickle()
         
