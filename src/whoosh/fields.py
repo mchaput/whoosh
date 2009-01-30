@@ -604,7 +604,7 @@ class Positions(Format):
         if freq > 10:
             stream.read_ulong()
         
-        for _ in xrange():
+        for _ in xrange(freq):
             pos_base += rv()
             pos_list.append(pos_base)
         
