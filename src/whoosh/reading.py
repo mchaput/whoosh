@@ -368,7 +368,7 @@ class TermReader(ClosableMixin):
         """
         
         fieldid = self.schema.to_number(fieldid)
-        if (fieldid, text) not in self:
+        if (fieldid, text) not in self.term_table:
             return 0
         return self.term_table.get((fieldid, text))
     
