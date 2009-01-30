@@ -126,8 +126,14 @@ def protected(func):
     def wrapper(self, *args, **kwargs):
         if self.is_closed:
             raise Exception("This object has been closed")
-        with self._sync_lock:
-            return func(self, *args, **kwargs)
+        if self._sync_lock.acquire(False):
+            try:
+                return func(self, *args, **kwargs)
+            finally:
+                self._sync_lock.release()
+        else:
+            raise Exception("Could not acquire sync lock")
+    
     wrapper.__doc__ = func.__doc__
     return wrapper
 
