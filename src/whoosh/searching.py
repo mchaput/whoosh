@@ -98,13 +98,13 @@ class Searcher(util.ClosableMixin):
         doc_reader = self.doc_reader
         return (doc_reader[docnum] for docnum in q.docs(self))
     
-    def search(self, query, upper = 5000, sortedby = None, reverse = False):
+    def search(self, query, limit = 5000, sortedby = None, reverse = False):
         """Runs the query represented by the query object and returns a Results object.
         
         @param query: a query.Query object representing the search query. You can translate
             a query string into a query object with e.g. qparser.QueryParser.
-        @param upper: the maximum number of documents to score. If you're only interested in
-            the top N documents, you can set upper=N to limit the scoring for a faster
+        @param limit: the maximum number of documents to score. If you're only interested in
+            the top N documents, you can set limit=N to limit the scoring for a faster
             search.
         @param sortedby: if this parameter is not None, the results are sorted instead of scored.
             If this value is a string, the results are sorted by the field named in the string.
@@ -145,11 +145,11 @@ class Searcher(util.ClosableMixin):
             scored_list = sortedby.order(self, query.docs(self), reverse = reverse)
             docvector = BitVector(doc_reader.doc_count_all(),
                                   source = scored_list)
-            if len(scored_list > upper):
-                scored_list = scored_list[:upper]
+            if len(scored_list > limit):
+                scored_list = scored_list[:limit]
         else:
             # Sort by scores
-            topdocs = TopDocs(upper, doc_reader.doc_count_all())
+            topdocs = TopDocs(limit, doc_reader.doc_count_all())
             topdocs.add_all(query.doc_scores(self, weighting = self.weighting))
             scored_list = topdocs.best()
             docvector = topdocs.docs
@@ -293,10 +293,10 @@ class Results(object):
         
         return expander.expanded_terms(terms, normalize = normalize)
 
-    def upper(self):
+    def limit(self):
         """Returns the number of RANKED documents. Note this may be fewer
         than the total number of documents the query matched, if you used
-        the 'upper' keyword of the Searcher.search() method to limit the
+        the 'limit' keyword of the Searcher.search() method to limit the
         ranking."""
         
         return len(self.scored_list)
