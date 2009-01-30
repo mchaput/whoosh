@@ -765,7 +765,7 @@ class TermRange(MultiTerm):
     Matches documents containing any terms in a given range.
     """
     
-    def __init__(self, fieldname, start, end, boost = 1.0):
+    def __init__(self, fieldname, words, boost = 1.0):
         """
         fieldname is the name of the field to search. start and end are the
         lower and upper (inclusive) bounds of the range of tokens to match.
@@ -774,8 +774,11 @@ class TermRange(MultiTerm):
         """
         
         self.fieldname = fieldname
-        self.start = start
-        self.end = end
+        if len(words) < 2 or len(words) > 2:
+            raise QueryError("TermRange argument %r should be [startword, endword]" % words)
+        self.start = words[0]
+        self.end = words[1]
+        self.words = words
         self.boost = boost
     
     def __repr__(self):
@@ -787,9 +790,9 @@ class TermRange(MultiTerm):
     
     def replace(self, oldtext, newtext):
         if self.start == oldtext:
-            return TermRange(self.fieldname, newtext, self.end, boost = self.boost)
+            return TermRange(self.fieldname, (newtext, self.end), boost = self.boost)
         elif self.end == oldtext:
-            return TermRange(self.fieldname, self.start, newtext, boost = self.boost)
+            return TermRange(self.fieldname, (self.start, newtext), boost = self.boost)
         else:
             return self
     

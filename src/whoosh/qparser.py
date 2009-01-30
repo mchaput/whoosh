@@ -234,7 +234,7 @@ class QueryParser(object):
         return query.Wildcard(fieldname or self.default_field, text)
     
     def make_range(self, fieldname, start, end):
-        return query.TermRange(fieldname or self.default_field, start, end)
+        return query.TermRange(fieldname or self.default_field, (start, end))
     
     def make_and(self, qs):
         return query.And(qs)
@@ -355,7 +355,7 @@ class MultifieldParser(QueryParser):
 
 
 if __name__=='__main__':
-    qp = QueryParser(None, default_field = "content")
+    qp = QueryParser("content")
     pn = qp.parse("title:b >> e", normalize = False)
     print "pn=", pn
     n = pn.normalize()
