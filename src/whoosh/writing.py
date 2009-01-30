@@ -64,7 +64,8 @@ class IndexWriter(index.DeletionMixin):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
     
-    def __init__(self, ix, term_blocksize = 1 * 1024, doc_blocksize = 8 * 1024):
+    def __init__(self, ix, term_blocksize = 1 * 1024, doc_blocksize = 8 * 1024,
+                 vector_blocksize = 8 * 1024):
         """
         @param ix: the Index object you want to write to.
         @param blocksize: the block size for tables created by this writer.
@@ -77,6 +78,7 @@ class IndexWriter(index.DeletionMixin):
         self.segments = ix.segments.copy()
         self.term_blocksize = term_blocksize
         self.doc_blocksize = doc_blocksize
+        self.vector_blocksize = vector_blocksize
         self._segment_writer = None
         self._searcher = None
     
@@ -99,7 +101,8 @@ class IndexWriter(index.DeletionMixin):
         """Returns the underlying SegmentWriter object."""
         
         if not self._segment_writer:
-            self._segment_writer = SegmentWriter(self.index, self.term_blocksize, self.doc_blocksize)
+            self._segment_writer = SegmentWriter(self.index, self.term_blocksize,
+                                                 self.doc_blocksize, self.vector_blocksize)
         return self._segment_writer
     
     def searcher(self):
@@ -254,7 +257,7 @@ class SegmentWriter(object):
             #: Keeps track of the last field that was added.
             self.prev_fieldnum = None
     
-    def __init__(self, ix, term_blocksize, doc_blocksize, name = None):
+    def __init__(self, ix, term_blocksize, doc_blocksize, vector_blocksize, name = None):
         """
         @param ix: the Index object in which to write the new segment.
         @param name: the name of the segment.
@@ -296,7 +299,8 @@ class SegmentWriter(object):
         if self.schema.has_vectored_fields():
             self.vector_table = self.storage.create_table(tempseg.vector_filename,
                                                           postings = True,
-                                                          stringids = True)
+                                                          stringids = True,
+                                                          blocksize = vector_blocksize)
             
     def segment(self):
         """Returns an index.Segment object for the segment being written."""
