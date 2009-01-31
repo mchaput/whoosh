@@ -69,7 +69,7 @@ def _segment_pattern(indexname):
     
     return re.compile("(_%s_[0-9]+).(%s)" % (indexname, _EXTENSIONS))
 
-def create_index_in(dirname, schema = None, indexname = None, **kwargs):
+def create_in(dirname, schema = None, indexname = None, **kwargs):
     """Convenience function to create an index in a directory. Takes care of creating
     a FileStorage object for you. dirname is the filename of the directory in
     which to create the index. schema is a fields.Schema object describing the
@@ -84,8 +84,10 @@ def create_index_in(dirname, schema = None, indexname = None, **kwargs):
         indexname = _DEF_INDEX_NAME
     
     storage = store.FileStorage(dirname)
-    if schema is None:
+    if schema is None and kwargs:
         schema = fields.Schema(**kwargs)
+    else:
+        raise Exception("You must specify either a schema or keyword arguments.")
     
     return Index(storage, schema = schema, indexname = indexname, create = True)
 
