@@ -55,6 +55,24 @@ class Searcher(util.ClosableMixin):
         
         self.is_closed = False
         
+        self._copy_methods()
+    
+    def __iter__(self):
+        return iter(self.term_reader)
+    
+    def __contains__(self, term):
+        return term in self.term_reader
+    
+    def _copy_methods(self):
+        # Copy methods from child doc_reader and term_reader objects onto this
+        # object.
+        for name in ("field_length", "doc_length", "doc_field_length", "unique_count"):
+            setattr(self, name, getattr(self.doc_reader, name))
+            
+        for name in ("lexicon", "expand_prefix", "iter_from", "doc_frequency",
+                     "frequency", "postings", "weights", "positions"):
+            setattr(self, name, getattr(self.term_reader, name))
+    
     def doc_count_all(self):
         return self._doc_count_all
     
@@ -167,53 +185,48 @@ class Searcher(util.ClosableMixin):
     def field(self, fieldname):
         return self.schema.field_by_name(fieldname)
     
-    def __iter__(self):
-        return self.term_reader.__iter__()
-    
-    def __contains__(self, term):
-        return term in self.term_reader
+    def scorable(self, fieldid):
+        return self.schema[fieldid].scorable
     
     def stored_fields(self, docnum):
         return self.doc_reader[docnum]
     
-    def field_length(self, fieldid):
-        return self.doc_reader.field_length(fieldid)
-    
-    def doc_length(self, docnum):
-        return self.doc_reader.doc_length(docnum)
-    
-    def doc_field_length(self, docnum, fieldid):
-        return self.doc_reader.doc_field_length(docnum, fieldid)
-    
-    def doc_unique_count(self, docnum):
-        return self.doc_reader.unique_count(docnum)
-    
-    def lexicon(self, fieldid):
-        return self.term_reader.lexicon(fieldid)
-    
-    def expand_prefix(self, fieldid, prefix):
-        return self.term_reader.expand_prefix(fieldid, prefix)
-    
-    def iter_from(self, fieldid, text):
-        return self.term_reader.iter_from(fieldid, text)
-    
-    def doc_frequency(self, fieldid, text):
-        return self.term_reader.doc_frequency(fieldid, text)
-    
-    def frequency(self, fieldid, text):
-        return self.term_reader.frequency(fieldid, text)
-    
-    def postings(self, fieldid, text, exclude_docs = None):
-        return self.term_reader.postings(fieldid, text, exclude_docs = exclude_docs)
-    
-    def weights(self, fieldid, text, exclude_docs = None):
-        return self.term_reader.weights(fieldid, text, exclude_docs = exclude_docs)
-    
-    def positions(self, fieldid, text, exclude_docs = None):
-        return self.term_reader.positions(fieldid, text, exclude_docs = exclude_docs)
+#    def field_length(self, fieldid):
+#        return self.doc_reader.field_length(fieldid)
+#    
+#    def doc_length(self, docnum):
+#        return self.doc_reader.doc_length(docnum)
+#    
+#    def doc_field_length(self, docnum, fieldid):
+#        return self.doc_reader.doc_field_length(docnum, fieldid)
+#    
+#    def doc_unique_count(self, docnum):
+#        return self.doc_reader.unique_count(docnum)
+#    
+#    def lexicon(self, fieldid):
+#        return self.term_reader.lexicon(fieldid)
+#    
+#    def expand_prefix(self, fieldid, prefix):
+#        return self.term_reader.expand_prefix(fieldid, prefix)
+#    
+#    def iter_from(self, fieldid, text):
+#        return self.term_reader.iter_from(fieldid, text)
+#    
+#    def doc_frequency(self, fieldid, text):
+#        return self.term_reader.doc_frequency(fieldid, text)
+#    
+#    def frequency(self, fieldid, text):
+#        return self.term_reader.frequency(fieldid, text)
+#    
+#    def postings(self, fieldid, text, exclude_docs = None):
+#        return self.term_reader.postings(fieldid, text, exclude_docs = exclude_docs)
+#    
+#    def weights(self, fieldid, text, exclude_docs = None):
+#        return self.term_reader.weights(fieldid, text, exclude_docs = exclude_docs)
+#    
+#    def positions(self, fieldid, text, exclude_docs = None):
+#        return self.term_reader.positions(fieldid, text, exclude_docs = exclude_docs)
 
-    def scorable(self, fieldid):
-        return self.schema[fieldid].scorable
 
 # Results class
 
@@ -270,6 +283,21 @@ class Results(object):
         for docnum in self.scored_list:
             yield doc_reader[docnum]
     
+    def scored_length(self):
+        """Returns the number of RANKED documents. Note this may be fewer
+        than the total number of documents the query matched, if you used
+        the 'limit' keyword of the Searcher.search() method to limit the
+        scoring."""
+        
+        return len(self.scored_list)
+    
+    def docnum(self, n):
+        """Returns the document number of the result at position n in the
+        list of ranked documents. Use __getitem__ (i.e. Results[n]) to
+        get the stored fields directly.
+        """
+        return self.scored_list[n]
+    
     def key_terms(self, fieldname, docs = 10, terms = 5,
                   model = classify.Bo1Model, normalize = True):
         """Returns the 'numterms' most important terms from the top 'numdocs' documents
@@ -283,6 +311,10 @@ class Results(object):
         @param model: The expansion model to use. See the classify module.
         @type model: classify.ExpansionModel
         """
+        
+        docs = max(docs, self.scored_length())
+        if docs <= 0: return
+        
         term_reader = self.searcher.term_reader
         doc_reader = self.searcher.doc_reader
         fieldnum = self.searcher.fieldname_to_num(fieldname)
@@ -293,21 +325,6 @@ class Results(object):
         
         return expander.expanded_terms(terms, normalize = normalize)
 
-    def limit(self):
-        """Returns the number of RANKED documents. Note this may be fewer
-        than the total number of documents the query matched, if you used
-        the 'limit' keyword of the Searcher.search() method to limit the
-        ranking."""
-        
-        return len(self.scored_list)
-    
-    def docnum(self, n):
-        """Returns the document number of the result at position n in the
-        list of ranked documents. Use __getitem__ (i.e. Results[n]) to
-        get the stored fields directly.
-        """
-        return self.scored_list[n]
-    
     def extend(self, results):
         """Appends hits from 'results' (that are not already in this
         results object) to the end of these results.
@@ -330,7 +347,7 @@ class Results(object):
         self.scored_list = [docnum for docnum in self.scored_list if docnum in docs]
         self.docs = docs
     
-    def increase(self, results, reverse = False):
+    def upgrade(self, results, reverse = False):
         """Re-sorts the results so any hits that are also in 'results' appear before
         hits not in 'results', otherwise keeping their current relative positions.
         This does not add the documents in the other results object to this one.
@@ -350,7 +367,7 @@ class Results(object):
         else:
             self.scored_list = arein + notin
             
-    def increase_and_extend(self, results):
+    def upgrade_and_extend(self, results):
         """Combines the effects of extend() and increase(): hits that are
         also in 'results' are raised. Then any hits from 'results' that are
         not in this results object are appended to the end of these
