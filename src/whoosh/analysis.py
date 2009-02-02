@@ -58,7 +58,7 @@ from whoosh.lang.porter import stem
 STOP_WORDS = frozenset(("the", "to", "of", "a", "and", "is", "in", "this",
                         "you", "for", "be", "on", "or", "will", "if", "can", "are",
                         "that", "by", "with", "it", "as", "from", "an", "when",
-                        "not", "may", "tbd", "us", "yet"))
+                        "not", "may", "tbd", "us", "we", "yet"))
 
 
 # Utility functions
@@ -479,6 +479,7 @@ class StopFilter(object):
                 # This is not a stop word
                 if renumber and t.positions:
                     t.pos = t.pos - delta
+                t.stopped = False
                 yield t
             else:
                 # This is a stop word
