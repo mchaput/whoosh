@@ -19,6 +19,7 @@ Miscellaneous utility functions and classes.
 """
 
 from __future__ import with_statement
+from functools import wraps
 from heapq import heappush, heapreplace
 
 from whoosh.support.bitvector import BitVector
@@ -123,6 +124,8 @@ def protected(func):
     (b) synchronizes on a threading lock. The parent object must
     have 'is_closed' and '_sync_lock' attributes.
     """
+    
+    @wraps(func)
     def wrapper(self, *args, **kwargs):
         if self.is_closed:
             raise Exception("This object has been closed")
@@ -134,7 +137,6 @@ def protected(func):
         else:
             raise Exception("Could not acquire sync lock")
     
-    wrapper.__doc__ = func.__doc__
     return wrapper
 
 
