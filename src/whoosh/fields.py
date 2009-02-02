@@ -75,8 +75,10 @@ class FieldType(object):
         self.unique = unique
         
     def clean(self):
-        if self.format: self.format.clean()
-        if self.vector: self.vector.clean()
+        if self.format and hasattr(self.format, "clean"):
+            self.format.clean()
+        if self.vector and hasattr(self.vector, "clean"):
+            self.vector.clean()
 
 
 class ID(FieldType):
