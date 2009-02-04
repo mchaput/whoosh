@@ -353,21 +353,18 @@ class CompoundQuery(Query):
     
 
 class Require(CompoundQuery):
-    """
-    Binary query returns results from the first query that also appear in the
+    """Binary query returns results from the first query that also appear in the
     second query, but only uses the scores from the first query. This lets you
     filter results without affecting scores.
     """
     
     JOINT = " REQUIRE "
     
-    def __init__(self, query, filterquery, boost = 1.0):
-        self.subqueries = [query, filterquery]
+    def __init__(self, subqueries, boost = 1.0):
+        assert len(subqueries) == 2
+        self.subqueries = subqueries
         self.boost = boost
         
-    def __repr__(self):
-        return '%s(%r, %r)' % (self.__class__.__name__, self.query, self.filterquery)
-    
     def docs(self, searcher, exclude_docs = None):
         return And(self.subqueries).docs(searcher, exclude_docs = exclude_docs)
     
@@ -381,7 +378,36 @@ class Require(CompoundQuery):
         for docnum, score in query.doc_scores(searcher, weighting = weighting):
             if docnum not in filter: continue
             yield docnum, score
+
+
+class AndMaybe(CompoundQuery):
+    """Binary query requires results from the first query. If and only if the
+    same document also appears in the results from the second query, the score
+    from the second query will be added to the score from the first query.
+    """
     
+    JOINT = " ANDMAYBE "
+    
+    def __init__(self, subqueries, boost = 1.0):
+        assert len(subqueries) == 2
+        self.subqueries = subqueries
+        self.boost = boost
+    
+    def docs(self, searcher, exclude_docs = None):
+        return self.subqueries[0].docs(searcher, exclude_docs = exclude_docs)
+    
+    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
+        query, maybequery = self.subqueries
+        
+        maybescores = dict(maybequery.doc_scores(searcher, weighting = weighting,
+                                                 exclude_docs = exclude_docs))
+        
+        for docnum, score in query.doc_scores(searcher, weighting = weighting,
+                                              exclude_docs = exclude_docs):
+            if docnum in maybescores:
+                score += maybescores[docnum]
+            yield (docnum, score)
+
 
 class And(CompoundQuery):
     """

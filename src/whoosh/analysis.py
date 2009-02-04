@@ -167,7 +167,7 @@ class RegexTokenizer(object):
     Uses a regular expression to extract tokens from text.
     """
     
-    _default_expression = re.compile("\w+", re.UNICODE)
+    _default_expression = re.compile(r"\w+(\.?\w+)*", re.UNICODE)
     
     def __init__(self, expression = None):
         """
@@ -233,17 +233,16 @@ class CommaSeparatedTokenizer(RegexTokenizer):
 
 
 class NgramTokenizer(object):
-    """
-    Splits input text into N-grams instead of words. For example,
+    """Splits input text into N-grams instead of words. For example,
     NgramTokenizer(3, 4)("hello") will yield token texts
     "hel", "hell", "ell", "ello", "llo".
     
-    Note that this tokenizer does NOT use a regular expression
-    to extract words, so the grams emitted by it will contain
-    whitespace, punctuation, etc. You may want to add a custom filter
-    to this tokenizer's output. Alternatively, if you only want
-    sub-word grams without whitespace, you could use RegexTokenizer
-    with NgramFilter instead.
+    Note that this tokenizer does NOT use a regular expression to extract words,
+    so the grams emitted by it will contain whitespace, punctuation, etc. You may
+    want to massage the input or add a custom filter to this tokenizer's output.
+    
+    Alternatively, if you only want sub-word grams without whitespace, you
+    could use RegexTokenizer with NgramFilter instead.
     """
     
     def __init__(self, minsize, maxsize = None):
@@ -263,7 +262,7 @@ class NgramTokenizer(object):
         t = Token(positions, chars, removestops = removestops)
         
         pos = start_pos
-        for start in xrange(0, inlen - self.min):
+        for start in xrange(0, inlen - self.min + 1):
             for size in xrange(self.min, self.max + 1):
                 end = start + size
                 if end > inlen: continue

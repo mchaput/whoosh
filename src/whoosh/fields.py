@@ -317,37 +317,41 @@ class Schema(object):
         return self.name_to_number(id)
     
     def name_to_number(self, name):
-        """
-        Given a field name, returns the field's number.
+        """Given a field name, returns the field's number.
         """
         return self._numbers[name]
     
     def number_to_name(self, number):
-        """
-        Given a field number, returns the field's name.
+        """Given a field number, returns the field's name.
         """
         return self._names[number]
     
     def has_vectored_fields(self):
-        """
-        Returns True if any of the fields in this schema store term vectors.
+        """Returns True if any of the fields in this schema store term vectors.
         """
         return any(ftype.vector for ftype in self._by_number)
     
     def vectored_fields(self):
-        """
-        Returns a list of field numbers corresponding to the fields that are
+        """Returns a list of field numbers corresponding to the fields that are
         vectored.
         """
         return [i for i, ftype in enumerate(self._by_number) if ftype.vector]
     
     def scorable_fields(self):
-        """
-        Returns a list of field numbers corresponding to the fields that
+        """Returns a list of field numbers corresponding to the fields that
         store length information.
         """
         return [i for i, field in enumerate(self) if field.scorable]
 
+    def analyzer(self, fieldname):
+        """Returns the content analyzer for the given fieldname, or None if
+        the field has no analyzer
+        """
+        
+        field = self[fieldname]
+        if field.format and field.format.analyzer:
+            return field.format.analyzer
+        
 
 # Format base class
 
