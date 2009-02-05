@@ -32,9 +32,14 @@ class SpellChecker(object):
     To use this object::
     
         st = store.FileStorage("spelldict")
-        sc = SpellChecker(st)
-        sc.create_index()
+        sp = SpellChecker(st)
         
+        sp.add_words([u"aardvark", u"manticore", u"zebra", ...])
+        # or
+        ix = index.open_dir("index")
+        sp.add_field(ix, "content")
+        
+        suggestions = sp.suggest(u"ardvark", number = 2)
     """
     
     def __init__(self, storage, indexname = "SPELL",
@@ -109,8 +114,8 @@ class SpellChecker(object):
         for size in xrange(self.mingram, self.maxgram + 1):
             key = "gram%s" % size
             nga = analysis.NgramAnalyzer(size)
-            for gram in nga.words(text):
-                grams[key].append(gram)
+            for t in nga(text):
+                grams[key].append(t.text)
         
         queries = []
         for size in xrange(self.mingram, min(self.maxgram + 1, len(text))):
@@ -164,14 +169,14 @@ class SpellChecker(object):
         with ix.term_reader() as tr:
             self.add_scored_words((w, freq) for w, _, freq in tr.iter_field(fieldname))
     
-    def add_words(self, ws, score = 0):
+    def add_words(self, ws, score = 1):
         """Adds a list of words to the backend dictionary.
         
         @param ws: A sequence of words (strings) to add to the dictionary.
         @param score: An optional score to use for ALL the words in 'ws'.
         @type ws: iterable
         """
-        self.add_scored_words((w, 0) for w in ws)
+        self.add_scored_words((w, score) for w in ws)
     
     def add_scored_words(self, ws):
         """Adds a list of ("word", score) tuples to the backend dictionary.
@@ -184,7 +189,7 @@ class SpellChecker(object):
         """
         
         writer = writing.IndexWriter(self.index())
-        for text, score in ws.iteritems():
+        for text, score in ws:
             if text.isalpha():
                 fields = {"word": text, "score": score}
                 for size in xrange(self.mingram, self.maxgram + 1):
@@ -195,7 +200,7 @@ class SpellChecker(object):
                         fields["end%s" % size] = gramlist[-1]
                         fields["gram%s" % size] = " ".join(gramlist)
                 writer.add_document(**fields)
-        writer.close()
+        writer.commit()
     
 if __name__ == '__main__':
     pass
