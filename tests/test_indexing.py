@@ -115,17 +115,17 @@ class TestIndexing(unittest.TestCase):
         
         tr = ix.term_reader()
         self.assertEqual(tr.doc_frequency("content", u"B"), 2)
-        self.assertEqual(tr.term_count("content", u"B"), 5)
+        self.assertEqual(tr.frequency("content", u"B"), 5)
         self.assertEqual(tr.doc_frequency("content", u"E"), 2)
-        self.assertEqual(tr.term_count("content", u"E"), 2)
+        self.assertEqual(tr.frequency("content", u"E"), 2)
         self.assertEqual(tr.doc_frequency("content", u"A"), 1)
-        self.assertEqual(tr.term_count("content", u"A"), 1)
+        self.assertEqual(tr.frequency("content", u"A"), 1)
         self.assertEqual(tr.doc_frequency("content", u"D"), 3)
-        self.assertEqual(tr.term_count("content", u"D"), 4)
+        self.assertEqual(tr.frequency("content", u"D"), 4)
         self.assertEqual(tr.doc_frequency("content", u"F"), 1)
-        self.assertEqual(tr.term_count("content", u"F"), 1)
+        self.assertEqual(tr.frequency("content", u"F"), 1)
         self.assertEqual(tr.doc_frequency("content", u"Z"), 0)
-        self.assertEqual(tr.term_count("content", u"Z"), 0)
+        self.assertEqual(tr.frequency("content", u"Z"), 0)
         self.assertEqual(list(tr), [(0, u"A", 1, 1), (0, u"B", 2, 5),
                                     (0, u"C", 2, 2), (0, u"D", 3, 4),
                                     (0, u"E", 2, 2), (0, u"F", 1, 1)])
