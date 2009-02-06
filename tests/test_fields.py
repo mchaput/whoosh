@@ -21,12 +21,6 @@ class TestSchema(unittest.TestCase):
         self.assert_(s["title"] is s.field_by_name("title"))
         self.assert_(s.name_to_number("path") == 2)
         self.assert_(s.number_to_name(4) == "quick")
-        self.assert_(s.is_vectored(0))
-        self.assert_(s.has_vectored_fields())
-        self.assertFalse(s.is_vectored(2))
-        self.assertEqual(s.vectored_fields(), [0, 1])
-        self.assert_(s.is_scorable(0))
-        self.assertFalse(s.is_scorable(2))
         self.assertEqual(s.scorable_fields(), [0, 1, 4])
         
     def test_creation2(self):

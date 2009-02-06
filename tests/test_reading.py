@@ -19,7 +19,7 @@ class TestReading(unittest.TestCase):
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
         w.add_document(f1 = u"A A A", f2 = u"2 3 5", f3 = u"Y R Z")
         w.add_document(f1 = u"A B", f2 = u"1 2", f3 = u"X Y")
-        w.close()
+        w.commit()
         
         return ix
     
@@ -28,16 +28,16 @@ class TestReading(unittest.TestCase):
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B C", f2 = u"1 2 3", f3 = u"X Y Z")
         w.add_document(f1 = u"D E F", f2 = u"4 5 6", f3 = u"Q R S")
-        w.close()
+        w.commit()
         
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
         w.add_document(f1 = u"A A A", f2 = u"2 3 5", f3 = u"Y R Z")
-        w.close(writing.NO_MERGE)
+        w.commit(writing.NO_MERGE)
         
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B", f2 = u"1 2", f3 = u"X Y")
-        w.close(writing.NO_MERGE)
+        w.commit(writing.NO_MERGE)
         
         return ix
     
