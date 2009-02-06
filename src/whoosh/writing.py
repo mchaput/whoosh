@@ -31,23 +31,46 @@ from whoosh.util import fib
 class IndexingError(Exception):
     pass
 
-# Constants
 
-# TODO: it might be better style to have these classes actually
-# implement the given merge policy, rather than just using them
-# as constants.
+# Merge policies
 
-class NO_MERGE(object):
-    """Indicates the writer should NOT merge small segments upon completion."""
-    def __init__(self): raise NotImplementedError
+# A merge policy is a callable that takes the Index object,
+# the SegmentWriter object, and the current SegmentSet
+# (not including the segment being written), and returns an
+# updated SegmentSet (not including the segment being
+# written).
 
-class MERGE_SMALL(object):
-    """Indicates the writer should merge small segments upon completion."""
-    def __init__(self): raise NotImplementedError
+def NO_MERGE(ix, writer, segments):
+    """This policy does not merge any existing segments.
+    """
+    return segments
 
-class OPTIMIZE(object):
-    """Indicates the writer should merge ALL segments upon completion."""
-    def __init__(self): raise NotImplementedError
+
+def MERGE_SMALL(ix, writer, segments):
+    """This policy merges small segments, where small is
+    defined using a heuristic based on the fibonacci sequence.
+    """
+    
+    newsegments = index.SegmentSet()
+    sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
+    total_docs = 0
+    for i, (count, seg) in enumerate(sorted_segment_list):
+        if count > 0:
+            total_docs += count
+            if total_docs < fib(i + 5):
+                writer.add_segment(ix, seg)
+            else:
+                newsegments.append(seg)
+    return newsegments
+
+
+def OPTIMIZE(ix, writer, segments):
+    """This policy merges all existing segments.
+    """
+    for seg in segments:
+        writer.add_segment(ix, seg)
+    return index.SegmentSet()
+
 
 # Writing classes
 
@@ -197,41 +220,12 @@ class IndexWriter(index.DeletionMixin):
         self._finish()
     
     def _merge_segments(self, mergetype):
-        if mergetype not in (NO_MERGE, MERGE_SMALL, OPTIMIZE):
-            raise ValueError("Unknown merge type: %r" % mergetype)
-        
         sw = self.segment_writer()
-        
-        segments = self.segments
-        new_segments = index.SegmentSet()
-        
-        if mergetype is OPTIMIZE:
-            # Merge all segments
-            for seg in segments:
-                sw.add_segment(self.index, seg)
-        else:
-            # Find sparse segments and merge them into the segment
-            # currently being written.
-            
-            sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
-            total_docs = 0
-            
-            if mergetype is not NO_MERGE:
-                # Merge sparse segments into the one we're
-                # currently writing
-                for i, (count, seg) in enumerate(sorted_segment_list):
-                    if count > 0:
-                        total_docs += count
-                        if total_docs < fib(i + 5):
-                            sw.add_segment(self.index, seg)
-                        else:
-                            new_segments.append(seg)
-            else:
-                new_segments = segments
-        
-        self._segment_writer.close()
+        new_segments = mergetype(self.index, sw, self.segments)
+        sw.close()
         new_segments.append(sw.segment())
         self.segments = new_segments
+
 
 # Constants for "special" fields
 UNIQUE_COUNT = -2
@@ -318,8 +312,8 @@ class SegmentWriter(object):
         
         self._flush_pool()
         
-        self.doclength_table.add_row((UNIQUE_COUNT), self.doc_field_lengths[UNIQUE_COUNT])
-        self.doclength_table.add_row((TOTAL_COUNT), self.doc_field_lengths[TOTAL_COUNT])
+        self.doclength_table.add_row(UNIQUE_COUNT, self.doc_field_lengths[UNIQUE_COUNT])
+        self.doclength_table.add_row(TOTAL_COUNT, self.doc_field_lengths[TOTAL_COUNT])
         for fieldnum in self._scorable_fields:
             arr = array("i", self.doc_field_lengths[fieldnum])
             self.doclength_table.add_row((fieldnum), arr)
