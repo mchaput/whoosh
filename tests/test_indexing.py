@@ -26,7 +26,7 @@ class TestIndexing(unittest.TestCase):
         w.add_field("note", u"This is the second document")
         w.end_document()
         
-        w.close()
+        w.commit()
         
     def test_integrity(self):
         s = fields.Schema(name = fields.TEXT, value = fields.TEXT)
@@ -36,11 +36,11 @@ class TestIndexing(unittest.TestCase):
         w = writing.IndexWriter(ix)
         w.add_document(name = u"Yellow brown", value = u"Blue red green purple?")
         w.add_document(name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
-        w.close()
+        w.commit()
         
         w = writing.IndexWriter(ix)
         w.add_document(name = u"One two", value = u"Three four five.")
-        w.close()
+        w.commit()
         
         tr = ix.term_reader()
         self.assertEqual(ix.doc_count_all(), 3)
@@ -56,7 +56,7 @@ class TestIndexing(unittest.TestCase):
         w.add_document(f1 = u"A B C D E", f2 = u"X Y Z")
         w.add_document(f1 = u"B B B B C D D", f2 = u"Q R S T")
         w.add_document(f1 = u"D E F", f2 = u"U V")
-        w.close()
+        w.commit()
         
         dr = ix.doc_reader()
         self.assertEqual(dr.doc_field_length(0, "f1"), 5)
@@ -81,17 +81,17 @@ class TestIndexing(unittest.TestCase):
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B C", f2 = u"X")
         w.add_document(f1 = u"B C D E", f2 = u"Y Z")
-        w.close()
+        w.commit()
         
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A", f2 = u"B C D E X Y")
         w.add_document(f1 = u"B C", f2 = u"X")
-        w.close(writing.NO_MERGE)
+        w.commit(writing.NO_MERGE)
         
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B X Y Z", f2 = u"B C")
         w.add_document(f1 = u"Y X", f2 = u"A B")
-        w.close(writing.NO_MERGE)
+        w.commit(writing.NO_MERGE)
         
         dr = ix.doc_reader()
         self.assertEqual(dr.doc_field_length(0, "f1"), 3)
@@ -111,7 +111,7 @@ class TestIndexing(unittest.TestCase):
         w.add_document(content = u"A B C D E")
         w.add_document(content = u"B B B B C D D")
         w.add_document(content = u"D E F")
-        w.close()
+        w.commit()
         
         tr = ix.term_reader()
         self.assertEqual(tr.doc_frequency("content", u"B"), 2)
@@ -139,7 +139,7 @@ class TestIndexing(unittest.TestCase):
         w.add_document(key = u"A", name = u"Yellow brown", value = u"Blue red green purple?")
         w.add_document(key = u"B", name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
         w.add_document(key = u"C", name = u"One two", value = u"Three four five.")
-        w.close()
+        w.commit()
         
         ix.delete_by_term("key", u"B")
         ix.commit()
@@ -148,8 +148,8 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(ix.doc_count(), 2)
         
         ix.optimize()
-        tr = ix.term_reader()
         self.assertEqual(ix.doc_count(), 2)
+        tr = ix.term_reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
         
         

@@ -17,7 +17,7 @@ class TestReading(unittest.TestCase):
         w.add_document(key = u"C", name = u"One two", value = u"Three rendered four five.")
         w.add_document(key = u"D", name = u"Quick went", value = u"Every red town.")
         w.add_document(key = u"E", name = u"Yellow uptown", value = u"Interest rendering outer photo!")
-        w.close()
+        w.commit()
         
         self.ix = ix
     
@@ -35,8 +35,8 @@ class TestReading(unittest.TestCase):
     def test_docs_method(self):
         s = self.ix.searcher()
         
-        self.assertEqual(self._get_keys(s.docs(name = "yellow")), [u"A", u"E"])
-        self.assertEqual(self._get_keys(s.docs(value = "red")), [u"A", u"D"])
+        self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
+        self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
         
     def test_queries(self):
         s = self.ix.searcher()
@@ -48,7 +48,7 @@ class TestReading(unittest.TestCase):
                   [u"A", u"D"]),
                  (Term("value", u"zeta"),
                   []),
-                 (Require(Term("value", u"red"), Term("name", u"yellow")),
+                 (Require([Term("value", u"red"), Term("name", u"yellow")]),
                   [u"A"]),
                  (And([Term("value", u"red"), Term("name", u"yellow")]),
                   [u"A"]),
