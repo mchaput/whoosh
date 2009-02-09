@@ -144,7 +144,7 @@ class DeletionMixin(object):
         reindexing them), you will want to open your own Searcher object and
         pass it in with the 'searcher' keyword argument for efficiency.
         
-        @return: the number of documents deleted.
+        :return: the number of documents deleted.
         """
         
         from whoosh.query import Term
@@ -159,7 +159,7 @@ class DeletionMixin(object):
         reindexing them), you should open your own Searcher object and
         pass it in with the 'searcher' keyword argument for efficiency.
         
-        @return: the number of documents deleted.
+        :return: the number of documents deleted.
         """
         
         if searcher is None:
@@ -189,18 +189,18 @@ class Index(DeletionMixin):
     
     def __init__(self, storage, schema = None, create = False, indexname = _DEF_INDEX_NAME):
         """
-        @param storage: The Storage object in which this index resides.
+        :param storage: The Storage object in which this index resides.
             See the store module for more details.
-        @param schema: A Schema object defining the fields of this index. If you omit
+        :param schema: A Schema object defining the fields of this index. If you omit
             this argument for an existing index, the object will load the pickled Schema
             object that was saved with the index. If you are creating a new index
             (create = True), you must supply this argument.
-        @param create: Whether to create a new index. If this is True, you must supply
+        :param create: Whether to create a new index. If this is True, you must supply
             a Schema instance using the schema keyword argument.
-        @param indexname: An optional name to use for the index. Use this if you need
+        :param indexname: An optional name to use for the index. Use this if you need
             to keep multiple indexes in the same storage object.
-        @type storage: store.Storage
-        @type schema: fields.Schema
+        :type storage: store.Storage
+        :type schema: fields.Schema
         """
         
         self.storage = storage
@@ -254,7 +254,7 @@ class Index(DeletionMixin):
         """Returns a new Index object representing the latest generation
         of this index (if this object is the latest generation, returns
         self).
-        @return: index.Index
+        :return: index.Index
         """
         
         if not self.up_to_date():
@@ -360,7 +360,7 @@ class Index(DeletionMixin):
         (that is, if someone has updated the index since you opened
         this object).
         
-        @param new_segments: a replacement SegmentSet. This is used by
+        :param new_segments: a replacement SegmentSet. This is used by
             IndexWriter to update the index after it finishes
             writing.
         """
@@ -439,7 +439,7 @@ class Index(DeletionMixin):
     def term_reader(self):
         """Returns a TermReader object for this index.
         
-        @return: reading.TermReader
+        :return: reading.TermReader
         """
         
         from whoosh import reading
@@ -456,7 +456,7 @@ class Index(DeletionMixin):
     def doc_reader(self):
         """Returns a DocReader object for this index.
         
-        @return: reading.DocReader
+        :return: reading.DocReader
         """
         
         from whoosh import reading
@@ -474,7 +474,7 @@ class Index(DeletionMixin):
         """Returns a Searcher object for this index. Keyword arguments
         are passed to the Searcher object's constructor.
         
-        @return: searching.Searcher
+        :return: searching.Searcher
         """
         
         from whoosh.searching import Searcher
@@ -483,7 +483,7 @@ class Index(DeletionMixin):
     def writer(self):
         """Returns an IndexWriter object for this index.
         
-        @return: writing.IndexWriter
+        :return: writing.IndexWriter
         """
         from whoosh.writing import IndexWriter
         return IndexWriter(self)
@@ -493,12 +493,12 @@ class Index(DeletionMixin):
         Result object. Any additional keyword arguments are passed to
         Searcher.search() along with the parsed query.
 
-        @param querystring: The query string to parse and search for.
-        @param parser: A Parser object to use to parse 'querystring'.
+        :param querystring: The query string to parse and search for.
+        :param parser: A Parser object to use to parse 'querystring'.
             The default is to use a standard qparser.QueryParser.
             This object must implement a parse(str) method which returns a
             query.Query instance.
-        @return: searching.Results
+        :return: searching.Results
         """
 
         if parser is None:
@@ -527,7 +527,7 @@ class SegmentSet(object):
         self._doc_offsets = self.doc_offsets()
     
     def __len__(self):
-        """@return: the number of segments in this set."""
+        """:return: the number of segments in this set."""
         return len(self.segments)
     
     def __iter__(self):
@@ -565,7 +565,7 @@ class SegmentSet(object):
         return segment, docnum - offset
     
     def copy(self):
-        """@return: a deep copy of this set."""
+        """:return: a deep copy of this set."""
         return self.__class__([s.copy() for s in self.segments])
     
     def doc_offsets(self):
@@ -580,34 +580,34 @@ class SegmentSet(object):
     
     def doc_count_all(self):
         """
-        @return: the total number of documents, DELETED or
+        :return: the total number of documents, DELETED or
             UNDELETED, in this set.
         """
         return sum(s.doc_count_all() for s in self.segments)
     
     def doc_count(self):
         """
-        @return: the number of undeleted documents in this set.
+        :return: the number of undeleted documents in this set.
         """
         return sum(s.doc_count() for s in self.segments)
     
     
     def max_weight(self):
         """
-        @return: the maximum frequency of any term in the set.
+        :return: the maximum frequency of any term in the set.
         """
         return max(s.max_weight for s in self.segments)
     
     def total_term_count(self):
         """
-        @return: the total number of terms in the set. Note that this
+        :return: the total number of terms in the set. Note that this
             necessarily includes deleted documents.
         """
         return sum(s.term_count for s in self.segments)
     
     def has_deletions(self):
         """
-        @return: True if this index has documents that are marked
+        :return: True if this index has documents that are marked
             deleted but haven't been optimized out of the index yet.
             This includes deletions that haven't been written to disk
             with Index.commit() yet.
@@ -625,13 +625,13 @@ class SegmentSet(object):
     
     def deleted_count(self):
         """
-        @return: the total number of deleted documents in this index.
+        :return: the total number of deleted documents in this index.
         """
         return sum(s.deleted_count() for s in self.segments)
     
     def is_deleted(self, docnum):
         """
-        @return: True if a given document number is deleted but not yet
+        :return: True if a given document number is deleted but not yet
             optimized out of the index.
         """
         
@@ -655,12 +655,12 @@ class Segment(object):
     
     def __init__(self, name, max_doc, term_count, max_weight, field_counts, deleted = None):
         """
-        @param name: The name of the segment (the Index object computes this from its
+        :param name: The name of the segment (the Index object computes this from its
             name and the generation).
-        @param max_doc: The maximum document number in the segment.
-        @param term_count: Total count of all terms in all documents.
-        @param max_count: The maximum count of any term in the segment.
-        @param deleted: A collection of deleted document numbers, or None
+        :param max_doc: The maximum document number in the segment.
+        :param term_count: Total count of all terms in all documents.
+        :param max_count: The maximum count of any term in the segment.
+        :param deleted: A collection of deleted document numbers, or None
             if no deleted documents exist in this segment.
         """
         
@@ -686,21 +686,21 @@ class Segment(object):
     
     def doc_count_all(self):
         """
-        @return: the total number of documents, DELETED OR UNDELETED,
+        :return: the total number of documents, DELETED OR UNDELETED,
             in this segment.
         """
         return self.max_doc
     
     def doc_count(self):
-        """@return: the number of (undeleted) documents in this segment."""
+        """:return: the number of (undeleted) documents in this segment."""
         return self.max_doc - self.deleted_count()
     
     def has_deletions(self):
-        """@return: True if any documents in this segment are deleted."""
+        """:return: True if any documents in this segment are deleted."""
         return self.deleted_count() > 0
     
     def deleted_count(self):
-        """@return: the total number of deleted documents in this segment."""
+        """:return: the total number of deleted documents in this segment."""
         if self.deleted is None: return 0
         return len(self.deleted)
     
@@ -712,8 +712,8 @@ class Segment(object):
         """Deletes the given document number. The document is not actually
         removed from the index until it is optimized.
 
-        @param docnum: The document number to delete.
-        @param delete: If False, this undeletes a deleted document.
+        :param docnum: The document number to delete.
+        :param delete: If False, this undeletes a deleted document.
         """
         
         if delete:
@@ -730,7 +730,7 @@ class Segment(object):
             self.deleted.remove(docnum)
     
     def is_deleted(self, docnum):
-        """@return: True if the given document number is deleted."""
+        """:return: True if the given document number is deleted."""
         
         if self.deleted is None: return False
         return docnum in self.deleted

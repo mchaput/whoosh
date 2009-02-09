@@ -47,18 +47,18 @@ class SpellChecker(object):
                  mingram = 3, maxgram = 4,
                  minscore = 0.5):
         """
-        @param storage: The storage object in which to create the
+        :param storage: The storage object in which to create the
             spell-checker's dictionary index.
-        @param indexname: The name to use for the spell-checker's
+        :param indexname: The name to use for the spell-checker's
             dictionary index. You only need to change this if you
             have multiple spelling indexes in the same storage.
-        @param booststart: How much to boost matches of the first
+        :param booststart: How much to boost matches of the first
             N-gram (the beginning of the word).
-        @param boostend: How much to boost matches of the last
+        :param boostend: How much to boost matches of the last
             N-gram (the end of the word).
-        @param mingram: The minimum gram length to store.
-        @param maxgram: The maximum gram length to store.
-        @param minscore: The minimum score matches much achieve to
+        :param mingram: The minimum gram length to store.
+        :param maxgram: The maximum gram length to store.
+        :param minscore: The minimum score matches much achieve to
             be returned.
         """
         
@@ -104,10 +104,10 @@ class SpellChecker(object):
         add words to the dictionary (using add_field, add_words, and/or add_scored_words)
         before you can use this.
         
-        @param text: The word to check.
-        @param number: The maximum number of suggestions to return.
-        @param usescores: Use the per-word score to influence the suggestions.
-        @return: list
+        :param text: The word to check.
+        :param number: The maximum number of suggestions to return.
+        :param usescores: Use the per-word score to influence the suggestions.
+        :return: list
         """
         
         grams = defaultdict(list)
@@ -159,11 +159,11 @@ class SpellChecker(object):
         If you want to calculate the scores differently, use add_scored_words()
         directly.
         
-        @param ix: The index from which to add terms.
-        @param fieldname: The field name (or number) of a field in the source
+        :param ix: The index from which to add terms.
+        :param fieldname: The field name (or number) of a field in the source
             index. All the indexed terms from this field will be added to the
             dictionary.
-        @type ix: index.Index
+        :type ix: index.Index
         """
         
         with ix.term_reader() as tr:
@@ -172,9 +172,9 @@ class SpellChecker(object):
     def add_words(self, ws, score = 1):
         """Adds a list of words to the backend dictionary.
         
-        @param ws: A sequence of words (strings) to add to the dictionary.
-        @param score: An optional score to use for ALL the words in 'ws'.
-        @type ws: iterable
+        :param ws: A sequence of words (strings) to add to the dictionary.
+        :param score: An optional score to use for ALL the words in 'ws'.
+        :type ws: iterable
         """
         self.add_scored_words((w, score) for w in ws)
     
@@ -184,8 +184,8 @@ class SpellChecker(object):
         argument of the suggest() method to order the suggestions using the
         scores.
         
-        @param ws: A sequence of ("word", score) tuples.
-        @type ws: iterable
+        :param ws: A sequence of ("word", score) tuples.
+        :type ws: iterable
         """
         
         writer = writing.IndexWriter(self.index())

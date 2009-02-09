@@ -590,9 +590,9 @@ class AndNot(Query):
     
     def __init__(self, positive, negative, boost = 1.0):
         """
-        @param positive: query to INCLUDE.
-        @param negative: query whose matches should be EXCLUDED.
-        @param boost: boost factor that should be applied to the raw score of
+        :param positive: query to INCLUDE.
+        :param negative: query whose matches should be EXCLUDED.
+        :param boost: boost factor that should be applied to the raw score of
             results matched by this query.
         """
         

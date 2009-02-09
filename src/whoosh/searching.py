@@ -33,13 +33,13 @@ class Searcher(util.ClosableMixin):
     
     def __init__(self, ix, weighting = scoring.BM25F):
         """
-        @param ix: the index to search.
-        @param weighting: a Weighting implementation to use to score
+        :param ix: the index to search.
+        :param weighting: a Weighting implementation to use to score
             the hits. If this is a class it will automatically be
             instantiated.
         
-        @type ix: index.Index
-        @type weighting: scoring.Weighting
+        :type ix: index.Index
+        :type weighting: scoring.Weighting
         """
         
         self.term_reader = ix.term_reader()
@@ -119,12 +119,12 @@ class Searcher(util.ClosableMixin):
     def search(self, query, limit = 5000, sortedby = None, reverse = False):
         """Runs the query represented by the query object and returns a Results object.
         
-        @param query: a query.Query object representing the search query. You can translate
+        :param query: a query.Query object representing the search query. You can translate
             a query string into a query object with e.g. qparser.QueryParser.
-        @param limit: the maximum number of documents to score. If you're only interested in
+        :param limit: the maximum number of documents to score. If you're only interested in
             the top N documents, you can set limit=N to limit the scoring for a faster
             search.
-        @param sortedby: if this parameter is not None, the results are sorted instead of scored.
+        :param sortedby: if this parameter is not None, the results are sorted instead of scored.
             If this value is a string, the results are sorted by the field named in the string.
             If this value is a list or tuple, it is assumed to be a sequence of strings and the
             results are sorted by the fieldnames in the sequence. Otherwise 'sortedby' should be
@@ -144,9 +144,9 @@ class Searcher(util.ClosableMixin):
             
                 searcher.search(q, sortedby = scoring.NullSorter)
         
-        @param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
-        @type sortedby: None, string, list, tuple, or scoring.Sorter
-        @type reverse: bool
+        :param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
+        :type sortedby: None, string, list, tuple, or scoring.Sorter
+        :type reverse: bool
         """
         
         doc_reader = self.doc_reader
@@ -240,15 +240,15 @@ class Results(object):
     
     def __init__(self, searcher, query, scored_list, docvector, runtime = 0):
         """
-        @param doc_reader: a reading.DocReader object from which to fetch
+        :param doc_reader: a reading.DocReader object from which to fetch
             the fields for result documents.
-        @param query: the original query that created these results.
-        @param scored_list: an ordered list of document numbers
+        :param query: the original query that created these results.
+        :param scored_list: an ordered list of document numbers
             representing the 'hits'.
-        @param docvector: a BitVector object where the indices are
+        :param docvector: a BitVector object where the indices are
             document numbers and an 'on' bit means that document is
             present in the results.
-        @param runtime: the time it took to run this search.
+        :param runtime: the time it took to run this search.
         """
         
         self.searcher = searcher
@@ -305,11 +305,11 @@ class Results(object):
         frequently in the top hits but relatively infrequently in the collection as
         a whole.
         
-        @param fieldname: Look at the terms in this field. This field store vectors.
-        @param docs: Look at this many of the top documents of the results.
-        @param terms: Return this number of important terms.
-        @param model: The expansion model to use. See the classify module.
-        @type model: classify.ExpansionModel
+        :param fieldname: Look at the terms in this field. This field store vectors.
+        :param docs: Look at this many of the top documents of the results.
+        :param terms: Return this number of important terms.
+        :param model: The expansion model to use. See the classify module.
+        :type model: classify.ExpansionModel
         """
         
         docs = max(docs, self.scored_length())
@@ -329,7 +329,7 @@ class Results(object):
         """Appends hits from 'results' (that are not already in this
         results object) to the end of these results.
         
-        @param results: another results object.
+        :param results: another results object.
         """
         
         docs = self.docs
@@ -352,8 +352,8 @@ class Results(object):
         hits not in 'results', otherwise keeping their current relative positions.
         This does not add the documents in the other results object to this one.
         
-        @param results: another results object.
-        @param reverse: if True, lower the position of hits in the other
+        :param results: another results object.
+        :param reverse: if True, lower the position of hits in the other
             results object instead of raising them.
         """
         
@@ -373,7 +373,7 @@ class Results(object):
         not in this results object are appended to the end of these
         results.
         
-        @param results: another results object.
+        :param results: another results object.
         """
         
         docs = self.docs
@@ -398,9 +398,9 @@ class Paginator(object):
     
     def __init__(self, results, perpage = 10):
         """
-        @param results: the results of a search.
-        @param perpage: the number of hits on each page.
-        @type results: searching.Results
+        :param results: the results of a search.
+        :param perpage: the number of hits on each page.
+        :type results: searching.Results
         """
         
         self.results = results

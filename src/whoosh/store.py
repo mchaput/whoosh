@@ -223,7 +223,7 @@ class RamStorage(Storage):
 def copy_to_ram(storage):
     """Copies the given storage object into a new
     RamStorage object.
-    @return: storage.RamStorage
+    :return: storage.RamStorage
     """
     
     import shutil #, time

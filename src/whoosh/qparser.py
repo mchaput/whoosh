@@ -170,11 +170,11 @@ class PyparsingBasedParser(object):
         valid queries. It may also raise a variety of exceptions if the input
         string is malformed.
         
-        @param input: the string to parse.
-        @param normalize: whether to call normalize() on the query object/tree
+        :param input: the string to parse.
+        :param normalize: whether to call normalize() on the query object/tree
             before returning it. This should be left on unless you're trying to
             debug the parser output.
-        @type input: unicode
+        :type input: unicode
         """
         
         self.stopped_words = set()
@@ -237,26 +237,26 @@ class QueryParser(PyparsingBasedParser):
                  termclass = query.Term,
                  schema = None):
         """
-        @param default_field: Use this as the field for any terms without
+        :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
             "hello f1:there" and the default field is "f2", the parsed
             query will be as if the user had entered "f2:hello f1:there".
             This argument is required.
-        @param conjuction: Use this query class to join together clauses
+        :param conjuction: Use this query class to join together clauses
             where the user has not explictly specified a join. For example,
             if this is query.And, the query string "a b c" will be parsed as
             "a AND b AND c". If this is query.Or, the string will be parsed as
             "a OR b OR c".
-        @param termclass: Use this query class for bare terms. For example,
+        :param termclass: Use this query class for bare terms. For example,
             query.Term or query.Variations.
-        @param schema: An optional schema. If this argument is present, the
+        :param schema: An optional schema. If this argument is present, the
             analyzer for the appropriate field will be run on terms/phrases
             before they are turned into query objects.
 
-        @type default_field: string
-        @type conjuction: query.Query
-        @type termclass: query.Query
-        @type schema: fields.Schema
+        :type default_field: string
+        :type conjuction: query.Query
+        :type termclass: query.Query
+        :type schema: fields.Schema
         """
 
         self.default_field = default_field
@@ -380,19 +380,19 @@ class SimpleParser(PyparsingBasedParser):
     
     def __init__(self, default_field, termclass = query.Term, schema = None):
         """
-        @param default_field: Use this as the field for any terms without
+        :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
             "hello f1:there" and the default field is "f2", the parsed
             query will be as if the user had entered "f2:hello f1:there".
             This argument is required.
-        @param termclass: Use this query class for bare terms. For example,
+        :param termclass: Use this query class for bare terms. For example,
             query.Term or query.Variations.
-        @param schema: An optional schema. If this argument is present, the
+        :param schema: An optional schema. If this argument is present, the
             analyzer for the appropriate field will be run on terms/phrases
             before they are turned into query objects.
 
-        @type default_field: string
-        @type schema: fields.Schema
+        :type default_field: string
+        :type schema: fields.Schema
         """
 
         self.default_field = default_field
@@ -444,12 +444,12 @@ class SimpleNgramParser(object):
     def __init__(self, fieldname, minchars, maxchars, discardspaces = False,
                  analyzerclass = analysis.NgramAnalyzer):
         """
-        @param fieldname: The field to search.
-        @param minchars: The minimum gram size the text was indexed with.
-        @param maxchars: The maximum gram size the text was indexed with.
-        @param discardspaces: If False, grams containing spaces are made into optional
+        :param fieldname: The field to search.
+        :param minchars: The minimum gram size the text was indexed with.
+        :param maxchars: The maximum gram size the text was indexed with.
+        :param discardspaces: If False, grams containing spaces are made into optional
             clauses of the query. If True, grams containing spaces are ignored.
-        @param analyzerclass: An analyzer class. The default is the standard NgramAnalyzer.
+        :param analyzerclass: An analyzer class. The default is the standard NgramAnalyzer.
             The parser will instantiate this analyzer with the gram size set to the maximum
             usable size based on the input string.
         """
@@ -467,8 +467,8 @@ class SimpleNgramParser(object):
         valid queries. It may also raise a variety of exceptions if the input
         string is malformed.
         
-        @param input: the string to parse.
-        @type input: unicode
+        :param input: the string to parse.
+        :type input: unicode
         """
         
         required = []
