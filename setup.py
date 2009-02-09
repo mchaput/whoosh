@@ -4,12 +4,13 @@ from setuptools import setup, find_packages
 
 setup(
 	name = "Whoosh",
-	version = "0.1",
-	packages = find_packages(exclude = ["tests"]),
+	version = "0.1.1",
+	package_dir = {'': 'src'},
+	packages = ["whoosh"],
 	
 	author = "Matt Chaput",
 	author_email = "matt@whoosh.ca",
-	description = "Fast, pure-Python full text indexing, search, and spell checking library",
+	description = "Fast, pure-Python full text indexing, search, and spell checking library.",
 	long_description = """
 Whoosh is a fast, pure-Python indexing and search library. Programmers
 can use it to easily add search functionality to their applications and
@@ -23,6 +24,9 @@ See LICENSE.txt for information.
 
 The primary source of information is the main Whoosh web site:
 http://whoosh.ca/
+
+You can check out the latest version of the source code from subversion at:
+http://svn.whoosh.ca/projects/whoosh/trunk/
 """,
 	license = "Apache 2.0",
 	keywords = "index search text spell",
