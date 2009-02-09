@@ -117,9 +117,9 @@ class Token(object):
     def __init__(self, positions = False, chars = False, boosts = False, removestops = True,
                  **kwargs):
         """
-        @param positions: Whether this token should have the token position in
+        :param positions: Whether this token should have the token position in
             the 'pos' attribute.
-        @param chars: Whether this token should have the token's character offsets
+        :param chars: Whether this token should have the token's character offsets
             in the 'startchar' and 'endchar' attributes.
         """
         
@@ -171,13 +171,13 @@ class RegexTokenizer(object):
     
     def __init__(self, expression = None):
         """
-        @param expression: A compiled regular expression object. Each match
+        :param expression: A compiled regular expression object. Each match
             of the expression equals a token. For example, the expression
             re.compile("[A-Za-z0-9]+") would give tokens that only contain
             letters and numbers. Group 0 (the entire matched text) is used
             as the text of the token. If you require more complicated handling
             of the expression match, simply write your own tokenizer.
-        @type expression: re.RegexObject
+        :type expression: re.RegexObject
         """
         
         self.expression = expression or self._default_expression
@@ -186,16 +186,16 @@ class RegexTokenizer(object):
                  keeporiginal = False, removestops = True,
                  start_pos = 0, start_char = 0):
         """
-        @param value: The text to tokenize.
-        @param positions: Whether to record token positions in the token.
-        @param chars: Whether to record character offsets in the token.
-        @param start_pos: The position number of the first token. For example,
+        :param value: The text to tokenize.
+        :param positions: Whether to record token positions in the token.
+        :param chars: Whether to record character offsets in the token.
+        :param start_pos: The position number of the first token. For example,
             if you set start_pos=2, the tokens will be numbered 2,3,4,...
             instead of 0,1,2,...
-        @param start_char: The offset of the first character of the first
+        :param start_char: The offset of the first character of the first
             token. For example, if you set start_char=2, the text "aaa bbb"
             will have chars (2,5),(6,9) instead (0,3),(4,7).
-        @type value: string
+        :type value: string
         """
         
         t = Token(positions, chars, removestops = removestops)
@@ -247,8 +247,8 @@ class NgramTokenizer(object):
     
     def __init__(self, minsize, maxsize = None):
         """
-        @param minsize: The minimum size of the N-grams.
-        @param maxsize: The maximum size of the N-grams. If you omit
+        :param minsize: The minimum size of the N-grams.
+        :param maxsize: The maximum size of the N-grams. If you omit
             this parameter, maxsize == minsize.
         """
         
@@ -298,8 +298,8 @@ class NgramFilter(object):
     
     def __init__(self, minsize, maxsize = None):
         """
-        @param minsize: The minimum size of the N-grams.
-        @param maxsize: The maximum size of the N-grams. If you omit
+        :param minsize: The minimum size of the N-grams.
+        :param maxsize: The maximum size of the N-grams. If you omit
             this parameter, maxsize == minsize.
         """
         
@@ -341,10 +341,10 @@ class StemFilter(object):
     
     def __init__(self, ignore = None):
         """
-        @param ignore: a collection of words that should not be stemmed. This
+        :param ignore: a collection of words that should not be stemmed. This
             is converted into a frozenset. If you omit this argument, all tokens
             are stemmed.
-        @type ignore: sequence 
+        :type ignore: sequence 
         """
         
         self.cache = {}
@@ -447,14 +447,14 @@ class StopFilter(object):
     def __init__(self, stoplist = STOP_WORDS, minsize = 2,
                  renumber = True):
         """
-        @param stoplist: A collection of words to remove from the stream.
+        :param stoplist: A collection of words to remove from the stream.
             This is converted to a frozenset. The default is a list of
             common stop words.
-        @param minsize: The minimum length of token texts. Tokens with
+        :param minsize: The minimum length of token texts. Tokens with
             text smaller than this will be stopped.
-        @param renumber: Change the 'pos' attribute of unstopped tokens
+        :param renumber: Change the 'pos' attribute of unstopped tokens
             to reflect their position with the stopped words removed.
-        @param remove: Whether to remove the stopped words from the stream
+        :param remove: Whether to remove the stopped words from the stream
             entirely. This is not normally necessary, since the indexing
             code will ignore tokens it receives with stopped=True.
         """
@@ -529,12 +529,12 @@ class BoostTextFilter(object):
     
     def __init__(self, expression, group = 1, default = 1.0):
         """
-        @param expression: a compiled regular expression object representing
+        :param expression: a compiled regular expression object representing
         the pattern to look for within each token.
-        @param group: the group name or number to use as the boost number
+        :param group: the group name or number to use as the boost number
             (what to pass to match.group()). The string value of this group is
             passed to float().
-        @param default: the default boost to use for tokens that don't have
+        :param default: the default boost to use for tokens that don't have
             the marker.
         """
         
@@ -581,11 +581,11 @@ class IDAnalyzer(Analyzer):
     
     def __init__(self, strip = True, lowercase = False):
         """
-        @param strip: Whether to use str.strip() to strip whitespace
+        :param strip: Whether to use str.strip() to strip whitespace
             from the value before yielding it as a token.
-        @param lowercase: Whether to convert the token to lowercase
+        :param lowercase: Whether to convert the token to lowercase
             before indexing.
-        @type strip: boolean
+        :type strip: boolean
         """
         self.strip = strip
         self.lowercase = lowercase
@@ -648,8 +648,8 @@ class StandardAnalyzer(Analyzer):
     
     def __init__(self, stoplist = STOP_WORDS, minsize = 2):
         """
-        @param stoplist: See analysis.StopFilter.
-        @param minsize: See analysis.StopFilter.
+        :param stoplist: See analysis.StopFilter.
+        :param minsize: See analysis.StopFilter.
         """
         
         self.tokenizer = RegexTokenizer()
@@ -672,8 +672,8 @@ class FancyAnalyzer(Analyzer):
     
     def __init__(self, stoplist = STOP_WORDS, minsize = 2):
         """
-        @param stoplist: See analysis.StopFilter.
-        @param minsize: See analysis.StopFilter.
+        :param stoplist: See analysis.StopFilter.
+        :param minsize: See analysis.StopFilter.
         """
         
         self.tokenizer = RegexTokenizer()

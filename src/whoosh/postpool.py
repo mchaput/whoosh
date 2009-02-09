@@ -143,9 +143,9 @@ class RunReader(object):
     
     def __init__(self, stream, count, buffer_size):
         """
-        @param stream: the file from which to read.
-        @param count: the number of postings in the stream.
-        @param buffer_size: the size (in bytes) of the read buffer to use.
+        :param stream: the file from which to read.
+        :param count: the number of postings in the stream.
+        :param buffer_size: the size (in bytes) of the read buffer to use.
         """
         
         self.stream = stream
@@ -217,7 +217,7 @@ class PostingPool(object):
     
     def __init__(self, limit = 4 * 1024 * 1024):
         """
-        @param limit: the maximum amount of memory to use at once
+        :param limit: the maximum amount of memory to use at once
             for adding postings and the merge sort.
         """
         

@@ -297,9 +297,9 @@ class TermReader(ClosableMixin):
     
     def __init__(self, storage, segment, schema):
         """
-        @param storage: The storage object in which the segment resides.
-        @param segment: The segment to read from.
-        @param schema: The index's schema object.
+        :param storage: The storage object in which the segment resides.
+        :param segment: The segment to read from.
+        :param schema: The index's schema object.
         """
         
         self.segment = segment
@@ -449,10 +449,10 @@ class TermReader(ClosableMixin):
         Yields raw (docnum, data) tuples for each document containing
         the current term.
         
-        @param exclude_docs: a set of document numbers to ignore. This
+        :param exclude_docs: a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        @param boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         is_deleted = self.segment.is_deleted
@@ -473,10 +473,10 @@ class TermReader(ClosableMixin):
         the given term. The current field must have stored term weights
         for this to work.
         
-        @param exclude_docs: a set of document numbers to ignore. This
+        :param exclude_docs: a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        @param boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         
@@ -497,12 +497,12 @@ class TermReader(ClosableMixin):
         the given term. The current field must have stored positions
         for this to work.
         
-        @param astype: how to interpret the posting data, for example
+        :param astype: how to interpret the posting data, for example
             "positions". The field must support the interpretation.
-        @param exclude_docs: a set of document numbers to ignore. This
+        :param exclude_docs: a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        @param boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         format = self.schema.field_by_number(fieldnum).format
@@ -521,10 +521,10 @@ class TermReader(ClosableMixin):
         the given term. The current field must have stored positions
         for this to work.
         
-        @param exclude_docs: a set of document numbers to ignore. This
+        :param exclude_docs: a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        @param boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         return self.postings_as(fieldnum, text, "positions", exclude_docs = exclude_docs)
