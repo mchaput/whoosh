@@ -4,9 +4,9 @@ from setuptools import setup, find_packages
 
 setup(
 	name = "Whoosh",
-	version = "0.1.1",
+	version = "0.1.2",
 	package_dir = {'': 'src'},
-	packages = ["whoosh"],
+	packages = ["whoosh", "whoosh.lang", "whoosh.support"],
 	
 	author = "Matt Chaput",
 	author_email = "matt@whoosh.ca",
