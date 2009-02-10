@@ -18,7 +18,6 @@
 This module contains classes for writing to an index.
 """
 
-from __future__ import with_statement
 from array import array
 from collections import defaultdict
 
@@ -353,7 +352,8 @@ class SegmentWriter(object):
         docnum = 0
         schema = ix.schema
         
-        with reading.DocReader(ix.storage, segment, schema) as doc_reader:
+        doc_reader = reading.DocReader(ix.storage, segment, schema)
+        try:
             vectored_fieldnums = ix.schema.vectored_fields()
             if vectored_fieldnums:
                 doc_reader._open_vectors()
@@ -387,9 +387,12 @@ class SegmentWriter(object):
             for fieldnum in self._scorable_fields:
                 arr = doc_reader._doc_field_lengths(fieldnum)
                 self.doc_field_lengths[fieldnum].extend(arr)
+        finally:
+            doc_reader.close()
         
         # Merge terms
-        with reading.TermReader(ix.storage, segment, ix.schema) as term_reader:
+        term_reader = reading.TermReader(ix.storage, segment, ix.schema)
+        try:
             for fieldnum, text, _, _ in term_reader:
                 for docnum, data in term_reader.postings(fieldnum, text):
                     if has_deletions:
@@ -398,6 +401,8 @@ class SegmentWriter(object):
                         newdoc = start_doc + docnum
                     
                     self.pool.add_posting(fieldnum, text, newdoc, data)
+        finally:
+            term_reader.close()
 
     def start_document(self):
         ds = self._doc_state
