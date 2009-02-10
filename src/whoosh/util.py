@@ -18,7 +18,6 @@
 Miscellaneous utility functions and classes.
 """
 
-from __future__ import with_statement
 from functools import wraps
 from heapq import heappush, heapreplace
 

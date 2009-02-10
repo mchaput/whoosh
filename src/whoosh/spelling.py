@@ -18,7 +18,6 @@
 as a backend for a spell-checking engine.
 """
 
-from __future__ import with_statement
 from collections import defaultdict
 
 from whoosh import analysis, fields, query, searching, writing
@@ -129,7 +128,8 @@ class SpellChecker(object):
         q = query.Or(queries)
         ix = self.index()
         
-        with searching.Searcher(ix) as s:
+        s = searching.Searcher(ix)
+        try:
             results = s.search(q)
             
             length = len(results)
@@ -149,6 +149,8 @@ class SpellChecker(object):
                     return distance(text, a[0])
             
             suggestions.sort(key = keyfn)
+        finally:
+            s.close()
         
         return [word for word, _ in suggestions[:number]]
         
@@ -166,8 +168,11 @@ class SpellChecker(object):
         :type ix: index.Index
         """
         
-        with ix.term_reader() as tr:
+        tr = ix.term_reader()
+        try:
             self.add_scored_words((w, freq) for w, _, freq in tr.iter_field(fieldname))
+        finally:
+            tr.close()
     
     def add_words(self, ws, score = 1):
         """Adds a list of words to the backend dictionary.
