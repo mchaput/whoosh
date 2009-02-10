@@ -32,12 +32,21 @@ class TestReading(unittest.TestCase):
         return self._get_keys([s.stored_fields(docnum) for docnum, score
                                in q.doc_scores(s, weighting = w)])
     
+    def test_empty_index(self):
+        schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT)
+        st = store.RamStorage()
+        ix = index.Index(st, schema)
+        
+        s = ix.searcher()
+        r = s.search(Term("value", u"hello"))
+        self.assertEqual(len(r), 0)
+    
     def test_docs_method(self):
         s = self.ix.searcher()
         
         self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
         self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
-        
+    
     def test_queries(self):
         s = self.ix.searcher()
         
