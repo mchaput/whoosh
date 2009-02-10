@@ -596,6 +596,9 @@ class SegmentSet(object):
         """
         :return: the maximum frequency of any term in the set.
         """
+        
+        if not self.segments:
+            return 0
         return max(s.max_weight for s in self.segments)
     
     def total_term_count(self):
