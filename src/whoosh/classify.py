@@ -78,9 +78,9 @@ class Expander(object):
     
     def __init__(self, searcher, fieldname, model = Bo1Model):
         """
-        :param searcher: A searching.Searcher object for the index.
-        :param fieldname: The name of the field in which to search.
-        :param model: (classify.ExpansionModel) The model to use for expanding
+        :searcher: A searching.Searcher object for the index.
+        :fieldname: The name of the field in which to search.
+        :model: (classify.ExpansionModel) The model to use for expanding
             the query terms. If you omit this parameter, the expander uses
             scoring.Bo1Model by default.
         """
@@ -107,7 +107,7 @@ class Expander(object):
     def add(self, vector):
         """Adds forward-index information about one of the "top N" documents.
         
-        :param vector: A series of (text, weight) tuples, such as is
+        :vector: A series of (text, weight) tuples, such as is
             returned by DocReader.vector_as(docnum, fieldnum, "weight").
         """
         
@@ -123,8 +123,8 @@ class Expander(object):
     def expanded_terms(self, number, normalize = True):
         """Returns the N most important terms in the vectors added so far.
         
-        :param number: The number of terms to return.
-        :param normalize: Whether to normalize the weights.
+        :number: The number of terms to return.
+        :normalize: Whether to normalize the weights.
         :*returns*: A list of ("term", weight) tuples.
         """
         

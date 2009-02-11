@@ -72,7 +72,7 @@ class SimpleFragmenter(object):
     
     def __init__(self, size = 70):
         """
-        :param size: size (in characters) to chunk to. The chunking is based on
+        :size: size (in characters) to chunk to. The chunking is based on
             tokens, so the fragments will usually be smaller.
         """
         self.size = 70
@@ -106,7 +106,7 @@ class SentenceFragmenter(object):
     
     def __init__(self, maxchars = 200, sentencechars = ".!?"):
         """
-        :param maxchars: The maximum number of characters allowed in a fragment.
+        :maxchars: The maximum number of characters allowed in a fragment.
         """
         
         self.maxchars = maxchars
@@ -153,12 +153,12 @@ class ContextFragmenter(object):
     
     def __init__(self, termset, maxchars = 200, charsbefore = 20, charsafter = 20):
         """
-        :param termset: A collection (probably a set or frozenset) containing the
+        :termset: A collection (probably a set or frozenset) containing the
             terms you want to match to token.text attributes.
-        :param maxchars: The maximum number of characters allowed in a fragment.
-        :param charsbefore: The number of extra characters of context to add before
+        :maxchars: The maximum number of characters allowed in a fragment.
+        :charsbefore: The number of extra characters of context to add before
             the first matched term.
-        :param charsafter: The number of extra characters of context to add after
+        :charsafter: The number of extra characters of context to add after
             the last matched term.
         """
         
@@ -203,13 +203,13 @@ class ContextFragmenter(object):
 #class VectorFragmenter(object):
 #    def __init__(self, termmap, maxchars = 200, charsbefore = 20, charsafter = 20):
 #        """
-#        :param termmap: A dictionary mapping the terms you're looking for to
+#        :termmap: A dictionary mapping the terms you're looking for to
 #            lists of either (posn, startchar, endchar) or
 #            (posn, startchar, endchar, boost) tuples.
-#        :param maxchars: The maximum number of characters allowed in a fragment.
-#        :param charsbefore: The number of extra characters of context to add before
+#        :maxchars: The maximum number of characters allowed in a fragment.
+#        :charsbefore: The number of extra characters of context to add before
 #            the first matched term.
-#        :param charsafter: The number of extra characters of context to add after
+#        :charsafter: The number of extra characters of context to add after
 #            the last matched term.
 #        """
 #        
@@ -303,7 +303,7 @@ class GenshiFormatter(object):
         self.qname = qname
         self.between = between
         
-        from genshi.core import START, END, TEXT, Attrs, Stream
+        from genshi.core import START, END, TEXT, Attrs, Stream #@UnresolvedImport
         self.START, self.END, self.TEXT, self.Attrs, self.Stream = (START, END, TEXT, Attrs, Stream)
 
     def _add_text(self, text, output):

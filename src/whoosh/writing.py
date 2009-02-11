@@ -89,8 +89,8 @@ class IndexWriter(index.DeletionMixin):
     def __init__(self, ix, term_blocksize = 1 * 1024, doc_blocksize = 8 * 1024,
                  vector_blocksize = 8 * 1024):
         """
-        :param ix: the Index object you want to write to.
-        :param blocksize: the block size for tables created by this writer.
+        :ix: the Index object you want to write to.
+        :blocksize: the block size for tables created by this writer.
         """
         
         # Obtain a lock
@@ -143,10 +143,8 @@ class IndexWriter(index.DeletionMixin):
     def add_field(self, fieldname, text, stored_value = None):
         """Adds a the value of a field to the document opened with start_document().
         
-        :param fieldname: The name of the field in which to index/store the text.
-        :param text: The text to index.
-        :type fieldname: string
-        :type text: unicode
+        :fieldname: The name of the field in which to index/store the text.
+        :text: The unicode text to index.
         """
         self.segment_writer().add_field(fieldname, text, stored_value = stored_value)
         
@@ -203,8 +201,8 @@ class IndexWriter(index.DeletionMixin):
     def commit(self, mergetype = MERGE_SMALL):
         """Finishes writing and unlocks the index.
         
-        :param mergetype: How to merge existing segments.
-        :type mergetype: one of NO_MERGE, MERGE_SMALL, or OPTIMIZE
+        :mergetype: How to merge existing segments. One of
+            writing.NO_MERGE, writing.MERGE_SMALL, or writing.OPTIMIZE.
         """
         
         if self._segment_writer or mergetype is OPTIMIZE:
@@ -252,9 +250,9 @@ class SegmentWriter(object):
     
     def __init__(self, ix, term_blocksize, doc_blocksize, vector_blocksize, name = None):
         """
-        :param ix: the Index object in which to write the new segment.
-        :param name: the name of the segment.
-        :param blocksize: the block size to use for tables created by this writer.
+        :ix: the Index object in which to write the new segment.
+        :name: the name of the segment.
+        :blocksize: the block size to use for tables created by this writer.
         """
         
         self.index = ix
@@ -336,10 +334,8 @@ class SegmentWriter(object):
         """Adds the contents of another segment to this one. This is used
         to merge existing segments into the new one before deleting them.
         
-        :param ix: The index containing the segment to merge.
-        :param segment: The segment to merge into this one.
-        :type ix: index.Index
-        :type segment: index.Segment
+        :ix: The index.Index object containing the segment to merge.
+        :segment: The index.Segment object to merge into this one.
         """
         
         start_doc = self.max_doc
