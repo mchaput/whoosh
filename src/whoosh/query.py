@@ -432,7 +432,10 @@ class And(CompoundQuery):
         
         # Create an array representing the number of subqueries that hit each
         # document.
-        type = "B" if target <= 255 else "i"
+        if target <= 255:
+            type = "B"
+        else:
+            type = "i"
         counters = array(type, (0 for _ in xrange(0, searcher.doc_count_all())))
         for q in self._subqueries:
             for docnum in q.docs(searcher, exclude_docs = exclude_docs):

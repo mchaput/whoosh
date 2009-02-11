@@ -153,7 +153,10 @@ class TEXT(FieldType):
         
         ana = analyzer or StandardAnalyzer()
         
-        formatclass = Positions if phrase else Frequency
+        if phrase:
+            formatclass = Positions
+        else:
+            formatclass = Frequency
         self.format = formatclass(analyzer = ana, field_boost = field_boost)
         self.vector = vector
         
