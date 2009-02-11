@@ -604,7 +604,10 @@ class KeywordAnalyzer(Analyzer):
     
     def __init__(self, lowercase = False, commas = False):
         self.lowercase = lowercase
-        self.tokenizer = CommaSeparatedTokenizer() if commas else SpaceSeparatedTokenizer()
+        if commas:
+            self.tokenizer = CommaSeparatedTokenizer()
+        else:
+            self.tokenizer = SpaceSeparatedTokenizer()
     
     def __call__(self, value, **kwargs):
         if self.lowercase:

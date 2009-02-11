@@ -283,7 +283,10 @@ class FieldSorter(Sorter):
         
         # Create an array of an int for every document in the index.
         N = searcher.doc_count_all()
-        default = -1 if missingfirst else N + 1
+        if missingfirst:
+            default = -1
+        else:
+            default = N + 1
         cache = array("i", [default] * N)
         
         # For every document containing every term in the field, set

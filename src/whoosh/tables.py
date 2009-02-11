@@ -246,7 +246,10 @@ class TableReader(object):
         self.itemdict = None
         
         if self.haspostings:
-            self._read_id = self._read_id_string if self.stringids else self._read_id_varint
+            if self.stringids:
+                self._read_id = self._read_id_string
+            else:
+                self._read_id = self._read_id_varint
             self.get = self._get_ignore_postinfo
         else:
             self.get = self._get_plain

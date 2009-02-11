@@ -39,7 +39,10 @@ def float_to_byte(value, mantissabits = 5, zeroexp = 2):
     if smallfloat < fzero:
         # Map negative numbers and 0 to 0
         # Map underflow to next smallest non-zero number
-        return 0 if bits <= 0 else 1
+        if bits <= 0:
+            return 0
+        else:
+            return 1
     elif smallfloat >= fzero + 0x100:
         # Map overflow to largest number
         return 255
