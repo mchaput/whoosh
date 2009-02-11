@@ -33,13 +33,10 @@ class Searcher(util.ClosableMixin):
     
     def __init__(self, ix, weighting = scoring.BM25F):
         """
-        :param ix: the index to search.
-        :param weighting: a Weighting implementation to use to score
-            the hits. If this is a class it will automatically be
+        :param ix: the index.Index object to search.
+        :param weighting: a scoring.Weighting implementation to use to
+            score the hits. If this is a class it will automatically be
             instantiated.
-        
-        :type ix: index.Index
-        :type weighting: scoring.Weighting
         """
         
         self.term_reader = ix.term_reader()
@@ -145,8 +142,6 @@ class Searcher(util.ClosableMixin):
                 searcher.search(q, sortedby = scoring.NullSorter)
         
         :param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
-        :type sortedby: None, string, list, tuple, or scoring.Sorter
-        :type reverse: bool
         """
         
         doc_reader = self.doc_reader
@@ -308,18 +303,16 @@ class Results(object):
         :param fieldname: Look at the terms in this field. This field store vectors.
         :param docs: Look at this many of the top documents of the results.
         :param terms: Return this number of important terms.
-        :param model: The expansion model to use. See the classify module.
-        :type model: classify.ExpansionModel
+        :param model: The classify.ExpansionModel to use. See the classify module.
         """
         
         docs = max(docs, self.scored_length())
         if docs <= 0: return
         
-        term_reader = self.searcher.term_reader
         doc_reader = self.searcher.doc_reader
         fieldnum = self.searcher.fieldname_to_num(fieldname)
         
-        expander = classify.Expander(term_reader, fieldnum, model = model)
+        expander = classify.Expander(self.searcher, fieldnum, model = model)
         for docnum in self.scored_list[:docs]:
             expander.add(doc_reader.vector_as(docnum, fieldnum, "weight"))
         
@@ -398,9 +391,8 @@ class Paginator(object):
     
     def __init__(self, results, perpage = 10):
         """
-        :param results: the results of a search.
+        :param results: the searching.Results object from a search.
         :param perpage: the number of hits on each page.
-        :type results: searching.Results
         """
         
         self.results = results

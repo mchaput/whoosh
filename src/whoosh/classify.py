@@ -25,9 +25,9 @@ from math import log
 # Expansion models
 
 class ExpansionModel(object):
-    def __init__(self, ix):
-        self.N = ix.doc_count()
-        self.collection_total = ix.term_total()
+    def __init__(self, searcher):
+        self.N = searcher.doc_count_all()
+        self.collection_total = searcher.total_term_count()
         self.mean_length = self.collection_total / self.N
     
     def normalizer(self, maxweight, top_total):
@@ -76,26 +76,25 @@ class Expander(object):
     the top N result documents.
     """
     
-    def __init__(self, term_reader, fieldname, model = Bo1Model):
+    def __init__(self, searcher, fieldname, model = Bo1Model):
         """
-        :param ix: The index to search.
+        :param searcher: A searching.Searcher object for the index.
         :param fieldname: The name of the field in which to search.
-        :param model: The model to use for expanding the query terms. If you
-            omit this parameter, the expander uses Bo1Model by default.
-        :type ix: index.Index
-        :type fieldname: string
-        :type model: classify.ExpansionModel
+        :param model: (classify.ExpansionModel) The model to use for expanding
+            the query terms. If you omit this parameter, the expander uses
+            scoring.Bo1Model by default.
         """
         
         self.fieldname = fieldname
         
         if callable(model):
-            model = model(ix)
+            model = model(searcher)
         self.model = model
         
         # Cache the collection frequency of every term in this
         # field. This turns out to be much faster than reading each
         # individual weight from the term index as we add words.
+        term_reader = searcher.term_reader
         self.collection_freq = dict((word, freq) for word, _, freq
                                       in term_reader.iter_field(fieldname))
         
@@ -126,7 +125,7 @@ class Expander(object):
         
         :param number: The number of terms to return.
         :param normalize: Whether to normalize the weights.
-        :return: A list of ("term", weight) tuples.
+        :*returns*: A list of ("term", weight) tuples.
         """
         
         model = self.model
