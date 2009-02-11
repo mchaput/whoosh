@@ -90,7 +90,7 @@ class ID(FieldType):
     
     def __init__(self, stored = False, unique = False):
         """
-        :param stored: Whether the value of this field is stored with the document.
+        :stored: Whether the value of this field is stored with the document.
         """
         self.format = Existance(analyzer = IDAnalyzer())
         self.stored = stored
@@ -117,10 +117,10 @@ class KEYWORD(FieldType):
     def __init__(self, stored = False, lowercase = False, commas = False,
                  scorable = False, unique = False, field_boost = 1.0):
         """
-        :param stored: Whether to store the value of the field with the document.
-        :param comma: Whether this is a comma-separated field. If this is False
+        :stored: Whether to store the value of the field with the document.
+        :comma: Whether this is a comma-separated field. If this is False
             (the default), it is treated as a space-separated field.
-        :param scorable: Whether this field is scorable.
+        :scorable: Whether this field is scorable.
         """
         
         ana = KeywordAnalyzer(lowercase = lowercase, commas = commas)
@@ -140,15 +140,14 @@ class TEXT(FieldType):
     def __init__(self, analyzer = None, phrase = True, vector = None,
                  stored = False, field_boost = 1.0):
         """
-        :param stored: Whether to store the value of this field with the document. Since
+        :stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
             with the document unless you need to, for example to allow fast excerpts in the
             search results.
-        :param phrase: Whether the store positional information to allow phrase searching.
-        :param analyzer: The analyzer to use to index the field contents. See the analysis
-            module for more information. If you omit this argument, the field uses
+        :phrase: Whether the store positional information to allow phrase searching.
+        :analyzer: The analysis.Analyzer to use to index the field contents. See the
+            analysis module for more information. If you omit this argument, the field uses
             analysis.StandardAnalyzer.
-        :type analyzer: analysis.Analyzer
         """
         
         ana = analyzer or StandardAnalyzer()
@@ -173,12 +172,12 @@ class NGRAM(FieldType):
     
     def __init__(self, minsize = 2, maxsize = 4, stored = False):
         """
-        :param stored: Whether to store the value of this field with the document. Since
+        :stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
             with the document unless you need to, for example to allow fast excerpts in the
             search results.
-        :param minsize: The minimum length of the N-grams.
-        :param maxsize: The maximum length of the N-grams.
+        :minsize: The minimum length of the N-grams.
+        :maxsize: The maximum length of the N-grams.
         """
         
         self.format = Frequency(analyzer = NgramAnalyzer(minsize, maxsize))
@@ -234,7 +233,7 @@ class Schema(object):
         """
         Returns the field associated with the given field name or number.
         
-        :param id: A field name or field number.
+        :id: A field name or field number.
         """
         
         if isinstance(id, basestring):
@@ -251,8 +250,7 @@ class Schema(object):
         """
         Returns True if a field by the given name is in this schema.
         
-        :param fieldname: The name of the field.
-        :type fieldname: string
+        :fieldname: The name of the field.
         """
         return fieldname in self._by_name
     
@@ -260,7 +258,7 @@ class Schema(object):
         """
         Returns the field object associated with the given name.
         
-        :param name: The name of the field to retrieve.
+        :name: The name of the field to retrieve.
         """
         return self._by_name[name]
     
@@ -268,7 +266,7 @@ class Schema(object):
         """
         Returns the field object associated with the given number.
         
-        :param number: The number of the field to retrieve.
+        :number: The number of the field to retrieve.
         """
         return self._by_number[number]
     
@@ -289,12 +287,11 @@ class Schema(object):
         """
         Adds a field to this schema.
         
-        :param name: The name of the field.
-        :param fieldtype: An instantiated FieldType object, or a FieldType subclass.
+        :name: The name of the field.
+        :fieldtype: An instantiated fields.FieldType object, or a FieldType subclass.
             If you pass an instantiated object, the schema will use that as the field
             configuration for this field. If you pass a FieldType subclass, the schema
             will automatically instantiate it with the default constructor.
-        :type fieldtype: fields.FieldType
         """
         
         if name.startswith("_"):
@@ -367,13 +364,11 @@ class Format(object):
     
     def __init__(self, analyzer, field_boost = 1.0, **options):
         """
-        :param analyzer: The analyzer object to use to index this field.
+        :analyzer: The analysis.Analyzer object to use to index this field.
             See the analysis module for more information. If this value
             is None, the field is not indexed/searchable.
-        :param field_boost: A constant boost factor to scale to the score
+        :field_boost: A constant boost factor to scale to the score
             of all queries matching terms in this field.
-        :type analyzer: analysis.Analyzer
-        :type field_boost: float
         """
         
         self.analyzer = analyzer
@@ -396,8 +391,7 @@ class Format(object):
         would be the same as frequency; in a Positions format, data would be a
         list of token positions at which "tokentext" occured.
         
-        :param value: The text to index.
-        :type value: unicode
+        :value: The unicode text to index.
         """
         raise NotImplementedError
     
@@ -495,15 +489,13 @@ class Frequency(Format):
     
     def __init__(self, analyzer, field_boost = 1.0, boost_as_freq = False, **options):
         """
-        :param analyzer: The analyzer object to use to index this field.
+        :analyzer: The analysis.Analyzer object to use to index this field.
             See the analysis module for more information. If this value
             is None, the field is not indexed/searchable.
-        :param field_boost: A constant boost factor to scale to the score
+        :field_boost: A constant boost factor to scale to the score
             of all queries matching terms in this field.
-        :param boost_as_freq: if True, take the integer value of each token's
+        :boost_as_freq: if True, take the integer value of each token's
             boost attribute and use it as the token's frequency.
-        :type analyzer: analysis.Analyzer
-        :type field_boost: float
         """
         
         self.analyzer = analyzer

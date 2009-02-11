@@ -71,12 +71,12 @@ class Weighting(object):
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         """Returns the score for a given term in the given document.
         
-        :param searcher: the searcher doing the scoring.
-        :param fieldnum: the field number of the term being scored.
-        :param text: the text of the term being scored.
-        :param docnum: the doc number of the document being scored.
-        :param weight: the frequency * boost of the term in this document.
-        :param QTF: the frequency of the term in the query.
+        :searcher: the searcher doing the scoring.
+        :fieldnum: the field number of the term being scored.
+        :text: the text of the term being scored.
+        :docnum: the doc number of the document being scored.
+        :weight: the frequency * boost of the term in this document.
+        :QTF: the frequency of the term in the query.
         """
         raise NotImplementedError
 
@@ -263,8 +263,8 @@ class FieldSorter(Sorter):
     
     def __init__(self, fieldname, missingfirst = False):
         """
-        :param fieldname: The name of the field to sort by.
-        :param missingfirst: Place documents which don't have the given
+        :fieldname: The name of the field to sort by.
+        :missingfirst: Place documents which don't have the given
             field first in the sorted results. The default is to put those
             documents last (after all documents that have the given field).
         """
@@ -325,8 +325,8 @@ class MultiFieldSorter(FieldSorter):
     
     def __init__(self, fieldnames, missingfirst = False):
         """
-        :param fieldnames: A list of field names to sort by.
-        :param missingfirst: Place documents which don't have the given
+        :fieldnames: A list of field names to sort by.
+        :missingfirst: Place documents which don't have the given
             field first in the sorted results. The default is to put those
             documents last (after all documents that have the given field).
         """

@@ -53,14 +53,14 @@
 #    
 #    Translated into Python from the passages engine of the Minion search engine.
 #    
-#    :param words: List of the search words.
-#    :param poslist: List of lists, where each sublist contains the positions
+#    :words: List of the search words.
+#    :poslist: List of lists, where each sublist contains the positions
 #        at which the corresponding search word (from the 'words' list) was found.
-#    :param maxmissing: The maximum number of missing words allowed. The default
+#    :maxmissing: The maximum number of missing words allowed. The default
 #        is the number of words in 'words'. Set this to 0 to only find passages
 #        containing all the search words.
-#    :param minwindow: The minimum size for passages (in words).
-#    :param maxwindow: The maximum size for passages (in words).
+#    :minwindow: The minimum size for passages (in words).
+#    :maxwindow: The maximum size for passages (in words).
 #    """
 #    
 #    if maxmissing is None:
