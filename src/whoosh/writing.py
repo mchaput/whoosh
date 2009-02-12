@@ -86,7 +86,8 @@ class IndexWriter(index.DeletionMixin):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
     
-    def __init__(self, ix, term_blocksize = 1 * 1024, doc_blocksize = 8 * 1024,
+    def __init__(self, ix, postlimit = 4 * 1024 * 1024,
+                 term_blocksize = 1 * 1024, doc_blocksize = 8 * 1024,
                  vector_blocksize = 8 * 1024):
         """
         :ix: the Index object you want to write to.
@@ -98,6 +99,7 @@ class IndexWriter(index.DeletionMixin):
         
         self.index = ix
         self.segments = ix.segments.copy()
+        self.postlimit = postlimit
         self.term_blocksize = term_blocksize
         self.doc_blocksize = doc_blocksize
         self.vector_blocksize = vector_blocksize
@@ -123,7 +125,8 @@ class IndexWriter(index.DeletionMixin):
         """Returns the underlying SegmentWriter object."""
         
         if not self._segment_writer:
-            self._segment_writer = SegmentWriter(self.index, self.term_blocksize,
+            self._segment_writer = SegmentWriter(self.index, self.postlimit,
+                                                 self.term_blocksize,
                                                  self.doc_blocksize, self.vector_blocksize)
         return self._segment_writer
     
@@ -248,9 +251,12 @@ class SegmentWriter(object):
             #: Keeps track of the last field that was added.
             self.prev_fieldnum = None
     
-    def __init__(self, ix, term_blocksize, doc_blocksize, vector_blocksize, name = None):
+    def __init__(self, ix, postlimit,
+                 term_blocksize, doc_blocksize, vector_blocksize,
+                 name = None):
         """
         :ix: the Index object in which to write the new segment.
+        :postlimit: the maximum size for a run in the posting pool.
         :name: the name of the segment.
         :blocksize: the block size to use for tables created by this writer.
         """
@@ -271,7 +277,7 @@ class SegmentWriter(object):
         self._doc_state = SegmentWriter.DocumentState()
         self._scorable_fields = self.schema.scorable_fields()
         
-        self.pool = postpool.PostingPool()
+        self.pool = postpool.PostingPool(limit = postlimit)
         
         # Create a temporary segment object just so we can access
         # its *_filename attributes (so if we want to change the

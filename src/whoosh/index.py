@@ -478,13 +478,13 @@ class Index(DeletionMixin):
         from whoosh.searching import Searcher
         return Searcher(self, **kwargs)
     
-    def writer(self):
+    def writer(self, **kwargs):
         """Returns an IndexWriter object for this index.
         
         :*returns*: writing.IndexWriter
         """
         from whoosh.writing import IndexWriter
-        return IndexWriter(self)
+        return IndexWriter(self, **kwargs)
     
     def find(self, querystring, parser = None, **kwargs):
         """Parses querystring, runs the query in this index, and returns a

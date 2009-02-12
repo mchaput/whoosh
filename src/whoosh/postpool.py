@@ -215,7 +215,7 @@ class PostingPool(object):
     postings to the SegmentWriter.
     """
     
-    def __init__(self, limit = 4 * 1024 * 1024):
+    def __init__(self, limit):
         """
         :limit: the maximum amount of memory to use at once
             for adding postings and the merge sort.
