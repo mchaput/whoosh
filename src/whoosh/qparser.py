@@ -118,7 +118,7 @@ def _make_default_parser():
 def _make_simple_parser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
     
-    wordToken = Regex(r"(\w|/)+(\.?(\w|/)+)*", re.UNICODE)
+    wordToken = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
     
     # A word-like thing
     generalWord = Group(wordToken).setResultsName("Word")
