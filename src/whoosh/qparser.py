@@ -63,7 +63,7 @@ def _make_default_parser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
     
     #wordToken = Word(self.wordChars)
-    wordToken = Regex(r"(\w|/)+(\.?(\w|/)+)*", re.UNICODE)
+    wordToken = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
     
     # A plain old word.
     plainWord = Group(wordToken).setResultsName("Word")
