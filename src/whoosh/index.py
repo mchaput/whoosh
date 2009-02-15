@@ -77,6 +77,8 @@ def create_in(dirname, schema = None, indexname = None, **kwargs):
     specify this if you are creating multiple indexes within the
     same storage object.
     
+    If you specify both a schema and keyword arguments, the schema wins.
+    
     Returns an Index object.
     """
     
@@ -84,9 +86,9 @@ def create_in(dirname, schema = None, indexname = None, **kwargs):
         indexname = _DEF_INDEX_NAME
     
     storage = store.FileStorage(dirname)
-    if schema is None and kwargs:
+    if kwargs and not schema:
         schema = fields.Schema(**kwargs)
-    else:
+    elif not schema and not kwargs:
         raise Exception("You must specify either a schema or keyword arguments.")
     
     return Index(storage, schema = schema, indexname = indexname, create = True)
@@ -741,10 +743,3 @@ class Segment(object):
         
 if __name__ == '__main__':
     pass
-    
-    
-    
-    
-    
-    
-    
