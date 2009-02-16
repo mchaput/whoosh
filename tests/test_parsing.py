@@ -2,7 +2,7 @@ import unittest
 
 from whoosh import qparser
 
-class TestSchema(unittest.TestCase):
+class TestQueryParser(unittest.TestCase):
     def test_boost(self):
         qp = qparser.QueryParser("content")
         q = qp.parse("this^3 that^0.5")
