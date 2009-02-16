@@ -89,10 +89,13 @@ def _make_default_parser():
     # Parentheses can enclose (group) any expression
     parenthetical = Group((Suppress("(") + expression + Suppress(")"))).setResultsName("Group")
 
+    boostableUnit = quotedPhrase | generalWord
+    boostedUnit = Group(boostableUnit + Suppress("^") + Word("0123456789", ".0123456789")).setResultsName("Boost")
+
     # The user can flag that a parenthetical group, quoted phrase, or word
     # should be searched in a particular field by prepending 'fn:', where fn is
     # the name of the field.
-    fieldableUnit = parenthetical | quotedPhrase | generalWord
+    fieldableUnit = parenthetical | boostedUnit | boostableUnit
     fieldedUnit = Group(Word(alphanums) + Suppress(':') + fieldableUnit).setResultsName("Field")
     
     # Units of content
@@ -322,6 +325,11 @@ class QueryParser(PyparsingBasedParser):
     
     def _Field(self, node, fieldname):
         return self._eval(node[1], node[0])
+    
+    def _Boost(self, node, fieldname):
+        obj = self._eval(node[0], fieldname)
+        obj.boost = float(node[1])
+        return obj
 
 
 class MultifieldParser(QueryParser):
