@@ -224,11 +224,14 @@ class SimpleQuery(Query):
         self.boost = boost
     
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.fieldname, self.text)
+        return "%s(%r, %r, boost=%r)" % (self.__class__.__name__,
+                                         self.fieldname, self.text, self.boost)
 
     def __unicode__(self):
-        return u"%s:%s" % (self.fieldname, self.text)
+        t = u"%s:%s" % (self.fieldname, self.text)
+        if self.boost != 1:
+            t += u"^" + unicode(self.boost)
+        return t
     
     def all_terms(self, termset):
         termset.add((self.fieldname, self.text))
