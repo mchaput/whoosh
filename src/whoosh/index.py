@@ -723,12 +723,12 @@ class Segment(object):
             if self.deleted is None:
                 self.deleted = set()
             elif docnum in self.deleted:
-                raise KeyError("Document is already deleted" % docnum)
+                raise KeyError("Document %s is already deleted" % docnum)
             
             self.deleted.add(docnum)
         else:
             if self.deleted is None or docnum not in self.deleted:
-                raise KeyError("Document is not deleted" % docnum)
+                raise KeyError("Document %s is not deleted" % docnum)
             
             self.deleted.remove(docnum)
     
