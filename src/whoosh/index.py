@@ -526,6 +526,9 @@ class SegmentSet(object):
         
         self._doc_offsets = self.doc_offsets()
     
+    def __repr__(self):
+        return repr(self.segments)
+    
     def __len__(self):
         """:*returns*: the number of segments in this set."""
         return len(self.segments)
@@ -656,13 +659,18 @@ class Segment(object):
     along the way).
     """
     
-    def __init__(self, name, max_doc, term_count, max_weight, field_counts, deleted = None):
+    def __init__(self, name, max_doc,
+                 term_count, max_weight, field_length_totals,
+                 deleted = None):
         """
         :name: The name of the segment (the Index object computes this from its
             name and the generation).
         :max_doc: The maximum document number in the segment.
         :term_count: Total count of all terms in all documents.
-        :max_count: The maximum count of any term in the segment.
+        :max_weight: The maximum weight of any term in the segment. This is used
+            by some scoring algorithms.
+        :field_length_totals: A dictionary mapping field numbers to the total
+            number of terms in that field across all documents in the segment.
         :deleted: A collection of deleted document numbers, or None
             if no deleted documents exist in this segment.
         """
@@ -671,7 +679,7 @@ class Segment(object):
         self.max_doc = max_doc
         self.term_count = term_count
         self.max_weight = max_weight
-        self.field_counts = field_counts
+        self.field_length_totals = field_length_totals
         self.deleted = deleted
         
         self.doclen_filename = self.name + ".dci"
@@ -684,7 +692,7 @@ class Segment(object):
     
     def copy(self):
         return Segment(self.name, self.max_doc,
-                       self.term_count, self.max_weight, self.field_counts,
+                       self.term_count, self.max_weight, self.field_length_totals,
                        self.deleted)
     
     def doc_count_all(self):
@@ -708,8 +716,12 @@ class Segment(object):
         return len(self.deleted)
     
     def field_length(self, fieldnum):
-        """Returns the total number of terms in the given field."""
-        return self.field_counts.get(fieldnum, 0)
+        """
+        :fieldnum: the internal number of the field.
+        :*returns*: the total number of terms in the given field across all
+            documents in this segment.
+        """
+        return self.field_length_totals.get(fieldnum, 0)
     
     def delete_document(self, docnum, delete = True):
         """Deletes the given document number. The document is not actually

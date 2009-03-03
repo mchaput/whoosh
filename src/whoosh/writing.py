@@ -383,6 +383,10 @@ class SegmentWriter(object):
                 
                 docnum += 1
         
+            # Add field length totals
+            for fieldnum, total in segment.field_length_totals.iteritems():
+                self.field_length_totals[fieldnum] += total
+        
             # Append per-document field lengths
             self.doc_field_lengths[UNIQUE_COUNT].extend(doc_reader._unique_counts())
             self.doc_field_lengths[TOTAL_COUNT].extend(doc_reader._total_counts())
