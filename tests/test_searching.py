@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import fields, index, searching, scoring, store, writing
+from whoosh import fields, index, qparser, searching, scoring, store, writing
 from whoosh.query import *
 
 class TestReading(unittest.TestCase):
@@ -81,6 +81,28 @@ class TestReading(unittest.TestCase):
         
         for methodname in ("_docs", "_doc_scores"):
             method = getattr(self, methodname)
+
+    def test_missing_field_scoring(self):
+        schema = fields.Schema(name=fields.TEXT(stored=True), hobbies=fields.TEXT(stored=True))
+        storage = store.RamStorage()
+        idx = index.Index(storage, schema, create=True)
+        writer = idx.writer() 
+        writer.add_document(name=u'Frank', hobbies=u'baseball, basketball')
+        writer.commit()
+        self.assertEqual(idx.segments[0].field_length(0), 2) # hobbies
+        self.assertEqual(idx.segments[0].field_length(1), 1) # name
+        
+        writer = idx.writer()
+        writer.add_document(name=u'Jonny') 
+        writer.commit()
+        self.assertEqual(len(idx.segments), 1)
+        self.assertEqual(idx.segments[0].field_length(0), 2) # hobbies
+        self.assertEqual(idx.segments[0].field_length(1), 2) # name
+        
+        parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
+        searcher = idx.searcher()
+        result = searcher.search(parser.parse(u'baseball'))
+        self.assertEqual(len(result), 1)
 
 
 if __name__ == '__main__':

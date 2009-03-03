@@ -300,7 +300,7 @@ class Results(object):
         frequently in the top hits but relatively infrequently in the collection as
         a whole.
         
-        :fieldname: Look at the terms in this field. This field store vectors.
+        :fieldname: Look at the terms in this field. This field must store vectors.
         :docs: Look at this many of the top documents of the results.
         :terms: Return this number of important terms.
         :model: The classify.ExpansionModel to use. See the classify module.
