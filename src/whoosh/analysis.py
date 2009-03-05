@@ -468,20 +468,21 @@ class StopFilter(object):
         minsize = self.min
         renumber = self.renumber
         
-        delta = 0
+        pos = None
         for t in tokens:
             text = t.text
             if len(text) >= minsize and text not in stoplist:
                 # This is not a stop word
                 if renumber and t.positions:
-                    t.pos = t.pos - delta
+                    if pos is None:
+                        pos = t.pos
+                    else:
+                        pos += 1
+                    t.pos = pos
                 t.stopped = False
                 yield t
             else:
                 # This is a stop word
-                if renumber:
-                    delta += 1
-                
                 if not t.removestops:
                     # This IS a stop word, but we're not removing them
                     t.stopped = True
