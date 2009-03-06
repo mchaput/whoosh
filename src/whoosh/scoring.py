@@ -223,7 +223,7 @@ class Frequency(Weighting):
     """
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
-        return self.searcher.frequency(searcher, fieldnum, text)
+        return searcher.frequency(fieldnum, text)
 
 
 # Sorting classes
