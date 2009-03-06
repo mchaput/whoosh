@@ -21,8 +21,7 @@ from whoosh import classify, query, scoring, util
 from whoosh.support.bitvector import BitVector
 from whoosh.util import TopDocs
 
-"""
-This module contains classes and functions related to searching the index.
+"""This module contains classes and functions related to searching the index.
 """
 
 # Searcher class
@@ -113,7 +112,9 @@ class Searcher(util.ClosableMixin):
         doc_reader = self.doc_reader
         return (doc_reader[docnum] for docnum in q.docs(self))
     
-    def search(self, query, limit = 5000, sortedby = None, reverse = False):
+    def search(self, query, limit = 5000,
+               weighting = None,
+               sortedby = None, reverse = False):
         """Runs the query represented by the query object and returns a Results object.
         
         :query: a query.Query object representing the search query. You can translate
@@ -121,6 +122,8 @@ class Searcher(util.ClosableMixin):
         :limit: the maximum number of documents to score. If you're only interested in
             the top N documents, you can set limit=N to limit the scoring for a faster
             search.
+        :weighting: if this parameter is not None, use this weighting object to score the
+            results instead of the default.
         :sortedby: if this parameter is not None, the results are sorted instead of scored.
             If this value is a string, the results are sorted by the field named in the string.
             If this value is a list or tuple, it is assumed to be a sequence of strings and the
@@ -163,7 +166,7 @@ class Searcher(util.ClosableMixin):
         else:
             # Sort by scores
             topdocs = TopDocs(limit, doc_reader.doc_count_all())
-            topdocs.add_all(query.doc_scores(self, weighting = self.weighting))
+            topdocs.add_all(query.doc_scores(self, weighting = weighting or self.weighting))
             scored_list = topdocs.best()
             docvector = topdocs.docs
         t = time.time() - t
@@ -377,7 +380,7 @@ class Results(object):
         notin = [docnum for docnum in scored_list if docnum not in otherdocs]
         other = [docnum for docnum in results.scored_list if docnum not in docs]
         
-        self.docs = docs & otherdocs
+        self.docs = docs | otherdocs
         self.scored_list = arein + notin + other
         
 

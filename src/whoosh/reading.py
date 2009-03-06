@@ -520,8 +520,7 @@ class TermReader(ClosableMixin):
             yield (docnum, interp(data))
     
     def positions(self, fieldnum, text, exclude_docs = None):
-        """
-        Yields (docnum, [positions]) tuples for each document containing
+        """Yields (docnum, [positions]) tuples for each document containing
         the given term. The current field must have stored positions
         for this to work.
         
@@ -623,8 +622,7 @@ class MultiTermReader(TermReader):
             yield (fnum, text, docfreq, termcount)
     
     def postings(self, fieldnum, text, exclude_docs = None):
-        """
-        Yields raw (docnum, data) tuples for each document containing
+        """Yields raw (docnum, data) tuples for each document containing
         the current term. This is useful if you simply want to know
         which documents contain the current term. Use weights() or
         positions() if you need to term weight or positions in each
