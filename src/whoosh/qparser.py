@@ -270,7 +270,6 @@ class QueryParser(PyparsingBasedParser):
     
     def make_wildcard(self, fieldname, text):
         fieldname = fieldname or self.default_field
-        text = self._analyze(fieldname, text)
         return query.Wildcard(fieldname or self.default_field, text)
     
     def make_range(self, fieldname, range):
