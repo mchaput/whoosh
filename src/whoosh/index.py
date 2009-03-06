@@ -19,7 +19,7 @@ an index.
 """
 
 from __future__ import division
-import re
+import os.path, re
 from bisect import bisect_right
 import cPickle
 from threading import Lock
@@ -106,6 +106,21 @@ def open_dir(dirname, indexname = None):
         indexname = _DEF_INDEX_NAME
     
     return Index(store.FileStorage(dirname), indexname = indexname)
+
+def exists(dirname, indexname = None):
+    """Returns True if dirname contains a Whoosh index."""
+    
+    if indexname is None:
+        indexname = _DEF_INDEX_NAME
+    
+    if os.path.exists(dirname):
+        try:
+            ix = open_dir(dirname)
+            return ix.latest_generation() > -1
+        except EmptyIndexError:
+            pass
+
+    return False
 
 
 # A mix-in that adds methods for deleting
@@ -210,8 +225,6 @@ class Index(DeletionMixin):
             raise ValueError("%r is not a Schema object" % schema)
         
         self.generation = self.latest_generation()
-        if self.generation < 0:
-            create = True
         
         if create:
             if schema is None:
@@ -230,8 +243,10 @@ class Index(DeletionMixin):
                     storage.delete_file(filename)
             
             self._write()
-        else:
+        elif self.generation >= 0:
             self._read(schema)
+        else:
+            raise EmptyIndexError
             
         self.segment_num_lock = Lock()
             
