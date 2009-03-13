@@ -746,6 +746,7 @@ class Segment(object):
         if delete:
             if self.deleted is None:
                 self.deleted = set()
+            elif docnum in self.deleted:
                 raise KeyError("Document %s in segment %r is already deleted"
                                % (docnum, self.name))
             
