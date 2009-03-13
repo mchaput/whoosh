@@ -557,11 +557,8 @@ class SegmentSet(object):
     def append(self, segment):
         """Adds a segment to this set."""
         
-        if self._doc_offsets:
-            self._doc_offsets.append(self._doc_offsets[-1] + segment.doc_count_all())
-        else:
-            self._doc_offsets = [0]
         self.segments.append(segment)
+        self._doc_offsets = self.doc_offsets()
     
     def _document_segment(self, docnum):
         """Returns the index.Segment object containing the given document
@@ -749,9 +746,8 @@ class Segment(object):
         if delete:
             if self.deleted is None:
                 self.deleted = set()
-            elif docnum in self.deleted:
-                raise KeyError("Document %s in segment %r is already deleted" % (docnum,
-                                                                                 self.name))
+                raise KeyError("Document %s in segment %r is already deleted"
+                               % (docnum, self.name))
             
             self.deleted.add(docnum)
         else:
