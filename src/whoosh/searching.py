@@ -161,7 +161,7 @@ class Searcher(util.ClosableMixin):
             scored_list = sortedby.order(self, query.docs(self), reverse = reverse)
             docvector = BitVector(doc_reader.doc_count_all(),
                                   source = scored_list)
-            if len(scored_list > limit):
+            if len(scored_list) > limit:
                 scored_list = scored_list[:limit]
         else:
             # Sort by scores
