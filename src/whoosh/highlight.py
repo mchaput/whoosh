@@ -291,6 +291,7 @@ class UppercaseFormatter(object):
             output.append(ttxt)
             index = t.endchar
         
+        output.append(text[index:fragment.endchar])
         return "".join(output)
 
     def __call__(self, text, fragments):
