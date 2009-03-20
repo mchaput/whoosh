@@ -78,7 +78,9 @@ class SpellChecker(object):
         
         import index
         if not self._index:
-            self._index = index.Index(self.storage, schema = self._schema(), indexname = self.indexname)
+            create = not index.exists(self.storage, indexname = self.indexname)
+            self._index = index.Index(self.storage, create = create,
+                                      schema = self._schema(), indexname = self.indexname)
         return self._index
     
     def _schema(self):

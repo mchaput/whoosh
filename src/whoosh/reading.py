@@ -51,7 +51,7 @@ class DocReader(ClosableMixin):
         self.schema = schema
         self._scorable_fields = schema.scorable_fields()
         
-        self.doclength_table = storage.open_table(segment.doclen_filename)
+        self.doclength_table = storage.open_records(segment.doclen_filename)
         self.docs_table = storage.open_table(segment.docs_filename)
         #self.cache = FifoCache()
         
@@ -59,10 +59,13 @@ class DocReader(ClosableMixin):
         self.is_closed = False
         self._sync_lock = Lock()
         
-        self._cached_fieldnum = None
-        self._cached_field_lengths = None
-        self._unique_counts_cache = None
-        self._total_counts_cache = None
+        self._fieldnum_to_pos = dict((fieldnum, i) for i, fieldnum
+                                     in enumerate(schema.scorable_fields()))
+    
+    def _open_vectors(self):
+        if not self.vector_table:
+            self.vector_table = self.storage.open_table(self.segment.vector_filename,
+                                                        postings = True)
     
     @protected
     def __getitem__(self, docnum):
@@ -79,30 +82,6 @@ class DocReader(ClosableMixin):
         for docnum in xrange(0, self.segment.max_doc):
             if not is_deleted(docnum):
                 yield self.docs_table.get(docnum)
-    
-    @protected
-    def _doc_field_lengths(self, fieldnum):
-        if self._cached_fieldnum != fieldnum:
-            self._cached_field_lengths = self.doclength_table.get(fieldnum)
-            self._cached_fieldnum = fieldnum
-        return self._cached_field_lengths
-    
-    @protected
-    def _unique_counts(self):
-        if self._unique_counts_cache: return self._unique_counts_cache
-        uc = self._unique_counts_cache = self.doclength_table.get(-2)
-        return uc
-    
-    @protected
-    def _total_counts(self):
-        if self._total_counts_cache: return self._total_counts_cache
-        tc = self._total_counts_cache = self.doclength_table.get(-1)
-        return tc
-    
-    def _open_vectors(self):
-        if not self.vector_table:
-            self.vector_table = self.storage.open_table(self.segment.vector_filename,
-                                                        postings = True)
     
     def close(self):
         """Closes the open files associated with this reader.
@@ -125,26 +104,35 @@ class DocReader(ClosableMixin):
         """
         return self.segment.doc_count()
     
-    def doc_length(self, docnum):
-        """Returns the total number of terms in a given document.
-        This is used by some scoring algorithms.
-        """
-        
-        return self._total_counts()[docnum]
-    
-    def unique_count(self, docnum):
-        """Returns the number of UNIQUE terms in a given document.
-        This is used by some scoring algorithms.
-        """
-        
-        return self._unique_counts()[docnum]
-    
     def field_length(self, fieldid):
         """Returns the total number of terms in the given field.
         """
         
         fieldid = self.schema.to_number(fieldid)
         return self.segment.field_length(fieldid)
+    
+    @protected
+    def doc_field_length(self, docnum, fieldid):
+        """Returns the number of terms in the given field in the
+        given document. This is used by some scoring algorithms.
+        """
+        
+        fieldid = self.schema.to_number(fieldid)
+        if fieldid not in self._scorable_fields:
+            raise FieldConfigurationError("Field %r does not store lengths" % fieldid)
+        
+        pos = self._fieldnum_to_pos[fieldid]
+        return self.doclength_table.get(docnum, pos)
+    
+    @protected
+    def doc_field_lengths(self, docnum):
+        """Returns an array corresponding to the lengths of the
+        scorable fields in the given document. It's up to the
+        caller to correlate the positions of the numbers in the
+        array with the scorable fields in the schema.
+        """
+        
+        return self.doclength_table.get_record(docnum)
     
     def vector_format(self, fieldnum):
         """
@@ -195,17 +183,6 @@ class DocReader(ClosableMixin):
         for text, data in self.vector(docnum, fieldnum):
             yield (text, interpreter(data))
     
-    def doc_field_length(self, docnum, fieldid):
-        """Returns the number of terms in the given field in the
-        given document. This is used by some scoring algorithms.
-        """
-        
-        fieldid = self.schema.to_number(fieldid)
-        if fieldid not in self._scorable_fields:
-            raise FieldConfigurationError("Field %r does not store lengths" % fieldid)
-        
-        return self._doc_field_lengths(fieldid)[docnum]
-
 
 class MultiDocReader(DocReader):
     """
@@ -260,9 +237,9 @@ class MultiDocReader(DocReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.doc_readers[segmentnum].doc_field_length(segmentdoc, fieldid)
     
-    def doc_length(self, docnum):
+    def doc_field_lengths(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].doc_length(segmentdoc)
+        return self.doc_readers[segmentnum].doc_field_lengths(segmentdoc)
     
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)

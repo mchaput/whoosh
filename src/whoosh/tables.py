@@ -38,6 +38,7 @@ struct module.
 """
 
 import shutil, tempfile
+from array import array
 from bisect import bisect_left, bisect_right
 from cPickle import loads as load_pickle_str
 from cPickle import dumps as dump_pickle_str
@@ -48,12 +49,7 @@ try:
 except ImportError:
     has_zlib = False
 
-from whoosh.structfile import StructFile
-
-# Exceptions
-
-class ItemNotFound(Exception):
-    pass
+from whoosh.structfile import _USHORT_SIZE, StructFile
 
 # Utility functions
 
@@ -90,13 +86,16 @@ def copy_data(treader, inkey, twriter, outkey, postings = False, buffersize = 32
 
 class TableWriter(object):
     def __init__(self, table_file, blocksize = 16 * 1024,
-                 compressed = 0, postings = False, stringids = False):
+                 compressed = 0, prefixcoding = False,
+                 postings = False, stringids = False,
+                 checksize = True):
         self.table_file = table_file
         self.blocksize = blocksize
         
         if compressed > 0 and not has_zlib:
             raise Exception("zlib is not available: cannot compress table")
         self.compressed = compressed
+        self.prefixcoding = prefixcoding
         
         self.haspostings = postings
         if postings:
@@ -121,6 +120,7 @@ class TableWriter(object):
         
         self.options = {"haspostings": postings,
                         "compressed": compressed,
+                        "prefixcoding": prefixcoding,
                         "stringids": stringids}
     
     def close(self):
@@ -196,8 +196,11 @@ class TableWriter(object):
         
         rb = self.rowbuffer
         
-        # Ugh! We're pickling twice! At least it's fast.
-        self.blockfilled += len(dump_pickle_str(data, -1))
+        if isinstance(data, array):
+            self.blockfilled += len(data) * data.itemsize
+        else:
+            # Ugh! We're pickling twice! At least it's fast.
+            self.blockfilled += len(dump_pickle_str(data, -1))
         self.lastkey = key
         
         if self.haspostings:
@@ -365,6 +368,153 @@ class TableReader(object):
         self.table_file.seek(self.postpos + offset)
         return count
 
+
+# An array table only stores numeric arrays and does not support postings.
+
+class ArrayWriter(object):
+    def __init__(self, table_file, typecode, bufferlength=4*1024):
+        if typecode not in table_file._type_writers:
+            raise Exception("Can't (yet) write an array table of type %r" % typecode)
+        
+        self.table_file = table_file
+        self.typecode = typecode
+        self.bufferlength = bufferlength
+        self.dir = {}
+        self.buffer = array(typecode)
+        
+        # Remember where we started writing
+        self.start = table_file.tell()
+        # Save space for a pointer to the directory
+        table_file.write_ulong(0)
+    
+    def _flush(self):
+        buff = self.buffer
+        if buff:
+            self.table_file.write_array(buff)
+        self.buffer = array(self.typecode)
+    
+    def close(self):
+        self._flush()
+        tf = self.table_file
+        
+        # Remember where we started writing the directory
+        dirpos = tf.tell()
+        # Write the directory
+        tf.write_pickle((self.typecode, self.dir))
+        
+        # Seek back to where we started writing and write a
+        # pointer to the directory
+        tf.seek(self.start)
+        tf.write_ulong(dirpos)
+        
+        tf.close()
+        
+    def add_row(self, key, values = None):
+        self._flush()
+        self.dir[key] = self.table_file.tell()
+        if values:
+            self.extend(values)
+        
+    def append(self, value):
+        buff = self.buffer
+        buff.append(value)
+        if len(buff) > self.bufferlength:
+            self._flush()
+            
+    def extend(self, values):
+        buff = self.buffer
+        buff.extend(values)
+        if len(buff) > self.bufferlength:
+            self._flush()
+            
+    def from_file(self, fobj):
+        self._flush()
+        shutil.copyfileobj(fobj, self.table_file)
+
+
+class ArrayReader(object):
+    def __init__(self, table_file):
+        self.table_file = table_file
+        
+        # Read the pointer to the directory
+        dirpos = table_file.read_ulong()
+        # Seek to where the directory begins and read it
+        table_file.seek(dirpos)
+        typecode, self.dir = table_file.read_pickle()
+        
+        # Set the "read()" method of this object to the appropriate
+        # read method of the underlying StructFile for the table's
+        # data type.
+        try:
+            self.read = self.table_file._type_readers[typecode]
+        except KeyError:
+            raise Exception("Can't (yet) read an array table of type %r" % self.typecode)
+        
+        self.typecode = typecode
+        self.itemsize = array(typecode).itemsize
+    
+    def __contains__(self, key):
+        return key in self.dir
+    
+    def get(self, key, offset):
+        tf = self.table_file
+        pos = self.dir[key]
+        tf.seek(pos + offset * self.itemsize)
+        return self.read()
+    
+    def close(self):
+        self.table_file.close()
+        
+    def to_file(self, key, fobj):
+        raise NotImplementedError
+
+
+class RecordWriter(object):
+    def __init__(self, table_file, typecode, length):
+        self.table_file = table_file
+        self.typecode = typecode
+        self.length = length
+        
+        table_file.write(typecode[0])
+        table_file.write_ushort(length)
+    
+    def close(self):
+        self.table_file.close()
+        
+    def append(self, arry):
+        assert arry.typecode == self.typecode
+        assert len(arry) == self.length
+        self.table_file.write_array(arry)
+        
+
+class RecordReader(object):
+    def __init__(self, table_file):
+        self.table_file = table_file
+        self.typecode = table_file.read(1)
+        
+        try:
+            self.read = self.table_file._type_readers[self.typecode]
+        except KeyError:
+            raise Exception("Can't (yet) read an array table of type %r" % self.typecode)
+        
+        self.length = table_file.read_ushort()
+        self.itemsize = array(self.typecode).itemsize
+        self.recordsize = self.length * self.itemsize
+    
+    def close(self):
+        self.table_file.close()
+    
+    def get(self, recordnum, itemnum):
+        assert itemnum < self.length
+        self.table_file.seek(1 + _USHORT_SIZE +\
+                             recordnum * self.recordsize +\
+                             itemnum * self.itemsize)
+        return self.read()
+    
+    def get_record(self, recordnum):
+        tf = self.table_file
+        tf.seek(1 + _USHORT_SIZE + recordnum * self.recordsize)
+        return tf.read_array(self.typecode, self.length)
 
 
 if __name__ == '__main__':

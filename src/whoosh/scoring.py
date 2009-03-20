@@ -33,7 +33,6 @@ class Weighting(object):
     """
     
     #self.doc_count = searcher.doc_count_all()
-    #self.index_length = searcher.total_term_count()
     #self.max_doc_freq = ix.max_doc_freq()
     #self.unique_term_count = ix.unique_term_count()
     #self.avg_doc_length = self.index_length / self.doc_count

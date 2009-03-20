@@ -35,11 +35,7 @@ class TestReading(unittest.TestCase):
     def test_empty_index(self):
         schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT)
         st = store.RamStorage()
-        ix = index.Index(st, schema)
-        
-        s = ix.searcher()
-        r = s.search(Term("value", u"hello"))
-        self.assertEqual(len(r), 0)
+        self.assertRaises(index.EmptyIndexError, index.Index, st, schema)
     
     def test_docs_method(self):
         s = self.ix.searcher()

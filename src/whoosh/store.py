@@ -44,9 +44,25 @@ class Storage(object):
         f = self.create_file(name)
         return tables.TableWriter(f, **kwargs)
     
+    def create_arrays(self, name, typecode, **kwargs):
+        f = self.create_file(name)
+        return tables.ArrayWriter(f, typecode, **kwargs)
+    
+    def create_records(self, name, typecode, length, **kwargs):
+        f = self.create_file(name)
+        return tables.RecordWriter(f, typecode, length, **kwargs)
+    
     def open_table(self, name, **kwargs):
         f = self.open_file(name)
         return tables.TableReader(f, **kwargs)
+
+    def open_arrays(self, name, **kwargs):
+        f = self.open_file(name)
+        return tables.ArrayReader(f, **kwargs)
+
+    def open_records(self, name, **kwargs):
+        f = self.open_file(name)
+        return tables.RecordReader(f, **kwargs)
 
     def close(self):
         pass
@@ -233,6 +249,8 @@ def copy_to_ram(storage):
         f = storage.open_file(name)
         r = ram.create_file(name)
         shutil.copyfileobj(f.file, r.file)
+        f.close()
+        r.close()
     #print time.time() - t, "to load index into ram"
     return ram
 

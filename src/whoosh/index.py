@@ -30,6 +30,8 @@ from whoosh import fields, store
 _DEF_INDEX_NAME = "MAIN"
 _EXTENSIONS = "dci|dcz|tiz|fvz"
 
+_index_version = -100
+
 # Exceptions
 
 class OutOfDateError(Exception):
@@ -52,6 +54,7 @@ class IndexLockedError(Exception):
 class IndexError(Exception):
     """Generic index error."""
     pass
+
 
 # Utility functions
 
@@ -107,7 +110,7 @@ def open_dir(dirname, indexname = None):
     
     return Index(store.FileStorage(dirname), indexname = indexname)
 
-def exists(dirname, indexname = None):
+def exists_in(dirname, indexname = None):
     """Returns True if dirname contains a Whoosh index."""
     
     if indexname is None:
@@ -120,6 +123,18 @@ def exists(dirname, indexname = None):
         except EmptyIndexError:
             pass
 
+    return False
+
+def exists(storage, indexname):
+    if indexname is None:
+        indexname = _DEF_INDEX_NAME
+        
+    try:
+        ix = Index(storage, indexname = indexname)
+        return ix.latest_generation() > -1
+    except EmptyIndexError:
+        pass
+    
     return False
 
 
@@ -290,6 +305,7 @@ class Index(DeletionMixin):
         for field in self.schema:
             field.clean()
         stream = self.storage.create_file(self._toc_filename())
+        stream.write_int(_index_version)
         stream.write_string(cPickle.dumps(self.schema, -1))
         stream.write_int(self.generation)
         stream.write_int(self.segment_counter)
@@ -299,6 +315,9 @@ class Index(DeletionMixin):
     def _read(self, schema):
         # Reads the content of this index from the .toc file.
         stream = self.storage.open_file(self._toc_filename())
+        version = stream.read_int()
+        if version != _index_version:
+            raise IndexError("Don't know how to read index version %s" % version)
         
         # If the user supplied a schema object with the constructor,
         # don't load the pickled schema from the saved index.
@@ -433,22 +452,13 @@ class Index(DeletionMixin):
         """
         return self.segments.max_weight()
     
-    def total_term_count(self):
-        """Returns the total term count across all fields in all documents.
-        This is used by some scoring algorithms. Note that this
-        necessarily includes terms in deleted documents.
-        """
-        return self.segments.total_term_count()
-    
-    def field_length(self, fieldnum):
+    def field_length(self, fieldid):
         """Returns the total number of terms in a given field.
         This is used by some scoring algorithms. Note that this
         necessarily includes terms in deleted documents.
         """
         
-        if isinstance(fieldnum, basestring):
-            fieldnum = self.schema.number_to_name(fieldnum)
-        
+        fieldnum = self.schema.to_number(fieldid)
         return sum(s.field_length(fieldnum) for s in self.segments)
     
     def term_reader(self):
@@ -616,13 +626,6 @@ class SegmentSet(object):
             return 0
         return max(s.max_weight for s in self.segments)
     
-    def total_term_count(self):
-        """
-        :*returns*: the total number of terms in the set. Note that this
-            necessarily includes deleted documents.
-        """
-        return sum(s.term_count for s in self.segments)
-    
     def has_deletions(self):
         """
         :*returns*: True if this index has documents that are marked
@@ -671,8 +674,7 @@ class Segment(object):
     along the way).
     """
     
-    def __init__(self, name, max_doc,
-                 term_count, max_weight, field_length_totals,
+    def __init__(self, name, max_doc, max_weight, field_length_totals,
                  deleted = None):
         """
         :name: The name of the segment (the Index object computes this from its
@@ -689,7 +691,6 @@ class Segment(object):
         
         self.name = name
         self.max_doc = max_doc
-        self.term_count = term_count
         self.max_weight = max_weight
         self.field_length_totals = field_length_totals
         self.deleted = deleted
@@ -704,7 +705,7 @@ class Segment(object):
     
     def copy(self):
         return Segment(self.name, self.max_doc,
-                       self.term_count, self.max_weight, self.field_length_totals,
+                       self.max_weight, self.field_length_totals,
                        self.deleted)
     
     def doc_count_all(self):

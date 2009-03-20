@@ -41,7 +41,6 @@ class Searcher(util.ClosableMixin):
         self.term_reader = ix.term_reader()
         self.doc_reader = ix.doc_reader()
         self.schema = ix.schema
-        self._total_term_count = ix.total_term_count()
         self._max_weight = ix.max_weight()
         self._doc_count_all = self.doc_reader.doc_count_all()
         
@@ -62,7 +61,7 @@ class Searcher(util.ClosableMixin):
     def _copy_methods(self):
         # Copy methods from child doc_reader and term_reader objects onto this
         # object.
-        for name in ("field_length", "doc_length", "doc_field_length", "unique_count"):
+        for name in ("field_length", "doc_field_length"):
             setattr(self, name, getattr(self.doc_reader, name))
             
         for name in ("lexicon", "expand_prefix", "iter_from", "doc_frequency",
@@ -71,9 +70,6 @@ class Searcher(util.ClosableMixin):
     
     def doc_count_all(self):
         return self._doc_count_all
-    
-    def total_term_count(self):
-        return self._total_term_count
     
     def max_weight(self):
         return self._max_weight
@@ -315,7 +311,7 @@ class Results(object):
         doc_reader = self.searcher.doc_reader
         fieldnum = self.searcher.fieldname_to_num(fieldname)
         
-        expander = classify.Expander(self.searcher, fieldnum, model = model)
+        expander = classify.Expander(self.searcher, fieldname, model = model)
         for docnum in self.scored_list[:docs]:
             expander.add(doc_reader.vector_as(docnum, fieldnum, "weight"))
         
