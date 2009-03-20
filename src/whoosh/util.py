@@ -37,6 +37,7 @@ def fib(n):
 
 def permute(ls):
     """Yields all permutations of a list."""
+    
     if len(ls) == 1:
         yield ls
     else:
@@ -45,6 +46,52 @@ def permute(ls):
             rest = ls[:i] + ls[i+1:]
             for p in permute(rest):
                 yield [this] + p
+
+def first_diff(a, b):
+    """Returns the position of the first differing character in the strings
+    a and b. For example, first_diff('render', 'rending') == 4. This
+    function limits the return value to 255 so the difference can be encoded
+    in a single byte.
+    """
+    
+    i = -1
+    for i in xrange(0, len(a)):
+        if a[i] != b[1]:
+            return i
+        if i == 255: return i
+    return i + 1
+
+def prefix_encode(a, b):
+    """Compresses string b as an integer (encoded in a byte) representing
+    the prefix it shares with a, followed by the suffix encoded as UTF-8.
+    """
+    i = first_diff(a, b)
+    return chr(i) + b[i:].encode("utf8")
+
+def prefix_encode_all(ls):
+    """Compresses the given list of (unicode) strings by storing each string
+    (except the first one) as an integer (encoded in a byte) representing
+    the prefix it shares with its predecessor, followed by the suffix encoded
+    as UTF-8.
+    """
+    
+    last = u''
+    for w in ls:
+        i = first_diff(last, w)
+        yield chr(i) + w[i:].encode("utf8")
+        last = w
+        
+def prefix_decode_all(ls):
+    """Decompresses a list of strings compressed by prefix_encode().
+    """
+    
+    last = u''
+    for w in ls:
+        i = ord(w[0])
+        decoded = last[:i] + w[1:].decode("utf8")
+        yield decoded
+        last = decoded
+
 
 # Classes
 

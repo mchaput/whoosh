@@ -25,9 +25,9 @@ from math import log
 # Expansion models
 
 class ExpansionModel(object):
-    def __init__(self, searcher):
+    def __init__(self, searcher, fieldname):
         self.N = searcher.doc_count_all()
-        self.collection_total = searcher.total_term_count()
+        self.collection_total = searcher.field_length(fieldname)
         self.mean_length = self.collection_total / self.N
     
     def normalizer(self, maxweight, top_total):
@@ -88,7 +88,7 @@ class Expander(object):
         self.fieldname = fieldname
         
         if callable(model):
-            model = model(searcher)
+            model = model(searcher, fieldname)
         self.model = model
         
         # Cache the collection frequency of every term in this

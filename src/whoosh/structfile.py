@@ -21,12 +21,13 @@ encoding and compression methods such as variable-length encoded integers.
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
 from struct import calcsize, pack, unpack
+from array import array
 
-_int_size = calcsize("!i")
-_long_size = calcsize("!l")
-_unsignedlong_size = calcsize("!L")
-_float_size = calcsize("!f")
 
+_INT_SIZE = calcsize("i")
+_USHORT_SIZE = calcsize("H")
+_ULONG_SIZE = calcsize("L")
+_FLOAT_SIZE = calcsize("f")
 
 # Utility functions
 
@@ -60,7 +61,7 @@ def byte_to_float(b, mantissabits = 5, zeroexp = 2):
 
 # Varint cache
 
-# This build a cache of the varint byte sequences for the first
+# Build a cache of the varint byte sequences for the first
 # N integers, so we don't have to constantly recalculate them
 # on the fly. This makes a small but noticeable difference.
 
@@ -85,14 +86,18 @@ class StructFile(object):
     
     The underlying file-like object only needs to implement write() and
     tell() for writing, and read(), tell(), and seek() for reading.
+    
+    IMPORTANT: This class is *fundamentally thread UNSAFE*. It is intended
+    that higher-level code calling this object will use locks to protect
+    access to it.
     """
     
-    def __init__(self, file, name = None, onclose = None):
+    def __init__(self, fileobj, name = None, onclose = None):
         """
         file is the file-like object to wrap.
         """
         
-        self.file = file
+        self.file = fileobj
         self.onclose = onclose
         self._name = name
         
@@ -108,6 +113,32 @@ class StructFile(object):
             self.write = None
             
         self.is_closed = False
+        
+        self.sbyte_array = array("b", [0])
+        self.int_array = array("i", [0])
+        self.ushort_array = array("H", [0])
+        self.ulong_array = array("L", [0])
+        self.float_array = array("f", [0.0])
+        
+        # If this is wrapping a real file object (not a file-like object),
+        # replace with faster variants that only work on real files.
+        if isinstance(fileobj, file):
+            for typename in ("sbyte", "int", "ushort", "ulong", "float", "array"):
+                setattr(self, "write_"+typename, getattr(self, "_write_"+typename))
+                setattr(self, "read_"+typename, getattr(self, "_read_"+typename))
+                
+        self._type_writers = {"b": self.write_sbyte,
+                              "B": self.write_byte,
+                              "i": self.write_int,
+                              "H": self.write_ushort,
+                              "L": self.write_ulong,
+                              "f": self.write_float}
+        self._type_readers = {"b": self.read_sbyte,
+                              "B": self.read_byte,
+                              "i": self.read_int,
+                              "H": self.read_ushort,
+                              "L": self.read_ulong,
+                              "f": self.read_float}
     
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
@@ -116,6 +147,16 @@ class StructFile(object):
         if not self.is_closed:
             self.close()
     
+    def write_value(self, typecode, n):
+        """Writes a value 'n' of type 'typecode'.
+        """
+        self._type_writers[typecode](n)
+    
+    def read_value(self, typecode):
+        """Writes a value of type 'typecode'.
+        """
+        return self._type_readers[typecode]()
+    
     def write_byte(self, n):
         """Writes a single byte to the wrapped file, shortcut for
         file.write(chr(n)).
@@ -123,29 +164,74 @@ class StructFile(object):
         self.file.write(chr(n))
     
     def write_sbyte(self, n):
-        """Writes a signed byte value to the wrapped file, using
-        the struct.pack function.
+        """Writes a signed byte value to the wrapped file.
         """
-        self.file.write(pack("!b", n))
+        self.sbyte_array[0] = n
+        self.file.write(self.sbyte_array.tostring())
     
     def write_int(self, n):
-        """Writes a binary integer value to the wrapped file, using
-        the struct.pack function.
+        """Writes a binary integer value to the wrapped file,.
         """
-        self.file.write(pack("!i", n))
-        
+        self.int_array[0] = n
+        self.file.write(self.int_array.tostring())
+    
+    def write_ushort(self, n):
+        """Writes an unsigned binary short integer to the wrapped file.
+        """
+        self.ushort_array[0] = n
+        self.file.write(self.ushort_array.tostring())
+    
     def write_ulong(self, n):
-        """Writes a unsigned binary integer value to the wrapped file, using
-        the struct.pack function.
+        """Writes an unsigned binary integer value to the wrapped file.
         """
-        self.file.write(pack("!L", n))
-        
+        self.ulong_array[0] = n
+        self.file.write(self.ulong_array.tostring())
+    
     def write_float(self, n):
-        """Writes a binary float value to the wrapped file, using
-        the struct.pack function.
+        """Writes a binary float value to the wrapped file.
         """
-        self.file.write(pack("!f", n))
-        
+        self.float_array[0] = n
+        self.file.write(self.float_array.tostring())
+    
+    def write_array(self, arry):
+        """Writes an array to the wrapped file.
+        """
+        self.file.write(arry.tostring())
+    
+    # These variants are faster but only work on built-in "file" objects
+    # (not on any file-like object with a write() method). They are swapped in
+    # for the methods above when this object is wrapping a real file.
+    
+    def _write_sbyte(self, n):
+        """Writes a signed byte value to the wrapped file.
+        """
+        self.sbyte_array[0] = n
+        self.sbyte_array.tofile(self.file)
+    def _write_int(self, n):
+        """Writes a binary integer value to the wrapped file,.
+        """
+        self.int_array[0] = n
+        self.int_array.tofile(self.file)
+    def _write_ushort(self, n):
+        """Writes an unsigned binary short integer value to the wrapped file.
+        """
+        self.ushort_array[0] = n
+        self.ushort_array.tofile(self.file)
+    def _write_ulong(self, n):
+        """Writes an unsigned binary integer value to the wrapped file.
+        """
+        self.ulong_array[0] = n
+        self.ulong_array.tofile(self.file)
+    def _write_float(self, n):
+        """Writes a binary float value to the wrapped file.
+        """
+        self.float_array[0] = n
+        self.float_array.tofile(self.file)
+    def _write_array(self, arry):
+        """Writes an array to the wrapped file.
+        """
+        arry.tofile(self.file)
+    
     def write_string(self, s):
         """Writes a string to the wrapped file. This method writes the
         length of the string first, so you can read the string back
@@ -153,7 +239,7 @@ class StructFile(object):
         """
         self.write_varint(len(s))
         self.file.write(s)
-        
+    
     def write_pickle(self, obj):
         """Writes a pickled representation of obj to the wrapped file.
         """
@@ -172,6 +258,7 @@ class StructFile(object):
     def write_varint(self, i):
         """Writes a variable-length integer to the wrapped file.
         """
+        assert i >= 0
         if i < len(_varint_cache):
             self.file.write(_varint_cache[i])
             return
@@ -194,36 +281,82 @@ class StructFile(object):
         return ord(self.file.read(1))
     
     def read_sbyte(self):
-        """Reads a signed byte value from the wrapped file,
-        using the struct.unpack function.
+        """Reads a signed byte value from the wrapped file.
         """
-        return unpack("!b", self.file.read(1))[0]
+        self.sbyte_array.fromstring(self.file.read(1))
+        return self.sbyte_array.pop()
     
     def read_int(self):
-        """Reads a binary integer value from the wrapped file,
-        using the struct.unpack function.
+        """Reads a binary integer value from the wrapped file.
         """
-        return unpack("!i", self.file.read(_int_size))[0]
+        self.int_array.fromstring(self.file.read(_INT_SIZE))
+        return self.int_array.pop()
+    
+    def read_ushort(self):
+        """Reads an unsigned binary short integer value from the wrapped file.
+        """
+        self.ushort_array.fromstring(self.file.read(_USHORT_SIZE))
+        return self.ushort_array.pop()
     
     def read_ulong(self):
-        """Reads an unsigned binary integer value from the wrapped file,
-        using the struct.unpack function.
+        """Reads an unsigned binary integer value from the wrapped file.
         """
-        return unpack("!L", self.file.read(_unsignedlong_size))[0]
+        self.ulong_array.fromstring(self.file.read(_ULONG_SIZE))
+        return self.ulong_array.pop()
     
     def read_float(self):
-        """Reads a binary floating point value from the wrapped file,
-        using the struct.unpack function.
+        """Reads a binary floating point value from the wrapped file.
         """
-        return unpack("!f", self.file.read(_float_size))[0]
+        self.float_array.fromstring(self.file.read(_FLOAT_SIZE))
+        return self.float_array.pop()
+    
+    def read_array(self, typecode, length):
+        """Reads an array of 'length' items from the wrapped file.
+        """
+        arry = array(typecode)
+        arry.fromstring(self.file.read(arry.itemsize * length))
+        return arry
+    
+    # These variants are faster but only work on built-in "file" objects
+    # (not on any file-like object with a read() method). They are swapped in
+    # for the methods above when this object is wrapping a real file.
+    
+    def _read_sbyte(self):
+        """Reads a signed byte value from the wrapped file.
+        """
+        self.sbyte_array.fromfile(self.file, 1)
+        return self.sbyte_array.pop()
+    def _read_int(self):
+        """Reads a binary integer value from the wrapped file.
+        """
+        self.int_array.fromfile(self.file, 1)
+        return self.int_array.pop()
+    def _read_ushort(self):
+        """Reads an unsigned binary short integer value from the wrapped file.
+        """
+        self.ushort_array.fromfile(self.file, 1)
+        return self.ushort_array.pop()
+    def _read_ulong(self):
+        """Reads an unsigned binary integer value from the wrapped file.
+        """
+        self.ulong_array.fromfile(self.file, 1)
+        return self.ulong_array.pop()
+    def _read_float(self):
+        """Reads a binary floating point value from the wrapped file.
+        """
+        self.float_array.fromfile(self.file, 1)
+        return self.float_array.pop()
+    def _read_array(self, typecode, length):
+        """Reads an array of 'length' items from the wrapped file.
+        """
+        arry = array(typecode)
+        arry.fromfile(self.file, length)
+        return arry
     
     def read_string(self):
         """Reads a string from the wrapped file.
         """
-        length = self.read_varint()
-        if length > 0:
-            return self.file.read(length)
-        return ""
+        return self.file.read(self.read_varint())
     
     def skip_string(self):
         """Skips a string value by seeking past it.
@@ -260,6 +393,8 @@ class StructFile(object):
         return i
     
     def read_struct(self, format):
+        """Reads a struct from the wrapped file.
+        """
         length = calcsize(format)
         return unpack(format, self.file.read(length))
     

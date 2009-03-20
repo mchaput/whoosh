@@ -1,8 +1,22 @@
 import unittest
+from os import mkdir
+from os.path import exists
+from shutil import rmtree
 
 from whoosh import fields, index, store, writing
 
 class TestIndexing(unittest.TestCase):
+    def make_index(self, dirname, schema):
+        if not exists(dirname):
+            mkdir(dirname)
+        st = store.FileStorage(dirname)
+        ix = index.Index(st, schema, create = True)
+        return ix
+    
+    def destroy_index(self, dirname):
+        if exists(dirname):
+            rmtree(dirname)
+    
     def test_creation(self):
         s = fields.Schema()
         s.add("content", fields.TEXT(phrase = True))
@@ -44,38 +58,55 @@ class TestIndexing(unittest.TestCase):
         
         tr = ix.term_reader()
         self.assertEqual(ix.doc_count_all(), 3)
-        self.assertEqual(ix.total_term_count(), 17)
         self.assertEqual(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one", "two", "yellow"])
     
     def test_lengths(self):
-        s = fields.Schema(f1 = fields.KEYWORD(scorable = True),
-                          f2 = fields.KEYWORD(scorable = True))
+        s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
+                          f2 = fields.KEYWORD(stored = True, scorable = True))
+        ix = self.make_index("testindex", s)
+        w = ix.writer()
+        tokens = u"ABCDEFG"
+        from itertools import cycle, islice
+        lengths = [10, 20, 2, 102, 45, 3, 420, 2]
+        for length in lengths:
+            w.add_document(f2 = u" ".join(islice(cycle(tokens), length)))
+        w.commit()
+        dr = ix.doc_reader()
+        ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
+        ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
+        self.assertEqual(ls1, [0]*len(lengths))
+        self.assertEqual(ls2, lengths)
+        dr.close()
+        self.destroy_index("testindex")
+    
+    def test_lengths_ram(self):
+        s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
+                          f2 = fields.KEYWORD(stored = True, scorable = True))
         st = store.RamStorage()
         ix = index.Index(st, s, create = True)
         w = writing.IndexWriter(ix)
         w.add_document(f1 = u"A B C D E", f2 = u"X Y Z")
-        w.add_document(f1 = u"B B B B C D D", f2 = u"Q R S T")
-        w.add_document(f1 = u"D E F", f2 = u"U V")
+        w.add_document(f1 = u"B B B B C D D Q", f2 = u"Q R S T")
+        w.add_document(f1 = u"D E F", f2 = u"U V A B C D E")
         w.commit()
         
         dr = ix.doc_reader()
+        ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, 3)]
+        ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, 3)]
+        self.assertEqual(dr[0]["f1"], "A B C D E")
         self.assertEqual(dr.doc_field_length(0, "f1"), 5)
-        self.assertEqual(dr.doc_field_length(1, "f1"), 7)
+        self.assertEqual(dr.doc_field_length(1, "f1"), 8)
         self.assertEqual(dr.doc_field_length(2, "f1"), 3)
         self.assertEqual(dr.doc_field_length(0, "f2"), 3)
         self.assertEqual(dr.doc_field_length(1, "f2"), 4)
-        self.assertEqual(dr.doc_field_length(2, "f2"), 2)
+        self.assertEqual(dr.doc_field_length(2, "f2"), 7)
         
-        self.assertEqual(ix.field_length(0), 15)
-        self.assertEqual(ix.field_length(1), 9)
-        
-        self.assertEqual(dr.doc_length(0), 8)
-        self.assertEqual(dr.doc_length(1), 11)
-        self.assertEqual(dr.doc_length(2), 5)
+        self.assertEqual(ix.field_length("f1"), 16)
+        self.assertEqual(ix.field_length("f2"), 14)
         
     def test_merged_lengths(self):
-        s = fields.Schema(f1 = fields.KEYWORD(scorable = True),
-                          f2 = fields.KEYWORD(scorable = True))
+        s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
+                          f2 = fields.KEYWORD(stored = True, scorable = True))
         st = store.RamStorage()
         ix = index.Index(st, s, create = True)
         w = writing.IndexWriter(ix)
@@ -94,14 +125,11 @@ class TestIndexing(unittest.TestCase):
         w.commit(writing.NO_MERGE)
         
         dr = ix.doc_reader()
+        self.assertEqual(dr[0]["f1"], u"A B C")
         self.assertEqual(dr.doc_field_length(0, "f1"), 3)
         self.assertEqual(dr.doc_field_length(2, "f2"), 6)
         self.assertEqual(dr.doc_field_length(4, "f1"), 5)
         
-        self.assertEqual(dr.doc_length(1), 6)
-        self.assertEqual(dr.doc_length(3), 3)
-        self.assertEqual(dr.doc_length(5), 4)
-    
     def test_frequency(self):
         s = fields.Schema(content = fields.KEYWORD)
         st = store.RamStorage()
