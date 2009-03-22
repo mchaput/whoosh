@@ -73,7 +73,15 @@ class FieldType(object):
         self.scorable = scorable
         self.stored = stored
         self.unique = unique
-        
+    
+    def __eq__(self, other):
+        return all(isinstance(other, FieldType),
+                   (self.format == other.format),
+                   (self.vector == other.vector),
+                   (self.scorable == other.scorable),
+                   (self.stored == other.stored),
+                   (self.unique == other.unique))
+    
     def clean(self):
         if self.format and hasattr(self.format, "clean"):
             self.format.clean()
@@ -218,7 +226,11 @@ class Schema(object):
         
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
-        
+    
+    def __eq__(self, other):
+        if not isinstance(other, Schema): return False
+        return self._by_name == other._by_name
+    
     def __repr__(self):
         return "<Schema: %s>" % repr(self._names)
     
@@ -374,7 +386,10 @@ class Format(object):
         self.analyzer = analyzer
         self.field_boost = field_boost
         self.options = options
-        
+    
+    def __eq__(self, other):
+        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
+    
     def __repr__(self):
         return "%s(%r, boost = %s)" % (self.__class__.__name__,
                                        self.analyzer, self.field_boost)
