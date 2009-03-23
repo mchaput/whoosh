@@ -295,9 +295,14 @@ class TableReader(object):
         self._load_block(key)
         blockcount = self.blockcount
         itemlist = self.itemlist
-        itemlen = len(itemlist)
         
         p = bisect_left(itemlist, (key, None))
+        if p >= len(itemlist):
+            if self.currentblock >= blockcount - 1:
+                return
+            self._load_block_num(self.currentblock + 1)
+            itemlist = self.itemlist
+            p = 0
         
         # Yield the rest of the rows
         while True:
@@ -308,12 +313,11 @@ class TableReader(object):
                 yield kv
             
             p += 1
-            if p >= itemlen:
+            if p >= len(itemlist):
                 if self.currentblock >= blockcount - 1:
                     return
                 self._load_block_num(self.currentblock + 1)
                 itemlist = self.itemlist
-                itemlen = len(itemlist)
                 p = 0
     
     def close(self):
