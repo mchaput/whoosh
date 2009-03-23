@@ -158,7 +158,7 @@ class Searcher(util.ClosableMixin):
             docvector = BitVector(doc_reader.doc_count_all(),
                                   source = scored_list)
             if len(scored_list) > limit:
-                scored_list = scored_list[:limit]
+                scored_list = list(scored_list)[:limit]
         else:
             # Sort by scores
             topdocs = TopDocs(limit, doc_reader.doc_count_all())
