@@ -63,7 +63,9 @@ class TestReading(unittest.TestCase):
                   [u"A", u"E"]),
                  (AndNot(Term("name", u"yellow"), Term("value", u"purple")),
                   [u"E"]),
-                 (Variations("value", u"render"), [u"A", u"C", u"E"])
+                 (Variations("value", u"render"), [u"A", u"C", u"E"]),
+                 (Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
+                  [u"A", u"C", u"D", u"E"]),
                 ]
         
         for query, result in tests:
