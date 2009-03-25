@@ -564,6 +564,9 @@ class Analyzer(object):
     def __repr__(self):
         return "%s()" % self.__class__.__name__
 
+    def __eq__(self, other):
+        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
+
     def __call__(self, value):
         raise NotImplementedError
     
