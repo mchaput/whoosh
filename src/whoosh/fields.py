@@ -74,13 +74,18 @@ class FieldType(object):
         self.stored = stored
         self.unique = unique
     
+    def __repr__(self):
+        return "%s(format=%r, vector=%r, scorable=%s, stored=%s, unique=%s)"\
+        % (self.__class__.__name__, self.format, self.vector,
+           self.scorable, self.stored, self.unique)
+    
     def __eq__(self, other):
-        return all(isinstance(other, FieldType),
-                   (self.format == other.format),
-                   (self.vector == other.vector),
-                   (self.scorable == other.scorable),
-                   (self.stored == other.stored),
-                   (self.unique == other.unique))
+        return all((isinstance(other, FieldType),
+                    (self.format == other.format),
+                    (self.vector == other.vector),
+                    (self.scorable == other.scorable),
+                    (self.stored == other.stored),
+                    (self.unique == other.unique)))
     
     def clean(self):
         if self.format and hasattr(self.format, "clean"):

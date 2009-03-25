@@ -779,7 +779,7 @@ class Wildcard(ExpandingTerm):
             candidates = searcher.lexicon(self.fieldname)
         
         exp = self.expression
-        for text in candidates(searcher):
+        for text in candidates:
             if exp.match(text):
                 yield text
                 
