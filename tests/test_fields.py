@@ -3,6 +3,19 @@ import unittest
 from whoosh import fields, index
 
 class TestSchema(unittest.TestCase):
+    def test_schema_eq(self):
+        a = fields.Schema()
+        b = fields.Schema()
+        self.assertEqual(a, b)
+
+        a = fields.Schema(id=fields.ID)
+        b = fields.Schema(id=fields.ID)
+        self.assertEqual(a[0], b[0])
+        self.assertEqual(a, b)
+
+        c = fields.Schema(id=fields.TEXT)
+        self.assertNotEqual(a, c)
+        
     def test_creation1(self):
         s = fields.Schema()
         s.add("content", fields.TEXT(phrase = True))
