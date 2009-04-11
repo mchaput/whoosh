@@ -105,7 +105,7 @@ class ID(FieldType):
         """
         :stored: Whether the value of this field is stored with the document.
         """
-        self.format = Existance(analyzer = IDAnalyzer())
+        self.format = Existence(analyzer = IDAnalyzer())
         self.stored = stored
         self.unique = unique
 
@@ -471,7 +471,7 @@ class Stored(Format):
         return "%s()" % self.__class__.__name__
         
 
-class Existance(Format):
+class Existence(Format):
     """Only indexes whether a given term occurred in
     a given document; it does not store frequencies or positions.
     This is useful for fields that should be searchable but not
@@ -501,6 +501,9 @@ class Existance(Format):
     
     def data_to_weight(self, data):
         return self.field_boost
+
+# Backwards compatibility for a stupid spelling mistake
+Existance = Existence
 
 
 class Frequency(Format):
