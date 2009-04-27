@@ -54,21 +54,21 @@ class TestQueryParser(unittest.TestCase):
             self.destroy_index("testindex")
     
     def test_escaping(self):
-        from whoosh.analysis import Token
-        def a(text, **kwargs):
-            for text in text.split():
-                yield Token(text = text)
-            
-        s = fields.Schema(text=fields.TEXT(stored=True, analyzer=a),
-                          id=fields.ID(unique=True, stored=True),
-                          pub_date=fields.ID(stored=True))
+        qp = qparser.QueryParser("text")
         
-        qp = qparser.QueryParser("text", schema = s)
         q = qp.parse(r'http\:example')
-        print "q=", q
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.fieldname, "text")
         self.assertEqual(q.text, "http:example")
+        
+        # The following test currently fails because
+        # pyparsing swallows escaped whitespace for some
+        # reason.
+        
+        #q = qp.parse(r'hello\ there')
+        #self.assertEqual(q.__class__, query.Term)
+        #self.assertEqual(q.fieldname, "text")
+        #self.assertEqual(q.text, "hello there")
 
 
 if __name__ == '__main__':
