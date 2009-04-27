@@ -173,7 +173,7 @@ class IndexWriter(index.DeletionMixin):
         For example, if you have a field named "title" and you want to index the
         text "a b c" but store the text "e f g", use keyword arguments like this::
         
-            add_document(title=u"a b c" _stored_title=u"e f g)
+            add_document(title=u"a b c", _stored_title=u"e f g")
         """
         self.segment_writer().add_document(fields)
     
@@ -188,7 +188,7 @@ class IndexWriter(index.DeletionMixin):
         For example, if you have a field named "title" and you want to index the
         text "a b c" but store the text "e f g", use keyword arguments like this::
         
-            update_document(title=u"a b c" _stored_title=u"e f g)
+            update_document(title=u"a b c", _stored_title=u"e f g")
         """
         
         # Check which of the supplied fields are unique
