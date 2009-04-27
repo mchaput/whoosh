@@ -273,16 +273,16 @@ class FieldSorter(Sorter):
         self._searcher = None
         self._cache = None
 
-    def _make_cache(self, searcher, missingfirst):
+    def _make_cache(self, searcher):
         # Is this searcher already cached?
-        if self._cache and self._searcher and self._searcher() == searcher:
+        if self._cache and self._searcher and self._searcher() is searcher:
             return
         
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         
         # Create an array of an int for every document in the index.
         N = searcher.doc_count_all()
-        if missingfirst:
+        if self.missingfirst:
             default = -1
         else:
             default = N + 1
@@ -290,6 +290,7 @@ class FieldSorter(Sorter):
         
         # For every document containing every term in the field, set
         # its array value to the term's (inherently sorted) position.
+        i = -1
         for i, word in enumerate(searcher.lexicon(fieldnum)):
             for docnum, _ in searcher.postings(fieldnum, word):
                 cache[docnum] = i
@@ -298,7 +299,9 @@ class FieldSorter(Sorter):
         self._cache = cache
         self._searcher = weakref.ref(searcher, self._delete_cache)
     
-    def _delete_cache(self):
+    def _delete_cache(self, obj):
+        # Callback function, called by the weakref implementation when
+        # the searcher we're using to do the ordering goes away.
         self._cache = self._searcher = None
     
     def order(self, searcher, docnums, reverse = False):
@@ -306,7 +309,7 @@ class FieldSorter(Sorter):
         returns a list of docnums sorted by the field values.
         """
         
-        self._make_cache(searcher, self.missingfirst)
+        self._make_cache(searcher)
         return sorted(docnums,
                       key = self._cache.__getitem__,
                       reverse = reverse)

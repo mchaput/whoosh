@@ -202,6 +202,7 @@ class IndexWriter(index.DeletionMixin):
         searcher = self.searcher()
         for name in unique_fields:
             self.delete_by_term(name, fields[name], searcher = searcher)
+        searcher.close()
         
         # Add the given fields
         self.add_document(**fields)

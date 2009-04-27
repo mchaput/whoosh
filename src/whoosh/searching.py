@@ -52,6 +52,9 @@ class Searcher(util.ClosableMixin):
         
         self._copy_methods()
     
+    def __del__(self):
+        self.close()
+    
     def __iter__(self):
         return iter(self.term_reader)
     

@@ -3,7 +3,7 @@ from os import mkdir
 from os.path import exists
 from shutil import rmtree
 
-from whoosh import fields, index, store, writing
+from whoosh import fields, index, qparser, store, writing
 
 class TestIndexing(unittest.TestCase):
     def make_index(self, dirname, schema):
@@ -64,20 +64,23 @@ class TestIndexing(unittest.TestCase):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
                           f2 = fields.KEYWORD(stored = True, scorable = True))
         ix = self.make_index("testindex", s)
-        w = ix.writer()
-        tokens = u"ABCDEFG"
-        from itertools import cycle, islice
-        lengths = [10, 20, 2, 102, 45, 3, 420, 2]
-        for length in lengths:
-            w.add_document(f2 = u" ".join(islice(cycle(tokens), length)))
-        w.commit()
-        dr = ix.doc_reader()
-        ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
-        ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
-        self.assertEqual(ls1, [0]*len(lengths))
-        self.assertEqual(ls2, lengths)
-        dr.close()
-        self.destroy_index("testindex")
+        
+        try:
+            w = ix.writer()
+            tokens = u"ABCDEFG"
+            from itertools import cycle, islice
+            lengths = [10, 20, 2, 102, 45, 3, 420, 2]
+            for length in lengths:
+                w.add_document(f2 = u" ".join(islice(cycle(tokens), length)))
+            w.commit()
+            dr = ix.doc_reader()
+            ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
+            ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
+            self.assertEqual(ls1, [0]*len(lengths))
+            self.assertEqual(ls2, lengths)
+            dr.close()
+        finally:
+            self.destroy_index("testindex")
     
     def test_lengths_ram(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
@@ -179,6 +182,7 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(ix.doc_count(), 2)
         tr = ix.term_reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
+
         
         
 if __name__ == '__main__':
