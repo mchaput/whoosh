@@ -899,9 +899,14 @@ class Phrase(MultiTerm):
                               slop = self.slop, boost = self.boost)
     
     def replace(self, oldtext, newtext):
-        return Phrase(self.fieldname, [newtext if w == oldtext else w
-                                       for w in self.words],
-                                       slop = self.slop, boost = self.boost)
+        def rep(w):
+            if w == oldtext:
+                return newtext
+            else:
+                return w
+        
+        return Phrase(self.fieldname, [rep(w) for w in self.words],
+                      slop = self.slop, boost = self.boost)
     
     def _and_query(self):
         fn = self.fieldname

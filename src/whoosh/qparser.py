@@ -1,6 +1,6 @@
 import re
 
-from whoosh.support.pyparsing import alphanums, \
+from whoosh.support.pyparsing import alphanums, printables, \
 CharsNotIn, Literal, Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, Keyword, \
 Empty, StringEnd, ParserElement
 from whoosh import analysis, query
@@ -63,7 +63,11 @@ def _make_default_parser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
     
     #wordToken = Word(self.wordChars)
-    wordToken = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
+    escapechar = "\\"
+    wordtext = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
+    escape = Suppress(escapechar) + Word(printables, exact=1)
+    wordToken = OneOrMore(wordtext | escape)
+    wordToken.setParseAction(lambda tokens: ''.join(tokens))
     
     # A plain old word.
     plainWord = Group(wordToken).setResultsName("Word")
@@ -96,7 +100,7 @@ def _make_default_parser():
     # should be searched in a particular field by prepending 'fn:', where fn is
     # the name of the field.
     fieldableUnit = parenthetical | boostedUnit | boostableUnit
-    fieldedUnit = Group(Word(alphanums) + Suppress(':') + fieldableUnit).setResultsName("Field")
+    fieldedUnit = Group(Word(alphanums + "_") + Suppress(':') + fieldableUnit).setResultsName("Field")
     
     # Units of content
     unit = fieldedUnit | fieldableUnit
