@@ -183,7 +183,33 @@ class TestIndexing(unittest.TestCase):
         tr = ix.term_reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
 
-        
-        
+    def test_reindex(self):
+        SAMPLE_DOCS = [
+            {'id': u'test1', 'text': u'This is a document. Awesome, is it not?'},
+            {'id': u'test2', 'text': u'Another document. Astounding!'},
+            {'id': u'test3', 'text': u'A fascinating article on the behavior of domestic steak knives.'},
+        ]
+
+        schema = fields.Schema(text=fields.TEXT(stored=True),
+                               id=fields.ID(unique=True, stored=True))
+        from os.path import abspath
+        ix = self.make_index("testindex", schema)
+        try:
+            def reindex():
+                writer = ix.writer()
+            
+                for doc in SAMPLE_DOCS:
+                    writer.update_document(**doc)
+            
+                writer.commit()
+
+            reindex()
+            self.assertEqual(ix.doc_count_all(), 3)
+            reindex()
+        finally:
+            self.destroy_index("testindex")
+
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -121,6 +121,7 @@ class IndexWriter(index.DeletionMixin):
             self.commit()
     
     def _finish(self):
+        self._close_searcher()
         self._segment_writer = None
         # Release the lock
         if self.locked:
@@ -140,6 +141,11 @@ class IndexWriter(index.DeletionMixin):
         if not self._searcher:
             self._searcher = self.index.searcher()
         return self._searcher
+    
+    def _close_searcher(self):
+        if self._searcher:
+            self._searcher.close()
+            self._searcher = None
     
     def start_document(self):
         """Starts recording information for a new document. This should be followed by
@@ -202,7 +208,6 @@ class IndexWriter(index.DeletionMixin):
         searcher = self.searcher()
         for name in unique_fields:
             self.delete_by_term(name, fields[name], searcher = searcher)
-        searcher.close()
         
         # Add the given fields
         self.add_document(**fields)
@@ -214,6 +219,7 @@ class IndexWriter(index.DeletionMixin):
             writing.NO_MERGE, writing.MERGE_SMALL, or writing.OPTIMIZE.
         """
         
+        self._close_searcher()
         if self._segment_writer or mergetype is OPTIMIZE:
             self._merge_segments(mergetype)
         self.index.commit(self.segments)
