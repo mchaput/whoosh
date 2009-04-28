@@ -183,6 +183,31 @@ class TestIndexing(unittest.TestCase):
         tr = ix.term_reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
 
+    def test_update(self):
+        # Test update with multiple unique keys
+        SAMPLE_DOCS = [{"id": u"test1", "path": u"/test/1", "text": u"Hello"},
+                       {"id": u"test2", "path": u"/test/2", "text": u"There"},
+                       {"id": u"test3", "path": u"/test/3", "text": u"Reader"},
+                       ]
+        
+        schema = fields.Schema(id=fields.ID(unique=True, stored=True),
+                               path=fields.ID(unique=True, stored=True),
+                               text=fields.TEXT)
+        ix = self.make_index("testindex", schema)
+        try:
+            writer = ix.writer()
+            for doc in SAMPLE_DOCS:
+                writer.add_document(**doc)
+            writer.commit()
+            
+            writer = ix.writer()
+            writer.update_document(**{"id": u"test2",
+                                      "path": u"test/1",
+                                      "text": u"Replacement"})
+            writer.commit()
+        finally:
+            self.destroy_index("testindex")
+
     def test_reindex(self):
         SAMPLE_DOCS = [
             {'id': u'test1', 'text': u'This is a document. Awesome, is it not?'},
@@ -192,7 +217,6 @@ class TestIndexing(unittest.TestCase):
 
         schema = fields.Schema(text=fields.TEXT(stored=True),
                                id=fields.ID(unique=True, stored=True))
-        from os.path import abspath
         ix = self.make_index("testindex", schema)
         try:
             def reindex():
@@ -206,6 +230,7 @@ class TestIndexing(unittest.TestCase):
             reindex()
             self.assertEqual(ix.doc_count_all(), 3)
             reindex()
+            
         finally:
             self.destroy_index("testindex")
 
