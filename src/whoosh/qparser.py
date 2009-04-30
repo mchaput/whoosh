@@ -62,12 +62,12 @@ the following copyright and conditions:
 def _make_default_parser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
     
-    #wordToken = Word(self.wordChars)
     escapechar = "\\"
     wordtext = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
-    escape = Suppress(escapechar) + Word(printables, exact=1)
-    wordToken = OneOrMore(wordtext | escape)
-    wordToken.setParseAction(lambda tokens: ''.join(tokens))
+    #escape = Suppress(escapechar) + Word(printables, exact=1)
+    #wordToken = OneOrMore(escape | wordtext)
+    #wordToken.setParseAction(lambda tokens: ''.join(tokens))
+    wordToken = wordtext
     
     # A plain old word.
     plainWord = Group(wordToken).setResultsName("Word")
@@ -504,8 +504,8 @@ if __name__=='__main__':
     from whoosh.fields import Schema, TEXT, NGRAM, ID
     s = Schema(content = TEXT, path=ID)
     
-    qp = SimpleParser("content", schema = s)
-    pn = qp.parse(u'hello +really there -ami', normalize = False)
+    qp = QueryParser("content", schema = s)
+    pn = qp.parse(u'hello there', normalize = False)
     print "pn=", pn
     if pn:
         nn = pn.normalize()
