@@ -166,52 +166,30 @@ class DeletionMixin(object):
         """
         return self.segments.has_deletions()
     
-    def delete_by_term(self, fieldname, text, searcher = None):
+    def delete_by_term(self, fieldname, text):
         """Deletes any documents containing "term" in the "fieldname"
         field. This is useful when you have an indexed field containing
         a unique ID (such as "pathname") for each document.
-        
-        Note that this method opens and closes a Searcher. If you are calling
-        this method repeatedly (for example, deleting changed documents before
-        reindexing them), you will want to open your own Searcher object and
-        pass it in with the 'searcher' keyword argument for efficiency.
         
         :*returns*: the number of documents deleted.
         """
         
         from whoosh.query import Term
         q = Term(fieldname, text)
-        return self.delete_by_query(q, searcher = searcher)
+        return self.delete_by_query(q)
     
-    def delete_by_query(self, q, searcher = None):
+    def delete_by_query(self, q):
         """Deletes any documents matching a query object.
-        
-        Note that this method opens and closes a Searcher. If you are calling
-        this method repeatedly (for example, deleting changed documents before
-        reindexing them), you should open your own Searcher object and
-        pass it in with the 'searcher' keyword argument for efficiency.
         
         :*returns*: the number of documents deleted.
         """
         
-        if searcher is None:
-            from whoosh.searching import Searcher
-            s = Searcher(self)
-        else:
-            s = searcher  
-        
         count = 0
-        try:
-            for docnum in q.docs(s):
-                self.delete_document(docnum)
-                count += 1
-            return count
-        
-        finally:
-            if searcher is None:
-                s.close()
-        
+        for docnum in q.docs(self._searcher):
+            self.delete_document(docnum)
+            count += 1
         return count
+
 
 # Index class
 
@@ -262,9 +240,20 @@ class Index(DeletionMixin):
             self._read(schema)
         else:
             raise EmptyIndexError
-            
+        
+        # Open a searcher for this index. This is used by the
+        # deletion methods, but mostly it's to keep the underlying
+        # files open so they don't get deleted from underneath us.
+        self._searcher = self.searcher()
+        
         self.segment_num_lock = Lock()
-            
+    
+    def __del__(self):
+        self.close()
+    
+    def close(self):
+        self._searcher.close()
+    
     def latest_generation(self):
         """Returns the generation number of the latest generation of this
         index.
@@ -530,7 +519,7 @@ class Index(DeletionMixin):
             from whoosh.qparser import QueryParser
             parser = QueryParser(self.schema)
             
-        return self.searcher().search(parser.parse(querystring), **kwargs)
+        return self._searcher.search(parser.parse(querystring), **kwargs)
     
     
 
