@@ -80,6 +80,27 @@ class TestReading(unittest.TestCase):
         for methodname in ("_docs", "_doc_scores"):
             method = getattr(self, methodname)
 
+    def test_score_retrieval(self):
+        schema = fields.Schema(title=fields.TEXT(stored=True),
+                               content=fields.TEXT(stored=True))
+        storage = store.RamStorage()
+        ix = index.Index(storage, schema, create=True)
+        writer = ix.writer()
+        writer.add_document(title=u"Miss Mary",
+                            content=u"Mary had a little white lamb its fleece was white as snow")
+        writer.add_document(title=u"Snow White",
+                            content=u"Snow white lived in the forrest with seven dwarfs")
+        writer.commit()
+        
+        searcher = ix.searcher()
+        results = searcher.search(Term("content", "white"))
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]['title'], u"Miss Mary")
+        self.assertEqual(results[1]['title'], u"Snow White")
+        self.assertNotEqual(results.score(0), None)
+        self.assertNotEqual(results.score(0), 0)
+        self.assertNotEqual(results.score(0), 1)
+
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True), hobbies=fields.TEXT(stored=True))
         storage = store.RamStorage()

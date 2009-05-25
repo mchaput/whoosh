@@ -147,7 +147,8 @@ class TopDocs(object):
         """
         
         # Throw away the score and just return a list of items
-        return [item for _, item in reversed(sorted(self.heap))]
+        return [(item, score) for score, item in reversed(sorted(self.heap))]
+    
 
 # Mix-in for objects with a close() method that allows them to be
 # used as a context manager.
