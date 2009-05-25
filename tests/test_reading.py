@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import fields, index, store, writing
+from whoosh import analysis, fields, index, store, writing
 
 class TestReading(unittest.TestCase):
     def _create_index(self):
@@ -67,6 +67,27 @@ class TestReading(unittest.TestCase):
         self.assertEqual(len(ix.segments), 3)
         t(ix)
         
+    def test_vector_postings(self):
+        s = fields.Schema(id=fields.ID(stored=True, unique=True),
+                          content=fields.TEXT(vector=fields.Positions(analyzer=analysis.StandardAnalyzer())))
+        st = store.RamStorage()
+        ix = index.Index(st, s, create = True)
+        
+        writer = ix.writer()
+        writer.add_document(id=u'1', content=u'the quick brown fox jumped over the lazy dogs')
+        writer.commit()
+        dr = ix.doc_reader()
+        
+        terms = list(dr.vector_as(0, 0, "weight"))
+        self.assertEqual(terms, [(u'brown', 1.0),
+                                 (u'dogs', 1.0),
+                                 (u'fox', 1.0),
+                                 (u'jumped', 1.0),
+                                 (u'lazy', 1.0),
+                                 (u'over', 1.0),
+                                 (u'quick', 1.0),
+                                 ])
+
         
 if __name__ == '__main__':
     unittest.main()

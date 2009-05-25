@@ -255,7 +255,8 @@ class Index(DeletionMixin):
         self.segment_num_lock = Lock()
     
     def __del__(self):
-        self.close()
+        if hasattr(self, "_searcher") and self._searcher and not self._searcher.is_closed:
+            self._searcher.close()
     
     def close(self):
         self._searcher.close()
@@ -407,6 +408,8 @@ class Index(DeletionMixin):
             writing.
         """
         
+        self._searcher.close()
+        
         if not self.up_to_date():
             raise OutOfDateError
         
@@ -416,6 +419,8 @@ class Index(DeletionMixin):
         self.generation += 1
         self._write()
         self.clean_files()
+        
+        self._searcher = self.searcher()
     
     def clean_files(self):
         """Attempts to remove unused index files (called when a new generation
@@ -435,13 +440,21 @@ class Index(DeletionMixin):
             if m:
                 num = int(m.group(1))
                 if num != self.generation:
-                    storage.delete_file(filename)
+                    try:
+                        storage.delete_file(filename)
+                    except WindowsError:
+                        # Another process still has this file open
+                        pass
             else:
                 m = segpattern.match(filename)
                 if m:
                     name = m.group(1)
                     if name not in current_segment_names:
-                        storage.delete_file(filename)
+                        try:
+                            storage.delete_file(filename)
+                        except WindowsError:
+                            # Another process still has this file open
+                            pass
     
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
@@ -539,12 +552,9 @@ class Index(DeletionMixin):
             parser = QueryParser(self.schema)
             
         return self._searcher.search(parser.parse(querystring), **kwargs)
-    
-    
 
 
 # SegmentSet object
-
 
 class SegmentSet(object):
     """This class is never instantiated by the user. It is used by the Index

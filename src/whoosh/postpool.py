@@ -19,7 +19,8 @@
 merging model. This module does not contain any user-level objects.
 """
 
-import cPickle, struct, tempfile
+import os, struct, tempfile
+from marshal import dumps, loads
 from heapq import heapify, heapreplace, heappop
 
 from whoosh import structfile
@@ -35,7 +36,7 @@ def encode_posting(fieldNum, text, doc, data):
                     text.encode("utf8"),
                     chr(0),
                     struct.pack("!i", doc),
-                    cPickle.dumps(data, -1)
+                    dumps(data)
                     ])
 
 def decode_posting(posting):
@@ -52,7 +53,7 @@ def decode_posting(posting):
     docend = docstart + _int_size
     doc = struct.unpack("!i", posting[docstart:docend])[0]
     
-    data = cPickle.loads(posting[docend:])
+    data = loads(posting[docend:])
     
     return field_num, text, doc, data
 
@@ -236,6 +237,7 @@ class PostingPool(object):
             raise Exception("Can't add postings after you iterate over the pool")
         
         if self.size >= self.limit:
+            print "Flushing..."
             self._flush_run()
         
         posting = encode_posting(field_num, text, doc, data)
@@ -248,15 +250,17 @@ class PostingPool(object):
         # Sorts the buffer and writes the current buffer to a "run" on disk.
         
         if self.size > 0:
-            run_file = structfile.StructFile(tempfile.TemporaryFile())
+            tempfd, tempname = tempfile.mkstemp(".run")
+            runfile = structfile.StructFile(os.fdopen(tempfd, "w+b"))
             
             self.postings.sort()
             for p in self.postings:
-                run_file.write_string(p)
-            run_file.flush()
-            run_file.seek(0)
+                runfile.write_string(p)
+            runfile.flush()
+            runfile.seek(0)
             
-            self.runs.append((run_file, self.count))
+            self.runs.append((runfile, self.count))
+            print "Flushed run:", self.runs
             
             self.postings = []
             self.size = 0
@@ -281,8 +285,13 @@ class PostingPool(object):
                 yield decode_posting(p)
             return
         
+        if not self.postings and run_count == 0:
+            # No postings at all
+            return
+        
         if self.postings:
             self._flush_run()
+            run_count = len(self.runs)
         
         #This method does an external merge to yield postings
         #from the (n > 1) runs built up during indexing and
@@ -306,22 +315,7 @@ class PostingPool(object):
         self.finished = True
 
 
-#class RamPostingPool(object):
-#    """
-#    An experimental alternate implementation of PostingPool that
-#    just keeps everything in memory instead of doing an external
-#    sort on disk. This is very memory inefficient and, as it turns
-#    out, not much faster.
-#    """
-#
-#    def __init__(self):
-#        self.postings = []
-#
-#    def add_posting(self, field_num, text, doc, data):
-#        self.postings.append((field_num, text, doc, data))
-#
-#    def __iter__(self):
-#        return iter(sorted(self.postings))
+
 
 
 

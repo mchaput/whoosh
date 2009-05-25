@@ -64,8 +64,7 @@ class DocReader(ClosableMixin):
     
     def _open_vectors(self):
         if not self.vector_table:
-            self.vector_table = self.storage.open_table(self.segment.vector_filename,
-                                                        postings = True)
+            self.vector_table = self.storage.open_table(self.segment.vector_filename)
     
     @protected
     def __getitem__(self, docnum):

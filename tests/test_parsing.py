@@ -50,8 +50,16 @@ class TestQueryParser(unittest.TestCase):
             s = ix.searcher()
             r = s.search(qp.parse("my_name:Green"))
             self.assertEqual(r[0]['my_name'], "Green")
+            s.close()
+            ix.close()
         finally:
             self.destroy_index("testindex")
+    
+    def test_endstar(self):
+        qp = qparser.QueryParser("text")
+        q = qp.parse("word*")
+        self.assertEqual(q.__class__.__name__, "Prefix")
+        self.assertEqual(q.text, "word")
     
     def test_escaping(self):
         qp = qparser.QueryParser("text")

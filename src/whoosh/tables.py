@@ -40,8 +40,8 @@ struct module.
 import shutil, tempfile
 from array import array
 from bisect import bisect_left, bisect_right
-from cPickle import loads as load_pickle_str
-from cPickle import dumps as dump_pickle_str
+from marshal import loads
+from marshal import dumps
 
 try:
     from zlib import compress, decompress
@@ -109,7 +109,8 @@ class TableWriter(object):
         self.lastkey = None
         self.blockfilled = 0
         
-        self.dir = []
+        self.keys = []
+        self.pointers = array("L")
         
         # Remember where we started writing
         self.start = table_file.tell()
@@ -134,7 +135,9 @@ class TableWriter(object):
         # Remember where we started writing the directory
         dirpos = tf.tell()
         # Write the directory
-        tf.write_pickle((tuple(self.dir), self.options))
+        tf.write_pickle(self.keys)
+        tf.write_array(self.pointers)
+        tf.write_pickle(self.options)
         
         if haspostings:
             # Remember where we started the postings
@@ -161,9 +164,10 @@ class TableWriter(object):
         key = buf[0][0]
         compressed = self.compressed
         
-        self.dir.append((key, self.table_file.tell()))
+        self.keys.append(key)
+        self.pointers.append(self.table_file.tell())
         if compressed:
-            pck = dump_pickle_str(buf, -1)
+            pck = dumps(buf)
             self.table_file.write_string(compress(pck, compressed))
         else:
             self.table_file.write_pickle(buf)
@@ -200,7 +204,7 @@ class TableWriter(object):
             self.blockfilled += len(data) * data.itemsize
         else:
             # Ugh! We're pickling twice! At least it's fast.
-            self.blockfilled += len(dump_pickle_str(data, -1))
+            self.blockfilled += len(dumps(data))
         self.lastkey = key
         
         if self.haspostings:
@@ -218,6 +222,7 @@ class TableWriter(object):
         
         # If this row filled up a block, flush it out
         if self.blockfilled >= self.blocksize:
+            #print len(rb)
             self._write_block()
 
 
@@ -234,14 +239,14 @@ class TableReader(object):
         
         # Seek to where the directory begins and read it
         table_file.seek(dirpos)
-        dir, options = table_file.read_pickle()
+        self.blockindex = table_file.read_pickle()
+        self.blockcount = len(self.blockindex)
+        self.blockpositions = table_file.read_array("L", self.blockcount)
+        options = table_file.read_pickle()
         self.__dict__.update(options)
+        
         if self.compressed > 0 and not has_zlib:
             raise Exception("zlib is not available: cannot decompress table")
-        
-        # Break the directory out
-        self.blockindex, self.blockpositions = zip(*dir)
-        self.blockcount = len(dir)
         
         # Initialize cached block
         self.currentblock = None
@@ -352,7 +357,7 @@ class TableReader(object):
         # Sooooooo sloooooow...
         if self.compressed:
             pck = self.table_file.read_string()
-            itemlist = load_pickle_str(decompress(pck))
+            itemlist = loads(decompress(pck))
         else:
             itemlist = self.table_file.read_pickle()
         
@@ -519,6 +524,61 @@ class RecordReader(object):
         tf = self.table_file
         tf.seek(1 + _USHORT_SIZE + recordnum * self.recordsize)
         return tf.read_array(self.typecode, self.length)
+
+
+class StringListWriter(object):
+    def __init__(self, table_file, listlength):
+        self.table_file = table_file
+        self.listlength = listlength
+        self.positions = array("L")
+        
+        table_file.write_ulong(0)
+    
+    def close(self):
+        tf = self.table_file
+        directory_pos = tf.tell()
+        tf.write_array(self.positions)
+        tf.seek(0)
+        tf.write_ulong(directory_pos)
+        tf.close()
+    
+    def append(self, ustrings):
+        assert len(ustrings) == self.listlength
+        tf = self.table_file
+        
+        self.positions.append(tf.tell())
+        
+        encoded = [ustring.encode("utf8") for ustring in ustrings]
+        lenarray = array("I", (len(s) for s in encoded))
+        tf.write_array(lenarray)
+        tf.write("".join(encoded))
+        
+
+class StringListReader(object):
+    def __init__(self, table_file, listlength, size):
+        self.table_file = table_file
+        self.listlength = listlength
+        self.size = size
+        
+        self.positions = table_file.read_array("L", size)
+        
+    def close(self):
+        self.table_file.close()
+    
+    def get(self, num):
+        tf = self.table_file
+        listlength = self.listlength
+        
+        tf.seek(self.positions[num])
+        lens = tf.read_array("I", listlength)
+        string = tf.read(sum(lens))
+        
+        p = 0
+        decoded = []
+        for ln in lens:
+            decoded.append(string[p:p+ln].decode("utf8"))
+            p += ln
+        return decoded
 
 
 if __name__ == '__main__':

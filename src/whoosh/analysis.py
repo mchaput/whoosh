@@ -616,12 +616,27 @@ class KeywordAnalyzer(Analyzer):
             return self.tokenizer(value, **kwargs)
 
 
-class SimpleAnalyzer(Analyzer):
-    """Uses a RegexTokenizer and applies a LowercaseFilter.
+class RegexAnalyzer(Analyzer):
+    """Uses a RegexTokenizer, applies no filters.
+    
+    :expression: The regular expression pattern to use to extract tokens.
     """
     
-    def __init__(self):
-        self.tokenizer = RegexTokenizer()
+    def __init__(self, expression = None):
+        self.tokenizer = RegexTokenizer(expression = expression)
+        
+    def __call__(self, value, **kwargs):
+        return self.tokenizer(value, **kwargs)
+
+
+class SimpleAnalyzer(Analyzer):
+    """Uses a RegexTokenizer and applies a LowercaseFilter.
+    
+    :expression: The regular expression pattern to use to extract tokens.
+    """
+    
+    def __init__(self, expression = None):
+        self.tokenizer = RegexTokenizer(expression = expression)
         
     def __call__(self, value, **kwargs):
         return LowercaseFilter(self.tokenizer(value, **kwargs))
