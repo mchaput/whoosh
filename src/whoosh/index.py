@@ -20,9 +20,11 @@ an index.
 
 from __future__ import division
 import os.path, re
+from sys import byteorder
 from bisect import bisect_right
 import cPickle
 from threading import Lock
+from array import array
 
 from whoosh import fields, store
 
@@ -30,7 +32,11 @@ from whoosh import fields, store
 _DEF_INDEX_NAME = "MAIN"
 _EXTENSIONS = "dci|dcz|tiz|fvz"
 
-_index_version = -100
+_index_version = -101
+
+_int_size = array("i").itemsize
+_ulong_size = array("L").itemsize
+_float_size = array("f").itemsize
 
 # Exceptions
 
@@ -294,6 +300,12 @@ class Index(DeletionMixin):
         for field in self.schema:
             field.clean()
         stream = self.storage.create_file(self._toc_filename())
+        
+        stream.write_varint(_int_size)
+        stream.write_varint(_ulong_size)
+        stream.write_varint(_float_size)
+        stream.write_string(byteorder)
+        
         stream.write_int(_index_version)
         stream.write_string(cPickle.dumps(self.schema, -1))
         stream.write_int(self.generation)
@@ -304,6 +316,13 @@ class Index(DeletionMixin):
     def _read(self, schema):
         # Reads the content of this index from the .toc file.
         stream = self.storage.open_file(self._toc_filename())
+        
+        if stream.read_varint() != _int_size or \
+           stream.read_varint() != _ulong_size or \
+           stream.read_varint() != _float_size or \
+           stream.read_string() != byteorder:
+            raise IndexError("Index was created on a different architecture")
+        
         version = stream.read_int()
         if version != _index_version:
             raise IndexError("Don't know how to read index version %s" % version)

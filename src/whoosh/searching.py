@@ -166,7 +166,7 @@ class Searcher(util.ClosableMixin):
             # Sort by scores
             topdocs = TopDocs(limit, doc_reader.doc_count_all())
             topdocs.add_all(query.doc_scores(self, weighting = weighting or self.weighting))
-            scored_list = topdocs.best()
+            scored_list, scores = zip(*topdocs.best())
             docvector = topdocs.docs
         t = time.time() - t
             
@@ -174,7 +174,8 @@ class Searcher(util.ClosableMixin):
                        query,
                        scored_list,
                        docvector,
-                       runtime = t)
+                       runtime = t,
+                       scores = scores)
     
     def fieldname_to_num(self, fieldname):
         return self.schema.name_to_number(fieldname)
@@ -235,7 +236,8 @@ class Results(object):
     is the stored fields of the document at that position in the results.
     """
     
-    def __init__(self, searcher, query, scored_list, docvector, runtime = 0):
+    def __init__(self, searcher, query, scored_list, docvector,
+                 scores = None, runtime = 0):
         """
         :doc_reader: a reading.DocReader object from which to fetch
             the fields for result documents.
@@ -252,6 +254,7 @@ class Results(object):
         self.query = query
         
         self.scored_list = scored_list
+        self.scores = scores
         self.docs = docvector
         self.runtime = runtime
     
@@ -279,6 +282,15 @@ class Results(object):
         doc_reader = self.searcher.doc_reader
         for docnum in self.scored_list:
             yield doc_reader[docnum]
+    
+    def score(self, n):
+        """Returns the score for the document at the Nth position in the
+        list of results. If the search was not scored, returns None."""
+        
+        if self.scores:
+            return self.scores[n]
+        else:
+            return None
     
     def scored_length(self):
         """Returns the number of RANKED documents. Note this may be fewer
