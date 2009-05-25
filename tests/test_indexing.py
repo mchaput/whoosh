@@ -135,12 +135,12 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(dr.doc_field_length(2, "f2"), 6)
         self.assertEqual(dr.doc_field_length(4, "f1"), 5)
         
-    def test_frequency(self):
+    def test_frequency_keyword(self):
         s = fields.Schema(content = fields.KEYWORD)
         st = store.RamStorage()
         ix = index.Index(st, s, create = True)
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(content = u"A B C D E")
         w.add_document(content = u"B B B B C D D")
         w.add_document(content = u"D E F")
@@ -162,6 +162,34 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(list(tr), [(0, u"A", 1, 1), (0, u"B", 2, 5),
                                     (0, u"C", 2, 2), (0, u"D", 3, 4),
                                     (0, u"E", 2, 2), (0, u"F", 1, 1)])
+        
+    def test_frequency_text(self):
+        s = fields.Schema(content = fields.KEYWORD)
+        st = store.RamStorage()
+        ix = index.Index(st, s, create = True)
+        
+        w = ix.writer()
+        w.add_document(content = u"alfa bravo charlie delta echo")
+        w.add_document(content = u"bravo bravo bravo bravo charlie delta delta")
+        w.add_document(content = u"delta echo foxtrot")
+        w.commit()
+        
+        tr = ix.term_reader()
+        self.assertEqual(tr.doc_frequency("content", u"bravo"), 2)
+        self.assertEqual(tr.frequency("content", u"bravo"), 5)
+        self.assertEqual(tr.doc_frequency("content", u"echo"), 2)
+        self.assertEqual(tr.frequency("content", u"echo"), 2)
+        self.assertEqual(tr.doc_frequency("content", u"alfa"), 1)
+        self.assertEqual(tr.frequency("content", u"alfa"), 1)
+        self.assertEqual(tr.doc_frequency("content", u"delta"), 3)
+        self.assertEqual(tr.frequency("content", u"delta"), 4)
+        self.assertEqual(tr.doc_frequency("content", u"foxtrot"), 1)
+        self.assertEqual(tr.frequency("content", u"foxtrot"), 1)
+        self.assertEqual(tr.doc_frequency("content", u"zulu"), 0)
+        self.assertEqual(tr.frequency("content", u"zulu"), 0)
+        self.assertEqual(list(tr), [(0, u"alfa", 1, 1), (0, u"bravo", 2, 5),
+                                    (0, u"charlie", 2, 2), (0, u"delta", 3, 4),
+                                    (0, u"echo", 2, 2), (0, u"foxtrot", 1, 1)])
     
     def test_deletion(self):
         s = fields.Schema(key = fields.ID, name = fields.TEXT, value = fields.TEXT)
