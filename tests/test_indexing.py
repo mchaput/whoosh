@@ -79,6 +79,8 @@ class TestIndexing(unittest.TestCase):
             self.assertEqual(ls1, [0]*len(lengths))
             self.assertEqual(ls2, lengths)
             dr.close()
+            
+            ix.close()
         finally:
             self.destroy_index("testindex")
     
@@ -172,7 +174,8 @@ class TestIndexing(unittest.TestCase):
         w.add_document(key = u"C", name = u"One two", value = u"Three four five.")
         w.commit()
         
-        ix.delete_by_term("key", u"B")
+        count = ix.delete_by_term("key", u"B")
+        self.assertEqual(count, 1)
         ix.commit()
         
         self.assertEqual(ix.doc_count_all(), 3)
@@ -205,6 +208,7 @@ class TestIndexing(unittest.TestCase):
                                       "path": u"test/1",
                                       "text": u"Replacement"})
             writer.commit()
+            ix.close()
         finally:
             self.destroy_index("testindex")
 
@@ -230,6 +234,8 @@ class TestIndexing(unittest.TestCase):
             reindex()
             self.assertEqual(ix.doc_count_all(), 3)
             reindex()
+            
+            ix.close()
             
         finally:
             self.destroy_index("testindex")

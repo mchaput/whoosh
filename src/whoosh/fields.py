@@ -20,9 +20,10 @@ This module contains functions and classes related to fields.
 
 """
 
+import re
 from collections import defaultdict
 
-from whoosh.analysis import unstopped, IDAnalyzer, KeywordAnalyzer, StandardAnalyzer, NgramAnalyzer
+from whoosh.analysis import unstopped, IDAnalyzer, RegexAnalyzer, KeywordAnalyzer, StandardAnalyzer, NgramAnalyzer
 
 # Exceptions
 
@@ -106,6 +107,25 @@ class ID(FieldType):
         :stored: Whether the value of this field is stored with the document.
         """
         self.format = Existence(analyzer = IDAnalyzer())
+        self.stored = stored
+        self.unique = unique
+
+
+class IDLIST(FieldType):
+    """Configured field type for fields containing IDs separated by whitespace
+    and/or puntuation.
+    
+    :stored: Whether the value of this field is stored with the document.
+    :unique: Whether the value of this field is unique per-document.
+    :expression: The regular expression object to use to extract tokens.
+        The default expression breaks tokens on CRs, LFs, tabs, spaces, commas,
+        and semicolons.
+    """
+    
+    def __init__(self, stored = False, unique = False, expression = None):
+        expression = expression or re.compile(r"[^\r\n\t ,;]+")
+        analyzer = RegexAnalyzer(expression = expression)
+        self.format = Existence(analyzer = analyzer)
         self.stored = stored
         self.unique = unique
 
@@ -359,6 +379,12 @@ class Schema(object):
         store length information.
         """
         return [i for i, field in enumerate(self) if field.scorable]
+
+    def stored_field_names(self):
+        """Returns the names, in order, of fields that are stored."""
+        
+        bn = self._by_name
+        return [name for name in self._names if bn[name].stored]
 
     def analyzer(self, fieldname):
         """Returns the content analyzer for the given fieldname, or None if

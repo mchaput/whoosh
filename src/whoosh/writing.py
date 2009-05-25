@@ -205,9 +205,9 @@ class IndexWriter(index.DeletionMixin):
             raise IndexingError("None of the fields in %r are unique" % fields.keys())
         
         # Delete documents in which the supplied unique fields match
-        searcher = self.searcher()
+        s = self.searcher()
         for name in unique_fields:
-            self.delete_by_term(name, fields[name], searcher = searcher)
+            self.delete_by_term(name, fields[name])
         
         # Add the given fields
         self.add_document(**fields)

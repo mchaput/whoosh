@@ -20,6 +20,8 @@ encoding and compression methods such as variable-length encoded integers.
 
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
+from marshal import dump as dump_marshal
+from marshal import load as load_marshal
 from struct import calcsize, pack, unpack
 from array import array
 
@@ -65,15 +67,18 @@ def byte_to_float(b, mantissabits = 5, zeroexp = 2):
 # N integers, so we don't have to constantly recalculate them
 # on the fly. This makes a small but noticeable difference.
 
-_varint_cache_size = 512
-_varint_cache = []
-for i in xrange(0, _varint_cache_size):
+def encode_varint(i):
     s = ""
     while (i & ~0x7F) != 0:
         s += chr((i & 0x7F) | 0x80)
         i = i >> 7
     s += chr(i)
-    _varint_cache.append(s)
+    return s
+
+_varint_cache_size = 512
+_varint_cache = []
+for i in xrange(0, _varint_cache_size):
+    _varint_cache.append(encode_varint(i))
 _varint_cache = tuple(_varint_cache)
 
 
@@ -245,6 +250,9 @@ class StructFile(object):
         """
         dump_pickle(obj, self.file, -1)
     
+    def write_marshal(self, obj):
+        dump_marshal(obj, self.file)
+    
     def write_8bitfloat(self, f, mantissabits = 5, zeroexp = 2):
         """Writes a byte-sized representation of floating point value
         f to the wrapped file.
@@ -368,6 +376,9 @@ class StructFile(object):
         """Reads a pickled object from the wrapped file.
         """
         return load_pickle(self.file)
+    
+    def read_marshal(self):
+        return load_marshal(self.file)
     
     def read_8bitfloat(self, mantissabits = 5, zeroexp = 2):
         """Reads a byte-sized representation of a floating point value.
