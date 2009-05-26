@@ -167,7 +167,17 @@ class Searcher(util.ClosableMixin):
             # Sort by scores
             topdocs = TopDocs(limit, doc_reader.doc_count_all())
             topdocs.add_all(query.doc_scores(self, weighting = weighting or self.weighting))
-            scored_list, scores = zip(*topdocs.best())
+            
+            best = topdocs.best()
+            if best:
+                # topdocs.best() returns a list like
+                # [(docnum, score), (docnum, score), ... ]
+                # This unpacks that into two lists: docnums and scores
+                scored_list, scores = zip(*topdocs.best())
+            else:
+                scored_list = []
+                scores = []
+            
             docvector = topdocs.docs
         t = time.time() - t
             
