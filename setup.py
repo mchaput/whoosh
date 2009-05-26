@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
 	name = "Whoosh",
-	version = "0.1.20",
+	version = "0.1.21",
 	package_dir = {'': 'src'},
 	packages = ["whoosh", "whoosh.lang", "whoosh.support"],
 	
