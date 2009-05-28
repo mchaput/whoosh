@@ -175,7 +175,7 @@ def protected(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         if self.is_closed:
-            raise Exception("This object has been closed")
+            raise Exception("%r has been closed" % self)
         if self._sync_lock.acquire(False):
             try:
                 return func(self, *args, **kwargs)
