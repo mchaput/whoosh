@@ -5,6 +5,7 @@ from shutil import rmtree
 
 from whoosh import fields, index, qparser, store, writing
 
+
 class TestIndexing(unittest.TestCase):
     def make_index(self, dirname, schema):
         if not exists(dirname):
@@ -262,6 +263,7 @@ class TestIndexing(unittest.TestCase):
             reindex()
             self.assertEqual(ix.doc_count_all(), 3)
             reindex()
+            self.assertEqual(ix.doc_count_all(), 3)
             
             ix.close()
             

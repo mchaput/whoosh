@@ -356,7 +356,7 @@ class TermReader(ClosableMixin):
     
     @protected
     def iter_from(self, fieldnum, text):
-        """Yields (field_num, text, doc_freq, collection_frequency) tuples
+        """Yields (field_num, text, doc_freq, index_freq) tuples
         for all terms in the reader, starting at the given term.
         """
         
@@ -391,31 +391,48 @@ class TermReader(ClosableMixin):
                 current_fieldname = num2name(fn)
             yield (current_fieldname, t)
     
-    def iter_field(self, fieldid):
-        """Yields (text, doc_frequency, term_frequency) tuples for
-        all terms in the given field.
+    def iter_field(self, fieldid, prefix = ''):
+        """Yields (text, doc_freq, index_freq) tuples for all terms
+        in the given field.
         """
         
         fieldid = self.schema.to_number(fieldid)
-        for fn, t, docfreq, freq in self.iter_from(fieldid, ''):
+        for fn, t, docfreq, freq in self.iter_from(fieldid, prefix):
             if fn != fieldid:
                 return
             yield t, docfreq, freq
     
+    def iter_prefix(self, fieldid, prefix):
+        """Yields (field_num, text, doc_freq, index_freq) tuples
+        for all terms in the given field with a certain prefix.
+        """
+        
+        fieldid = self.schema.to_number(fieldid)
+        for fn, t, docfreq, colfreq in self.iter_from(fieldid, prefix):
+            if fn != fieldid or not t.startswith(prefix):
+                return
+            yield (t, docfreq, colfreq)
+    
+    def most_frequent_terms(self, fieldid, number = 5, prefix = None):
+        """Yields the top 'number' most frequent terms in the given field as
+        a series of (frequency, text) tuples.
+        """
+        
+        if prefix is not None:
+            iterator = self.iter_prefix(fieldid, prefix)
+        else:
+            iterator = self.iter_field(fieldid)
+        
+        return nlargest(number,
+                        ((indexfreq, token)
+                         for token, _, indexfreq
+                         in iterator))
+        
     def lexicon(self, fieldid):
         """Yields all terms in the given field."""
         
         for t, _, _ in self.iter_field(fieldid):
             yield t
-    
-    def most_frequent_terms(self, fieldid, number = 5):
-        """Yields the top 'number' most frequent terms in the given field as
-        a series of (frequency, text) tuples.
-        """
-        return nlargest(number,
-                        ((indexfreq, token)
-                         for token, _, indexfreq
-                         in self.iter_field(fieldid)))
     
     # Posting retrieval methods
     
