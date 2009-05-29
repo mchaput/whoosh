@@ -66,7 +66,40 @@ class TestReading(unittest.TestCase):
         ix = self._multi_segment_index()
         self.assertEqual(len(ix.segments), 3)
         t(ix)
+    
+    def test_term_inspection(self):
+        schema = fields.Schema(title=fields.TEXT(stored=True),
+                               content=fields.TEXT)
+        ix = index.Index(store.RamStorage(), schema=schema, create=True)
+        writer = ix.writer()
+        writer.add_document(title=u"My document",
+                            content=u"AA AA BB BB CC AA AA AA BB BB CC DD EE EE")
+        writer.add_document(title=u"My other document",
+                            content=u"AA AB BB CC EE EE AX AX DD")
+        writer.commit()
         
+        searcher = ix.searcher()
+        self.assertEqual(list(searcher.lexicon("content")),
+                         [u'aa', u'ab', u'ax', u'bb', u'cc', u'dd', u'ee'])
+        self.assertEqual(list(searcher.expand_prefix("content", "a")),
+                         [u'aa', u'ab', u'ax'])
+        self.assertEqual(list(searcher.all_terms()),
+                         [('content', u'aa'), ('content', u'ab'), ('content', u'ax'),
+                          ('content', u'bb'), ('content', u'cc'), ('content', u'dd'),
+                          ('content', u'ee'), ('title', u'document'), ('title', u'my'),
+                          ('title', u'other')])
+        # (text, doc_freq, index_freq)
+        self.assertEqual(list(searcher.iter_field("content")),
+                         [(u'aa', 2, 6), (u'ab', 1, 1), (u'ax', 1, 2),
+                          (u'bb', 2, 5), (u'cc', 2, 3), (u'dd', 2, 2),
+                          (u'ee', 2, 4)])
+        self.assertEqual(list(searcher.iter_field("content", prefix="c")),
+                         [(u'cc', 2, 3), (u'dd', 2, 2), (u'ee', 2, 4)])
+        self.assertEqual(list(searcher.most_frequent_terms("content")),
+                         [(6, u'aa'), (5, u'bb'), (4, u'ee'), (3, u'cc'), (2, u'dd')])
+        self.assertEqual(list(searcher.most_frequent_terms("content", prefix="a")),
+                         [(6, u'aa'), (2, u'ax'), (1, u'ab')])
+    
     def test_vector_postings(self):
         s = fields.Schema(id=fields.ID(stored=True, unique=True),
                           content=fields.TEXT(vector=fields.Positions(analyzer=analysis.StandardAnalyzer())))
