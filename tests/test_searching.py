@@ -1,10 +1,10 @@
 import unittest
 
-from whoosh import fields, index, qparser, searching, scoring, store, writing
+from whoosh import fields, index, qparser, query, searching, scoring, store, writing
 from whoosh.query import *
 
 class TestReading(unittest.TestCase):
-    def setUp(self):
+    def make_index(self):
         s = fields.Schema(key = fields.ID(stored = True),
                           name = fields.TEXT,
                           value = fields.TEXT)
@@ -19,7 +19,7 @@ class TestReading(unittest.TestCase):
         w.add_document(key = u"E", name = u"Yellow uptown", value = u"Interest rendering outer photo!")
         w.commit()
         
-        self.ix = ix
+        return ix
     
     def _get_keys(self, stored_fields):
         return sorted([d.get("key") for d in stored_fields])
@@ -38,13 +38,15 @@ class TestReading(unittest.TestCase):
         self.assertRaises(index.EmptyIndexError, index.Index, st, schema)
     
     def test_docs_method(self):
-        s = self.ix.searcher()
+        ix = self.make_index()
+        s = ix.searcher()
         
         self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
         self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
     
     def test_queries(self):
-        s = self.ix.searcher()
+        ix = self.make_index()
+        s = ix.searcher()
         
         tests = [
                  (Term("name", u"yellow"),
@@ -79,6 +81,26 @@ class TestReading(unittest.TestCase):
         
         for methodname in ("_docs", "_doc_scores"):
             method = getattr(self, methodname)
+
+    def test_keyword_or(self):
+        schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
+        st = store.RamStorage()
+        ix = index.Index(st, schema, create = True)
+        
+        w = ix.writer()
+        w.add_document(a=u"First", b=u"ccc ddd")
+        w.add_document(a=u"Second", b=u"aaa ddd")
+        w.add_document(a=u"Third", b=u"ccc eee")
+        w.commit()
+        
+        qp = qparser.QueryParser("b", schema=schema)
+        searcher = ix.searcher()
+        qr = qp.parse("b:ccc OR b:eee")
+        self.assertEqual(qr.__class__, query.Or)
+        r = searcher.search(qr)
+        self.assertEqual(len(r), 2)
+        self.assertEqual(r[0]["a"], "Third")
+        self.assertEqual(r[1]["a"], "First")
 
     def test_score_retrieval(self):
         schema = fields.Schema(title=fields.TEXT(stored=True),
