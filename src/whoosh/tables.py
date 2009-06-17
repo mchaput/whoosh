@@ -61,8 +61,9 @@ def copy_data(treader, inkey, twriter, outkey, postings = False, buffersize = 32
     """
     
     if postings:
-        (offset, length), postcount, data = treader._get(inkey)
-        super(twriter.__class__, twriter).add_row(outkey, ((twriter.offset, length), postcount, data))
+        offset, length, postcount, data = treader._get_plain(inkey)
+        twriter.add_row(outkey, data,
+                        postinginfo=(twriter.offset, length, postcount))
         
         # Copy the raw posting data
         infile = treader.table_file
@@ -192,7 +193,7 @@ class TableWriter(object):
         
         return writefn(pf, data)
     
-    def add_row(self, key, data):
+    def add_row(self, key, data, postinginfo=None):
         # Note: call this AFTER you add any postings!
         # Keys must be added in increasing order
         if key <= self.lastkey:
@@ -208,10 +209,19 @@ class TableWriter(object):
         self.lastkey = key
         
         if self.haspostings:
-            # Add the posting info to the stored row data
             endoffset = self.posting_file.tell()
-            length = endoffset - self.offset
-            rb.append((key, (self.offset, length, self.postcount, data)))
+            
+            # Add the posting info to the stored row data
+            
+            # The postinginfo keyword argument allows us to copy
+            # information about postings from another table.
+            if postinginfo:
+                offset, length, postcount = postinginfo
+            else:
+                offset = self.offset
+                length = endoffset - self.offset
+                postcount = self.postcount
+            rb.append((key, (offset, length, postcount, data)))
             
             # Reset the posting variables
             self.offset = endoffset

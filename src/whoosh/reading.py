@@ -150,12 +150,13 @@ class DocReader(ClosableMixin):
         return format.supports(name)
     
     @protected
-    def vector(self, docnum, fieldnum):
+    def vector(self, docnum, fieldid):
         """Yields a sequence of raw (text, data) tuples representing
         the term vector for the given document and field.
         """
         
         self._open_vectors()
+        fieldnum = self.schema.to_number(fieldid)
         readfn = self.vector_format(fieldnum).read_postvalue
         return self.vector_table.postings((docnum, fieldnum), readfn)
     

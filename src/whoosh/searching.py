@@ -65,7 +65,8 @@ class Searcher(util.ClosableMixin):
     def _copy_methods(self):
         # Copy methods from child doc_reader and term_reader objects onto this
         # object.
-        for name in ("field_length", "doc_field_length"):
+        for name in ("field_length", "doc_field_length",
+                     "vector", "vector_as", "vector_format", "vector_supports"):
             setattr(self, name, getattr(self.doc_reader, name))
             
         for name in ("iter_field", "expand_prefix",
@@ -85,8 +86,7 @@ class Searcher(util.ClosableMixin):
         self.is_closed = True
     
     def document(self, **kw):
-        """
-        Convenience function returns the stored fields of a document
+        """Convenience function returns the stored fields of a document
         matching the given keyword arguments, where the keyword keys are
         field names and the values are terms that must appear in the field.
         
@@ -100,8 +100,7 @@ class Searcher(util.ClosableMixin):
             return p
     
     def documents(self, **kw):
-        """
-        Convenience function returns the stored fields of a document
+        """Convenience function returns the stored fields of a document
         matching the given keyword arguments, where the keyword keys are
         field names and the values are terms that must appear in the field.
         
@@ -109,9 +108,16 @@ class Searcher(util.ClosableMixin):
         stored fields of any documents matching the keyword arguments.
         """
         
-        q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
         doc_reader = self.doc_reader
-        return (doc_reader[docnum] for docnum in q.docs(self))
+        return (doc_reader[docnum] for docnum in self.docnument_numbers(**kw))
+    
+    def document_number(self, **kw):
+        for docnum in self.document_numbers(**kw):
+            return docnum
+        
+    def document_numbers(self, **kw):
+        q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
+        return q.docs(self)
     
     def search(self, query, limit = 5000,
                weighting = None,
