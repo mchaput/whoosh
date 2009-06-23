@@ -166,6 +166,7 @@ class Searcher(util.ClosableMixin):
                 sortedby = sortedby()
             
             scored_list = sortedby.order(self, query.docs(self), reverse = reverse)
+            scores = None
             docvector = BitVector(doc_reader.doc_count_all(),
                                   source = scored_list)
             if len(scored_list) > limit:
