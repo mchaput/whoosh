@@ -63,7 +63,7 @@ def NullFragmenter(text, termset, tokens):
     returns the entire stream as one "fragment". This is useful if
     you want to highlight the entire text.
     """
-    return Fragment(list(tokens))
+    return [Fragment(list(tokens))]
 
 
 class SimpleFragmenter(object):
