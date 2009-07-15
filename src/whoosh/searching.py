@@ -32,8 +32,8 @@ class Searcher(util.ClosableMixin):
     
     def __init__(self, ix, weighting = scoring.BM25F):
         """
-        :ix: the index.Index object to search.
-        :weighting: a scoring.Weighting implementation to use to
+        :param ix: the index.Index object to search.
+        :param weighting: a scoring.Weighting implementation to use to
             score the hits. If this is a class it will automatically be
             instantiated.
         """
@@ -90,10 +90,20 @@ class Searcher(util.ClosableMixin):
         matching the given keyword arguments, where the keyword keys are
         field names and the values are terms that must appear in the field.
         
+        This method is equivalent to::
+        
+            searcher.stored_fields(searcher.document_number(<keyword args>))
+        
         Where Searcher.documents() returns a generator, this function returns
         either a dictionary or None. Use it when you assume the given keyword
         arguments either match zero or one documents (i.e. at least one of the
         fields is a unique key).
+        
+        >>> stored_fields = searcher.document(path=u"/a/b")
+        >>> if stored_fields:
+        ...   print stored_fields['title']
+        ... else:
+        ...   print "There is no document with the path /a/b"
         """
         
         for p in self.documents(**kw):
@@ -106,32 +116,83 @@ class Searcher(util.ClosableMixin):
         
         Returns a generator of dictionaries containing the
         stored fields of any documents matching the keyword arguments.
+        
+        >>> for stored_fields in searcher.documents(emailto=u"matt@whoosh.ca"):
+        ...   print "Email subject:", stored_fields['subject']
         """
         
         doc_reader = self.doc_reader
         return (doc_reader[docnum] for docnum in self.docnument_numbers(**kw))
     
     def document_number(self, **kw):
+        """Returns the document number of the document matching the
+        given keyword arguments, where the keyword keys are
+        field names and the values are terms that must appear in the field.
+        
+        >>> docnum = searcher.document_number(path=u"/a/b")
+        
+        Where Searcher.document_numbers() returns a generator, this function returns
+        either an int or None. Use it when you assume the given keyword arguments
+        either match zero or one documents (i.e. at least one of the fields is a
+        unique key).
+        
+        :rtype: int
+        """
         for docnum in self.document_numbers(**kw):
             return docnum
         
     def document_numbers(self, **kw):
+        """Returns a generator of the document numbers for documents
+        matching the given keyword arguments, where the keyword keys are
+        field names and the values are terms that must appear in the field.
+        
+        >>> docnums = list(searcher.document_numbers(emailto=u"matt@whoosh.ca"))
+        """
+        
         q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
         return q.docs(self)
+    
+    def key_terms(self, docnums, fieldname, numterms = 5,
+                  model = classify.Bo1Model, normalize = True):
+        """Returns the 'numterms' most important terms from the documents listed
+        (by number) in 'docnums'. You can get document numbers for the documents
+        your interested in with the document_number() and document_numbers() methods.
+        
+        >>> docnum = searcher.document_number(path=u"/a/b")
+        >>> keywords = list(searcher.key_terms([docnum], "content"))
+        
+        "Most important" is generally defined as terms that occur
+        frequently in the top hits but relatively infrequently in the collection as
+        a whole.
+        
+        :param fieldname: Look at the terms in this field. This field must store vectors.
+        :param docnums: A sequence of document numbers specifying which documents to
+            extract key terms from.
+        :param numterms: Return this number of important terms.
+        :param model: The classify.ExpansionModel to use. See the classify module.
+        """
+        
+        doc_reader = self.doc_reader
+        fieldnum = self.fieldname_to_num(fieldname)
+        
+        expander = classify.Expander(self, fieldname, model = model)
+        for docnum in docnums:
+            expander.add(doc_reader.vector_as(docnum, fieldnum, "weight"))
+        return expander.expanded_terms(numterms, normalize = normalize)
     
     def search(self, query, limit = 5000,
                weighting = None,
                sortedby = None, reverse = False):
         """Runs the query represented by the query object and returns a Results object.
         
-        :query: a query.Query object representing the search query. You can translate
+        :param query: a query.Query object representing the search query. You can translate
             a query string into a query object with e.g. qparser.QueryParser.
-        :limit: the maximum number of documents to score. If you're only interested in
+        :param limit: the maximum number of documents to score. If you're only interested in
             the top N documents, you can set limit=N to limit the scoring for a faster
             search.
-        :weighting: if this parameter is not None, use this weighting object to score the
+        :param weighting: if this parameter is not None, use this weighting object to score the
             results instead of the default.
-        :sortedby: if this parameter is not None, the results are sorted instead of scored.
+        :param sortedby: if this parameter is not None, the results are sorted instead of scored.
             If this value is a string, the results are sorted by the field named in the string.
             If this value is a list or tuple, it is assumed to be a sequence of strings and the
             results are sorted by the fieldnames in the sequence. Otherwise 'sortedby' should be
@@ -151,7 +212,7 @@ class Searcher(util.ClosableMixin):
             
                 searcher.search(q, sortedby = scoring.NullSorter)
         
-        :reverse: if 'sortedby' is not None, this reverses the direction of the sort.
+        :param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
         """
         
         doc_reader = self.doc_reader
@@ -206,43 +267,11 @@ class Searcher(util.ClosableMixin):
         return self.schema[fieldid].scorable
     
     def stored_fields(self, docnum):
+        """Low-level method, returns the stored fields corresponding
+        to the given document number. Use document() or documents() for
+        more convenient methods of looking up stored fields.
+        """
         return self.doc_reader[docnum]
-    
-#    def field_length(self, fieldid):
-#        return self.doc_reader.field_length(fieldid)
-#    
-#    def doc_length(self, docnum):
-#        return self.doc_reader.doc_length(docnum)
-#    
-#    def doc_field_length(self, docnum, fieldid):
-#        return self.doc_reader.doc_field_length(docnum, fieldid)
-#    
-#    def doc_unique_count(self, docnum):
-#        return self.doc_reader.unique_count(docnum)
-#    
-#    def lexicon(self, fieldid):
-#        return self.term_reader.lexicon(fieldid)
-#    
-#    def expand_prefix(self, fieldid, prefix):
-#        return self.term_reader.expand_prefix(fieldid, prefix)
-#    
-#    def iter_from(self, fieldid, text):
-#        return self.term_reader.iter_from(fieldid, text)
-#    
-#    def doc_frequency(self, fieldid, text):
-#        return self.term_reader.doc_frequency(fieldid, text)
-#    
-#    def frequency(self, fieldid, text):
-#        return self.term_reader.frequency(fieldid, text)
-#    
-#    def postings(self, fieldid, text, exclude_docs = None):
-#        return self.term_reader.postings(fieldid, text, exclude_docs = exclude_docs)
-#    
-#    def weights(self, fieldid, text, exclude_docs = None):
-#        return self.term_reader.weights(fieldid, text, exclude_docs = exclude_docs)
-#    
-#    def positions(self, fieldid, text, exclude_docs = None):
-#        return self.term_reader.positions(fieldid, text, exclude_docs = exclude_docs)
 
 
 # Results class
@@ -258,15 +287,15 @@ class Results(object):
     def __init__(self, searcher, query, scored_list, docvector,
                  scores = None, runtime = 0):
         """
-        :doc_reader: a reading.DocReader object from which to fetch
+        :param doc_reader: a reading.DocReader object from which to fetch
             the fields for result documents.
-        :query: the original query that created these results.
-        :scored_list: an ordered list of document numbers
+        :param query: the original query that created these results.
+        :param scored_list: an ordered list of document numbers
             representing the 'hits'.
-        :docvector: a BitVector object where the indices are
+        :param docvector: a BitVector object where the indices are
             document numbers and an 'on' bit means that document is
             present in the results.
-        :runtime: the time it took to run this search.
+        :param runtime: the time it took to run this search.
         """
         
         self.searcher = searcher
@@ -326,20 +355,20 @@ class Results(object):
         """
         return self.scored_list[n]
     
-    def key_terms(self, fieldname, docs = 10, terms = 5,
+    def key_terms(self, fieldname, docs = 10, numterms = 5,
                   model = classify.Bo1Model, normalize = True):
         """Returns the 'numterms' most important terms from the top 'numdocs' documents
         in these results. "Most important" is generally defined as terms that occur
         frequently in the top hits but relatively infrequently in the collection as
         a whole.
         
-        :fieldname: Look at the terms in this field. This field must store vectors.
-        :docs: Look at this many of the top documents of the results.
-        :terms: Return this number of important terms.
-        :model: The classify.ExpansionModel to use. See the classify module.
+        :param fieldname: Look at the terms in this field. This field must store vectors.
+        :param docs: Look at this many of the top documents of the results.
+        :param numterms: Return this number of important terms.
+        :param model: The classify.ExpansionModel to use. See the classify module.
         """
         
-        docs = max(docs, self.scored_length())
+        docs = min(docs, self.scored_length())
         if docs <= 0: return
         
         doc_reader = self.searcher.doc_reader
@@ -349,13 +378,13 @@ class Results(object):
         for docnum in self.scored_list[:docs]:
             expander.add(doc_reader.vector_as(docnum, fieldnum, "weight"))
         
-        return expander.expanded_terms(terms, normalize = normalize)
+        return expander.expanded_terms(numterms, normalize = normalize)
 
     def extend(self, results):
         """Appends hits from 'results' (that are not already in this
         results object) to the end of these results.
         
-        :results: another results object.
+        :param results: another results object.
         """
         
         docs = self.docs
@@ -378,8 +407,8 @@ class Results(object):
         hits not in 'results', otherwise keeping their current relative positions.
         This does not add the documents in the other results object to this one.
         
-        :results: another results object.
-        :reverse: if True, lower the position of hits in the other
+        :param results: another results object.
+        :param reverse: if True, lower the position of hits in the other
             results object instead of raising them.
         """
         
@@ -399,7 +428,7 @@ class Results(object):
         not in this results object are appended to the end of these
         results.
         
-        :results: another results object.
+        :param results: another results object.
         """
         
         docs = self.docs
@@ -424,8 +453,8 @@ class Paginator(object):
     
     def __init__(self, results, perpage = 10):
         """
-        :results: the searching.Results object from a search.
-        :perpage: the number of hits on each page.
+        :param results: the searching.Results object from a search.
+        :param perpage: the number of hits on each page.
         """
         
         self.results = results
