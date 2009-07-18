@@ -14,18 +14,19 @@ into nodes from the query module.
 
 This parser handles:
 
-    - 'and', 'or', 'not'
-    - grouping with parentheses
-    - quoted phrase searching
-    - wildcards at the end of a search prefix, e.g. help*
-    - ranges, e.g. a..b
+* 'and', 'or', 'not'
+* grouping with parentheses
+* quoted phrase searching
+* wildcards at the end of a search prefix, e.g. help*
+* ranges, e.g. a..b
 
-This parser is based on the searchparser example code available at:
+This parser was originally based on the searchparser example code available at:
 
 http://pyparsing.wikispaces.com/space/showimage/searchparser.py
+"""
 
-The code upon which this parser is based was made available by the authors under
-the following copyright and conditions:
+#The code upon which this parser was based was made available by the authors under
+#the following copyright and conditions:
 
 # Copyright (c) 2006, Estrate, the Netherlands
 # All rights reserved.
@@ -57,7 +58,6 @@ the following copyright and conditions:
 # - Steven Mooij
 # - Rudolph Froger
 # - Paul McGuire
-"""
 
 def _make_default_parser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
@@ -177,10 +177,11 @@ class PyparsingBasedParser(object):
         valid queries. It may also raise a variety of exceptions if the input
         string is malformed.
         
-        :input: the unicode string to parse.
-        :normalize: whether to call normalize() on the query object/tree
+        :param input: the unicode string to parse.
+        :param normalize: whether to call normalize() on the query object/tree
             before returning it. This should be left on unless you're trying to
             debug the parser output.
+        :rtype: :class:`whoosh.query.Query`
         """
         
         self.stopped_words = set()
@@ -243,19 +244,19 @@ class QueryParser(PyparsingBasedParser):
                  termclass = query.Term,
                  schema = None):
         """
-        :default_field: Use this as the field for any terms without
+        :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
             "hello f1:there" and the default field is "f2", the parsed
             query will be as if the user had entered "f2:hello f1:there".
             This argument is required.
-        :conjuction: Use this query.Query class to join together clauses
+        :param conjuction: Use this query.Query class to join together clauses
             where the user has not explictly specified a join. For example,
             if this is query.And, the query string "a b c" will be parsed as
             "a AND b AND c". If this is query.Or, the string will be parsed as
             "a OR b OR c".
-        :termclass: Use this query.Query class for bare terms. For example,
+        :param termclass: Use this query.Query class for bare terms. For example,
             query.Term or query.Variations.
-        :schema: An optional fields.Schema object. If this argument is present,
+        :param schema: An optional fields.Schema object. If this argument is present,
             the analyzer for the appropriate field will be run on terms/phrases
             before they are turned into query objects.
         """
@@ -281,7 +282,7 @@ class QueryParser(PyparsingBasedParser):
         fieldname = fieldname or self.default_field
         start = self._analyze(fieldname, start)
         end = self._analyze(fieldname, end)
-        return query.TermRange(fieldname or self.default_field, (start, end))
+        return query.TermRange(fieldname or self.default_field, start, end)
     
     def make_and(self, qs):
         return query.And(qs)
@@ -385,14 +386,14 @@ class SimpleParser(PyparsingBasedParser):
     
     def __init__(self, default_field, termclass = query.Term, schema = None):
         """
-        :default_field: Use this as the field for any terms without
+        :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
             "hello f1:there" and the default field is "f2", the parsed
             query will be as if the user had entered "f2:hello f1:there".
             This argument is required.
-        :termclass: Use this query class for bare terms. For example,
+        :param termclass: Use this query class for bare terms. For example,
             query.Term or query.Variations.
-        :schema: An optional fields.Schema object. If this argument is present,
+        :param schema: An optional fields.Schema object. If this argument is present,
             the analyzer for the appropriate field will be run on terms/phrases
             before they are turned into query objects.
         """
@@ -446,12 +447,12 @@ class SimpleNgramParser(object):
     def __init__(self, fieldname, minchars, maxchars, discardspaces = False,
                  analyzerclass = analysis.NgramAnalyzer):
         """
-        :fieldname: The field to search.
-        :minchars: The minimum gram size the text was indexed with.
-        :maxchars: The maximum gram size the text was indexed with.
-        :discardspaces: If False, grams containing spaces are made into optional
+        :param fieldname: The field to search.
+        :param minchars: The minimum gram size the text was indexed with.
+        :param maxchars: The maximum gram size the text was indexed with.
+        :param discardspaces: If False, grams containing spaces are made into optional
             clauses of the query. If True, grams containing spaces are ignored.
-        :analyzerclass: An analyzer class. The default is the standard NgramAnalyzer.
+        :param analyzerclass: An analyzer class. The default is the standard NgramAnalyzer.
             The parser will instantiate this analyzer with the gram size set to the maximum
             usable size based on the input string.
         """
@@ -463,15 +464,6 @@ class SimpleNgramParser(object):
         self.analyzerclass = analyzerclass
     
     def parse(self, input):
-        """Parses the input string and returns a Query object/tree.
-        
-        This method may return None if the input string does not result in any
-        valid queries. It may also raise a variety of exceptions if the input
-        string is malformed.
-        
-        :input: the unicode string to parse.
-        """
-        
         required = []
         optional = []
         gramsize = max(self.minchars, min(self.maxchars, len(input)))
@@ -500,16 +492,6 @@ class SimpleNgramParser(object):
 
 
 
-if __name__=='__main__':
-    from whoosh.fields import Schema, TEXT, NGRAM, ID
-    s = Schema(content = TEXT, path=ID)
-    
-    qp = QueryParser("content", schema = s)
-    pn = qp.parse(u'hello there', normalize = False)
-    print "pn=", pn
-    if pn:
-        nn = pn.normalize()
-        print "nn=", nn
     
 
 

@@ -14,4 +14,4 @@
 # limitations under the License.
 #===============================================================================
 
-from whoosh.index import open_dir, create_in
+__version__ = (0, 1, 24)

@@ -40,28 +40,29 @@ class FieldType(object):
     
     The FieldType object supports the following attributes:
     
-        - format (fields.Format): the storage format for the field's contents.
-        
-        - vector (fields.Format): the storage format for the field's vectors
-          (forward index), or None if the field should not store vectors.
-        
-        - scorable (boolean): whether searches against this field may be scored.
-          This controls whether the index stores per-document field lengths for
-          this field.
+    * format (fields.Format): the storage format for the field's contents.
+    
+    * vector (fields.Format): the storage format for the field's vectors
+      (forward index), or None if the field should not store vectors.
+    
+    * scorable (boolean): whether searches against this field may be scored.
+      This controls whether the index stores per-document field lengths for
+      this field.
           
-        - stored (boolean): whether the content of this field is stored for each
-          document. For example, in addition to indexing the title of a document,
-          you usually want to store the title so it can be presented as part of
-          the search results.
-          
-        - unique (boolean): whether this field's value is unique to each document.
-          For example, 'path' or 'ID'. IndexWriter.update_document() will use
-          fields marked as 'unique' to find the previous version of a document
-          being updated.
+    * stored (boolean): whether the content of this field is stored for each
+      document. For example, in addition to indexing the title of a document,
+      you usually want to store the title so it can be presented as part of
+      the search results.
+         
+    * unique (boolean): whether this field's value is unique to each document.
+      For example, 'path' or 'ID'. IndexWriter.update_document() will use
+      fields marked as 'unique' to find the previous version of a document
+      being updated.
       
     The constructor for the base field type simply lets you supply your
     own configured field format, vector format, and scorable and stored
     values. Subclasses may configure some or all of this for you.
+    
     """
     
     format = vector = scorable = stored = unique = None
@@ -104,7 +105,7 @@ class ID(FieldType):
     
     def __init__(self, stored = False, unique = False):
         """
-        :stored: Whether the value of this field is stored with the document.
+        :param stored: Whether the value of this field is stored with the document.
         """
         self.format = Existence(analyzer = IDAnalyzer())
         self.stored = stored
@@ -114,15 +115,17 @@ class ID(FieldType):
 class IDLIST(FieldType):
     """Configured field type for fields containing IDs separated by whitespace
     and/or puntuation.
-    
-    :stored: Whether the value of this field is stored with the document.
-    :unique: Whether the value of this field is unique per-document.
-    :expression: The regular expression object to use to extract tokens.
-        The default expression breaks tokens on CRs, LFs, tabs, spaces, commas,
-        and semicolons.
     """
     
     def __init__(self, stored = False, unique = False, expression = None):
+        """
+        :param stored: Whether the value of this field is stored with the document.
+        :param unique: Whether the value of this field is unique per-document.
+        :param expression: The regular expression object to use to extract tokens.
+            The default expression breaks tokens on CRs, LFs, tabs, spaces, commas,
+            and semicolons.
+        """
+        
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
         analyzer = RegexAnalyzer(expression = expression)
         self.format = Existence(analyzer = analyzer)
@@ -150,10 +153,10 @@ class KEYWORD(FieldType):
     def __init__(self, stored = False, lowercase = False, commas = False,
                  scorable = False, unique = False, field_boost = 1.0):
         """
-        :stored: Whether to store the value of the field with the document.
-        :comma: Whether this is a comma-separated field. If this is False
+        :param stored: Whether to store the value of the field with the document.
+        :param comma: Whether this is a comma-separated field. If this is False
             (the default), it is treated as a space-separated field.
-        :scorable: Whether this field is scorable.
+        :param scorable: Whether this field is scorable.
         """
         
         ana = KeywordAnalyzer(lowercase = lowercase, commas = commas)
@@ -173,12 +176,12 @@ class TEXT(FieldType):
     def __init__(self, analyzer = None, phrase = True, vector = None,
                  stored = False, field_boost = 1.0):
         """
-        :stored: Whether to store the value of this field with the document. Since
+        :param stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
             with the document unless you need to, for example to allow fast excerpts in the
             search results.
-        :phrase: Whether the store positional information to allow phrase searching.
-        :analyzer: The analysis.Analyzer to use to index the field contents. See the
+        :param phrase: Whether the store positional information to allow phrase searching.
+        :param analyzer: The analysis.Analyzer to use to index the field contents. See the
             analysis module for more information. If you omit this argument, the field uses
             analysis.StandardAnalyzer.
         """
@@ -205,12 +208,12 @@ class NGRAM(FieldType):
     
     def __init__(self, minsize = 2, maxsize = 4, stored = False):
         """
-        :stored: Whether to store the value of this field with the document. Since
+        :param stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
             with the document unless you need to, for example to allow fast excerpts in the
             search results.
-        :minsize: The minimum length of the N-grams.
-        :maxsize: The maximum length of the N-grams.
+        :param minsize: The minimum length of the N-grams.
+        :param maxsize: The maximum length of the N-grams.
         """
         
         self.format = Frequency(analyzer = NgramAnalyzer(minsize, maxsize))
@@ -270,7 +273,7 @@ class Schema(object):
         """
         Returns the field associated with the given field name or number.
         
-        :id: A field name or field number.
+        :param id: A field name or field number.
         """
         
         if isinstance(id, basestring):
@@ -287,7 +290,7 @@ class Schema(object):
         """
         Returns True if a field by the given name is in this schema.
         
-        :fieldname: The name of the field.
+        :param fieldname: The name of the field.
         """
         return fieldname in self._by_name
     
@@ -295,7 +298,7 @@ class Schema(object):
         """
         Returns the field object associated with the given name.
         
-        :name: The name of the field to retrieve.
+        :param name: The name of the field to retrieve.
         """
         return self._by_name[name]
     
@@ -303,7 +306,7 @@ class Schema(object):
         """
         Returns the field object associated with the given number.
         
-        :number: The number of the field to retrieve.
+        :param number: The number of the field to retrieve.
         """
         return self._by_number[number]
     
@@ -322,10 +325,11 @@ class Schema(object):
     
     def add(self, name, fieldtype):
         """
-        Adds a field to this schema.
+        Adds a field to this schema. This is a low-level method; use keyword
+        arguments to the Schema constructor to create the fields instead.
         
-        :name: The name of the field.
-        :fieldtype: An instantiated fields.FieldType object, or a FieldType subclass.
+        :param name: The name of the field.
+        :param fieldtype: An instantiated fields.FieldType object, or a FieldType subclass.
             If you pass an instantiated object, the schema will use that as the field
             configuration for this field. If you pass a FieldType subclass, the schema
             will automatically instantiate it with the default constructor.
@@ -407,10 +411,10 @@ class Format(object):
     
     def __init__(self, analyzer, field_boost = 1.0, **options):
         """
-        :analyzer: The analysis.Analyzer object to use to index this field.
+        :param analyzer: The analysis.Analyzer object to use to index this field.
             See the analysis module for more information. If this value
             is None, the field is not indexed/searchable.
-        :field_boost: A constant boost factor to scale to the score
+        :param field_boost: A constant boost factor to scale to the score
             of all queries matching terms in this field.
         """
         
@@ -437,7 +441,7 @@ class Format(object):
         would be the same as frequency; in a Positions format, data would be a
         list of token positions at which "tokentext" occured.
         
-        :value: The unicode text to index.
+        :param value: The unicode text to index.
         """
         raise NotImplementedError
     
@@ -538,12 +542,12 @@ class Frequency(Format):
     
     def __init__(self, analyzer, field_boost = 1.0, boost_as_freq = False, **options):
         """
-        :analyzer: The analysis.Analyzer object to use to index this field.
+        :param analyzer: The analysis.Analyzer object to use to index this field.
             See the analysis module for more information. If this value
             is None, the field is not indexed/searchable.
-        :field_boost: A constant boost factor to scale to the score
+        :param field_boost: A constant boost factor to scale to the score
             of all queries matching terms in this field.
-        :boost_as_freq: if True, take the integer value of each token's
+        :param boost_as_freq: if True, take the integer value of each token's
             boost attribute and use it as the token's frequency.
         """
         
