@@ -50,7 +50,7 @@ def _not_vector(notqueries, searcher, sourcevector):
             
     return nvector
 
-# 
+# Exceptions
 
 class QueryError(Exception):
     """
@@ -59,43 +59,88 @@ class QueryError(Exception):
     pass
 
 
+# Base classes
+
+
 class Query(object):
     """
     Abstract base class for all queries.
+    
+    Note that this base class implements __or__, __and__, and __sub__ to allow
+    slightly more convenient composition of query objects::
+    
+        >>> Term("content", u"a") | Term("content", u"b")
+        Or([Term("content", u"a"), Term("content", u"b")])
+        
+        >>> Term("content", u"a") & Term("content", u"b")
+        And([Term("content", u"a"), Term("content", u"b")])
+        
+        >>> Term("content", u"a") - Term("content", u"b")
+        And([Term("content", u"a"), Not(Term("content", u"b"))])
     """
     
     def __or__(self, query):
+        """Allows you to use | between query objects to wrap them in an Or query.
+        """
         return Or([self, query]).normalize()
     
     def __and__(self, query):
+        """Allows you to use & between query objects to wrap them in an Or query.
+        """
         return And([self, query]).normalize()
     
     def __sub__(self, query):
+        """Allows you to use - between query objects to add the right-hand query
+        as a "NOT" query.
+        """
+        
         q = And([self, Not(query)])
         return q.normalize()
     
     def all_terms(self, termset):
-        """
-        Adds the term(s) in this query (and its subqueries, where
-        applicable) to termset. Note that unlike existing_terms(),
-        this method will not add terms from queries that require
-        a TermReader to calculate their terms, such as Prefix and
-        Wildcard.
+        """Takes a set and recursively adds all terms in this query tree
+        to the set (this method *does not* return a sequence!).
+        
+        This method simply operates on the query itself, without reference
+        to an index (unlike existing_terms()), so it will *not* add terms
+        that require an index to compute, such as Prefix and Wildcard.
+        
+        >>> termset = set()
+        >>> q = And([Term("content", u"render"), Term("path", u"/a/b")])
+        >>> q.all_terms(termset)
+        >>> termset
+        set([("content", u"render"), ("path", u"/a/b")])
+        
+        :param termset: The set to add the terms to.
         """
         pass
     
     def existing_terms(self, searcher, termset, reverse = False):
-        """
-        Adds the term(s) in the query (and its subqueries, where
-        applicable) IF AND AS EXIST IN THE INDEX to termset.
-        If reverse is True, this method returns MISSING terms rather
-        than existing terms.
+        """Takes a set and recursively adds all terms in this query tree
+        to the set *if* they exist in the index represented by the
+        given Searcher (this method *does not* return a sequence!).
+        
+        This method references the Searcher to expand Prefix and Wildcard
+        queries, and only adds terms that actually exist in the index
+        (unless reverse=True).
+        
+        >>> searcher = my_index.searcher()
+        >>> termset = set()
+        >>> q = And([Or([Term("content", u"render"), Term("content", u"rendering")]),
+                     Prefix("path", u"/a/")])
+        >>> q.existing_terms(searcher, termset)
+        >>> termset
+        set([("content", u"render"), ("path", u"/a/b"), ("path", u"/a/c")])
+        
+        :param searcher: A :class:`whoosh.searching.Searcher` object.
+        :param termset: The set to add the terms to.
+        :param reverse: If True, this method adds *missing* terms
+            rather than *existing* terms to the set.
         """
         raise NotImplementedError
     
     def estimate_size(self, searcher):
-        """
-        Returns an estimate of how many documents this query could potentially
+        """Returns an estimate of how many documents this query could potentially
         match (for example, the estimated size of a simple term query is the
         document frequency of the term). It is permissible to overestimate, but
         not to underestimate.
@@ -103,108 +148,59 @@ class Query(object):
         raise NotImplementedError
     
     def docs(self, searcher, exclude_docs = None):
-        """
-        Runs this query on the index represented by 'searcher'.
-        Yields a sequence of docnums. The base method simply forwards to
-        doc_scores() and throws away the scores, but if possible specific
-        implementations should use a more efficient method to avoid scoring
-        the hits.
+        """Low-level method. Yields a sequence of docnums matching this query.
         
-        exclude_docs is a BitVector of documents to exclude from the results.
+        The base method simply forwards to doc_scores() and throws away the scores,
+        but if possible specific implementations use a more efficient method
+        to avoid scoring the hits.
+        
+        >>> list(my_query.docs(searcher))
+        [10, 34, 78, 103]
+        
+        :param searcher: A :class:`whoosh.searching.Searcher` object.
+        :param exclude_docs: A :class:`~whoosh.support.bitvector.BitVector`
+            of documents to exclude from the results.
         """
         
         return (docnum for docnum, _ in self.doc_scores(searcher,
                                                         exclude_docs = exclude_docs))
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        """
-        Runs this query on the index represented by 'searcher'.
-        Yields a sequence of (docnum, score) pairs.
+        """Low-level method. Yields a sequence of (docnum, score) pairs, *not in order*.
         
-        exclude_docs is a BitVector of documents to exclude from the results.
+        >>> list(my_query.doc_scores(searcher))
+        [(10, 0.73), (34, 2.54), (78, 0.05), (103, 12.84)]
+        
+        :param searcher: A :class:`whoosh.searching.Searcher` object.
+        :param weighting: A :class:`whoosh.scoring.Weighting` object, or None.
+        :param exclude_docs: A :class:`~whoosh.support.bitvector.BitVector`
+            of documents to exclude from the results.
         """
         raise NotImplementedError
     
     def normalize(self):
-        """
-        Returns a recursively "normalized" form of this query. The normalized
-        form removes redundancy and empty queries. For example,
-        AND(AND(a, b), c, Or()) -> AND(a, b, c).
+        """Returns a recursively "normalized" form of this query. The normalized
+        form removes redundancy and empty queries. This is called automatically
+        on query trees created by the query parser, but you may want to call it
+        yourself if you're writing your own parser or building your own queries.
+        
+        >>> q = And([And([Term("f", u"a"), Term("f", u"b")]), Term("f", u"c"), Or([])])
+        >>> q.normalize()
+        And([Term("f", u"a"), Term("f", u"b"), Term("f", u"c")])
+        
+        Note that this returns a *new, normalized* query. It *does not* modify the
+        original query "in place".
         """
         return self
     
     def replace(self, oldtext, newtext):
-        """
-        Returns a copy of this query with oldtext replaced by newtext
-        (if oldtext was in this query).
+        """Returns a copy of this query with oldtext replaced by newtext
+        (if oldtext was anywhere in this query).
+        
+        Note that this returns a *new* query with the given text replaced.
+        It *does not* modify the original query "in place".
         """
         return self
-    
-
-class MultifieldTerm(Query):
-    def __init__(self, fieldnames, text, boost = 1.0):
-        self.fieldnames = fieldnames
-        self.text = text
-        self.boost = boost
-            
-    def __repr__(self):
-        return "%s(%r, %r, boost = %s)" % (self.fieldnames, self.text, self.boost)
-
-    def __unicode__(self):
-        return u"(%s):%s" % (u"|".join(self.fieldnames), self.text)
-    
-    def all_terms(self, termset):
-        for fn in self.fieldnames:
-            termset.add((fn, self.text))
-    
-    def existing_terms(self, searcher, termset, reverse = False):
-        for fn in self.fieldnames:
-            t = (fn, self.text)
-            contains = t in searcher
-            if reverse: contains = not contains
-            if contains:
-                termset.add(t)
-    
-    def estimate_size(self, searcher):
-        max_df = 0
-        text = self.text
-        
-        for fieldname in self.fieldnames:
-            fieldnum = searcher.fieldname_to_num(fieldname)
-            df = searcher.doc_frequency(fieldnum, text)
-            if df > max_df:
-                max_df = df
-                
-        return max_df
-    
-    def docs(self, searcher, exclude_docs = None):
-        vector = BitVector(searcher.doc_count_all())
-        text = self.text
-        
-        for fieldname in self.fieldnames:
-            fieldnum = searcher.fieldname_to_num(fieldname)
-            
-            if (fieldnum, text) in searcher:
-                for docnum, _ in searcher.postings(fieldnum, self.text,
-                                                      exclude_docs = exclude_docs):
-                    vector.set(docnum)
-                
-        return iter(vector)
-    
-    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        text = self.text
-        weighting = weighting or searcher.weighting
-        
-        accumulators = defaultdict(float)
-        for fieldname in self.fieldnames:
-            fieldnum = searcher.fieldname_to_num(fieldname)
-            if (fieldnum, text) in searcher:
-                for docnum, weight in searcher.weights(fieldnum, text,
-                                                       exclude_docs = exclude_docs,
-                                                       boost = self.boost):
-                    accumulators[docnum] += weighting.score(searcher, fieldnum, text, docnum, weight)
-        
-        return accumulators.iteritems()
     
 
 class SimpleQuery(Query):
@@ -213,12 +209,6 @@ class SimpleQuery(Query):
     """
     
     def __init__(self, fieldname, text, boost = 1.0):
-        """
-        fieldname is the name of the field to search. text is the text
-        of the term to search for. boost is a boost factor to apply to
-        the raw scores of any documents matched by this query.
-        """
-        
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
@@ -245,41 +235,6 @@ class SimpleQuery(Query):
             termset.add((fieldname, text))
 
 
-class Term(SimpleQuery):
-    """
-    Matches documents containing the given term (fieldname+text pair).
-    """
-    
-    def replace(self, oldtext, newtext):
-        if self.text == oldtext:
-            return Term(self.fieldname, newtext, boost = self.boost)
-        else:
-            return self
-    
-    def estimate_size(self, searcher):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
-        return searcher.doc_frequency(fieldnum, self.text)
-    
-    def docs(self, searcher, exclude_docs = None):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
-        text = self.text
-        
-        if (fieldnum, text) in searcher:
-            for docnum, _ in searcher.postings(fieldnum, text, exclude_docs = exclude_docs):
-                yield docnum
-    
-    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
-        text = self.text
-        boost = self.boost
-        if (fieldnum, text) in searcher:
-            weighting = weighting or searcher.weighting
-            for docnum, weight in searcher.weights(fieldnum, self.text,
-                                                   exclude_docs = exclude_docs):
-                yield docnum, weighting.score(searcher, fieldnum, text, docnum,
-                                              weight * boost)
-
-
 class CompoundQuery(Query):
     """
     Abstract base class for queries that combine or manipulate the results of
@@ -287,12 +242,6 @@ class CompoundQuery(Query):
     """
     
     def __init__(self, subqueries, boost = 1.0):
-        """
-        subqueries is a list of queries to combine.
-        boost is a boost factor that should be applied to the raw score of
-        results matched by this query.
-        """
-        
         self.subqueries = subqueries
         self._notqueries = None
         self.boost = boost
@@ -353,68 +302,137 @@ class CompoundQuery(Query):
                 subqs.append(s)
         
         return self.__class__(subqs)
-    
 
-class Require(CompoundQuery):
-    """Binary query returns results from the first query that also appear in the
-    second query, but only uses the scores from the first query. This lets you
-    filter results without affecting scores.
+
+class MultiTerm(Query):
+    """
+    Abstract base class for queries that operate on multiple
+    terms in the same field.
     """
     
-    JOINT = " REQUIRE "
-    
-    def __init__(self, subqueries, boost = 1.0):
-        assert len(subqueries) == 2
-        self.subqueries = subqueries
+    def __init__(self, fieldname, words, boost = 1.0):
+        self.fieldname = fieldname
+        self.words = words
         self.boost = boost
-        
-    def docs(self, searcher, exclude_docs = None):
-        return And(self.subqueries).docs(searcher, exclude_docs = exclude_docs)
     
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.fieldname, self.words)
+    
+    def _or_query(self, searcher):
+        fn = self.fieldname
+        return Or([Term(fn, word) for word in self._words(searcher)])
+    
+    def normalize(self):
+        return self.__class__(self.fieldname,
+                              [w for w in self.words if w is not None],
+                              boost = self.boost)
+    
+    def _words(self, searcher):
+        return self.words
+    
+    def all_terms(self, termset):
+        fieldname = self.fieldname
+        for word in self.words:
+            termset.add(fieldname, word)
+    
+    def existing_terms(self, searcher, termset, reverse = False):
+        fieldname = self.fieldname
+        for word in self._words(searcher):
+            t = (fieldname, word)
+            contains = t in searcher
+            if reverse: contains = not contains
+            if contains:
+                termset.add(t)
+    
+    def estimate_size(self, searcher):
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        return sum(searcher.doc_frequency(fieldnum, text)
+                   for text in self._words(searcher))
+
+    def docs(self, searcher, exclude_docs = None):
+        return self._or_query(searcher).docs(searcher, exclude_docs = exclude_docs)
+
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        query, filterquery = self.subqueries
-        
-        filter = BitVector(searcher.doc_count_all())
-        for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
-            filter.set(docnum)
-            
-        for docnum, score in query.doc_scores(searcher, weighting = weighting):
-            if docnum not in filter: continue
-            yield docnum, score
+        return self._or_query(searcher).doc_scores(searcher,
+                                                               weighting = weighting,
+                                                               exclude_docs = exclude_docs)
 
 
-class AndMaybe(CompoundQuery):
-    """Binary query requires results from the first query. If and only if the
-    same document also appears in the results from the second query, the score
-    from the second query will be added to the score from the first query.
+class ExpandingTerm(MultiTerm):
+    """
+    Abstract base class for queries that take one term and expand it into
+    multiple terms, such as Prefix and Wildcard.
     """
     
-    JOINT = " ANDMAYBE "
-    
-    def __init__(self, subqueries, boost = 1.0):
-        assert len(subqueries) == 2
-        self.subqueries = subqueries
+    def __init__(self, fieldname, text, boost = 1.0):
+        self.fieldname = fieldname
+        self.text = text
         self.boost = boost
     
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.fieldname, self.text)
+    
+    def __unicode__(self):
+        return "%s:%s*" % (self.fieldname, self.text)
+
+    def all_terms(self, termset):
+        termset.add((self.fieldname, self.text))
+    
+    def normalize(self):
+        return self
+
+
+# Concrete classes
+
+
+class Term(SimpleQuery):
+    """
+    Matches documents containing the given term (fieldname+text pair).
+    
+    >>> Term("content", u"render")
+    """
+    
+    def replace(self, oldtext, newtext):
+        if self.text == oldtext:
+            return Term(self.fieldname, newtext, boost = self.boost)
+        else:
+            return self
+    
+    def estimate_size(self, searcher):
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        return searcher.doc_frequency(fieldnum, self.text)
+    
     def docs(self, searcher, exclude_docs = None):
-        return self.subqueries[0].docs(searcher, exclude_docs = exclude_docs)
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        text = self.text
+        
+        if (fieldnum, text) in searcher:
+            for docnum, _ in searcher.postings(fieldnum, text, exclude_docs = exclude_docs):
+                yield docnum
     
     def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        query, maybequery = self.subqueries
-        
-        maybescores = dict(maybequery.doc_scores(searcher, weighting = weighting,
-                                                 exclude_docs = exclude_docs))
-        
-        for docnum, score in query.doc_scores(searcher, weighting = weighting,
-                                              exclude_docs = exclude_docs):
-            if docnum in maybescores:
-                score += maybescores[docnum]
-            yield (docnum, score)
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        text = self.text
+        boost = self.boost
+        if (fieldnum, text) in searcher:
+            weighting = weighting or searcher.weighting
+            for docnum, weight in searcher.weights(fieldnum, self.text,
+                                                   exclude_docs = exclude_docs):
+                yield docnum, weighting.score(searcher, fieldnum, text, docnum,
+                                              weight * boost)
 
 
 class And(CompoundQuery):
     """
     Matches documents that match ALL of the subqueries.
+    
+    >>> And([Term("content", u"render"),
+             Term("content", u"shade"),
+             Not(Term("content", u"texture"))])
+    >>> # You can also do this
+    >>> Term("content", u"render") & Term("content", u"shade")
     """
     
     # This is used by the superclass's __unicode__ method.
@@ -498,6 +516,12 @@ class And(CompoundQuery):
 class Or(CompoundQuery):
     """
     Matches documents that match ANY of the subqueries.
+    
+    >>> Or([Term("content", u"render"),
+            And([Term("content", u"shade"), Term("content", u"texture")]),
+            Not(Term("content", u"network"))])
+    >>> # You can also do this
+    >>> Term("content", u"render") | Term("content", u"shade")
     """
     
     # This is used by the superclass's __unicode__ method.
@@ -544,15 +568,22 @@ class Or(CompoundQuery):
 
 class Not(Query):
     """
-    Excludes any documents that match the subquery.
+    Excludes any documents that match the subquery. This query type is
+    only meaningful *inside an And or Or query*.
+    
+    >>> # Match documents that contain 'render' but not 'texture'
+    >>> And([Term("content", u"render"),
+             Not(Term("content", u"texture"))])
+    >>> # You can also do this
+    >>> Term("content", u"render") - Term("content", u"texture")
     """
     
     def __init__(self, query, boost = 1.0):
         """
-        query is a Query object, the results of which should be excluded from
-        a parent query.
-        boost is a boost factor that should be applied to the raw score of
-        results matched by this query.
+        :param query: A :class:`Query` object. The results of this query
+            are *excluded* from the parent query.
+        :param boost: Boost is meaningless for excluded documents but this
+            keyword argument is accepted for the sake of a consistent interface.
         """
         
         self.query = query
@@ -583,155 +614,12 @@ class Not(Query):
         self.query.existing_terms(searcher, termset, reverse = reverse)
 
 
-class AndNot(Query):
-    """
-    Binary boolean query of the form 'a AND NOT b', where documents that match
-    b are removed from the matches for a. This form can lead to counter-intuitive
-    results when there is another "not" query on the right side (so the double-
-    negative leads to documents the user might have meant to exclude being
-    included). For this reason, you probably want to use Not() (which excludes the
-    results of a subclause) instead of this logical operator, especially when
-    parsing user input.
-    """
-    
-    def __init__(self, positive, negative, boost = 1.0):
-        """
-        :positive: query to INCLUDE.
-        :negative: query whose matches should be EXCLUDED.
-        :boost: boost factor that should be applied to the raw score of
-            results matched by this query.
-        """
-        
-        self.positive = positive
-        self.negative = negative
-        self.boost = boost
-    
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.positive, self.negative)
-    
-    def __unicode__(self):
-        return u"%s ANDNOT %s" % (self.postive, self.negative)
-    
-    def normalize(self):
-        if self.positive is None:
-            return None
-        elif self.negative is None:
-            return self.positive.normalize()
-        
-        pos = self.positive.normalize()
-        neg = self.negative.normalize()
-        
-        if pos is None:
-            return None
-        elif neg is None:
-            return pos
-        
-        return AndNot(pos, neg, boost = self.boost)
-    
-    def replace(self, oldtext, newtext):
-        return AndNot(self.positive.replace(oldtext, newtext),
-                      self.negative.replace(oldtext, newtext),
-                      boost = self.boost)
-    
-    def all_terms(self, termset):
-        self.positive.all_terms(termset)
-        
-    def existing_terms(self, searcher, termset, reverse = False):
-        self.positive.existing_terms(searcher, termset, reverse = reverse)
-    
-    def docs(self, searcher, exclude_docs = None):
-        excl = _not_vector([self.negative], searcher, exclude_docs)
-        return self.positive.docs(searcher, exclude_docs = excl)
-    
-    def doc_scores(self, searcher, exclude_docs = None):
-        excl = _not_vector([self.negative], searcher, exclude_docs)
-        return self.positive.doc_scores(searcher, exclude_docs = excl)
-
-
-class MultiTerm(Query):
-    """
-    Abstract base class for queries that operate on multiple
-    terms in the same field
-    """
-    
-    def __init__(self, fieldname, words, boost = 1.0):
-        self.fieldname = fieldname
-        self.words = words
-        self.boost = boost
-    
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.fieldname, self.words)
-    
-    def _or_query(self, searcher):
-        fn = self.fieldname
-        return Or([Term(fn, word) for word in self._words(searcher)])
-    
-    def normalize(self):
-        return self.__class__(self.fieldname,
-                              [w for w in self.words if w is not None],
-                              boost = self.boost)
-    
-    def _words(self, searcher):
-        return self.words
-    
-    def all_terms(self, termset):
-        fieldname = self.fieldname
-        for word in self.words:
-            termset.add(fieldname, word)
-    
-    def existing_terms(self, searcher, termset, reverse = False):
-        fieldname = self.fieldname
-        for word in self._words(searcher):
-            t = (fieldname, word)
-            contains = t in searcher
-            if reverse: contains = not contains
-            if contains:
-                termset.add(t)
-    
-    def estimate_size(self, searcher):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
-        return sum(searcher.doc_frequency(fieldnum, text)
-                   for text in self._words(searcher))
-
-    def docs(self, searcher, exclude_docs = None):
-        return self._or_query(searcher).docs(searcher, exclude_docs = exclude_docs)
-
-    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
-        return self._or_query(searcher).doc_scores(searcher,
-                                                               weighting = weighting,
-                                                               exclude_docs = exclude_docs)
-
-
-class ExpandingTerm(MultiTerm):
-    """
-    Abstract base class for queries that take one term and expand it into
-    multiple terms, such as Prefix and Wildcard.
-    """
-    
-    def __init__(self, fieldname, text, boost = 1.0):
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
-    
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.fieldname, self.text)
-    
-    def __unicode__(self):
-        return "%s:%s*" % (self.fieldname, self.text)
-
-    def all_terms(self, termset):
-        termset.add((self.fieldname, self.text))
-    
-    def normalize(self):
-        return self
-
-
 class Prefix(ExpandingTerm):
     """
     Matches documents that contain any terms that start with the given text.
+    
+    >>> # Match documents containing words starting with 'comp'
+    >>> Prefix("content", u"comp")
     """
     
     def _words(self, searcher):
@@ -742,16 +630,18 @@ _wildcard_exp = re.compile("(.*?)([?*]|$)");
 class Wildcard(ExpandingTerm):
     """
     Matches documents that contain any terms that match a wildcard expression.
+    
+    >>> Wildcard("content", u"in*f?x")
     """
     
     def __init__(self, fieldname, text, boost = 1.0):
         """
-        fieldname is the field to search in. text is an expression to
-        search for, which may contain ? and/or * wildcard characters.
-        Note that matching a wildcard expression that starts with a wildcard
-        is very inefficent, since the query must test every term in the field.
-        boost is a boost factor that should be applied to the raw score of
-        results matched by this query.
+        :param fieldname: The field to search in.
+        :param text: A glob to search for. May contain ? and/or * wildcard characters.
+            Note that matching a wildcard expression that starts with a wildcard
+            is very inefficent, since the query must test every term in the field.
+        :param boost: A boost factor that should be applied to the raw score of
+            results matched by this query.
         """
         
         self.fieldname = fieldname
@@ -795,22 +685,27 @@ class Wildcard(ExpandingTerm):
 class TermRange(MultiTerm):
     """
     Matches documents containing any terms in a given range.
+    
+    >>> # Match documents where the indexed "id" field is greater than or equal to
+    >>> # 'apple' and "ess than or equal to 'pear'.
+    >>> TermRange("id", u"apple", u"pear")
     """
     
-    def __init__(self, fieldname, words, boost = 1.0):
+    def __init__(self, fieldname, start, end, boost = 1.0):
         """
-        fieldname is the name of the field to search. start and end are the
-        lower and upper (inclusive) bounds of the range of tokens to match.
-        boost is a boost factor that should be applied to the raw score of
-        results matched by this query.
+        :param fieldname: The name of the field to search.
+        :param start: Match terms equal to or greather than this.
+        :param end: Match terms equal to or less than this.
+        :param boost: Boost factor that should be applied to the raw score of
+            results matched by this query.
         """
         
         self.fieldname = fieldname
-        if len(words) < 2 or len(words) > 2:
-            raise QueryError("TermRange argument %r should be [startword, endword]" % words)
-        self.start = words[0]
-        self.end = words[1]
-        self.words = words
+        self.start = start
+        self.end = end
+        # Superclass MultiTerm expects the words of this query to be
+        # in a sequence in self.words
+        self.words = (start, end)
         self.boost = boost
     
     def __repr__(self):
@@ -1020,7 +915,148 @@ class Phrase(MultiTerm):
             return self._vector_impl(searcher, fieldnum, weighting, exclude_docs)
         else:
             raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
+
+
+# Binary classes
+# You probably don't want to use these
+
+class Require(CompoundQuery):
+    """Binary query returns results from the first query that also appear in the
+    second query, but only uses the scores from the first query. This lets you
+    filter results without affecting scores.
+    """
+    
+    JOINT = " REQUIRE "
+    
+    def __init__(self, scoredquery, requiredquery, boost = 1.0):
+        """
+        :param scoredquery: The query that is scored. Only documents that
+            also appear in the second query ('requiredquery') are scored.
+        :param requiredquery: Only documents that match both 'scoredquery'
+            and 'requiredquery' are returned, but this query does not
+            contribute to the scoring.
+        """
         
+        # The superclass CompoundQuery expects the subqueries to be
+        # in a sequence in self.subqueries
+        self.subqueries = (scoredquery, requiredquery)
+        self.boost = boost
+        
+    def docs(self, searcher, exclude_docs = None):
+        return And(self.subqueries).docs(searcher, exclude_docs = exclude_docs)
+    
+    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
+        query, filterquery = self.subqueries
+        
+        filter = BitVector(searcher.doc_count_all())
+        for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
+            filter.set(docnum)
+            
+        for docnum, score in query.doc_scores(searcher, weighting = weighting):
+            if docnum not in filter: continue
+            yield docnum, score
+
+
+class AndMaybe(CompoundQuery):
+    """Binary query takes results from the first query. If and only if the
+    same document also appears in the results from the second query, the score
+    from the second query will be added to the score from the first query.
+    """
+    
+    JOINT = " ANDMAYBE "
+    
+    def __init__(self, requiredquery, optionalquery, boost = 1.0):
+        """
+        :param requiredquery: Documents matching this query are returned.
+        :param optionalquery: If a document matches this query as well as
+            'requiredquery', the score from this query is added to the
+            document score from 'requiredquery'.
+        """
+        
+        # The superclass CompoundQuery expects the subqueries to be
+        # in a sequence in self.subqueries
+        self.subqueries = (requiredquery, optionalquery)
+        self.boost = boost
+    
+    def docs(self, searcher, exclude_docs = None):
+        return self.subqueries[0].docs(searcher, exclude_docs = exclude_docs)
+    
+    def doc_scores(self, searcher, weighting = None, exclude_docs = None):
+        query, maybequery = self.subqueries
+        
+        maybescores = dict(maybequery.doc_scores(searcher, weighting = weighting,
+                                                 exclude_docs = exclude_docs))
+        
+        for docnum, score in query.doc_scores(searcher, weighting = weighting,
+                                              exclude_docs = exclude_docs):
+            if docnum in maybescores:
+                score += maybescores[docnum]
+            yield (docnum, score)
+
+
+class AndNot(Query):
+    """
+    Binary boolean query of the form 'a AND NOT b', where documents that match
+    b are removed from the matches for a. This form can lead to counter-intuitive
+    results when there is another "not" query on the right side (so the double-
+    negative leads to documents the user might have meant to exclude being
+    included).
+    """
+    
+    def __init__(self, positive, negative, boost = 1.0):
+        """
+        :param positive: query to INCLUDE.
+        :param negative: query whose matches should be EXCLUDED.
+        :param boost: boost factor that should be applied to the raw score of
+            results matched by this query.
+        """
+        
+        self.positive = positive
+        self.negative = negative
+        self.boost = boost
+    
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.positive, self.negative)
+    
+    def __unicode__(self):
+        return u"%s ANDNOT %s" % (self.postive, self.negative)
+    
+    def normalize(self):
+        if self.positive is None:
+            return None
+        elif self.negative is None:
+            return self.positive.normalize()
+        
+        pos = self.positive.normalize()
+        neg = self.negative.normalize()
+        
+        if pos is None:
+            return None
+        elif neg is None:
+            return pos
+        
+        return AndNot(pos, neg, boost = self.boost)
+    
+    def replace(self, oldtext, newtext):
+        return AndNot(self.positive.replace(oldtext, newtext),
+                      self.negative.replace(oldtext, newtext),
+                      boost = self.boost)
+    
+    def all_terms(self, termset):
+        self.positive.all_terms(termset)
+        
+    def existing_terms(self, searcher, termset, reverse = False):
+        self.positive.existing_terms(searcher, termset, reverse = reverse)
+    
+    def docs(self, searcher, exclude_docs = None):
+        excl = _not_vector([self.negative], searcher, exclude_docs)
+        return self.positive.docs(searcher, exclude_docs = excl)
+    
+    def doc_scores(self, searcher, exclude_docs = None):
+        excl = _not_vector([self.negative], searcher, exclude_docs)
+        return self.positive.doc_scores(searcher, exclude_docs = excl)
+
         
 
 if __name__ == '__main__':

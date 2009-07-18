@@ -70,12 +70,13 @@ class Weighting(object):
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         """Returns the score for a given term in the given document.
         
-        :searcher: the searcher doing the scoring.
-        :fieldnum: the field number of the term being scored.
-        :text: the text of the term being scored.
-        :docnum: the doc number of the document being scored.
-        :weight: the frequency * boost of the term in this document.
-        :QTF: the frequency of the term in the query.
+        :param searcher: the searcher doing the scoring.
+        :param fieldnum: the field number of the term being scored.
+        :param text: the text of the term being scored.
+        :param docnum: the doc number of the document being scored.
+        :param weight: the frequency * boost of the term in this document.
+        :param QTF: the frequency of the term in the query.
+        :rtype: float
         """
         raise NotImplementedError
 
@@ -86,9 +87,13 @@ class BM25F(Weighting):
     """
     
     def __init__(self, B = 0.75, K1 = 1.2, field_B = None):
-        """B and K1 are free parameters, see the BM25 literature.
-        field_B can be a dictionary mapping fieldnums to field-specific B values.
-        field_boost can be a dictionary mapping fieldnums to field boost factors.
+        """
+        :param B: free parameter, see the BM25 literature.
+        :param K1: free parameter, see the BM25 literature.
+        :param field_B: If given, a dictionary mapping fieldnums to
+            field-specific B values.
+        :param field_boost: If given, a dictionary mapping fieldnums
+            to field-specific boost factors.
         """
         
         super(self.__class__, self).__init__()
@@ -114,7 +119,8 @@ class BM25F(Weighting):
 # the Terrier search engine's uk.ac.gla.terrier.matching.models package.
 
 class Cosine(Weighting):
-    """A cosine vector-space scoring algorithm similar to Lucene's.
+    """A cosine vector-space scoring algorithm, translated into Python
+    from Terrier's Java implementation.
     """
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
@@ -229,7 +235,8 @@ class Frequency(Weighting):
 
 class Sorter(object):
     """Abstract base class for sorter objects. See the 'sortedby'
-    keyword argument to searching.Searcher.search().
+    keyword argument to the Searcher's :meth:`~whoosh.searching.Searcher.search`
+    method.
     
     Concrete subclasses must implement the order() method, which
     takes a sequence of doc numbers and returns it sorted.
@@ -252,7 +259,8 @@ class NullSorter(Sorter):
 class FieldSorter(Sorter):
     """Used by searching.Searcher to sort document results based on the
     value of an indexed field, rather than score. See the 'sortedby'
-    keyword argument to searching.Searcher.search().
+    keyword argument to the Searcher's :meth:`~whoosh.searching.Searcher.search`
+    method.
     
     This object creates a cache of document orders for the given field.
     Creating the cache may make the first sorted search of a field
@@ -262,8 +270,8 @@ class FieldSorter(Sorter):
     
     def __init__(self, fieldname, missingfirst = False):
         """
-        :fieldname: The name of the field to sort by.
-        :missingfirst: Place documents which don't have the given
+        :param fieldname: The name of the field to sort by.
+        :param missingfirst: Place documents which don't have the given
             field first in the sorted results. The default is to put those
             documents last (after all documents that have the given field).
         """
@@ -318,7 +326,8 @@ class FieldSorter(Sorter):
 class MultiFieldSorter(FieldSorter):
     """Used by searching.Searcher to sort document results based on the
     value of an indexed field, rather than score. See the 'sortedby'
-    keyword argument to searching.Searcher.search().
+    keyword argument to the Searcher's :meth:`~whoosh.searching.Searcher.search`
+    method.
     
     This sorter uses multiple fields, so if for two documents the first
     field has the same value, it will use the second field to sort them,
@@ -327,8 +336,8 @@ class MultiFieldSorter(FieldSorter):
     
     def __init__(self, fieldnames, missingfirst = False):
         """
-        :fieldnames: A list of field names to sort by.
-        :missingfirst: Place documents which don't have the given
+        :param fieldnames: A list of field names to sort by.
+        :param missingfirst: Place documents which don't have the given
             field first in the sorted results. The default is to put those
             documents last (after all documents that have the given field).
         """

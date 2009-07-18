@@ -17,12 +17,33 @@
 from __future__ import division
 from heapq import nlargest
 
+"""
+The highlight module contains classes and functions for displaying short
+excerpts from hit documents in the search results you present to the user, with
+query terms highlighted.
+"""
 
 # Fragment object
 
 class Fragment(object):
+    """Represents a fragment (extract) from a hit document. This object is mainly
+    used to keep track of the start and end points of the fragment; it does not
+    contain the text of the fragment or do much else.
+    """
+    
     def __init__(self, tokens, charsbefore = 0, charsafter = 0, textlen = 999999):
+        """
+        :param tokens: list of the Token objects representing the matched terms. 
+        :param charsbefore: approx. how many characters before the start of the first
+            matched term to include in the fragment.
+        :param charsafter: approx. how many characters after the end of the last
+            matched term to include in the fragment.
+        :param textlen: length in characters of the document text.
+        """
+        
+        #: index of the first character of the fragment in the original document
         self.startchar = max(0, tokens[0].startchar - charsbefore)
+        #: index after the last character of the fragment in the original document
         self.endchar = min(textlen, tokens[-1].endchar + charsafter)
         self.matches = [t for t in tokens if t.matched]
         self.matched_terms = frozenset(t.text for t in self.matches)
@@ -72,7 +93,7 @@ class SimpleFragmenter(object):
     
     def __init__(self, size = 70):
         """
-        :size: size (in characters) to chunk to. The chunking is based on
+        :param size: size (in characters) to chunk to. The chunking is based on
             tokens, so the fragments will usually be smaller.
         """
         self.size = 70
@@ -99,14 +120,14 @@ class SimpleFragmenter(object):
 
 
 class SentenceFragmenter(object):
-    """"Breaks the text up on sentence end punctuation characters (".", "!", or "?").
+    """Breaks the text up on sentence end punctuation characters (".", "!", or "?").
     This object works by looking in the original text for a sentence end as the next
     character after each token's 'endchar'.
     """
     
     def __init__(self, maxchars = 200, sentencechars = ".!?"):
         """
-        :maxchars: The maximum number of characters allowed in a fragment.
+        :param maxchars: The maximum number of characters allowed in a fragment.
         """
         
         self.maxchars = maxchars
@@ -153,12 +174,12 @@ class ContextFragmenter(object):
     
     def __init__(self, termset, maxchars = 200, charsbefore = 20, charsafter = 20):
         """
-        :termset: A collection (probably a set or frozenset) containing the
+        :param termset: A collection (probably a set or frozenset) containing the
             terms you want to match to token.text attributes.
-        :maxchars: The maximum number of characters allowed in a fragment.
-        :charsbefore: The number of extra characters of context to add before
+        :param maxchars: The maximum number of characters allowed in a fragment.
+        :param charsbefore: The number of extra characters of context to add before
             the first matched term.
-        :charsafter: The number of extra characters of context to add after
+        :param charsafter: The number of extra characters of context to add after
             the last matched term.
         """
         
@@ -203,13 +224,13 @@ class ContextFragmenter(object):
 #class VectorFragmenter(object):
 #    def __init__(self, termmap, maxchars = 200, charsbefore = 20, charsafter = 20):
 #        """
-#        :termmap: A dictionary mapping the terms you're looking for to
+#        :param termmap: A dictionary mapping the terms you're looking for to
 #            lists of either (posn, startchar, endchar) or
 #            (posn, startchar, endchar, boost) tuples.
-#        :maxchars: The maximum number of characters allowed in a fragment.
-#        :charsbefore: The number of extra characters of context to add before
+#        :param maxchars: The maximum number of characters allowed in a fragment.
+#        :param charsbefore: The number of extra characters of context to add before
 #            the first matched term.
-#        :charsafter: The number of extra characters of context to add after
+#        :param charsafter: The number of extra characters of context to add after
 #            the last matched term.
 #        """
 #        

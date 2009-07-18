@@ -20,7 +20,7 @@ This module contains classes that allow reading from an index.
 
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
-from threading import Lock, RLock
+from threading import Lock
 
 from whoosh.util import ClosableMixin, protected
 from whoosh.fields import FieldConfigurationError, UnknownFieldError
@@ -253,9 +253,9 @@ class MultiDocReader(DocReader):
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
     
-    def vector(self, docnum):
+    def vector(self, docnum, fieldid):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].vector(segmentdoc)
+        return self.doc_readers[segmentnum].vector(segmentdoc, fieldid)
     
     def _doc_info(self, docnum, key):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -274,9 +274,9 @@ class TermReader(ClosableMixin):
     
     def __init__(self, storage, segment, schema):
         """
-        :storage: The storage object in which the segment resides.
-        :segment: The segment to read from.
-        :schema: The index's schema object.
+        :param storage: The storage object in which the segment resides.
+        :param segment: The segment to read from.
+        :param schema: The index's schema object.
         """
         
         self.segment = segment
@@ -443,11 +443,11 @@ class TermReader(ClosableMixin):
         Yields raw (docnum, data) tuples for each document containing
         the current term.
         
-        :exclude_docs:
+        :param exclude_docs:
             a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        :boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         is_deleted = self.segment.is_deleted
@@ -468,11 +468,11 @@ class TermReader(ClosableMixin):
         the given term. The current field must have stored term weights
         for this to work.
         
-        :exclude_docs:
+        :param exclude_docs:
             a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        :boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         
@@ -493,14 +493,14 @@ class TermReader(ClosableMixin):
         the given term. The current field must have stored positions
         for this to work.
         
-        :astype:
+        :param astype:
             how to interpret the posting data, for example
             "positions". The field must support the interpretation.
-        :exclude_docs:
+        :param exclude_docs:
             a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        :boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         format = self.schema.field_by_number(fieldnum).format
@@ -518,11 +518,11 @@ class TermReader(ClosableMixin):
         the given term. The current field must have stored positions
         for this to work.
         
-        :exclude_docs:
+        :param exclude_docs:
             a set of document numbers to ignore. This
             is used by queries to skip documents that have already been
             eliminated from consideration.
-        :boost: a factor by which to multiply each weight.
+        :param boost: a factor by which to multiply each weight.
         """
         
         return self.postings_as(fieldnum, text, "positions", exclude_docs = exclude_docs)

@@ -28,11 +28,15 @@ from whoosh.util import TopDocs
 
 class Searcher(util.ClosableMixin):
     """Object for searching an index. Produces Results objects.
+    The easiest way to get a searcher for a particular index is
+    to call :meth:`~whoosh.index.Index.searcher` on the index.
+    
+    >>> searcher = my_index.searcher()
     """
     
     def __init__(self, ix, weighting = scoring.BM25F):
         """
-        :param ix: the index.Index object to search.
+        :param ix: the :class:`whoosh.index.Index` object to search.
         :param weighting: a scoring.Weighting implementation to use to
             score the hits. If this is a class it will automatically be
             instantiated.
@@ -364,7 +368,7 @@ class Results(object):
         
         :param fieldname: Look at the terms in this field. This field must store vectors.
         :param docs: Look at this many of the top documents of the results.
-        :param numterms: Return this number of important terms.
+        :param terms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify module.
         """
         

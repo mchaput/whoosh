@@ -26,13 +26,13 @@ import cPickle
 from threading import Lock
 from array import array
 
-from whoosh import fields, store
+from whoosh import __version__, fields, store
 
 
 _DEF_INDEX_NAME = "MAIN"
 _EXTENSIONS = "dci|dcz|tiz|fvz"
 
-_index_version = -101
+_index_version = -102
 
 _int_size = array("i").itemsize
 _ulong_size = array("L").itemsize
@@ -40,26 +40,35 @@ _float_size = array("f").itemsize
 
 # Exceptions
 
-class OutOfDateError(Exception):
+class IndexError(Exception):
+    """Generic index error."""
+
+class IndexVersionError(IndexError):
+    """Raised when you try to open an index using a format that the
+    current version of Whoosh cannot read. That is, when the index you're
+    trying to open is either not backward or forward compatible with this
+    version of Whoosh.
+    """
+    
+    def __init__(self, msg, version, release=None):
+        super(IndexVersionError, self).__init__(msg)
+        self.version = version
+        self.release = release
+
+class OutOfDateError(IndexError):
     """Raised when you try to commit changes to an index which is not
     the latest generation.
     """
-    pass
 
-class EmptyIndexError(Exception):
+class EmptyIndexError(IndexError):
     """Raised when you try to work with an index that has no indexed terms.
     """
-    pass
 
-class IndexLockedError(Exception):
+class IndexLockedError(IndexError):
     """Raised when you try to write to or lock an already-locked index (or
     one that was accidentally left in a locked state).
     """
-    pass
 
-class IndexError(Exception):
-    """Generic index error."""
-    pass
 
 
 # Utility functions
@@ -78,6 +87,8 @@ def _segment_pattern(indexname):
     
     return re.compile("(_%s_[0-9]+).(%s)" % (indexname, _EXTENSIONS))
 
+# User functions
+
 def create_in(dirname, schema = None, indexname = None, **kwargs):
     """Convenience function to create an index in a directory. Takes care of creating
     a FileStorage object for you. dirname is the filename of the directory in
@@ -88,7 +99,7 @@ def create_in(dirname, schema = None, indexname = None, **kwargs):
     
     If you specify both a schema and keyword arguments, the schema wins.
     
-    Returns an Index object.
+    :returns: :class:`Index`
     """
     
     if not indexname:
@@ -108,7 +119,7 @@ def open_dir(dirname, indexname = None):
     containing the index. indexname is the name of the index to create; you only need to
     specify this if you have multiple indexes within the same storage object.
     
-    Returns an Index object.
+    :returns: :class:`Index`
     """
     
     if indexname is None:
@@ -117,21 +128,31 @@ def open_dir(dirname, indexname = None):
     return Index(store.FileStorage(dirname), indexname = indexname)
 
 def exists_in(dirname, indexname = None):
-    """Returns True if dirname contains a Whoosh index."""
+    """Returns True if dirname contains a Whoosh index.
     
-    if indexname is None:
-        indexname = _DEF_INDEX_NAME
+    :param dirname: the file path of a directory.
+    :param indexname: the name of the index. If None, the default index name is used.
+    :param rtype: bool
+    """
     
     if os.path.exists(dirname):
         try:
-            ix = open_dir(dirname)
+            ix = open_dir(dirname, indexname=indexname)
             return ix.latest_generation() > -1
         except EmptyIndexError:
             pass
 
     return False
 
-def exists(storage, indexname):
+def exists(storage, indexname = None):
+    """Returns True if the given Storage object contains a Whoosh
+    index.
+    
+    :param storage: a store.Storage object.
+    :param indexname: the name of the index. If None, the default index name is used.
+    :param rtype: bool
+    """
+    
     if indexname is None:
         indexname = _DEF_INDEX_NAME
         
@@ -142,6 +163,56 @@ def exists(storage, indexname):
         pass
     
     return False
+
+def version_in(dirname, indexname = None):
+    """Returns a tuple of (release_version, format_version), where
+    release_version is the release version number of the Whoosh code that
+    created the index -- e.g. (0, 1, 24) -- and format_version is the
+    version number of the on-disk format used for the index -- e.g. -102.
+    
+    The second number (format version) may be useful for figuring out if you
+    need to recreate an index because the format has changed. However, you
+    can just try to open the index and see if you get an IndexVersionError
+    exception.
+    
+    Note that the release and format version are available as attributes
+    on the Index object in Index.release and Index.version.
+    
+    :param dirname: the file path of a directory containing an index.
+    :param indexname: the name of the index. If None, the default index name is used.
+    :returns: ((major_ver, minor_ver, build_ver), format_ver)
+    """
+    
+    storage = store.FileStorage(dirname)
+    return version(storage, indexname=indexname)
+    
+
+def version(storage, indexname = None):
+    """Returns a tuple of (release_version, format_version), where
+    release_version is the release version number of the Whoosh code that
+    created the index -- e.g. (0, 1, 24) -- and format_version is the
+    version number of the on-disk format used for the index -- e.g. -102.
+    
+    The second number (format version) may be useful for figuring out if you
+    need to recreate an index because the format has changed. However, you
+    can just try to open the index and see if you get an IndexVersionError
+    exception.
+    
+    Note that the release and format version are available as attributes
+    on the Index object in Index.release and Index.version.
+    
+    :param storage: a store.Storage object.
+    :param indexname: the name of the index. If None, the default index name is used.
+    :returns: ((major_ver, minor_ver, build_ver), format_ver)
+    """
+    
+    try:
+        if indexname is None:
+            indexname = _DEF_INDEX_NAME
+        ix = Index(storage, indexname=indexname)
+        return (ix.release, ix.version)
+    except IndexVersionError, e:
+        return (e.release, e.version)
 
 
 # A mix-in that adds methods for deleting
@@ -177,7 +248,7 @@ class DeletionMixin(object):
         field. This is useful when you have an indexed field containing
         a unique ID (such as "pathname") for each document.
         
-        :*returns*: the number of documents deleted.
+        :returns: the number of documents deleted.
         """
         
         from whoosh.query import Term
@@ -187,7 +258,7 @@ class DeletionMixin(object):
     def delete_by_query(self, q):
         """Deletes any documents matching a query object.
         
-        :*returns*: the number of documents deleted.
+        :returns: the number of documents deleted.
         """
         
         count = 0
@@ -205,15 +276,15 @@ class Index(DeletionMixin):
     
     def __init__(self, storage, schema = None, create = False, indexname = _DEF_INDEX_NAME):
         """
-        :storage: The store.Storage object in which this index resides.
+        :param storage: The :class:`whoosh.store.Storage` object in which this index resides.
             See the store module for more details.
-        :schema: A fields.Schema object defining the fields of this index. If you omit
+        :param schema: A :class:`whoosh.fields.Schema` object defining the fields of this index. If you omit
             this argument for an existing index, the object will load the pickled Schema
             object that was saved with the index. If you are creating a new index
             (create = True), you must supply this argument.
-        :create: Whether to create a new index. If this is True, you must supply
+        :param create: Whether to create a new index. If this is True, you must supply
             a Schema instance using the schema keyword argument.
-        :indexname: An optional name to use for the index. Use this if you need
+        :param indexname: An optional name to use for the index. Use this if you need
             to keep multiple indexes in the same storage object.
         """
         
@@ -280,7 +351,8 @@ class Index(DeletionMixin):
         """Returns a new Index object representing the latest generation
         of this index (if this object is the latest generation, returns
         self).
-        :*returns*: index.Index
+        
+        :returns: :class:`Index`
         """
         
         if not self.up_to_date():
@@ -293,6 +365,8 @@ class Index(DeletionMixin):
         this index. Returns False if this object is not the latest
         generation (that is, someone else has updated the index since
         you opened this object).
+        
+        :param rtype: bool
         """
         return self.generation == self.latest_generation()
     
@@ -307,6 +381,8 @@ class Index(DeletionMixin):
         stream.write_varint(_float_size)
         stream.write_string(byteorder)
         
+        for num in __version__[:3]:
+            stream.write_varint(num)
         stream.write_int(_index_version)
         stream.write_string(cPickle.dumps(self.schema, -1))
         stream.write_int(self.generation)
@@ -325,8 +401,24 @@ class Index(DeletionMixin):
             raise IndexError("Index was created on a different architecture")
         
         version = stream.read_int()
-        if version != _index_version:
-            raise IndexError("Don't know how to read index version %s" % version)
+        if version > -101:
+            # This index was created by an older version of Whoosh
+            raise IndexVersionError("Can't read old format %s" % version,
+                                    version)
+        elif version < _index_version:
+            # This index was created by a future version of Whoosh
+            raise IndexVersionError("Can't read newer format %s" )
+        elif version == -101:
+            # Backward compatibility: format -101 didn't write out the release
+            # number.
+            release = None
+        else:
+            release = (stream.read_varint(),
+                       stream.read_varint(),
+                       stream.read_varint())
+            
+        self.release = release
+        self.version = version
         
         # If the user supplied a schema object with the constructor,
         # don't load the pickled schema from the saved index.
@@ -368,8 +460,10 @@ class Index(DeletionMixin):
     
     def lock(self):
         """Locks this index for writing, or raises an error if the index
-        is already locked. Returns true if the index was successfully
+        is already locked. Returns True if the index was successfully
         locked.
+        
+        :param rtype: bool
         """
         return self.storage.lock("_%s_LOCK" % self.indexname)
     
@@ -382,12 +476,15 @@ class Index(DeletionMixin):
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never
         had any documents successfully written to it.
+        
+        :param rtype: bool
         """
         return len(self.segments) == 0
     
     def optimize(self):
         """Optimizes this index's segments. This will fail if the index
-        is already locked for writing.
+        is already locked for writing. If the index only has one segment
+        this does nothing.
         """
         
         if len(self.segments) < 2 and not self.segments.has_deletions():
@@ -403,7 +500,7 @@ class Index(DeletionMixin):
         (that is, if someone has updated the index since you opened
         this object).
         
-        :new_segments: a replacement SegmentSet. This is used by
+        :param new_segments: a replacement SegmentSet. This is used by
             IndexWriter to update the index after it finishes
             writing.
         """
@@ -442,7 +539,7 @@ class Index(DeletionMixin):
                 if num != self.generation:
                     try:
                         storage.delete_file(filename)
-                    except WindowsError:
+                    except OSError:
                         # Another process still has this file open
                         pass
             else:
@@ -452,7 +549,7 @@ class Index(DeletionMixin):
                     if name not in current_segment_names:
                         try:
                             storage.delete_file(filename)
-                        except WindowsError:
+                        except OSError:
                             # Another process still has this file open
                             pass
     
@@ -483,9 +580,11 @@ class Index(DeletionMixin):
         return sum(s.field_length(fieldnum) for s in self.segments)
     
     def term_reader(self):
-        """Returns a TermReader object for this index.
+        """Returns a TermReader object for this index. This is a low-level
+        method; users should obtain a :param class:`whoosh.searching.Searcher`
+        with Index.searcher() instead.
         
-        :*returns*: reading.TermReader
+        :rtype: :class:`whoosh.reading.TermReader`
         """
         
         from whoosh import reading
@@ -500,9 +599,11 @@ class Index(DeletionMixin):
             return reading.MultiTermReader(term_readers, doc_offsets, self.schema)
     
     def doc_reader(self):
-        """Returns a DocReader object for this index.
+        """Returns a DocReader object for this index. This is a low-level
+        method; users should obtain a :param class:`whoosh.searching.Searcher`
+        with Index.searcher() instead.
         
-        :*returns*: reading.DocReader
+        :rtype: :class:`whoosh.reading.DocReader`
         """
         
         from whoosh import reading
@@ -520,7 +621,7 @@ class Index(DeletionMixin):
         """Returns a Searcher object for this index. Keyword arguments
         are passed to the Searcher object's constructor.
         
-        :*returns*: searching.Searcher
+        :rtype: :class:`whoosh.searching.Searcher`
         """
         
         from whoosh.searching import Searcher
@@ -529,7 +630,7 @@ class Index(DeletionMixin):
     def writer(self, **kwargs):
         """Returns an IndexWriter object for this index.
         
-        :*returns*: writing.IndexWriter
+        :rtype: :class:`whoosh.writing.IndexWriter`
         """
         from whoosh.writing import IndexWriter
         return IndexWriter(self, **kwargs)
@@ -539,12 +640,12 @@ class Index(DeletionMixin):
         Result object. Any additional keyword arguments are passed to
         Searcher.search() along with the parsed query.
 
-        :querystring: The query string to parse and search for.
-        :parser: A Parser object to use to parse 'querystring'.
+        :param querystring: The query string to parse and search for.
+        :param parser: A Parser object to use to parse 'querystring'.
             The default is to use a standard qparser.QueryParser.
             This object must implement a parse(str) method which returns a
-            query.Query instance.
-        :*returns*: searching.Results
+            :param class:`whoosh.query.Query` instance.
+        :rtype: :class:`whoosh.searching.Results`
         """
 
         if parser is None:
@@ -573,7 +674,7 @@ class SegmentSet(object):
         return repr(self.segments)
     
     def __len__(self):
-        """:*returns*: the number of segments in this set."""
+        """:returns: the number of segments in this set."""
         return len(self.segments)
     
     def __iter__(self):
@@ -608,7 +709,7 @@ class SegmentSet(object):
         return segment, docnum - offset
     
     def copy(self):
-        """:*returns*: a deep copy of this set."""
+        """:returns: a deep copy of this set."""
         return self.__class__([s.copy() for s in self.segments])
     
     def doc_offsets(self):
@@ -623,21 +724,21 @@ class SegmentSet(object):
     
     def doc_count_all(self):
         """
-        :*returns*: the total number of documents, DELETED or
+        :returns: the total number of documents, DELETED or
             UNDELETED, in this set.
         """
         return sum(s.doc_count_all() for s in self.segments)
     
     def doc_count(self):
         """
-        :*returns*: the number of undeleted documents in this set.
+        :returns: the number of undeleted documents in this set.
         """
         return sum(s.doc_count() for s in self.segments)
     
     
     def max_weight(self):
         """
-        :*returns*: the maximum frequency of any term in the set.
+        :returns: the maximum frequency of any term in the set.
         """
         
         if not self.segments:
@@ -646,7 +747,7 @@ class SegmentSet(object):
     
     def has_deletions(self):
         """
-        :*returns*: True if this index has documents that are marked
+        :returns: True if this index has documents that are marked
             deleted but haven't been optimized out of the index yet.
             This includes deletions that haven't been written to disk
             with Index.commit() yet.
@@ -664,13 +765,13 @@ class SegmentSet(object):
     
     def deleted_count(self):
         """
-        :*returns*: the total number of deleted documents in this index.
+        :returns: the total number of deleted documents in this index.
         """
         return sum(s.deleted_count() for s in self.segments)
     
     def is_deleted(self, docnum):
         """
-        :*returns*: True if a given document number is deleted but not yet
+        :returns: True if a given document number is deleted but not yet
             optimized out of the index.
         """
         
@@ -695,15 +796,15 @@ class Segment(object):
     def __init__(self, name, max_doc, max_weight, field_length_totals,
                  deleted = None):
         """
-        :name: The name of the segment (the Index object computes this from its
+        :param name: The name of the segment (the Index object computes this from its
             name and the generation).
-        :max_doc: The maximum document number in the segment.
-        :term_count: Total count of all terms in all documents.
-        :max_weight: The maximum weight of any term in the segment. This is used
+        :param max_doc: The maximum document number in the segment.
+        :param term_count: Total count of all terms in all documents.
+        :param max_weight: The maximum weight of any term in the segment. This is used
             by some scoring algorithms.
-        :field_length_totals: A dictionary mapping field numbers to the total
+        :param field_length_totals: A dictionary mapping field numbers to the total
             number of terms in that field across all documents in the segment.
-        :deleted: A collection of deleted document numbers, or None
+        :param deleted: A collection of deleted document numbers, or None
             if no deleted documents exist in this segment.
         """
         
@@ -728,28 +829,28 @@ class Segment(object):
     
     def doc_count_all(self):
         """
-        :*returns*: the total number of documents, DELETED OR UNDELETED,
+        :returns: the total number of documents, DELETED OR UNDELETED,
             in this segment.
         """
         return self.max_doc
     
     def doc_count(self):
-        """:*returns*: the number of (undeleted) documents in this segment."""
+        """:returns: the number of (undeleted) documents in this segment."""
         return self.max_doc - self.deleted_count()
     
     def has_deletions(self):
-        """:*returns*: True if any documents in this segment are deleted."""
+        """:returns: True if any documents in this segment are deleted."""
         return self.deleted_count() > 0
     
     def deleted_count(self):
-        """:*returns*: the total number of deleted documents in this segment."""
+        """:returns: the total number of deleted documents in this segment."""
         if self.deleted is None: return 0
         return len(self.deleted)
     
     def field_length(self, fieldnum):
         """
-        :fieldnum: the internal number of the field.
-        :*returns*: the total number of terms in the given field across all
+        :param fieldnum: the internal number of the field.
+        :returns: the total number of terms in the given field across all
             documents in this segment.
         """
         return self.field_length_totals.get(fieldnum, 0)
@@ -758,8 +859,8 @@ class Segment(object):
         """Deletes the given document number. The document is not actually
         removed from the index until it is optimized.
 
-        :docnum: The document number to delete.
-        :delete: If False, this undeletes a deleted document.
+        :param docnum: The document number to delete.
+        :param delete: If False, this undeletes a deleted document.
         """
         
         if delete:
@@ -777,7 +878,7 @@ class Segment(object):
             self.deleted.remove(docnum)
     
     def is_deleted(self, docnum):
-        """:*returns*: True if the given document number is deleted."""
+        """:returns: True if the given document number is deleted."""
         
         if self.deleted is None: return False
         return docnum in self.deleted

@@ -83,6 +83,11 @@ class IndexWriter(index.DeletionMixin):
     instantiating a SegmentWriter to create a new segment as you add documents,
     as well as merging existing segments (if necessary) when you finish.
     
+    The easiest way to get a writer for a particular index is
+    to call :meth:`~whoosh.index.Index.writer` on the index.
+    
+    >>> writer = my_index.writer()
+    
     You can use this object as a context manager. If an exception is thrown
     from within the context it calls cancel(), otherwise it calls commit()
     when the context ends.
@@ -95,8 +100,12 @@ class IndexWriter(index.DeletionMixin):
                  term_blocksize = 1 * 1024, doc_blocksize = 8 * 1024,
                  vector_blocksize = 8 * 1024):
         """
-        :ix: the Index object you want to write to.
-        :blocksize: the block size for tables created by this writer.
+        :param ix: the Index object you want to write to.
+        :param postlimit: Essentially controls the maximum amount of memory the
+            indexer uses at a time, in bytes (the actual amount of memory used by
+            the Python process will be much larger because of other overhead).
+            The default (4MB) is quite small. You should increase this value
+            for large collections, e.g. ``postlimit=32*1024*1024``.
         """
         
         # Obtain a lock
@@ -157,8 +166,8 @@ class IndexWriter(index.DeletionMixin):
     def add_field(self, fieldname, text, stored_value = None):
         """Adds a the value of a field to the document opened with start_document().
         
-        :fieldname: The name of the field in which to index/store the text.
-        :text: The unicode text to index.
+        :param fieldname: The name of the field in which to index/store the text.
+        :param text: The unicode text to index.
         """
         self.segment_writer().add_field(fieldname, text, stored_value = stored_value)
         
@@ -215,7 +224,7 @@ class IndexWriter(index.DeletionMixin):
     def commit(self, mergetype = MERGE_SMALL):
         """Finishes writing and unlocks the index.
         
-        :mergetype: How to merge existing segments. One of
+        :param mergetype: How to merge existing segments. One of
             writing.NO_MERGE, writing.MERGE_SMALL, or writing.OPTIMIZE.
         """
         
@@ -273,10 +282,10 @@ class SegmentWriter(object):
                  term_blocksize, doc_blocksize, vector_blocksize,
                  name = None):
         """
-        :ix: the Index object in which to write the new segment.
-        :postlimit: the maximum size for a run in the posting pool.
-        :name: the name of the segment.
-        :blocksize: the block size to use for tables created by this writer.
+        :param ix: the Index object in which to write the new segment.
+        :param postlimit: the maximum size for a run in the posting pool.
+        :param name: the name of the segment.
+        :param blocksize: the block size to use for tables created by this writer.
         """
         
         self.index = ix
@@ -354,8 +363,8 @@ class SegmentWriter(object):
         """Adds the contents of another segment to this one. This is used
         to merge existing segments into the new one before deleting them.
         
-        :ix: The index.Index object containing the segment to merge.
-        :segment: The index.Segment object to merge into this one.
+        :param ix: The index.Index object containing the segment to merge.
+        :param segment: The index.Segment object to merge into this one.
         """
         
         start_doc = self.max_doc
