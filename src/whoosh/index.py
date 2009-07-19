@@ -403,11 +403,10 @@ class Index(DeletionMixin):
         version = stream.read_int()
         if version > -101:
             # This index was created by an older version of Whoosh
-            raise IndexVersionError("Can't read old format %s" % version,
-                                    version)
+            raise IndexVersionError("Can't read old format %s" % version, version)
         elif version < _index_version:
             # This index was created by a future version of Whoosh
-            raise IndexVersionError("Can't read newer format %s" )
+            raise IndexVersionError("Can't read newer format %s" % version, version)
         elif version == -101:
             # Backward compatibility: format -101 didn't write out the release
             # number.
