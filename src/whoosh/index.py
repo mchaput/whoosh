@@ -381,9 +381,10 @@ class Index(DeletionMixin):
         stream.write_varint(_float_size)
         stream.write_string(byteorder)
         
+        stream.write_int(_index_version)
         for num in __version__[:3]:
             stream.write_varint(num)
-        stream.write_int(_index_version)
+        
         stream.write_string(cPickle.dumps(self.schema, -1))
         stream.write_int(self.generation)
         stream.write_int(self.segment_counter)
