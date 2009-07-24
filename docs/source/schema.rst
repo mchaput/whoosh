@@ -14,6 +14,7 @@ The schema is the set of all possible fields in a document. Each individual docu
 
 For example, a simple schema for indexing emails might have fields like ``from_addr``, ``to_addr``, ``subject``, ``body``, and ``attachments``, where the ``attachments`` field lists the names of attachments to the email. For emails without attachments, you would omit the attachments field.
 
+
 Built-in field types
 --------------------
 
@@ -52,6 +53,7 @@ Whoosh provides some useful predefined field types:
 
 Expert users can create their own field types.
 
+
 Creating a Schema
 -----------------
 
@@ -67,6 +69,7 @@ To create a schema::
                     tags=KEYWORD)
 
 If you aren't specifying any constructor keyword arguments to one of the predefined fields, you can leave off the brackets (e.g. fieldname=TEXT instead of fieldname=TEXT()). Whoosh will instantiate the class for you.
+
 
 Advanced schema setup
 =====================

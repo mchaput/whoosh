@@ -175,6 +175,12 @@ class RegexTokenizer(object):
         else:
             self.expression = expression
     
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.expression.pattern == other.expression.pattern:
+                return True
+        return False
+    
     def __call__(self, value, positions = False, chars = False,
                  keeporiginal = False, removestops = True,
                  start_pos = 0, start_char = 0):
@@ -262,7 +268,13 @@ class NgramTokenizer(object):
         
         self.min = minsize
         self.max = maxsize or minsize
-        
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.min == other.min and self.max == other.max:
+                return True
+        return False
+    
     def __call__(self, value, positions = False, chars = False,
                  keeporiginal = False, removestops = True,
                  start_pos = 0, start_char = 0):
@@ -318,7 +330,7 @@ class NgramFilter(object):
         
         self.min = minsize
         self.max = maxsize or minsize
-        
+    
     def __call__(self, tokens):
         for t in tokens:
             text, chars = t.text, t.chars
@@ -494,6 +506,12 @@ class StopFilter(object):
         self.min = minsize
         self.renumber = renumber
     
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.stops == other.stops and self.min == other.min and self.renumber == other.renumber:
+                return True
+        return False
+    
     def __call__(self, tokens):
         stoplist = self.stops
         minsize = self.min
@@ -631,6 +649,12 @@ class IDAnalyzer(Analyzer):
         self.strip = strip
         self.lowercase = lowercase
     
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.strip == other.strip and self.lowercase == other.lowercase:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         if self.strip: value = value.strip()
         if self.lowercase:
@@ -654,6 +678,12 @@ class KeywordAnalyzer(Analyzer):
         else:
             self.tokenizer = SpaceSeparatedTokenizer()
     
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.lowercase == other.lowercase and self.tokenizer == other.tokenizer:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         if self.lowercase:
             return LowercaseFilter(self.tokenizer(value, **kwargs))
@@ -674,7 +704,13 @@ class RegexAnalyzer(Analyzer):
         :param expression: The regular expression pattern to use to extract tokens.
         """
         self.tokenizer = RegexTokenizer(expression = expression)
-        
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         return self.tokenizer(value, **kwargs)
 
@@ -687,12 +723,18 @@ class SimpleAnalyzer(Analyzer):
     [u"hello", u"there", u"this", u"is", u"a", u"test"]
     """
     
-    def __init__(self, expression = None):
+    def __init__(self, expression=r"\w+(\.?\w+)*"):
         """
         :param expression: The regular expression pattern to use to extract tokens.
         """
         self.tokenizer = RegexTokenizer(expression = expression)
-        
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         return LowercaseFilter(self.tokenizer(value, **kwargs))
 
@@ -706,28 +748,34 @@ class StemmingAnalyzer(Analyzer):
     [u"test", u"test", u"test"]
     """
     
-    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
+    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2):
         """
         :param stoplist: A list of stop words. Set this to None to disable
             the stop word filter.
         :param minsize: Words smaller than this are removed from the stream.
         """
         
-        self.tokenizer = RegexTokenizer()
+        self.tokenizer = RegexTokenizer(expression=expression)
         self.stemfilter = StemFilter()
         self.stopper = None
         if stoplist is not None:
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-        
-    def clean(self):
-        self.stemfilter.clear()
-        
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         gen = LowercaseFilter(self.tokenizer(value, **kwargs))
         if self.stopper:
             gen = self.stopper(gen)
         return self.stemfilter(gen)
-
+    
+    def clean(self):
+        self.stemfilter.clear()
+        
 
 class StandardAnalyzer(Analyzer):
     """Uses a RegexTokenizer and applies a LowercaseFilter and optional StopFilter.
@@ -748,6 +796,12 @@ class StandardAnalyzer(Analyzer):
         self.stopper = None
         if stoplist is not None:
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
+                return True
+        return False
     
     def __call__(self, value, **kwargs):
         gen = LowercaseFilter(self.tokenizer(value, **kwargs))
@@ -774,7 +828,13 @@ class FancyAnalyzer(Analyzer):
         
         self.tokenizer = RegexTokenizer()
         self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-        
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         return self.stopper(UnderscoreFilter(
                             LowercaseFilter(
@@ -795,7 +855,13 @@ class NgramAnalyzer(Analyzer):
         See analysis.NgramTokenizer.
         """
         self.tokenizer = NgramTokenizer(minsize, maxsize = maxsize)
-        
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer:
+                return True
+        return False
+    
     def __call__(self, value, **kwargs):
         return LowercaseFilter(self.tokenizer(value, **kwargs))
     

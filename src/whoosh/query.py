@@ -255,6 +255,9 @@ class CompoundQuery(Query):
         r += u")"
         return r
 
+    def __getitem__(self, i):
+        return self.subqueries.__getitem__(i)
+
     def _split_queries(self):
         if self._notqueries is None:
             self._subqueries = [q for q in self.subqueries if not isinstance(q, Not)]
@@ -714,6 +717,12 @@ class TermRange(MultiTerm):
     
     def __unicode__(self):
         return u"%s:%s..%s" % (self.fieldname, self.start, self.end)
+    
+    def normalize(self):
+        if self.start == self.end:
+            return Term(self.fieldname, self.start, boost=self.boost)
+        else:
+            return TermRange(self.fieldname, self.start, self.end, boost=self.boost)
     
     def replace(self, oldtext, newtext):
         if self.start == oldtext:

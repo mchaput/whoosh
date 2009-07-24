@@ -1,11 +1,12 @@
 import unittest
 
-from whoosh import index, spelling, store
+from whoosh import index, spelling
+from whoosh.filedb.filestore import RamStorage
 
 
 class TestSpelling(unittest.TestCase):
     def test_spelling(self):
-        st = store.RamStorage()
+        st = RamStorage()
         
         sp = spelling.SpellChecker(st, mingram=2)
         

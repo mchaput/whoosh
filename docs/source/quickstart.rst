@@ -45,12 +45,12 @@ At a low level, there are basically steps involved:
 A Storage object represents that medium in which the index will be stored. Usually this will be ``FileStorage``, which stores the index as a set of files in a directory. There is also ``RamStorage``, which simply keeps the index in memory. Future versions of Whoosh may include other storage options. ::
 
     import os, os.path
-    from whoosh import store
+    from whoosh.filedb.filestore import FileStorage
 
     if not os.path.exists("index"):
         os.mkdir("index")
 
-    storage = store.FileStorage("index")
+    storage = FileStorage("index")
 
 The Schema is a very important object that defines the fields which will be stored and/or indexed. When you create the Schema object, you use keyword arguments to map field names to field types. The list of fields and their types defines what you are indexing and what's searchable. Whoosh comes with some very useful predefined field types, and you can easily create your own.
 
@@ -78,9 +78,11 @@ The Schema is a very important object that defines the fields which will be stor
 
 Once you have the Storage and Schema objects, you can create the Index object::
 
-    from whoosh.index import Index
+    ix = storage.create_index(schema)
+    
+To open an existing index::
 
-    ix = Index(storage, schema=schema, create=True)
+	ix = storage.open_index()
 
 Since you'll usually be using the FileStorage class for the index storage, there are couple of convenience functions that let you skip some of the above steps:
 
@@ -88,11 +90,7 @@ Since you'll usually be using the FileStorage class for the index storage, there
 
     import whoosh.index as index
 
-    # Create using a Schema object
     ix = index.create_in("index_dir1", schema)
-
-    # or create the schema on the fly with keyword args
-    ix = index.create_in("index_dir2", title=TEXT(stored=True), content=TEXT)
     
 ``index.open_dir`` takes a directory name as an argument and returns an Index object::
 
@@ -103,7 +101,7 @@ Since you'll usually be using the FileStorage class for the index storage, there
 Indexing documents
 ------------------
 
-OK, so we've got an Index object, now we can start adding documents. The writer() method of the Index object returns an IndexWriter? object that lets you add documents to the index. The IndexWriter's ``add_document(**kwargs)`` method accepts keyword arguments where the field name is mapped to a value::
+OK, so we've got an Index object, now we can start adding documents. The writer() method of the Index object returns an ``IndexWriter`` object that lets you add documents to the index. The IndexWriter's ``add_document(**kwargs)`` method accepts keyword arguments where the field name is mapped to a value::
 
     writer = ix.writer()
     writer.add_document(title=u"My document", content=u"This is my document!",
@@ -124,17 +122,17 @@ If you have a field that is both indexed and stored, you can even index a unicod
 
     writer.add_document(title=u"Title to be indexed", _stored_title=u"Stored title")
 
-Calling commit() on the ``IndexWriter`?``` saves the added documents to the index. Once your documents are in the index, you can search for them.
+Calling commit() on the ``IndexWriter`` saves the added documents to the index. Once your documents are in the index, you can search for them.
 
 Searching
 ---------
 
 First, we'll show how to load an existing index from disk. In this case, we have an index in a directory called index. We can create a Storage object manually, and use it to create an Index object. The Schema object is pickled and saved with the index; we don't need to recreate it to load the index::
 
-    from whoosh import index, store
+    from whoosh.filedb.filestore import FileStorage
 
-    storage = store.FileStorage("index")
-    ix = index.Index(storage)
+    storage = FileStorage("index")
+    ix = storage.open_index()
 
 Since you'll usually be loading the index from disk, you can use the ``open_dir()`` function from the index module to avoid having to create the storage object. It takes a path to the index directory and returns an Index object::
 

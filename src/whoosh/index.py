@@ -19,24 +19,13 @@ an index.
 """
 
 from __future__ import division
-import os.path, re
-from sys import byteorder
-from bisect import bisect_right
-import cPickle
-from threading import Lock
-from array import array
+import os.path
 
-from whoosh import __version__, fields, store
+from whoosh import fields, store
 
 
 _DEF_INDEX_NAME = "MAIN"
-_EXTENSIONS = "dci|dcz|tiz|fvz"
 
-_index_version = -102
-
-_int_size = array("i").itemsize
-_ulong_size = array("L").itemsize
-_float_size = array("f").itemsize
 
 # Exceptions
 
@@ -70,62 +59,49 @@ class IndexLockedError(IndexError):
     """
 
 
+# Convenience functions
 
-# Utility functions
-
-def _toc_pattern(indexname):
-    """Returns a regular expression object that matches TOC filenames.
-    name is the name of the index.
-    """
-    
-    return re.compile("_%s_([0-9]+).toc" % indexname)
-
-def _segment_pattern(indexname):
-    """Returns a regular expression object that matches segment filenames.
-    name is the name of the index.
-    """
-    
-    return re.compile("(_%s_[0-9]+).(%s)" % (indexname, _EXTENSIONS))
-
-# User functions
-
-def create_in(dirname, schema = None, indexname = None, **kwargs):
+def create_in(dirname, schema, indexname=None, byteorder=None):
     """Convenience function to create an index in a directory. Takes care of creating
-    a FileStorage object for you. dirname is the filename of the directory in
-    which to create the index. schema is a fields.Schema object describing the
-    index's fields. indexname is the name of the index to create; you only need to
-    specify this if you are creating multiple indexes within the
-    same storage object.
+    a FileStorage object for you. indexname is t
     
-    If you specify both a schema and keyword arguments, the schema wins.
-    
+    :param dirname: the path string of the directory in which to create the index.
+    :param schema: a :class:`whoosh.fields.Schema` object describing the index's fields.
+    :param indexname: the name of the index to create; you only need to specify this if
+        you are creating multiple indexes within the same storage object.
+    :param byteorder: the byte order to use when writing numeric values to disk: 'big',
+        'little', or None. If None (the default), Whoosh uses the native platform order.
     :returns: :class:`Index`
     """
     
     if not indexname:
         indexname = _DEF_INDEX_NAME
     
-    storage = store.FileStorage(dirname)
-    if kwargs and not schema:
-        schema = fields.Schema(**kwargs)
-    elif not schema and not kwargs:
-        raise Exception("You must specify either a schema or keyword arguments.")
-    
-    return Index(storage, schema = schema, indexname = indexname, create = True)
+    from whoosh.filedb.filestore import FileStorage
+    storage = FileStorage(dirname, byteorder=byteorder)
+    return storage.create_index(schema, indexname)
 
-def open_dir(dirname, indexname = None):
+def open_dir(dirname, indexname = None, byteorder=None, mapped=True):
     """Convenience function for opening an index in a directory. Takes care of creating
     a FileStorage object for you. dirname is the filename of the directory in
     containing the index. indexname is the name of the index to create; you only need to
     specify this if you have multiple indexes within the same storage object.
     
+    :param dirname: the path string of the directory in which to create the index.
+    :param indexname: the name of the index to create; you only need to specify this if
+        you have multiple indexes within the same storage object.
+    :param byteorder: the byte order to use when reading numeric values off disk: 'big',
+        'little', or None. If None (the default), Whoosh uses the native platform order.
+    :param mapped: whether to use memory mapping to speed up disk reading.
     :returns: :class:`Index`
     """
     
     if indexname is None:
         indexname = _DEF_INDEX_NAME
     
-    return Index(store.FileStorage(dirname), indexname = indexname)
+    from whoosh.filedb.filestore import FileStorage
+    storage = FileStorage(dirname, byteorder=byteorder, mapped=mapped)
+    return storage.open_index(indexname)
 
 def exists_in(dirname, indexname = None):
     """Returns True if dirname contains a Whoosh index.
@@ -157,7 +133,7 @@ def exists(storage, indexname = None):
         indexname = _DEF_INDEX_NAME
         
     try:
-        ix = Index(storage, indexname = indexname)
+        ix = storage.open_index(indexname)
         return ix.latest_generation() > -1
     except EmptyIndexError:
         pass
@@ -183,7 +159,8 @@ def version_in(dirname, indexname = None):
     :returns: ((major_ver, minor_ver, build_ver), format_ver)
     """
     
-    storage = store.FileStorage(dirname)
+    from whoosh.filedb.filestore import FileStorage
+    storage = FileStorage(dirname)
     return version(storage, indexname=indexname)
     
 
@@ -209,40 +186,16 @@ def version(storage, indexname = None):
     try:
         if indexname is None:
             indexname = _DEF_INDEX_NAME
-        ix = Index(storage, indexname=indexname)
+        
+        ix = storage.open_index(indexname)
         return (ix.release, ix.version)
     except IndexVersionError, e:
-        return (e.release, e.version)
+        return (None, e.version)
 
 
-# A mix-in that adds methods for deleting
-# documents from self.segments. These methods are on IndexWriter as
-# well as Index for convenience, so they're broken out here.
+# 
 
 class DeletionMixin(object):
-    """Mix-in for classes that support deleting documents from self.segments."""
-    
-    def delete_document(self, docnum, delete = True):
-        """Deletes a document by number."""
-        self.segments.delete_document(docnum, delete = delete)
-    
-    def deleted_count(self):
-        """Returns the total number of deleted documents in this index.
-        """
-        return self.segments.deleted_count()
-    
-    def is_deleted(self, docnum):
-        """Returns True if a given document number is deleted but
-        not yet optimized out of the index.
-        """
-        return self.segments.is_deleted(docnum)
-    
-    def has_deletions(self):
-        """Returns True if this index has documents that are marked
-        deleted but haven't been optimized out of the index yet.
-        """
-        return self.segments.has_deletions()
-    
     def delete_by_term(self, fieldname, text):
         """Deletes any documents containing "term" in the "fieldname"
         field. This is useful when you have an indexed field containing
@@ -267,23 +220,17 @@ class DeletionMixin(object):
             count += 1
         return count
 
-
 # Index class
 
 class Index(DeletionMixin):
     """Represents an indexed collection of documents.
     """
     
-    def __init__(self, storage, schema = None, create = False, indexname = _DEF_INDEX_NAME):
+    def __init__(self, storage, schema = None, indexname = _DEF_INDEX_NAME):
         """
         :param storage: The :class:`whoosh.store.Storage` object in which this index resides.
             See the store module for more details.
-        :param schema: A :class:`whoosh.fields.Schema` object defining the fields of this index. If you omit
-            this argument for an existing index, the object will load the pickled Schema
-            object that was saved with the index. If you are creating a new index
-            (create = True), you must supply this argument.
-        :param create: Whether to create a new index. If this is True, you must supply
-            a Schema instance using the schema keyword argument.
+        :param schema: A :class:`whoosh.fields.Schema` object defining the fields of this index.
         :param indexname: An optional name to use for the index. Use this if you need
             to keep multiple indexes in the same storage object.
         """
@@ -294,71 +241,32 @@ class Index(DeletionMixin):
         if schema is not None and not isinstance(schema, fields.Schema):
             raise ValueError("%r is not a Schema object" % schema)
         
-        self.generation = self.latest_generation()
-        
-        if create:
-            if schema is None:
-                raise IndexError("To create an index you must specify a schema")
-            
-            self.schema = schema
-            self.generation = 0
-            self.segment_counter = 0
-            self.segments = SegmentSet()
-            
-            # Clear existing files
-            self.unlock()
-            prefix = "_%s_" % self.indexname
-            for filename in self.storage:
-                if filename.startswith(prefix):
-                    storage.delete_file(filename)
-            
-            self._write()
-        elif self.generation >= 0:
-            self._read(schema)
-        else:
-            raise EmptyIndexError
-        
-        # Open a searcher for this index. This is used by the
-        # deletion methods, but mostly it's to keep the underlying
-        # files open so they don't get deleted from underneath us.
-        self._searcher = self.searcher()
-        
-        self.segment_num_lock = Lock()
-    
-    def __del__(self):
-        if hasattr(self, "_searcher") and self._searcher and not self._searcher.is_closed:
-            self._searcher.close()
+        self.schema = schema
     
     def close(self):
-        self._searcher.close()
+        """Closes any open resources held by the Index object itself. This may not close all
+        resources being used everywhere, for example by a Searcher object.
+        """
+        pass
+    
+    def delete_document(self, docnum, delete=True):
+        """Deletes a document by number."""
+        raise NotImplementedError
     
     def latest_generation(self):
         """Returns the generation number of the latest generation of this
-        index.
+        index, or -1 if the backend doesn't support versioning.
         """
-        
-        pattern = _toc_pattern(self.indexname)
-        
-        max = -1
-        for filename in self.storage:
-            m = pattern.match(filename)
-            if m:
-                num = int(m.group(1))
-                if num > max: max = num
-        return max
+        return -1
     
     def refresh(self):
         """Returns a new Index object representing the latest generation
-        of this index (if this object is the latest generation, returns
-        self).
+        of this index (if this object is the latest generation, or the
+        backend doesn't support versioning, returns self).
         
         :returns: :class:`Index`
         """
-        
-        if not self.up_to_date():
-            return self.__class__(self.storage, indexname = self.indexname)
-        else:
-            return self
+        return self
     
     def up_to_date(self):
         """Returns True if this object represents the latest generation of
@@ -368,95 +276,13 @@ class Index(DeletionMixin):
         
         :param rtype: bool
         """
-        return self.generation == self.latest_generation()
-    
-    def _write(self):
-        # Writes the content of this index to the .toc file.
-        for field in self.schema:
-            field.clean()
-        stream = self.storage.create_file(self._toc_filename())
-        
-        stream.write_varint(_int_size)
-        stream.write_varint(_ulong_size)
-        stream.write_varint(_float_size)
-        stream.write_string(byteorder)
-        
-        stream.write_int(_index_version)
-        for num in __version__[:3]:
-            stream.write_varint(num)
-        
-        stream.write_string(cPickle.dumps(self.schema, -1))
-        stream.write_int(self.generation)
-        stream.write_int(self.segment_counter)
-        stream.write_pickle(self.segments)
-        stream.close()
-    
-    def _read(self, schema):
-        # Reads the content of this index from the .toc file.
-        stream = self.storage.open_file(self._toc_filename())
-        
-        if stream.read_varint() != _int_size or \
-           stream.read_varint() != _ulong_size or \
-           stream.read_varint() != _float_size or \
-           stream.read_string() != byteorder:
-            raise IndexError("Index was created on a different architecture")
-        
-        version = stream.read_int()
-        if version > -101:
-            # This index was created by an older version of Whoosh
-            raise IndexVersionError("Can't read old format %s" % version, version)
-        elif version < _index_version:
-            # This index was created by a future version of Whoosh
-            raise IndexVersionError("Can't read newer format %s" % version, version)
-        elif version == -101:
-            # Backward compatibility: format -101 didn't write out the release
-            # number.
-            release = None
-        else:
-            release = (stream.read_varint(),
-                       stream.read_varint(),
-                       stream.read_varint())
-            
-        self.release = release
-        self.version = version
-        
-        # If the user supplied a schema object with the constructor,
-        # don't load the pickled schema from the saved index.
-        if schema:
-            self.schema = schema
-            stream.skip_string()
-        else:
-            self.schema = cPickle.loads(stream.read_string())
-        
-        generation = stream.read_int()
-        assert generation == self.generation
-        self.segment_counter = stream.read_int()
-        self.segments = stream.read_pickle()
-        stream.close()
-    
-    def _next_segment_name(self):
-        #Returns the name of the next segment in sequence.
-        if self.segment_num_lock.acquire():
-            try:
-                self.segment_counter += 1
-                return "_%s_%s" % (self.indexname, self.segment_counter)
-            finally:
-                self.segment_num_lock.release()
-        else:
-            raise IndexLockedError
-    
-    def _toc_filename(self):
-        # Returns the computed filename of the TOC for this
-        # index name and generation.
-        return "_%s_%s.toc" % (self.indexname, self.generation)
+        return True
     
     def last_modified(self):
-        """Returns the last modified time of the .toc file.
+        """Returns the last modified time of the index, or -1 if the backend
+        doesn't support last-modified times.
         """
-        return self.storage.file_modified(self._toc_filename())
-    
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self.storage, self.indexname)
+        return -1
     
     def lock(self):
         """Locks this index for writing, or raises an error if the index
@@ -465,13 +291,13 @@ class Index(DeletionMixin):
         
         :param rtype: bool
         """
-        return self.storage.lock("_%s_LOCK" % self.indexname)
+        return True
     
     def unlock(self):
         """Unlocks the index. Only call this if you were the one who locked
         it (without getting an exception) in the first place!
         """
-        self.storage.unlock("_%s_LOCK" % self.indexname)
+        pass
     
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never
@@ -479,143 +305,53 @@ class Index(DeletionMixin):
         
         :param rtype: bool
         """
-        return len(self.segments) == 0
+        raise NotImplementedError
     
     def optimize(self):
-        """Optimizes this index's segments. This will fail if the index
-        is already locked for writing. If the index only has one segment
-        this does nothing.
+        """Optimizes this index, if necessary.
         """
-        
-        if len(self.segments) < 2 and not self.segments.has_deletions():
-            return
-        
-        from whoosh import writing
-        w = writing.IndexWriter(self)
-        w.commit(writing.OPTIMIZE)
+        pass
     
-    def commit(self, new_segments = None):
+    def commit(self):
         """Commits pending edits (such as deletions) to this index object.
-        Raises OutOfDateError if this index is not the latest generation
-        (that is, if someone has updated the index since you opened
-        this object).
-        
-        :param new_segments: a replacement SegmentSet. This is used by
-            IndexWriter to update the index after it finishes
-            writing.
         """
-        
-        self._searcher.close()
-        
-        if not self.up_to_date():
-            raise OutOfDateError
-        
-        if new_segments:
-            self.segments = new_segments
-        
-        self.generation += 1
-        self._write()
-        self.clean_files()
-        
-        self._searcher = self.searcher()
-    
-    def clean_files(self):
-        """Attempts to remove unused index files (called when a new generation
-        is created). If existing Index and/or reader objects have the files
-        open, they may not get deleted immediately (i.e. on Windows)
-        but will probably be deleted eventually by a later call to clean_files.
-        """
-        
-        storage = self.storage
-        current_segment_names = set([s.name for s in self.segments])
-        
-        tocpattern = _toc_pattern(self.indexname)
-        segpattern = _segment_pattern(self.indexname)
-        
-        for filename in storage:
-            m = tocpattern.match(filename)
-            if m:
-                num = int(m.group(1))
-                if num != self.generation:
-                    try:
-                        storage.delete_file(filename)
-                    except OSError:
-                        # Another process still has this file open
-                        pass
-            else:
-                m = segpattern.match(filename)
-                if m:
-                    name = m.group(1)
-                    if name not in current_segment_names:
-                        try:
-                            storage.delete_file(filename)
-                        except OSError:
-                            # Another process still has this file open
-                            pass
+        pass
     
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this index.
         """
-        return self.segments.doc_count_all()
+        raise NotImplementedError
     
     def doc_count(self):
         """Returns the total number of UNDELETED documents in this index.
         """
-        return self.segments.doc_count()
-    
-    def max_weight(self):
-        """Returns the maximum term weight in this index.
-        This is used by some scoring algorithms.
-        """
-        return self.segments.max_weight()
+        raise NotImplementedError
     
     def field_length(self, fieldid):
         """Returns the total number of terms in a given field.
         This is used by some scoring algorithms. Note that this
         necessarily includes terms in deleted documents.
         """
-        
-        fieldnum = self.schema.to_number(fieldid)
-        return sum(s.field_length(fieldnum) for s in self.segments)
+        raise NotImplementedError
     
     def term_reader(self):
         """Returns a TermReader object for this index. This is a low-level
-        method; users should obtain a :param class:`whoosh.searching.Searcher`
+        method; you should obtain a :class:`whoosh.searching.Searcher`
         with Index.searcher() instead.
         
         :rtype: :class:`whoosh.reading.TermReader`
         """
-        
-        from whoosh import reading
-        segments = self.segments
-        
-        if len(segments) == 1:
-            return reading.TermReader(self.storage, segments[0], self.schema)
-        else:
-            term_readers = [reading.TermReader(self.storage, s, self.schema)
-                            for s in segments]
-            doc_offsets = segments.doc_offsets()
-            return reading.MultiTermReader(term_readers, doc_offsets, self.schema)
+        raise NotImplementedError
     
     def doc_reader(self):
         """Returns a DocReader object for this index. This is a low-level
-        method; users should obtain a :param class:`whoosh.searching.Searcher`
+        method; you should obtain a :class:`whoosh.searching.Searcher`
         with Index.searcher() instead.
         
         :rtype: :class:`whoosh.reading.DocReader`
         """
-        
-        from whoosh import reading
-        schema = self.schema
-        segments = self.segments
-        if len(segments) == 1:
-            return reading.DocReader(self.storage, segments[0], schema)
-        else:
-            doc_readers = [reading.DocReader(self.storage, s, self.schema)
-                           for s in segments]
-            doc_offsets = segments.doc_offsets()
-            return reading.MultiDocReader(doc_readers, doc_offsets, schema)
+        raise NotImplementedError
     
     def searcher(self, **kwargs):
         """Returns a Searcher object for this index. Keyword arguments
@@ -632,8 +368,7 @@ class Index(DeletionMixin):
         
         :rtype: :class:`whoosh.writing.IndexWriter`
         """
-        from whoosh.writing import IndexWriter
-        return IndexWriter(self, **kwargs)
+        raise NotImplementedError
     
     def find(self, querystring, parser = None, **kwargs):
         """Parses querystring, runs the query in this index, and returns a
@@ -644,7 +379,7 @@ class Index(DeletionMixin):
         :param parser: A Parser object to use to parse 'querystring'.
             The default is to use a standard qparser.QueryParser.
             This object must implement a parse(str) method which returns a
-            :param class:`whoosh.query.Query` instance.
+            :class:`whoosh.query.Query` instance.
         :rtype: :class:`whoosh.searching.Results`
         """
 
@@ -652,236 +387,8 @@ class Index(DeletionMixin):
             from whoosh.qparser import QueryParser
             parser = QueryParser(self.schema)
             
-        return self._searcher.search(parser.parse(querystring), **kwargs)
+        return self.searcher().search(parser.parse(querystring), **kwargs)
 
-
-# SegmentSet object
-
-class SegmentSet(object):
-    """This class is never instantiated by the user. It is used by the Index
-    object to keep track of the segments in the index.
-    """
-
-    def __init__(self, segments = None):
-        if segments is None:
-            self.segments = []
-        else:
-            self.segments = segments
-        
-        self._doc_offsets = self.doc_offsets()
-    
-    def __repr__(self):
-        return repr(self.segments)
-    
-    def __len__(self):
-        """:returns: the number of segments in this set."""
-        return len(self.segments)
-    
-    def __iter__(self):
-        return iter(self.segments)
-    
-    def __getitem__(self, n):
-        return self.segments.__getitem__(n)
-    
-    def append(self, segment):
-        """Adds a segment to this set."""
-        
-        self.segments.append(segment)
-        self._doc_offsets = self.doc_offsets()
-    
-    def _document_segment(self, docnum):
-        """Returns the index.Segment object containing the given document
-        number.
-        """
-        
-        offsets = self._doc_offsets
-        if len(offsets) == 1: return 0
-        return bisect_right(offsets, docnum) - 1
-    
-    def _segment_and_docnum(self, docnum):
-        """Returns an (index.Segment, segment_docnum) pair for the
-        segment containing the given document number.
-        """
-        
-        segmentnum = self._document_segment(docnum)
-        offset = self._doc_offsets[segmentnum]
-        segment = self.segments[segmentnum]
-        return segment, docnum - offset
-    
-    def copy(self):
-        """:returns: a deep copy of this set."""
-        return self.__class__([s.copy() for s in self.segments])
-    
-    def doc_offsets(self):
-        # Recomputes the document offset list. This must be called if you
-        # change self.segments.
-        offsets = []
-        base = 0
-        for s in self.segments:
-            offsets.append(base)
-            base += s.doc_count_all()
-        return offsets
-    
-    def doc_count_all(self):
-        """
-        :returns: the total number of documents, DELETED or
-            UNDELETED, in this set.
-        """
-        return sum(s.doc_count_all() for s in self.segments)
-    
-    def doc_count(self):
-        """
-        :returns: the number of undeleted documents in this set.
-        """
-        return sum(s.doc_count() for s in self.segments)
-    
-    
-    def max_weight(self):
-        """
-        :returns: the maximum frequency of any term in the set.
-        """
-        
-        if not self.segments:
-            return 0
-        return max(s.max_weight for s in self.segments)
-    
-    def has_deletions(self):
-        """
-        :returns: True if this index has documents that are marked
-            deleted but haven't been optimized out of the index yet.
-            This includes deletions that haven't been written to disk
-            with Index.commit() yet.
-        """
-        return any(s.has_deletions() for s in self.segments)
-    
-    def delete_document(self, docnum, delete = True):
-        """Deletes a document by number.
-
-        You must call Index.commit() for the deletion to be written to disk.
-        """
-        
-        segment, segdocnum = self._segment_and_docnum(docnum)
-        segment.delete_document(segdocnum, delete = delete)
-    
-    def deleted_count(self):
-        """
-        :returns: the total number of deleted documents in this index.
-        """
-        return sum(s.deleted_count() for s in self.segments)
-    
-    def is_deleted(self, docnum):
-        """
-        :returns: True if a given document number is deleted but not yet
-            optimized out of the index.
-        """
-        
-        segment, segdocnum = self._segment_and_docnum(docnum)
-        return segment.is_deleted(segdocnum)
-    
-
-class Segment(object):
-    """Do not instantiate this object directly. It is used by the Index
-    object to hold information about a segment. A list of objects of this
-    class are pickled as part of the TOC file.
-    
-    The TOC file stores a minimal amount of information -- mostly a list of
-    Segment objects. Segments are the real reverse indexes. Having multiple
-    segments allows quick incremental indexing: just create a new segment for
-    the new documents, and have the index overlay the new segment over previous
-    ones for purposes of reading/search. "Optimizing" the index combines the
-    contents of existing segments into one (removing any deleted documents
-    along the way).
-    """
-    
-    def __init__(self, name, max_doc, max_weight, field_length_totals,
-                 deleted = None):
-        """
-        :param name: The name of the segment (the Index object computes this from its
-            name and the generation).
-        :param max_doc: The maximum document number in the segment.
-        :param term_count: Total count of all terms in all documents.
-        :param max_weight: The maximum weight of any term in the segment. This is used
-            by some scoring algorithms.
-        :param field_length_totals: A dictionary mapping field numbers to the total
-            number of terms in that field across all documents in the segment.
-        :param deleted: A collection of deleted document numbers, or None
-            if no deleted documents exist in this segment.
-        """
-        
-        self.name = name
-        self.max_doc = max_doc
-        self.max_weight = max_weight
-        self.field_length_totals = field_length_totals
-        self.deleted = deleted
-        
-        self.doclen_filename = self.name + ".dci"
-        self.docs_filename = self.name + ".dcz"
-        self.term_filename = self.name + ".tiz"
-        self.vector_filename = self.name + ".fvz"
-    
-    def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.name)
-    
-    def copy(self):
-        return Segment(self.name, self.max_doc,
-                       self.max_weight, self.field_length_totals,
-                       self.deleted)
-    
-    def doc_count_all(self):
-        """
-        :returns: the total number of documents, DELETED OR UNDELETED,
-            in this segment.
-        """
-        return self.max_doc
-    
-    def doc_count(self):
-        """:returns: the number of (undeleted) documents in this segment."""
-        return self.max_doc - self.deleted_count()
-    
-    def has_deletions(self):
-        """:returns: True if any documents in this segment are deleted."""
-        return self.deleted_count() > 0
-    
-    def deleted_count(self):
-        """:returns: the total number of deleted documents in this segment."""
-        if self.deleted is None: return 0
-        return len(self.deleted)
-    
-    def field_length(self, fieldnum):
-        """
-        :param fieldnum: the internal number of the field.
-        :returns: the total number of terms in the given field across all
-            documents in this segment.
-        """
-        return self.field_length_totals.get(fieldnum, 0)
-    
-    def delete_document(self, docnum, delete = True):
-        """Deletes the given document number. The document is not actually
-        removed from the index until it is optimized.
-
-        :param docnum: The document number to delete.
-        :param delete: If False, this undeletes a deleted document.
-        """
-        
-        if delete:
-            if self.deleted is None:
-                self.deleted = set()
-            elif docnum in self.deleted:
-                raise KeyError("Document %s in segment %r is already deleted"
-                               % (docnum, self.name))
-            
-            self.deleted.add(docnum)
-        else:
-            if self.deleted is None or docnum not in self.deleted:
-                raise KeyError("Document %s is not deleted" % docnum)
-            
-            self.deleted.remove(docnum)
-    
-    def is_deleted(self, docnum):
-        """:returns: True if the given document number is deleted."""
-        
-        if self.deleted is None: return False
-        return docnum in self.deleted
 
 # Debugging functions
 

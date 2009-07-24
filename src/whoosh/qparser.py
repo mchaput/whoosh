@@ -1,8 +1,11 @@
 import re
 
-from whoosh.support.pyparsing import alphanums, printables, \
-CharsNotIn, Literal, Group, Combine, Suppress, Regex, OneOrMore, Forward, Word, Keyword, \
-Empty, StringEnd, ParserElement
+from whoosh.support.pyparsing import printables, alphanums
+from whoosh.support.pyparsing import ZeroOrMore, OneOrMore
+from whoosh.support.pyparsing import Group, Combine, Suppress, Optional
+from whoosh.support.pyparsing import Literal, CharsNotIn, Regex, Word, Keyword
+from whoosh.support.pyparsing import Empty, White, Forward, StringEnd, ParserElement
+
 from whoosh import analysis, query
 
 """
@@ -18,7 +21,7 @@ This parser handles:
 * grouping with parentheses
 * quoted phrase searching
 * wildcards at the end of a search prefix, e.g. help*
-* ranges, e.g. a..b
+* ranges, e.g. a .. b
 
 This parser was originally based on the searchparser example code available at:
 
@@ -60,27 +63,28 @@ http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 # - Paul McGuire
 
 def _make_default_parser():
-    ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
-    
     escapechar = "\\"
-    wordtext = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
-    #escape = Suppress(escapechar) + Word(printables, exact=1)
-    #wordToken = OneOrMore(escape | wordtext)
-    #wordToken.setParseAction(lambda tokens: ''.join(tokens))
-    wordToken = wordtext
+    
+    wordchars = printables
+    for specialchar in '*?^():."' + escapechar:
+        wordchars = wordchars.replace(specialchar, "")
+    
+    wordtext = Combine(Word(wordchars) + ZeroOrMore("." + Word(wordchars)))
+    escape = Suppress(escapechar) + (Word(printables, exact=1) | White(exact=1))
+    wordtoken = Combine(OneOrMore(wordtext | escape))
     
     # A plain old word.
-    plainWord = Group(wordToken).setResultsName("Word")
+    plainWord = Group(wordtoken).setResultsName("Word")
     
     # A word ending in a star (e.g. 'render*'), indicating that
     # the search should do prefix expansion.
-    prefixWord = Group(Combine(wordToken + Suppress('*'))).setResultsName("Prefix")
+    prefixWord = Group(Combine(wordtoken + Suppress('*'))).setResultsName("Prefix")
     
     # A wildcard word containing * or ?.
     wildcard = Group(Regex(r"\w*(?:[\?\*]\w*)+")).setResultsName("Wildcard")
     
     # A range of terms
-    range = Group(plainWord + Suppress("..") + plainWord).setResultsName("Range")
+    range = Group(plainWord + Suppress(Optional(White()) + ".." + Optional(White())) + plainWord).setResultsName("Range")
     
     # A word-like thing
     generalWord = range | prefixWord | wildcard | plainWord
@@ -106,16 +110,16 @@ def _make_default_parser():
     unit = fieldedUnit | fieldableUnit
 
     # A unit may be "not"-ed.
-    operatorNot = Group(Suppress(Keyword("not", caseless=True)) + unit).setResultsName("Not")
+    operatorNot = Group(Suppress(Keyword("not", caseless=True)) +  Suppress(White()) + unit).setResultsName("Not")
     generalUnit = operatorNot | unit
 
     andToken = Keyword("and", caseless=True)
     orToken = Keyword("or", caseless=True)
     
-    operatorAnd = Group(generalUnit + Suppress(andToken) + expression).setResultsName("And")
-    operatorOr = Group(generalUnit + Suppress(orToken) + expression).setResultsName("Or")
+    operatorAnd = Group(generalUnit +  Suppress(White()) + Suppress(andToken) +  Suppress(White()) + expression).setResultsName("And")
+    operatorOr = Group(generalUnit +  Suppress(White()) + Suppress(orToken) +  Suppress(White()) + expression).setResultsName("Or")
 
-    expression << (OneOrMore(operatorAnd | operatorOr | generalUnit) | Empty())
+    expression << (OneOrMore(operatorAnd | operatorOr | generalUnit | Suppress(White())) | Empty())
     
     toplevel = Group(expression).setResultsName("Toplevel") + StringEnd()
     
@@ -125,10 +129,10 @@ def _make_default_parser():
 def _make_simple_parser():
     ParserElement.setDefaultWhitespaceChars(" \n\t\r'")
     
-    wordToken = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
+    wordtoken = Regex(r"(\w|/)+(\.?(\w|\-|/)+)*", re.UNICODE)
     
     # A word-like thing
-    generalWord = Group(wordToken).setResultsName("Word")
+    generalWord = Group(wordtoken).setResultsName("Word")
     
     # A quoted phrase
     quotedPhrase = Group(Suppress('"') + CharsNotIn('"') + Suppress('"')).setResultsName("Quotes")

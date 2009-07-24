@@ -3,15 +3,17 @@ from os import mkdir
 from os.path import exists
 from shutil import rmtree
 
-from whoosh import fields, index, qparser, store, writing
+from whoosh import fields, index, qparser
+from whoosh.filedb.filestore import FileStorage, RamStorage
+from whoosh.filedb.filewriting import NO_MERGE
 
 
 class TestIndexing(unittest.TestCase):
     def make_index(self, dirname, schema):
         if not exists(dirname):
             mkdir(dirname)
-        st = store.FileStorage(dirname)
-        ix = index.Index(st, schema, create = True)
+        st = FileStorage(dirname)
+        ix = st.create_index(schema)
         return ix
     
     def destroy_index(self, dirname):
@@ -19,41 +21,33 @@ class TestIndexing(unittest.TestCase):
             rmtree(dirname)
     
     def test_creation(self):
-        s = fields.Schema()
-        s.add("content", fields.TEXT(phrase = True))
-        s.add("title", fields.TEXT(stored = True))
-        s.add("path", fields.ID(stored = True))
-        s.add("tags", fields.KEYWORD(stored = True))
-        s.add("quick", fields.NGRAM)
-        s.add("note", fields.STORED)
-        st = store.RamStorage()
+        s = fields.Schema(content=fields.TEXT(phrase = True),
+                          title=fields.TEXT(stored = True),
+                          path=fields.ID(stored = True),
+                          tags=fields.KEYWORD(stored = True),
+                          quick=fields.NGRAM,
+                          note=fields.STORED)
+        st = RamStorage()
         
-        ix = index.Index(st, s, create = True)
-        w = writing.IndexWriter(ix)
-        w.add_document(title = u"First", content = u"This is the first document", path = u"/a",
-                       tags = u"first second third", quick = u"First document", note = u"This is the first document")
-        w.start_document()
-        w.add_field("content", u"Let's try this again")
-        w.add_field("title", u"Second")
-        w.add_field("path", u"/b")
-        w.add_field("tags", u"Uno Dos Tres")
-        w.add_field("quick", u"Second document")
-        w.add_field("note", u"This is the second document")
-        w.end_document()
-        
+        ix = st.create_index(s)
+        w = ix.writer()
+        w.add_document(title=u"First", content=u"This is the first document", path=u"/a",
+                       tags=u"first second third", quick=u"First document", note=u"This is the first document")
+        w.add_document(content=u"Let's try this again", title=u"Second", path=u"/b",
+                       tags=u"Uno Dos Tres", quick=u"Second document", note=u"This is the second document")
         w.commit()
         
     def test_integrity(self):
         s = fields.Schema(name = fields.TEXT, value = fields.TEXT)
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(name = u"Yellow brown", value = u"Blue red green purple?")
         w.add_document(name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
         w.commit()
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(name = u"One two", value = u"Three four five.")
         w.commit()
         
@@ -88,9 +82,9 @@ class TestIndexing(unittest.TestCase):
     def test_lengths_ram(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
                           f2 = fields.KEYWORD(stored = True, scorable = True))
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
-        w = writing.IndexWriter(ix)
+        st = RamStorage()
+        ix = st.create_index(s)
+        w = ix.writer()
         w.add_document(f1 = u"A B C D E", f2 = u"X Y Z")
         w.add_document(f1 = u"B B B B C D D Q", f2 = u"Q R S T")
         w.add_document(f1 = u"D E F", f2 = u"U V A B C D E")
@@ -113,22 +107,22 @@ class TestIndexing(unittest.TestCase):
     def test_merged_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
                           f2 = fields.KEYWORD(stored = True, scorable = True))
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
-        w = writing.IndexWriter(ix)
+        st = RamStorage()
+        ix = st.create_index(s)
+        w = ix.writer()
         w.add_document(f1 = u"A B C", f2 = u"X")
         w.add_document(f1 = u"B C D E", f2 = u"Y Z")
         w.commit()
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(f1 = u"A", f2 = u"B C D E X Y")
         w.add_document(f1 = u"B C", f2 = u"X")
-        w.commit(writing.NO_MERGE)
+        w.commit(NO_MERGE)
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(f1 = u"A B X Y Z", f2 = u"B C")
         w.add_document(f1 = u"Y X", f2 = u"A B")
-        w.commit(writing.NO_MERGE)
+        w.commit(NO_MERGE)
         
         dr = ix.doc_reader()
         self.assertEqual(dr[0]["f1"], u"A B C")
@@ -138,8 +132,8 @@ class TestIndexing(unittest.TestCase):
         
     def test_frequency_keyword(self):
         s = fields.Schema(content = fields.KEYWORD)
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         
         w = ix.writer()
         w.add_document(content = u"A B C D E")
@@ -166,8 +160,8 @@ class TestIndexing(unittest.TestCase):
         
     def test_frequency_text(self):
         s = fields.Schema(content = fields.KEYWORD)
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         
         w = ix.writer()
         w.add_document(content = u"alfa bravo charlie delta echo")
@@ -194,10 +188,10 @@ class TestIndexing(unittest.TestCase):
     
     def test_deletion(self):
         s = fields.Schema(key = fields.ID, name = fields.TEXT, value = fields.TEXT)
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(key = u"A", name = u"Yellow brown", value = u"Blue red green purple?")
         w.add_document(key = u"B", name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
         w.add_document(key = u"C", name = u"One two", value = u"Three four five.")

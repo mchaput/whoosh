@@ -25,11 +25,3 @@ Writer
 .. autoclass:: IndexWriter
     :members: add_document, cancel, commit, update_document
     
-Merge types
------------
-
-.. autofunction:: NO_MERGE
-
-.. autofunction:: MERGE_SMALL
-
-.. autofunction:: OPTIMIZE

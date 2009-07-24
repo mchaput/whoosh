@@ -20,7 +20,7 @@ as a backend for a spell-checking engine.
 
 from collections import defaultdict
 
-from whoosh import analysis, fields, query, searching, writing
+from whoosh import analysis, fields, query, searching
 from whoosh.support.levenshtein import relative, distance
 
 class SpellChecker(object):
@@ -79,8 +79,10 @@ class SpellChecker(object):
         import index
         if create or not self._index:
             create = create or not index.exists(self.storage, indexname = self.indexname)
-            self._index = index.Index(self.storage, create = create,
-                                      schema = self._schema(), indexname = self.indexname)
+            if create:
+                self._index = self.storage.create_index(self._schema(), self.indexname)
+            else:
+                self._index = self.stroage.open_index(self.indexname)
         return self._index
     
     def _schema(self):
@@ -90,7 +92,7 @@ class SpellChecker(object):
         from analysis import SimpleAnalyzer
         
         idtype = ID()
-        freqtype = FieldType(Frequency(SimpleAnalyzer()))
+        freqtype = FieldType(format=Frequency(SimpleAnalyzer()))
         
         fls = [("word", STORED), ("score", STORED)]
         for size in xrange(self.mingram, self.maxgram + 1):
@@ -192,7 +194,7 @@ class SpellChecker(object):
         :param ws: A sequence of ("word", score) tuples.
         """
         
-        writer = writing.IndexWriter(self.index())
+        writer = self.index().writer()
         for text, score in ws:
             if text.isalpha():
                 fields = {"word": text, "score": score}

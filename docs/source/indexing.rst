@@ -20,12 +20,28 @@ To open an existing index in a directory, use ``index.open_dir``::
 
     ix = index.open_dir("indexdir")
 
+These are convenience methods for::
+
+	from whoosh.filedb.filestore import FileStorage
+	storage = FileStorage("indexdir")
+	
+	# Create an index
+	ix = storage.create_index(schema)
+	
+	# Open an existing index
+	storage.open_index()
+
 The schema you created the index with is pickled and stored with the index.
 
 You can keep multiple indexes in the same directory using the indexname keyword argument::
 
-    ix = index.create_in("indexdir", indexname="usages")
+	# Using the convenience functions
+    ix = index.create_in("indexdir", schema=schema, indexname="usages")
     ix = index.open_dir("indexdir", indexname="usages")
+    
+    # Using the Storage object
+    ix = storage.create_index(schema, indexname="usages")
+    ix = storage.open_index(indexname="usages")
 
 Clearing the index
 ------------------

@@ -354,13 +354,24 @@ class Schema(object):
     def to_number(self, id):
         """Given a field name or number, returns the field's number.
         """
-        if isinstance(id, int): return id
-        return self.name_to_number(id)
+        if isinstance(id, int):
+            return id
+        else:
+            return self.name_to_number(id)
+    
+    def to_name(self, id):
+        if isinstance(id, int):
+            return self.number_to_name(id)
+        else:
+            return id
     
     def name_to_number(self, name):
         """Given a field name, returns the field's number.
         """
-        return self._numbers[name]
+        try:
+            return self._numbers[name]
+        except KeyError:
+            raise KeyError("No field named %s in %r" % (name, self._numbers.keys()))
     
     def number_to_name(self, number):
         """Given a field number, returns the field's name.
@@ -383,6 +394,11 @@ class Schema(object):
         store length information.
         """
         return [i for i, field in enumerate(self) if field.scorable]
+
+    def stored_fields(self):
+        """Returns a list of field numbers corresponding to the fields that are stored.
+        """
+        return [i for i, field in enumerate(self) if field.stored]
 
     def stored_field_names(self):
         """Returns the names, in order, of fields that are stored."""
