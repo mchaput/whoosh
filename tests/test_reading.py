@@ -1,19 +1,21 @@
 import unittest
 
-from whoosh import analysis, fields, index, store, writing
+from whoosh import analysis, fields
+from whoosh.filedb.filestore import RamStorage
+from whoosh.filedb.filewriting import NO_MERGE
 
 class TestReading(unittest.TestCase):
     def _create_index(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True),
                           f2 = fields.KEYWORD,
                           f3 = fields.KEYWORD)
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         return ix
     
     def _one_segment_index(self):
         ix = self._create_index()
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(f1 = u"A B C", f2 = u"1 2 3", f3 = u"X Y Z")
         w.add_document(f1 = u"D E F", f2 = u"4 5 6", f3 = u"Q R S")
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
@@ -25,19 +27,19 @@ class TestReading(unittest.TestCase):
     
     def _multi_segment_index(self):
         ix = self._create_index()
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(f1 = u"A B C", f2 = u"1 2 3", f3 = u"X Y Z")
         w.add_document(f1 = u"D E F", f2 = u"4 5 6", f3 = u"Q R S")
         w.commit()
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
         w.add_document(f1 = u"A A A", f2 = u"2 3 5", f3 = u"Y R Z")
-        w.commit(writing.NO_MERGE)
+        w.commit(NO_MERGE)
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(f1 = u"A B", f2 = u"1 2", f3 = u"X Y")
-        w.commit(writing.NO_MERGE)
+        w.commit(NO_MERGE)
         
         return ix
     
@@ -70,7 +72,8 @@ class TestReading(unittest.TestCase):
     def test_term_inspection(self):
         schema = fields.Schema(title=fields.TEXT(stored=True),
                                content=fields.TEXT)
-        ix = index.Index(store.RamStorage(), schema=schema, create=True)
+        st = RamStorage()
+        ix = st.create_index(schema)
         writer = ix.writer()
         writer.add_document(title=u"My document",
                             content=u"AA AA BB BB CC AA AA AA BB BB CC DD EE EE")
@@ -103,8 +106,8 @@ class TestReading(unittest.TestCase):
     def test_vector_postings(self):
         s = fields.Schema(id=fields.ID(stored=True, unique=True),
                           content=fields.TEXT(vector=fields.Positions(analyzer=analysis.StandardAnalyzer())))
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         
         writer = ix.writer()
         writer.add_document(id=u'1', content=u'the quick brown fox jumped over the lazy dogs')

@@ -1,6 +1,7 @@
 import unittest
 
-from whoosh import fields, index, qparser, query, searching, scoring, store, writing
+from whoosh import fields, index, qparser, query, searching, scoring
+from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
 
 class TestReading(unittest.TestCase):
@@ -8,10 +9,10 @@ class TestReading(unittest.TestCase):
         s = fields.Schema(key = fields.ID(stored = True),
                           name = fields.TEXT,
                           value = fields.TEXT)
-        st = store.RamStorage()
-        ix = index.Index(st, s, create = True)
+        st = RamStorage()
+        ix = st.create_index(s)
         
-        w = writing.IndexWriter(ix)
+        w = ix.writer()
         w.add_document(key = u"A", name = u"Yellow brown", value = u"Blue red green render purple?")
         w.add_document(key = u"B", name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
         w.add_document(key = u"C", name = u"One two", value = u"Three rendered four five.")
@@ -34,8 +35,8 @@ class TestReading(unittest.TestCase):
     
     def test_empty_index(self):
         schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT)
-        st = store.RamStorage()
-        self.assertRaises(index.EmptyIndexError, index.Index, st, schema)
+        st = RamStorage()
+        self.assertRaises(index.EmptyIndexError, st.open_index, schema)
     
     def test_docs_method(self):
         ix = self.make_index()
@@ -55,7 +56,7 @@ class TestReading(unittest.TestCase):
                   [u"A", u"D"]),
                  (Term("value", u"zeta"),
                   []),
-                 (Require([Term("value", u"red"), Term("name", u"yellow")]),
+                 (Require(Term("value", u"red"), Term("name", u"yellow")),
                   [u"A"]),
                  (And([Term("value", u"red"), Term("name", u"yellow")]),
                   [u"A"]),
@@ -84,8 +85,8 @@ class TestReading(unittest.TestCase):
 
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
-        st = store.RamStorage()
-        ix = index.Index(st, schema, create = True)
+        st = RamStorage()
+        ix = st.create_index(schema)
         
         w = ix.writer()
         w.add_document(a=u"First", b=u"ccc ddd")
@@ -105,8 +106,8 @@ class TestReading(unittest.TestCase):
     def test_score_retrieval(self):
         schema = fields.Schema(title=fields.TEXT(stored=True),
                                content=fields.TEXT(stored=True))
-        storage = store.RamStorage()
-        ix = index.Index(storage, schema, create=True)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
         writer = ix.writer()
         writer.add_document(title=u"Miss Mary",
                             content=u"Mary had a little white lamb its fleece was white as snow")
@@ -125,8 +126,8 @@ class TestReading(unittest.TestCase):
 
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True), hobbies=fields.TEXT(stored=True))
-        storage = store.RamStorage()
-        idx = index.Index(storage, schema, create=True)
+        storage = RamStorage()
+        idx = storage.create_index(schema)
         writer = idx.writer() 
         writer.add_document(name=u'Frank', hobbies=u'baseball, basketball')
         writer.commit()

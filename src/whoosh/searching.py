@@ -45,7 +45,6 @@ class Searcher(util.ClosableMixin):
         self.term_reader = ix.term_reader()
         self.doc_reader = ix.doc_reader()
         self.schema = ix.schema
-        self._max_weight = ix.max_weight()
         self._doc_count_all = self.doc_reader.doc_count_all()
         
         if callable(weighting):
@@ -80,9 +79,6 @@ class Searcher(util.ClosableMixin):
             
     def doc_count_all(self):
         return self._doc_count_all
-    
-    def max_weight(self):
-        return self._max_weight
     
     def close(self):
         self.term_reader.close()
@@ -126,7 +122,7 @@ class Searcher(util.ClosableMixin):
         """
         
         doc_reader = self.doc_reader
-        return (doc_reader[docnum] for docnum in self.docnument_numbers(**kw))
+        return (doc_reader[docnum] for docnum in self.document_numbers(**kw))
     
     def document_number(self, **kw):
         """Returns the document number of the document matching the

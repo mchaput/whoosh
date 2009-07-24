@@ -16,10 +16,10 @@ Contents
     searching
     analysis
     highlight
-    keyword
+    keywords
     spelling
-    
     api/api
+    tech/index
 
 Indices and tables
 ------------------

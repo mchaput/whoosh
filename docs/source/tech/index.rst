@@ -1,5 +1,5 @@
-Whoosh API
-==========
+Technical notes
+===============
 
 .. toctree::
     :glob:

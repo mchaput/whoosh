@@ -22,167 +22,261 @@ from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 from threading import Lock
 
-from whoosh.util import ClosableMixin, protected
-from whoosh.fields import FieldConfigurationError, UnknownFieldError
+from whoosh.fields import UnknownFieldError
+from whoosh.util import ClosableMixin
 
 # Exceptions
 
 class TermNotFound(Exception):
     pass
 
-# Reader classes
+
+# Base classes
 
 class DocReader(ClosableMixin):
+    """Do not instantiate this object directly. Instead use Index.doc_reader().
     """
-    Do not instantiate this object directly. Instead use Index.doc_reader().
-    
-    Reads document-related information from a segment. The main
-    interface is to either iterate on this object to yield the document
-    stored fields, or use e.g. docreader[10] to get the stored
-    fields for a specific document number.
-    
-    Each DocReader represents two open files. Be sure to close() the
-    reader when you're finished with it.
-    """
-    
-    def __init__(self, storage, segment, schema):
-        self.storage = storage
-        self.segment = segment
-        self.schema = schema
-        self._scorable_fields = schema.scorable_fields()
-        
-        self.doclength_table = storage.open_records(segment.doclen_filename)
-        self.docs_table = storage.open_table(segment.docs_filename)
-        #self.cache = FifoCache()
-        
-        self.vector_table = None
-        self.is_closed = False
-        self._sync_lock = Lock()
-        
-        self._fieldnum_to_pos = dict((fieldnum, i) for i, fieldnum
-                                     in enumerate(schema.scorable_fields()))
-    
-    def _open_vectors(self):
-        if not self.vector_table:
-            self.vector_table = self.storage.open_table(self.segment.vector_filename)
-    
-    @protected
+
     def __getitem__(self, docnum):
-        """Returns the stored fields for the given document.
+        """Returns the stored fields for the given document number.
         """
-        return self.docs_table.get(docnum)
+        raise NotImplementedError
     
-    @protected
     def __iter__(self):
         """Yields the stored fields for all documents.
         """
-        
-        is_deleted = self.segment.is_deleted
-        for docnum in xrange(0, self.segment.max_doc):
-            if not is_deleted(docnum):
-                yield self.docs_table.get(docnum)
+        raise NotImplementedError
     
     def close(self):
         """Closes the open files associated with this reader.
         """
-        
-        self.doclength_table.close()
-        self.docs_table.close()
-        if self.vector_table:
-            self.vector_table.close()
-        self.is_closed = True
+        raise NotImplementedError
     
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this reader.
         """
-        return self.segment.doc_count_all()
+        raise NotImplementedError
     
     def doc_count(self):
         """Returns the total number of UNDELETED documents in this reader.
         """
-        return self.segment.doc_count()
+        raise NotImplementedError
     
     def field_length(self, fieldid):
-        """Returns the total number of terms in the given field.
+        """Returns the total number of terms in the given field. This is used
+        by some scoring algorithms.
         """
-        
-        fieldid = self.schema.to_number(fieldid)
-        return self.segment.field_length(fieldid)
+        raise NotImplementedError
     
-    @protected
     def doc_field_length(self, docnum, fieldid):
         """Returns the number of terms in the given field in the
         given document. This is used by some scoring algorithms.
         """
-        
-        fieldid = self.schema.to_number(fieldid)
-        if fieldid not in self._scorable_fields:
-            raise FieldConfigurationError("Field %r does not store lengths" % fieldid)
-        
-        pos = self._fieldnum_to_pos[fieldid]
-        return self.doclength_table.get(docnum, pos)
+        raise NotImplementedError
     
-    @protected
     def doc_field_lengths(self, docnum):
         """Returns an array corresponding to the lengths of the
         scorable fields in the given document. It's up to the
         caller to correlate the positions of the numbers in the
         array with the scorable fields in the schema.
         """
+        raise NotImplementedError
+    
+    def vector_format(self, fieldid):
+        """Returns the vector format object associated with the given
+        field, or None if the field does not store term vectors.
+        """
+        return self.schema[fieldid].vector
+    
+    def vector_supports(self, fieldid, astype):
+        """Returns True if the vector format for the given field supports
+        the given data interpretation.
         
-        return self.doclength_table.get_record(docnum)
-    
-    def vector_format(self, fieldnum):
+        :param astype: a string containing the name of the format you
+            want to check the vector supports, for example "weights".
         """
-        Returns the vector format object associated with the given
-        field, or None if the field is not vectored.
-        """
-        return self.schema.field_by_number(fieldnum).vector
-    
-    def vector_supports(self, fieldnum, name):
-        """
-        Returns true if the vector format for the given field supports
-        the data interpretation.
-        """
-        format = self.vector_format(fieldnum)
+        format = self.vector_format(fieldid)
         if format is None: return False
-        return format.supports(name)
+        return format.supports(astype)
     
-    @protected
     def vector(self, docnum, fieldid):
-        """Yields a sequence of raw (text, data) tuples representing
-        the term vector for the given document and field.
-        """
-        
-        self._open_vectors()
-        fieldnum = self.schema.to_number(fieldid)
-        readfn = self.vector_format(fieldnum).read_postvalue
-        return self.vector_table.postings((docnum, fieldnum), readfn)
+        raise NotImplementedError
     
-    def vector_as(self, docnum, fieldnum, astype):
+    def vector_as(self, docnum, fieldid, astype):
         """Yields a sequence of interpreted (text, data) tuples
         representing the term vector for the given document and
         field.
         
-        This method uses the vector format object's 'data_to_*'
-        method to interpret the data. For example, if the vector
-        format has a 'data_to_positions()' method, you can use
-        vector_as(x, y, "positions") to get a positions vector.
+        :param astype: a string containing the name of the format you
+            want the term vector's data in, for example "weights".
+        """
+        raise NotImplementedError
+    
+
+class TermReader(ClosableMixin):
+    def __iter__(self):
+        """Yields (fieldnum, token, docfreq, indexfreq) tuples for
+        each term in the reader, in lexical order.
+        """
+        raise NotImplementedError
+    
+    def __contains__(self, term):
+        """Returns True if the given term tuple (fieldid, text) is
+        in this reader.
+        """
+        raise NotImplementedError
+    
+    def close(self):
+        """Closes the open files associated with this reader.
+        """
+        raise NotImplementedError
+    
+    def format(self, fieldid):
+        """Returns the Format object corresponding to the given field name.
+        """
+        if fieldid in self.schema:
+            return self.schema[fieldid].format
+        else:
+            raise UnknownFieldError(fieldid)
+    
+    def doc_frequency(self, fieldid, text):
+        """Returns the document frequency of the given term (that is,
+        how many documents the term appears in).
+        """
+        raise NotImplementedError
+    
+    def frequency(self, fieldid, text):
+        """Returns the total number of instances of the given term
+        in the collection.
+        """
+        raise NotImplementedError
+    
+    def doc_count_all(self):
+        """Returns the total number of documents, DELETED OR UNDELETED,
+        in this reader.
+        """
+        raise NotImplementedError
+    
+    def iter_from(self, fieldnum, text):
+        """Yields (field_num, text, doc_freq, index_freq) tuples
+        for all terms in the reader, starting at the given term.
+        """
+        raise NotImplementedError
+    
+    def expand_prefix(self, fieldid, prefix):
+        """Yields terms in the given field that start with the given prefix.
+        """
+        raise NotImplementedError
+    
+    def all_terms(self):
+        """Yields (fieldname, text) tuples for every term in the index.
         """
         
-        format = self.vector_format(fieldnum)
+        num2name = self.schema.number_to_name
+        current_fieldnum = None
+        current_fieldname = None
         
-        if format is None:
-            raise FieldConfigurationError("Field %r is not vectored" % self.schema.number_to_name(fieldnum))
-        elif not format.supports(astype):
-            raise FieldConfigurationError("Field %r does not support %r" % (self.schema.number_to_name(fieldnum),
-                                                                            astype))
-        
-        interpreter = format.interpreter(astype)
-        for text, data in self.vector(docnum, fieldnum):
-            yield (text, interpreter(data))
+        for fn, t, _, _ in self:
+            # Only call self.schema.number_to_name when the
+            # field number changes.
+            if fn != current_fieldnum:
+                current_fieldnum = fn
+                current_fieldname = num2name(fn)
+            yield (current_fieldname, t)
     
+    def iter_field(self, fieldid, prefix = ''):
+        """Yields (text, doc_freq, index_freq) tuples for all terms
+        in the given field.
+        """
+        
+        fieldid = self.schema.to_number(fieldid)
+        for fn, t, docfreq, freq in self.iter_from(fieldid, prefix):
+            if fn != fieldid:
+                return
+            yield t, docfreq, freq
+    
+    def iter_prefix(self, fieldid, prefix):
+        """Yields (field_num, text, doc_freq, index_freq) tuples
+        for all terms in the given field with a certain prefix.
+        """
+        
+        fieldid = self.schema.to_number(fieldid)
+        for fn, t, docfreq, colfreq in self.iter_from(fieldid, prefix):
+            if fn != fieldid or not t.startswith(prefix):
+                return
+            yield (t, docfreq, colfreq)
+    
+    def most_frequent_terms(self, fieldid, number = 5, prefix = None):
+        """Yields the top 'number' most frequent terms in the given field as
+        a series of (frequency, text) tuples.
+        """
+        
+        if prefix is not None:
+            iterator = self.iter_prefix(fieldid, prefix)
+        else:
+            iterator = self.iter_field(fieldid)
+        
+        return nlargest(number,
+                        ((indexfreq, token)
+                         for token, _, indexfreq
+                         in iterator))
+        
+    def lexicon(self, fieldid):
+        """Yields all terms in the given field."""
+        
+        for t, _, _ in self.iter_field(fieldid):
+            yield t
+    
+    def postings(self, fieldid, text):
+        raise NotImplementedError
+    
+    def postings_as(self, fieldid, text, astype, exclude_docs = None):
+        """Yields interpreted data for each document containing
+        the given term. The current field must have stored positions
+        for this to work.
+        
+        :param astype:
+            how to interpret the posting data, for example
+            "positions". The field must support the interpretation.
+        :param exclude_docs:
+            a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        :param boost: a factor by which to multiply each weight.
+        """
+        raise NotImplementedError
+    
+    def weights(self, fieldid, text, exclude_docs = None):
+        """
+        Yields (docnum, term_weight) tuples for each document containing
+        the given term. The current field must have stored term weights
+        for this to work.
+        
+        :param exclude_docs:
+            a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        """
+        
+        return self.postings_as(fieldid, text, "weight", exclude_docs = exclude_docs)
+    
+    def positions(self, fieldid, text, exclude_docs = None):
+        """Yields (docnum, [positions]) tuples for each document containing
+        the given term. The current field must have stored positions
+        for this to work.
+        
+        :param exclude_docs:
+            a set of document numbers to ignore. This
+            is used by queries to skip documents that have already been
+            eliminated from consideration.
+        :param boost: a factor by which to multiply each weight.
+        """
+        
+        return self.postings_as(fieldid, text, "positions", exclude_docs = exclude_docs)
+
+
+# Multisegment reader classes
 
 class MultiDocReader(DocReader):
     """
@@ -262,272 +356,6 @@ class MultiDocReader(DocReader):
         return self.doc_readers[segmentnum]._doc_info(segmentdoc, key)
     
 
-class TermReader(ClosableMixin):
-    """
-    Do not instantiate this object directly. Instead use Index.term_reader().
-    
-    Reads term information from a segment.
-    
-    Each TermReader represents two open files. Remember to close() the reader when
-    you're done with it.
-    """
-    
-    def __init__(self, storage, segment, schema):
-        """
-        :param storage: The storage object in which the segment resides.
-        :param segment: The segment to read from.
-        :param schema: The index's schema object.
-        """
-        
-        self.segment = segment
-        self.schema = schema
-        
-        self.term_table = storage.open_table(segment.term_filename)
-        self.is_closed = False
-        self._sync_lock = Lock()
-    
-    def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, self.segment)
-    
-    @protected
-    def __iter__(self):
-        """Yields (fieldnum, token, docfreq, indexfreq) tuples for
-        each term in the reader, in lexical order.
-        """
-        
-        tt = self.term_table
-        for (fn, t), termcount in tt:
-            yield (fn, t, tt.posting_count((fn, t)), termcount)
-    
-    @protected
-    def __contains__(self, term):
-        """Returns True if the given term tuple (fieldid, text) is
-        in this reader.
-        """
-        return (self.schema.to_number(term[0]), term[1]) in self.term_table
-    
-    def close(self):
-        """Closes the open files associated with this reader.
-        """
-        self.term_table.close()
-        self.is_closed = True
-    
-    def format(self, fieldname):
-        """Returns the Format object corresponding to the given field name.
-        """
-        if fieldname in self.schema:
-            return self.schema.field_by_name(fieldname).format
-        else:
-            raise UnknownFieldError(fieldname)
-    
-    @protected
-    def _term_info(self, fieldnum, text):
-        try:
-            return self.term_table.get((fieldnum, text))
-        except KeyError:
-            raise TermNotFound("%s:%r" % (fieldnum, text))
-    
-    @protected
-    def doc_frequency(self, fieldid, text):
-        """Returns the document frequency of the given term (that is,
-        how many documents the term appears in).
-        """
-        
-        fieldid = self.schema.to_number(fieldid)
-        if (fieldid, text) not in self.term_table:
-            return 0
-        return self.term_table.posting_count((fieldid, text))
-    
-    @protected
-    def frequency(self, fieldid, text):
-        """Returns the total number of instances of the given term
-        in the collection.
-        """
-        
-        fieldid = self.schema.to_number(fieldid)
-        if (fieldid, text) not in self.term_table:
-            return 0
-        return self.term_table.get((fieldid, text))
-    
-    def doc_count_all(self):
-        """Returns the total number of documents, DELETED OR UNDELETED,
-        in this reader.
-        """
-        return self.segment.doc_count_all()
-    
-    @protected
-    def iter_from(self, fieldnum, text):
-        """Yields (field_num, text, doc_freq, index_freq) tuples
-        for all terms in the reader, starting at the given term.
-        """
-        
-        tt = self.term_table
-        postingcount = tt.posting_count
-        for (fn, t), termcount in tt.iter_from((fieldnum, text)):
-            yield (fn, t, postingcount((fn, t)), termcount)
-    
-    def expand_prefix(self, fieldid, prefix):
-        """Yields terms in the given field that start with the given prefix.
-        """
-        
-        fieldid = self.schema.to_number(fieldid)
-        for fn, t, _, _ in self.iter_from(fieldid, prefix):
-            if fn != fieldid or not t.startswith(prefix):
-                return
-            yield t
-    
-    def all_terms(self):
-        """Yields (fieldname, text) tuples for every term in the index.
-        """
-        
-        num2name = self.schema.number_to_name
-        current_fieldnum = None
-        current_fieldname = None
-        
-        for fn, t, _, _ in self:
-            # Only call self.schema.number_to_name when the
-            # field number changes.
-            if fn != current_fieldnum:
-                current_fieldnum = fn
-                current_fieldname = num2name(fn)
-            yield (current_fieldname, t)
-    
-    def iter_field(self, fieldid, prefix = ''):
-        """Yields (text, doc_freq, index_freq) tuples for all terms
-        in the given field.
-        """
-        
-        fieldid = self.schema.to_number(fieldid)
-        for fn, t, docfreq, freq in self.iter_from(fieldid, prefix):
-            if fn != fieldid:
-                return
-            yield t, docfreq, freq
-    
-    def iter_prefix(self, fieldid, prefix):
-        """Yields (field_num, text, doc_freq, index_freq) tuples
-        for all terms in the given field with a certain prefix.
-        """
-        
-        fieldid = self.schema.to_number(fieldid)
-        for fn, t, docfreq, colfreq in self.iter_from(fieldid, prefix):
-            if fn != fieldid or not t.startswith(prefix):
-                return
-            yield (t, docfreq, colfreq)
-    
-    def most_frequent_terms(self, fieldid, number = 5, prefix = None):
-        """Yields the top 'number' most frequent terms in the given field as
-        a series of (frequency, text) tuples.
-        """
-        
-        if prefix is not None:
-            iterator = self.iter_prefix(fieldid, prefix)
-        else:
-            iterator = self.iter_field(fieldid)
-        
-        return nlargest(number,
-                        ((indexfreq, token)
-                         for token, _, indexfreq
-                         in iterator))
-        
-    def lexicon(self, fieldid):
-        """Yields all terms in the given field."""
-        
-        for t, _, _ in self.iter_field(fieldid):
-            yield t
-    
-    # Posting retrieval methods
-    
-    @protected
-    def postings(self, fieldnum, text, exclude_docs = None):
-        """
-        Yields raw (docnum, data) tuples for each document containing
-        the current term.
-        
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        :param boost: a factor by which to multiply each weight.
-        """
-        
-        is_deleted = self.segment.is_deleted
-        no_exclude = exclude_docs is None
-        
-        # The format object is actually responsible for parsing the
-        # posting data from disk.
-        readfn = self.schema.field_by_number(fieldnum).format.read_postvalue
-        
-        for docnum, data in self.term_table.postings((fieldnum, text), readfn = readfn):
-            if not is_deleted(docnum)\
-               and (no_exclude or docnum not in exclude_docs):
-                yield docnum, data
-    
-    def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
-        """
-        Yields (docnum, term_weight) tuples for each document containing
-        the given term. The current field must have stored term weights
-        for this to work.
-        
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        :param boost: a factor by which to multiply each weight.
-        """
-        
-        
-        is_deleted = self.segment.is_deleted
-        no_exclude = exclude_docs is None
-        
-        # The format object is actually responsible for parsing the
-        # posting data from disk.
-        readfn = self.schema.field_by_number(fieldnum).format.read_weight
-        
-        for docnum, weight in self.term_table.postings((fieldnum, text), readfn = readfn):
-            if not is_deleted(docnum)\
-               and (no_exclude or docnum not in exclude_docs):
-                yield docnum, weight * boost
-    
-    def postings_as(self, fieldnum, text, astype, exclude_docs = None):
-        """Yields interpreted data for each document containing
-        the given term. The current field must have stored positions
-        for this to work.
-        
-        :param astype:
-            how to interpret the posting data, for example
-            "positions". The field must support the interpretation.
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        :param boost: a factor by which to multiply each weight.
-        """
-        
-        format = self.schema.field_by_number(fieldnum).format
-        
-        if not format.supports(astype):
-            raise FieldConfigurationError("Field %r format does not support %r" % (self.schema.name_to_number(fieldnum),
-                                                                                   astype))
-        
-        interp = format.interpreter(astype)
-        for docnum, data in self.postings(fieldnum, text, exclude_docs = exclude_docs):
-            yield (docnum, interp(data))
-    
-    def positions(self, fieldnum, text, exclude_docs = None):
-        """Yields (docnum, [positions]) tuples for each document containing
-        the given term. The current field must have stored positions
-        for this to work.
-        
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        :param boost: a factor by which to multiply each weight.
-        """
-        
-        return self.postings_as(fieldnum, text, "positions", exclude_docs = exclude_docs)
-
-
 class MultiTermReader(TermReader):
     """Do not instantiate this object directly. Instead use Index.term_reader().
     
@@ -556,10 +384,6 @@ class MultiTermReader(TermReader):
         return self._merge_iters([r.iter_from(fieldnum, text) for r in self.term_readers])
     
     def close(self):
-        """
-        Closes the open files associated with this reader.
-        """
-        
         for tr in self.term_readers:
             tr.close()
         self.is_closed = True
@@ -616,30 +440,12 @@ class MultiTermReader(TermReader):
             yield (fnum, text, docfreq, termcount)
     
     def postings(self, fieldnum, text, exclude_docs = None):
-        """Yields raw (docnum, data) tuples for each document containing
-        the current term. This is useful if you simply want to know
-        which documents contain the current term. Use weights() or
-        positions() if you need to term weight or positions in each
-        document.
-        
-        exclude_docs can be a set of document numbers to ignore. This
-        is used by queries to skip documents that have already been
-        eliminated from consideration.
-        """
-        
         for i, r in enumerate(self.term_readers):
             offset = self.doc_offsets[i]
             if (fieldnum, text) in r:
                 for docnum, data in r.postings(fieldnum, text, exclude_docs = exclude_docs):
                     yield (docnum + offset, data)
                     
-    def weights(self, fieldnum, text, exclude_docs = None, boost = 1.0):
-        for i, r in enumerate(self.term_readers):
-            offset = self.doc_offsets[i]
-            if (fieldnum, text) in r:
-                for docnum, weight in r.weights(fieldnum, text,
-                                                exclude_docs = exclude_docs, boost = boost):
-                    yield (docnum + offset, weight)
 
 
 

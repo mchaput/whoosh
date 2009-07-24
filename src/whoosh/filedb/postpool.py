@@ -23,7 +23,7 @@ import os, struct, tempfile
 from marshal import dumps, loads
 from heapq import heapify, heapreplace, heappop
 
-from whoosh import structfile
+import whoosh.filedb.structfile as structfile
 
 _int_size = struct.calcsize("!i")
 
@@ -237,7 +237,7 @@ class PostingPool(object):
             raise Exception("Can't add postings after you iterate over the pool")
         
         if self.size >= self.limit:
-            print "Flushing..."
+            #print "Flushing..."
             self._flush_run()
         
         posting = encode_posting(field_num, text, doc, data)
@@ -260,7 +260,7 @@ class PostingPool(object):
             runfile.seek(0)
             
             self.runs.append((runfile, self.count))
-            print "Flushed run:", self.runs
+            #print "Flushed run:", self.runs
             
             self.postings = []
             self.size = 0

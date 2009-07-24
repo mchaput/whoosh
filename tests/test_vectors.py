@@ -3,15 +3,16 @@ from os import mkdir
 from os.path import exists
 from shutil import rmtree
 
-from whoosh import analysis, fields, index, qparser, store, writing
+from whoosh import analysis, fields, index, qparser
+from whoosh.filedb.filestore import FileStorage
 
 
 class TestVectors(unittest.TestCase):
     def make_index(self, dirname, schema):
         if not exists(dirname):
             mkdir(dirname)
-        st = store.FileStorage(dirname)
-        ix = index.Index(st, schema, create = True)
+        st = FileStorage(dirname)
+        ix = st.create_index(schema)
         return ix
     
     def destroy_index(self, dirname):
