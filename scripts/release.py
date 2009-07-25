@@ -23,7 +23,12 @@ def upload_docs(user, server, base, version, build=True, latest=True):
 def upload_pypi(tag=None):
     system("python setup.py sdist bdist_egg upload")
     if tag:
-        system("svn copy http://svn.whoosh.ca/projects/whoosh/trunk http://svn.whoosh.ca/projects/whoosh/tags/%s" % tag)
+        tag = str(tag)
+        opts = {"base": "http://svn.whoosh.ca/projects/whoosh",
+                "tag": tag,
+                "msg": "Tagging trunk as %s" % tag}
+        
+        system('svn copy %(base)s/trunk %(base)s/tags/%(tag)s -m "%(msg)s"' % opts)
 
 
 if __name__ == '__main__':
@@ -47,6 +52,10 @@ if __name__ == '__main__':
                       action="store_false",
                       default=True)
     
+    parser.add_option("-t", "--tag", dest="tag",
+                      help="Tag the trunk as this",
+                      default=None)
+    
     (options, args) = parser.parse_args()
     
     cp = ConfigParser()
@@ -56,4 +65,4 @@ if __name__ == '__main__':
         upload_docs(cp.get("username"), cp.get("server"), cp.get("docbase"), version,
                     build=options.builddocs)
 
-    upload_pypi(tag=version)
+    upload_pypi(tag=options.tag)
