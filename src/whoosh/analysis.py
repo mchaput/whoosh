@@ -203,27 +203,57 @@ class RegexTokenizer(object):
         
         if not self.gaps:
             # The default: expression matches are used as tokens
-            gen = (match.group(0) for match in self.expression.finditer(value))
+            for pos, match in enumerate(self.expression.finditer(value)):
+                t.text = match.group(0)
+                if keeporiginal:
+                    t.original = t.text
+                t.stopped = False
+                if positions:
+                    t.pos = start_pos + pos
+                if chars:
+                    t.startchar = start_char + match.start()
+                    t.endchar = start_char + match.end()
+                yield t
         else:
-            # When gaps=True, use the expression to split the text.
-            # Note that SRE_Pattern.split() returns a list, so this
-            # is not as memory efficient as finditer() above.
-            # TODO: Do this in a less clean but more memory efficient way.
-            gen = (span for span in self.expression.split(value) if span)
-        
-        for pos, match in enumerate(gen):
-            t.text = match.group(0)
-            if keeporiginal:
-                t.original = t.text
-            t.stopped = False
-            if positions:
-                t.pos = start_pos + pos
-            if chars:
-                t.startchar = start_char + match.start()
-                t.endchar = start_char + match.end()
-            yield t
-
-
+            # When gaps=True, iterate through the matches and
+            # yield the text between them.
+            prevend = 0
+            pos = start_pos
+            for match in self.expression.finditer(value):
+                start = prevend
+                end = match.start()
+                text = value[start:end]
+                if text:
+                    t.text = text
+                    if keeporiginal:
+                        t.original = t.text
+                    t.stopped = False
+                    if positions:
+                        t.pos = pos
+                        pos += 1
+                    if chars:
+                        t.startchar = start_char + start
+                        t.endchar = start_char + end
+                    
+                    yield t
+                
+                prevend = match.end()
+            
+            # If the last "gap" was before the end of the text,
+            # yield the last bit of text as a final token.
+            if prevend < len(value):
+                t.text = value[prevend:]
+                if keeporiginal:
+                    t.original = t.text
+                t.stopped = False
+                if positions:
+                    t.pos = pos
+                if chars:
+                    t.startchar = prevend
+                    t.endchar = len(value)
+                yield t
+            
+            
 class SpaceSeparatedTokenizer(RegexTokenizer):
     """Splits tokens by whitespace.
     
