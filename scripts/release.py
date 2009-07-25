@@ -3,6 +3,9 @@ from ConfigParser import ConfigParser
 from optparse import OptionParser
 from os import system
 
+# Script to build and upload a release of Whoosh to PyPI and build
+# and upload the 
+
 def build_docs():
     system("python setup.py build_sphinx")
 
@@ -17,8 +20,10 @@ def upload_docs(user, server, base, version, build=True, latest=True):
     system('ssh %(user)s@%(srv)s "cd %(base)s;ln -s %(ver)s latest"' % opts)
 
 
-def upload_pypi():
+def upload_pypi(tag=None):
     system("python setup.py sdist bdist_egg upload")
+    if tag:
+        system("svn copy http://svn.whoosh.ca/projects/whoosh/trunk http://svn.whoosh.ca/projects/whoosh/tags/%s" % tag)
 
 
 if __name__ == '__main__':
@@ -51,4 +56,4 @@ if __name__ == '__main__':
         upload_docs(cp.get("username"), cp.get("server"), cp.get("docbase"), version,
                     build=options.builddocs)
 
-    upload_pypi()
+    upload_pypi(tag=version)
