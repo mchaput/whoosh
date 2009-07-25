@@ -129,11 +129,12 @@ class FileStorage(Storage):
     def delete_file(self, name):
         os.remove(self._fpath(name))
         
-    def rename_file(self, frm, to):
-        if os.path.exists(self._fpath(to)):
-            os.remove(self._fpath(to))
+    def rename_file(self, frm, to, safe=False):
+        if not safe:
+            if os.path.exists(self._fpath(to)):
+                os.remove(self._fpath(to))
         os.rename(self._fpath(frm),self._fpath(to))
-        
+    
     def lock(self, name):
         os.mkdir(self._fpath(name))
         return True
