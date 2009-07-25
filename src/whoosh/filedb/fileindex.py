@@ -17,6 +17,7 @@
 
 import cPickle, re
 from bisect import bisect_right
+from datetime import datetime
 from struct import calcsize
 from sys import byteorder as _sys_byteorder
 from threading import Lock
@@ -134,14 +135,19 @@ class FileIndex(SegmentDeletionMixin, Index):
         # Writes the content of this index to the .toc file.
         for field in self.schema:
             field.clean()
-        stream = self.storage.create_file(self._toc_filename())
+        #stream = self.storage.create_file(self._toc_filename())
+        
+        # Use a temporary file for atomic write.
+        tocfilename = self._toc_filename()
+        tempfilename = '%s.%s' % (tocfilename, datetime.now())
+        stream = self.storage.create_file(tempfilename)
         
         stream.write_varint(calcsize("i"))
         stream.write_varint(calcsize("L"))
         stream.write_varint(calcsize("f"))
         stream.write_string(_sys_byteorder)
         
-        stream.write_int(-100)
+        stream.write_int(-12345)
         
         stream.write_int(_INDEX_VERSION)
         for num in __version__[:3]:
@@ -152,6 +158,9 @@ class FileIndex(SegmentDeletionMixin, Index):
         stream.write_int(self.segment_counter)
         stream.write_pickle(self.segments)
         stream.close()
+        
+        # Rename temporary file to the proper filename
+        self.storage.rename_file(tempfilename, self._toc_filename(), safe=True)
     
     def _read(self, schema):
         # Reads the content of this index from the .toc file.
@@ -163,7 +172,7 @@ class FileIndex(SegmentDeletionMixin, Index):
             raise IndexError("Index was created on an architecture with different data sizes")
         
         self.byteorder = stream.read_string()
-        if not stream.read_int() == -100:
+        if not stream.read_int() == -12345:
             raise IndexError("Number misread: index was created with byteorder %s" % self.byteorder)
         
         version = stream.read_int()
