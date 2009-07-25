@@ -162,18 +162,21 @@ class RegexTokenizer(object):
     [u"hi", u"there", u"3.141", u"big", u"time", u"under_score"]
     """
     
-    def __init__(self, expression = r"\w+(\.?\w+)*"):
+    def __init__(self, expression = r"\w+(\.?\w+)*", gaps=False):
         """
         :param expression: A regular expression object or string. Each match
             of the expression equals a token. Group 0 (the entire matched text)
             is used as the text of the token. If you require more complicated
             handling of the expression match, simply write your own tokenizer.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
         """
         
         if isinstance(expression, basestring):
             self.expression = re.compile(expression)
         else:
             self.expression = expression
+        self.gaps = gaps
     
     def __eq__(self, other):
         if self.__class__ is other.__class__:
@@ -198,7 +201,17 @@ class RegexTokenizer(object):
         
         t = Token(positions, chars, removestops = removestops)
         
-        for pos, match in enumerate(self.expression.finditer(value)):
+        if not self.gaps:
+            # The default: expression matches are used as tokens
+            gen = (match.group(0) for match in self.expression.finditer(value))
+        else:
+            # When gaps=True, use the expression to split the text.
+            # Note that SRE_Pattern.split() returns a list, so this
+            # is not as memory efficient as finditer() above.
+            # TODO: Do this in a less clean but more memory efficient way.
+            gen = (span for span in self.expression.split(value) if span)
+        
+        for pos, match in enumerate(gen):
             t.text = match.group(0)
             if keeporiginal:
                 t.original = t.text
@@ -699,11 +712,13 @@ class RegexAnalyzer(Analyzer):
     [u"hi", u"there", u"3.141", u"big", u"time", u"under_score"]
     """
     
-    def __init__(self, expression = r"\w+(\.?\w+)*"):
+    def __init__(self, expression=r"\w+(\.?\w+)*", gaps=False):
         """
         :param expression: The regular expression pattern to use to extract tokens.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
         """
-        self.tokenizer = RegexTokenizer(expression = expression)
+        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
     
     def __eq__(self, other):
         if self.__class__ is other.__class__:
@@ -723,11 +738,13 @@ class SimpleAnalyzer(Analyzer):
     [u"hello", u"there", u"this", u"is", u"a", u"test"]
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*"):
+    def __init__(self, expression=r"\w+(\.?\w+)*", gaps=False):
         """
         :param expression: The regular expression pattern to use to extract tokens.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
         """
-        self.tokenizer = RegexTokenizer(expression = expression)
+        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
     
     def __eq__(self, other):
         if self.__class__ is other.__class__:
@@ -748,14 +765,17 @@ class StemmingAnalyzer(Analyzer):
     [u"test", u"test", u"test"]
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2):
+    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2, gaps=False):
         """
+        :param expression: The regular expression pattern to use to extract tokens.
         :param stoplist: A list of stop words. Set this to None to disable
             the stop word filter.
         :param minsize: Words smaller than this are removed from the stream.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
         """
         
-        self.tokenizer = RegexTokenizer(expression=expression)
+        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
         self.stemfilter = StemFilter()
         self.stopper = None
         if stoplist is not None:
@@ -785,14 +805,17 @@ class StandardAnalyzer(Analyzer):
     [u"testing", u"testing", u"testing"]
     """
     
-    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
+    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
         """
+        :param expression: The regular expression pattern to use to extract tokens.
         :param stoplist: A list of stop words. Set this to None to disable
             the stop word filter.
         :param minsize: Words smaller than this are removed from the stream.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
         """
         
-        self.tokenizer = RegexTokenizer()
+        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
         self.stopper = None
         if stoplist is not None:
             self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
@@ -820,13 +843,17 @@ class FancyAnalyzer(Analyzer):
     [u"should", u"call", u"getInt", u"get", u"int", u"get_real", u"get", u"real"]
     """
     
-    def __init__(self, stoplist = STOP_WORDS, minsize = 2):
+    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
         """
-        :param stoplist: See analysis.StopFilter.
-        :param minsize: See analysis.StopFilter.
+        :param expression: The regular expression pattern to use to extract tokens.
+        :param stoplist: A list of stop words. Set this to None to disable
+            the stop word filter.
+        :param minsize: Words smaller than this are removed from the stream.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
         """
         
-        self.tokenizer = RegexTokenizer()
+        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
         self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
     
     def __eq__(self, other):
