@@ -1,10 +1,11 @@
 #!python
 
 from setuptools import setup, find_packages
+from whoosh import __version__
 
 setup(
 	name = "Whoosh",
-	version = "0.1.24",
+	version = ".".join(str(n) for n in __version__),
 	package_dir = {'': 'src'},
 	packages = ["whoosh", "whoosh.lang", "whoosh.support"],
 	
