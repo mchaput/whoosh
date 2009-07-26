@@ -1,10 +1,11 @@
+============
 query module
-==============
+============
 
 .. automodule:: whoosh.query
 
 Base classes
-------------
+============
 
 The following abstract base classes are subclassed to create the the "real" query operations.
 
@@ -19,8 +20,9 @@ The following abstract base classes are subclassed to create the the "real" quer
 
 .. autoclass:: ExpandingTerm
 
+
 Query classes
--------------
+=============
 
 .. autoclass:: Term
 
@@ -40,8 +42,9 @@ Query classes
 
 .. autoclass:: TermRange
 
+
 Binary operations
------------------
+=================
 
 These binary operators are not created by the query parser in :mod:`whoosh.qparser`. They are included only for completeness and experimentation. Unless you specifically need these operations, you should use the normal query classes instead.
 
@@ -51,7 +54,8 @@ These binary operators are not created by the query parser in :mod:`whoosh.qpars
 
 .. autoclass:: AndNot
 
+
 Exceptions
-----------
+==========
 
 .. autoclass:: QueryError

@@ -1,10 +1,11 @@
+==============
 writing module
 ==============
 
 .. automodule:: whoosh.writing
 
 Globals
--------
+=======
 
 .. data:: DOCLENGTH_TYPE
 
@@ -19,8 +20,9 @@ Globals
     For "H" this is ``2 ** 16 - 1``. Remember to set this if you change
     DOCLENGTH_TYPE.
 
+
 Writer
-------
+======
 
 .. autoclass:: IndexWriter
     :members: add_document, cancel, commit, update_document

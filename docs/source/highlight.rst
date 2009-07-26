@@ -1,8 +1,9 @@
+================================================
 How to create highlighted search result excerpts
 ================================================
 
 Overview
---------
+========
 
 The highlight module requires that you have the text of the indexed 
 document available. You can keep the text in a stored field, or if the 
@@ -29,8 +30,9 @@ The highlight module works on a pipeline:
     Whoosh over retokenizing the text. This probably needs further 
     investigation.
 
+
 Usage
------
+=====
 
 The high-level interface is the highlight function::
 
@@ -77,6 +79,9 @@ order
      fragments first) as examples of scoring functions, but they
      probably aren't as generally useful.)
 
+
+How it works
+============
 
 Fragmenters
 -----------

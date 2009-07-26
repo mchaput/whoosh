@@ -1,3 +1,4 @@
+================
 highlight module
 ================
 
@@ -6,7 +7,7 @@ highlight module
 See :doc:`how to highlight terms in search results </highlight>`.
 
 Fragmenters
------------
+===========
 
 .. autofunction:: NullFragmenter
 
@@ -17,19 +18,19 @@ Fragmenters
 .. autoclass:: ContextFragmenter
 
 Scorers
--------
+=======
 
 .. autofunction:: BasicFragmentScorer
 
 Formatters
-----------
+==========
 
 .. autoclass:: UppercaseFormatter
     
 .. autoclass:: GenshiFormatter
 
 Utility classes
----------------
+===============
 
 .. autoclass:: Fragment
     :members:
