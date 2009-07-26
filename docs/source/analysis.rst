@@ -1,5 +1,9 @@
+===============
 About analyzers
 ===============
+
+Overview
+========
 
 An analyzer is a class with a ``__call__`` method that takes a unicode string and returns a generator of tokens. Usually a "token" is a word, for example the string "Mary had a little lamb" might yield the tokens "Mary", "had", "a", "little", and "lamb". However, tokens do not necessarily correspond to words. For example, you might tokenize Chinese text into individual characters or bi-grams. Tokens are the units of indexing, that is, they are what you are able to look up in the index.
 
@@ -46,6 +50,7 @@ You can wrap the filter around a tokenizer to see it in operation::
 An analyzer is just a means of combining a tokenizer and some filters into a single package.
 
 See the :mod:`whoosh.analysis` module for information on the available analyzers, tokenizers, and filters shipped with Whoosh.
+
 
 Advanced Analysis
 =================

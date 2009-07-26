@@ -1,8 +1,9 @@
+=======================================
 Query expansion and Key word extraction
 =======================================
 
 Overview
---------
+========
 
 Whoosh provides methods for computing the "key terms" of a set of documents. For these methods, "key terms" basically means terms that are frequent in the given documents, but relatively infrequent in the indexed collection as a whole.
 
@@ -16,8 +17,9 @@ These methods can be useful for providing the following features to users:
 
 * "More like this". You can extract key terms for the top ten or so results from a query (and removing the original query terms), and use those key words as the basis for another query that may find more documents using terms the user didn't think of.
 
+
 Usage
------
+=====
 
 * Extract keywords for an arbitrary set of documents.
 
@@ -41,7 +43,7 @@ Usage
         
 
 Expansion models
-----------------
+================
 
 The ``ExpansionModel`` subclasses in the :mod:`whoosh.classify` module implement different weighting functions for key words. These models are translated into Python from original Java implementations in Terrier.
     

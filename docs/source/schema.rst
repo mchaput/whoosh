@@ -1,8 +1,9 @@
+==================
 Designing a schema
 ==================
 
 About schemas and fields
-------------------------
+========================
 
 The schema specifies the fields of documents in an index.
 
@@ -16,7 +17,7 @@ For example, a simple schema for indexing emails might have fields like ``from_a
 
 
 Built-in field types
---------------------
+====================
 
 Whoosh provides some useful predefined field types:
 
@@ -55,7 +56,7 @@ Expert users can create their own field types.
 
 
 Creating a Schema
------------------
+=================
 
 To create a schema::
 

@@ -1,10 +1,11 @@
+===========
 Quick start
 ===========
 
 Whoosh is a library of classes and functions for indexing text and then searching the index. It allows you to develop custom search engines for your content. For example, if you were creating blogging software, you could use Whoosh to add a search function to allow users to search blog entries.
 
 Background concepts
--------------------
+===================
 
 To understand Whoosh, there are a few important terms and concepts:
 
@@ -30,7 +31,7 @@ All indexed text is Unicode
     Anything to do with indexed text in Whoosh must be unicode.
 
 Setting up
-----------
+==========
 
 To start using Whoosh, you must create an index.
 
@@ -98,8 +99,9 @@ Since you'll usually be using the FileStorage class for the index storage, there
 
     ix = index.open_dir("index_dir1")
 
+
 Indexing documents
-------------------
+==================
 
 OK, so we've got an Index object, now we can start adding documents. The writer() method of the Index object returns an ``IndexWriter`` object that lets you add documents to the index. The IndexWriter's ``add_document(**kwargs)`` method accepts keyword arguments where the field name is mapped to a value::
 
@@ -124,8 +126,9 @@ If you have a field that is both indexed and stored, you can even index a unicod
 
 Calling commit() on the ``IndexWriter`` saves the added documents to the index. Once your documents are in the index, you can search for them.
 
+
 Searching
----------
+=========
 
 First, we'll show how to load an existing index from disk. In this case, we have an index in a directory called index. We can create a Storage object manually, and use it to create an Index object. The Schema object is pickled and saved with the index; we don't need to recreate it to load the index::
 
@@ -184,7 +187,4 @@ The Results object acts more or less like a list of dictionaries, where each dic
 
 Whoosh includes extra features for dealing with search results, such as highlighting the search terms in excerpts from the original documents, expanding the query terms based on the top few documents found, and paginating the results (e.g. "Showing results 1-20, page 1 of 4"), but these are beyond the scope of this quick start.
 
-Deleting and updating documents
--------------------------------
 
-See :doc:`how to index <indexing>`.

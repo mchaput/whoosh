@@ -1,8 +1,9 @@
+======================
 How to index documents
 ======================
 
 Creating an Index object
-------------------------
+========================
 
 To create an index in a directory, use ``index.create_in``::
 
@@ -43,8 +44,9 @@ You can keep multiple indexes in the same directory using the indexname keyword 
     ix = storage.create_index(schema, indexname="usages")
     ix = storage.open_index(indexname="usages")
 
+
 Clearing the index
-------------------
+==================
 
 Calling ``index.create_in`` on a directory with an existing index will clear the current contents of the index.
 
@@ -55,8 +57,9 @@ To test whether a directory currently contains a valid index, use ``index.exists
 
 (Alternatively you can simply delete the index's files from the directory, e.g. if you only have one index in the directory, use ``shutil.rmtree`` to remove the directory and then recreate it.)
 
+
 Indexing documents
-------------------
+==================
 
 Once you've created an Index object, you can add documents to the index with an ``IndexWriter`` object. The easiest way to get the ``IndexWriter`` is to call ``Index.writer()``::
 
@@ -87,13 +90,15 @@ Whoosh will happily allow you to add documents with identical values, which can 
 
 This adds two documents to the index with identical path and title fields. See "updating documents" below for information on the update_document method, which uses "unique" fields to replace old documents instead of appending.
 
+
 Indexing and storing different values for the same field
 --------------------------------------------------------
 
 If you have a field that is both indexed and stored, you can index a unicode value but store a different object if necessary (it's usually not, but sometimes this is really useful) using a "special" keyword argument _stored_<fieldname>. The normal value will be analyzed and indexed, but the "stored" value will show up in the results::
 
     writer.add_document(title=u"Title to be indexed", _stored_title=u"Stored title")
-    
+
+
 Finishing adding documents
 --------------------------
 
@@ -111,8 +116,9 @@ If you want to close the writer without committing the changes, call ``cancel()`
 
 Keep in mind that while you have a writer open (including a writer you opened and is still in scope), no other thread or process can get a writer or modify the index. A writer also keeps several open files. So you should always remember to call either commit() or cancel() when you're done with a writer object.
 
+
 Merging segments
-----------------
+================
 
 A Whoosh index is really a container for one or more "sub-indexes" called segments. When you add documents to an index, instead of integrating the new documents with the existing documents (which could potentially be very expensive, since it involves resorting all the indexed terms on disk), Whoosh creates a new segment next to the existing segment. Then when you search the index, Whoosh searches both segments individually and merges the results so the segments appear to be one unified index. (This smart design is copied from Lucene.)
 
@@ -139,8 +145,9 @@ The Index object also has an ``optimize()`` method that lets you optimize the in
 
 (NO_MERGE, MERGE_SMALL, and OPTIMIZE are actually callables that implement the different "policies". It is possible for an expert user to implement a different algorithm for merging segments.)
 
+
 Deleting documents
-------------------
+==================
 
 You can delete documents using identical methods on either the Index object or the IndexWriter object. In both cases, you need to call ``commit()`` on the object to write the deletions to disk.
 
@@ -167,8 +174,9 @@ You can delete documents using identical methods on either the Index object or t
 
 Note that "deleting" a document simply adds the document number to a list of deleted documents stored with the index. When you search the index, it knows not to return deleted documents in the results. However, the document's contents are still stored in the index, and certain statistics (such as term document frequencies) are not updated, until you merge the segments containing deleted documents (see merging above). (This is because removing the information immediately from the index would essentially involving rewriting the entire index on disk, which would be very inefficient.)
 
+
 Updating documents
-------------------
+==================
 
 If you want to "replace" (re-index) a document, you can delete the old document using one of the ``delete_*`` methods on ``Index`` or ``IndexWriter``, then use ``IndexWriter.add_document`` to add the new version. Or, you can use ``IndexWriter.update_document`` to do this in one step.
 
@@ -196,8 +204,9 @@ If no existing document matches the unique fields of the document you're updatin
 
 "Unique" fields and update_document are simply convenient shortcuts for deleting and adding. Whoosh has no inherent concept of a unique identifier, and in no way enforces uniqueness when you use add_document.
 
+
 Incremental indexing
---------------------
+====================
 
 When you're indexing a collection of documents, you'll often want two code paths: one to index all the documents from scratch, and one to only update the documents that have changed (leaving aside web applications where you need to add/update documents according to user actions).
 

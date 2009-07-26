@@ -1,8 +1,9 @@
+==============================
 How to implement a new backend
 ==============================
 
 Storage
--------
+=======
 
 * Subclass :class:`whoosh.store.Storage`.
 
@@ -22,7 +23,7 @@ Storage
   
 
 Index
------
+=====
 
 * Subclass :class:`whoosh.index.Index`.
 
@@ -78,7 +79,7 @@ Index
 
 
 IndexWriter
------------
+===========
 
 * Subclass :class:`whoosh.writing.IndexWriter`.
 
@@ -102,7 +103,7 @@ IndexWriter
 
 
 DocReader
----------
+=========
 
 * Subclass :class:`whoosh.reading.DocReader`.
 
@@ -133,7 +134,7 @@ DocReader
 
 
 TermReader
-----------
+==========
 
 * Subclass :class:`whoosh.reading.TermReader`.
 

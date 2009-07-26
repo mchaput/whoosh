@@ -1,10 +1,11 @@
+==============
 scoring module
 ==============
 
 .. automodule:: whoosh.scoring
 
 Scoring algorithm classes
--------------------------
+=========================
 
 .. autoclass:: Weighting
     :members:
@@ -25,8 +26,9 @@ Scoring algorithm classes
 
 .. autoclass:: Frequency
 
+
 Sorting classes
----------------
+===============
 
 .. autoclass:: Sorter
 

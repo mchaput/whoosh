@@ -1,10 +1,11 @@
+===============
 analysis module
 ===============
 
 .. automodule:: whoosh.analysis
 
 Analyzers
----------
+=========
 
 .. autoclass:: Analyzer
 .. autoclass:: IDAnalyzer
@@ -16,8 +17,9 @@ Analyzers
 .. autoclass:: FancyAnalyzer
 .. autoclass:: NgramAnalyzer
 
+
 Tokenizers
-----------
+==========
 
 .. autofunction:: IDTokenizer
 .. autoclass:: RegexTokenizer
@@ -25,8 +27,9 @@ Tokenizers
 .. autoclass:: CommaSeparatedTokenizer
 .. autoclass:: NgramTokenizer
 
+
 Filters
--------
+=======
 
 .. autofunction:: PassFilter
 .. autofunction:: LowercaseFilter
@@ -36,8 +39,9 @@ Filters
 .. autofunction:: CamelFilter
 .. autoclass:: NgramFilter
 
+
 Token classes and functions
------------------------------
+===========================
 
 .. autoclass:: Token
 .. autofunction:: unstopped

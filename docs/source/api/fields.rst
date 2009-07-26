@@ -1,22 +1,25 @@
+=============
 fields module
 =============
 
 .. automodule:: whoosh.fields
 
 Schema class
-------------
+============
 
 .. autoclass:: Schema
     :members:
 
+
 FieldType base class
----------------------
+====================
 
 .. autoclass:: FieldType
     :members:
-    
+
+
 Pre-made field types
---------------------
+====================
 
 .. autoclass:: ID
 .. autoclass:: IDLIST
@@ -25,8 +28,9 @@ Pre-made field types
 .. autoclass:: TEXT
 .. autoclass:: NGRAM
 
+
 Formats
--------
+=======
 
 .. autoclass:: Format
     :members:
@@ -40,8 +44,9 @@ Formats
 .. autoclass:: PositionBoosts
 .. autoclass:: CharacterBoosts
 
+
 Exceptions
-----------
+==========
 
 .. autoclass:: FieldConfigurationError
 .. autoclass:: UnknownFieldError
