@@ -239,11 +239,19 @@ class Sorter(object):
     method.
     
     Concrete subclasses must implement the order() method, which
-    takes a sequence of doc numbers and returns it sorted.
+    takes a sequence of doc numbers and returns a sorted sequence.
     """
     
     def order(self, searcher, docnums, reverse = False):
         """Returns a sorted list of document numbers.
+        
+        Takes an unsorted sequence of docnums and returns a sorted list of
+        docnums, based on whatever sorting criteria this class implements.
+        
+        :param searcher: The searcher which produced the results.
+        :param docnums: The unsorted list of document numbers.
+        :param reverse: Whether the "natural" sort order should be reversed.
+        :returns: A sorted list of document numbers.
         """
         raise NotImplementedError
 
@@ -313,9 +321,6 @@ class FieldSorter(Sorter):
         self._cache = self._searcher = None
     
     def order(self, searcher, docnums, reverse = False):
-        """Takes a sequence of docnums (as produced by query.docs()) and
-        returns a list of docnums sorted by the field values.
-        """
         
         self._make_cache(searcher)
         return sorted(docnums,

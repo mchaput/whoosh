@@ -247,10 +247,8 @@ class QueryParser(PyparsingBasedParser):
     query language similar to Lucene's.
     """
     
-    def __init__(self, default_field,
-                 conjunction = query.And,
-                 termclass = query.Term,
-                 schema = None):
+    def __init__(self, default_field, schema = None,
+                 conjunction = query.And, termclass = query.Term):
         """
         :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
