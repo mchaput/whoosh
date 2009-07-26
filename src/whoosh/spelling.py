@@ -82,7 +82,7 @@ class SpellChecker(object):
             if create:
                 self._index = self.storage.create_index(self._schema(), self.indexname)
             else:
-                self._index = self.stroage.open_index(self.indexname)
+                self._index = self.storage.open_index(self.indexname)
         return self._index
     
     def _schema(self):
