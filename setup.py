@@ -1,6 +1,9 @@
 #!python
 
+import os.path, sys
 from setuptools import setup, find_packages
+
+sys.path.insert(0, os.path.abspath("src"))
 from whoosh import __version__
 
 setup(
