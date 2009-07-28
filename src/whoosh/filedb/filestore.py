@@ -130,8 +130,10 @@ class FileStorage(Storage):
         os.remove(self._fpath(name))
         
     def rename_file(self, frm, to, safe=False):
-        if not safe:
-            if os.path.exists(self._fpath(to)):
+        if os.path.exists(self._fpath(to)):
+            if safe:
+                raise NameError("File %r exists" % to)
+            else:
                 os.remove(self._fpath(to))
         os.rename(self._fpath(frm),self._fpath(to))
     
@@ -181,9 +183,12 @@ class RamStorage(FileStorage):
             raise NameError
         del self.files[name]
 
-    def rename_file(self, name, newname):
+    def rename_file(self, name, newname, safe=False):
         if name not in self.files:
-            raise NameError
+            raise NameError("File %r does not exist" % name)
+        if safe and newname in self.files:
+            raise NameError("File %r exists" % newname)
+        
         content = self.files[name]
         del self.files[name]
         self.files[newname] = content
