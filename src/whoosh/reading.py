@@ -22,7 +22,7 @@ from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 from threading import Lock
 
-from whoosh.fields import UnknownFieldError
+from whoosh.fields import FieldConfigurationError, UnknownFieldError
 from whoosh.util import ClosableMixin
 
 # Exceptions
@@ -245,7 +245,15 @@ class TermReader(ClosableMixin):
             eliminated from consideration.
         :param boost: a factor by which to multiply each weight.
         """
-        raise NotImplementedError
+        
+        format = self.schema[fieldid].format
+        if not format.supports(astype):
+            raise FieldConfigurationError("Field %s format does not support %r" % (self.schema.to_name(fieldid),
+                                                                                   astype))
+        
+        interp = format.interpreter(astype)
+        for docnum, data in self.postings(fieldid, text, exclude_docs = exclude_docs):
+            yield (docnum, interp(data))
     
     def weights(self, fieldid, text, exclude_docs = None):
         """
