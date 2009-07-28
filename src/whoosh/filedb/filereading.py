@@ -234,15 +234,6 @@ class FileTermReader(TermReader):
                and (no_exclude or docnum not in exclude_docs):
                 yield docnum, data
     
-    def postings_as(self, fieldid, text, astype, exclude_docs = None):
-        format = self.schema[fieldid].format
-        if not format.supports(astype):
-            raise FieldConfigurationError("Field %s format does not support %r" % (self.schema.to_name(fieldid),
-                                                                                   astype))
-        
-        interp = format.interpreter(astype)
-        for docnum, data in self.postings(fieldid, text, exclude_docs = exclude_docs):
-            yield (docnum, interp(data))
     
 
 

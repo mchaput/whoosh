@@ -318,10 +318,6 @@ class FileIndex(SegmentDeletionMixin, Index):
             doc_offsets = segments.doc_offsets()
             return MultiDocReader(doc_readers, doc_offsets, schema)
     
-    def searcher(self, **kwargs):
-        from whoosh.searching import Searcher
-        return Searcher(self, **kwargs)
-    
     def writer(self, **kwargs):
         from whoosh.filedb.filewriting import FileIndexWriter
         return FileIndexWriter(self, **kwargs)
