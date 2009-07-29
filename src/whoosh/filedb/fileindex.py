@@ -17,7 +17,7 @@
 
 import cPickle, re
 from bisect import bisect_right
-from datetime import datetime
+from time import time
 from struct import calcsize
 from sys import byteorder as _sys_byteorder
 from threading import Lock
@@ -139,7 +139,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         
         # Use a temporary file for atomic write.
         tocfilename = self._toc_filename()
-        tempfilename = '%s.%s' % (tocfilename, datetime.now())
+        tempfilename = '%s.%s' % (tocfilename, time())
         stream = self.storage.create_file(tempfilename)
         
         stream.write_varint(calcsize("i"))
