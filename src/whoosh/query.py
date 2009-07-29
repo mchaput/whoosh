@@ -735,10 +735,10 @@ class TermRange(MultiTerm):
     def _words(self, searcher):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         end = self.end
-        
-        for fnum, t, _, _ in searcher.iter_from(fieldnum, self.start):
-            while fnum == fieldnum and t <= end:
-                yield t
+        for fn, t, _, _ in searcher.iter_from(fieldnum, self.start):
+            if fn != fieldnum or t > end:
+                break
+            yield t
     
     def all_terms(self, searcher, termset):
         pass
