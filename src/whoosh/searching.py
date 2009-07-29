@@ -72,11 +72,11 @@ class Searcher(util.ClosableMixin):
                      "vector", "vector_as", "vector_format", "vector_supports"):
             setattr(self, name, getattr(self.doc_reader, name))
             
-        for name in ("iter_field", "expand_prefix",
+        for name in ("iter_field", "iter_from", "iter_prefix", "expand_prefix",
                      "all_terms", "lexicon", "most_frequent_terms",
                      "doc_frequency", "frequency", "postings", "weights", "positions"):
             setattr(self, name, getattr(self.term_reader, name))
-            
+    
     def doc_count_all(self):
         return self._doc_count_all
     

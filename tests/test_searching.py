@@ -145,6 +145,20 @@ class TestReading(unittest.TestCase):
         searcher = idx.searcher()
         result = searcher.search(parser.parse(u'baseball'))
         self.assertEqual(len(result), 1)
+        
+    def test_prefix(self):
+        ix = self.make_index()
+        s = ix.searcher()
+        results = s.search(Prefix('value', u'r'))
+        keys = sorted(d["key"] for d in results)
+        self.assertEqual(keys, [u"A", u"C", u"D", u"E"])
+        
+    def test_range(self):
+        ix = self.make_index()
+        s = ix.searcher()
+        results = s.search(TermRange('key', u'B', u'D'))
+        keys = sorted(d["key"] for d in results)
+        self.assertEqual(keys, [u"B", u"C", u"D"])
 
 
 if __name__ == '__main__':

@@ -29,7 +29,7 @@ class TestQueryParser(unittest.TestCase):
     def test_wildcard(self):
         qp = qparser.QueryParser("content")
         q = qp.parse("hello *the?e* ?star*s? test")
-        self.assertEqual(len(q), 4)
+        self.assertEqual(len(q.subqueries), 4)
         self.assertNotEqual(q[0].__class__.__name__, "Wildcard")
         self.assertEqual(q[1].__class__.__name__, "Wildcard")
         self.assertEqual(q[2].__class__.__name__, "Wildcard")
