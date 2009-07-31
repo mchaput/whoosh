@@ -56,7 +56,7 @@ class Searcher(util.ClosableMixin):
         self._copy_methods()
     
     def __del__(self):
-        if not self.is_closed:
+        if hasattr(self, "is_closed") and not self.is_closed:
             self.close()
     
     def __iter__(self):
