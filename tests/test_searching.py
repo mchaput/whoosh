@@ -159,6 +159,13 @@ class TestReading(unittest.TestCase):
         results = s.search(TermRange('key', u'B', u'D'))
         keys = sorted(d["key"] for d in results)
         self.assertEqual(keys, [u"B", u"C", u"D"])
+        
+    def test_short_prefix(self):
+        s = fields.Schema(name=fields.ID, value=fields.TEXT)
+        qp = qparser.QueryParser("value", schema=s)
+        q = qp.parse("s*")
+        self.assertEqual(q.__class__.__name__, "Prefix")
+        self.assertEqual(q.text, "s")
 
 
 if __name__ == '__main__':
