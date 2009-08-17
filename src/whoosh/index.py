@@ -61,7 +61,7 @@ class IndexLockedError(IndexError):
 
 # Convenience functions
 
-def create_in(dirname, schema, indexname=None, byteorder=None):
+def create_in(dirname, schema, indexname=None):
     """Convenience function to create an index in a directory. Takes care of creating
     a FileStorage object for you. indexname is t
     
@@ -69,8 +69,6 @@ def create_in(dirname, schema, indexname=None, byteorder=None):
     :param schema: a :class:`whoosh.fields.Schema` object describing the index's fields.
     :param indexname: the name of the index to create; you only need to specify this if
         you are creating multiple indexes within the same storage object.
-    :param byteorder: the byte order to use when writing numeric values to disk: 'big',
-        'little', or None. If None (the default), Whoosh uses the native platform order.
     :returns: :class:`Index`
     """
     
@@ -78,10 +76,10 @@ def create_in(dirname, schema, indexname=None, byteorder=None):
         indexname = _DEF_INDEX_NAME
     
     from whoosh.filedb.filestore import FileStorage
-    storage = FileStorage(dirname, byteorder=byteorder)
+    storage = FileStorage(dirname)
     return storage.create_index(schema, indexname)
 
-def open_dir(dirname, indexname = None, byteorder=None, mapped=True):
+def open_dir(dirname, indexname = None, mapped=True):
     """Convenience function for opening an index in a directory. Takes care of creating
     a FileStorage object for you. dirname is the filename of the directory in
     containing the index. indexname is the name of the index to create; you only need to
@@ -90,8 +88,6 @@ def open_dir(dirname, indexname = None, byteorder=None, mapped=True):
     :param dirname: the path string of the directory in which to create the index.
     :param indexname: the name of the index to create; you only need to specify this if
         you have multiple indexes within the same storage object.
-    :param byteorder: the byte order to use when reading numeric values off disk: 'big',
-        'little', or None. If None (the default), Whoosh uses the native platform order.
     :param mapped: whether to use memory mapping to speed up disk reading.
     :returns: :class:`Index`
     """
@@ -100,7 +96,7 @@ def open_dir(dirname, indexname = None, byteorder=None, mapped=True):
         indexname = _DEF_INDEX_NAME
     
     from whoosh.filedb.filestore import FileStorage
-    storage = FileStorage(dirname, byteorder=byteorder, mapped=mapped)
+    storage = FileStorage(dirname, mapped=mapped)
     return storage.open_index(indexname)
 
 def exists_in(dirname, indexname = None):

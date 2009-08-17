@@ -196,16 +196,15 @@ class SpellChecker(object):
         
         writer = self.index().writer()
         for text, score in ws:
-            if text.isalpha():
-                fields = {"word": text, "score": score}
-                for size in xrange(self.mingram, self.maxgram + 1):
-                    nga = analysis.NgramAnalyzer(size)
-                    gramlist = [t.text for t in nga(text)]
-                    if len(gramlist) > 0:
-                        fields["start%s" % size] = gramlist[0]
-                        fields["end%s" % size] = gramlist[-1]
-                        fields["gram%s" % size] = " ".join(gramlist)
-                writer.add_document(**fields)
+            fields = {"word": text, "score": score}
+            for size in xrange(self.mingram, self.maxgram + 1):
+                nga = analysis.NgramAnalyzer(size)
+                gramlist = [t.text for t in nga(text)]
+                if len(gramlist) > 0:
+                    fields["start%s" % size] = gramlist[0]
+                    fields["end%s" % size] = gramlist[-1]
+                    fields["gram%s" % size] = " ".join(gramlist)
+            writer.add_document(**fields)
         writer.commit()
     
 if __name__ == '__main__':
