@@ -173,7 +173,7 @@ class PyparsingBasedParser(object):
     def _analyze(self, fieldname, text):
         analyzer = self._analyzer(fieldname)
         if analyzer:
-            texts = [t.text for t in analyzer(text)]
+            texts = [t.text for t in analyzer(text, removestops = False)]
             return texts[0]
         else:
             return text
