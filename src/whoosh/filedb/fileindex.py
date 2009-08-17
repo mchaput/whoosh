@@ -19,7 +19,6 @@ import cPickle, re
 from bisect import bisect_right
 from time import time
 from struct import calcsize
-from sys import byteorder as _sys_byteorder
 from threading import Lock
 
 from whoosh import __version__
@@ -27,6 +26,7 @@ from whoosh.fields import Schema
 from whoosh.index import Index
 from whoosh.index import EmptyIndexError, OutOfDateError, IndexLockedError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
+from whoosh.system import _INT_SIZE, _ULONG_SIZE, _FLOAT_SIZE
 
 
 _INDEX_VERSION = -103
@@ -142,10 +142,9 @@ class FileIndex(SegmentDeletionMixin, Index):
         tempfilename = '%s.%s' % (tocfilename, time())
         stream = self.storage.create_file(tempfilename)
         
-        stream.write_varint(calcsize("i"))
-        stream.write_varint(calcsize("L"))
-        stream.write_varint(calcsize("f"))
-        stream.write_string(_sys_byteorder)
+        stream.write_varint(_INT_SIZE)
+        stream.write_varint(_ULONG_SIZE)
+        stream.write_varint(_FLOAT_SIZE)
         
         stream.write_int(-12345)
         
@@ -171,7 +170,6 @@ class FileIndex(SegmentDeletionMixin, Index):
            stream.read_varint() != calcsize("f"):
             raise IndexError("Index was created on an architecture with different data sizes")
         
-        self.byteorder = stream.read_string()
         if not stream.read_int() == -12345:
             raise IndexError("Number misread: index was created with byteorder %s" % self.byteorder)
         

@@ -20,10 +20,60 @@ Miscellaneous utility functions and classes.
 
 from functools import wraps
 from heapq import heappush, heapreplace
+from struct import pack, unpack
 
 from whoosh.support.bitvector import BitVector
 
 # Functions
+
+# Functions
+
+# Varint cache
+
+# Build a cache of the varint byte sequences for the first
+# N integers, so we don't have to constantly recalculate them
+# on the fly. This makes a small but noticeable difference.
+
+def _varint(i):
+    s = ""
+    while (i & ~0x7F) != 0:
+        s += chr((i & 0x7F) | 0x80)
+        i = i >> 7
+    s += chr(i)
+    return s
+
+_varint_cache_size = 512
+_varint_cache = []
+for i in xrange(0, _varint_cache_size):
+    _varint_cache.append(_varint(i))
+_varint_cache = tuple(_varint_cache)
+
+def varint(i):
+    """Encodes the given integer into a string of the minimum number
+    of bytes.
+    """
+    if i < len(_varint_cache):
+        return _varint_cache[i]
+    return _varint(i)
+
+def read_varint(readfn):
+    """
+    Reads a variable-length encoded integer.
+    
+    :param readfn: a callable that reads a given number of bytes,
+        like file.read().
+    """
+    
+    b = ord(readfn(1))
+    i = b & 0x7F
+
+    shift = 7
+    while b & 0x80 != 0:
+        b = ord(readfn(1))
+        i |= (b & 0x7F) << shift
+        shift += 7
+    return i
+
 
 _fib_cache = {}
 def fib(n):
@@ -35,17 +85,41 @@ def fib(n):
     _fib_cache[n] = result
     return result
 
-def permute(ls):
-    """Yields all permutations of a list."""
+
+def float_to_byte(value, mantissabits = 5, zeroexp = 2):
+    """Encodes a floating point number in a single byte.
+    """
     
-    if len(ls) == 1:
-        yield ls
+    # Assume int size == float size
+    
+    fzero = (63 - zeroexp) << mantissabits
+    bits = unpack("i", pack("f", value))[0]
+    smallfloat = bits >> (24 - mantissabits)
+    if smallfloat < fzero:
+        # Map negative numbers and 0 to 0
+        # Map underflow to next smallest non-zero number
+        if bits <= 0:
+            return chr(0)
+        else:
+            return chr(1)
+    elif smallfloat >= fzero + 0x100:
+        # Map overflow to largest number
+        return chr(255)
     else:
-        for i in range(len(ls)):
-            this = ls[i]
-            rest = ls[:i] + ls[i+1:]
-            for p in permute(rest):
-                yield [this] + p
+        return chr(smallfloat - fzero)
+    
+def byte_to_float(b, mantissabits = 5, zeroexp = 2):
+    """Decodes a floating point number stored in a single
+    byte.
+    """
+    b = ord(b)
+    if b == 0:
+        return 0.0
+    
+    bits = (b & 0xff) << (24 - mantissabits)
+    bits += (63 - zeroexp) << 24
+    return unpack("f", pack("i", bits))[0]
+
 
 def first_diff(a, b):
     """Returns the position of the first differing character in the strings

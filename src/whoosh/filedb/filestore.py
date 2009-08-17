@@ -28,10 +28,9 @@ class FileStorage(Storage):
     """Storage object that stores the index as files in a directory on disk.
     """
     
-    def __init__(self, path, mapped=True, byteorder=None):
+    def __init__(self, path, mapped=True):
         self.folder = path
         self.mapped = mapped
-        self.byteorder = byteorder
         
         if not os.path.exists(path):
             raise IOError("Directory %s does not exist" % path)
@@ -48,8 +47,7 @@ class FileStorage(Storage):
         return FileIndex(self, schema=schema, indexname=indexname)
     
     def create_file(self, name):
-        f = StructFile(open(self._fpath(name), "wb"), name=name,
-                       mapped=self.mapped, byteorder=self.byteorder)
+        f = StructFile(open(self._fpath(name), "wb"), name=name, mapped=self.mapped)
         return f
     
     def open_file(self, name):

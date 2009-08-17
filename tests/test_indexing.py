@@ -3,22 +3,23 @@ from os import mkdir
 from os.path import exists
 from shutil import rmtree
 
-from whoosh import fields, index, qparser
+from whoosh import fields, index, query, qparser
 from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 
 
 class TestIndexing(unittest.TestCase):
-    def make_index(self, dirname, schema):
+    def make_index(self, dirname, schema, indexname):
         if not exists(dirname):
             mkdir(dirname)
         st = FileStorage(dirname)
-        ix = st.create_index(schema)
+        ix = st.create_index(schema, indexname=indexname)
         return ix
     
     def destroy_index(self, dirname):
         if exists(dirname):
-            rmtree(dirname)
+            #rmtree(dirname)
+            pass
     
     def test_creation(self):
         s = fields.Schema(content=fields.TEXT(phrase = True),
@@ -58,7 +59,7 @@ class TestIndexing(unittest.TestCase):
     def test_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
                           f2 = fields.KEYWORD(stored = True, scorable = True))
-        ix = self.make_index("testindex", s)
+        ix = self.make_index("testindex", s, "lengths")
         
         try:
             w = ix.writer()
@@ -219,7 +220,7 @@ class TestIndexing(unittest.TestCase):
         schema = fields.Schema(id=fields.ID(unique=True, stored=True),
                                path=fields.ID(unique=True, stored=True),
                                text=fields.TEXT)
-        ix = self.make_index("testindex", schema)
+        ix = self.make_index("testindex", schema, "update")
         try:
             writer = ix.writer()
             for doc in SAMPLE_DOCS:
@@ -244,7 +245,7 @@ class TestIndexing(unittest.TestCase):
 
         schema = fields.Schema(text=fields.TEXT(stored=True),
                                id=fields.ID(unique=True, stored=True))
-        ix = self.make_index("testindex", schema)
+        ix = self.make_index("testindex", schema, "reindex")
         try:
             def reindex():
                 writer = ix.writer()
@@ -263,7 +264,37 @@ class TestIndexing(unittest.TestCase):
             
         finally:
             self.destroy_index("testindex")
-
+            
+    def test_noscorables1(self):
+        values = [u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot",
+                  u"golf", u"hotel", u"india", u"juliet", u"kilo", u"lima"]
+        from random import choice, sample, randint
+        
+        times = 1000
+        
+        schema = fields.Schema(id=fields.ID, tags=fields.KEYWORD)
+        ix = self.make_index("testindex", schema, "noscorables1")
+        try:
+            w = ix.writer()
+            for i in xrange(times):
+                w.add_document(id=choice(values), tags=u" ".join(sample(values, randint(2, 7))))
+            w.commit()
+            
+            s = ix.searcher()
+            r = s.search(query.Term("id", "bravo"))
+            s.close()
+        finally:
+            self.destroy_index("testindex")
+            
+    def test_noscorables2(self):
+        schema = fields.Schema(field=fields.ID)
+        ix = self.make_index("testindex", schema, "noscorables2")
+        try:
+            writer = ix.writer()
+            writer.add_document(field=u'foo')
+            writer.commit()
+        finally:
+            self.destroy_index("testindex")
 
 
 if __name__ == '__main__':
