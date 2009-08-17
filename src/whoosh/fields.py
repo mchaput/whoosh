@@ -103,11 +103,11 @@ class ID(FieldType):
     path of a file.
     """
     
-    def __init__(self, stored = False, unique = False):
+    def __init__(self, stored = False, unique = False, field_boost = 1.0):
         """
         :param stored: Whether the value of this field is stored with the document.
         """
-        self.format = Existence(analyzer = IDAnalyzer())
+        self.format = Existence(analyzer = IDAnalyzer(), field_boost = field_boost)
         self.stored = stored
         self.unique = unique
 
@@ -117,7 +117,7 @@ class IDLIST(FieldType):
     and/or puntuation.
     """
     
-    def __init__(self, stored = False, unique = False, expression = None):
+    def __init__(self, stored = False, unique = False, expression = None, field_boost = 1.0):
         """
         :param stored: Whether the value of this field is stored with the document.
         :param unique: Whether the value of this field is unique per-document.
@@ -128,7 +128,7 @@ class IDLIST(FieldType):
         
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
         analyzer = RegexAnalyzer(expression = expression)
-        self.format = Existence(analyzer = analyzer)
+        self.format = Existence(analyzer = analyzer, field_boost = field_boost)
         self.stored = stored
         self.unique = unique
 
@@ -206,7 +206,7 @@ class NGRAM(FieldType):
     "hel", "hell", "ell", "ello", "llo".
     """
     
-    def __init__(self, minsize = 2, maxsize = 4, stored = False):
+    def __init__(self, minsize = 2, maxsize = 4, stored = False, field_boost = 1.0):
         """
         :param stored: Whether to store the value of this field with the document. Since
             this field type generally contains a lot of text, you should avoid storing it
@@ -216,7 +216,8 @@ class NGRAM(FieldType):
         :param maxsize: The maximum length of the N-grams.
         """
         
-        self.format = Frequency(analyzer = NgramAnalyzer(minsize, maxsize))
+        self.format = Frequency(analyzer = NgramAnalyzer(minsize, maxsize),
+                                field_boost = field_boost)
         self.scorable = True
         self.stored = stored
 

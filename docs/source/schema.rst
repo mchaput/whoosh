@@ -80,7 +80,7 @@ Field boosts
 
 You can specify a field boost for a field. This is a multiplier applied to the score of any term found in the field. For example, to make terms found in the title field score twice as high as terms in the body field::
 
-    schema = Schema(title=TEXT(boost=2.0), body=TEXT)
+    schema = Schema(title=TEXT(field_boost=2.0), body=TEXT)
 
 
 Field types
