@@ -37,7 +37,7 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(s.scorable_fields(), [0, 1, 4])
         
     def test_creation2(self):
-        s = fields.Schema(content = fields.TEXT(phrase = True),
+        s = fields.Schema(content = fields.TEXT(phrase = True, field_boost=2.0),
                           title = fields.TEXT(stored = True),
                           path = fields.ID(stored = True),
                           tags = fields.KEYWORD(stored = True),
