@@ -1,6 +1,6 @@
-==============
-writing module
-==============
+==================
+``writing`` module
+==================
 
 .. automodule:: whoosh.writing
 
@@ -27,3 +27,10 @@ Writer
 .. autoclass:: IndexWriter
     :members: add_document, cancel, commit, update_document
     
+
+Exceptions
+==========
+
+.. autoexception:: IndexingError
+
+

@@ -9,17 +9,19 @@ from whoosh.filedb.filewriting import NO_MERGE
 
 
 class TestIndexing(unittest.TestCase):
-    def make_index(self, dirname, schema, indexname):
+    def make_index(self, dirname, schema, ixname):
         if not exists(dirname):
             mkdir(dirname)
         st = FileStorage(dirname)
-        ix = st.create_index(schema, indexname=indexname)
+        ix = st.create_index(schema, indexname = ixname)
         return ix
     
     def destroy_index(self, dirname):
         if exists(dirname):
-            #rmtree(dirname)
-            pass
+            try:
+                rmtree(dirname)
+            except OSError, e:
+                pass
     
     def test_creation(self):
         s = fields.Schema(content=fields.TEXT(phrase = True),
@@ -52,32 +54,39 @@ class TestIndexing(unittest.TestCase):
         w.add_document(name = u"One two", value = u"Three four five.")
         w.commit()
         
-        tr = ix.term_reader()
+        tr = ix.reader()
         self.assertEqual(ix.doc_count_all(), 3)
         self.assertEqual(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one", "two", "yellow"])
     
     def test_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
                           f2 = fields.KEYWORD(stored = True, scorable = True))
-        ix = self.make_index("testindex", s, "lengths")
+        ix = self.make_index("testindex", s, "test_lengths")
         
         try:
             w = ix.writer()
-            tokens = u"ABCDEFG"
-            from itertools import cycle, islice
-            lengths = [10, 20, 2, 102, 45, 3, 420, 2]
-            for length in lengths:
-                w.add_document(f2 = u" ".join(islice(cycle(tokens), length)))
-            w.commit()
-            dr = ix.doc_reader()
-            ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
-            ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
-            self.assertEqual(ls1, [0]*len(lengths))
-            self.assertEqual(ls2, lengths)
-            dr.close()
-            
-            ix.close()
+            try:
+                tokens = u"ABCDEFG"
+                from itertools import cycle, islice
+                lengths = [10, 20, 2, 102, 45, 3, 420, 2]
+                for length in lengths:
+                    w.add_document(f2 = u" ".join(islice(cycle(tokens), length)))
+                w.commit()
+            except Exception:
+                w.cancel()
+                raise
+                
+            dr = ix.reader()
+            try:
+                ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
+                self.assertEqual(ls1, [0]*len(lengths))
+                ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
+                self.assertEqual(ls2, lengths)
+            finally:
+                dr.close()
+                
         finally:
+            ix.close()
             self.destroy_index("testindex")
     
     def test_lengths_ram(self):
@@ -91,10 +100,10 @@ class TestIndexing(unittest.TestCase):
         w.add_document(f1 = u"D E F", f2 = u"U V A B C D E")
         w.commit()
         
-        dr = ix.doc_reader()
+        dr = ix.reader()
         ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, 3)]
         ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, 3)]
-        self.assertEqual(dr[0]["f1"], "A B C D E")
+        self.assertEqual(dr.stored_fields(0)["f1"], "A B C D E")
         self.assertEqual(dr.doc_field_length(0, "f1"), 5)
         self.assertEqual(dr.doc_field_length(1, "f1"), 8)
         self.assertEqual(dr.doc_field_length(2, "f1"), 3)
@@ -125,11 +134,12 @@ class TestIndexing(unittest.TestCase):
         w.add_document(f1 = u"Y X", f2 = u"A B")
         w.commit(NO_MERGE)
         
-        dr = ix.doc_reader()
-        self.assertEqual(dr[0]["f1"], u"A B C")
+        dr = ix.reader()
+        self.assertEqual(dr.stored_fields(0)["f1"], u"A B C")
         self.assertEqual(dr.doc_field_length(0, "f1"), 3)
         self.assertEqual(dr.doc_field_length(2, "f2"), 6)
         self.assertEqual(dr.doc_field_length(4, "f1"), 5)
+        dr.close()
         
     def test_frequency_keyword(self):
         s = fields.Schema(content = fields.KEYWORD)
@@ -142,7 +152,7 @@ class TestIndexing(unittest.TestCase):
         w.add_document(content = u"D E F")
         w.commit()
         
-        tr = ix.term_reader()
+        tr = ix.reader()
         self.assertEqual(tr.doc_frequency("content", u"B"), 2)
         self.assertEqual(tr.frequency("content", u"B"), 5)
         self.assertEqual(tr.doc_frequency("content", u"E"), 2)
@@ -158,6 +168,7 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(list(tr), [(0, u"A", 1, 1), (0, u"B", 2, 5),
                                     (0, u"C", 2, 2), (0, u"D", 3, 4),
                                     (0, u"E", 2, 2), (0, u"F", 1, 1)])
+        tr.close()
         
     def test_frequency_text(self):
         s = fields.Schema(content = fields.KEYWORD)
@@ -170,7 +181,7 @@ class TestIndexing(unittest.TestCase):
         w.add_document(content = u"delta echo foxtrot")
         w.commit()
         
-        tr = ix.term_reader()
+        tr = ix.reader()
         self.assertEqual(tr.doc_frequency("content", u"bravo"), 2)
         self.assertEqual(tr.frequency("content", u"bravo"), 5)
         self.assertEqual(tr.doc_frequency("content", u"echo"), 2)
@@ -186,6 +197,7 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(list(tr), [(0, u"alfa", 1, 1), (0, u"bravo", 2, 5),
                                     (0, u"charlie", 2, 2), (0, u"delta", 3, 4),
                                     (0, u"echo", 2, 2), (0, u"foxtrot", 1, 1)])
+        tr.close()
     
     def test_deletion(self):
         s = fields.Schema(key = fields.ID, name = fields.TEXT, value = fields.TEXT)
@@ -207,8 +219,9 @@ class TestIndexing(unittest.TestCase):
         
         ix.optimize()
         self.assertEqual(ix.doc_count(), 2)
-        tr = ix.term_reader()
+        tr = ix.reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
+        tr.close()
 
     def test_update(self):
         # Test update with multiple unique keys
@@ -220,20 +233,26 @@ class TestIndexing(unittest.TestCase):
         schema = fields.Schema(id=fields.ID(unique=True, stored=True),
                                path=fields.ID(unique=True, stored=True),
                                text=fields.TEXT)
-        ix = self.make_index("testindex", schema, "update")
+        ix = self.make_index("testindex", schema, "test_update")
         try:
             writer = ix.writer()
-            for doc in SAMPLE_DOCS:
-                writer.add_document(**doc)
-            writer.commit()
+            try:
+                for doc in SAMPLE_DOCS:
+                    writer.add_document(**doc)
+                writer.commit()
+            except:
+                writer.cancel()
+                raise
             
             writer = ix.writer()
-            writer.update_document(**{"id": u"test2",
-                                      "path": u"test/1",
-                                      "text": u"Replacement"})
-            writer.commit()
-            ix.close()
+            try:
+                writer.update_document(id=u"test2", path=u"test/1", text=u"Replacement")
+                writer.commit()
+            except:
+                writer.cancel()
+                raise
         finally:
+            ix.close()
             self.destroy_index("testindex")
 
     def test_reindex(self):
@@ -245,24 +264,25 @@ class TestIndexing(unittest.TestCase):
 
         schema = fields.Schema(text=fields.TEXT(stored=True),
                                id=fields.ID(unique=True, stored=True))
-        ix = self.make_index("testindex", schema, "reindex")
+        ix = self.make_index("testindex", schema, "test_reindex")
         try:
             def reindex():
                 writer = ix.writer()
-            
-                for doc in SAMPLE_DOCS:
-                    writer.update_document(**doc)
-            
-                writer.commit()
+                try:
+                    for doc in SAMPLE_DOCS:
+                        writer.update_document(**doc)
+                    writer.commit()
+                except:
+                    writer.cancel()
+                    raise
 
             reindex()
             self.assertEqual(ix.doc_count_all(), 3)
             reindex()
             self.assertEqual(ix.doc_count_all(), 3)
             
-            ix.close()
-            
         finally:
+            ix.close()
             self.destroy_index("testindex")
             
     def test_noscorables1(self):

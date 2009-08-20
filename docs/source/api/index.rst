@@ -1,6 +1,6 @@
-============
-index module
-============
+================
+``index`` module
+================
 
 .. automodule:: whoosh.index
 
@@ -35,8 +35,8 @@ Index class
 Exceptions
 ==========
 
-.. autoclass:: EmptyIndexError
-.. autoclass:: IndexVersionError
-.. autoclass:: OutOfDateError
-.. autoclass:: IndexLockedError
-.. autoclass:: IndexError
+.. autoexception:: EmptyIndexError
+.. autoexception:: IndexVersionError
+.. autoexception:: OutOfDateError
+.. autoexception:: IndexLockedError
+.. autoexception:: IndexError

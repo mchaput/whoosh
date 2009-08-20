@@ -173,7 +173,7 @@ class RegexTokenizer(object):
         """
         
         if isinstance(expression, basestring):
-            self.expression = re.compile(expression)
+            self.expression = re.compile(expression, re.UNICODE)
         else:
             self.expression = expression
         self.gaps = gaps
@@ -264,7 +264,7 @@ class SpaceSeparatedTokenizer(RegexTokenizer):
     """
     
     def __init__(self, expression = r"[^ \t\r\n]+"):
-        super(SpaceSeparatedTokenizer, self).__init__(expression=expression)
+        RegexTokenizer.__init__(self, expression=expression)
 
 
 class CommaSeparatedTokenizer(RegexTokenizer):
@@ -279,10 +279,10 @@ class CommaSeparatedTokenizer(RegexTokenizer):
     """
     
     def __init__(self, expression = r"[^,]+"):
-        super(CommaSeparatedTokenizer, self).__init__(expression=expression)
+        RegexTokenizer.__init__(self, expression=expression)
     
     def __call__(self, value, **kwargs):
-        for t in super(self.__class__, self).__call__(value, **kwargs):
+        for t in RegexTokenizer.__call__(self, value, **kwargs):
             t.text = t.text.strip()
             yield t
 

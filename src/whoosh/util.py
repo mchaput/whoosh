@@ -19,12 +19,9 @@ Miscellaneous utility functions and classes.
 """
 
 from functools import wraps
-from heapq import heappush, heapreplace
+from struct import pack, unpack
 from struct import pack, unpack
 
-from whoosh.support.bitvector import BitVector
-
-# Functions
 
 # Functions
 
@@ -135,12 +132,14 @@ def first_diff(a, b):
         if i == 255: return i
     return i + 1
 
+
 def prefix_encode(a, b):
     """Compresses string b as an integer (encoded in a byte) representing
     the prefix it shares with a, followed by the suffix encoded as UTF-8.
     """
     i = first_diff(a, b)
     return chr(i) + b[i:].encode("utf8")
+
 
 def prefix_encode_all(ls):
     """Compresses the given list of (unicode) strings by storing each string
@@ -155,6 +154,7 @@ def prefix_encode_all(ls):
         yield chr(i) + w[i:].encode("utf8")
         last = w
         
+
 def prefix_decode_all(ls):
     """Decompresses a list of strings compressed by prefix_encode().
     """
@@ -166,66 +166,6 @@ def prefix_decode_all(ls):
         yield decoded
         last = decoded
 
-
-# Classes
-
-class TopDocs(object):
-    """This is like a list that only remembers the top N values that are added
-    to it. This increases efficiency when you only want the top N values, since
-    you don't have to sort most of the values (once the object reaches capacity
-    and the next item to consider has a lower score than the lowest item in the
-    collection, you can just throw it away).
-    
-    The reason we use this instead of heapq.nlargest is this object keeps
-    track of all docnums that were added, even if they're not in the "top N".
-    """
-    
-    def __init__(self, capacity, max_doc, docvector = None):
-        self.capacity = capacity
-        self.docs = docvector or BitVector(max_doc)
-        self.heap = []
-        self._total = 0
-
-    def __len__(self):
-        return len(self.sorted)
-
-    def add_all(self, sequence):
-        heap = self.heap
-        docs = self.docs
-        capacity = self.capacity
-        
-        subtotal = 0
-        for docnum, score in sequence:
-            docs.set(docnum)
-            subtotal += 1
-            
-            if len(heap) >= capacity:
-                if score <= heap[0][0]:
-                    continue
-                else:
-                    heapreplace(heap, (score, docnum))
-            else:
-                heappush(heap, (score, docnum))
-        
-        self._total += subtotal
-
-    def total(self):
-        return self._total
-
-    def best(self):
-        """
-        Returns the "top N" items. Note that this call
-        involves sorting and reversing the internal queue, so you may
-        want to cache the results rather than calling this method
-        multiple times.
-        """
-        
-        # Throw away the score and just return a list of items
-        return [(item, score) for score, item in reversed(sorted(self.heap))]
-    
-
-# Mix-in for objects with a close() method that allows them to be
-# used as a context manager.
 
 class ClosableMixin(object):
     """Mix-in for classes with a close() method to allow them to be

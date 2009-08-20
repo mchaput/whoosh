@@ -14,11 +14,9 @@
 # limitations under the License.
 #===============================================================================
 
-
 import cPickle, re
 from bisect import bisect_right
 from time import time
-from struct import calcsize
 from threading import Lock
 
 from whoosh import __version__
@@ -26,10 +24,11 @@ from whoosh.fields import Schema
 from whoosh.index import Index
 from whoosh.index import EmptyIndexError, OutOfDateError, IndexLockedError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
+from whoosh.support.bitvector import BitVector
 from whoosh.system import _INT_SIZE, _ULONG_SIZE, _FLOAT_SIZE
 
 
-_INDEX_VERSION = -103
+_INDEX_VERSION = -104
 _EXTENSIONS = "dci|dcz|tiz|fvz|pst|vps"
 
 
@@ -94,7 +93,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         else:
             raise EmptyIndexError
         
-        # Open a searcher for this index. This is used by the
+        # Open a reader for this index. This is used by the
         # deletion methods, but mostly it's to keep the underlying
         # files open so they don't get deleted from underneath us.
         self._searcher = self.searcher()
@@ -145,7 +144,6 @@ class FileIndex(SegmentDeletionMixin, Index):
         stream.write_varint(_INT_SIZE)
         stream.write_varint(_ULONG_SIZE)
         stream.write_varint(_FLOAT_SIZE)
-        
         stream.write_int(-12345)
         
         stream.write_int(_INDEX_VERSION)
@@ -165,13 +163,13 @@ class FileIndex(SegmentDeletionMixin, Index):
         # Reads the content of this index from the .toc file.
         stream = self.storage.open_file(self._toc_filename())
         
-        if stream.read_varint() != calcsize("i") or \
-           stream.read_varint() != calcsize("L") or \
-           stream.read_varint() != calcsize("f"):
+        if stream.read_varint() != _INT_SIZE or \
+           stream.read_varint() != _ULONG_SIZE or \
+           stream.read_varint() != _FLOAT_SIZE:
             raise IndexError("Index was created on an architecture with different data sizes")
         
         if not stream.read_int() == -12345:
-            raise IndexError("Number misread: index was created with byteorder %s" % self.byteorder)
+            raise IndexError("Number misread: byte order problem")
         
         version = stream.read_int()
         if version != _INDEX_VERSION:
@@ -289,32 +287,8 @@ class FileIndex(SegmentDeletionMixin, Index):
         fieldnum = self.schema.to_number(fieldid)
         return sum(s.field_length(fieldnum) for s in self.segments)
     
-    def term_reader(self):
-        from whoosh.filedb.filereading import FileTermReader
-        segments = self.segments
-        
-        if len(segments) == 1:
-            return FileTermReader(self.storage, segments[0], self.schema)
-        else:
-            from whoosh.reading import MultiTermReader
-            term_readers = [FileTermReader(self.storage, s, self.schema)
-                            for s in segments]
-            doc_offsets = segments.doc_offsets()
-            return MultiTermReader(term_readers, doc_offsets, self.schema)
-    
-    def doc_reader(self):
-        from whoosh.filedb.filereading import FileDocReader
-        
-        schema = self.schema
-        segments = self.segments
-        if len(segments) == 1:
-            return FileDocReader(self.storage, segments[0], schema)
-        else:
-            from whoosh.reading import MultiDocReader
-            doc_readers = [FileDocReader(self.storage, s, self.schema)
-                           for s in segments]
-            doc_offsets = segments.doc_offsets()
-            return MultiDocReader(doc_readers, doc_offsets, schema)
+    def reader(self):
+        return self.segments.reader(self.storage, self.schema)
     
     def writer(self, **kwargs):
         from whoosh.filedb.filewriting import FileIndexWriter
@@ -435,6 +409,17 @@ class SegmentSet(object):
         segment, segdocnum = self._segment_and_docnum(docnum)
         return segment.is_deleted(segdocnum)
     
+    def reader(self, storage, schema):
+        from whoosh.filedb.filereading import SegmentReader
+        segments = self.segments
+        if len(segments) == 1:
+            return SegmentReader(storage, segments[0], schema)
+        else:
+            from whoosh.reading import MultiReader
+            readers = [SegmentReader(storage, segment, schema)
+                       for segment in segments]
+            return MultiReader(readers, self._doc_offsets, schema)
+    
 
 class Segment(object):
     """Do not instantiate this object directly. It is used by the Index
@@ -458,8 +443,8 @@ class Segment(object):
         :param term_count: Total count of all terms in all documents.
         :param field_length_totals: A dictionary mapping field numbers to the total
             number of terms in that field across all documents in the segment.
-        :param deleted: A collection of deleted document numbers, or None
-            if no deleted documents exist in this segment.
+        :param deleted: A set of deleted document numbers, or None if no deleted
+            documents exist in this segment.
         """
         
         self.name = name
@@ -520,24 +505,24 @@ class Segment(object):
         
         if delete:
             if self.deleted is None:
-                self.deleted = set()
+                self.deleted = BitVector(self.max_doc)
             elif docnum in self.deleted:
                 raise KeyError("Document %s in segment %r is already deleted"
                                % (docnum, self.name))
             
-            self.deleted.add(docnum)
+            self.deleted.set(docnum)
         else:
             if self.deleted is None or docnum not in self.deleted:
                 raise KeyError("Document %s is not deleted" % docnum)
             
-            self.deleted.remove(docnum)
+            self.deleted.clear(docnum)
     
     def is_deleted(self, docnum):
         """:returns: True if the given document number is deleted."""
         
         if self.deleted is None: return False
         return docnum in self.deleted
-
+    
    
 # Utility functions
 

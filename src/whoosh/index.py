@@ -40,7 +40,7 @@ class IndexVersionError(IndexError):
     """
     
     def __init__(self, msg, version, release=None):
-        super(IndexVersionError, self).__init__(msg)
+        Exception.__init__(self, msg)
         self.version = version
         self.release = release
 
@@ -331,24 +331,6 @@ class Index(DeletionMixin):
         """
         raise NotImplementedError
     
-    def term_reader(self):
-        """Returns a TermReader object for this index. This is a low-level
-        method; you should obtain a :class:`whoosh.searching.Searcher`
-        with Index.searcher() instead.
-        
-        :rtype: :class:`whoosh.reading.TermReader`
-        """
-        raise NotImplementedError
-    
-    def doc_reader(self):
-        """Returns a DocReader object for this index. This is a low-level
-        method; you should obtain a :class:`whoosh.searching.Searcher`
-        with Index.searcher() instead.
-        
-        :rtype: :class:`whoosh.reading.DocReader`
-        """
-        raise NotImplementedError
-    
     def searcher(self, **kwargs):
         """Returns a Searcher object for this index. Keyword arguments
         are passed to the Searcher object's constructor.
@@ -357,7 +339,14 @@ class Index(DeletionMixin):
         """
         
         from whoosh.searching import Searcher
-        return Searcher(self, **kwargs)
+        return Searcher(self.reader(), **kwargs)
+    
+    def reader(self):
+        """Returns an IndexReader object for this index.
+        
+        :rtype: :class:`whoosh.reading.IndexReader`
+        """
+        raise NotImplementedError
     
     def writer(self, **kwargs):
         """Returns an IndexWriter object for this index.
@@ -366,25 +355,6 @@ class Index(DeletionMixin):
         """
         raise NotImplementedError
     
-    def find(self, querystring, parser = None, **kwargs):
-        """Parses querystring, runs the query in this index, and returns a
-        Result object. Any additional keyword arguments are passed to
-        Searcher.search() along with the parsed query.
-
-        :param querystring: The query string to parse and search for.
-        :param parser: A Parser object to use to parse 'querystring'.
-            The default is to use a standard qparser.QueryParser.
-            This object must implement a parse(str) method which returns a
-            :class:`whoosh.query.Query` instance.
-        :rtype: :class:`whoosh.searching.Results`
-        """
-
-        if parser is None:
-            from whoosh.qparser import QueryParser
-            parser = QueryParser(self.schema)
-            
-        return self.searcher().search(parser.parse(querystring), **kwargs)
-
 
 # Debugging functions
 

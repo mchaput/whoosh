@@ -1,4 +1,4 @@
-import sys
+import sys, os.path
 from ConfigParser import ConfigParser
 from optparse import OptionParser
 from os import system
@@ -32,6 +32,7 @@ def upload_pypi(tag=None):
 
 
 if __name__ == '__main__':
+    sys.path.insert(0, os.path.abspath("src"))
     from whoosh import __version__
 
     version = ".".join(str(n) for n in __version__)
@@ -62,7 +63,9 @@ if __name__ == '__main__':
     cp.read(options.configfile)
     
     if options.dodocs:
-        upload_docs(cp.get("username"), cp.get("server"), cp.get("docbase"), version,
+        upload_docs(cp.get("website", "username"),
+                    cp.get("website", "server"),
+                    cp.get("website", "docbase"), version,
                     build=options.builddocs)
 
     upload_pypi(tag=options.tag)

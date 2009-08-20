@@ -1,0 +1,743 @@
+#===============================================================================
+# Copyright 2009 Matt Chaput
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#===============================================================================
+
+"""
+This module contains classes for writing and reading postings.
+
+The PostingReader interface is the main interface for reading posting information.
+A PostingReader object acts like a cursor moving along a list of postings.
+Individual backends must provide a PostingReader implementation that will be returned
+by the backend's :meth:`whoosh.reading.IndexReader.postings` method. Other classes in
+this module provide synthetic readers or readers that wrap other readers and modify
+their behavior.
+
+The QueryScorer interface extends the PostingReader interface with two extra methods
+to access the score of the current document. QueryScorer objects will be returned by
+the :meth:`~whoosh.query.Query.scorer` method on :class:`whoosh.query.Query` objects.
+"""
+
+
+from heapq import heapify, heappop, heapreplace
+
+
+# Exceptions
+
+class ReadTooFar(Exception):
+    """Raised if a user calls next() or skip_to() on a reader that
+    has reached the end of its items.
+    """
+    pass
+
+# Base classes
+
+class PostingWriter(object):
+    def write(self, id, value):
+        """Write the given id and value to the posting store.
+        
+        :param id: The identifier for this posting.
+        :param value: The encoded value string for this posting.
+        """
+        raise NotImplementedError
+    
+    def finish(self):
+        "Called when the current set of postings is finished."
+        pass
+    
+    def close(self):
+        raise NotImplementedError
+
+
+class PostingReader(object):
+    """Base class for posting readers.
+    
+    "Postings" are used for two purposes in Whoosh.
+    
+    For each term in the index, the postings are the list of
+    documents the term appears in and any associated value for each
+    document. For example, if the field format is Frequency, the
+    postings for the field might look like::
+      
+        [(0, 1), (10, 3), (12, 5)]
+        
+    ...where 0, 10, and 12 are document numbers, and 1, 3, and
+    5 are the frequencies of the term in those documents.
+      
+    To get a PostingReader object for a term, use the
+    :meth:`~whoosh.reading.IndexReader.postings` method on an IndexReader
+    or Searcher object.
+    
+    >>> # Get a PostingReader for the term "render" in the "content" field.
+    >>> r = myindex.reader()
+    >>> preader = r.postings("content", u"render")
+      
+    For fields with term vectors, the vector postings are the list of
+    terms that appear in the field and any associated value for each
+    term. For example, if the term vector format is Frequency, the
+    postings for the term vector might look like::
+    
+        [(u"apple", 1), (u"bear", 5), (u"cab", 2)]
+        
+    ...where "apple", "bear", and "cab" are the terms in the document
+    field, and 1, 5, 2 are the frequencies of those terms in the document
+    field.
+    
+    To get a PostingReader object for a vector, use the
+    :meth:`~whoosh.reading.IndexReader.vector` method on an IndexReader
+    or Searcher object.
+    
+    >>> # Get a PostingReader for the vector of the "content" field
+    >>> # of document 100 
+    >>> r = myindex.reader()
+    >>> vreader = r.vector(100, "content")
+    
+    PostingReader defines a fairly simple interface.
+    
+    * The current posting id is in the reader.id attribute.
+    * Reader.value() to get the posting payload.
+    * Reader.value_as(astype) to get the interpreted posting payload.
+    * Reader.next() to move the reader to the next posting.
+    * Reader.skip_to(id) to move the reader to that id in the list.
+    * Reader.reset() to reset the reader to the beginning.
+    
+    In addition, PostingReader supports a few convenience methods:
+    
+    * ids() returns an iterator of the remaining IDs.
+    * items() returns an iterator of the remaining (id, encoded_value) pairs.
+    * items_as(astype) returns an interator of the remaining (id, decoded_value) pairs.
+    
+    all_ids(), all_items(), and all_as() are similar, but return iterators of
+    *all* IDs/items in the reader, regardless of the current position of the reader.
+      
+    Different implementations may leave the reader in different positions during and
+    after use of the iteration methods; that is, the effect of the iterators on the
+    reader's position is undefined and may be different in different PostingReader
+    subclasses and different backend implementations.
+    """
+    
+    def __cmp__(self, other):
+        return cmp(self.id, other.id)
+    
+    def __repr__(self):
+        return "<%s : %s>" % (self.__class__.__name__, self.id)
+    
+    def reset(self):
+        "Resets the reader to the beginning of the postings"
+        raise NotImplementedError(self)
+    
+    def next(self):
+        "Moves to the next posting."
+        raise NotImplementedError(self)
+    
+    def skip_to(self, id):
+        """Skips ahead to the given id. The default implementation
+        simply calls next() repeatedly until it gets to the id, but
+        subclasses will often be more clever.
+        """
+        
+        if id <= self.id:
+            return
+        if self.id is None:
+            raise ReadTooFar
+        
+        next = self.next
+        while self.id < id:
+            next()
+            
+    def value(self):
+        "Returns the encoded value string for the current id."
+        raise NotImplementedError
+
+    def value_as(self, astype):
+        """Returns the value for the current id as the given type.
+        
+        :param astype: a string, such as "weight" or "positions". The
+            Format object associated with this reader must have a
+            corresponding "as_*" method, e.g. as_weight(), for decoding
+            the value.
+        """
+        return self.format.decoder(astype)(self.value())
+    
+    # Iterator convenience functions
+    
+    def all_ids(self):
+        """Yields all posting IDs.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        self.reset()
+        return self.ids()
+    
+    def all_items(self):
+        """Yields all (id, encoded_value) pairs in the reader.
+        Use all_as() to get decoded values.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        self.reset()
+        return self.items()
+    
+    def all_as(self, astype):
+        """Yield a series of (id, decoded_value) pairs for each posting.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        self.reset()
+        return self.items_as(astype)
+    
+    def ids(self):
+        """Yields the remaining IDs in the reader.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        
+        next = self.next
+        while self.id is not None:
+            yield self.id
+            next()
+            
+    def items(self):
+        """Yields the remaining (id, encoded_value) pairs in the reader.
+        Use items_as() to get decoded values.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        
+        next = self.next
+        while self.id is not None:
+            yield self.id, self.value()
+            next()
+            
+    def items_as(self, astype):
+        """Yields the remaining (id, decoded_value) pairs in the reader.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        decoder = self.format.decoder(astype)
+        for id, valuestring in self.items():
+            yield (id, decoder(valuestring))
+    
+
+class MultiPostingReader(PostingReader):
+    """This posting reader concatenates the results from serial sub-readers.
+    This is useful for backends that use a segmented index.
+    """
+    
+    def __init__(self, readers, idoffsets):
+        self.readers = readers
+        self.offsets = idoffsets
+        self.current = 0
+        
+        if not readers:
+            self.id = None
+        else:
+            self.id = readers[0].id + idoffsets[0]
+
+    def reset(self):
+        if not self.readers:
+            return
+        
+        for r in self.readers:
+            r.reset()
+        self.current = 0
+        self.id = self.readers[0].id
+
+    def all_items(self):
+        offsets = self.offsets
+        for i, r in enumerate(self.readers):
+            for id, valuestring in r.all_items():
+                yield id + offsets[i], valuestring
+
+    def all_ids(self):
+        offsets = self.offsets
+        for i, r in enumerate(self.readers):
+            for id in r.all_ids():
+                yield id + offsets[i]
+
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        readers = self.readers
+        current = self.current
+        readers[current].next()
+        while current < len(readers) - 1 and self.readers[current].id is None:
+            current += 1
+            
+        if self.readers[current].id is None:
+            self.id = None
+        else:
+            self.id = readers[current].id + self.offsets[current]
+            self.current = current
+
+    def skip_to(self, target):
+        if target <= self.id:
+            return
+        if self.id is None:
+            raise ReadTooFar
+        
+        current = self.current
+        readers = self.readers
+        offsets = self.offsets
+        
+        while current < len(readers):
+            r = readers[current]
+            if target < r.id:
+                self.current = current
+                self.id = r.id + offsets[current]
+                return
+            
+            r.skip_to(target - offsets[current])
+            if r.id is not None:
+                self.current = current
+                self.id = r.id + offsets[current]
+                return
+            
+            current += 1
+            
+        self.id = None
+
+    def value(self):
+        return self.readers[self.current].value()
+
+
+class Exclude(PostingReader):
+    """PostingReader that removes certain IDs from a sub-reader.
+    """
+    
+    def __init__(self, postreader, excludes):
+        """
+        :param postreader: the PostingReader object to read from.
+        :param excludes: a collection of ids to exclude (may be any object,
+            such as a BitVector or set, that implements __contains__).
+        """
+        
+        self.postreader = postreader
+        self.excludes = excludes
+        self._find_nonexcluded()
+        self.value = postreader.value
+    
+    def reset(self):
+        self.postreader.reset()
+        self._find_nonexcluded()
+    
+    def _find_nonexcluded(self):
+        pr, excl = self.postreader, self.excludes
+        next = pr.next
+        while pr.id is not None and pr.id in excl:
+            next()
+        self.id = pr.id
+    
+    def next(self):
+        self.postreader.next()
+        self._find_nonexcluded()
+    
+    def skip_to(self, target):
+        if target <= self.id:
+            return
+        self.postreader.skip_to(target)
+        self._find_nonexcluded()
+
+
+class CachedPostingReader(PostingReader):
+    """Reads postings from a list instead of from storage.
+    
+    >>> preader = ixreader.postings("content", "render")
+    >>> creader = CachedPostingReader(preader.all_items())
+    """
+    
+    def __init__(self, items):
+        """
+        :param items: a sequence of (id, encodedvalue) pairs. If this is
+            not a list or tuple, it is converted using tuple().
+        """
+        
+        if not isinstance(items, (list, tuple)):
+            items = tuple(items)
+        
+        self._items = items
+        self.reset()
+        
+    def reset(self):
+        self.p = 0
+        self.id = self._items[0][0]
+    
+    def all_ids(self):
+        return (item[0] for item in self._items)
+    
+    def all_items(self):
+        return iter(self._items)
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        self.p += 1
+        if self.p >= len(self._items):
+            self.id = None
+        else:
+            self.id = self._items[self.p][0]
+            
+    def skip_to(self, target):
+        if self.id is None:
+            raise ReadTooFar
+        if target < self.id:
+            return
+        
+        items = self._items
+        p = self.p + 1
+        while p < len(items):
+            id = items[p][0]
+            if id >= target:
+                self.p = p
+                self.id = id
+                return
+        
+        self.id = None
+        
+    def value(self):
+        return self._items[self.p][1]
+
+
+# QueryScorer interface
+
+class QueryScorer(PostingReader):
+    """QueryScorer extends the PostingReader interface with two methods:
+    
+    * score() return the score for the current item.
+    * __iter__() returns an iterator of (id, score) pairs.
+    """
+    
+    def __iter__(self):
+        next = self.next
+        while True:
+            docnum = self.id
+            if docnum is None: return
+            yield docnum, self.score()
+            next()
+    
+    def score(self):
+        """Returns the score for the current document.
+        """
+        raise NotImplementedError
+    
+
+# QueryScorers
+
+class EmptyScorer(QueryScorer):
+    """A QueryScorer representing a query that doesn't match any documents.
+    """
+    
+    def __init__(self):
+        self.id = None
+
+    def reset(self):
+        pass
+
+    def next(self):
+        pass
+    
+    def skip_to(self, id):
+        pass
+
+    def ids(self):
+        return []
+
+    def items(self):
+        return []
+
+    def items_as(self, astype):
+        return []
+    
+    def value(self):
+        raise NotImplementedError("EmptyScorer has no values")
+    
+    def value_as(self, astype):
+        raise NotImplementedError("EmptyScorer has no values")
+    
+    def score(self):
+        return 0
+
+
+class FakeScorer(QueryScorer):
+    """This is a fake query scorer for testing purposes. You create the
+    object with the posting IDs as arguments, and then returns them as you
+    call next() or skip_to().
+    
+    >>> fpr = FakeScorer(1, 5, 10, 80)
+    >>> fpr.id
+    1
+    >>> fpr.next()
+    >>> fpr.id
+    5
+    """
+    
+    def __init__(self, *ids):
+        self.ids = ids
+        self._score = 10
+        self.reset()
+        
+    def __repr__(self):
+        return "<%s : %r>" % (self.id, self.ids)
+    
+    def reset(self):
+        self.i = 0
+        if self.ids:
+            self.id = self.ids[0]
+        else:
+            self.id = None
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        if self.i == len(self.ids) - 1:
+            self.id = None
+        else:
+            self.i += 1
+            self.id = self.ids[self.i]
+    
+    def skip_to(self, target):
+        if target <= self.id:
+            return
+        if self.id is None:
+            raise ReadTooFar
+        
+        i, ids = self.i, self.ids
+        
+        while ids[i] < target:
+            i += 1
+            if i == len(ids):
+                self.id = None
+                return
+        
+        self.i = i
+        self.id = ids[i]
+    
+    def value(self):
+        raise NotImplementedError("FakeScorer has no values")
+    
+    def score(self):
+        if self.id is None:
+            return 0
+        return self._score
+
+
+class IntersectionScorer(QueryScorer):
+    """Acts like the intersection of items in a set of QueryScorers
+    """
+    
+    def __init__(self, scorers, boost=1.0):
+        self.scorers = scorers
+        self.state = list(scorers)
+        self.boost = boost
+        self.id = -1
+        self._prep()
+
+    def _prep(self):
+        state = self.state
+        state.sort()
+        id = state[0].id
+        if all(r.id == id for r in state[1:]):
+            self.id = id
+        else:
+            self.next()
+
+    def reset(self):
+        for r in self.state:
+            r.reset()
+        self.id = -1
+        self._prep()
+
+    def skip_to(self, target):
+        if self.id is None:
+            raise ReadTooFar
+        
+        state = self.state
+        for r in state:
+            r.skip_to(target)
+        state.sort()
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        id = self.id
+        state = self.state
+        for r in state:
+            if r.id == id: r.next()
+        state.sort()
+        
+        while True:
+            lowid = state[0].id
+            if lowid is None:
+                self.id = None
+                return
+            
+            if all(r.id == lowid for r in state[1:]):
+                self.id = lowid
+                return
+            else:
+                highid = state[-1].id
+                for r in state[:-1]:
+                    r.skip_to(highid)
+                if state[0].id is not None:
+                    state.sort()
+                
+    def score(self):
+        if self.id is None:
+            return 0
+        return sum(r.score() for r in self.state) * self.boost
+                
+
+class UnionScorer(QueryScorer):
+    """Acts like the union of a set of QueryScorers
+    """
+    
+    def __init__(self, scorers, boost=1.0):
+        self.scorers = scorers
+        self.boost = boost
+        self.state = [s for s in scorers if s.id is not None]
+        
+        if self.state:
+            heapify(self.state)
+            self.id = self.state[0].id
+        else:
+            self.id = None
+    
+    def reset(self):
+        for s in self.scorers:
+            s.reset()
+        self.state = [s for s in self.scorers if s.id is not None]
+        
+        if self.state:
+            heapify(self.state)
+            self.id = self.state[0].id
+        else:
+            self.id = None
+    
+    def skip_to(self, target):
+        if self.id is None:
+            raise ReadTooFar
+        
+        state = self.state
+        for r in state:
+            r.skip_to(target)
+        
+        heapify(state)
+        while state and state[0].id is None:
+            heappop(state)
+        
+        if state:
+            self.id = self.state[0].id
+        else:
+            self.id = None
+        
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        state = self.state
+        
+        # Short circuit if there's only one reader
+        if len(state) == 1:
+            r = state[0]
+            r.next()
+            self.id = r.id
+        else:
+            lowid = state[0].id
+            while state and state[0].id == lowid:
+                r = state[0]
+                r.next()
+                if r.id is None:
+                    heappop(state)
+                else:
+                    heapreplace(state, r)
+        
+            if state:
+                self.id = state[0].id
+            else:
+                self.id = None
+            
+    def score(self):
+        id = self.id
+        if id is None:
+            return 0
+        score = sum(r.score() for r in self.state if r.id == id)
+        return score * self.boost
+
+
+class AndNotScorer(QueryScorer):
+    """Takes two QueryScorers and pulls items from the first,
+    removing ids that also appear in the second.
+    """
+    
+    def __init__(self, positive, negative):
+        """
+        :param positive: a QueryScorer from which to take items.
+        :param negative: a QueryScorer, the IDs of which will be
+            removed from the 'positive' scorer.
+        """
+        
+        self.positive = positive
+        self.negative = negative
+        self._find_next()
+    
+    def reset(self):
+        self.positive.reset()
+        self.negative.reset()
+        self._find_next()
+    
+    def _find_next(self):
+        inp, outp = self.positive, self.negative
+        while inp.id is not None and inp.id == outp.id:
+            inp.next()
+            if outp.id is not None:
+                outp.skip_to(inp.id)
+        self.id = inp.id
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        self.positive.next()
+        if self.negative.id:
+            self._find_next()
+        else:
+            self.id = self.positive.id
+        
+    def skip_to(self, target):
+        if self.id is None:
+            raise ReadTooFar
+        if target <= self.id:
+            return
+        
+        self.positive.skip_to(target)
+        if self.negative.id is not None:
+            self.negative.skip_to(target)
+            self._find_next()
+        else:
+            self.id = self.positive.id
+        
+    def score(self):
+        if self.id is None:
+            return 0
+        return self.positive.score()
+
+
+
+
+
+

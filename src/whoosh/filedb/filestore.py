@@ -21,7 +21,7 @@ from threading import Lock
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import LockError, Storage
 from whoosh.filedb.structfile import StructFile
-from whoosh.filedb import filetables
+from whoosh.filedb import filetables, filepostings
 
 
 class FileStorage(Storage):
@@ -50,52 +50,10 @@ class FileStorage(Storage):
         f = StructFile(open(self._fpath(name), "wb"), name=name, mapped=self.mapped)
         return f
     
-    def open_file(self, name):
-        f = StructFile(open(self._fpath(name), "rb"))
+    def open_file(self, name, *args, **kwargs):
+        f = StructFile(open(self._fpath(name), "rb"), *args, **kwargs)
         f._name = name
         return f
-    
-    def create_hash(self, name):
-        f = self.create_file(name)
-        return filetables.FileHashWriter(f)
-    
-    def create_table(self, name, **kwargs):
-        f = self.create_file(name)
-        return filetables.FileTableWriter(f, **kwargs)
-    
-    def create_posting_table(self, name, pname, **kwargs):
-        f = self.create_file(name)
-        pf = self.create_file(pname)
-        return filetables.FilePostingTableWriter(f, pf, **kwargs)
-    
-    def create_records(self, name, format, **kwargs):
-        f = self.create_file(name)
-        return filetables.FileRecordWriter(f, format, **kwargs)
-    
-    def create_list(self, name, **kwargs):
-        f = self.create_file(name)
-        return filetables.FileListWriter(f, **kwargs)
-    
-    def open_hash(self, name):
-        f = self.open_file(name)
-        return filetables.FileHashReader(f)
-    
-    def open_table(self, name, **kwargs):
-        f = self.open_file(name)
-        return filetables.FileTableReader(f, **kwargs)
-    
-    def open_posting_table(self, name, pname, **kwargs):
-        f = self.open_file(name)
-        pf = self.open_file(pname)
-        return filetables.FilePostingTableReader(f, pf, **kwargs)
-
-    def open_records(self, name, format, **kwargs):
-        f = self.open_file(name)
-        return filetables.FileRecordReader(f, format, **kwargs)
-    
-    def open_list(self, name, length, **kwargs):
-        f = self.open_file(name)
-        return filetables.FileListReader(f, length, **kwargs)
     
     def _fpath(self, fname):
         return os.path.join(self.folder, fname)
@@ -155,6 +113,7 @@ class RamStorage(FileStorage):
     def __init__(self):
         self.files = {}
         self.locks = {}
+        self.folder = ''
     
     def __iter__(self):
         return iter(self.list())
@@ -197,10 +156,10 @@ class RamStorage(FileStorage):
         f = StructFile(StringIO(), name = name, onclose = onclose_fn)
         return f
 
-    def open_file(self, name):
+    def open_file(self, name, *args, **kwargs):
         if name not in self.files:
             raise NameError
-        return StructFile(StringIO(self.files[name]))
+        return StructFile(StringIO(self.files[name]), *args, **kwargs)
     
     def lock(self, name):
         if name not in self.locks:

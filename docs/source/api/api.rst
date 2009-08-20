@@ -4,6 +4,6 @@ Whoosh API
 
 .. toctree::
     :glob:
-    :maxdepth: 2
+    :maxdepth: 1
     
-    *
+    **

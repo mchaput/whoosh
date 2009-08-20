@@ -1,13 +1,3 @@
-import re
-
-from whoosh.support.pyparsing import printables, alphanums
-from whoosh.support.pyparsing import ZeroOrMore, OneOrMore
-from whoosh.support.pyparsing import Group, Combine, Suppress, Optional
-from whoosh.support.pyparsing import Literal, CharsNotIn, Regex, Word, Keyword
-from whoosh.support.pyparsing import Empty, White, Forward, StringEnd, ParserElement
-
-from whoosh import analysis, query
-
 """
 This module contains the default search query parser.
 
@@ -28,8 +18,8 @@ This parser was originally based on the searchparser example code available at:
 http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 """
 
-#The code upon which this parser was based was made available by the authors under
-#the following copyright and conditions:
+# The code upon which this parser was based was made available by the authors under
+# the following copyright and conditions:
 
 # Copyright (c) 2006, Estrate, the Netherlands
 # All rights reserved.
@@ -62,11 +52,26 @@ http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 # - Rudolph Froger
 # - Paul McGuire
 
+
+import re
+
+from whoosh.support.pyparsing import printables, alphanums
+from whoosh.support.pyparsing import ZeroOrMore, OneOrMore
+from whoosh.support.pyparsing import Group, Combine, Suppress, Optional
+from whoosh.support.pyparsing import Literal, CharsNotIn, Regex, Word, Keyword
+from whoosh.support.pyparsing import Empty, White, Forward, QuotedString
+from whoosh.support.pyparsing import StringEnd, ParserElement
+
+from whoosh.analysis import NgramAnalyzer
+from whoosh.fields import UnknownFieldError
+from whoosh.query import *
+
+
 def _make_default_parser():
     escapechar = "\\"
     
     wordchars = printables
-    for specialchar in '*?^():."' + escapechar:
+    for specialchar in '*?^():."{}[] ' + escapechar:
         wordchars = wordchars.replace(specialchar, "")
     
     wordtext = Combine(Word(wordchars) + ZeroOrMore("." + Word(wordchars)))
@@ -78,26 +83,32 @@ def _make_default_parser():
     
     # A word ending in a star (e.g. 'render*'), indicating that
     # the search should do prefix expansion.
-    prefixWord = Group(Combine(wordtoken + Suppress('*'))).setResultsName("Prefix")
+    prefixword = wordtoken | QuotedString('"')
+    prefix = Group(Combine(prefixword + Suppress('*'))).setResultsName("Prefix")
     
     # A wildcard word containing * or ?.
-    wildcard = Group(Regex(r"\w*(?:[\?\*]\w*)+")).setResultsName("Wildcard")
+    wildcard = Group(Regex(r"[\?\*]?(?:\w*[\?\*])+")).setResultsName("Wildcard")
     
     # A range of terms
-    range = Group(plainWord + Suppress(Optional(White()) + ".." + Optional(White())) + plainWord).setResultsName("Range")
+    rangeitem = QuotedString('"') | wordtoken
+    rangestartitem = Group((rangeitem + Suppress(White())) | Empty()).setResultsName("rangestart")
+    rangeenditem = Group((Suppress(White()) + rangeitem) | Empty()).setResultsName("rangeend")
+    rangestart = (Literal("{") | Literal("[")) + rangestartitem
+    rangeend = rangeenditem + (Literal("}") | Literal("]"))
+    range =  Group(rangestart + Suppress(Literal("TO")) + rangeend).setResultsName("Range")
     
     # A word-like thing
-    generalWord = range | prefixWord | wildcard | plainWord
+    generalWord = range | prefix | wildcard | plainWord
     
     # A quoted phrase
-    quotedPhrase = Group(Suppress('"') + CharsNotIn('"') + Suppress('"')).setResultsName("Quotes")
+    quotedPhrase = Group(QuotedString('"')).setResultsName("Quotes")
     
     expression = Forward()
     
     # Parentheses can enclose (group) any expression
     parenthetical = Group((Suppress("(") + expression + Suppress(")"))).setResultsName("Group")
 
-    boostableUnit = quotedPhrase | generalWord
+    boostableUnit = generalWord | quotedPhrase
     boostedUnit = Group(boostableUnit + Suppress("^") + Word("0123456789", ".0123456789")).setResultsName("Boost")
 
     # The user can flag that a parenthetical group, quoted phrase, or word
@@ -113,13 +124,15 @@ def _make_default_parser():
     operatorNot = Group(Suppress(Keyword("not", caseless=True)) +  Suppress(White()) + unit).setResultsName("Not")
     generalUnit = operatorNot | unit
 
-    andToken = Keyword("and", caseless=True)
-    orToken = Keyword("or", caseless=True)
+    andToken = Keyword("AND", caseless=False)
+    orToken = Keyword("OR", caseless=False)
+    andNotToken = Keyword("ANDNOT", caseless=False)
     
     operatorAnd = Group(generalUnit +  Suppress(White()) + Suppress(andToken) +  Suppress(White()) + expression).setResultsName("And")
     operatorOr = Group(generalUnit +  Suppress(White()) + Suppress(orToken) +  Suppress(White()) + expression).setResultsName("Or")
+    operatorAndNot = Group(unit + Suppress(White()) + Suppress(andNotToken) + Suppress(White()) + unit).setResultsName("AndNot")
 
-    expression << (OneOrMore(operatorAnd | operatorOr | generalUnit | Suppress(White())) | Empty())
+    expression << (OneOrMore(operatorAnd | operatorOr | operatorAndNot | generalUnit | Suppress(White())) | Empty())
     
     toplevel = Group(expression).setResultsName("Toplevel") + StringEnd()
     
@@ -163,20 +176,13 @@ def _make_simple_parser():
 DEFAULT_PARSER_FN = _make_default_parser()
 SIMPLE_PARSER_FN = _make_simple_parser()
 
+
 # Query parser objects
 
 class PyparsingBasedParser(object):
-    def _analyzer(self, fieldname):
-        if self.schema and fieldname in self.schema:
-            return self.schema.analyzer(fieldname)
-    
-    def _analyze(self, fieldname, text):
-        analyzer = self._analyzer(fieldname)
-        if analyzer:
-            texts = [t.text for t in analyzer(text, removestops = False)]
-            return texts[0]
-        else:
-            return text
+    def _field(self, fieldname):
+        if self.schema:
+            return self.schema[fieldname]
     
     def parse(self, input, normalize = True):
         """Parses the input string and returns a Query object/tree.
@@ -192,10 +198,8 @@ class PyparsingBasedParser(object):
         :rtype: :class:`whoosh.query.Query`
         """
         
-        self.stopped_words = set()
-        
         ast = self.parser(input)[0]
-        q = self._eval(ast, None)
+        q = self._eval(ast, self.default_field)
         if q and normalize:
             q = q.normalize()
         return q
@@ -203,44 +207,79 @@ class PyparsingBasedParser(object):
     # These methods are called by the parsing code to generate query
     # objects. They are useful for subclassing.
 
-    def make_term(self, fieldname, text):
-        fieldname = fieldname or self.default_field
-        analyzer = self._analyzer(fieldname)
-        if analyzer:
-            tokens = [t.copy() for t in analyzer(text, removestops = False)]
-            self.stopped_words.update((t.text for t in tokens if t.stopped))
-            texts = [t.text for t in tokens if not t.stopped]
-            if len(texts) < 1:
-                return None
-            elif len(texts) == 1:
-                return self.termclass(fieldname, texts[0])
-            else:
-                return self.make_multiterm(fieldname, texts)
-        else:
-            return self.termclass(fieldname, text)
-    
-    def make_multiterm(self, fieldname, texts):
-        return query.Or([self.termclass(fieldname, text)
-                         for text in texts])
-    
-    def make_phrase(self, fieldname, text):
-        fieldname = fieldname or self.default_field
-        analyzer = self._analyzer(fieldname)
-        if analyzer:
-            tokens = [t.copy() for t in analyzer(text, removestops = False)]
-            self.stopped_words.update((t.text for t in tokens if t.stopped))
-            texts = [t.text for t in tokens if not t.stopped]
-        else:
-            texts = text.split(" ")
-        
-        return query.Phrase(fieldname, texts)
-    
     def _eval(self, node, fieldname):
         # Get the name of the AST node and call the corresponding
         # method to get a query object
         name = node.getName()
         return getattr(self, "_" + name)(node, fieldname)
-
+    
+    def process_term_text(self, field, text, **kwargs):
+        if not field.format:
+            raise Exception("%s field has no format" % self.field)
+        
+        # Just take the first token
+        for token in field.format.tokenize(text, **kwargs):
+            return token.text
+    
+    def make_term(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            texts = [t.text for t in field.format.tokenize(text)]
+            if not texts:
+                return self.termclass(fieldname, u'')
+            elif len(texts) > 1:
+                return self.multiterm([self.termclass(fieldname, t.text) for t in texts])
+            else:
+                return self.termclass(fieldname, texts[0])
+        else:
+            return self.termclass(fieldname, text)
+    
+    def make_phrase(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            texts = [t.text for t in self.format.tokenize(text)]
+            if not texts:
+                return self.termclass(fieldname, u'')
+            elif len(texts) == 1:
+                return self.termclass(fieldname, texts[0])
+            else:
+                return Phrase(fieldname, texts)
+        else:
+            return Phrase(fieldname, text.split(" "))
+    
+    def make_prefix(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            return Prefix(fieldname, self.process_term_text(field, text, removestops=False))
+        else:
+            return Prefix(fieldname, text)
+    
+    def make_wildcard(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            return Wildcard(fieldname, self.process_term_text(field, text))
+        else:
+            return Wildcard(fieldname, text)
+    
+    def make_range(self, fieldname, start, end, startexcl, endexcl):
+        field = self._field(fieldname)
+        if field:
+            start = self.process_term_text(field, start)
+            end = self.process_term_text(field, end)
+        return TermRange(fieldname, start, end, startexcl, endexcl)
+    
+    def make_and(self, qs):
+        return And(qs)
+    
+    def make_or(self, qs):
+        return Or(qs)
+    
+    def make_andnot(self, positive, negative):
+        return AndNot(positive, negative)
+    
+    def make_not(self, q):
+        return Not(q)
+    
 
 class QueryParser(PyparsingBasedParser):
     """The default parser for Whoosh, implementing a powerful fielded
@@ -248,7 +287,7 @@ class QueryParser(PyparsingBasedParser):
     """
     
     def __init__(self, default_field, schema = None,
-                 conjunction = query.And, termclass = query.Term):
+                 conjunction = And, termclass = Term):
         """
         :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
@@ -263,42 +302,17 @@ class QueryParser(PyparsingBasedParser):
         :param termclass: Use this query.Query class for bare terms. For example,
             query.Term or query.Variations.
         :param schema: An optional fields.Schema object. If this argument is present,
-            the analyzer for the appropriate field will be run on terms/phrases
-            before they are turned into query objects.
+            the appropriate field will be used to tokenize terms/phrases before
+            they are turned into query objects.
         """
 
         self.default_field = default_field
         self.conjunction = conjunction
         self.termclass = termclass
         self.schema = schema
-        self.stopped_words = None
+        self.multiterm = Or
         self.parser = DEFAULT_PARSER_FN
-    
-    def make_prefix(self, fieldname, text):
-        fieldname = fieldname or self.default_field
-        text = self._analyze(fieldname, text)
-        return query.Prefix(fieldname, text)
-    
-    def make_wildcard(self, fieldname, text):
-        fieldname = fieldname or self.default_field
-        return query.Wildcard(fieldname or self.default_field, text)
-    
-    def make_range(self, fieldname, range):
-        start, end = range
-        fieldname = fieldname or self.default_field
-        start = self._analyze(fieldname, start)
-        end = self._analyze(fieldname, end)
-        return query.TermRange(fieldname or self.default_field, start, end)
-    
-    def make_and(self, qs):
-        return query.And(qs)
-    
-    def make_or(self, qs):
-        return query.Or(qs)
-    
-    def make_not(self, q):
-        return query.Not(q)
-    
+        
     # These methods take the AST from pyparsing, extract the
     # relevant data, and call the appropriate make_* methods to
     # create query objects.
@@ -316,7 +330,15 @@ class QueryParser(PyparsingBasedParser):
         return self.make_prefix(fieldname, node[0])
     
     def _Range(self, node, fieldname):
-        return self.make_range(fieldname, (node[0][0], node[1][0]))
+        startchar, start, end, endchar = node
+        startexcl = startchar == "{"
+        endexcl = endchar == "}"
+        starttext = endtext = None
+        if start:
+            starttext = start[0]
+        if end:
+            endtext = end[0]
+        return self.make_range(fieldname, starttext, endtext, startexcl, endexcl)
     
     def _Wildcard(self, node, fieldname):
         return self.make_wildcard(fieldname, node[0])
@@ -326,6 +348,10 @@ class QueryParser(PyparsingBasedParser):
     
     def _Or(self, node, fieldname):
         return self.make_or([self._eval(s, fieldname) for s in node])
+    
+    def _AndNot(self, node, fieldname):
+        return self.make_andnot(self._eval(node[0], fieldname),
+                                self._eval(node[1], fieldname))
     
     def _Not(self, node, fieldname):
         return self.make_not(self._eval(node[0], fieldname))
@@ -356,32 +382,29 @@ class MultifieldParser(QueryParser):
         super(MultifieldParser, self).__init__(fieldnames[0],
                                                **kwargs)
         self.fieldnames = fieldnames
-    
-    # Override the superclass's make_* methods with versions that convert
-    # the clauses to multifield ORs.
-
-    def _make(self, method, fieldname, data):
-        if fieldname is not None:
-            return method(fieldname, data)
         
-        return query.Or([method(fn, data)
-                         for fn in self.fieldnames])
+    def _make(self, methodname, fieldname, *args):
+        method = getattr(super(MultifieldParser, self), methodname)
+        if fieldname in self.fieldnames:
+            return Or([method(fn, *args) for fn in self.fieldnames])
+        else:
+            return method(fieldname, *args)
     
     def make_term(self, fieldname, text):
-        return self._make(super(self.__class__, self).make_term, fieldname, text)
+        return self._make("make_term", fieldname, text)
     
     def make_prefix(self, fieldname, text):
-        return self._make(super(self.__class__, self).make_prefix, fieldname, text)
+        return self._make("make_prefix", fieldname, text)
     
-    def make_range(self, fieldname, range):
-        return self._make(super(self.__class__, self).make_range, fieldname, range)
+    def make_range(self, fieldname, start, end, startexcl, endexcl):
+        return self._make("make_range", fieldname, start, end, startexcl, endexcl)
     
     def make_wildcard(self, fieldname, text):
-        return self._make(super(self.__class__, self).make_wildcard, fieldname, text)
+        return self._make("make_wildcard", fieldname, text)
     
     def make_phrase(self, fieldname, text):
-        return self._make(super(self.__class__, self).make_phrase, fieldname, text)
-        
+        return self._make("make_phrase", fieldname, text)
+    
 
 class SimpleParser(PyparsingBasedParser):
     """A simple, AltaVista-like parser. Does not support nested groups, operators,
@@ -390,7 +413,7 @@ class SimpleParser(PyparsingBasedParser):
     to require it. Put a minus sign (-) in front of a term/phrase to forbid it.
     """
     
-    def __init__(self, default_field, termclass = query.Term, schema = None):
+    def __init__(self, default_field, termclass = Term, schema = None):
         """
         :param default_field: Use this as the field for any terms without
             an explicit field. For example, if the query string is
@@ -400,14 +423,13 @@ class SimpleParser(PyparsingBasedParser):
         :param termclass: Use this query class for bare terms. For example,
             query.Term or query.Variations.
         :param schema: An optional fields.Schema object. If this argument is present,
-            the analyzer for the appropriate field will be run on terms/phrases
+            the appropriate field will be used to tokenize terms/phrases
             before they are turned into query objects.
         """
 
         self.default_field = default_field
         self.termclass = termclass
         self.schema = schema
-        self.stopped_words = None
         self.parser = SIMPLE_PARSER_FN
     
     # These methods take the AST from pyparsing, extract the
@@ -415,18 +437,18 @@ class SimpleParser(PyparsingBasedParser):
     # create query objects.
 
     def make_not(self, q):
-        return query.Not(q)
+        return Not(q)
 
     def _Toplevel(self, node, fieldname):
         queries = [self._eval(s, fieldname) for s in node]
         reqds = [q[0] for q in queries if isinstance(q, tuple)]
         if reqds:
-            nots = [q for q in queries if isinstance(q, query.Not)]
+            nots = [q for q in queries if isinstance(q, Not)]
             opts = [q for q in queries
-                    if not isinstance(q, query.Not) and not isinstance(q, tuple)]
-            return query.AndMaybe([query.And(reqds + nots), query.Or(opts)])
+                    if not isinstance(q, Not) and not isinstance(q, tuple)]
+            return AndMaybe([And(reqds + nots), Or(opts)])
         else:
-            return query.Or(queries)
+            return Or(queries)
 
     def _Word(self, node, fieldname):
         return self.make_term(fieldname, node[0])
@@ -451,7 +473,7 @@ class SimpleNgramParser(object):
     """
     
     def __init__(self, fieldname, minchars, maxchars, discardspaces = False,
-                 analyzerclass = analysis.NgramAnalyzer):
+                 analyzerclass = NgramAnalyzer):
         """
         :param fieldname: The field to search.
         :param minchars: The minimum gram size the text was indexed with.
@@ -487,10 +509,10 @@ class SimpleNgramParser(object):
         
         if required:
             fieldname = self.fieldname
-            andquery = query.And([query.Term(fieldname, g) for g in required])
+            andquery = And([Term(fieldname, g) for g in required])
             if optional:
-                orquery = query.Or([query.Term(fieldname, g) for g in optional])
-                return query.AndMaybe([andquery, orquery])
+                orquery = Or([Term(fieldname, g) for g in optional])
+                return AndMaybe([andquery, orquery])
             else:
                 return andquery
         else:
@@ -498,6 +520,10 @@ class SimpleNgramParser(object):
 
 
 
+if __name__ == "__main__":
+    qp = QueryParser("content")
+    q = qp.parse("[apple TO]")
+    print q
     
 
 

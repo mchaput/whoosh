@@ -14,14 +14,14 @@
 # limitations under the License.
 #===============================================================================
 
-from __future__ import division
-from heapq import nlargest
-
 """
 The highlight module contains classes and functions for displaying short
 excerpts from hit documents in the search results you present to the user, with
 query terms highlighted.
 """
+
+from __future__ import division
+from heapq import nlargest
 
 # Fragment object
 

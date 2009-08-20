@@ -55,11 +55,9 @@ class TestReading(unittest.TestCase):
                   {"f1": "A A A"}, {"f1": "A B"}]
         
         def t(ix):
-            tr = ix.term_reader()
-            self.assertEqual(list(tr), target)
-            
-            dr = ix.doc_reader()
-            self.assertEqual(list(dr), stored)
+            r = ix.reader()
+            self.assertEqual(list(r.all_stored_fields()), stored)
+            self.assertEqual(list(r), target)
         
         ix = self._one_segment_index()
         self.assertEqual(len(ix.segments), 1)
@@ -81,26 +79,26 @@ class TestReading(unittest.TestCase):
                             content=u"AA AB BB CC EE EE AX AX DD")
         writer.commit()
         
-        searcher = ix.searcher()
-        self.assertEqual(list(searcher.lexicon("content")),
+        reader = ix.reader()
+        self.assertEqual(list(reader.lexicon("content")),
                          [u'aa', u'ab', u'ax', u'bb', u'cc', u'dd', u'ee'])
-        self.assertEqual(list(searcher.expand_prefix("content", "a")),
+        self.assertEqual(list(reader.expand_prefix("content", "a")),
                          [u'aa', u'ab', u'ax'])
-        self.assertEqual(list(searcher.all_terms()),
+        self.assertEqual(list(reader.all_terms()),
                          [('content', u'aa'), ('content', u'ab'), ('content', u'ax'),
                           ('content', u'bb'), ('content', u'cc'), ('content', u'dd'),
                           ('content', u'ee'), ('title', u'document'), ('title', u'my'),
                           ('title', u'other')])
         # (text, doc_freq, index_freq)
-        self.assertEqual(list(searcher.iter_field("content")),
+        self.assertEqual(list(reader.iter_field("content")),
                          [(u'aa', 2, 6), (u'ab', 1, 1), (u'ax', 1, 2),
                           (u'bb', 2, 5), (u'cc', 2, 3), (u'dd', 2, 2),
                           (u'ee', 2, 4)])
-        self.assertEqual(list(searcher.iter_field("content", prefix="c")),
+        self.assertEqual(list(reader.iter_field("content", prefix="c")),
                          [(u'cc', 2, 3), (u'dd', 2, 2), (u'ee', 2, 4)])
-        self.assertEqual(list(searcher.most_frequent_terms("content")),
+        self.assertEqual(list(reader.most_frequent_terms("content")),
                          [(6, u'aa'), (5, u'bb'), (4, u'ee'), (3, u'cc'), (2, u'dd')])
-        self.assertEqual(list(searcher.most_frequent_terms("content", prefix="a")),
+        self.assertEqual(list(reader.most_frequent_terms("content", prefix="a")),
                          [(6, u'aa'), (2, u'ax'), (1, u'ab')])
     
     def test_vector_postings(self):
@@ -112,9 +110,9 @@ class TestReading(unittest.TestCase):
         writer = ix.writer()
         writer.add_document(id=u'1', content=u'the quick brown fox jumped over the lazy dogs')
         writer.commit()
-        dr = ix.doc_reader()
+        r = ix.reader()
         
-        terms = list(dr.vector_as(0, 0, "weight"))
+        terms = list(r.vector_as("weight", 0, 0))
         self.assertEqual(terms, [(u'brown', 1.0),
                                  (u'dogs', 1.0),
                                  (u'fox', 1.0),

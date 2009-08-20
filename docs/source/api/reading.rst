@@ -1,14 +1,20 @@
-==============
-reading module
-==============
+==================
+``reading`` module
+==================
 
 .. automodule:: whoosh.reading
 
-Base classes
-============
+Classes
+=======
 
-.. autoclass:: DocReader
+.. autoclass:: IndexReader
     :members:
     
-.. autoclass:: TermReader
-    :members:
+.. autoclass:: MultiReader
+
+
+Exceptions
+==========
+
+.. autoexception:: TermNotFound
+

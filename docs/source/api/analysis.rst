@@ -1,6 +1,6 @@
-===============
-analysis module
-===============
+===================
+``analysis`` module
+===================
 
 .. automodule:: whoosh.analysis
 

@@ -1,0 +1,61 @@
+=======
+Changes
+=======
+
+0.3
+===
+
+* Major improvements to reading/writing of postings and query performance.
+
+* Changed default post limit (run size) from 4 MB to 32 MB.
+
+* Finished migrating backend-specific code into ``whoosh.filedb`` package.
+
+* Moved formats from whoosh.fields module into new whoosh.formats module.
+
+* DocReader and TermReader classes combined into new IndexReader interface.
+  You can get an IndexReader implementation by calling Index.reader().
+  Searcher is now a wrapper around an IndexReader.
+
+* Range query object changed, with new signature and new syntax in the default
+  query parser. Now you can use ``[start TO end]`` in the query parser for an
+  inclusive range, and ``{start TO end}`` for an exclusive range. You can also
+  mix the delimiters, for example ``[start TO end}`` for a range with an
+  inclusive start but exclusive end term.
+
+* Added experimental DATETIME field type lets you pass a
+  ``datetime.datetime`` object as a field value to ``add_document``::
+  
+  	from whoosh.fields import Schema, ID, DATETIME
+  	from whoosh.filedb.filestore import RamStorage
+  	from datetime import datetime
+  
+  	schema = Schema(id=ID, date=DATETIME)
+  	storage = RamStorage()
+  	ix = storage.create_index(schema)
+  	w = ix.writer()
+  	w.add_document(id=u"A", date=datetime.now())
+  	w.close()
+  
+  Internally, the DATETIME field indexes the datetime object as text using
+  the format (4 digit year + 2 digit month + 2 digit day + 'T' + 2 digit hour +
+  2 digit minute + 2 digit second + 6 digit microsecond), for example
+  ``20090817T160203109000``.
+
+* The default query parser now lets you use quoted strings in prefix and range
+  queries, e.g. ``["2009-05" TO "2009-12"]``, ``"alfa/bravo"*``, making it
+  easier to work with terms containing special characters.
+
+* ``DocReader.vector_as(docnum, fieldid, astype)`` is now
+  ``IndexReader.vector_as(astype, docnum, fieldid)`` (i.e. the astype argument
+  has moved from the last to the first argument), e.g.
+  ``v = ixreader.vector_as("frequency", 102, "content")``.
+
+* Added experimental ``whoosh.ramdb`` in-memory backend.
+
+* Added experimental ``whoosh.query.FuzzyTerm`` query type.
+
+* Added ``whoosh.lang.wordnet`` module containing ``Thesaurus`` object for using
+  WordNet synonym database.
+
+

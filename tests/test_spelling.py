@@ -19,13 +19,14 @@ class TestSpelling(unittest.TestCase):
                     "open", "print", "acrid", "sear", "deaf",
                     "feed", "grow", "heal", "jolly", "kilt",
                     "low", "zone", "xylophone", "crown",
-                    "vale", "brown", "neat", "meat"]
+                    "vale", "brown", "neat", "meat", "reduction",
+                    "blunder", "preaction"]
         
         sp.add_words([unicode(w) for w in wordlist])
         
         sugs = sp.suggest(u"reoction")
-        self.assert_(sugs)
-        self.assertEqual(sugs, [u"reaction", u"animation", u"red"])
+        self.assertNotEqual(len(sugs), 0)
+        self.assertEqual(sugs, [u"reaction", u"reduction", u"preaction"])
 
 
 if __name__ == '__main__':

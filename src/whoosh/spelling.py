@@ -20,7 +20,7 @@ as a backend for a spell-checking engine.
 
 from collections import defaultdict
 
-from whoosh import analysis, fields, query, searching
+from whoosh import analysis, fields, query
 from whoosh.support.levenshtein import relative, distance
 
 class SpellChecker(object):
@@ -131,8 +131,7 @@ class SpellChecker(object):
         
         q = query.Or(queries)
         ix = self.index()
-        
-        s = searching.Searcher(ix)
+        s = ix.searcher()
         try:
             results = s.search(q)
             
@@ -171,11 +170,11 @@ class SpellChecker(object):
             dictionary.
         """
         
-        tr = ix.term_reader()
+        r = ix.reader()
         try:
-            self.add_scored_words((w, freq) for w, _, freq in tr.iter_field(fieldname))
+            self.add_scored_words((w, freq) for w, _, freq in r.iter_field(fieldname))
         finally:
-            tr.close()
+            r.close()
     
     def add_words(self, ws, score = 1):
         """Adds a list of words to the backend dictionary.

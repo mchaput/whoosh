@@ -1,6 +1,6 @@
-=============
-fields module
-=============
+=================
+``fields`` module
+=================
 
 .. automodule:: whoosh.fields
 
@@ -29,24 +29,8 @@ Pre-made field types
 .. autoclass:: NGRAM
 
 
-Formats
-=======
-
-.. autoclass:: Format
-    :members:
-
-.. autoclass:: Stored
-.. autoclass:: Existence
-.. autoclass:: Frequency
-.. autoclass:: DocBoosts
-.. autoclass:: Positions
-.. autoclass:: Characters
-.. autoclass:: PositionBoosts
-.. autoclass:: CharacterBoosts
-
-
 Exceptions
 ==========
 
-.. autoclass:: FieldConfigurationError
-.. autoclass:: UnknownFieldError
+.. autoexception:: FieldConfigurationError
+.. autoexception:: UnknownFieldError

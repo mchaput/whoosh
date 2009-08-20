@@ -16,7 +16,32 @@ class TestQueryParser(unittest.TestCase):
     
     def destroy_index(self, dirname):
         if exists(dirname):
-            rmtree(dirname)
+            try:
+                rmtree(dirname)
+            except OSError:
+                pass
+    
+    def test_andnot(self):
+        qp = qparser.QueryParser("content")
+        q = qp.parse("this ANDNOT that")
+        self.assertEqual(q.__class__.__name__, "AndNot")
+        self.assertEqual(q.positive.__class__.__name__, "Term")
+        self.assertEqual(q.negative.__class__.__name__, "Term")
+        self.assertEqual(q.positive.text, "this")
+        self.assertEqual(q.negative.text, "that")
+        
+        q = qp.parse("foo ANDNOT bar baz")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(len(q.subqueries), 2)
+        self.assertEqual(q[0].__class__.__name__, "AndNot")
+        self.assertEqual(q[1].__class__.__name__, "Term")
+        
+        q = qp.parse("foo fie ANDNOT bar baz")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(len(q.subqueries), 3)
+        self.assertEqual(q[0].__class__.__name__, "Term")
+        self.assertEqual(q[1].__class__.__name__, "AndNot")
+        self.assertEqual(q[2].__class__.__name__, "Term")
     
     def test_boost(self):
         qp = qparser.QueryParser("content")
@@ -26,35 +51,32 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[1].fieldname, "fn")
         self.assertEqual(q[2].text, "5.67")
         
-    def test_wildcard(self):
+    def test_wildcard1(self):
         qp = qparser.QueryParser("content")
         q = qp.parse("hello *the?e* ?star*s? test")
         self.assertEqual(len(q.subqueries), 4)
-        self.assertNotEqual(q[0].__class__.__name__, "Wildcard")
+        self.assertEqual(q[0].__class__.__name__, "Term")
+        self.assertEqual(q[0].text, "hello")
         self.assertEqual(q[1].__class__.__name__, "Wildcard")
-        self.assertEqual(q[2].__class__.__name__, "Wildcard")
-        self.assertNotEqual(q[3].__class__.__name__, "Wildcard")
         self.assertEqual(q[1].text, "*the?e*")
+        self.assertEqual(q[2].__class__.__name__, "Wildcard")
         self.assertEqual(q[2].text, "?star*s?")
-
-    def test_fieldname_underscores(self):
-        s = fields.Schema(my_name=fields.ID(stored=True), my_value=fields.TEXT)
-        ix = self.make_index("testindex", s)
+        self.assertEqual(q[3].__class__.__name__, "Term")
+        self.assertEqual(q[3].text, "test")
         
-        try:
-            w = ix.writer()
-            w.add_document(my_name=u"Green", my_value=u"It's not easy being green")
-            w.add_document(my_name=u"Red", my_value=u"Hopping mad like a playground ball")
-            w.commit()
-            
-            qp = qparser.QueryParser("my_value", schema=ix.schema)
-            s = ix.searcher()
-            r = s.search(qp.parse("my_name:Green"))
-            self.assertEqual(r[0]['my_name'], "Green")
-            s.close()
-            ix.close()
-        finally:
-            self.destroy_index("testindex")
+    def test_wildcard2(self):
+        qp = qparser.QueryParser("content")
+        q = qp.parse("*the?e*")
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, "*the?e*")
+        
+    def test_parse_fieldname_underscores(self):
+        s = fields.Schema(my_name=fields.ID(stored=True), my_value=fields.TEXT)
+        qp = qparser.QueryParser("my_value", schema=s)
+        q = qp.parse("my_name:Green")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.fieldname, "my_name")
+        self.assertEqual(q.text, "Green")
     
     def test_endstar(self):
         qp = qparser.QueryParser("text")
@@ -65,6 +87,10 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse("first* second")
         self.assertEqual(q[0].__class__.__name__, "Prefix")
         self.assertEqual(q[0].text, "first")
+    
+        q = qp.parse('"first second"* third')
+        self.assertEqual(q[0].__class__.__name__, "Prefix")
+        self.assertEqual(q[0].text, "first second")
     
     def test_escaping(self):
         qp = qparser.QueryParser("text")
@@ -89,6 +115,18 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(r'start\.\.end')
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.text, "start..end")
+        
+    def test_phrase(self):
+        qp = qparser.QueryParser("content")
+        q = qp.parse('"alfa bravo" "charlie delta echo"^2.2 test:"foxtrot golf"')
+        self.assertEqual(q[0].__class__.__name__, "Phrase")
+        self.assertEqual(q[0].words, ["alfa", "bravo"])
+        self.assertEqual(q[1].__class__.__name__, "Phrase")
+        self.assertEqual(q[1].words, ["charlie", "delta", "echo"])
+        self.assertEqual(q[1].boost, 2.2)
+        self.assertEqual(q[2].__class__.__name__, "Phrase")
+        self.assertEqual(q[2].words, ["foxtrot", "golf"])
+        self.assertEqual(q[2].fieldname, "test")
 
 
 if __name__ == '__main__':

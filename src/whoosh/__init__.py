@@ -14,4 +14,26 @@
 # limitations under the License.
 #===============================================================================
 
-__version__ = (0, 2, 8)
+__version__ = (0, 3, 0, 'b', 3)
+
+
+def versionstring(build=True, extra=True):
+    """Returns the version number of Whoosh as a string.
+    
+    :param build: Whether to include the build number in the string.
+    :param extra: Whether to include alpha/beta/rc etc. tags. Only
+        checked if build is True.
+    :rtype: str
+    """
+    
+    if build:
+        first = 3
+    else:
+        first = 2
+    
+    s = ".".join(str(n) for n in __version__[:first])
+    if build and extra:
+        s += "".join(str(n) for n in __version__[3:])
+    
+    return s
+

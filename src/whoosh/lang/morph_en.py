@@ -1,3 +1,11 @@
+"""
+Contains the variations() function for expanding an English word into multiple variations
+by programmatically adding and removing suffixes.
+
+Translated to Python from the ``com.sun.labs.minion.lexmorph.LiteMorph_en`` class of
+Sun's `Minion search engine <https://minion.dev.java.net/>`_.
+"""
+
 import re
 
 # Rule exceptions
@@ -887,6 +895,14 @@ for p in xrange(0, len(rules) // _partition_size + 1):
 #print "\n".join(p.pattern for p in _partitions)
 
 def variations(word):
+    """Given an English word, returns a collection of morphological variations
+    on the word by algorithmically adding and removing suffixes. The variation
+    list may contain non-words (e.g. render -> renderment).
+    
+    >>> variations("pull")
+    set(['pull', 'pullings', 'pullnesses', 'pullful', 'pullment', 'puller', ... ])
+    """
+    
     if word in _exdict:
         return _exdict[word].split(" ")
 

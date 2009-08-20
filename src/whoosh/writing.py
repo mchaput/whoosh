@@ -54,7 +54,7 @@ class IndexWriter(DeletionMixin):
             self._searcher = self.index.searcher()
         return self._searcher
     
-    def _close_searcher(self):
+    def _close_reader(self):
         if self._searcher:
             self._searcher.close()
             self._searcher = None
