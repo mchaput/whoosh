@@ -78,6 +78,8 @@ class SegmentReader(IndexReader):
         
         self.has_deletions = segment.has_deletions
         self.is_deleted = segment.is_deleted
+        self.doc_count = segment.doc_count
+        self.doc_count_all = segment.doc_count_all
         
         self.vectortable = None
         self.is_closed = False
@@ -124,12 +126,6 @@ class SegmentReader(IndexReader):
         for docnum in xrange(0, self.segment.doc_count_all()):
             if not is_deleted(docnum):
                 yield self.docstable[docnum]
-    
-    def doc_count_all(self):
-        return self.segment.doc_count_all()
-    
-    def doc_count(self):
-        return self.segment.doc_count()
     
     def field_length(self, fieldid):
         fieldid = self.schema.to_number(fieldid)
