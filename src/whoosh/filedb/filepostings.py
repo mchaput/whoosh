@@ -15,10 +15,9 @@
 #===============================================================================
 
 from array import array
-from time import clock as now
 
 from whoosh.postings import PostingWriter, PostingReader, ReadTooFar
-from whoosh.system import _ULONG_SIZE, _USHORT_SIZE
+from whoosh.system import _INT_SIZE, _USHORT_SIZE
 
 
 class FilePostingWriter(PostingWriter):
@@ -50,7 +49,7 @@ class FilePostingWriter(PostingWriter):
         self.posttotal = 0
         self.startoffset = self.postfile.tell()
         # Place holder for block count
-        self.postfile.write_ulong(0)
+        self.postfile.write_uint(0)
         self._reset_block()
         self.inblock = True
         
@@ -67,11 +66,11 @@ class FilePostingWriter(PostingWriter):
         if stringids:
             pf.write_string(ids[-1].encode("utf8"))
         else:
-            pf.write_ulong(ids[-1])
+            pf.write_uint(ids[-1])
         
         startoffset = pf.tell()
         # Place holder for pointer to next block
-        pf.write_ulong(0)
+        pf.write_uint(0)
         
         # Write the number of postings in this block
         pf.write_byte(postcount)
@@ -95,7 +94,7 @@ class FilePostingWriter(PostingWriter):
         pf.flush()
         nextoffset = pf.tell()
         pf.seek(startoffset)
-        pf.write_ulong(nextoffset)
+        pf.write_uint(nextoffset)
         pf.seek(nextoffset)
         
         self.posttotal += postcount
@@ -119,7 +118,7 @@ class FilePostingWriter(PostingWriter):
         pf.flush()
         offset = pf.tell()
         pf.seek(self.startoffset)
-        pf.write_ulong(self.blockcount)
+        pf.write_uint(self.blockcount)
         pf.seek(offset)
         self.inblock = False
         
@@ -140,8 +139,8 @@ class FilePostingReader(PostingReader):
         self.stringids = stringids
         
         self.offset = offset
-        self.blockcount = postfile.get_ulong(offset)
-        self.baseoffset = offset + _ULONG_SIZE
+        self.blockcount = postfile.get_uint(offset)
+        self.baseoffset = offset + _INT_SIZE
         
         self.reset()
     
@@ -211,11 +210,11 @@ class FilePostingReader(PostingReader):
             maxid = pf.read_string().decode("utf8")
             offset = pf.tell()
         else:
-            maxid = pf.get_ulong(offset)
-            offset = offset + _ULONG_SIZE
+            maxid = pf.get_uint(offset)
+            offset = offset + _INT_SIZE
         
-        nextoffset = pf.get_ulong(offset)
-        offset += _ULONG_SIZE
+        nextoffset = pf.get_uint(offset)
+        offset += _INT_SIZE
         
         postcount = pf.get_byte(offset)
         assert postcount > 0
@@ -232,7 +231,7 @@ class FilePostingReader(PostingReader):
             offset = pf.tell()
         else:
             ids = pf.get_array(offset, "I", postcount)
-            offset += _ULONG_SIZE * postcount
+            offset += _INT_SIZE * postcount
         
         return (ids, offset)
     
@@ -245,7 +244,7 @@ class FilePostingReader(PostingReader):
             if posting_size < 0:
                 # Read the array of lengths for the values
                 lengths = pf.get_array(startoffset, "I", postcount)
-                valueoffset += _ULONG_SIZE * postcount
+                valueoffset += _INT_SIZE * postcount
             
             allvalues = pf.map[valueoffset:endoffset]
         
