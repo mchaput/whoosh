@@ -23,7 +23,9 @@ from array import array
 from bisect import bisect_right
 from collections import defaultdict
 from cPickle import dumps, loads
-from struct import pack, unpack, calcsize
+from struct import Struct
+
+from whoosh.system import _USHORT_SIZE
 
 
 def cdb_hash(key):
@@ -34,109 +36,61 @@ def cdb_hash(key):
 
 # Read/write convenience functions
 
-def readint(map, offset):
-    return unpack("<L", map[offset:offset+4])[0]
-
-def readints(map, offset, length):
-    return unpack("<" + "L" * length, map[offset: offset + 4 * length])
-
+_2ints = Struct("!II")
+pack2ints = _2ints.pack
 def writeints(f, value1, value2):
-    f.write(pack("<LL", value1, value2))
+    f.write(pack2ints(value1, value2))
 
-# Key/value encoding/decoding functions
+_unpack2ints = _2ints.unpack
+def unpack2ints(s):
+    return _unpack2ints(s)
 
-def encode_key(term):
+_unpackint = Struct("!I").unpack
+def readint(map, offset):
+    return _unpackint(map[offset:offset+4])[0]
+
+# Encoders and decoders for storing complex types in
+# string -> string hash files.
+
+_int_struct = Struct("!i")
+packint = _int_struct.pack
+_unpackint = _int_struct.unpack
+def unpackint(s):
+    return _unpackint(s)[0]
+
+_ushort_struct = Struct("!H")
+packushort = _ushort_struct.pack
+_unpackushort = _ushort_struct.unpack
+def unpackushort(s):
+    return _unpackushort(s)[0]
+
+def encode_termkey(term):
     fieldnum, text = term
-    return ("%03X" % fieldnum) + text.encode("utf8")
+    return packushort(fieldnum) + text.encode("utf8")
 
-def decode_key(key):
-    return (int(key[:3], 16), key[3:].decode("utf8"))
+def decode_termkey(key):
+    return unpackushort(key[:_USHORT_SIZE]), key[_USHORT_SIZE:].decode("utf8")
 
-def encode_docnum(docnum):
-    return "%08X" % docnum
+_vkey_struct = Struct("!Ii")
+_pack_vkey = _vkey_struct.pack
+def encode_vectorkey(docandfield):
+    return _pack_vkey(*docandfield)
 
-def decode_docnum(key):
-    return int(key, 16)
+decode_vectorkey = _vkey_struct.unpack
+encode_docnum = packint
+decode_docnum = unpackint
 
-def encode_vectorkey(docnum_and_fieldnum):
-    return "%08X%03X" % docnum_and_fieldnum
-
-def decode_vectorkey(key):
-    return (int(key[:8], 16), int(key[8:], 16))
+_terminfo_struct = Struct("!ILI")
+_terminfo_pack = _terminfo_struct.pack
+def encode_terminfo(cf_offset_df):
+    return _terminfo_pack(*cf_offset_df)
+decode_terminfo = _terminfo_struct.unpack
 
 def enpickle(data):
+    "Encodes a value as a string for storage in a table."
     return dumps(data, -1)
 
 depickle = loads
-
-# Convenience function to configure TableWriter/Reader objects with the
-# proper key encoding/decoding functions for various specific jobs.
-
-def create_term_table(storage, segment):
-    return storage.create_posting_table(segment.term_filename,
-                                        segment.posts_filename,
-                                        keycoder=encode_key,
-                                        valuecoder=enpickle)
-    
-def create_docs_table(storage, segment):
-    return storage.create_list(segment.docs_filename,
-                               valuecoder=enpickle)
-
-def create_vector_table(storage, segment):
-    return storage.create_posting_table(segment.vector_filename,
-                                        segment.vectorposts_filename,
-                                        keycoder=encode_vectorkey,
-                                        valuecoder=enpickle,
-                                        stringids = True)
-
-def open_term_table(storage, segment):
-    return storage.open_posting_table(segment.term_filename,
-                                      segment.posts_filename,
-                                      keycoder=encode_key,
-                                      keydecoder=decode_key,
-                                      valuedecoder=depickle)
-
-def open_docs_table(storage, segment, schema):
-    storedfieldnames = schema.stored_field_names()
-    def dictifier(value):
-        value = loads(value)
-        return dict(zip(storedfieldnames, value))
-    return storage.open_list(segment.docs_filename,
-                             segment.doc_count_all(),
-                             valuedecoder=dictifier)
-    
-def open_vector_table(storage, segment):
-    return storage.open_posting_table(segment.vector_filename,
-                                      segment.vectorposts_filename,
-                                      keycoder=encode_vectorkey,
-                                      keydecoder=decode_vectorkey,
-                                      valuedecoder=depickle,
-                                      stringids=True)
-    
-
-# Used top copy vector postings directly from one table to another during
-# segment merging, since the information in the postings doesn't need to be
-# updated.
-
-def copy_postings(treader, inkey, twriter, outkey, buffersize=32*1024):
-    offset, length, postcount, data = treader._get(inkey)
-    twriter.add(outkey, data,
-                postinginfo=(twriter.offset, length, postcount))
-    
-    # Copy the raw posting data
-    infile = treader.postingfile
-    outfile = twriter.postingfile
-    if length <= buffersize:
-        outfile.write(infile.map[offset: length])
-    else:
-        infile.seek(offset)
-        sofar = 0
-        while sofar < length:
-            readsize = min(buffersize, length - sofar)
-            outfile.write(infile.read(readsize))
-            sofar += readsize
-    
-    twriter.offset = outfile.tell()
 
 
 # Table classes
@@ -163,6 +117,11 @@ class FileHashWriter(object):
     
     def add(self, key, value):
         self.add_all(((key, value), ))
+    
+    def add_key(self, key):
+        dbfile = self.dbfile
+        
+        writeints(dbfile)
     
     def _write_hashes(self):
         dbfile = self.dbfile
@@ -209,7 +168,7 @@ class FileHashReader(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
         self.map = dbfile.map
-        self.end_of_data = unpack("<L", self.map[0:4])[0]
+        self.end_of_data = dbfile.get_uint(0)
         self.is_closed = False
         
     def close(self):
@@ -223,7 +182,7 @@ class FileHashReader(object):
         return self.map[position:position+length]
 
     def read2ints(self, position):
-        return unpack("<LL", self.map[position:position+8])
+        return unpack2ints(self.map[position:position+8])
 
     def _ranges(self, pos=2048):
         read2ints = self.read2ints
@@ -314,7 +273,7 @@ class FileHashReader(object):
 
 class OrderedHashWriter(FileHashWriter):
     def __init__(self, dbfile, blocksize = 100):
-        super(OrderedHashWriter, self).__init__(dbfile)
+        FileHashWriter.__init__(self, dbfile)
         self.blocksize = blocksize
         self.index = []
         self.indexcount = None
@@ -364,7 +323,7 @@ class OrderedHashWriter(FileHashWriter):
       
 class OrderedHashReader(FileHashReader):
     def __init__(self, dbfile):
-        super(OrderedHashReader, self).__init__(dbfile)
+        FileHashReader.__init__(self, dbfile)
         lastpos, lastnum = self.read2ints(255*8)
         dbfile.seek(lastpos + lastnum * 8)
         self.index = dbfile.read_pickle()
@@ -431,14 +390,15 @@ class FileTableReader(OrderedHashReader):
         self._items_from = sup.items_from
         self._keys = sup.keys
         self._keys_from = sup.keys_from
+        self._getitem = sup.__getitem__
+        self._contains = sup.__contains__
         
-    def get(self, key):
+    def __getitem__(self, key):
         k = self.keycoder(key)
-        return self.valuedecoder(self[k])
+        return self.valuedecoder(self._getitem(k))
     
     def __contains__(self, key):
-        k = self.keycoder(key)
-        return super(FileTableReader, self).__contains__(k)
+        return self._contains(self.keycoder(key))
     
     def items(self):
         kd = self.keydecoder
@@ -464,122 +424,17 @@ class FileTableReader(OrderedHashReader):
             yield kd(k)
             
 
-class FilePostingTableWriter(FileTableWriter):
-    def __init__(self, dbfile, postingfile, keycoder=None, valuecoder=None,
-                 stringids=False):
-        super(FilePostingTableWriter, self).__init__(dbfile, keycoder=keycoder, valuecoder=valuecoder)
-        self.postingfile = postingfile
-        self.stringids = stringids
-        self.lastpostid = None
-        self.postcount = 0
-        self.offset = 0
-        
-    def close(self):
-        super(FilePostingTableWriter, self).close()
-        self.postingfile.close()
-        
-    def write_posting(self, id, data, writefn):
-        if id <= self.lastpostid:
-            raise IndexError("IDs must increase: %r..%r" % (self.lastpostid, id))
-        
-        pf = self.postingfile
-        if self.stringids:
-            pf.write_string(id.encode("utf8"))
-        else:
-            lastpostid = self.lastpostid or 0
-            pf.write_varint(id - lastpostid)
-        
-        self.lastpostid = id
-        self.postcount += 1
-        
-        return writefn(pf, data)
-    
-    def add(self, key, data, postinginfo=None):
-        if postinginfo:
-            offset, length, postcount = postinginfo
-            endoffset = offset + length
-        else:
-            offset = self.offset
-            endoffset = self.postingfile.tell()
-            length = endoffset - offset
-            postcount = self.postcount
-        
-        super(FilePostingTableWriter, self).add(key, (offset, length, postcount, data))
-        
-        # Reset the posting variables
-        self.offset = endoffset
-        self.postcount = 0
-        self.lastpostid = None
-    
-
-class FilePostingTableReader(FileTableReader):
-    def __init__(self, dbfile, postingfile, keycoder=None, keydecoder=None, valuedecoder=None,
-                 stringids=False):
-        sup = super(FilePostingTableReader, self)
-        sup.__init__(dbfile, keycoder=keycoder, keydecoder=keydecoder,
-                     valuedecoder=valuedecoder)
-        self.postingfile = postingfile
-        self.stringids = stringids
-        
-        self._get = sup.get
-        if self.stringids:
-            self._read_id = self._read_id_string
-        else:
-            self._read_id = self._read_id_varint
-    
-    def close(self):
-        super(FilePostingTableReader, self).close()
-        self.postingfile.close()
-    
-    def _read_id_varint(self, lastid):
-        return lastid + self.postingfile.read_varint()
-    
-    def _read_id_string(self, lastid):
-        return self.postingfile.read_string().decode("utf8")
-    
-    def get(self, key):
-        return self._get(key)[3]
-    
-    def items(self):
-        kd = self.keydecoder
-        vd = self.valuedecoder
-        for key, value in self._items():
-            yield (kd(key), vd(value)[3])
-            
-    def items_from(self, key):
-        fromkey = self.keycoder(key)
-        kd = self.keydecoder
-        vd = self.valuedecoder
-        for key, value in self._items_from(fromkey):
-            yield (kd(key), vd(value)[3])
-    
-    def posting_count(self, key):
-        return super(FilePostingTableReader, self).get(key)[2]
-    
-    def _seek_postings(self, key):
-        offset, _, count = self._get(key)[:3]
-        self.postingfile.seek(offset)
-        return count
-    
-    def postings(self, key, readfn):
-        postingfile = self.postingfile
-        _read_id = self._read_id
-        id = 0
-        for _ in xrange(0, self._seek_postings(key)):
-            id = _read_id(id)
-            yield (id, readfn(postingfile))
-
-
 class FileRecordWriter(object):
     def __init__(self, dbfile, format):
         self.dbfile = dbfile
         self.format = format
+        self._pack = Struct(format).pack
         
     def close(self):
         self.dbfile.close()
         
     def append(self, args):
-        self.dbfile.write(pack(self.format, *args))
+        self.dbfile.write(self._pack(*args))
 
 
 class FileRecordReader(object):
@@ -587,18 +442,20 @@ class FileRecordReader(object):
         self.dbfile = dbfile
         self.map = dbfile.map
         self.format = format
-        self.itemsize = calcsize(format)
+        struct = Struct(format)
+        self._unpack = struct.unpack
+        self.itemsize = struct.size
     
     def close(self):
         del self.map
         self.dbfile.close()
     
-    def get_record(self, recordnum):
+    def record(self, recordnum):
         itemsize = self.itemsize
-        return unpack(self.format, self.map[recordnum * itemsize:recordnum * itemsize + itemsize])
+        return self._unpack(self.map[recordnum * itemsize: recordnum * itemsize + itemsize])
     
-    def get(self, recordnum, itemnum):
-        return self.get_record(recordnum)[itemnum]
+    def at(self, recordnum, itemnum):
+        return self.record(recordnum)[itemnum]
 
 
 class FileListWriter(object):
@@ -641,12 +498,12 @@ class FileListReader(object):
     def close(self):
         self.dbfile.close()
     
-    def get(self, num):
+    def __getitem__(self, num):
         position = self.positions[num]
         length = self.lengths[num]
         v = self.dbfile.map[position:position+length]
         return self.valuedecoder(v)
-
+    
 
 # Utility functions
 

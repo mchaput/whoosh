@@ -1,6 +1,6 @@
-==============
-qparser module
-==============
+==================
+``qparser`` module
+==================
 
 .. automodule:: whoosh.qparser
 

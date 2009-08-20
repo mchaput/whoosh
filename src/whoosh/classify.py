@@ -25,9 +25,9 @@ from math import log
 # Expansion models
 
 class ExpansionModel(object):
-    def __init__(self, searcher, fieldname):
-        self.N = searcher.doc_count_all()
-        self.collection_total = searcher.field_length(fieldname)
+    def __init__(self, ixreader, fieldname):
+        self.N = ixreader.doc_count_all()
+        self.collection_total = ixreader.field_length(fieldname)
         self.mean_length = self.collection_total / self.N
     
     def normalizer(self, maxweight, top_total):
@@ -76,9 +76,9 @@ class Expander(object):
     the top N result documents.
     """
     
-    def __init__(self, searcher, fieldname, model = Bo1Model):
+    def __init__(self, ixreader, fieldname, model = Bo1Model):
         """
-        :param searcher: A searching.Searcher object for the index.
+        :param reader: A :class:whoosh.reading.IndexReader object.
         :param fieldname: The name of the field in which to search.
         :param model: (classify.ExpansionModel) The model to use for expanding
             the query terms. If you omit this parameter, the expander uses
@@ -87,16 +87,15 @@ class Expander(object):
         
         self.fieldname = fieldname
         
-        if callable(model):
-            model = model(searcher, fieldname)
+        if type(model) is type:
+            model = model(ixreader, fieldname)
         self.model = model
         
         # Cache the collection frequency of every term in this
         # field. This turns out to be much faster than reading each
         # individual weight from the term index as we add words.
-        term_reader = searcher.term_reader
         self.collection_freq = dict((word, freq) for word, _, freq
-                                      in term_reader.iter_field(fieldname))
+                                      in ixreader.iter_field(fieldname))
         
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)
@@ -108,7 +107,7 @@ class Expander(object):
         """Adds forward-index information about one of the "top N" documents.
         
         :param vector: A series of (text, weight) tuples, such as is
-            returned by DocReader.vector_as(docnum, fieldnum, "weight").
+            returned by Reader.vector_as("weight", docnum, fieldnum).
         """
         
         total_weight = 0

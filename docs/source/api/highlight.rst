@@ -1,6 +1,6 @@
-================
-highlight module
-================
+====================
+``highlight`` module
+====================
 
 .. automodule:: whoosh.highlight
 

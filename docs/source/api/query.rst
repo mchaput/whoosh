@@ -1,8 +1,10 @@
-============
-query module
-============
+================
+``query`` module
+================
 
 .. automodule:: whoosh.query
+
+See also :mod:`whoosh.qparser` which contains code for parsing user queries into query objects.
 
 Base classes
 ============
@@ -12,13 +14,9 @@ The following abstract base classes are subclassed to create the the "real" quer
 .. autoclass:: Query
     :members:
 
-.. autoclass:: SimpleQuery
-
 .. autoclass:: CompoundQuery
 
 .. autoclass:: MultiTerm
-
-.. autoclass:: ExpandingTerm
 
 
 Query classes
@@ -46,7 +44,8 @@ Query classes
 Binary operations
 =================
 
-These binary operators are not created by the query parser in :mod:`whoosh.qparser`. They are included only for completeness and experimentation. Unless you specifically need these operations, you should use the normal query classes instead.
+These binary operators are not generally created by the query parser in :mod:`whoosh.qparser`.
+Unless you specifically need these operations, you should use the normal query classes instead.
 
 .. autoclass:: Require
 
@@ -58,4 +57,4 @@ These binary operators are not created by the query parser in :mod:`whoosh.qpars
 Exceptions
 ==========
 
-.. autoclass:: QueryError
+.. autoexception:: QueryError

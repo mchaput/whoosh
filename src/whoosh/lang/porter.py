@@ -1,14 +1,13 @@
+"""
+Reimplementation of the
+`Porter stemming algorithm <http://tartarus.org/~martin/PorterStemmer/>`_
+in Python.
+
+In my quick tests, this implementation about 3.5 times faster than the
+seriously weird Python linked from the official page.
+"""
+
 import re
-
-"""
-Reimplementation of the Porter stemming algorithm in Python.
-
-This is about 350% faster than the seriously flawed Python
-implementation at http://tartarus.org/~martin/PorterStemmer/
-
->>> stem("fundamentally")
-fundament
-"""
 
 # Suffix replacement lists
 
@@ -77,6 +76,13 @@ _step5 = re.compile("^(.+?)e$")
 # Stemming function
 
 def stem(w):
+    """Uses the Porter stemming algorithm to remove suffixes from English
+    words.
+    
+    >>> stem("fundamentally")
+    "fundament"
+    """
+    
     if len(w) < 3: return w
     
     first_is_y = w[0] == "y"

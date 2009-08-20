@@ -1,10 +1,11 @@
 import unittest
 
-from whoosh import fields, index, qparser, query, searching, scoring
+from whoosh import analysis, fields, formats, index, qparser, query, searching, scoring
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
+from whoosh.searching import Searcher
 
-class TestReading(unittest.TestCase):
+class TestSearching(unittest.TestCase):
     def make_index(self):
         s = fields.Schema(key = fields.ID(stored = True),
                           name = fields.TEXT,
@@ -45,44 +46,95 @@ class TestReading(unittest.TestCase):
         self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
         self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
     
-    def test_queries(self):
+    def _run_query(self, q, result):
         ix = self.make_index()
         s = ix.searcher()
+        self.assertEqual(self._docs(q, s), result)
         
-        tests = [
-                 (Term("name", u"yellow"),
-                  [u"A", u"E"]),
-                 (Term("value", u"red"),
-                  [u"A", u"D"]),
-                 (Term("value", u"zeta"),
-                  []),
-                 (Require(Term("value", u"red"), Term("name", u"yellow")),
-                  [u"A"]),
-                 (And([Term("value", u"red"), Term("name", u"yellow")]),
-                  [u"A"]),
-                 (Or([Term("value", u"red"), Term("name", u"yellow")]),
-                  [u"A", u"D", u"E"]),
-                 (Or([Term("value", u"red"), Term("name", u"yellow"), Not(Term("name", u"quick"))]),
-                  [u"A", u"E"]),
-                 (AndNot(Term("name", u"yellow"), Term("value", u"purple")),
-                  [u"E"]),
-                 (Variations("value", u"render"), [u"A", u"C", u"E"]),
-                 (Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
-                  [u"A", u"C", u"D", u"E"]),
-                ]
+    def test_term(self):
+        self._run_query(Term("name", u"yellow"), [u"A", u"E"])
+        self._run_query(Term("value", u"zeta"), [])
+        self._run_query(Term("value", u"red"), [u"A", u"D"])
         
-        for query, result in tests:
-            self.assertEqual(self._docs(query, s), result)
+    def test_require(self):
+        self._run_query(Require(Term("value", u"red"), Term("name", u"yellow")),
+                        [u"A"])
         
-        for wcls in dir(scoring):
-            if wcls is scoring.Weighting: continue
-            if isinstance(wcls, scoring.Weighting):
-                for query, result in tests:
-                    self.assertEqual(self._doc_scores(query, s, wcls), result)
+    def test_and(self):
+        self._run_query(And([Term("value", u"red"), Term("name", u"yellow")]),
+                        [u"A"])
         
-        for methodname in ("_docs", "_doc_scores"):
-            method = getattr(self, methodname)
-
+    def test_or(self):
+        self._run_query(Or([Term("value", u"red"), Term("name", u"yellow")]),
+                        [u"A", u"D", u"E"])
+        
+    def test_not(self):
+        self._run_query(Or([Term("value", u"red"), Term("name", u"yellow"), Not(Term("name", u"quick"))]),
+                        [u"A", u"E"])
+        
+    def test_andnot(self):
+        self._run_query(AndNot(Term("name", u"yellow"), Term("value", u"purple")),
+                        [u"E"])
+        
+    def test_variations(self):
+        self._run_query(Variations("value", u"render"), [u"A", u"C", u"E"])
+        
+    def test_wildcard(self):
+        self._run_query(Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
+                        [u"A", u"C", u"D", u"E"])
+    
+#        for wcls in dir(scoring):
+#            if wcls is scoring.Weighting: continue
+#            if isinstance(wcls, scoring.Weighting):
+#                for query, result in tests:
+#                    self.assertEqual(self._doc_scores(query, s, wcls), result)
+    
+    def test_range(self):
+        schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"A", content=u"alfa bravo charlie delta echo")
+        w.add_document(id=u"B", content=u"bravo charlie delta echo foxtrot")
+        w.add_document(id=u"C", content=u"charlie delta echo foxtrot golf")
+        w.add_document(id=u"D", content=u"delta echo foxtrot golf hotel")
+        w.add_document(id=u"E", content=u"echo foxtrot golf hotel india")
+        w.commit()
+        s = ix.searcher()
+        qp = qparser.QueryParser("content", schema=schema)
+        
+        q = qp.parse("charlie [delta TO foxtrot]")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(q[0].__class__.__name__, "Term")
+        self.assertEqual(q[1].__class__.__name__, "TermRange")
+        self.assertEqual(q[1].start, "delta")
+        self.assertEqual(q[1].end, "foxtrot")
+        self.assertEqual(q[1].startexcl, False)
+        self.assertEqual(q[1].endexcl, False)
+        ids = sorted([d['id'] for d in s.search(q)])
+        self.assertEqual(ids, [u'A', u'B', u'C'])
+        
+        q = qp.parse("foxtrot {echo TO hotel]")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(q[0].__class__.__name__, "Term")
+        self.assertEqual(q[1].__class__.__name__, "TermRange")
+        self.assertEqual(q[1].start, "echo")
+        self.assertEqual(q[1].end, "hotel")
+        self.assertEqual(q[1].startexcl, True)
+        self.assertEqual(q[1].endexcl, False)
+        ids = sorted([d['id'] for d in s.search(q)])
+        self.assertEqual(ids, [u'B', u'C', u'D', u'E'])
+        
+        q = qp.parse("{bravo TO delta}")
+        self.assertEqual(q.__class__.__name__, "TermRange")
+        self.assertEqual(q.start, "bravo")
+        self.assertEqual(q.end, "delta")
+        self.assertEqual(q.startexcl, True)
+        self.assertEqual(q.endexcl, True)
+        ids = sorted([d['id'] for d in s.search(q)])
+        self.assertEqual(ids, [u'A', u'B', u'C'])
+    
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
         st = RamStorage()
@@ -124,8 +176,87 @@ class TestReading(unittest.TestCase):
         self.assertNotEqual(results.score(0), 0)
         self.assertNotEqual(results.score(0), 1)
 
+    def test_posting_phrase(self):
+        schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        writer = ix.writer()
+        writer.add_document(name=u"A", value=u"Little Miss Muffet sat on a tuffet")
+        writer.add_document(name=u"B", value=u"Miss Little Muffet tuffet")
+        writer.add_document(name=u"C", value=u"Miss Little Muffet tuffet sat")
+        writer.add_document(name=u"D", value=u"Gibberish blonk falunk miss muffet sat tuffet garbonzo")
+        writer.add_document(name=u"E", value=u"Blah blah blah pancakes")
+        writer.commit()
+        
+        searcher = ix.searcher()
+        
+        def names(results):
+            return sorted([fields['name'] for fields in results])
+        
+        q = query.Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
+        sc = q.scorer(searcher)
+        self.assertEqual(sc.__class__.__name__, "PostingPhraseScorer")
+        
+        self.assertEqual(names(searcher.search(q)), ["A"])
+        
+        q = query.Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
+        self.assertEqual(names(searcher.search(q)), ["A", "D"])
+        
+        q = query.Phrase("value", [u"falunk", u"gibberish"])
+        self.assertEqual(names(searcher.search(q)), [])
+        
+        q = query.Phrase("value", [u"gibberish", u"falunk"], slop=2)
+        self.assertEqual(names(searcher.search(q)), ["D"])
+        
+        #q = query.Phrase("value", [u"blah"] * 4)
+        #self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
+        
+        q = query.Phrase("value", [u"blah"] * 3)
+        self.assertEqual(names(searcher.search(q)), ["E"])
+        
+    def test_vector_phrase(self):
+        ana = analysis.StandardAnalyzer()
+        ftype = fields.FieldType(formats.Frequency(ana), formats.Positions(ana), scorable=True)
+        schema = fields.Schema(name=fields.ID(stored=True), value=ftype)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        writer = ix.writer()
+        writer.add_document(name=u"A", value=u"Little Miss Muffet sat on a tuffet")
+        writer.add_document(name=u"B", value=u"Miss Little Muffet tuffet")
+        writer.add_document(name=u"C", value=u"Miss Little Muffet tuffet sat")
+        writer.add_document(name=u"D", value=u"Gibberish blonk falunk miss muffet sat tuffet garbonzo")
+        writer.add_document(name=u"E", value=u"Blah blah blah pancakes")
+        writer.commit()
+        
+        searcher = ix.searcher()
+        
+        def names(results):
+            return sorted([fields['name'] for fields in results])
+        
+        q = query.Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
+        sc = q.scorer(searcher)
+        self.assertEqual(sc.__class__.__name__, "VectorPhraseScorer")
+        
+        self.assertEqual(names(searcher.search(q)), ["A"])
+        
+        q = query.Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
+        self.assertEqual(names(searcher.search(q)), ["A", "D"])
+        
+        q = query.Phrase("value", [u"falunk", u"gibberish"])
+        self.assertEqual(names(searcher.search(q)), [])
+        
+        q = query.Phrase("value", [u"gibberish", u"falunk"], slop=2)
+        self.assertEqual(names(searcher.search(q)), ["D"])
+        
+        #q = query.Phrase("value", [u"blah"] * 4)
+        #self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
+        
+        q = query.Phrase("value", [u"blah"] * 3)
+        self.assertEqual(names(searcher.search(q)), ["E"])
+
     def test_missing_field_scoring(self):
-        schema = fields.Schema(name=fields.TEXT(stored=True), hobbies=fields.TEXT(stored=True))
+        schema = fields.Schema(name=fields.TEXT(stored=True),
+                               hobbies=fields.TEXT(stored=True))
         storage = RamStorage()
         idx = storage.create_index(schema)
         writer = idx.writer() 
@@ -141,31 +272,36 @@ class TestReading(unittest.TestCase):
         self.assertEqual(idx.segments[0].field_length(0), 2) # hobbies
         self.assertEqual(idx.segments[0].field_length(1), 2) # name
         
+        reader = idx.reader()
+        searcher = Searcher(reader)
         parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
-        searcher = idx.searcher()
-        result = searcher.search(parser.parse(u'baseball'))
+        q = parser.parse(u"baseball")
+        result = searcher.search(q)
         self.assertEqual(len(result), 1)
         
-    def test_prefix(self):
-        ix = self.make_index()
-        s = ix.searcher()
-        results = s.search(Prefix('value', u'r'))
-        keys = sorted(d["key"] for d in results)
-        self.assertEqual(keys, [u"A", u"C", u"D", u"E"])
+    def test_search_fieldname_underscores(self):
+        s = fields.Schema(my_name=fields.ID(stored=True), my_value=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(s)
         
-    def test_range(self):
-        ix = self.make_index()
+        w = ix.writer()
+        w.add_document(my_name=u"Green", my_value=u"It's not easy being green")
+        w.add_document(my_name=u"Red", my_value=u"Hopping mad like a playground ball")
+        w.commit()
+        
+        qp = qparser.QueryParser("my_value", schema=s)
         s = ix.searcher()
-        results = s.search(TermRange('key', u'B', u'D'))
-        keys = sorted(d["key"] for d in results)
-        self.assertEqual(keys, [u"B", u"C", u"D"])
+        r = s.search(qp.parse("my_name:Green"))
+        self.assertEqual(r[0]['my_name'], "Green")
+        s.close()
+        ix.close()
         
     def test_short_prefix(self):
         s = fields.Schema(name=fields.ID, value=fields.TEXT)
         qp = qparser.QueryParser("value", schema=s)
         q = qp.parse("s*")
         self.assertEqual(q.__class__.__name__, "Prefix")
-        self.assertEqual(q.text, "s")
+        self.assertEqual(q.text, "s") 
 
 
 if __name__ == '__main__':

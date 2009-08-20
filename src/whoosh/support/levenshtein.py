@@ -1,6 +1,9 @@
+"""
+Contains functions implementing the Levenshtein distance algorithm.
+"""
+
 def relative(a, b):
-    """
-    Computes a relative distance between two strings. Its in the range
+    """Returns the relative distance between two strings, in the range
     [0-1] where 1 means total equality.
     """
     d = distance(a,b)
@@ -10,6 +13,8 @@ def relative(a, b):
     return r
 
 def distance(s, t):
+    """Returns the Levenshtein edit distance between two strings."""
+    
     m, n = len(s), len(t)
     d = [range(n+1)]
     d += [[i] for i in range(1,m+1)]

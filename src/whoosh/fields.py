@@ -15,15 +15,15 @@
 #===============================================================================
 
 """
-This module contains functions and classes related to fields.
-
-
+Contains functions and classes related to fields.
 """
 
+import datetime
 import re
-from collections import defaultdict
 
-from whoosh.analysis import unstopped, IDAnalyzer, RegexAnalyzer, KeywordAnalyzer, StandardAnalyzer, NgramAnalyzer
+from whoosh.analysis import IDAnalyzer, RegexAnalyzer, KeywordAnalyzer
+from whoosh.analysis import StandardAnalyzer, NgramAnalyzer
+from whoosh.formats import Existence, Frequency, Positions
 
 # Exceptions
 
@@ -32,11 +32,12 @@ class FieldConfigurationError(Exception):
 class UnknownFieldError(Exception):
     pass
 
+
+
 # Field Types
 
 class FieldType(object):
-    """
-    Represents a field configuration.
+    """Represents a field configuration.
     
     The FieldType object supports the following attributes:
     
@@ -66,6 +67,7 @@ class FieldType(object):
     """
     
     format = vector = scorable = stored = unique = None
+    indexed = True
     
     def __init__(self, format, vector = None,
                  scorable = False, stored = False,
@@ -90,15 +92,28 @@ class FieldType(object):
                     (self.unique == other.unique)))
     
     def clean(self):
+        """Clears any cached information in the field and any child objects."""
+        
         if self.format and hasattr(self.format, "clean"):
             self.format.clean()
         if self.vector and hasattr(self.vector, "clean"):
             self.vector.clean()
-
+            
+    def index(self, value):
+        """Returns an iterator of (termtext, frequency, encoded_value) tuples.
+        """
+        
+        if not self.format:
+            raise Exception("%s field cannot index without a format" % self.__class__)
+        
+        if not isinstance(value, unicode):
+            raise ValueError("%r is not unicode" % value)
+        
+        return self.format.word_values(value)
+    
 
 class ID(FieldType):
-    """
-    Configured field type that indexes the entire value of the field as one
+    """Configured field type that indexes the entire value of the field as one
     token. This is useful for data you don't want to tokenize, such as the
     path of a file.
     """
@@ -133,15 +148,36 @@ class IDLIST(FieldType):
         self.unique = unique
 
 
+class DATETIME(FieldType):
+    def __init__(self, stored = True, unique = False):
+        """
+        :param stored: Whether the value of this field is stored with the document.
+        :param unique: Whether the value of this field is unique per-document.
+        """
+        
+        self.stored = stored
+        self.unique = unique
+        self.format = Existence()
+        
+    def index(self, dt):
+        if not isinstance(dt, datetime.datetime):
+            raise ValueError("Value of DATETIME field must be a datetime object: %r" % dt)
+        
+        text = dt.isoformat()
+        text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
+        return [(text, 1, '')]
+    
+
 class STORED(FieldType):
-    """
-    Configured field type for fields you want to store but not index.
+    """Configured field type for fields you want to store but not index.
     """
     
+    indexed = False
+    stored = True
+    
     def __init__(self):
-        self.format = Stored()
-        self.stored = True
-
+        pass
+    
 
 class KEYWORD(FieldType):
     """
@@ -167,8 +203,7 @@ class KEYWORD(FieldType):
 
 
 class TEXT(FieldType):
-    """
-    Configured field type for text fields (for example, the body text of an article). The
+    """Configured field type for text fields (for example, the body text of an article). The
     default is to store positional information to allow phrase searching. This field type
     is always scorable.
     """
@@ -200,8 +235,7 @@ class TEXT(FieldType):
 
 
 class NGRAM(FieldType):
-    """
-    Configured field that indexes text as N-grams. For example, with a field type
+    """Configured field that indexes text as N-grams. For example, with a field type
     NGRAM(3,4), the value "hello" will be indexed as tokens
     "hel", "hell", "ell", "ello", "llo".
     """
@@ -225,8 +259,7 @@ class NGRAM(FieldType):
 # Schema class
 
 class Schema(object):
-    """
-    Represents the collection of fields in an index. Maps field names to
+    """Represents the collection of fields in an index. Maps field names to
     FieldType objects which define the behavior of each field.
     
     Low-level parts of the index use field numbers instead of field names
@@ -341,8 +374,11 @@ class Schema(object):
         elif name in self._by_name:
             raise FieldConfigurationError("Schema already has a field named %s" % name)
         
-        if callable(fieldtype):
-            fieldtype = fieldtype()
+        if type(fieldtype) is type:
+            try:
+                fieldtype = fieldtype()
+            except Exception, e:
+                raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
         if not isinstance(fieldtype, FieldType):
             raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
         
@@ -372,7 +408,7 @@ class Schema(object):
         try:
             return self._numbers[name]
         except KeyError:
-            raise KeyError("No field named %s in %r" % (name, self._numbers.keys()))
+            raise KeyError("No field named %r in %r" % (name, self._numbers.keys()))
     
     def number_to_name(self, number):
         """Given a field number, returns the field's name.
@@ -417,490 +453,6 @@ class Schema(object):
             return field.format.analyzer
         
 
-# Format base class
-
-class Format(object):
-    """Abstract base class representing a storage format for a field or vector.
-    Format objects are responsible for writing and reading the low-level
-    representation of a field. It controls what kind/level of information
-    to store about the indexed fields.
-    """
-    
-    def __init__(self, analyzer, field_boost = 1.0, **options):
-        """
-        :param analyzer: The analysis.Analyzer object to use to index this field.
-            See the analysis module for more information. If this value
-            is None, the field is not indexed/searchable.
-        :param field_boost: A constant boost factor to scale to the score
-            of all queries matching terms in this field.
-        """
-        
-        self.analyzer = analyzer
-        self.field_boost = field_boost
-        self.options = options
-    
-    def __eq__(self, other):
-        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
-    
-    def __repr__(self):
-        return "%s(%r, boost = %s)" % (self.__class__.__name__,
-                                       self.analyzer, self.field_boost)
-    
-    def clean(self):
-        if self.analyzer:
-            self.analyzer.clean()
-    
-    def word_datas(self, value, **kwargs):
-        """Takes the text value to be indexed and yields a series of
-        ("tokentext", frequency, data) tuples, where frequency is the number
-        of times "tokentext" appeared in the value, and data is field-specific
-        posting data for the token. For example, in a Frequency format, data
-        would be the same as frequency; in a Positions format, data would be a
-        list of token positions at which "tokentext" occured.
-        
-        :param value: The unicode text to index.
-        """
-        raise NotImplementedError
-    
-    def write_postvalue(self, stream, data):
-        """Writes a posting to a filestream."""
-        raise NotImplementedError
-    
-    def read_postvalue(self, stream):
-        """Reads a posting from a filestream."""
-        raise NotImplementedError
-    
-    def read_weight(self, stream):
-        """Shortcut to read a posting from a filestream and return only the
-        weight, rather than all the data. This is equivalent to:
-        
-          self.data_to_weight(self.read_postvalue(stream))
-          
-        ..and in fact, that is the default implementation. However, subclassed
-        Formats can be more clever about skipping reads when all the caller
-        wants is the weight.
-        """
-        
-        return self.data_to_weight(self.read_postvalue(stream))
-    
-    def supports(self, name):
-        """Returns True if this format supports interpreting its posting
-        data as 'name' (e.g. "frequency" or "positions").
-        """
-        return hasattr(self, "data_to_" + name)
-    
-    def interpreter(self, name):
-        """Returns the bound method for interpreting data as 'name',
-        where 'name' is for example "frequency" or "positions". This
-        object must have a corresponding .data_to_<name>() method.
-        """
-        return getattr(self, "data_to_" + name)
-    
-    def data_to(self, data, name):
-        """Interprets the given data as 'name', where 'name' is for example
-        "frequency" or "positions". This object must have a corresponding
-        .data_to_<name>() method.
-        """
-        return self.interpreter(name)(data)
-    
-
-# Concrete field classes
-
-class Stored(Format):
-    """A field that's stored but not indexed."""
-    
-    analyzer = None
-    
-    def __init__(self, **options):
-        self.options = options
-        
-    def __repr__(self):
-        return "%s()" % self.__class__.__name__
-        
-
-class Existence(Format):
-    """Only indexes whether a given term occurred in
-    a given document; it does not store frequencies or positions.
-    This is useful for fields that should be searchable but not
-    scorable, such as file path.
-    """
-    
-    def __init__(self, analyzer, field_boost = 1.0, **options):
-        self.analyzer = analyzer
-        self.field_boost = field_boost
-        self.options = options
-    
-    def word_datas(self, value, **kwargs):
-        seen = set()
-        for t in unstopped(self.analyzer(value)):
-            seen.add(t.text)
-        
-        return ((w, 1, None) for w in seen)
-    
-    def write_postvalue(self, stream, data):
-        return 0
-    
-    def read_postvalue(self, stream):
-        return None
-    
-    def data_to_frequency(self, data):
-        return 1
-    
-    def data_to_weight(self, data):
-        return self.field_boost
-
-# Backwards compatibility for a stupid spelling mistake
-Existance = Existence
-
-
-class Frequency(Format):
-    """Stores frequency information for each posting.
-    """
-    
-    def __init__(self, analyzer, field_boost = 1.0, boost_as_freq = False, **options):
-        """
-        :param analyzer: The analysis.Analyzer object to use to index this field.
-            See the analysis module for more information. If this value
-            is None, the field is not indexed/searchable.
-        :param field_boost: A constant boost factor to scale to the score
-            of all queries matching terms in this field.
-        :param boost_as_freq: if True, take the integer value of each token's
-            boost attribute and use it as the token's frequency.
-        """
-        
-        self.analyzer = analyzer
-        self.field_boost = field_boost
-        self.boost_as_freq = boost_as_freq
-        self.options = options
-        
-    def word_datas(self, value, **kwargs):
-        seen = defaultdict(int)
-        if self.boost_as_freq:
-            for t in unstopped(self.analyzer(value, boosts = True)):
-                seen[t.text] += int(t.boost)
-        else:
-            for t in unstopped(self.analyzer(value)):
-                seen[t.text] += 1
-            
-        return ((w, freq, freq) for w, freq in seen.iteritems())
-
-    def write_postvalue(self, stream, data):
-        stream.write_varint(data)
-        
-        # Write_postvalue returns the term frequency, which is
-        # what the data is.
-        return data
-        
-    def read_postvalue(self, stream):
-        return stream.read_varint()
-    
-    def read_weight(self, stream):
-        return stream.read_varint() * self.field_boost
-    
-    def data_to_frequency(self, data):
-        return data
-    
-    def data_to_weight(self, data):
-        return data * self.field_boost
-    
-
-class DocBoosts(Frequency):
-    """A Field that stores frequency and per-document boost information
-    for each posting.
-    """
-    
-    def word_datas(self, value, doc_boost = 1.0, **kwargs):
-        seen = defaultdict(int)
-        for t in unstopped(self.analyzer(value)):
-            seen[t.text] += 1
-        
-        return ((w, freq, (freq, doc_boost)) for w, freq in seen.iteritems())
-    
-    def write_postvalue(self, stream, data):
-        stream.write_varint(data[0])
-        stream.write_8bitfloat(data[1])
-        return data[0]
-        
-    def read_postvalue(self, stream):
-        return (stream.read_varint(), stream.read_8bitfloat())
-    
-    def data_to_frequency(self, data):
-        return data[0]
-    
-    def data_to_weight(self, data):
-        return data[0] * data[1] * self.field_boost
-    
-
-# Vector formats
-
-class Positions(Format):
-    """A vector that stores position information in each posting, to
-    allow phrase searching and "near" queries.
-    """
-    
-    def word_datas(self, value, start_pos = 0, **kwargs):
-        seen = defaultdict(list)
-        for t in unstopped(self.analyzer(value, positions = True, start_pos = start_pos)):
-            seen[t.text].append(start_pos + t.pos)
-        
-        return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
-    
-    def write_postvalue(self, stream, data):
-        pos_base = 0
-        stream.write_varint(len(data))
-        
-        if len(data) > 10:
-            streampos = stream.tell()
-            stream.write_ulong(0)
-            postingstart = stream.tell()
-            
-        for pos in data:
-            stream.write_varint(pos - pos_base)
-            pos_base = pos
-            
-        if len(data) > 10:
-            postingend = stream.tell()
-            stream.seek(streampos)
-            stream.write_ulong(postingend - postingstart)
-            stream.seek(postingend)
-        
-        return len(data)
-    
-    def read_postvalue(self, stream):
-        pos_base = 0
-        pos_list = []
-        rv = stream.read_varint
-        freq = rv()
-        
-        if freq > 10:
-            stream.read_ulong()
-        
-        for _ in xrange(freq):
-            pos_base += rv()
-            pos_list.append(pos_base)
-        
-        return pos_list
-    
-    def read_weight(self, stream):
-        rv = stream.read_varint
-        freq = rv()
-        
-        if freq > 10:
-            length = stream.read_ulong()
-            stream.seek(length, 1)
-        else:
-            for _ in xrange(0, freq): rv()
-        
-        return freq * self.field_boost
-    
-    def data_to_frequency(self, data):
-        return len(data)
-    
-    def data_to_weight(self, data):
-        return len(data) * self.field_boost
-    
-    def data_to_positions(self, data):
-        return data
-    
-
-class Characters(Format):
-    """Stores token position and character start and end information
-    for each posting.
-    """
-    
-    def word_datas(self, value, start_pos = 0, start_char = 0, **kwargs):
-        seen = defaultdict(list)
-        
-        for t in unstopped(self.analyzer(value, positions = True, chars = True,
-                                         start_pos = start_pos, start_char = start_char)):
-            seen[t.text].append((t.pos, start_char + t.startchar, start_char + t.endchar))
-        
-        return ((w, len(ls), ls) for w, ls in seen.iteritems())
-    
-    def write_postvalue(self, stream, data):
-        pos_base = 0
-        char_base = 0
-        stream.write_varint(len(data))
-        
-        if len(data) > 10:
-            streampos = stream.tell()
-            stream.write_ulong(0)
-            postingstart = stream.tell()
-        
-        for pos, startchar, endchar in data:
-            stream.write_varint(pos - pos_base)
-            pos_base = pos
-            
-            stream.write_varint(startchar - char_base)
-            stream.write_varint(endchar - startchar)
-            char_base = endchar
-            
-        if len(data) > 10:
-            postingend = stream.tell()
-            stream.seek(streampos)
-            stream.write_ulong(postingend - postingstart)
-            stream.seek(postingend)
-        
-        return len(data)
-    
-    def read_postvalue(self, stream):
-        pos_base = 0
-        char_base = 0
-        ls = []
-        freq = stream.read_varint()
-        
-        if freq > 10:
-            stream.read_ulong()
-        
-        for i in xrange(freq): #@UnusedVariable
-            pos_base += stream.read_varint()
-            
-            char_base += stream.read_varint()
-            startchar = char_base
-            char_base += stream.read_varint() # End char
-            
-            ls.append((pos_base, startchar, char_base))
-        
-        return ls
-    
-    def read_weight(self, stream):
-        rv = stream.read_varint
-        freq = rv()
-        
-        if freq > 10:
-            length = stream.read_ulong()
-            stream.seek(length, 1)
-        else:
-            for _ in xrange(0, freq): rv()
-        
-        return freq * self.field_boost
-    
-    def data_to_frequency(self, data):
-        return len(data)
-    
-    def data_to_weight(self, data):
-        return len(data) * self.field_boost
-    
-    def data_to_positions(self, data):
-        return (pos for pos, _, _ in data)
-    
-    def data_to_characters(self, data):
-        return ((sc, ec) for _, sc, ec in data)
-
-
-class PositionBoosts(Format):
-    """A format that stores positions and per-position boost information
-    in each posting.
-    """
-    
-    def word_datas(self, value, start_pos = 0, **kwargs):
-        seen = defaultdict(iter)
-        for t in unstopped(self.analyzer(value, positions = True, boosts = True,
-                                         start_pos = start_pos)):
-            pos = t.pos
-            boost = t.boost
-            seen[t.text].append((pos, boost))
-        
-        return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
-    
-    def write_postvalue(self, stream, data):
-        pos_base = 0
-        stream.write_varint(len(data))
-        for pos, boost in data:
-            stream.write_varint(pos - pos_base)
-            stream.write_8bitfloat(boost)
-            pos_base = pos
-        return len(data)
-
-    def read_postvalue(self, stream):
-        freq = stream.read_varint()
-        pos_base = 0
-        pos_list = []
-        for _ in xrange(freq):
-            pos_base += stream.read_varint()
-            pos_list.append((pos_base, stream.read_8bitfloat()))
-        return (freq, pos_list)
-
-    def data_to_frequency(self, data):
-        return len(data)
-    
-    def data_to_weight(self, data):
-        return sum(d[1] for d in data) * self.field_boost
-
-    def data_to_positions(self, data):
-        return [d[0] for d in data]
-
-    def data_to_position_boosts(self, data):
-        return data
-    
-
-class CharacterBoosts(Format):
-    """A format that stores positions, character start and end, and
-    per-position boost information in each posting.
-    """
-    
-    def word_datas(self, value, start_pos = 0, start_char = 0, **kwargs):
-        seen = defaultdict(iter)
-        for t in unstopped(self.analyzer(value, positions = True, characters = True,
-                                         boosts = True,
-                                         start_pos = start_pos, start_char = start_char)):
-            seen[t.text].append((t.pos,
-                                 start_char + t.startchar, start_char + t.endchar,
-                                 t.boost))
-        
-        return ((w, len(poslist), poslist) for w, poslist in seen.iteritems())
-    
-    def write_postvalue(self, stream, data):
-        pos_base = 0
-        char_base = 0
-        stream.write_varint(len(data))
-        for pos, startchar, endchar, boost in data:
-            stream.write_varint(pos - pos_base)
-            pos_base = pos
-            
-            stream.write_varint(startchar - char_base)
-            stream.write_varint(endchar - startchar)
-            char_base = endchar
-            
-            stream.write_8bitfloat(boost)
-        
-        return len(data)
-
-    def read_postvalue(self, stream):
-        pos_base = 0
-        char_base = 0
-        ls = []
-        for _ in xrange(stream.read_varint()):
-            pos_base += stream.read_varint()
-            
-            char_base += stream.read_varint()
-            startchar = char_base
-            char_base += stream.read_varint() # End char
-            boost = stream.read_8bitfloat()
-            
-            ls.append((pos_base, startchar, char_base, boost))
-        
-        return ls
-
-    def data_to_frequency(self, data):
-        return len(data)
-    
-    def data_to_weight(self, data):
-        return sum(d[3] for d in data) * self.field_boost
-
-    def data_to_positions(self, data):
-        return [d[0] for d in data]
-
-    def data_to_position_boosts(self, data):
-        return [(pos, boost) for pos, _, _, boost in data]
-
-    def data_to_character_boosts(self, data):
-        return data
-
-
-
-if __name__ == '__main__':
-    pass
     
     
     

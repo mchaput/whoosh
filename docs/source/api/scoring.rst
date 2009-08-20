@@ -1,6 +1,6 @@
-==============
-scoring module
-==============
+==================
+``scoring`` module
+==================
 
 .. automodule:: whoosh.scoring
 

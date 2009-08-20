@@ -199,7 +199,7 @@ class StructFile(object):
     def write_float(self, n):
         self.file.write(pack_float(n))
     def write_array(self, arry):
-        a = pack("!" + arry.typecode * len(arry), *arry)
+        a = Struct("!" + arry.typecode * len(arry)).pack(*arry)
         self.file.write(a)
     
     def read_sbyte(self):
@@ -215,8 +215,8 @@ class StructFile(object):
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
     def read_array(self, typecode, length):
-        return unpack("!" + typecode * length,
-                      self.file.read(_SIZEMAP[typecode] * length))
+        packed = self.file.read(_SIZEMAP[typecode] * length)
+        return Struct("!" + typecode * length).unpack(packed)
     
     def get_sbyte(self, position):
         return unpack_sbyte(self.map[position:position+1])[0]

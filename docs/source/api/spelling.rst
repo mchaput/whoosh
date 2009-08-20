@@ -1,6 +1,6 @@
-===============
-spelling module
-===============
+===================
+``spelling`` module
+===================
 
 See :doc:`how to use the Whoosh spell checker <../spelling>`.
 

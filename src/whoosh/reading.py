@@ -24,6 +24,7 @@ from threading import Lock
 
 from whoosh.fields import FieldConfigurationError, UnknownFieldError
 from whoosh.util import ClosableMixin
+from whoosh.postings import MultiPostingReader
 
 # Exceptions
 
@@ -31,24 +32,41 @@ class TermNotFound(Exception):
     pass
 
 
-# Base classes
+# Base class
 
-class DocReader(ClosableMixin):
-    """Do not instantiate this object directly. Instead use Index.doc_reader().
+class IndexReader(ClosableMixin):
+    """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def __getitem__(self, docnum):
+    def __contains__(self, term):
+        """Returns True if the given term tuple (fieldid, text) is
+        in this reader.
+        """
+        raise NotImplementedError
+
+    def close(self):
+        """Closes the open files associated with this reader.
+        """
+        raise NotImplementedError
+
+    def has_deletions(self):
+        """Returns True if the underlying index/segment has deleted
+        documents.
+        """
+        raise NotImplementedError
+
+    def is_deleted(self, docnum):
+        """Returns True if the given document number is marked deleted.
+        """
+        raise NotImplementedError
+
+    def stored_fields(self, docnum):
         """Returns the stored fields for the given document number.
         """
         raise NotImplementedError
-    
-    def __iter__(self):
+
+    def all_stored_fields(self):
         """Yields the stored fields for all documents.
-        """
-        raise NotImplementedError
-    
-    def close(self):
-        """Closes the open files associated with this reader.
         """
         raise NotImplementedError
     
@@ -63,6 +81,14 @@ class DocReader(ClosableMixin):
         """
         raise NotImplementedError
     
+    def scorable(self, fieldid):
+        """Returns true if the given field stores field lengths.
+        """
+        return self.schema[fieldid].scorable
+    
+    def fieldname_to_num(self, fieldname):
+        return self.schema.name_to_number(fieldname)
+    
     def field_length(self, fieldid):
         """Returns the total number of terms in the given field. This is used
         by some scoring algorithms.
@@ -74,7 +100,7 @@ class DocReader(ClosableMixin):
         given document. This is used by some scoring algorithms.
         """
         raise NotImplementedError
-    
+
     def doc_field_lengths(self, docnum):
         """Returns an array corresponding to the lengths of the
         scorable fields in the given document. It's up to the
@@ -83,54 +109,67 @@ class DocReader(ClosableMixin):
         """
         raise NotImplementedError
     
-    def vector_format(self, fieldid):
-        """Returns the vector format object associated with the given
-        field, or None if the field does not store term vectors.
+    def has_vector(self, docnum, fieldid):
+        """Returns True if the given document has a term vector for
+        the given field.
         """
-        return self.schema[fieldid].vector
-    
-    def vector_supports(self, fieldid, astype):
-        """Returns True if the vector format for the given field supports
-        the given data interpretation.
-        
-        :param astype: a string containing the name of the format you
-            want to check the vector supports, for example "weights".
-        """
-        format = self.vector_format(fieldid)
-        if format is None: return False
-        return format.supports(astype)
-    
-    def vector(self, docnum, fieldid):
         raise NotImplementedError
     
-    def vector_as(self, docnum, fieldid, astype):
-        """Yields a sequence of interpreted (text, data) tuples
-        representing the term vector for the given document and
-        field.
+    def postings(self, fieldid, text, exclude_docs = None):
+        """Returns a :class:`~whoosh.postings.PostingReader` for the postings
+        of the given term.
         
+        >>> pr = searcher.postings("content", "render")
+        >>> pr.skip_to(10)
+        >>> pr.id
+        12
+        
+        :param fieldid: the field name or field number of the term.
+        :param text: the text of the term.
+        :exclude_docs: an optional BitVector of documents to exclude from the
+            results, or None to not exclude any documents.
+        :rtype: :class:`whoosh.postings.PostingReader`
+        """
+        
+        raise NotImplementedError
+    
+    def vector(self, docnum, fieldid):
+        """Returns a :class:`~whoosh.postings.PostingReader` object for the given
+        term vector.
+        
+        >>> docnum = searcher.document_number(path=u'/a/b/c')
+        >>> v = searcher.vector(docnum, "content")
+        >>> v.all_as("frequency")
+        [(u"apple", 3), (u"bear", 2), (u"cab", 2)]
+        
+        :param docnum: the document number of the document for which you want
+            the term vector.
+        :param fieldid: the field name or field number of the field for which
+            you want the term vector.
+        :rtype: :class:`whoosh.postings.PostingReader`
+        """
+        raise NotImplementedError
+    
+    def vector_as(self, astype, docnum, fieldid):
+        """Returns an iterator of (termtext, value) pairs for the terms in the
+        given term vector. This is a convenient shortcut to calling vector()
+        and using the PostingReader object when all you want are the terms
+        and/or values.
+        
+        >>> docnum = searcher.document_number(path=u'/a/b/c')
+        >>> searcher.vector_as("frequency", docnum, "content")
+        [(u"apple", 3), (u"bear", 2), (u"cab", 2)]
+        
+        :param docnum: the document number of the document for which you want
+            the term vector.
+        :param fieldid: the field name or field number of the field for which
+            you want the term vector.
         :param astype: a string containing the name of the format you
             want the term vector's data in, for example "weights".
         """
-        raise NotImplementedError
-    
-
-class TermReader(ClosableMixin):
-    def __iter__(self):
-        """Yields (fieldnum, token, docfreq, indexfreq) tuples for
-        each term in the reader, in lexical order.
-        """
-        raise NotImplementedError
-    
-    def __contains__(self, term):
-        """Returns True if the given term tuple (fieldid, text) is
-        in this reader.
-        """
-        raise NotImplementedError
-    
-    def close(self):
-        """Closes the open files associated with this reader.
-        """
-        raise NotImplementedError
+        
+        vec = self.vector(docnum, fieldid)
+        return vec.all_as(astype)
     
     def format(self, fieldid):
         """Returns the Format object corresponding to the given field name.
@@ -140,9 +179,14 @@ class TermReader(ClosableMixin):
         else:
             raise UnknownFieldError(fieldid)
     
+    def __iter__(self):
+        """Yields (fieldnum, text, docfreq, indexfreq) tuples for
+        each term in the reader, in lexical order.
+        """
+        raise NotImplementedError
+    
     def doc_frequency(self, fieldid, text):
-        """Returns the document frequency of the given term (that is,
-        how many documents the term appears in).
+        """Returns how many documents the given term appears in.
         """
         raise NotImplementedError
     
@@ -152,13 +196,7 @@ class TermReader(ClosableMixin):
         """
         raise NotImplementedError
     
-    def doc_count_all(self):
-        """Returns the total number of documents, DELETED OR UNDELETED,
-        in this reader.
-        """
-        raise NotImplementedError
-    
-    def iter_from(self, fieldnum, text):
+    def terms_from(self, fieldnum, text):
         """Yields (field_num, text, doc_freq, index_freq) tuples
         for all terms in the reader, starting at the given term.
         """
@@ -228,124 +266,72 @@ class TermReader(ClosableMixin):
         for t, _, _ in self.iter_field(fieldid):
             yield t
     
-    def postings(self, fieldid, text):
-        raise NotImplementedError
-    
-    def postings_as(self, fieldid, text, astype, exclude_docs = None):
-        """Yields interpreted data for each document containing
-        the given term. The current field must have stored positions
-        for this to work.
-        
-        :param astype:
-            how to interpret the posting data, for example
-            "positions". The field must support the interpretation.
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        :param boost: a factor by which to multiply each weight.
-        """
-        
-        format = self.schema[fieldid].format
-        if not format.supports(astype):
-            raise FieldConfigurationError("Field %s format does not support %r" % (self.schema.to_name(fieldid),
-                                                                                   astype))
-        
-        interp = format.interpreter(astype)
-        for docnum, data in self.postings(fieldid, text, exclude_docs = exclude_docs):
-            yield (docnum, interp(data))
-    
-    def weights(self, fieldid, text, exclude_docs = None):
-        """
-        Yields (docnum, term_weight) tuples for each document containing
-        the given term. The current field must have stored term weights
-        for this to work.
-        
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        """
-        
-        return self.postings_as(fieldid, text, "weight", exclude_docs = exclude_docs)
-    
-    def positions(self, fieldid, text, exclude_docs = None):
-        """Yields (docnum, [positions]) tuples for each document containing
-        the given term. The current field must have stored positions
-        for this to work.
-        
-        :param exclude_docs:
-            a set of document numbers to ignore. This
-            is used by queries to skip documents that have already been
-            eliminated from consideration.
-        :param boost: a factor by which to multiply each weight.
-        """
-        
-        return self.postings_as(fieldid, text, "positions", exclude_docs = exclude_docs)
 
+# Multisegment reader class
 
-# Multisegment reader classes
-
-class MultiDocReader(DocReader):
-    """
-    Do not instantiate this object directly. Instead use Index.doc_reader().
-    
-    Reads document-related information by aggregating the results from
-    multiple segments. The main interface is to either iterate on this
-    object to yield the document stored fields, or use getitem (e.g. docreader[10])
-    to get the stored fields for a specific document number.
-    
-    Each MultiDocReader represents (number of segments * 2) open files.
-    Be sure to close() the reader when you're finished with it.
+class MultiReader(IndexReader):
+    """Do not instantiate this object directly. Instead use Index.reader().
     """
     
-    def __init__(self, doc_readers, doc_offsets, schema):
-        self.doc_readers = doc_readers
+    def __init__(self, readers, doc_offsets, schema):
+        self.readers = readers
         self.doc_offsets = doc_offsets
         self.schema = schema
         self._scorable_fields = self.schema.scorable_fields()
         
         self.is_closed = False
-        self._sync_lock = Lock()
-        
-    def __getitem__(self, docnum):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].__getitem__(segmentdoc)
+    
+    def __contains__(self, term):
+        return any(r.__contains__(term) for r in self.readers)
     
     def __iter__(self):
-        for reader in self.doc_readers:
-            for result in reader:
+        return self._merge_iters([iter(r) for r in self.readers])
+    
+    def has_deletions(self):
+        return any(r.has_deletions() for r in self.readers)
+    
+    def is_deleted(self):
+        segmentnum, segmentdoc = self._segment_and_doc
+        return self.readers[segmentnum].is_deleted(segmentdoc)
+    
+    def stored_fields(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].stored_fields(segmentdoc)
+    
+    def all_stored_fields(self):
+        for reader in self.readers:
+            for result in reader.all_stored_fields():
                 yield result
     
     def close(self):
         """Closes the open files associated with this reader.
         """
         
-        for d in self.doc_readers:
+        for d in self.readers:
             d.close()
         self.is_closed = True
     
     def doc_count_all(self):
-        return sum(dr.doc_count_all() for dr in self.doc_readers)
+        return sum(dr.doc_count_all() for dr in self.readers)
     
     def doc_count(self):
-        return sum(dr.doc_count() for dr in self.doc_readers)
+        return sum(dr.doc_count() for dr in self.readers)
     
     def field_length(self, fieldnum):
-        return sum(dr.field_length(fieldnum) for dr in self.doc_readers)
+        return sum(dr.field_length(fieldnum) for dr in self.readers)
     
     def doc_field_length(self, docnum, fieldid):
         fieldid = self.schema.to_number(fieldid)
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].doc_field_length(segmentdoc, fieldid)
+        return self.readers[segmentnum].doc_field_length(segmentdoc, fieldid)
     
     def doc_field_lengths(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].doc_field_lengths(segmentdoc)
+        return self.readers[segmentnum].doc_field_lengths(segmentdoc)
     
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].unique_count(segmentdoc)
+        return self.readers[segmentnum].unique_count(segmentdoc)
     
     def _document_segment(self, docnum):
         return max(0, bisect_right(self.doc_offsets, docnum) - 1)
@@ -355,63 +341,36 @@ class MultiDocReader(DocReader):
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
     
+    def has_vector(self, docnum, fieldid):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].has_vector(segmentdoc, fieldid)
+    
+    def postings(self, fieldid, text, exclude_docs = None):
+        return MultiPostingReader([r.postings(fieldid, text, exclude_docs=exclude_docs)
+                                   for r in self.readers],
+                                  self.doc_offsets)
+    
     def vector(self, docnum, fieldid):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum].vector(segmentdoc, fieldid)
+        return self.readers[segmentnum].vector(segmentdoc, fieldid)
     
-    def _doc_info(self, docnum, key):
+    def vector_as(self, astype, docnum, fieldid):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.doc_readers[segmentnum]._doc_info(segmentdoc, key)
-    
-
-class MultiTermReader(TermReader):
-    """Do not instantiate this object directly. Instead use Index.term_reader().
-    
-    Reads term information by aggregating the results from
-    multiple segments.
-    
-    Each MultiTermReader represents (number of segments * 2) open files.
-    Be sure to close() the reader when you're finished with it.
-    """
-    
-    def __init__(self, term_readers, doc_offsets, schema):
-        self.term_readers = term_readers
-        self.doc_offsets = doc_offsets
-        self.schema = schema
-        
-        self.is_closed = False
-        self._sync_lock = Lock()
-    
-    def __contains__(self, term):
-        return any(tr.__contains__(term) for tr in self.term_readers)
-    
-    def __iter__(self):
-        return self._merge_iters([iter(r) for r in self.term_readers])
+        return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldid)
     
     def iter_from(self, fieldnum, text):
-        return self._merge_iters([r.iter_from(fieldnum, text) for r in self.term_readers])
-    
-    def close(self):
-        for tr in self.term_readers:
-            tr.close()
-        self.is_closed = True
+        return self._merge_iters([r.iter_from(fieldnum, text) for r in self.readers])
     
     def doc_frequency(self, fieldnum, text):
-        if (fieldnum, text) not in self:
-            return 0
-        
-        return sum(r.doc_frequency(fieldnum, text) for r in self.term_readers)
+        return sum(r.doc_frequency(fieldnum, text) for r in self.readers)
     
     def frequency(self, fieldnum, text):
-        if (fieldnum, text) not in self:
-            return 0
-        
-        return sum(r.frequency(fieldnum, text) for r in self.term_readers)
+        return sum(r.frequency(fieldnum, text) for r in self.readers)
     
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of
-        # term iterators (TermReader.__iter__() or
-        # TermReader.iter_from()).
+        # term iterators (IndexReader.__iter__() or
+        # IndexReader.iter_from()).
         
         # Fill in the list with the head term from each iterator.
         # infos is a list of [headterm, iterator] lists.
@@ -430,8 +389,7 @@ class MultiTermReader(TermReader):
             docfreq = 0
             termcount = 0
             
-            # Add together all terms matching the first
-            # term in the list.
+            # Add together all terms matching the first term in the list.
             while current and current[0][0] == fnum and current[0][1] == text:
                 docfreq += current[0][2]
                 termcount += current[0][3]
@@ -443,22 +401,14 @@ class MultiTermReader(TermReader):
                     heappop(current)
                     active -= 1
                 
-            # Yield the term with the summed frequency and
-            # term count.
+            # Yield the term with the summed doc frequency and term count.
             yield (fnum, text, docfreq, termcount)
     
-    def postings(self, fieldnum, text, exclude_docs = None):
-        for i, r in enumerate(self.term_readers):
-            offset = self.doc_offsets[i]
-            if (fieldnum, text) in r:
-                for docnum, data in r.postings(fieldnum, text, exclude_docs = exclude_docs):
-                    yield (docnum + offset, data)
+    
                     
 
 
 
-if __name__ == '__main__':
-    pass
 
 
 

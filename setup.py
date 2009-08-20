@@ -4,11 +4,11 @@ import os.path, sys
 from setuptools import setup, find_packages
 
 sys.path.insert(0, os.path.abspath("src"))
-from whoosh import __version__
+from whoosh import __version__, versionstring
 
 setup(
 	name = "Whoosh",
-	version = ".".join(str(n) for n in __version__),
+	version = versionstring(),
 	package_dir = {'': 'src'},
 	packages = ["whoosh", "whoosh.filedb", "whoosh.lang", "whoosh.support"],
 	

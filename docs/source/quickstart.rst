@@ -2,48 +2,104 @@
 Quick start
 ===========
 
-Whoosh is a library of classes and functions for indexing text and then searching the index. It allows you to develop custom search engines for your content. For example, if you were creating blogging software, you could use Whoosh to add a search function to allow users to search blog entries.
+Whoosh is a library of classes and functions for indexing text and then searching the index.
+It allows you to develop custom search engines for your content. For example, if you were
+creating blogging software, you could use Whoosh to add a search function to allow users to
+search blog entries.
 
-Background concepts
-===================
 
-To understand Whoosh, there are a few important terms and concepts:
+A quick introduction
+====================
 
-Documents
-    The individual pieces of content you want to make searchable. The word "documents" might imply files, but the data source could really be anything -- articles in a content management system, blog posts in a blogging system, chunks of a very large file, rows returned from an SQL query, individual email messages from a mailbox file, or whatever. When you get search results from Whoosh, the results are a list of documents, whatever "documents" means in your search engine.
+The following code should give you some of the flavor of Whoosh. It uses 
+
+>>> from whoosh.index import create_in
+>>> from whoosh.fields import *
+>>> schema = Schema(title=TEXT(stored=True), path=ID(stored=True), content=TEXT)
+>>> ix = create_in("indexdir", schema)
+>>> writer = ix.writer()
+>>> writer.add_document(title=u"First document", path=u"/a",
+...                     content=u"This is the first document we've added!")
+>>> writer.add_document(title=u"Second document", path=u"/b",
+...                     content=u"The second one is even more interesting!")
+>>> writer.commit()
+>>> searcher = ix.searcher()
+>>> results = searcher.find("first")
+>>> results[0]
+{"title": u"First document", "path": u"/a"}
+
+
+Creating an index
+=================
+
+At a high level, to begin using Whoosh you need an *index object*. The first
+time you create an index, you must define the index's *schema*. For example,
+this schema has two fields, "title" and "content"::
+
+	from whoosh.fields import Schema, TEXT
+	
+	schema = Schema(title=TEXT, content=TEXT)
+
+A Schema object defines the fields that are indexed for each document, and
+how/whether the content of the fields is indexed. You only need to do create
+the schema once, when you create the index. The schema is pickled and stored with
+the index.
+
+When you create the Schema object, you use keyword arguments to map field names
+to field types. The list of fields and their types defines what you are indexing and
+what's searchable. Whoosh comes with some very useful predefined field types, and you
+can easily create your own.
+
+:class:`whoosh.fields.ID`
+    This type simply indexes (and optionally stores) the entire value of the field as a
+    single unit (that is, it doesn't break it up into individual words). This is useful
+    for fields such as a file path, URL, date, category, etc.
     
-Fields
-    Each document contains a set of fields. Typical fields might be "title", "content", "url", "keywords", "status", "date", etc. Fields can be indexed (so they're searchable) and/or stored with the document. Storing the field makes it available in search results. For example, you typically want to store the "title" field so your search results can display it.
+:class:`whoosh.fields.STORED`
+    This field is stored with the document, but not indexed. This field type is not
+    indexed and not searchable. This is useful for document information you want to
+    display to the user in the search results.
     
-Corpus
-    The set of documents you are indexing.
+:class:`whoosh.fields.KEYWORD`
+    This type is designed for space- or comma-separated keywords. This type is indexed
+    and searchable (and optionally stored). To save space, it does not support phrase
+    searching.
     
-Indexing
-    This is the heart of how a search engine works. Whoosh creates a reverse index, which is basically a table listing every word in the corpus, and for each word, the list of documents in which it appears. It can be more complicated (the index can also list how many times the word appears in each document, the positions at which it appears, etc.) but that's how it basically works.
-    
-Analysis
-    The process of breaking the text of a field into individual words (called "terms") to be indexed. This consists of tokenizing the text into terms, and then optionally filtering the tokenized terms (for example, lowercasing and removing stop words). Whoosh includes several different analyzers.
-    
-Pluggable components
-    Like its ancestor Lucene, Whoosh is not really a search engine, it's a toolkit for creating a search engine. Practically no important behavior of Whoosh is hard-coded. Indexing of text, the level of information stored for each term in each field, parsing of search queries, the types of queries allowed, scoring algorithms, etc. are all customizable, replaceable, and extensible. In this quick start we'll generally use defaults and predefined object, but keep in mind that these are just defaults. Everything is flexible.
+:class:`whoosh.fields.TEXT`
+    This type is for body text. It indexes (and optionally stores) the text and stores
+    term positions to allow phrase searching.
 
-All indexed text is Unicode
-    Anything to do with indexed text in Whoosh must be unicode.
+:class:`whoosh.fields.NGRAM`
+    TODO
 
-Setting up
-==========
+(As a shortcut, if you don't need to pass any arguments to the field type, you can just
+give the class name and Whoosh will instantiate the object for you.) ::
 
-To start using Whoosh, you must create an index.
+    from whoosh.fields import Schema, STORED, ID, KEYWORD, TEXT
 
-At a low level, there are basically steps involved:
+    schema = Schema(title=TEXT(stored=True), content=TEXT,
+                    path=ID(stored=True), tags=KEYWORD, icon=STORED)
 
-* Create a Storage object for the index. In the common case of storing the index in a directory, there a convenience functions to do this for you.
+See :doc:`schema` for more information.
 
-* Create a Schema object defining the fields that are indexed for each document. You only need to do this once when you create the index. The schema is pickled and stored with the index.
+Once you have the schema, you can create an index using the ``create_index_in``
+function::
 
-* Create an Index object representing the index, using the store and the schema.
+	import os.path
+	from whoosh.index import create_index_in
+	
+	if not os.path.exists("index"):
+        os.mkdir("index")
+	index = create_index_in("index", schema)
 
-A Storage object represents that medium in which the index will be stored. Usually this will be ``FileStorage``, which stores the index as a set of files in a directory. There is also ``RamStorage``, which simply keeps the index in memory. Future versions of Whoosh may include other storage options. ::
+At a low level, this involves creating a *storage* object to contain the index.
+A Storage object represents that medium in which the index will be stored. Usually this
+will be ``FileStorage``, which stores the index as a set of files in a directory.
+Whoosh includes a few other experimental storage backends. Future versions may include
+additional options, such as a SQL backend.
+
+Here's how you would create the index using a storage object directly instead of
+the ``create_index_in`` convenience function::
 
     import os, os.path
     from whoosh.filedb.filestore import FileStorage
@@ -52,58 +108,34 @@ A Storage object represents that medium in which the index will be stored. Usual
         os.mkdir("index")
 
     storage = FileStorage("index")
+    index = storage.create_index(schema)
 
-The Schema is a very important object that defines the fields which will be stored and/or indexed. When you create the Schema object, you use keyword arguments to map field names to field types. The list of fields and their types defines what you are indexing and what's searchable. Whoosh comes with some very useful predefined field types, and you can easily create your own.
 
-:class:`whoosh.fields.ID`
-    This type simply indexes (and optionally stores) the entire value of the field as a single unit (that is, it doesn't break it up into individual words). This is useful for fields such as a file path, URL, date, category, etc.
-    
-:class:`whoosh.fields.STORED`
-    This field is stored with the document, but not indexed. This field type is not indexed and not searchable. This is useful for document information you want to display to the user in the search results.
-    
-:class:`whoosh.fields.KEYWORD`
-    This type is designed for space- or comma-separated keywords. This type is indexed and searchable (and optionally stored). To save space, it does not support phrase searching.
-    
-:class:`whoosh.fields.TEXT`
-    This type is for body text. It indexes (and optionally stores) the text and stores term positions to allow phrase searching.
-    
-:class:`whoosh.fields.NGRAM`
-    TODO
+Opening an index
+================
 
-(As a shortcut, if you don't need to pass any arguments to the field type, you can just give the class name and Whoosh will instantiate the object for you.) ::
+After you've created an index, you can open it using the ``open_dir`` convenience
+function::
 
-    from whoosh.fields import Schema, STORED, ID, KEYWORD, TEXT
+	from whoosh.index import open_dir
+	
+	index = open_dir("index")
+	
+Or, using a storage object::
 
-    schema = Schema(title=TEXT(stored=True), content=TEXT,
-                    path=ID(stored=True), tags=KEYWORD, icon=STORED)
-
-Once you have the Storage and Schema objects, you can create the Index object::
-
-    ix = storage.create_index(schema)
-    
-To open an existing index::
-
-	ix = storage.open_index()
-
-Since you'll usually be using the FileStorage class for the index storage, there are couple of convenience functions that let you skip some of the above steps:
-
-``index.create_in`` creates an index in a given directory using a supplied schema::
-
-    import whoosh.index as index
-
-    ix = index.create_in("index_dir1", schema)
-    
-``index.open_dir`` takes a directory name as an argument and returns an Index object::
-
-    import whoosh.index as index
-
-    ix = index.open_dir("index_dir1")
+	from whoosh.filedb.filestore import FileStorage
+	
+	storage = FileStorage("index")
+	index = storage.open_index()
 
 
 Indexing documents
 ==================
 
-OK, so we've got an Index object, now we can start adding documents. The writer() method of the Index object returns an ``IndexWriter`` object that lets you add documents to the index. The IndexWriter's ``add_document(**kwargs)`` method accepts keyword arguments where the field name is mapped to a value::
+OK, so we've got an Index object, now we can start adding documents. The writer() method
+of the Index object returns an ``IndexWriter`` object that lets you add documents to
+the index. The IndexWriter's ``add_document(**kwargs)`` method accepts keyword arguments
+where the field name is mapped to a value::
 
     writer = ix.writer()
     writer.add_document(title=u"My document", content=u"This is my document!",
@@ -116,48 +148,83 @@ OK, so we've got an Index object, now we can start adding documents. The writer(
 
 Two important notes:
 
-* You don't have to fill in a value for every field. Whoosh doesn't care if you leave out a field from a document.
+* You don't have to fill in a value for every field. Whoosh doesn't care if you leave
+  out a field from a document.
 
-* Indexed fields must be passed a unicode value. Fields that are stored but not indexed (STORED field type) can be passed any pickle-able object.
+* Indexed fields must be passed a unicode value. Fields that are stored but not
+  indexed (STORED field type) can be passed any pickle-able object.
 
-If you have a field that is both indexed and stored, you can even index a unicode value but store a different object if necessary (it's usually not, but sometimes this is really useful) using this trick::
+If you have a field that is both indexed and stored, you can even index a unicode
+value but store a different object if necessary (it's usually not, but sometimes
+this is really useful) using this trick::
 
     writer.add_document(title=u"Title to be indexed", _stored_title=u"Stored title")
 
-Calling commit() on the ``IndexWriter`` saves the added documents to the index. Once your documents are in the index, you can search for them.
+Calling commit() on the ``IndexWriter`` saves the added documents to the index::
+
+	writer.commit()
+
+See :doc:`indexing` for more information.
+
+Once your documents are in the index, you can search for them.
 
 
 Searching
 =========
 
-First, we'll show how to load an existing index from disk. In this case, we have an index in a directory called index. We can create a Storage object manually, and use it to create an Index object. The Schema object is pickled and saved with the index; we don't need to recreate it to load the index::
-
-    from whoosh.filedb.filestore import FileStorage
-
-    storage = FileStorage("index")
-    ix = storage.open_index()
-
-Since you'll usually be loading the index from disk, you can use the ``open_dir()`` function from the index module to avoid having to create the storage object. It takes a path to the index directory and returns an Index object::
-
-    from whoosh import index
-
-    ix = open_dir("index")
-
-So, let's say a user has typed a search into a search box and you want to run that search on you index.
+So, let's say a user has typed a search into a search box and you want to run that search on
+you index.
 
 To begin searching the index, we'll need a Searcher object::
 
     searcher = ix.searcher()
 
-Now you'll need to parse a query string into Query objects. (You can also create your own tree of Query objects programmatically, which is very powerful, and even lets you use a few query types that aren't available in the query string syntax)::
+You can use the high-level ``find()`` method to run queries on the index.
+The first argument is the default field to search (for terms in the query string that
+aren't explicitly qualified with a field), and the second is the query string. The
+method returns a Results object.
+
+The Results object acts like a list of dictionaries, where each dictionary
+contains the stored fields of the document. The first document in the list is the most
+relevant based on the scoring algorithm::
+
+	>>> results = searcher.find("content", u"second")
+    >>> print(len(results))
+    1
+    >>> print(results[0])
+    {"title": "Second try", "path": "/b", "icon": "/icons/sheep.png"}
+
+At a lower level, the Searcher's ``search()`` method takes Query objects instead of
+a query string. You can construct query objects directly or use a query parser to
+parse a query string into Query objects.
+
+For example, this query would match documents that contain both "apple" and "bear"
+in the "content" field::
+
+	from whoosh.query import *
+
+	myquery = And([Term("content", u"apple"), Term("content", "bear")])
+	
+To parse a query string into Query objects, you can use the default query parser
+in the ``qparser`` module::
 
     from whoosh.qparser import QueryParser
-
+    
     parser = QueryParser("content", schema = ix.schema)
 
-The first argument, ``"content"``, specifies the "default" field to use when the user doesn't specify a field for a word/phrase/clause. This is usually the "body text" field. Specifying the schema lets the parser know which analyzers to use for which fields. If you don't have a schema (usually when you're testing the parser), you can omit the schema. In that case, the parser won't filter the query terms (for example, it won't lower-case them).
+The first argument, ``"content"``, specifies the default field to use when the user
+doesn't specify a field for a word/phrase/clause. This is usually the "body text"
+field. Specifying the schema lets the parser know which analyzers to use for which
+fields. If you don't have a schema (usually when you're testing the parser), you can
+omit the schema. In that case, the parser won't filter the query terms (for example,
+it won't lower-case them).
 
-The default ``QueryParser`` implements a query language very similar to Lucene's. It lets you connect terms with AND or OR, eleminate terms with NOT, group terms together into clauses with parentheses, and specify different fields to search. By default it joins clauses together with AND (so by default, all terms you specify must be in the document for the document to match)::
+The default ``QueryParser`` implements a query language very similar to Lucene's.
+It lets you connect terms with AND or OR, eleminate terms with NOT, group terms
+together into clauses with parentheses, do range, prefix, and wilcard queries,
+and specify different fields to search. By default it joins clauses together with
+AND (so by default, all terms you specify must be in the document for the document
+to match)::
 
     >>> print(parser.parse(u"render shade animate"))
     And([Term("content", "render"), Term("content", "shade"), Term("content", "animate")])
@@ -176,15 +243,12 @@ Now you can use the searcher to find documents that match the query::
 
     results = searcher.search(query)
 
-``Searcher.search()`` finds the matching documents, puts them in order based on their score (by default Whoosh uses the BM25F scoring algorithm, but you can choose a different one or write your own), and returns a ``Results`` object.
+Whoosh includes extra features for dealing with search results, such as
 
-The Results object acts more or less like a list of dictionaries, where each dictionary contains the stored fields of the document. The first document in the list is the most relevant based on the scoring algorithm::
+* Sorting results by the value of an indexed field, instead of by relelvance.
+* Highlighting the search terms in excerpts from the original documents.
+* Expanding the query terms based on the top few documents found.
+* Paginating the results (e.g. "Showing results 1-20, page 1 of 4").
 
-    >>> print(len(results))
-    1
-    >>> print(results[0])
-    {"title": "Second try", "path": "/b", "icon": "/icons/sheep.png"}
-
-Whoosh includes extra features for dealing with search results, such as highlighting the search terms in excerpts from the original documents, expanding the query terms based on the top few documents found, and paginating the results (e.g. "Showing results 1-20, page 1 of 4"), but these are beyond the scope of this quick start.
-
+See :doc:`searching` for more information.
 

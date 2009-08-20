@@ -20,42 +20,41 @@ merging model. This module does not contain any user-level objects.
 """
 
 import os, struct, tempfile
-from marshal import dumps, loads
 from heapq import heapify, heapreplace, heappop
 
+from whoosh.system import _ULONG_SIZE, _USHORT_SIZE
 import whoosh.filedb.structfile as structfile
 
-_int_size = struct.calcsize("!i")
 
 # Utility functions
 
-def encode_posting(fieldNum, text, doc, data):
+def encode_posting(fieldNum, text, doc, freq, datastring):
     """Encodes a posting as a string, for sorting."""
     
-    return "".join([struct.pack("!i", fieldNum),
+    return "".join([struct.pack("!H", fieldNum),
                     text.encode("utf8"),
                     chr(0),
-                    struct.pack("!i", doc),
-                    dumps(data)
+                    struct.pack("!LL", doc, freq),
+                    datastring
                     ])
 
 def decode_posting(posting):
     """Decodes an encoded posting string into a
-    (field_number, text, document_number, data) tuple.
+    (field_number, text, document_number, datastring) tuple.
     """
     
-    field_num = struct.unpack("!i", posting[:_int_size])[0]
+    field_num = struct.unpack("!H", posting[:_USHORT_SIZE])[0]
     
-    zero = posting.find(chr(0), _int_size)
-    text = posting[_int_size:zero].decode("utf8")
+    zero = posting.find(chr(0), _USHORT_SIZE)
+    text = posting[_USHORT_SIZE:zero].decode("utf8")
     
-    docstart = zero + 1
-    docend = docstart + _int_size
-    doc = struct.unpack("!i", posting[docstart:docend])[0]
+    metastart = zero + 1
+    metaend = metastart + _ULONG_SIZE * 2
+    doc, freq = struct.unpack("!LL", posting[metastart:metaend])
     
-    data = loads(posting[docend:])
+    datastring = posting[metaend:]
     
-    return field_num, text, doc, data
+    return field_num, text, doc, freq, datastring
 
 def merge(run_readers, max_chunk_size):
     # Initialize a list of terms we're "current"ly
@@ -230,7 +229,7 @@ class PostingPool(object):
         self.runs = []
         self.count = 0
     
-    def add_posting(self, field_num, text, doc, data):
+    def add_posting(self, field_num, text, doc, freq, datastring):
         """Adds a posting to the pool."""
         
         if self.finished:
@@ -240,7 +239,7 @@ class PostingPool(object):
             #print "Flushing..."
             self._flush_run()
         
-        posting = encode_posting(field_num, text, doc, data)
+        posting = encode_posting(field_num, text, doc, freq, datastring)
         self.size += len(posting)
         self.postings.append(posting)
         self.count += 1
