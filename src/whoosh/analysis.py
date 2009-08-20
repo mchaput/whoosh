@@ -410,13 +410,15 @@ class StemFilter(object):
     [u"fundament", u"willow"]
     """
     
-    def __init__(self, ignore = None):
+    def __init__(self, stemfn = stem, ignore = None):
         """
+        :param stemfn: the function to use for stemming.
         :param ignore: a set/list of words that should not be stemmed. This
             is converted into a frozenset. If you omit this argument, all tokens
             are stemmed.
         """
         
+        self.stemfn = stemfn
         self.cache = {}
         if ignore is None:
             self.ignores = frozenset()
@@ -431,6 +433,7 @@ class StemFilter(object):
         self.cache.clear()
     
     def __call__(self, tokens):
+        stemfn = self.stemfn
         cache = self.cache
         ignores = self.ignores
         
@@ -446,7 +449,7 @@ class StemFilter(object):
                 t.text = cache[text]
                 yield t
             else:
-                t.text = s = stem(text)
+                t.text = s = stemfn(text)
                 cache[text] = s
                 yield t
 

@@ -463,7 +463,7 @@ class FileListWriter(object):
         self.dbfile = dbfile
         self.positions = array("I")
         self.lengths = array("I")
-        dbfile.write_ulong(0)
+        dbfile.write_uint(0)
         self.valuecoder = valuecoder
     
     def close(self):
@@ -473,7 +473,7 @@ class FileListWriter(object):
         f.write_array(self.lengths)
         f.flush()
         f.seek(0)
-        f.write_ulong(directory_pos)
+        f.write_uint(directory_pos)
         f.close()
     
     def append(self, value):
@@ -490,7 +490,7 @@ class FileListReader(object):
         self.length = length
         self.valuedecoder = valuedecoder
         
-        offset = dbfile.get_ulong(0)
+        offset = dbfile.get_uint(0)
         dbfile.seek(offset)
         self.positions = dbfile.read_array("I", length)
         self.lengths = dbfile.read_array("I", length)

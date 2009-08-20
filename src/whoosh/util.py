@@ -18,10 +18,10 @@
 Miscellaneous utility functions and classes.
 """
 
+from collections import deque, defaultdict
 from functools import wraps
 from struct import pack, unpack
-from struct import pack, unpack
-
+from time import time, clock
 
 # Functions
 
@@ -199,5 +199,80 @@ def protected(func):
             raise Exception("Could not acquire sync lock")
     
     return wrapper
+
+
+def lru_cache(size):
+    """Decorator that adds a least-recently-accessed cache to a method.
+    
+    :param size: the maximum number of items to keep in the cache.
+    """
+    
+    def decorate_function(func):
+        prefix = "_%s_" % func.__name__
+    
+        @wraps(func)
+        def wrapper(self, *args):
+            if not hasattr(self, prefix + "cache"):
+                cache = {}
+                queue = deque()
+                refcount = defaultdict(int)
+                setattr(self, prefix + "cache", cache)
+                setattr(self, prefix + "queue", queue)
+                setattr(self, prefix + "refcount", refcount)
+            else:
+                cache = getattr(self, prefix + "cache")
+                queue = getattr(self, prefix + "queue")
+                refcount = getattr(self, prefix + "refcount")
+            qpend = queue.append
+            qpop = queue.popleft
+            
+            # Get cache entry or compute if not found
+            try:
+                result = cache[args]
+            except KeyError:
+                result = cache[args] = func(self, *args)
+    
+            # Record that this key was recently accessed
+            qpend(args)
+            refcount[args] += 1
+    
+            # Purge least recently accessed cache contents
+            while len(cache) > size:
+                k = qpop()
+                refcount[k] -= 1
+                if not refcount[k]:
+                    del cache[k]
+                    del refcount[k]
+    
+            # Periodically compact the queue by removing duplicate keys
+            if len(queue) > size * 4:
+                for _ in xrange(len(queue)):
+                    k = qpop()
+                    if refcount[k] == 1:
+                        qpend(k)
+                    else:
+                        refcount[k] -= 1
+                #assert len(queue) == len(cache) == len(refcount) == sum(refcount.itervalues())
+            
+            return result
+        return wrapper
+    return decorate_function
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

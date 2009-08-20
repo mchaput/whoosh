@@ -19,22 +19,27 @@
 merging model. This module does not contain any user-level objects.
 """
 
-import os, struct, tempfile
+import os, tempfile
 from heapq import heapify, heapreplace, heappop
+from struct import Struct
 
-from whoosh.system import _ULONG_SIZE, _USHORT_SIZE
-import whoosh.filedb.structfile as structfile
+from whoosh.system import _INT_SIZE, _USHORT_SIZE
+from whoosh.filedb.structfile import StructFile, pack_ushort, unpack_ushort
 
 
 # Utility functions
 
+_2int_struct = Struct("!II")
+pack2ints = _2int_struct.pack
+unpack2ints = _2int_struct.unpack
+
 def encode_posting(fieldNum, text, doc, freq, datastring):
     """Encodes a posting as a string, for sorting."""
     
-    return "".join([struct.pack("!H", fieldNum),
+    return "".join([pack_ushort(fieldNum),
                     text.encode("utf8"),
                     chr(0),
-                    struct.pack("!LL", doc, freq),
+                    pack2ints(doc, freq),
                     datastring
                     ])
 
@@ -43,14 +48,14 @@ def decode_posting(posting):
     (field_number, text, document_number, datastring) tuple.
     """
     
-    field_num = struct.unpack("!H", posting[:_USHORT_SIZE])[0]
+    field_num = unpack_ushort(posting[:_USHORT_SIZE])[0]
     
     zero = posting.find(chr(0), _USHORT_SIZE)
     text = posting[_USHORT_SIZE:zero].decode("utf8")
     
     metastart = zero + 1
-    metaend = metastart + _ULONG_SIZE * 2
-    doc, freq = struct.unpack("!LL", posting[metastart:metaend])
+    metaend = metastart + _INT_SIZE * 2
+    doc, freq = unpack2ints(posting[metastart:metaend])
     
     datastring = posting[metaend:]
     
@@ -250,7 +255,7 @@ class PostingPool(object):
         
         if self.size > 0:
             tempfd, tempname = tempfile.mkstemp(".run")
-            runfile = structfile.StructFile(os.fdopen(tempfd, "w+b"))
+            runfile = StructFile(os.fdopen(tempfd, "w+b"))
             
             self.postings.sort()
             for p in self.postings:

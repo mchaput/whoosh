@@ -25,10 +25,10 @@ from whoosh.index import Index
 from whoosh.index import EmptyIndexError, OutOfDateError, IndexLockedError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.support.bitvector import BitVector
-from whoosh.system import _INT_SIZE, _ULONG_SIZE, _FLOAT_SIZE
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 
 
-_INDEX_VERSION = -104
+_INDEX_VERSION = -105
 _EXTENSIONS = "dci|dcz|tiz|fvz|pst|vps"
 
 
@@ -142,7 +142,6 @@ class FileIndex(SegmentDeletionMixin, Index):
         stream = self.storage.create_file(tempfilename)
         
         stream.write_varint(_INT_SIZE)
-        stream.write_varint(_ULONG_SIZE)
         stream.write_varint(_FLOAT_SIZE)
         stream.write_int(-12345)
         
@@ -164,7 +163,6 @@ class FileIndex(SegmentDeletionMixin, Index):
         stream = self.storage.open_file(self._toc_filename())
         
         if stream.read_varint() != _INT_SIZE or \
-           stream.read_varint() != _ULONG_SIZE or \
            stream.read_varint() != _FLOAT_SIZE:
             raise IndexError("Index was created on an architecture with different data sizes")
         
@@ -463,9 +461,13 @@ class Segment(object):
         return "%s(%r)" % (self.__class__.__name__, self.name)
     
     def copy(self):
+        if self.deleted:
+            deleted = set(self.deleted)
+        else:
+            deleted = None
         return Segment(self.name, self.max_doc,
                        self.field_length_totals,
-                       self.deleted)
+                       deleted)
     
     def doc_count_all(self):
         """
@@ -505,12 +507,12 @@ class Segment(object):
         
         if delete:
             if self.deleted is None:
-                self.deleted = BitVector(self.max_doc)
+                self.deleted = set()
             elif docnum in self.deleted:
                 raise KeyError("Document %s in segment %r is already deleted"
                                % (docnum, self.name))
             
-            self.deleted.set(docnum)
+            self.deleted.add(docnum)
         else:
             if self.deleted is None or docnum not in self.deleted:
                 raise KeyError("Document %s is not deleted" % docnum)
