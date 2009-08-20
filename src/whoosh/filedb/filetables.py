@@ -461,8 +461,8 @@ class FileRecordReader(object):
 class FileListWriter(object):
     def __init__(self, dbfile, valuecoder=str):
         self.dbfile = dbfile
-        self.positions = array("L")
-        self.lengths = array("L")
+        self.positions = array("I")
+        self.lengths = array("I")
         dbfile.write_ulong(0)
         self.valuecoder = valuecoder
     
@@ -492,8 +492,8 @@ class FileListReader(object):
         
         offset = dbfile.get_ulong(0)
         dbfile.seek(offset)
-        self.positions = dbfile.read_array("L", length)
-        self.lengths = dbfile.read_array("L", length)
+        self.positions = dbfile.read_array("I", length)
+        self.lengths = dbfile.read_array("I", length)
     
     def close(self):
         self.dbfile.close()

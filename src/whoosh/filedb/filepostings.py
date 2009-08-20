@@ -37,7 +37,7 @@ class FilePostingWriter(PostingWriter):
         if self.stringids:
             self.blockids = []
         else:
-            self.blockids = array("L")
+            self.blockids = array("I")
         self.blockvalues = []
         self.blockoffset = self.postfile.tell()
     
@@ -83,7 +83,7 @@ class FilePostingWriter(PostingWriter):
         
         if posting_size < 0:
             # Write array of value lengths
-            lengths = array("L")
+            lengths = array("I")
             for valuestring in values:
                 lengths.append(len(valuestring))
             pf.write_array(lengths)
@@ -231,7 +231,7 @@ class FilePostingReader(PostingReader):
             ids = [unicode(rs(), "utf8") for _ in xrange(postcount)]
             offset = pf.tell()
         else:
-            ids = pf.get_array(offset, "L", postcount)
+            ids = pf.get_array(offset, "I", postcount)
             offset += _ULONG_SIZE * postcount
         
         return (ids, offset)
@@ -244,7 +244,7 @@ class FilePostingReader(PostingReader):
             valueoffset = startoffset
             if posting_size < 0:
                 # Read the array of lengths for the values
-                lengths = pf.get_array(startoffset, "L", postcount)
+                lengths = pf.get_array(startoffset, "I", postcount)
                 valueoffset += _ULONG_SIZE * postcount
             
             allvalues = pf.map[valueoffset:endoffset]
