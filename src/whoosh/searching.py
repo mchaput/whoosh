@@ -446,7 +446,7 @@ class Results(object):
         reader = self.searcher.ixreader
         fieldnum = self.searcher.fieldname_to_num(fieldname)
         
-        expander = classify.Expander(self.searcher, fieldname, model = model)
+        expander = classify.Expander(reader, fieldname, model = model)
         for docnum in self.scored_list[:docs]:
             expander.add(reader.vector_as("weight", docnum, fieldnum))
         
