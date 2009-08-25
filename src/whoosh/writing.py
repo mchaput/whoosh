@@ -25,12 +25,10 @@ class IndexingError(Exception):
 # Base class
 
 class IndexWriter(DeletionMixin):
-    """High-level object for writing to an index. This object takes care of
-    instantiating a SegmentWriter to create a new segment as you add documents,
-    as well as merging existing segments (if necessary) when you finish.
+    """High-level object for writing to an index.
     
-    The best way to get a writer for a particular index is
-    to call :meth:`~whoosh.index.Index.writer` on the Index object.
+    To get a writer for a particular index, call
+    call :meth:`~whoosh.index.Index.writer` on the Index object.
     
     >>> writer = my_index.writer()
     
