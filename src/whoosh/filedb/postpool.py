@@ -185,7 +185,7 @@ class RunReader(object):
         while so_far < self.buffer_size:
             if count <= 0:
                 break
-            p = self.stream.read_string()
+            p = self.stream.read_string2()
             buffer.append(p)
             so_far += len(p)
             count -= 1
@@ -259,7 +259,7 @@ class PostingPool(object):
             
             self.postings.sort()
             for p in self.postings:
-                runfile.write_string(p)
+                runfile.write_string2(p)
             runfile.flush()
             runfile.seek(0)
             
