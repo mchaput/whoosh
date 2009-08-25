@@ -125,11 +125,18 @@ class StructFile(object):
         """
         self.write_varint(len(s))
         self.file.write(s)
-        
+    
+    def write_string2(self, s):
+        self.write(pack_ushort(len(s)) + s)
+    
     def read_string(self):
         """Reads a string from the wrapped file.
         """
         return self.file.read(self.read_varint())
+    
+    def read_string2(self):
+        l = self.read_ushort()
+        return self.read(l)
     
     def skip_string(self):
         l = self.read_varint()
