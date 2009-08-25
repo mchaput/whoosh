@@ -681,7 +681,7 @@ class TermRange(MultiTerm):
     >>> TermRange("id", u"apple", u"pear")
     """
     
-    def __init__(self, fieldname, start, end, startexcl, endexcl, boost = 1.0):
+    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False, boost = 1.0):
         """
         :param fieldname: The name of the field to search.
         :param start: Match terms equal to or greather than this.
@@ -748,10 +748,13 @@ class TermRange(MultiTerm):
         for fnum, t, _, _ in ixreader.iter_from(fieldnum, self.start):
             if fnum != fieldnum:
                 break
-            if (t == start and not startexcl) or (t == end and not endexcl):
-                yield t
-            elif t < end:
-                yield t
+            if t == start and startexcl:
+                continue
+            if t == end and endexcl:
+                break
+            if t > end:
+                break
+            yield t
         
             
 class Variations(MultiTerm):

@@ -135,6 +135,26 @@ class TestSearching(unittest.TestCase):
         ids = sorted([d['id'] for d in s.search(q)])
         self.assertEqual(ids, [u'A', u'B', u'C'])
     
+    def test_range_clusiveness(self):
+        schema = fields.Schema(id=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        w = ix.writer()
+        for letter in u"abcdefg":
+            w.add_document(id=letter)
+        w.commit()
+        s = ix.searcher()
+        
+        def do(startexcl, endexcl, string):
+            q = TermRange("id", "b", "f", startexcl, endexcl)
+            r = "".join(sorted(d['id'] for d in s.search(q)))
+            self.assertEqual(r, string)
+            
+        do(False, False, "bcdef")
+        do(True, False, "cdef")
+        do(True, True, "cde")
+        do(False, True, "bcde")
+    
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
         st = RamStorage()
