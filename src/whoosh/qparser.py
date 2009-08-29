@@ -250,16 +250,18 @@ class PyparsingBasedParser(object):
     def make_prefix(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            return Prefix(fieldname, self.process_term_text(field, text, removestops=False))
-        else:
-            return Prefix(fieldname, text)
+            text2 = self.process_term_text(field, text, removestops=False)
+            if text2:
+                text = text2
+        return Prefix(fieldname, text)
     
     def make_wildcard(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            return Wildcard(fieldname, self.process_term_text(field, text))
-        else:
-            return Wildcard(fieldname, text)
+            text2 = self.process_term_text(field, text, removestops=False)
+            if text2:
+                text = text2
+        return Wildcard(fieldname, text)
     
     def make_range(self, fieldname, start, end, startexcl, endexcl):
         field = self._field(fieldname)
