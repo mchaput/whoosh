@@ -326,6 +326,8 @@ class Exclude(PostingReader):
         """
         
         self.postreader = postreader
+        self.format = postreader.format
+        
         self.excludes = excludes
         self._find_nonexcluded()
         self.value = postreader.value

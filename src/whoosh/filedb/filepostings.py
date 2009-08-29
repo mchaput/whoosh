@@ -200,9 +200,6 @@ class FilePostingReader(PostingReader):
             raise ReadTooFar
         return self.values[self.i]
     
-    def value_as(self, astype):
-        return self.format.decoder(astype)(self.value())
-    
     def _read_block_header(self, offset):
         pf = self.postfile
         if self.stringids:
