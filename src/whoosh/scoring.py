@@ -306,7 +306,7 @@ class FieldSorter(Sorter):
         # its array value to the term's (inherently sorted) position.
         i = -1
         for i, word in enumerate(ixreader.lexicon(fieldnum)):
-            for docnum, _ in ixreader.postings(fieldnum, word):
+            for docnum in ixreader.postings(fieldnum, word).all_ids():
                 cache[docnum] = i
         
         self.limit = i
