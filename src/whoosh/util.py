@@ -130,7 +130,6 @@ def first_diff(a, b):
         if a[i] != b[1]:
             return i
         if i == 255: return i
-    return i + 1
 
 
 def prefix_encode(a, b):

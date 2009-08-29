@@ -235,7 +235,8 @@ class MultiPostingReader(PostingReader):
     This is useful for backends that use a segmented index.
     """
     
-    def __init__(self, readers, idoffsets):
+    def __init__(self, format, readers, idoffsets):
+        self.format = format
         self.readers = readers
         self.offsets = idoffsets
         self.current = 0
