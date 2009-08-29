@@ -389,7 +389,27 @@ class TestSearching(unittest.TestCase):
         qp = qparser.QueryParser("value", schema=s)
         q = qp.parse("s*")
         self.assertEqual(q.__class__.__name__, "Prefix")
-        self.assertEqual(q.text, "s") 
+        self.assertEqual(q.text, "s")
+        
+    def test_sortedby(self):
+        schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
+        st = RamStorage()
+        ix = st.create_index(schema)
+
+        w = ix.writer()
+        w.add_document(a=u"First", b=u"ccc ddd")
+        w.add_document(a=u"Second", b=u"aaa ddd")
+        w.add_document(a=u"Third", b=u"ccc eee")
+        w.commit()
+
+        qp = qparser.QueryParser("b", schema=schema)
+        searcher = ix.searcher()
+        qr = qp.parse("b:ccc")
+        self.assertEqual(qr.__class__, query.Term)
+        r = searcher.search(qr, sortedby='a')
+        self.assertEqual(len(r), 2)
+        self.assertEqual(r[0]["a"], "First")
+        self.assertEqual(r[1]["a"], "Third")
 
 
 if __name__ == '__main__':

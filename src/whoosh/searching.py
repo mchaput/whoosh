@@ -250,7 +250,7 @@ class Searcher(object):
             else:
                 raise ValueError("sortedby argument must be a string, list, or Sorter (%r)" % sortedby)
             
-            scored_list = sortedby.order(self, query.docs(self), reverse = reverse)
+            scored_list = sortedby.order(self.ixreader, query.docs(self), reverse = reverse)
             scores = None
             docvector = BitVector(ixreader.doc_count_all(), source = scored_list)
             if len(scored_list) > limit:
