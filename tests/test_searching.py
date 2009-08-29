@@ -301,7 +301,7 @@ class TestSearching(unittest.TestCase):
         
         q = query.Phrase("value", [u"blah"] * 3)
         self.assertEqual(names(searcher.search(q)), ["E"])
-        
+    
     def test_vector_phrase(self):
         ana = analysis.StandardAnalyzer()
         ftype = fields.FieldType(formats.Frequency(ana), formats.Positions(ana), scorable=True)
@@ -341,6 +341,27 @@ class TestSearching(unittest.TestCase):
         
         q = query.Phrase("value", [u"blah"] * 3)
         self.assertEqual(names(searcher.search(q)), ["E"])
+        
+    def test_phrase_score(self):
+        schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        writer = ix.writer()
+        writer.add_document(name=u"A", value=u"Little Miss Muffet sat on a tuffet")
+        writer.add_document(name=u"D", value=u"Gibberish blonk falunk miss muffet sat tuffet garbonzo")
+        writer.add_document(name=u"E", value=u"Blah blah blah pancakes")
+        writer.add_document(name=u"F", value=u"Little miss muffet little miss muffet")
+        writer.commit()
+        
+        searcher = ix.searcher()
+        q = query.Phrase("value", [u"little", u"miss", u"muffet"])
+        sc = q.scorer(searcher)
+        self.assertEqual(sc.id, 0)
+        score1 = sc.score()
+        self.assert_(score1 > 0)
+        sc.next()
+        self.assertEqual(sc.id, 3)
+        self.assert_(sc.score() > score1)
 
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True),
