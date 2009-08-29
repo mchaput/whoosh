@@ -346,9 +346,17 @@ class MultiReader(IndexReader):
         return self.readers[segmentnum].has_vector(segmentdoc, fieldid)
     
     def postings(self, fieldid, text, exclude_docs = None):
-        return MultiPostingReader([r.postings(fieldid, text, exclude_docs=exclude_docs)
-                                   for r in self.readers],
-                                  self.doc_offsets)
+        format = self.schema[fieldid].format
+        postreaders = []
+        docoffsets = []
+        for i, r in enumerate(self.readers):
+            if (fieldid, text) in r:
+                postreaders.append(r.postings(fieldid, text, exclude_docs=exclude_docs))
+                docoffsets.append(self.doc_offsets[i])
+        if not postreaders:
+            raise TermNotFound(fieldid, text)
+        else:
+            return MultiPostingReader(format, postreaders, docoffsets)
     
     def vector(self, docnum, fieldid):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)

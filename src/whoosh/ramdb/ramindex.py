@@ -14,8 +14,9 @@
 # limitations under the License.
 #===============================================================================
 
-from collections import defaultdict
 from bisect import insort
+from collections import defaultdict
+from threading import Lock
 
 from whoosh.fields import UnknownFieldError
 from whoosh.index import Index
@@ -27,6 +28,7 @@ class RamIndex(Index):
     def __init__(self, schema):
         self.schema = schema
         self.maxdoc = 0
+        self._sync_lock = Lock()
         
         self.termlists = defaultdict(list)
         self.invertedindex = {}
@@ -34,7 +36,7 @@ class RamIndex(Index):
             self.invertedindex[fieldnum] = {}
         self.indexfreqs = defaultdict(int)
         
-        self.storedfields = []
+        self.storedfields = {}
         self.fieldlengths = defaultdict(int)
         self.fieldlength_totals = defaultdict(int)
         self.vectors = {}
@@ -115,7 +117,7 @@ class RamIndexWriter(IndexWriter):
                 vlist = sorted((w, valuestring) for w, freq, valuestring
                                in vector.word_values(value))
                 self.ix.vectors[(maxdoc, fieldnum)] = vlist
-                
+            
             if field.stored:
                 storedname = "_stored_" + name
                 if storedname in fields:
@@ -125,7 +127,7 @@ class RamIndexWriter(IndexWriter):
                 
                 storedvalues[stored_to_pos[fieldnum]] = stored_value
         
-        self.ix.storedfields.append(storedvalues)
+        self.ix.storedfields[maxdoc] = storedvalues
         self.ix.maxdoc += 1
     
     def delete_document(self, docnum, delete=True):
