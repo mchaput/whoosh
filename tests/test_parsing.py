@@ -127,6 +127,24 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[2].__class__.__name__, "Phrase")
         self.assertEqual(q[2].words, ["foxtrot", "golf"])
         self.assertEqual(q[2].fieldname, "test")
+        
+    def test_rama(self):
+        qp = qparser.QueryParser("content")
+        #q = qp.parse(u".abcd@gmail.com")
+        q = qp.parse(u"r*")
+        #q = qp.parse(u".")
+        q = qp.parse(u"?")
+        
+    def test_star(self):
+        schema = fields.Schema(id = fields.ID(stored=True, unique=True),
+                               django_ct = fields.ID(stored=True),
+                               django_id = fields.ID(stored=True),
+                               text = fields.TEXT(stored=True),
+                               name = fields.TEXT(stored=True),
+                               pub_date = fields.ID(stored=True))
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse("*")
+
 
 
 if __name__ == '__main__':
