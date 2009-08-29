@@ -826,8 +826,14 @@ class Phrase(MultiTerm):
                     
                 if not current:
                     isect.next()
-                        
+            
+            self.count = len(current)
             self.id = isect.id
+            
+        def score(self):
+            if self.id is None:
+                return 0
+            return self.intersection.score() * self.count
     
     class PostingPhraseScorer(PhraseScorer):
         "Scorer for PhraseQuery that uses Position postings."
@@ -836,7 +842,6 @@ class Phrase(MultiTerm):
             self.intersection = intersection
             self.slop = slop
             self.boost = boost
-            self.score = intersection.score
             self._find()
         
         def _poses(self):
@@ -856,7 +861,6 @@ class Phrase(MultiTerm):
             self.intersection = intersection
             self.slop = slop
             self.boost = boost
-            self.score = intersection.score
             self._find()
         
         def _poses(self):
@@ -947,8 +951,8 @@ class Phrase(MultiTerm):
             return Phrase.VectorPhraseScorer(searcher.ixreader, fieldnum, self.words, intersection, slop = self.slop)
         else:
             raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
-        
-    
+
+
 # ===========================================================================================
 #
 # Binary classes
