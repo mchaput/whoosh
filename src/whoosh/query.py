@@ -833,7 +833,7 @@ class Phrase(MultiTerm):
         def score(self):
             if self.id is None:
                 return 0
-            return self.intersection.score() * self.count
+            return self.intersection.score() # * self.count
     
     class PostingPhraseScorer(PhraseScorer):
         "Scorer for PhraseQuery that uses Position postings."
