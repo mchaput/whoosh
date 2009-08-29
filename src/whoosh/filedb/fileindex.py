@@ -123,7 +123,7 @@ class FileIndex(SegmentDeletionMixin, Index):
     
     def refresh(self):
         if not self.up_to_date():
-            return self.__class__(self.storage, indexname = self.indexname)
+            return self.__class__(self.storage, self.schema, indexname = self.indexname)
         else:
             return self
         
