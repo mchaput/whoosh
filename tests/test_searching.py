@@ -173,7 +173,11 @@ class TestSearching(unittest.TestCase):
             
         do(u"[b TO]", "bcdefg")
         do(u"[TO e]", "abcde")
-        
+        do(u"[b TO d]", "bcd")
+        do(u"{b TO]", "cdefg")
+        do(u"[TO e}", "abcd")
+        do(u"{b TO d}", "c")
+    
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
         st = RamStorage()

@@ -90,12 +90,20 @@ def _make_default_parser():
     wildcard = Group(Combine(wildmixed | wildstart)).setResultsName("Wildcard")
     
     # A range of terms
+    startfence = Literal("[") | Literal("{")
+    endfence = Literal("]") | Literal("}")
     rangeitem = QuotedString('"') | wordtoken
-    rangestartitem = Group((rangeitem + Suppress(White())) | Empty()).setResultsName("rangestart")
-    rangeenditem = Group((Suppress(White()) + rangeitem) | Empty()).setResultsName("rangeend")
-    rangestart = (Literal("{") | Literal("[")) + rangestartitem
-    rangeend = rangeenditem + (Literal("}") | Literal("]"))
-    range =  Group(rangestart + Suppress(Literal("TO")) + rangeend).setResultsName("Range")
+    openstartrange = Group(Empty()) + Suppress(Keyword("TO") + White()) + Group(rangeitem)
+    openendrange = Group(rangeitem) + Suppress(White() + Keyword("TO")) + Group(Empty())
+    normalrange = Group(rangeitem) + Suppress(White() + Keyword("TO") + White()) + Group(rangeitem)
+    range = Group(startfence + (normalrange | openstartrange | openendrange) + endfence).setResultsName("Range")
+    
+#    rangeitem = QuotedString('"') | wordtoken
+#    rangestartitem = Group((rangeitem + Suppress(White())) | Empty()).setResultsName("rangestart")
+#    rangeenditem = Group((Suppress(White()) + rangeitem) | Empty()).setResultsName("rangeend")
+#    rangestart = (Literal("{") | Literal("[")) + rangestartitem
+#    rangeend = rangeenditem + (Literal("}") | Literal("]"))
+#    range =  Group(rangestart + Suppress(Literal("TO")) + rangeend).setResultsName("Range")
     
     # A word-like thing
     generalWord = range | wildcard | plainWord
@@ -518,7 +526,11 @@ class SimpleNgramParser(object):
 
 if __name__ == "__main__":
     qp = QueryParser("content")
+    q = qp.parse("[TO bear]")
+    print q
     q = qp.parse("[apple TO]")
+    print q
+    q = qp.parse("[apple TO bear]")
     print q
     
 
