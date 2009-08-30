@@ -154,7 +154,26 @@ class TestSearching(unittest.TestCase):
         do(True, False, "cdef")
         do(True, True, "cde")
         do(False, True, "bcde")
-    
+        
+    def test_open_ranges(self):
+        schema = fields.Schema(id=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        w = ix.writer()
+        for letter in u"abcdefg":
+            w.add_document(id=letter)
+        w.commit()
+        s = ix.searcher()
+        
+        qp = qparser.QueryParser("id", schema=schema)
+        def do(qstring, result):
+            q = qp.parse(qstring)
+            r = "".join(sorted([d['id'] for d in s.search(q)]))
+            self.assertEqual(r, result)
+            
+        do(u"[b TO]", "bcdefg")
+        do(u"[TO e]", "abcde")
+        
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
         st = RamStorage()
