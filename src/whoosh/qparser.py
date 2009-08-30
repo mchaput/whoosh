@@ -257,8 +257,10 @@ class PyparsingBasedParser(object):
     def make_range(self, fieldname, start, end, startexcl, endexcl):
         field = self._field(fieldname)
         if field:
-            start = self.get_term_text(field, start)
-            end = self.get_term_text(field, end)
+            if start:
+                start = self.get_term_text(field, start)
+            if end:
+                end = self.get_term_text(field, end)
         return TermRange(fieldname, start, end, startexcl, endexcl)
     
     def make_and(self, qs):

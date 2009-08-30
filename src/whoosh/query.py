@@ -751,7 +751,7 @@ class TermRange(MultiTerm):
             start = u''
         if not end:
             end = u'\uFFFF'
-            
+        
         for fnum, t, _, _ in ixreader.iter_from(fieldnum, self.start):
             if fnum != fieldnum:
                 break
