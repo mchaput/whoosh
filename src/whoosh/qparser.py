@@ -233,6 +233,8 @@ class PyparsingBasedParser(object):
         field = self._field(fieldname)
         if field:
             text = self.get_term_text(field, text)
+        if not text:
+            return NullQuery
         return self.termclass(fieldname, text)
     
     def make_phrase(self, fieldname, text):
@@ -492,7 +494,7 @@ class SimpleNgramParser(object):
         optional = []
         gramsize = max(self.minchars, min(self.maxchars, len(input)))
         if gramsize > len(input):
-            return None
+            return NullQuery(input)
         
         discardspaces = self.discardspaces
         for t in self.analyzerclass(gramsize)(input):
@@ -512,7 +514,7 @@ class SimpleNgramParser(object):
             else:
                 return andquery
         else:
-            return None
+            return NullQuery
 
 
 

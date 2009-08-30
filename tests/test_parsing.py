@@ -212,6 +212,17 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].text, "ind")
         self.assertEqual(q[1].start, "d")
         self.assertEqual(q[1].fieldname, "name")
+        
+        q = qp.parse("name:[d TO]")
+        self.assertEqual(q.__class__.__name__, "TermRange")
+        self.assertEqual(q.start, "d")
+        self.assertEqual(q.fieldname, "name")
+        
+    def test_stopped(self):
+        schema = fields.Schema(text = fields.TEXT)
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse("a b")
+        self.assertEqual(q, query.NullQuery)
 
 
 if __name__ == '__main__':

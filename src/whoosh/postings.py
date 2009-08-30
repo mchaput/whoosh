@@ -446,31 +446,22 @@ class EmptyScorer(QueryScorer):
     
     def __init__(self):
         self.id = None
-
     def reset(self):
         pass
-
     def next(self):
         pass
-    
     def skip_to(self, id):
         pass
-
     def ids(self):
         return []
-
     def items(self):
         return []
-
     def items_as(self, astype):
         return []
-    
     def value(self):
         raise NotImplementedError("EmptyScorer has no values")
-    
     def value_as(self, astype):
         raise NotImplementedError("EmptyScorer has no values")
-    
     def score(self):
         return 0
 
