@@ -23,7 +23,7 @@ from __future__ import division
 
 __all__ = ("QueryError", "Term", "And", "Or", "Not",
            "Prefix", "Wildcard", "TermRange", "Variations", "Phrase",
-           "Require", "AndMaybe", "AndNot")
+           "NullQuery", "Require", "AndMaybe", "AndNot")
 
 from bisect import bisect_left, bisect_right
 import fnmatch, re
@@ -266,21 +266,18 @@ class CompoundQuery(Query):
             q.existing_terms(ixreader, termset, reverse = reverse)
 
     def normalize(self):
-        # Do an initial check for Nones.
-        subqueries = [q for q in self.subqueries if q is not None]
+        # Do an initial check for NullQuery.
+        subqueries = [q for q in self.subqueries if q is not NullQuery]
         
         if not subqueries:
-            return None
-        
-        if len(subqueries) == 1:
-            return subqueries[0].normalize()
+            return NullQuery
         
         # Normalize the subqueries and eliminate duplicate terms.
         subqs = []
         seenterms = set()
         for s in subqueries:
             s = s.normalize()
-            if s is None:
+            if s is NullQuery:
                 continue
             
             if isinstance(s, Term):
@@ -293,6 +290,11 @@ class CompoundQuery(Query):
                 subqs += s.subqueries
             else:
                 subqs.append(s)
+        
+        if not subqs:
+            return NullQuery
+        if len(subqs) == 1:
+            return subqs[0]
         
         return self.__class__(subqs)
     
@@ -312,7 +314,7 @@ class CompoundQuery(Query):
             else:
                 return subs
         else:
-            return None
+            return NullQuery
     
     def scorer(self, searcher, exclude_docs = None):
         self._split_queries()
@@ -526,9 +528,11 @@ class Not(Query):
         return u"NOT " + unicode(self.query)
     
     def normalize(self):
-        if self.query is None:
-            return None
-        return self
+        query = self.query.normalize()
+        if query is NullQuery:
+            return NullQuery
+        else:
+            return self.__class__(query, boost=self.boost)
     
     def replace(self, oldtext, newtext):
         return Not(self.query.replace(oldtext, newtext), boost = self.boost)
@@ -906,7 +910,7 @@ class Phrase(MultiTerm):
     
     def normalize(self):
         if not self.words:
-            return None
+            return NullQuery
         if len(self.words) == 1:
             return Term(self.fieldname, self.words[0])
             
@@ -1007,14 +1011,31 @@ class Every(Query):
     
     def docs(self, searcher, exclude_docs = None):
         alldocs = xrange(searcher.ixreader.doc_count_all())
-        if not exclude_docs: exclude_docs = frozenset()
+        if exclude_docs is None: exclude_docs = frozenset()
         return (docnum for docnum in alldocs if docnum not in exclude_docs)
         
     def doc_scores(self, searcher, exclude_docs = None):
         alldocs = xrange(searcher.ixreader.doc_count_all())
-        if not exclude_docs: exclude_docs = frozenset()
+        if exclude_docs is None: exclude_docs = frozenset()
         return ((docnum, self.boost) for docnum in alldocs if docnum not in exclude_docs)
-        
+
+
+class NullQuery(Query):
+    "Represents a query that won't match anything."
+    def estimate_size(self, ixreader):
+        return 0
+    def scorer(self, searcher, exclude_docs=None):
+        return EmptyScorer()
+    def normalize(self):
+        return self
+    def simplify(self, ixreader):
+        return self
+    def docs(self, searcher, exclude_docs = None):
+        return []
+    def doc_scores(self, searcher, exclude_docs = None):
+        return []
+NullQuery = NullQuery()
+
 
 # ===========================================================================================
 #
@@ -1055,7 +1076,7 @@ class Require(CompoundQuery):
         for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
             filter.set(docnum)
             
-        for docnum, score in query.doc_scores(searcher, weighting = weighting):
+        for docnum, score in query.doc_scores(searcher):
             if docnum not in filter: continue
             yield docnum, score
 
@@ -1087,11 +1108,9 @@ class AndMaybe(CompoundQuery):
     def doc_scores(self, searcher, exclude_docs = None):
         query, maybequery = self.subqueries
         
-        maybescores = dict(maybequery.doc_scores(searcher, weighting = weighting,
-                                                 exclude_docs = exclude_docs))
+        maybescores = dict(maybequery.doc_scores(searcher,exclude_docs = exclude_docs))
         
-        for docnum, score in query.doc_scores(searcher, weighting = weighting,
-                                              exclude_docs = exclude_docs):
+        for docnum, score in query.doc_scores(searcher, exclude_docs = exclude_docs):
             if docnum in maybescores:
                 score += maybescores[docnum]
             yield (docnum, score)
@@ -1123,17 +1142,17 @@ class AndNot(Query):
         return u"%s ANDNOT %s" % (self.postive, self.negative)
     
     def normalize(self):
-        if self.positive is None:
-            return None
-        elif self.negative is None:
+        if self.positive is NullQuery:
+            return NullQuery
+        elif self.negative is NullQuery:
             return self.positive.normalize()
         
         pos = self.positive.normalize()
         neg = self.negative.normalize()
         
-        if pos is None:
-            return None
-        elif neg is None:
+        if pos is NullQuery:
+            return NullQuery
+        elif neg is NullQuery:
             return pos
         
         return AndNot(pos, neg, boost = self.boost)
