@@ -81,11 +81,6 @@ def _make_default_parser():
     # A plain old word.
     plainWord = Group(wordtoken).setResultsName("Word")
     
-    # A word ending in a star (e.g. 'render*'), indicating that
-    # the search should do prefix expansion.
-    prefixword = wordtoken | QuotedString('"')
-    prefix = Group(Combine(prefixword + Suppress('*'))).setResultsName("Prefix")
-    
     # A wildcard word containing * or ?.
     wildchars = Word("?*")
     # Start with word chars and then have wild chars mixed in
@@ -103,7 +98,7 @@ def _make_default_parser():
     range =  Group(rangestart + Suppress(Literal("TO")) + rangeend).setResultsName("Range")
     
     # A word-like thing
-    generalWord = range | prefix | wildcard | plainWord
+    generalWord = range | wildcard | plainWord
     
     # A quoted phrase
     quotedPhrase = Group(QuotedString('"')).setResultsName("Quotes")
@@ -252,14 +247,6 @@ class PyparsingBasedParser(object):
         else:
             return Phrase(fieldname, text.split(" "))
     
-    def make_prefix(self, fieldname, text):
-        field = self._field(fieldname)
-        if field:
-            text2 = self.get_term_text(field, text, removestops=False)
-            if text2:
-                text = text2
-        return Prefix(fieldname, text)
-    
     def make_wildcard(self, fieldname, text):
         field = self._field(fieldname)
         if field:
@@ -332,9 +319,6 @@ class QueryParser(PyparsingBasedParser):
     def _Quotes(self, node, fieldname):
         return self.make_phrase(fieldname, node[0])
 
-    def _Prefix(self, node, fieldname):
-        return self.make_prefix(fieldname, node[0])
-    
     def _Range(self, node, fieldname):
         startchar, start, end, endchar = node
         startexcl = startchar == "{"
@@ -398,9 +382,6 @@ class MultifieldParser(QueryParser):
     
     def make_term(self, fieldname, text):
         return self._make("make_term", fieldname, text)
-    
-    def make_prefix(self, fieldname, text):
-        return self._make("make_prefix", fieldname, text)
     
     def make_range(self, fieldname, start, end, startexcl, endexcl):
         return self._make("make_range", fieldname, start, end, startexcl, endexcl)

@@ -622,8 +622,15 @@ class Wildcard(MultiTerm):
     def normalize(self):
         # If there are no wildcard characters in this "wildcard",
         # turn it into a simple Term.
-        if self.text.find("*") < 0 and self.text.find("?") < 0:
+        text = self.text
+        if "*" not in text and "?" not in text:
+            # If no wildcard chars, convert to a normal term.
             return Term(self.fieldname, self.text, boost = self.boost)
+        elif "?" not in text and text.endswith("*") and text.find("*") == len(text) - 1\
+        and (len(text) < 2 or text[-2] != "\\"):
+            # If the only wildcard char is an asterisk at the end, convert
+            # to a Prefix query.
+            return Prefix(self.fieldname, self.text[:-1], boost = self.boost)
         else:
             return self
 
