@@ -132,7 +132,8 @@ class Token(object):
 
 def IDTokenizer(value, positions = False, chars = False,
                 keeporiginal = False, removestops = True,
-                start_pos = 0, start_char = 0):
+                start_pos = 0, start_char = 0,
+                **kwargs):
     """
     Yields the entire input string as a single token. For use
     in indexed but untokenized fields, such as a document's path.
@@ -186,7 +187,8 @@ class RegexTokenizer(object):
     
     def __call__(self, value, positions = False, chars = False,
                  keeporiginal = False, removestops = True,
-                 start_pos = 0, start_char = 0):
+                 start_pos = 0, start_char = 0, tokenize = True,
+                 **kwargs):
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -197,11 +199,19 @@ class RegexTokenizer(object):
         :param start_char: The offset of the first character of the first
             token. For example, if you set start_char=2, the text "aaa bbb"
             will have chars (2,5),(6,9) instead (0,3),(4,7).
+        :param tokenize: if True, the text should be tokenized. 
         """
         
         t = Token(positions, chars, removestops = removestops)
         
-        if not self.gaps:
+        if not tokenize:
+            t.original = t.text = value
+            if positions: t.pos = start_pos
+            if chars:
+                t.startchar = start_char
+                t.endchar = start_char + len(value)
+            yield t
+        elif not self.gaps:
             # The default: expression matches are used as tokens
             for pos, match in enumerate(self.expression.finditer(value)):
                 t.text = match.group(0)
@@ -253,18 +263,16 @@ class RegexTokenizer(object):
                     t.endchar = len(value)
                 yield t
             
-            
-class SpaceSeparatedTokenizer(RegexTokenizer):
-    """Splits tokens by whitespace.
+
+def SpaceSeparatedTokenizer(expression = r"[^ \t\r\n]+"):
+    """Returns a RegexTokenizer that splits tokens by whitespace.
     
     >>> sst = SpaceSeparatedTokenizer()
     >>> [token.text for token in sst(u"hi there big-time, what's up")]
     [u"hi", u"there", u"big-time,", u"what's", u"up"]
-    
     """
     
-    def __init__(self, expression = r"[^ \t\r\n]+"):
-        RegexTokenizer.__init__(self, expression=expression)
+    return RegexTokenizer(expression)
 
 
 class CommaSeparatedTokenizer(RegexTokenizer):
@@ -320,7 +328,8 @@ class NgramTokenizer(object):
     
     def __call__(self, value, positions = False, chars = False,
                  keeporiginal = False, removestops = True,
-                 start_pos = 0, start_char = 0):
+                 start_pos = 0, start_char = 0,
+                 **kwargs):
         inlen = len(value)
         t = Token(positions, chars, removestops = removestops)
         
@@ -668,7 +677,7 @@ class Analyzer(object):
     def __eq__(self, other):
         return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
 
-    def __call__(self, value):
+    def __call__(self, value, **kwargs):
         raise NotImplementedError
     
     def clean(self):

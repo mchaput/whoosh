@@ -55,9 +55,9 @@ http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 
 import re
 
-from whoosh.support.pyparsing import printables, alphanums
+from whoosh.support.pyparsing import printables, alphanums, ZeroOrMore
 from whoosh.support.pyparsing import ZeroOrMore, OneOrMore
-from whoosh.support.pyparsing import Group, Combine, Suppress, Optional
+from whoosh.support.pyparsing import Group, Combine, Suppress, Optional, FollowedBy
 from whoosh.support.pyparsing import Literal, CharsNotIn, Regex, Word, Keyword
 from whoosh.support.pyparsing import Empty, White, Forward, QuotedString
 from whoosh.support.pyparsing import StringEnd, ParserElement
@@ -71,10 +71,10 @@ def _make_default_parser():
     escapechar = "\\"
     
     wordchars = printables
-    for specialchar in '*?^():."{}[] ' + escapechar:
+    for specialchar in '*?^():"{}[] ' + escapechar:
         wordchars = wordchars.replace(specialchar, "")
     
-    wordtext = Combine(Word(wordchars) + ZeroOrMore("." + Word(wordchars)))
+    wordtext = Word(wordchars)
     escape = Suppress(escapechar) + (Word(printables, exact=1) | White(exact=1))
     wordtoken = Combine(OneOrMore(wordtext | escape))
     
@@ -87,7 +87,12 @@ def _make_default_parser():
     prefix = Group(Combine(prefixword + Suppress('*'))).setResultsName("Prefix")
     
     # A wildcard word containing * or ?.
-    wildcard = Group(Regex(r"[\?\*]?(?:\w*[\?\*])+")).setResultsName("Wildcard")
+    wildchars = Word("?*")
+    # Start with word chars and then have wild chars mixed in
+    wildmixed = wordtoken + OneOrMore(wildchars + Optional(wordtoken))
+    # Or, start with wildchars, and then either a mixture of word and wild chars, or the next token
+    wildstart = wildchars + (OneOrMore(wordtoken + Optional(wildchars)) | FollowedBy(White() | StringEnd()))
+    wildcard = Group(Combine(wildmixed | wildstart)).setResultsName("Wildcard")
     
     # A range of terms
     rangeitem = QuotedString('"') | wordtoken
@@ -213,12 +218,12 @@ class PyparsingBasedParser(object):
         name = node.getName()
         return getattr(self, "_" + name)(node, fieldname)
     
-    def process_term_text(self, field, text, **kwargs):
+    def get_term_text(self, field, text, **kwargs):
         if not field.format:
             raise Exception("%s field has no format" % self.field)
         
         # Just take the first token
-        for token in field.format.tokenize(text, **kwargs):
+        for token in field.format.tokenize(text, tokenize=False, **kwargs):
             return token.text
     
     def make_term(self, fieldname, text):
@@ -226,7 +231,7 @@ class PyparsingBasedParser(object):
         if field:
             texts = [t.text for t in field.format.tokenize(text)]
             if not texts:
-                return self.termclass(fieldname, u'')
+                return None
             elif len(texts) > 1:
                 return self.multiterm([self.termclass(fieldname, t.text) for t in texts])
             else:
@@ -237,7 +242,7 @@ class PyparsingBasedParser(object):
     def make_phrase(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            texts = [t.text for t in self.format.tokenize(text)]
+            texts = [t.text for t in field.format.tokenize(text)]
             if not texts:
                 return self.termclass(fieldname, u'')
             elif len(texts) == 1:
@@ -250,7 +255,7 @@ class PyparsingBasedParser(object):
     def make_prefix(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            text2 = self.process_term_text(field, text, removestops=False)
+            text2 = self.get_term_text(field, text, removestops=False)
             if text2:
                 text = text2
         return Prefix(fieldname, text)
@@ -258,16 +263,15 @@ class PyparsingBasedParser(object):
     def make_wildcard(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            text2 = self.process_term_text(field, text, removestops=False)
-            if text2:
-                text = text2
+            ptext = self.get_term_text(field, text, removestops=False)
+            if ptext: text = ptext
         return Wildcard(fieldname, text)
     
     def make_range(self, fieldname, start, end, startexcl, endexcl):
         field = self._field(fieldname)
         if field:
-            start = self.process_term_text(field, start)
-            end = self.process_term_text(field, end)
+            start = self.get_term_text(field, start)
+            end = self.get_term_text(field, end)
         return TermRange(fieldname, start, end, startexcl, endexcl)
     
     def make_and(self, qs):

@@ -96,7 +96,7 @@ class TestQueryParser(unittest.TestCase):
         qp = qparser.QueryParser("text")
         
         q = qp.parse(r'big\small')
-        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.__class__, query.Term, q)
         self.assertEqual(q.text, "bigsmall")
         
         q = qp.parse(r'big\\small')
@@ -128,23 +128,50 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[2].words, ["foxtrot", "golf"])
         self.assertEqual(q[2].fieldname, "test")
         
-    def test_rama(self):
+    def test_weird_characters(self):
         qp = qparser.QueryParser("content")
-        #q = qp.parse(u".abcd@gmail.com")
+        q = qp.parse(u".abcd@gmail.com")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.text, u".abcd@gmail.com")
         q = qp.parse(u"r*")
-        #q = qp.parse(u".")
+        self.assertEqual(q.__class__.__name__, "Prefix")
+        self.assertEqual(q.text, u"r")
+        q = qp.parse(u".")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.text, u".")
         q = qp.parse(u"?")
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, u"?")
         
     def test_star(self):
-        schema = fields.Schema(id = fields.ID(stored=True, unique=True),
-                               django_ct = fields.ID(stored=True),
-                               django_id = fields.ID(stored=True),
-                               text = fields.TEXT(stored=True),
-                               name = fields.TEXT(stored=True),
-                               pub_date = fields.ID(stored=True))
+        schema = fields.Schema(text = fields.TEXT(stored=True))
         qp = qparser.QueryParser("text", schema=schema)
         q = qp.parse("*")
-
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, u"*")
+        
+        q = qp.parse("*h?ll*")
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, u"*h?ll*")
+        
+        q = qp.parse("h?pe")
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, u"h?pe")
+        
+        q = qp.parse("*? blah")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(q[0].__class__.__name__, "Wildcard")
+        self.assertEqual(q[0].text, u"*?")
+        self.assertEqual(q[1].__class__.__name__, "Term")
+        self.assertEqual(q[1].text, u"blah")
+        
+        q = qp.parse("*ending")
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, u"*ending")
+        
+        q = qp.parse("*q")
+        self.assertEqual(q.__class__.__name__, "Wildcard")
+        self.assertEqual(q.text, u"*q")
 
 
 if __name__ == '__main__':

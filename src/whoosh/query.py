@@ -833,7 +833,7 @@ class Phrase(MultiTerm):
         def score(self):
             if self.id is None:
                 return 0
-            return self.intersection.score() # * self.count
+            return self.intersection.score() * self.boost
     
     class PostingPhraseScorer(PhraseScorer):
         "Scorer for PhraseQuery that uses Position postings."
@@ -889,12 +889,12 @@ class Phrase(MultiTerm):
     
     def __init__(self, fieldname, words, slop = 1, boost = 1.0):
         """
-        fieldname is the field to search.
-        words is a list of tokens (the phrase to search for).
-        slop is the number of words allowed between each "word" in
-        the phrase; the default of 1 means the phrase must match exactly.
-        boost is a boost factor that should be applied to the raw score of
-        results matched by this query.
+        :param fieldname: the field to search.
+        :param words: a list of words (unicode strings) in the phrase.
+        :param slop: the number of words allowed between each "word" in the phrase; the default
+            of 1 means the phrase must match exactly.
+        :param boost: a boost factor that to apply to the raw score of documents matched by this
+            query.
         """
         
         self.fieldname = fieldname
@@ -946,12 +946,76 @@ class Phrase(MultiTerm):
         
         field = searcher.field(fieldnum)
         if field.format and field.format.supports("positions"):
-            return Phrase.PostingPhraseScorer(intersection, slop = self.slop)
+            return Phrase.PostingPhraseScorer(intersection, slop = self.slop, boost=self.boost)
         elif field.vector and field.vector.supports("positions"):
-            return Phrase.VectorPhraseScorer(searcher.ixreader, fieldnum, self.words, intersection, slop = self.slop)
+            return Phrase.VectorPhraseScorer(searcher.ixreader, fieldnum, self.words, intersection,
+                                             slop = self.slop, boost=self.boost)
         else:
             raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
 
+
+class Every(Query):
+    """A query that matches every document in the index.
+    """
+    
+    class EveryScorer(QueryScorer):
+        def __init__(self, limit, exclude, boost):
+            self.limit = limit
+            self.exclude = exclude
+            self.boost = boost
+            self.reset()
+        
+        def _find(self):
+            # Skip excluded document numbers
+            id = self.id
+            limit = self.limit
+            exclude = self.exclude
+            while id < limit and id in exclude:
+                id += 1
+            if id >= limit:
+                self.id = None
+            else:
+                self.id = id
+        
+        def reset(self):
+            self.id = 0
+            self._find()
+        
+        def next(self):
+            self.id += 1
+            self._find()
+                
+        def seek(self, target):
+            self.id = target
+            self._find()
+                
+        def score(self):
+            return self.boost
+    
+    def __init__(self, boost=1):
+        self.boost = boost
+    
+    def __unicode__(self):
+        return u"*"
+    
+    def estimate_size(self, ixreader):
+        return ixreader.doc_count()
+    
+    def scorer(self, searcher, exclude_docs = None):
+        if not exclude_docs:
+            exclude_docs = frozenset()
+        return Every.EveryScorer(searcher.ixreader.doc_count_all(), exclude_docs, self.boost)
+    
+    def docs(self, searcher, exclude_docs = None):
+        alldocs = xrange(searcher.ixreader.doc_count_all())
+        if not exclude_docs: exclude_docs = frozenset()
+        return (docnum for docnum in alldocs if docnum not in exclude_docs)
+        
+    def doc_scores(self, searcher, exclude_docs = None):
+        alldocs = xrange(searcher.ixreader.doc_count_all())
+        if not exclude_docs: exclude_docs = frozenset()
+        return ((docnum, self.boost) for docnum in alldocs if docnum not in exclude_docs)
+        
 
 # ===========================================================================================
 #
@@ -982,17 +1046,17 @@ class Require(CompoundQuery):
         self.subqueries = (scoredquery, requiredquery)
         self.boost = boost
         
-    def docs(self, ixreader, exclude_docs = None):
-        return And(self.subqueries).docs(ixreader, exclude_docs = exclude_docs)
+    def docs(self, searcher, exclude_docs = None):
+        return And(self.subqueries).docs(searcher, exclude_docs = exclude_docs)
     
-    def doc_scores(self, ixreader, weighting = None, exclude_docs = None):
+    def doc_scores(self, searcher, exclude_docs = None):
         query, filterquery = self.subqueries
         
-        filter = BitVector(ixreader.doc_count_all())
-        for docnum in filterquery.docs(ixreader, exclude_docs = exclude_docs):
+        filter = BitVector(searcher.ixreader.doc_count_all())
+        for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
             filter.set(docnum)
             
-        for docnum, score in query.doc_scores(ixreader, weighting = weighting):
+        for docnum, score in query.doc_scores(searcher, weighting = weighting):
             if docnum not in filter: continue
             yield docnum, score
 
@@ -1018,16 +1082,16 @@ class AndMaybe(CompoundQuery):
         self.subqueries = (requiredquery, optionalquery)
         self.boost = boost
     
-    def docs(self, ixreader, exclude_docs = None):
-        return self.subqueries[0].docs(ixreader, exclude_docs = exclude_docs)
+    def docs(self, searcher, exclude_docs = None):
+        return self.subqueries[0].docs(searcher, exclude_docs = exclude_docs)
     
-    def doc_scores(self, ixreader, weighting = None, exclude_docs = None):
+    def doc_scores(self, searcher, exclude_docs = None):
         query, maybequery = self.subqueries
         
-        maybescores = dict(maybequery.doc_scores(ixreader, weighting = weighting,
+        maybescores = dict(maybequery.doc_scores(searcher, weighting = weighting,
                                                  exclude_docs = exclude_docs))
         
-        for docnum, score in query.doc_scores(ixreader, weighting = weighting,
+        for docnum, score in query.doc_scores(searcher, weighting = weighting,
                                               exclude_docs = exclude_docs):
             if docnum in maybescores:
                 score += maybescores[docnum]
