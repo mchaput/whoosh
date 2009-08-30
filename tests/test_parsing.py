@@ -108,10 +108,20 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.text, "hello there")
         
-        q = qp.parse(r'start\.\.end')
+        q = qp.parse(r'\[start\ TO\ end\]')
         self.assertEqual(q.__class__, query.Term)
-        self.assertEqual(q.text, "start..end")
+        self.assertEqual(q.text, "[start TO end]")
+    
+        schema = fields.Schema(text=fields.TEXT)
+        qp = qparser.QueryParser("text")
+        q = qp.parse(r"http\:\/\/www\.example\.com")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.text, "http://www.example.com")
         
+        q = qp.parse("\\\\")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.text, "\\")
+    
     def test_escaping_wildcards(self):
         qp = qparser.QueryParser("text")
         
@@ -191,6 +201,17 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse("*q")
         self.assertEqual(q.__class__.__name__, "Wildcard")
         self.assertEqual(q.text, u"*q")
+
+    def test_range(self):
+        schema = fields.Schema(name=fields.ID(stored=True), text = fields.TEXT(stored=True))
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse("Ind* AND name:[d TO]")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(q[0].__class__.__name__, "Prefix")
+        self.assertEqual(q[1].__class__.__name__, "TermRange")
+        self.assertEqual(q[0].text, "ind")
+        self.assertEqual(q[1].start, "d")
+        self.assertEqual(q[1].fieldname, "name")
 
 
 if __name__ == '__main__':

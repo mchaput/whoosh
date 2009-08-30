@@ -232,15 +232,8 @@ class PyparsingBasedParser(object):
     def make_term(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            texts = [t.text for t in field.format.tokenize(text)]
-            if not texts:
-                return None
-            elif len(texts) > 1:
-                return self.multiterm([self.termclass(fieldname, t.text) for t in texts])
-            else:
-                return self.termclass(fieldname, texts[0])
-        else:
-            return self.termclass(fieldname, text)
+            text = self.get_term_text(field, text)
+        return self.termclass(fieldname, text)
     
     def make_phrase(self, fieldname, text):
         field = self._field(fieldname)
@@ -320,7 +313,6 @@ class QueryParser(PyparsingBasedParser):
         self.conjunction = conjunction
         self.termclass = termclass
         self.schema = schema
-        self.multiterm = Or
         self.parser = DEFAULT_PARSER_FN
         
     # These methods take the AST from pyparsing, extract the
