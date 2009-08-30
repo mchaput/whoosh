@@ -55,15 +55,14 @@ http://pyparsing.wikispaces.com/space/showimage/searchparser.py
 
 import re
 
-from whoosh.support.pyparsing import printables, alphanums, ZeroOrMore
+from whoosh.support.pyparsing import printables, alphanums
 from whoosh.support.pyparsing import ZeroOrMore, OneOrMore
 from whoosh.support.pyparsing import Group, Combine, Suppress, Optional, FollowedBy
-from whoosh.support.pyparsing import Literal, CharsNotIn, Regex, Word, Keyword
+from whoosh.support.pyparsing import Literal, CharsNotIn, Word, Keyword
 from whoosh.support.pyparsing import Empty, White, Forward, QuotedString
 from whoosh.support.pyparsing import StringEnd, ParserElement
 
 from whoosh.analysis import NgramAnalyzer
-from whoosh.fields import UnknownFieldError
 from whoosh.query import *
 
 
