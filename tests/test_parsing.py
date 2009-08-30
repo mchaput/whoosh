@@ -88,10 +88,6 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].__class__.__name__, "Prefix")
         self.assertEqual(q[0].text, "first")
     
-        q = qp.parse('"first second"* third')
-        self.assertEqual(q[0].__class__.__name__, "Prefix")
-        self.assertEqual(q[0].text, "first second")
-    
     def test_escaping(self):
         qp = qparser.QueryParser("text")
         
@@ -115,6 +111,29 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(r'start\.\.end')
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.text, "start..end")
+        
+    def test_escaping_wildcards(self):
+        qp = qparser.QueryParser("text")
+        
+        q = qp.parse("a*b*c?d")
+        self.assertEqual(q.__class__, query.Wildcard)
+        self.assertEqual(q.text, "a*b*c?d")
+        
+        q = qp.parse(u"a*b\\*c?d")
+        self.assertEqual(q.__class__, query.Wildcard)
+        self.assertEqual(q.text, "a*b*c?d")
+        
+        q = qp.parse(u"a*b\\\\*c?d")
+        self.assertEqual(q.__class__, query.Wildcard)
+        self.assertEqual(q.text, u'a*b\\*c?d')
+        
+        q = qp.parse(u"ab*")
+        self.assertEqual(q.__class__, query.Prefix)
+        self.assertEqual(q.text, u"ab")
+        
+        q = qp.parse(u"ab\\\\*")
+        self.assertEqual(q.__class__, query.Wildcard)
+        self.assertEqual(q.text, u"ab\\*")
         
     def test_phrase(self):
         qp = qparser.QueryParser("content")
@@ -147,8 +166,8 @@ class TestQueryParser(unittest.TestCase):
         schema = fields.Schema(text = fields.TEXT(stored=True))
         qp = qparser.QueryParser("text", schema=schema)
         q = qp.parse("*")
-        self.assertEqual(q.__class__.__name__, "Wildcard")
-        self.assertEqual(q.text, u"*")
+        self.assertEqual(q.__class__.__name__, "Prefix")
+        self.assertEqual(q.text, u"")
         
         q = qp.parse("*h?ll*")
         self.assertEqual(q.__class__.__name__, "Wildcard")
