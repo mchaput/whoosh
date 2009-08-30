@@ -744,14 +744,6 @@ class TermRange(MultiTerm):
         startexcl = self.startexcl
         endexcl = self.endexcl
         
-        if not start and not end:
-            raise QueryError("TermRange must have start and/or end")
-        
-        if not start:
-            start = u''
-        if not end:
-            end = u'\uFFFF'
-        
         for fnum, t, _, _ in ixreader.iter_from(fieldnum, self.start):
             if fnum != fieldnum:
                 break
