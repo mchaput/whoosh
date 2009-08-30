@@ -261,6 +261,13 @@ class PyparsingBasedParser(object):
                 start = self.get_term_text(field, start)
             if end:
                 end = self.get_term_text(field, end)
+        
+        if not start and not end:
+            raise QueryError("TermRange must have start and/or end")
+        if not start:
+            start = u''
+        if not end:
+            end = u'\uFFFF'
         return TermRange(fieldname, start, end, startexcl, endexcl)
     
     def make_and(self, qs):
