@@ -1,3 +1,4 @@
+# coding=utf-8
 #===============================================================================
 # Copyright 2007 Matt Chaput
 # 
@@ -262,7 +263,99 @@ class RegexTokenizer(object):
                     t.startchar = prevend
                     t.endchar = len(value)
                 yield t
+
+
+class CharsetTokenizer(object):
+    """Tokenizes and translates text according to a character mapping object. Characters
+    that map to None are considered token break characters. For all other characters the
+    map is used to translate the character. This is useful for case and accent folding.
+    
+    This tokenizer loops character-by-character and so will likely be much
+    slower than :class:`RegexTokenizer`.
+    
+    One way to get a character mapping object is to convert a Sphinx charset table file
+    using :function:`whoosh.support.charset.charset_table_to_dict`.
+    
+    >>> from whoosh.support.charset import charset_table_to_dict, default_charset
+    >>> retokenizer = RegexTokenizer()
+    >>> charmap = charset_table_to_dict(default_charset)
+    >>> chfilter = CharsetFilter(charmap)
+    >>> [t.text for t in chfilter(retokenizer(u"Stra§e"))]
+    [u'strase']
+    
+    The Sphinx charset table format is described at
+    http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
+    """
+    
+    def __init__(self, charmap):
+        """"
+        :param charmap: a mapping from integer character numbers to unicode characters,
+            as used by the unicode.translate() method.
+        """
+        self.charmap = charmap
             
+    def __call__(self, value, positions = False, chars = False,
+             keeporiginal = False, removestops = True,
+             start_pos = 0, start_char = 0, tokenize = True,
+             **kwargs):
+        """
+        :param value: The unicode string to tokenize.
+        :param positions: Whether to record token positions in the token.
+        :param chars: Whether to record character offsets in the token.
+        :param start_pos: The position number of the first token. For example,
+            if you set start_pos=2, the tokens will be numbered 2,3,4,...
+            instead of 0,1,2,...
+        :param start_char: The offset of the first character of the first
+            token. For example, if you set start_char=2, the text "aaa bbb"
+            will have chars (2,5),(6,9) instead (0,3),(4,7).
+        :param tokenize: if True, the text should be tokenized. 
+        """
+        
+        t = Token(positions, chars, removestops = removestops)
+        if not tokenize:
+            t.original = t.text = value
+            if positions: t.pos = start_pos
+            if chars:
+                t.startchar = start_char
+                t.endchar = start_char + len(value)
+            yield t
+        
+        text = u""
+        charmap = self.charmap
+        pos = start_pos
+        startchar = currentchar = start_char
+        for char in value:
+            tchar = charmap[ord(char)]
+            if tchar:
+                text += tchar
+            else:
+                if currentchar > startchar:
+                    t.text = text
+                    if keeporiginal:
+                        t.original = t.text
+                    if positions:
+                        t.pos = pos
+                        pos += 1
+                    if chars:
+                        t.startchar = startchar
+                        t.endchar = currentchar
+                    yield t
+                startchar = currentchar + 1
+                text = u""
+                
+            currentchar += 1
+        
+        if currentchar > startchar:
+            t.text = value[startchar:currentchar]
+            if keeporiginal:
+                t.original = t.text
+            if positions:
+                t.pos = pos
+            if chars:
+                t.startchar = startchar
+                t.endchar = currentchar
+            yield t
+
 
 def SpaceSeparatedTokenizer(expression = r"[^ \t\r\n]+"):
     """Returns a RegexTokenizer that splits tokens by whitespace.
@@ -404,6 +497,38 @@ class NgramFilter(object):
                         t.endchar = startchar + end
                         
                     yield t
+
+
+class CharsetFilter(object):
+    """Translates the text of tokens by calling unicode.translate() using the supplied
+    character mapping object. This is useful for case and accent folding.
+    
+    One way to get a character mapping object is to convert a Sphinx charset table file
+    using :function:`whoosh.support.charset.charset_table_to_dict`.
+    
+    >>> from whoosh.support.charset import charset_table_to_dict, default_charset
+    >>> retokenizer = RegexTokenizer()
+    >>> charmap = charset_table_to_dict(default_charset)
+    >>> chfilter = CharsetFilter(charmap)
+    >>> [t.text for t in chfilter(retokenizer(u"Stra§e"))]
+    [u'strase']
+    
+    The Sphinx charset table format is described at
+    http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
+    """
+    
+    def __init__(self, charmap):
+        """
+        :param charmap: a mapping from integer character numbers to unicode characters,
+            as required by the unicode.translate() method.
+        """
+        self.charmap = charmap
+        
+    def __call__(self, tokens):
+        charmap = self.charmap
+        for t in tokens:
+            t.text = t.text.translate(charmap)
+            yield t
 
 
 class StemFilter(object):
