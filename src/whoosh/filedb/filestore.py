@@ -94,7 +94,10 @@ class FileStorage(Storage):
         os.rename(self._fpath(frm),self._fpath(to))
     
     def lock(self, name):
-        os.mkdir(self._fpath(name))
+        try:
+            os.mkdir(self._fpath(name))
+        except OSError, e:
+            raise LockError(e)
         return True
     
     def unlock(self, name):
