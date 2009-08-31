@@ -398,7 +398,7 @@ class Term(Query):
                          "next", "skip_to", "value", "value_as"):
                 setattr(self, name, getattr(postreader, name))
         
-        @property    
+        @property
         def id(self):
             return self.postreader.id
         
@@ -904,6 +904,11 @@ class Phrase(MultiTerm):
         self.words = words
         self.slop = slop
         self.boost = boost
+    
+    def __repr__(self):
+        return "%s(%r, %r, slop=%s, boost=%f)" % (self.__class__.__name__,
+                                                  self.fieldname, self.words,
+                                                  self.slop, self.boost)
     
     def __unicode__(self):
         return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))

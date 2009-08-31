@@ -1,3 +1,5 @@
+# coding=utf-8
+
 import unittest
 from os import mkdir
 from os.path import exists
@@ -171,6 +173,13 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(u"?")
         self.assertEqual(q.__class__.__name__, "Wildcard")
         self.assertEqual(q.text, u"?")
+        
+    def test_euro_chars(self):
+        schema = fields.Schema(text=fields.TEXT)
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse(u"straße")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.text, u"straße")
         
     def test_star(self):
         schema = fields.Schema(text = fields.TEXT(stored=True))
