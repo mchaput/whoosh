@@ -784,6 +784,9 @@ class Phrase(MultiTerm):
     """Matches documents containing a given phrase."""
     
     class PhraseScorer(QueryScorer):
+        def __repr__(self):
+            return "<%s %r: %r>" % (self.__class__.__name__, self.intersection, self.id)
+        
         def reset(self):
             self.intersection.reset()
             self._find()
@@ -798,7 +801,7 @@ class Phrase(MultiTerm):
         def skip_to(self, target):
             self.intersection.skip_to(target)
             self._find()
-            
+        
         def _find(self):
             isect = self.intersection
             slop = self.slop
