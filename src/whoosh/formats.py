@@ -78,7 +78,7 @@ class Format(object):
         """
         raise NotImplementedError
     
-    def tokenize(self, unicodestring, **kwargs):
+    def analyze(self, unicodestring, **kwargs):
         """Returns a :class:`whoosh.analysis.Token` iterator from the given
         unicode string.
         """
