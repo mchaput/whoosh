@@ -70,11 +70,12 @@ from whoosh.query import *
 def _make_default_parser():
     escapechar = "\\"
     
-    wordchars = printables
-    for specialchar in '*?^():"{}[] ' + escapechar:
-        wordchars = wordchars.replace(specialchar, "")
+    #wordchars = printables
+    #for specialchar in '*?^():"{}[] ' + escapechar:
+    #    wordchars = wordchars.replace(specialchar, "")
+    #wordtext = Word(wordchars)
     
-    wordtext = Word(wordchars)
+    wordtext = CharsNotIn('\\*?^():"{}[] ')
     escape = Suppress(escapechar) + (Word(printables, exact=1) | White(exact=1))
     wordtoken = Combine(OneOrMore(wordtext | escape))
     

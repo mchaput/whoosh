@@ -240,11 +240,22 @@ class MultiPostingReader(PostingReader):
         self.readers = readers
         self.offsets = idoffsets
         self.current = 0
-        
+        self._find()
+    
+    def _find(self):
+        readers = self.readers
+        current = self.current
         if not readers:
             self.id = None
-        else:
-            self.id = readers[0].id + idoffsets[0]
+            
+        while readers[current].id is None:
+            current += 1
+            if current >= len(readers):
+                self.id = None
+                return
+        
+        self.current = current
+        self.id = readers[current].id + self.offsets[current]
 
     def reset(self):
         if not self.readers:
@@ -253,7 +264,7 @@ class MultiPostingReader(PostingReader):
         for r in self.readers:
             r.reset()
         self.current = 0
-        self.id = self.readers[0].id
+        self._find()
 
     def all_items(self):
         offsets = self.offsets
@@ -295,6 +306,10 @@ class MultiPostingReader(PostingReader):
         
         while current < len(readers):
             r = readers[current]
+            if r.id is None:
+                current += 1
+                continue
+            
             if target < r.id:
                 self.current = current
                 self.id = r.id + offsets[current]
