@@ -236,13 +236,21 @@ class MultiPostingReader(PostingReader):
     """
     
     def __init__(self, format, readers, idoffsets):
+        """
+        :param format: the :class:`~whoosh.formats.Format` object for the field
+            being read.
+        :param readers: a list of :class:`~whoosh.postings.PostingReader` objects.
+        :param idoffsets: a list of integers, where each item in the list represents
+            the ID offset of the corresponding reader in the 'readers' list.
+        """
+        
         self.format = format
         self.readers = readers
         self.offsets = idoffsets
         self.current = 0
-        self._find()
+        self._prep()
     
-    def _find(self):
+    def _prep(self):
         readers = self.readers
         current = self.current
         if not readers:
@@ -264,7 +272,7 @@ class MultiPostingReader(PostingReader):
         for r in self.readers:
             r.reset()
         self.current = 0
-        self._find()
+        self._prep()
 
     def all_items(self):
         offsets = self.offsets
@@ -371,7 +379,7 @@ class Exclude(PostingReader):
 
 
 class CachedPostingReader(PostingReader):
-    """Reads postings from a list instead of from storage.
+    """Reads postings from a list in memory instead of from storage.
     
     >>> preader = ixreader.postings("content", "render")
     >>> creader = CachedPostingReader(preader.all_items())
@@ -556,6 +564,9 @@ class IntersectionScorer(QueryScorer):
         self.id = -1
         self._prep()
 
+    def __repr__(self):
+        return "<%s %r: %r>" % (self.__class__.__name__, self.scorers, self.id)
+
     def _prep(self):
         state = self.state
         state.sort()
@@ -578,7 +589,7 @@ class IntersectionScorer(QueryScorer):
         state = self.state
         for r in state:
             r.skip_to(target)
-        state.sort()
+        self._prep()
     
     def next(self):
         if self.id is None:
