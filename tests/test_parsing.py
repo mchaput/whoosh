@@ -3,7 +3,7 @@ from os import mkdir
 from os.path import exists
 from shutil import rmtree
 
-from whoosh import fields, index, qparser, query
+from whoosh import analysis, fields, index, qparser, query
 from whoosh.filedb.filestore import FileStorage
 
 class TestQueryParser(unittest.TestCase):
@@ -223,6 +223,13 @@ class TestQueryParser(unittest.TestCase):
         qp = qparser.QueryParser("text", schema=schema)
         q = qp.parse("a b")
         self.assertEqual(q, query.NullQuery)
+        
+    def test_analyzing_terms(self):
+        schema = fields.Schema(text=fields.TEXT(analyzer=analysis.StemmingAnalyzer()))
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse("Indexed!")
+        self.assertEqual(q.__class__.__name__, "Term")
+        self.assertEqual(q.text, "index")
 
 
 if __name__ == '__main__':

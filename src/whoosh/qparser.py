@@ -7,11 +7,12 @@ into nodes from the query module.
 
 This parser handles:
 
-* 'and', 'or', 'not'
+* 'AND', 'OR', 'NOT'
 * grouping with parentheses
 * quoted phrase searching
-* wildcards at the end of a search prefix, e.g. help*
-* ranges, e.g. a .. b
+* wildcards, e.g. help*
+* ranges, e.g. [a TO b]
+* fields, e.g. title:whoosh
 
 This parser was originally based on the searchparser example code available at:
 
@@ -225,11 +226,12 @@ class PyparsingBasedParser(object):
             raise Exception("%s field has no format" % self.field)
         
         # Just take the first token
-        for token in field.format.tokenize(text, tokenize=False, **kwargs):
+        for token in field.format.analyze(text, **kwargs):
             return token.text
     
     def make_term(self, fieldname, text):
         field = self._field(fieldname)
+        from whoosh.analysis import StandardAnalyzer
         if field:
             text = self.get_term_text(field, text)
         if not text:
@@ -239,7 +241,7 @@ class PyparsingBasedParser(object):
     def make_phrase(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            texts = [t.text for t in field.format.tokenize(text)]
+            texts = [t.text for t in field.format.analyze(text)]
             if not texts:
                 return self.termclass(fieldname, u'')
             elif len(texts) == 1:
@@ -252,7 +254,7 @@ class PyparsingBasedParser(object):
     def make_wildcard(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            ptext = self.get_term_text(field, text, removestops=False)
+            ptext = self.get_term_text(field, text, tokenize=False, removestops=False)
             if ptext: text = ptext
         return Wildcard(fieldname, text)
     
@@ -260,9 +262,9 @@ class PyparsingBasedParser(object):
         field = self._field(fieldname)
         if field:
             if start:
-                start = self.get_term_text(field, start)
+                start = self.get_term_text(field, start, tokenize=False, removestops=False)
             if end:
-                end = self.get_term_text(field, end)
+                end = self.get_term_text(field, end, tokenize=False, removestops=False)
         
         if not start and not end:
             raise QueryError("TermRange must have start and/or end")
