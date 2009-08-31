@@ -22,8 +22,9 @@ from threading import Lock
 from whoosh import __version__
 from whoosh.fields import Schema
 from whoosh.index import Index
-from whoosh.index import EmptyIndexError, OutOfDateError, IndexLockedError, IndexVersionError
+from whoosh.index import EmptyIndexError, OutOfDateError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
+from whoosh.store import LockError
 from whoosh.support.bitvector import BitVector
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 
@@ -200,7 +201,7 @@ class FileIndex(SegmentDeletionMixin, Index):
             finally:
                 self.segment_num_lock.release()
         else:
-            raise IndexLockedError
+            raise LockError
     
     def _toc_filename(self):
         # Returns the computed filename of the TOC for this

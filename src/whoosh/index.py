@@ -53,11 +53,6 @@ class EmptyIndexError(IndexError):
     """Raised when you try to work with an index that has no indexed terms.
     """
 
-class IndexLockedError(IndexError):
-    """Raised when you try to write to or lock an already-locked index (or
-    one that was accidentally left in a locked state).
-    """
-
 
 # Convenience functions
 
