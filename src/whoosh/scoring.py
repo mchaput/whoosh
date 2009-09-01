@@ -352,9 +352,8 @@ class MultiFieldSorter(FieldSorter):
     
     def order(self, ixreader, docnums, reverse = False):
         sorters = self.sorters
-        missingfirst = self.missingfirst
         for s in sorters:
-            s._make_cache(ixreader, missingfirst)
+            s._make_cache(ixreader)
         
         return sorted(docnums,
                       key = lambda x: tuple((s._cache[x] for s in sorters)),
