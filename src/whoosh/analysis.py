@@ -1,4 +1,3 @@
-# coding=utf-8
 #===============================================================================
 # Copyright 2007 Matt Chaput
 # 
@@ -274,21 +273,20 @@ class CharsetTokenizer(object):
     slower than :class:`RegexTokenizer`.
     
     One way to get a character mapping object is to convert a Sphinx charset table file
-    using :function:`whoosh.support.charset.charset_table_to_dict`.
+    using :func:`whoosh.support.charset.charset_table_to_dict`.
     
     >>> from whoosh.support.charset import charset_table_to_dict, default_charset
-    >>> retokenizer = RegexTokenizer()
     >>> charmap = charset_table_to_dict(default_charset)
-    >>> chfilter = CharsetFilter(charmap)
-    >>> [t.text for t in chfilter(retokenizer(u"Stra§e"))]
-    [u'strase']
+    >>> chtokenizer = CharsetTokenizer(charmap)
+    >>> [t.text for t in chtokenizer(u'Stra\\xdfe ABC')]
+    [u'strase', u'abc']
     
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
     
     def __init__(self, charmap):
-        """"
+        """
         :param charmap: a mapping from integer character numbers to unicode characters,
             as used by the unicode.translate() method.
         """
@@ -504,13 +502,13 @@ class CharsetFilter(object):
     character mapping object. This is useful for case and accent folding.
     
     One way to get a character mapping object is to convert a Sphinx charset table file
-    using :function:`whoosh.support.charset.charset_table_to_dict`.
+    using :func:`whoosh.support.charset.charset_table_to_dict`.
     
     >>> from whoosh.support.charset import charset_table_to_dict, default_charset
     >>> retokenizer = RegexTokenizer()
     >>> charmap = charset_table_to_dict(default_charset)
     >>> chfilter = CharsetFilter(charmap)
-    >>> [t.text for t in chfilter(retokenizer(u"Stra§e"))]
+    >>> [t.text for t in chfilter(retokenizer(u'Stra\\xdfe'))]
     [u'strase']
     
     The Sphinx charset table format is described at
