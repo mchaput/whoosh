@@ -15,7 +15,7 @@ class TestSchema(unittest.TestCase):
 
         c = fields.Schema(id=fields.TEXT)
         self.assertNotEqual(a, c)
-        
+    
     def test_creation1(self):
         s = fields.Schema()
         s.add("content", fields.TEXT(phrase = True))

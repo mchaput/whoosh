@@ -128,33 +128,53 @@ class Token(object):
         return copy.copy(self)
 
 
+# Composition support
+
+class Composable(object):
+    def __or__(self, other):
+        assert callable(other), "%r is not callable" % other
+        return CompositeAnalyzer(self, other)
+    
+    def __repr__(self):
+        attrs = ""
+        if self.__dict__:
+            attrs = ", ".join("%s=%r" % (key, value) for key, value in self.__dict__.iteritems())
+        return self.__class__.__name__ + "(%s)" % attrs
+
+
 # Tokenizers
 
-def IDTokenizer(value, positions = False, chars = False,
-                keeporiginal = False, removestops = True,
-                start_pos = 0, start_char = 0,
-                **kwargs):
+class Tokenizer(Composable):
+    """Base class for Tokenizers.
     """
-    Yields the entire input string as a single token. For use
+
+
+class IDTokenizer(Tokenizer):
+    """Yields the entire input string as a single token. For use
     in indexed but untokenized fields, such as a document's path.
     
     >>> [token.text for token in IDTokenizer(u"/a/b 123 alpha")]
     [u"/a/b 123 alpha"]
     """
     
-    t = Token(positions, chars, removestops = removestops)
-    t.text = value
-    if keeporiginal:
-        t.original = value
-    if positions:
-        t.pos = start_pos + 1
-    if chars:
-        t.startchar = start_char
-        t.endchar = start_char + len(value)
-    yield t
+    def __call__(self, value, positions = False, chars = False,
+                 keeporiginal = False, removestops = True,
+                 start_pos = 0, start_char = 0,
+                 **kwargs):
+        assert isinstance(value, unicode), "%r is not unicode" % value
+        t = Token(positions, chars, removestops = removestops)
+        t.text = value
+        if keeporiginal:
+            t.original = value
+        if positions:
+            t.pos = start_pos + 1
+        if chars:
+            t.startchar = start_char
+            t.endchar = start_char + len(value)
+        yield t
     
 
-class RegexTokenizer(object):
+class RegexTokenizer(Tokenizer):
     """
     Uses a regular expression to extract tokens from text.
     
@@ -202,8 +222,9 @@ class RegexTokenizer(object):
         :param tokenize: if True, the text should be tokenized. 
         """
         
-        t = Token(positions, chars, removestops = removestops)
+        assert isinstance(value, unicode), "%r is not unicode" % value
         
+        t = Token(positions, chars, removestops = removestops)
         if not tokenize:
             t.original = t.text = value
             if positions: t.pos = start_pos
@@ -264,7 +285,7 @@ class RegexTokenizer(object):
                 yield t
 
 
-class CharsetTokenizer(object):
+class CharsetTokenizer(Tokenizer):
     """Tokenizes and translates text according to a character mapping object. Characters
     that map to None are considered token break characters. For all other characters the
     map is used to translate the character. This is useful for case and accent folding.
@@ -308,6 +329,8 @@ class CharsetTokenizer(object):
             will have chars (2,5),(6,9) instead (0,3),(4,7).
         :param tokenize: if True, the text should be tokenized. 
         """
+        
+        assert isinstance(value, unicode), "%r is not unicode" % value
         
         t = Token(positions, chars, removestops = removestops)
         if not tokenize:
@@ -386,7 +409,7 @@ class CommaSeparatedTokenizer(RegexTokenizer):
             yield t
 
 
-class NgramTokenizer(object):
+class NgramTokenizer(Tokenizer):
     """Splits input text into N-grams instead of words.
     
     >>> ngt = NgramTokenizer(4)
@@ -421,9 +444,10 @@ class NgramTokenizer(object):
                  keeporiginal = False, removestops = True,
                  start_pos = 0, start_char = 0,
                  **kwargs):
+        assert isinstance(value, unicode), "%r is not unicode" % value
+        
         inlen = len(value)
         t = Token(positions, chars, removestops = removestops)
-        
         pos = start_pos
         for start in xrange(0, inlen - self.min + 1):
             for size in xrange(self.min, self.max + 1):
@@ -446,211 +470,56 @@ class NgramTokenizer(object):
 
 # Filters
 
-def PassFilter(tokens):
+class Filter(Composable):
+    """Base class for Filter objects. A Filter subclass must implement
+    a __call__ method that takes a single argument, which is an iterator
+    of Token objects, and yield a series of Token objects in return.
+    """
+
+
+class PassFilter(Filter):
     """An identity filter: passes the tokens through untouched.
     """
-    for t in tokens:
-        yield t
-
-
-class NgramFilter(object):
-    """Splits token text into N-grams.
-    
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"hello there")
-    >>> ngf = NgramFilter(4)
-    >>> [token.text for token in ngf(stream)]
-    [u"hell", u"ello", u"ther", u"here"]
-    
-    """
-    
-    def __init__(self, minsize, maxsize = None):
-        """
-        :param minsize: The minimum size of the N-grams.
-        :param maxsize: The maximum size of the N-grams. If you omit
-            this parameter, maxsize == minsize.
-        """
-        
-        self.min = minsize
-        self.max = maxsize or minsize
     
     def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
         for t in tokens:
-            text, chars = t.text, t.chars
-            if chars:
-                startchar = t.startchar
-            # Token positions don't mean much for N-grams,
-            # so we'll leave the token's original position
-            # untouched.
-            
-            for start in xrange(0, len(text) - self.min):
-                for size in xrange(self.min, self.max + 1):
-                    end = start + size
-                    if end > len(text): continue
-                    
-                    t.text = text[start:end]
-                    
-                    if chars:
-                        t.startchar = startchar + start
-                        t.endchar = startchar + end
-                        
-                    yield t
-
-
-class CharsetFilter(object):
-    """Translates the text of tokens by calling unicode.translate() using the supplied
-    character mapping object. This is useful for case and accent folding.
-    
-    One way to get a character mapping object is to convert a Sphinx charset table file
-    using :func:`whoosh.support.charset.charset_table_to_dict`.
-    
-    >>> from whoosh.support.charset import charset_table_to_dict, default_charset
-    >>> retokenizer = RegexTokenizer()
-    >>> charmap = charset_table_to_dict(default_charset)
-    >>> chfilter = CharsetFilter(charmap)
-    >>> [t.text for t in chfilter(retokenizer(u'Stra\\xdfe'))]
-    [u'strase']
-    
-    The Sphinx charset table format is described at
-    http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
-    """
-    
-    def __init__(self, charmap):
-        """
-        :param charmap: a mapping from integer character numbers to unicode characters,
-            as required by the unicode.translate() method.
-        """
-        self.charmap = charmap
-        
-    def __call__(self, tokens):
-        charmap = self.charmap
-        for t in tokens:
-            t.text = t.text.translate(charmap)
             yield t
 
 
-class StemFilter(object):
-    """Stems (removes suffixes from) the text of tokens using the Porter stemming
-    algorithm. Stemming attempts to reduce multiple forms of the same root word
-    (for example, "rendering", "renders", "rendered", etc.) to a single word in
-    the index.
-    
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"fundamentally willows")
-    >>> stemmer = StemFilter()
-    >>> [token.text for token in stemmer(stream)]
-    [u"fundament", u"willow"]
+class RecordFilter(Filter):
+    """A debug filter that remembers the tokens that pass through
+    it, and stores them in the 'tokens' attribute.
     """
     
-    def __init__(self, stemfn = stem, ignore = None):
-        """
-        :param stemfn: the function to use for stemming.
-        :param ignore: a set/list of words that should not be stemmed. This
-            is converted into a frozenset. If you omit this argument, all tokens
-            are stemmed.
-        """
-        
-        self.stemfn = stemfn
-        self.cache = {}
-        if ignore is None:
-            self.ignores = frozenset()
-        else:
-            self.ignores = frozenset(ignore)
-    
-    def clear(self):
-        """
-        This filter memoizes previously stemmed words to greatly speed up
-        stemming. This method clears the cache of previously stemmed words.
-        """
-        self.cache.clear()
+    def __init__(self):
+        self.tokens = None
     
     def __call__(self, tokens):
-        stemfn = self.stemfn
-        cache = self.cache
-        ignores = self.ignores
-        
+        assert hasattr(tokens, "__iter__")
+        self.tokens = []
         for t in tokens:
-            if t.stopped:
-                yield t
-                continue
-            
-            text = t.text
-            if text in ignores:
-                yield t
-            elif text in cache:
-                t.text = cache[text]
-                yield t
-            else:
-                t.text = s = stemfn(text)
-                cache[text] = s
-                yield t
+            self.tokens.append(t.copy())
+            yield t
 
 
-_camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-def CamelFilter(tokens):
-    """Splits CamelCased words into multiple words.
+class LowercaseFilter(Filter):
+    """Uses unicode.lower() to lowercase token text.
     
     >>> rext = RegexTokenizer()
-    >>> stream = rext(u"call getProcessedToken")
-    >>> [token.text for token in CamelFilter(stream)]
-    [u"call", u"getProcessedToken", u"get", u"Processed", u"Token"]
-    
-    Obviously this filter needs to precede LowercaseFilter if they
-    are both in a filter chain.
+    >>> stream = rext(u"This is a TEST")
+    >>> [token.text for token in LowercaseFilter(stream)]
+    [u"this", u"is", u"a", u"test"]
     """
     
-    for t in tokens:
-        yield t
-        text = t.text
-        
-        if text and not text.islower() and not text.isupper() and not text.isdigit():
-            chars = t.chars
-            if chars:
-                oldstart = t.startchar
-            
-            for match in _camel_exp.finditer(text):
-                sub = match.group(0)
-                if sub != text:
-                    t.text = sub
-                    if chars:
-                        t.startchar = oldstart + match.start()
-                        t.endchar = oldstart + match.end()
-                    yield t
+    def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
+        for t in tokens:
+            t.text = t.text.lower()
+            yield t
 
 
-_underscore_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-def UnderscoreFilter(tokens):
-    """Splits words with underscores into multiple words.
-    
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"call get_processed_token")
-    >>> [token.text for token in CamelFilter(stream)]
-    [u"call", u"get_processed_token", u"get", u"processed", u"token"]
-    
-    Obviously you should not split words on underscores in the
-    tokenizer if you want to use this filter.
-    """
-    
-    for t in tokens:
-        yield t
-        text = t.text
-        
-        if text:
-            chars = t.chars
-            if chars:
-                oldstart = t.startchar
-            
-            for match in _underscore_exp.finditer(text):
-                sub = match.group(0)
-                if sub != text:
-                    t.text = sub
-                    if chars:
-                        t.startchar = oldstart + match.start()
-                        t.endchar = oldstart + match.end()
-                    yield t
-
-
-class StopFilter(object):
+class StopFilter(Filter):
     """Marks "stop" words (words too common to index) in the stream (and by default
     removes them).
     
@@ -691,6 +560,7 @@ class StopFilter(object):
         return False
     
     def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
         stoplist = self.stops
         minsize = self.min
         renumber = self.renumber
@@ -716,21 +586,213 @@ class StopFilter(object):
                     yield t
 
 
-def LowercaseFilter(tokens):
-    """Uses unicode.lower() to lowercase token text.
+class StemFilter(Filter):
+    """Stems (removes suffixes from) the text of tokens using the Porter stemming
+    algorithm. Stemming attempts to reduce multiple forms of the same root word
+    (for example, "rendering", "renders", "rendered", etc.) to a single word in
+    the index.
     
     >>> rext = RegexTokenizer()
-    >>> stream = rext(u"This is a TEST")
-    >>> [token.text for token in LowercaseFilter(stream)]
-    [u"this", u"is", u"a", u"test"]
+    >>> stream = rext(u"fundamentally willows")
+    >>> stemmer = StemFilter()
+    >>> [token.text for token in stemmer(stream)]
+    [u"fundament", u"willow"]
     """
     
-    for t in tokens:
-        t.text = t.text.lower()
-        yield t
+    def __init__(self, stemfn = stem, ignore = None):
+        """
+        :param stemfn: the function to use for stemming.
+        :param ignore: a set/list of words that should not be stemmed. This
+            is converted into a frozenset. If you omit this argument, all tokens
+            are stemmed.
+        """
+        
+        self.stemfn = stemfn
+        self.cache = {}
+        if ignore is None:
+            self.ignores = frozenset()
+        else:
+            self.ignores = frozenset(ignore)
+    
+    def clear(self):
+        """
+        This filter memoizes previously stemmed words to greatly speed up
+        stemming. This method clears the cache of previously stemmed words.
+        """
+        self.cache.clear()
+    
+    def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
+        stemfn = self.stemfn
+        cache = self.cache
+        ignores = self.ignores
+        
+        for t in tokens:
+            if t.stopped:
+                yield t
+                continue
+            
+            text = t.text
+            if text in ignores:
+                yield t
+            elif text in cache:
+                t.text = cache[text]
+                yield t
+            else:
+                t.text = s = stemfn(text)
+                cache[text] = s
+                yield t
 
 
-class BoostTextFilter(object):
+class CharsetFilter(Filter):
+    """Translates the text of tokens by calling unicode.translate() using the supplied
+    character mapping object. This is useful for case and accent folding.
+    
+    One way to get a character mapping object is to convert a Sphinx charset table file
+    using :func:`whoosh.support.charset.charset_table_to_dict`.
+    
+    >>> from whoosh.support.charset import charset_table_to_dict, default_charset
+    >>> retokenizer = RegexTokenizer()
+    >>> charmap = charset_table_to_dict(default_charset)
+    >>> chfilter = CharsetFilter(charmap)
+    >>> [t.text for t in chfilter(retokenizer(u'Stra\\xdfe'))]
+    [u'strase']
+    
+    The Sphinx charset table format is described at
+    http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
+    """
+    
+    def __init__(self, charmap):
+        """
+        :param charmap: a mapping from integer character numbers to unicode characters,
+            as required by the unicode.translate() method.
+        """
+        self.charmap = charmap
+        
+    def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
+        charmap = self.charmap
+        for t in tokens:
+            t.text = t.text.translate(charmap)
+            yield t
+
+class NgramFilter(Filter):
+    """Splits token text into N-grams.
+    
+    >>> rext = RegexTokenizer()
+    >>> stream = rext(u"hello there")
+    >>> ngf = NgramFilter(4)
+    >>> [token.text for token in ngf(stream)]
+    [u"hell", u"ello", u"ther", u"here"]
+    
+    """
+    
+    def __init__(self, minsize, maxsize = None):
+        """
+        :param minsize: The minimum size of the N-grams.
+        :param maxsize: The maximum size of the N-grams. If you omit
+            this parameter, maxsize == minsize.
+        """
+        
+        self.min = minsize
+        self.max = maxsize or minsize
+    
+    def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
+        for t in tokens:
+            text, chars = t.text, t.chars
+            if chars:
+                startchar = t.startchar
+            # Token positions don't mean much for N-grams,
+            # so we'll leave the token's original position
+            # untouched.
+            
+            for start in xrange(0, len(text) - self.min):
+                for size in xrange(self.min, self.max + 1):
+                    end = start + size
+                    if end > len(text): continue
+                    
+                    t.text = text[start:end]
+                    
+                    if chars:
+                        t.startchar = startchar + start
+                        t.endchar = startchar + end
+                        
+                    yield t
+
+
+class CamelFilter(Filter):
+    """Splits CamelCased words into multiple words.
+    
+    >>> rext = RegexTokenizer()
+    >>> stream = rext(u"call getProcessedToken")
+    >>> [token.text for token in CamelFilter(stream)]
+    [u"call", u"getProcessedToken", u"get", u"Processed", u"Token"]
+    
+    Obviously this filter needs to precede LowercaseFilter if they
+    are both in a filter chain.
+    """
+    
+    camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
+    
+    def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
+        camel_exp = self.camel_exp
+        for t in tokens:
+            yield t
+            text = t.text
+            
+            if text and not text.islower() and not text.isupper() and not text.isdigit():
+                chars = t.chars
+                if chars:
+                    oldstart = t.startchar
+                
+                for match in camel_exp.finditer(text):
+                    sub = match.group(0)
+                    if sub != text:
+                        t.text = sub
+                        if chars:
+                            t.startchar = oldstart + match.start()
+                            t.endchar = oldstart + match.end()
+                        yield t
+
+
+class UnderscoreFilter(Filter):
+    """Splits words with underscores into multiple words.
+    
+    >>> rext = RegexTokenizer()
+    >>> stream = rext(u"call get_processed_token")
+    >>> [token.text for token in CamelFilter(stream)]
+    [u"call", u"get_processed_token", u"get", u"processed", u"token"]
+    
+    Obviously you should not split words on underscores in the
+    tokenizer if you want to use this filter.
+    """
+    
+    underscore_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
+    
+    def __call__(self, tokens):
+        underscore_exp = self.underscore_exp
+        for t in tokens:
+            yield t
+            text = t.text
+            
+            if text:
+                chars = t.chars
+                if chars:
+                    oldstart = t.startchar
+                
+                for match in underscore_exp.finditer(text):
+                    sub = match.group(0)
+                    if sub != text:
+                        t.text = sub
+                        if chars:
+                            t.startchar = oldstart + match.start()
+                            t.endchar = oldstart + match.end()
+                        yield t
+
+
+class BoostTextFilter(Filter):
     """Advanced filter. Looks for embedded boost markers in the actual text of
     each token and extracts them to set the token's boost. This might be useful
     to let users boost individual terms.
@@ -787,7 +849,7 @@ class BoostTextFilter(object):
 
 # Analyzers
 
-class Analyzer(object):
+class Analyzer(Composable):
     """
     Abstract base class for analyzers. Since the analyzer protocol is just
     __call__, this is pretty simple -- it mostly exists to provide common
@@ -805,6 +867,44 @@ class Analyzer(object):
     
     def clean(self):
         pass
+
+
+class CompositeAnalyzer(Analyzer):
+    def __init__(self, *composables):
+        self.items = []
+        for comp in composables:
+            if isinstance(comp, CompositeAnalyzer):
+                self.items.extend(comp.items)
+            else:
+                self.items.append(comp)
+    
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__,
+                           ", ".join(repr(item) for item in self.items))
+    
+    def __call__(self, value, **kwargs):
+        items = self.items
+        gen = items[0](value, **kwargs)
+        for item in items[1:]:
+            gen = item(gen)
+        return gen
+    
+    def __getitem__(self, item):
+        return self.items.__getitem__(item)
+    
+    def __len__(self):
+        return len(self.items)
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.items == other.items:
+                return True
+        return False
+    
+    def clean(self):
+        for item in self.items:
+            if hasattr(item, "clean"):
+                item.clean()
 
 
 class IDAnalyzer(Analyzer):
@@ -921,6 +1021,43 @@ class SimpleAnalyzer(Analyzer):
         return LowercaseFilter(self.tokenizer(value, **kwargs))
 
 
+class StandardAnalyzer(Analyzer):
+    """Uses a RegexTokenizer and applies a LowercaseFilter and optional StopFilter.
+    
+    >>> ana = StandardAnalyzer()
+    >>> [token.text for token in ana(u"Testing is testing and testing")]
+    [u"testing", u"testing", u"testing"]
+    """
+    
+    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
+        """
+        :param expression: The regular expression pattern to use to extract tokens.
+        :param stoplist: A list of stop words. Set this to None to disable
+            the stop word filter.
+        :param minsize: Words smaller than this are removed from the stream.
+        :param gaps: If True, the tokenizer *splits* on the expression, rather
+            than matching on the expression.
+        """
+        
+        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
+        self.stopper = None
+        if stoplist is not None:
+            self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
+    
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
+                return True
+        return False
+    
+    def __call__(self, value, **kwargs):
+        gen = LowercaseFilter(self.tokenizer(value, **kwargs))
+        if self.stopper:
+            return self.stopper(gen)
+        else:
+            return gen
+
+
 class StemmingAnalyzer(Analyzer):
     """Uses a RegexTokenizer and applies a lower case filter,
     an optional stop filter, and then a stemming filter.
@@ -960,43 +1097,6 @@ class StemmingAnalyzer(Analyzer):
     
     def clean(self):
         self.stemfilter.clear()
-        
-
-class StandardAnalyzer(Analyzer):
-    """Uses a RegexTokenizer and applies a LowercaseFilter and optional StopFilter.
-    
-    >>> ana = StandardAnalyzer()
-    >>> [token.text for token in ana(u"Testing is testing and testing")]
-    [u"testing", u"testing", u"testing"]
-    """
-    
-    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
-        """
-        :param expression: The regular expression pattern to use to extract tokens.
-        :param stoplist: A list of stop words. Set this to None to disable
-            the stop word filter.
-        :param minsize: Words smaller than this are removed from the stream.
-        :param gaps: If True, the tokenizer *splits* on the expression, rather
-            than matching on the expression.
-        """
-        
-        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
-        self.stopper = None
-        if stoplist is not None:
-            self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        gen = LowercaseFilter(self.tokenizer(value, **kwargs))
-        if self.stopper:
-            return self.stopper(gen)
-        else:
-            return gen
 
 
 class FancyAnalyzer(Analyzer):
