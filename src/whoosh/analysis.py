@@ -44,6 +44,14 @@ three general types of classes/functions involved in analysis:
   Every analyzer is a callable that takes a string and returns a
   token generator. (So Tokenizers can be used as Analyzers if you
   don't need any filtering).
+  
+You can implement an analyzer as a custom class or function, or compose tokenizers
+and filters together using the ``|`` character::
+
+    my_analyzer = RegexTokenizer() | LowercaseFilter() | StopFilter()
+    
+The first item must be a tokenizer and the rest must be filters (you can't put a
+filter first or a tokenizer after the first item).
 """
 
 import copy, re
