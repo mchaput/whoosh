@@ -23,6 +23,7 @@ Tokenizers
 
 .. autofunction:: IDTokenizer
 .. autoclass:: RegexTokenizer
+.. autoclass:: CharsetTokenizer
 .. autoclass:: SpaceSeparatedTokenizer
 .. autoclass:: CommaSeparatedTokenizer
 .. autoclass:: NgramTokenizer
@@ -34,6 +35,7 @@ Filters
 .. autofunction:: PassFilter
 .. autofunction:: LowercaseFilter
 .. autofunction:: UnderscoreFilter
+.. autoclass:: CharsetFilter
 .. autoclass:: StopFilter
 .. autoclass:: StemFilter
 .. autofunction:: CamelFilter
@@ -45,3 +47,4 @@ Token classes and functions
 
 .. autoclass:: Token
 .. autofunction:: unstopped
+

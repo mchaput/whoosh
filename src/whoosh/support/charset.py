@@ -1,10 +1,15 @@
 # coding=utf-8
 
+"""This module contains tools for working with Sphinx charset table files. These files
+are useful for doing case and accent folding.
+See :class:`whoosh.analysis.CharsetTokenizer` and :class:`whoosh.analysis.CharsetFilter`.
+"""
+
 from collections import defaultdict
 from itertools import izip
 import re
 
-# This charset table taken from 
+# This charset table taken from http://speeple.com/unicode-maps.txt
 default_charset = """
 ##################################################
 # Latin
@@ -565,6 +570,15 @@ def charspec_to_int(string):
         raise Exception("Can't convert charspec: %r" % string)
 
 def charset_table_to_dict(tablestring):
+    """Takes a string with the contents of a Sphinx charset table file and
+    returns a mapping object (a defaultdict, actually) of the kind expected by
+    the unicode.translate() method: that is, it maps a character number to a unicode
+    character or None if the character is not a valid word character.
+    
+    The Sphinx charset table format is described at
+    http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
+    """
+    
     #map = {}
     map = defaultdict(lambda: None)
     for line in tablestring.split("\n"):
@@ -633,19 +647,6 @@ def charset_table_to_dict(tablestring):
     return map
 
 
-if __name__ == "__main__":
-    from time import time as now
-    print len(default_charset)
-    t = now()
-    umap = charset_table_to_dict(default_charset)
-    print now() - t
-    #print umap
-    
-    print len(umap)
-    s = u"Straße"
-    t = now()
-    print "=", repr(s.translate(umap))
-    print "%f" % (now() - t)
     
 
 

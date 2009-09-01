@@ -51,6 +51,11 @@ Changes
   has moved from the last to the first argument), e.g.
   ``v = ixreader.vector_as("frequency", 102, "content")``.
 
+* Added whoosh.support.charset for translating Sphinx charset table files.
+
+* Added whoosh.analysis.CharsetTokenizer and CharsetFilter to enable case and
+  accent folding.
+
 * Added experimental ``whoosh.ramdb`` in-memory backend.
 
 * Added experimental ``whoosh.query.FuzzyTerm`` query type.

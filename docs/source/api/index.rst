@@ -38,5 +38,4 @@ Exceptions
 .. autoexception:: EmptyIndexError
 .. autoexception:: IndexVersionError
 .. autoexception:: OutOfDateError
-.. autoexception:: IndexLockedError
 .. autoexception:: IndexError
