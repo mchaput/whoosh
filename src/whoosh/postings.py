@@ -449,10 +449,8 @@ class QueryScorer(PostingReader):
     
     def __iter__(self):
         next = self.next
-        while True:
-            docnum = self.id
-            if docnum is None: return
-            yield docnum, self.score()
+        while self.id is not None:
+            yield self.id, self.score()
             next()
     
     def score(self):
