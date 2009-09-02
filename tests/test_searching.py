@@ -104,7 +104,7 @@ class TestSearching(unittest.TestCase):
         s = ix.searcher()
         qp = qparser.QueryParser("content", schema=schema)
         
-        q = qp.parse("charlie [delta TO foxtrot]")
+        q = qp.parse(u"charlie [delta TO foxtrot]")
         self.assertEqual(q.__class__.__name__, "And")
         self.assertEqual(q[0].__class__.__name__, "Term")
         self.assertEqual(q[1].__class__.__name__, "TermRange")
@@ -115,7 +115,7 @@ class TestSearching(unittest.TestCase):
         ids = sorted([d['id'] for d in s.search(q)])
         self.assertEqual(ids, [u'A', u'B', u'C'])
         
-        q = qp.parse("foxtrot {echo TO hotel]")
+        q = qp.parse(u"foxtrot {echo TO hotel]")
         self.assertEqual(q.__class__.__name__, "And")
         self.assertEqual(q[0].__class__.__name__, "Term")
         self.assertEqual(q[1].__class__.__name__, "TermRange")
@@ -126,7 +126,7 @@ class TestSearching(unittest.TestCase):
         ids = sorted([d['id'] for d in s.search(q)])
         self.assertEqual(ids, [u'B', u'C', u'D', u'E'])
         
-        q = qp.parse("{bravo TO delta}")
+        q = qp.parse(u"{bravo TO delta}")
         self.assertEqual(q.__class__.__name__, "TermRange")
         self.assertEqual(q.start, "bravo")
         self.assertEqual(q.end, "delta")
@@ -191,7 +191,7 @@ class TestSearching(unittest.TestCase):
         
         qp = qparser.QueryParser("b", schema=schema)
         searcher = ix.searcher()
-        qr = qp.parse("b:ccc OR b:eee")
+        qr = qp.parse(u"b:ccc OR b:eee")
         self.assertEqual(qr.__class__, query.Or)
         r = searcher.search(qr)
         self.assertEqual(len(r), 2)
@@ -423,7 +423,7 @@ class TestSearching(unittest.TestCase):
         
         qp = qparser.QueryParser("my_value", schema=s)
         s = ix.searcher()
-        r = s.search(qp.parse("my_name:Green"))
+        r = s.search(qp.parse(u"my_name:Green"))
         self.assertEqual(r[0]['my_name'], "Green")
         s.close()
         ix.close()
@@ -431,7 +431,7 @@ class TestSearching(unittest.TestCase):
     def test_short_prefix(self):
         s = fields.Schema(name=fields.ID, value=fields.TEXT)
         qp = qparser.QueryParser("value", schema=s)
-        q = qp.parse("s*")
+        q = qp.parse(u"s*")
         self.assertEqual(q.__class__.__name__, "Prefix")
         self.assertEqual(q.text, "s")
         
@@ -448,7 +448,7 @@ class TestSearching(unittest.TestCase):
 
         qp = qparser.QueryParser("b", schema=schema)
         searcher = ix.searcher()
-        qr = qp.parse("b:ccc")
+        qr = qp.parse(u"b:ccc")
         self.assertEqual(qr.__class__, query.Term)
         r = searcher.search(qr, sortedby='a')
         self.assertEqual(len(r), 2)
