@@ -25,7 +25,7 @@ from collections import defaultdict
 from cPickle import dumps, loads
 from struct import Struct
 
-from whoosh.system import _USHORT_SIZE
+from whoosh.system import _USHORT_SIZE, _INT_SIZE
 
 
 def cdb_hash(key):
@@ -461,16 +461,14 @@ class FileRecordReader(object):
 class FileListWriter(object):
     def __init__(self, dbfile, valuecoder=str):
         self.dbfile = dbfile
-        self.positions = array("I")
-        self.lengths = array("I")
+        self.directory = array("I")
         dbfile.write_uint(0)
         self.valuecoder = valuecoder
     
     def close(self):
         f = self.dbfile
         directory_pos = f.tell()
-        f.write_array(self.positions)
-        f.write_array(self.lengths)
+        f.write_array(self.directory)
         f.flush()
         f.seek(0)
         f.write_uint(directory_pos)
@@ -478,9 +476,9 @@ class FileListWriter(object):
     
     def append(self, value):
         f = self.dbfile
-        self.positions.append(f.tell())
+        self.directory.append(f.tell())
         v = self.valuecoder(value)
-        self.lengths.append(len(v))
+        self.directory.append(len(v))
         f.write(v)
         
 
@@ -490,18 +488,16 @@ class FileListReader(object):
         self.length = length
         self.valuedecoder = valuedecoder
         
-        offset = dbfile.get_uint(0)
-        dbfile.seek(offset)
-        self.positions = dbfile.read_array("I", length)
-        self.lengths = dbfile.read_array("I", length)
+        self.offset = dbfile.get_uint(0)
     
     def close(self):
         self.dbfile.close()
     
     def __getitem__(self, num):
-        position = self.positions[num]
-        length = self.lengths[num]
-        v = self.dbfile.map[position:position+length]
+        dbfile = self.dbfile
+        offset = self.offset + num * (_INT_SIZE * 2)
+        position, length = unpack2ints(dbfile.map[offset:offset+_INT_SIZE*2])
+        v = dbfile.map[position:position+length]
         return self.valuedecoder(v)
     
 
