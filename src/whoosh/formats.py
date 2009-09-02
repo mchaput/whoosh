@@ -62,7 +62,7 @@ class Format(object):
                                        self.analyzer, self.field_boost)
     
     def clean(self):
-        if self.analyzer:
+        if self.analyzer and hasattr(self.analyzer, "clean"):
             self.analyzer.clean()
     
     def word_values(self, value, **kwargs):

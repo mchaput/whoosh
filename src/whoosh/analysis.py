@@ -155,13 +155,17 @@ class Composable(object):
 class Tokenizer(Composable):
     """Base class for Tokenizers.
     """
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__
 
 
 class IDTokenizer(Tokenizer):
     """Yields the entire input string as a single token. For use
     in indexed but untokenized fields, such as a document's path.
     
-    >>> [token.text for token in IDTokenizer(u"/a/b 123 alpha")]
+    >>> idt = IDTokenizer()
+    >>> [token.text for token in idt(u"/a/b 123 alpha")]
     [u"/a/b 123 alpha"]
     """
     
@@ -320,7 +324,10 @@ class CharsetTokenizer(Tokenizer):
             as used by the unicode.translate() method.
         """
         self.charmap = charmap
-            
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and self.charmap == other.charmap
+
     def __call__(self, value, positions = False, chars = False,
              keeporiginal = False, removestops = True,
              start_pos = 0, start_char = 0, tokenize = True,
@@ -386,7 +393,7 @@ class CharsetTokenizer(Tokenizer):
             yield t
 
 
-def SpaceSeparatedTokenizer(expression = r"[^ \t\r\n]+"):
+def SpaceSeparatedTokenizer():
     """Returns a RegexTokenizer that splits tokens by whitespace.
     
     >>> sst = SpaceSeparatedTokenizer()
@@ -394,10 +401,10 @@ def SpaceSeparatedTokenizer(expression = r"[^ \t\r\n]+"):
     [u"hi", u"there", u"big-time,", u"what's", u"up"]
     """
     
-    return RegexTokenizer(expression)
+    return RegexTokenizer(r"[^ \t\r\n]+")
 
 
-class CommaSeparatedTokenizer(RegexTokenizer):
+def CommaSeparatedTokenizer():
     """Splits tokens by commas.
     
     Note that the tokenizer calls unicode.strip() on each match
@@ -408,13 +415,7 @@ class CommaSeparatedTokenizer(RegexTokenizer):
     [u"hi there", u"what's", u"up"]
     """
     
-    def __init__(self, expression = r"[^,]+"):
-        RegexTokenizer.__init__(self, expression=expression)
-    
-    def __call__(self, value, **kwargs):
-        for t in RegexTokenizer.__call__(self, value, **kwargs):
-            t.text = t.text.strip()
-            yield t
+    return RegexTokenizer(r"[^,]+") | StripFilter()
 
 
 class NgramTokenizer(Tokenizer):
@@ -483,6 +484,9 @@ class Filter(Composable):
     a __call__ method that takes a single argument, which is an iterator
     of Token objects, and yield a series of Token objects in return.
     """
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__
 
 
 class PassFilter(Filter):
@@ -524,6 +528,20 @@ class LowercaseFilter(Filter):
         assert hasattr(tokens, "__iter__")
         for t in tokens:
             t.text = t.text.lower()
+            yield t
+            
+
+class StripFilter(Filter):
+    """Calls unicode.strip() on the token text.
+    
+    >>> rext = CommaSeparatedTokenizer()
+    >>> stream = rext(u"This i
+    """
+    
+    def __call__(self, tokens):
+        assert hasattr(tokens, "__iter__")
+        for t in tokens:
+            t.text = t.text.strip()
             yield t
 
 
@@ -622,12 +640,8 @@ class StemFilter(Filter):
         else:
             self.ignores = frozenset(ignore)
     
-    def clear(self):
-        """
-        This filter memoizes previously stemmed words to greatly speed up
-        stemming. This method clears the cache of previously stemmed words.
-        """
-        self.cache.clear()
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and self.stemfn == other.stemfn
     
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
@@ -650,6 +664,13 @@ class StemFilter(Filter):
                 t.text = s = stemfn(text)
                 cache[text] = s
                 yield t
+                
+    def clean(self):
+        """
+        This filter memoizes previously stemmed words to greatly speed up
+        stemming. This method clears the cache of previously stemmed words.
+        """
+        self.cache.clear()
 
 
 class CharsetFilter(Filter):
@@ -676,7 +697,10 @@ class CharsetFilter(Filter):
             as required by the unicode.translate() method.
         """
         self.charmap = charmap
-        
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and self.charmap == other.charmap
+    
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
         charmap = self.charmap
@@ -704,6 +728,10 @@ class NgramFilter(Filter):
         
         self.min = minsize
         self.max = maxsize or minsize
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__\
+        and self.min == other.min and self.max == other.max
     
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
@@ -838,10 +866,17 @@ class BoostTextFilter(Filter):
         """
         
         self.expression = expression
+        self.group = group
         self.default = default
-        
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__\
+        and self.expression == other.expression and self.default == other.default\
+        and self.group == other.group
+    
     def __call__(self, tokens):
         expression = self.expression
+        groupnum = self.group
         default = self.default
     
         for t in tokens:
@@ -849,7 +884,7 @@ class BoostTextFilter(Filter):
             m = expression.match(text)
             if m:
                 text = text[:m.start()] + text[m.end():]
-                t.boost = float(m.group(1))
+                t.boost = float(m.group(groupnum))
             else:
                 t.boost = default
                 
@@ -868,7 +903,7 @@ class Analyzer(Composable):
         return "%s()" % self.__class__.__name__
 
     def __eq__(self, other):
-        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
+        return other and self.__class__ is other.__class__ and self.__dict__ == other.__dict__
 
     def __call__(self, value, **kwargs):
         raise NotImplementedError
@@ -904,10 +939,7 @@ class CompositeAnalyzer(Analyzer):
         return len(self.items)
     
     def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.items == other.items:
-                return True
-        return False
+        return other and self.__class__ is other.__class__ and self.items == other.items
     
     def clean(self):
         for item in self.items:
@@ -915,255 +947,133 @@ class CompositeAnalyzer(Analyzer):
                 item.clean()
 
 
-class IDAnalyzer(Analyzer):
-    """
-    Yields the original text as a single token. This is useful for fields
-    you don't want to tokenize, such as the path of a file.
-    
-    >>> ana = IDAnalyzer()
-    >>> [token.text for token in ana(u"Hello there, this is a TEST")
-    [u"Hello there, this is a TEST"]
+def IDAnalyzer(lowercase = False):
+    """Deprecated, just use an IDTokenizer directly, with a LowercaseFilter if desired.
     """
     
-    def __init__(self, strip = True, lowercase = False):
-        """
-        :param strip: Whether to use str.strip() to strip whitespace
-            from the value before yielding it as a token.
-        :param lowercase: Whether to convert the token to lowercase
-            before indexing.
-        """
-        self.strip = strip
-        self.lowercase = lowercase
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.strip == other.strip and self.lowercase == other.lowercase:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        if self.strip: value = value.strip()
-        if self.lowercase:
-            return LowercaseFilter(IDTokenizer(value, **kwargs))
-        else:
-            return IDTokenizer(value, **kwargs)
+    tokenizer = IDTokenizer()
+    if lowercase:
+        tokenizer = tokenizer | LowercaseFilter()
+    return tokenizer
 
 
-class KeywordAnalyzer(Analyzer):
+def KeywordAnalyzer(lowercase = False, commas = False):
     """Parses space-separated tokens.
     
     >>> ana = KeywordAnalyzer()
     >>> [token.text for token in ana(u"Hello there, this is a TEST")]
     [u"Hello", u"there,", u"this", u"is", u"a", u"TEST"]
+    
+    :param lowercase: whether to lowercase the tokens.
+    :param commas: if True, items are separated by commas rather than spaces.
     """
     
-    def __init__(self, lowercase = False, commas = False):
-        self.lowercase = lowercase
-        if commas:
-            self.tokenizer = CommaSeparatedTokenizer()
-        else:
-            self.tokenizer = SpaceSeparatedTokenizer()
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.lowercase == other.lowercase and self.tokenizer == other.tokenizer:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        if self.lowercase:
-            return LowercaseFilter(self.tokenizer(value, **kwargs))
-        else:
-            return self.tokenizer(value, **kwargs)
+    if commas:
+        tokenizer = CommaSeparatedTokenizer()
+    else:
+        tokenizer = SpaceSeparatedTokenizer()
+    if lowercase:
+        tokenizer = tokenizer | LowercaseFilter()
+    return tokenizer
 
 
-class RegexAnalyzer(Analyzer):
-    """Uses a RegexTokenizer, applies no filters.
-    
-    >>> ana = RegexAnalyzer()
-    >>> [token.text for token in ana(u"hi there 3.141 big-time under_score")]
-    [u"hi", u"there", u"3.141", u"big", u"time", u"under_score"]
+def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
+    """Deprecated, just use a RegexTokenizer directly.
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", gaps=False):
-        """
-        :param expression: The regular expression pattern to use to extract tokens.
-        :param gaps: If True, the tokenizer *splits* on the expression, rather
-            than matching on the expression.
-        """
-        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        return self.tokenizer(value, **kwargs)
+    return RegexTokenizer(expression=expression, gaps=gaps)
 
 
-class SimpleAnalyzer(Analyzer):
-    """Uses a RegexTokenizer and applies a LowercaseFilter.
+def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
+    """Composes a RegexTokenizer with a LowercaseFilter.
     
     >>> ana = SimpleAnalyzer()
     >>> [token.text for token in ana(u"Hello there, this is a TEST")]
     [u"hello", u"there", u"this", u"is", u"a", u"test"]
+    
+    :param expression: The regular expression pattern to use to extract tokens.
+    :param gaps: If True, the tokenizer *splits* on the expression, rather
+        than matching on the expression.
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", gaps=False):
-        """
-        :param expression: The regular expression pattern to use to extract tokens.
-        :param gaps: If True, the tokenizer *splits* on the expression, rather
-            than matching on the expression.
-        """
-        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        return LowercaseFilter(self.tokenizer(value, **kwargs))
+    return RegexTokenizer(expression=expression, gaps=gaps) | LowercaseFilter()
 
 
-class StandardAnalyzer(Analyzer):
-    """Uses a RegexTokenizer and applies a LowercaseFilter and optional StopFilter.
+def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
+    """Composes a RegexTokenizer with a LowercaseFilter and optional StopFilter.
     
     >>> ana = StandardAnalyzer()
     >>> [token.text for token in ana(u"Testing is testing and testing")]
     [u"testing", u"testing", u"testing"]
+    
+    :param expression: The regular expression pattern to use to extract tokens.
+    :param stoplist: A list of stop words. Set this to None to disable
+        the stop word filter.
+    :param minsize: Words smaller than this are removed from the stream.
+    :param gaps: If True, the tokenizer *splits* on the expression, rather
+        than matching on the expression.
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
-        """
-        :param expression: The regular expression pattern to use to extract tokens.
-        :param stoplist: A list of stop words. Set this to None to disable
-            the stop word filter.
-        :param minsize: Words smaller than this are removed from the stream.
-        :param gaps: If True, the tokenizer *splits* on the expression, rather
-            than matching on the expression.
-        """
-        
-        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
-        self.stopper = None
-        if stoplist is not None:
-            self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        gen = LowercaseFilter(self.tokenizer(value, **kwargs))
-        if self.stopper:
-            return self.stopper(gen)
-        else:
-            return gen
+    chain = RegexTokenizer(expression=expression, gaps=gaps) | LowercaseFilter()
+    if stoplist is not None:
+        chain = chain | StopFilter(stoplist = stoplist, minsize = minsize)
+    return chain
 
 
-class StemmingAnalyzer(Analyzer):
-    """Uses a RegexTokenizer and applies a lower case filter,
-    an optional stop filter, and then a stemming filter.
+def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2, gaps=False):
+    """Composes a RegexTokenizer with a lower case filter, an optional stop filter,
+    and a stemming filter.
     
     >>> ana = StemmingAnalyzer()
     >>> [token.text for token in ana(u"Testing is testing and testing")]
     [u"test", u"test", u"test"]
+    
+    :param expression: The regular expression pattern to use to extract tokens.
+    :param stoplist: A list of stop words. Set this to None to disable
+        the stop word filter.
+    :param minsize: Words smaller than this are removed from the stream.
+    :param gaps: If True, the tokenizer *splits* on the expression, rather
+        than matching on the expression.
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2, gaps=False):
-        """
-        :param expression: The regular expression pattern to use to extract tokens.
-        :param stoplist: A list of stop words. Set this to None to disable
-            the stop word filter.
-        :param minsize: Words smaller than this are removed from the stream.
-        :param gaps: If True, the tokenizer *splits* on the expression, rather
-            than matching on the expression.
-        """
-        
-        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
-        self.stemfilter = StemFilter()
-        self.stopper = None
-        if stoplist is not None:
-            self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        gen = LowercaseFilter(self.tokenizer(value, **kwargs))
-        if self.stopper:
-            gen = self.stopper(gen)
-        return self.stemfilter(gen)
-    
-    def clean(self):
-        self.stemfilter.clear()
+    chain = RegexTokenizer(expression=expression, gaps=gaps) | LowercaseFilter()
+    if stoplist is not None:
+        chain = chain | StopFilter(stoplist = stoplist, minsize = minsize)
+    return chain | StemFilter()
 
 
-class FancyAnalyzer(Analyzer):
-    """Uses a RegexTokenizer and applies a CamelFilter,
-    UnderscoreFilter, LowercaseFilter, and StopFilter.
+def FancyAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
+    """Composes a RegexTokenizer with a CamelFilter, UnderscoreFilter, LowercaseFilter,
+    and StopFilter.
     
     >>> ana = FancyAnalyzer()
     >>> [token.text for token in ana(u"Should I call getInt or get_real?")]
     [u"should", u"call", u"getInt", u"get", u"int", u"get_real", u"get", u"real"]
+    
+    :param expression: The regular expression pattern to use to extract tokens.
+    :param stoplist: A list of stop words. Set this to None to disable
+        the stop word filter.
+    :param minsize: Words smaller than this are removed from the stream.
+    :param gaps: If True, the tokenizer *splits* on the expression, rather
+        than matching on the expression.
     """
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
-        """
-        :param expression: The regular expression pattern to use to extract tokens.
-        :param stoplist: A list of stop words. Set this to None to disable
-            the stop word filter.
-        :param minsize: Words smaller than this are removed from the stream.
-        :param gaps: If True, the tokenizer *splits* on the expression, rather
-            than matching on the expression.
-        """
-        
-        self.tokenizer = RegexTokenizer(expression=expression, gaps=gaps)
-        self.stopper = StopFilter(stoplist = stoplist, minsize = minsize)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer and self.stopper == other.stopper:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        return self.stopper(UnderscoreFilter(
-                            LowercaseFilter(
-                            CamelFilter(
-                            self.tokenizer(value, **kwargs)))))
+    return RegexTokenizer(expression=expression, gaps=gaps) |\
+           CamelFilter() |\
+           LowercaseFilter() |\
+           UnderscoreFilter() |\
+           StopFilter(stoplist = stoplist, minsize = minsize)
 
 
-class NgramAnalyzer(Analyzer):
-    """Uses an NgramTokenizer and applies a LowercaseFilter.
+def NgramAnalyzer(minsize, maxsize = None):
+    """Composes an NgramTokenizer and a LowercaseFilter.
     
     >>> ana = NgramAnalyzer(4)
     >>> [token.text for token in ana(u"hi there")]
     [u"hi t", u"i th", u" the", u"ther", u"here"]
     """
     
-    def __init__(self, minsize, maxsize = None):
-        """
-        See analysis.NgramTokenizer.
-        """
-        self.tokenizer = NgramTokenizer(minsize, maxsize = maxsize)
-    
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.tokenizer == other.tokenizer:
-                return True
-        return False
-    
-    def __call__(self, value, **kwargs):
-        return LowercaseFilter(self.tokenizer(value, **kwargs))
+    return NgramTokenizer(minsize, maxsize = maxsize) | LowercaseFilter()
     
 
 
