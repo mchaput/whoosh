@@ -66,50 +66,6 @@ class PostingWriter(object):
         raise NotImplementedError
 
 
-class FakeIterator(object):
-    """A mix-in that provides methods for a fake PostingReader or
-    QueryScorer.
-    """
-    
-    def __init__(self, *ids):
-        self.ids = ids
-        self.reset()
-        
-    def reset(self):
-        self.i = 0
-        if self.ids:
-            self.id = self.ids[0]
-        else:
-            self.id = None
-    
-    def next(self):
-        if self.id is None:
-            raise ReadTooFar
-        
-        if self.i == len(self.ids) - 1:
-            self.id = None
-        else:
-            self.i += 1
-            self.id = self.ids[self.i]
-    
-    def skip_to(self, target):
-        if target <= self.id:
-            return
-        if self.id is None:
-            raise ReadTooFar
-        
-        i, ids = self.i, self.ids
-        
-        while ids[i] < target:
-            i += 1
-            if i == len(ids):
-                self.id = None
-                return
-        
-        self.i = i
-        self.id = ids[i]
-
-
 class PostIterator(object):
     """Base class for PostingReader and QueryScorer. This interface
     provides methods for moving the "cursor" along posting lists.
@@ -211,7 +167,7 @@ class PostingReader(PostIterator):
     
     PostingReader defines a fairly simple interface.
     
-    * The current posting id is in the reader.id attribute.
+    * The current posting ID is in the reader.id attribute.
     * Reader.value() to get the posting payload.
     * Reader.value_as(astype) to get the interpreted posting payload.
     * Reader.next() to move the reader to the next posting.
@@ -286,7 +242,72 @@ class PostingReader(PostIterator):
         decoder = self.format.decoder(astype)
         for id, valuestring in self.items():
             yield (id, decoder(valuestring))
+
+
+class QueryScorer(PostIterator):
+    """QueryScorer extends the PostIterator interface with two methods:
     
+    * score() return the score for the current item.
+    * __iter__() returns an iterator of (id, score) pairs.
+    """
+    
+    def __iter__(self):
+        next = self.next
+        while self.id is not None:
+            yield self.id, self.score()
+            next()
+    
+    def score(self):
+        """Returns the score for the current document.
+        """
+        raise NotImplementedError
+
+
+class FakeIterator(object):
+    """A mix-in that provides methods for a fake PostingReader or
+    QueryScorer.
+    """
+    
+    def __init__(self, *ids):
+        self.ids = ids
+        self.reset()
+        
+    def reset(self):
+        self.i = 0
+        if self.ids:
+            self.id = self.ids[0]
+        else:
+            self.id = None
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        if self.i == len(self.ids) - 1:
+            self.id = None
+        else:
+            self.i += 1
+            self.id = self.ids[self.i]
+    
+    def skip_to(self, target):
+        if target <= self.id:
+            return
+        if self.id is None:
+            raise ReadTooFar
+        
+        i, ids = self.i, self.ids
+        
+        while ids[i] < target:
+            i += 1
+            if i == len(ids):
+                self.id = None
+                return
+        
+        self.i = i
+        self.id = ids[i]
+
+
+# Posting readers
 
 class MultiPostingReader(PostingReader):
     """This posting reader concatenates the results from serial sub-readers.
@@ -454,7 +475,7 @@ class CachedPostingReader(PostingReader):
         
         self._items = items
         self.reset()
-        
+    
     def reset(self):
         self.p = 0
         self.id = self._items[0][0]
@@ -514,27 +535,6 @@ class FakeReader(FakeIterator, PostingReader):
     def value(self):
         return self._value
     
-
-# QueryScorer interface
-
-class QueryScorer(PostIterator):
-    """QueryScorer extends the PostIterator interface with two methods:
-    
-    * score() return the score for the current item.
-    * __iter__() returns an iterator of (id, score) pairs.
-    """
-    
-    def __iter__(self):
-        next = self.next
-        while self.id is not None:
-            yield self.id, self.score()
-            next()
-    
-    def score(self):
-        """Returns the score for the current document.
-        """
-        raise NotImplementedError
-
 
 # QueryScorers
 
