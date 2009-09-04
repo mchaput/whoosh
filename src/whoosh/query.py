@@ -45,7 +45,7 @@ def _not_vector(searcher, notqueries, sourcevector):
     # from notqueries
     
     if sourcevector is None:
-        nvector = BitVector(searcher.ixreader.doc_count_all())
+        nvector = BitVector(searcher.reader().doc_count_all())
     else:
         nvector = sourcevector.copy()
     
@@ -363,7 +363,7 @@ class MultiTerm(Query):
     def scorer(self, searcher, exclude_docs = None):
         fn = self.fieldname
         scorers = []
-        for word in self._words(searcher.ixreader):
+        for word in self._words(searcher.reader()):
             try:
                 q = Term(fn, word).scorer(searcher, exclude_docs = exclude_docs)
                 scorers.append(q)
@@ -448,7 +448,6 @@ class Term(Query):
         text = self.text
         boost = self.boost
         score_methd = searcher.weighting.score
-        ixreader = searcher.ixreader
         
         def score_fn(docnum, weight):
             return score_methd(searcher, fieldnum, text, docnum, weight) * boost
@@ -946,7 +945,7 @@ class Phrase(MultiTerm):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         
         # Shortcut the query if one of the words doesn't exist.
-        ixreader = searcher.ixreader
+        ixreader = searcher.reader()
         for word in self.words:
             if (fieldnum, word) not in ixreader: return EmptyScorer()
         
@@ -959,7 +958,7 @@ class Phrase(MultiTerm):
         if field.format and field.format.supports("positions"):
             return Phrase.PostingPhraseScorer(intersection, slop = self.slop, boost=self.boost)
         elif field.vector and field.vector.supports("positions"):
-            return Phrase.VectorPhraseScorer(searcher.ixreader, fieldnum, self.words, intersection,
+            return Phrase.VectorPhraseScorer(ixreader, fieldnum, self.words, intersection,
                                              slop = self.slop, boost=self.boost)
         else:
             raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
@@ -1015,15 +1014,16 @@ class Every(Query):
     def scorer(self, searcher, exclude_docs = None):
         if not exclude_docs:
             exclude_docs = frozenset()
-        return Every.EveryScorer(searcher.ixreader.doc_count_all(), exclude_docs, self.boost)
+        return Every.EveryScorer(searcher.reader().doc_count_all(),
+                                 exclude_docs, self.boost)
     
     def docs(self, searcher, exclude_docs = None):
-        alldocs = xrange(searcher.ixreader.doc_count_all())
+        alldocs = xrange(searcher.reader().doc_count_all())
         if exclude_docs is None: exclude_docs = frozenset()
         return (docnum for docnum in alldocs if docnum not in exclude_docs)
         
     def doc_scores(self, searcher, exclude_docs = None):
-        alldocs = xrange(searcher.ixreader.doc_count_all())
+        alldocs = xrange(searcher.reader().doc_count_all())
         if exclude_docs is None: exclude_docs = frozenset()
         return ((docnum, self.boost) for docnum in alldocs if docnum not in exclude_docs)
 
@@ -1080,7 +1080,7 @@ class Require(CompoundQuery):
     def doc_scores(self, searcher, exclude_docs = None):
         query, filterquery = self.subqueries
         
-        filter = BitVector(searcher.ixreader.doc_count_all())
+        filter = BitVector(searcher.reader().doc_count_all())
         for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
             filter.set(docnum)
             

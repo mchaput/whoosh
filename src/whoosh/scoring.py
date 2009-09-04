@@ -251,7 +251,7 @@ class NullSorter(Sorter):
 class FieldSorter(Sorter):
     """Used by searching.Searcher to sort document results based on the
     value of an indexed field, rather than score. See the 'sortedby'
-    keyword argument to the Searcher's :meth:`~whoosh.searching.ixreader.search`
+    keyword argument to the Searcher's :meth:`~whoosh.searching.Searcher.search`
     method.
     
     This object creates a cache of document orders for the given field.
