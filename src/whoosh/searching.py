@@ -20,8 +20,8 @@ This module contains classes and functions related to searching the index.
 
 
 from __future__ import division
-import gc
 from heapq import heappush, heapreplace
+from math import log
 import time
 
 from whoosh import classify, query, scoring
@@ -55,6 +55,7 @@ class Searcher(object):
             self.weighting = weighting
         
         self.is_closed = False
+        self._idf_cache = {}
     
     def __del__(self):
         if hasattr(self, "is_closed") and not self.is_closed:
@@ -67,6 +68,21 @@ class Searcher(object):
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
         return self.ixreader
+    
+    def idf(self, fieldid, text):
+        """Calculates the Inverse Document Frequency of the
+        current term. Subclasses may want to override this.
+        """
+        
+        fieldnum = self.fieldname_to_num(fieldid)
+        cache = self._idf_cache
+        term = (fieldnum, text)
+        if term in cache: return cache[term]
+        
+        df = self.ixreader.doc_frequency(fieldnum, text)
+        idf = log(self.ixreader.doc_count_all() / (df + 1)) + 1.0
+        cache[term] = idf
+        return idf
     
     def document(self, **kw):
         """Convenience method returns the stored fields of a document
@@ -275,10 +291,10 @@ class Searcher(object):
         
         return Results(self, query, scored_list, docvector, runtime = t, scores = scores)
     
-    def fieldname_to_num(self, fieldname):
+    def fieldname_to_num(self, fieldid):
         """Returns the field number of the given field name.
         """
-        return self.schema.name_to_number(fieldname)
+        return self.schema.to_number(fieldid)
     
     def field(self, fieldid):
         """Returns the :class:`whoosh.fields.Field` object for the given field name.
