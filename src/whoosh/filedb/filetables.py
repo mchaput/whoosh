@@ -182,7 +182,7 @@ class FileHashReader(object):
         return self.map[position:position+length]
 
     def read2ints(self, position):
-        return unpack2ints(self.map[position:position+8])
+        return unpack2ints(self.map[position:position+_INT_SIZE*2])
 
     def _ranges(self, pos=2048):
         read2ints = self.read2ints
