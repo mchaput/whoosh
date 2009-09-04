@@ -90,8 +90,6 @@ class BM25F(Weighting):
         :param K1: free parameter, see the BM25 literature.
         :param field_B: If given, a dictionary mapping fieldnums to
             field-specific B values.
-        :param field_boost: If given, a dictionary mapping fieldnums
-            to field-specific boost factors.
         """
         
         Weighting.__init__(self)
