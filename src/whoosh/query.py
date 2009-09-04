@@ -29,8 +29,10 @@ from bisect import bisect_left, bisect_right
 import fnmatch, re
 
 from whoosh.lang.morph_en import variations
-from whoosh.postings import QueryScorer, AndNotScorer, EmptyScorer
-from whoosh.postings import IntersectionScorer, UnionScorer, ReadTooFar
+from whoosh.postings import QueryScorer, EmptyScorer
+from whoosh.postings import IntersectionScorer, UnionScorer
+from whoosh.postings import AndNotScorer, RequireScorer, AndMaybeScorer
+from whoosh.postings import ReadTooFar
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
@@ -197,7 +199,7 @@ class Query(object):
             exclude any documents.
         """
         
-        return iter(self.scorer(searcher))
+        return iter(self.scorer(searcher, exclude_docs=exclude_docs))
     
     def normalize(self):
         """Returns a recursively "normalized" form of this query. The normalized
@@ -249,6 +251,11 @@ class CompoundQuery(Query):
         r += (self.JOINT).join([unicode(s) for s in self.subqueries])
         r += u")"
         return r
+
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.subqueries == other.subqueries and\
+        self.boost == other.boost
 
     def __getitem__(self, i):
         return self.subqueries.__getitem__(i)
@@ -412,6 +419,11 @@ class Term(Query):
         self.text = text
         self.boost = boost
     
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and self.text == other.text and\
+        self.boost == other.boost
+    
     def __repr__(self):
         return "%s(%r, %r, boost=%r)" % (self.__class__.__name__,
                                          self.fieldname, self.text, self.boost)
@@ -518,6 +530,10 @@ class Not(Query):
         
         self.query = query
         self.boost = boost
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.query == other.query
         
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__,
@@ -558,6 +574,11 @@ class Prefix(MultiTerm):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and self.text == other.text and\
+        self.boost == other.boost
     
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.fieldname, self.text)
@@ -605,6 +626,11 @@ class Wildcard(MultiTerm):
         else:
             self.prefix = text[:min(st, qm)]
     
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and self.text == other.text and\
+        self.boost == other.boost
+    
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.fieldname, self.text)
     
@@ -642,10 +668,12 @@ class FuzzyTerm(MultiTerm):
     """Matches documents containing words similar to the given term.
     """
     
-    def __init__(self, fieldname, text, minsimilarity=0.5, prefixlength=1):
+    def __init__(self, fieldname, text, boost=1.0, minsimilarity=0.5, prefixlength=1):
         """
         :param fieldname: The name of the field to search.
         :param text: The text to search for.
+        :param boost: A boost factor to apply to scores of documents matching this
+            query.
         :param minsimilarity: The minimum similarity ratio to match. 1.0 is
             the maximum (an exact match to 'text').
         :param prefixlength: The matched terms must share this many initial
@@ -659,9 +687,16 @@ class FuzzyTerm(MultiTerm):
         
         self.fieldname = fieldname
         self.text = text
+        self.boost = boost
         self.minsimilarity = minsimilarity
         self.prefixlength = prefixlength
-        
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and self.text == other.text and\
+        self.minsimilarity == other.minsimilarity and self.prefixlength == other.prefixlength and\
+        self.boost == other.boost
+    
     def __repr__(self):
         return "%s(%r, %r, ratio=%f)" % (self.__class__.__name__,
                                          self.fieldname, self.text,
@@ -710,6 +745,13 @@ class TermRange(MultiTerm):
         self.startexcl = startexcl
         self.endexcl = endexcl
         self.boost = boost
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and\
+        self.start == other.start and self.end == other.end and\
+        self.startexcl == other.startexcl and self.endexcl == other.endexcl and\
+        self.boost == other.boost
     
     def __repr__(self):
         return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__, self.fieldname,
@@ -770,6 +812,11 @@ class Variations(MultiTerm):
         self.text = text
         self.boost = boost
         self.words = variations(self.text)
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and self.text == other.text and\
+        self.boost == other.boost
     
     def _words(self, ixreader):
         fieldname = self.fieldname
@@ -907,6 +954,11 @@ class Phrase(MultiTerm):
         self.slop = slop
         self.boost = boost
     
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.fieldname == other.fieldname and self.words == other.word and\
+        self.slop == other.slop and self.boost == other.boost
+    
     def __repr__(self):
         return "%s(%r, %r, slop=%s, boost=%f)" % (self.__class__.__name__,
                                                   self.fieldname, self.words,
@@ -1005,6 +1057,10 @@ class Every(Query):
     def __init__(self, boost=1):
         self.boost = boost
     
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.boost == other.boost
+    
     def __unicode__(self):
         return u"*"
     
@@ -1073,21 +1129,22 @@ class Require(CompoundQuery):
         # in a sequence in self.subqueries
         self.subqueries = (scoredquery, requiredquery)
         self.boost = boost
-        
+    
+    def scorer(self, searcher, exclude_docs = None):
+        scored, required = self.subqueries
+        scorer = RequireScorer(scored.scorer(searcher, exclude_docs=exclude_docs),
+                               required.scorer(searcher, exclude_docs=exclude_docs))
+        return scorer
+    
+    def normalize(self):
+        subqueries = [q.normalize() for q in self.subqueries]
+        if NullQuery in subqueries:
+            return NullQuery
+        return Require(subqueries[0], subqueries[1], boost=self.boost)
+    
     def docs(self, searcher, exclude_docs = None):
         return And(self.subqueries).docs(searcher, exclude_docs = exclude_docs)
     
-    def doc_scores(self, searcher, exclude_docs = None):
-        query, filterquery = self.subqueries
-        
-        filter = BitVector(searcher.reader().doc_count_all())
-        for docnum in filterquery.docs(searcher, exclude_docs = exclude_docs):
-            filter.set(docnum)
-            
-        for docnum, score in query.doc_scores(searcher):
-            if docnum not in filter: continue
-            yield docnum, score
-
 
 class AndMaybe(CompoundQuery):
     """Binary query takes results from the first query. If and only if the
@@ -1110,23 +1167,26 @@ class AndMaybe(CompoundQuery):
         self.subqueries = (requiredquery, optionalquery)
         self.boost = boost
     
+    def scorer(self, searcher, exclude_docs = None):
+        required, optional = self.subqueries
+        scorer = AndMaybeScorer(required.scorer(searcher, exclude_docs=exclude_docs),
+                                optional.scorer(searcher, exclude_docs=exclude_docs))
+        return scorer
+    
+    def normalize(self):
+        required, optional = (q.normalize() for q in self.subqueries)
+        if required is NullQuery:
+            return NullQuery
+        if optional is NullQuery:
+            return required
+        return AndMaybe(required, optional, boost=self.boost)
+    
     def docs(self, searcher, exclude_docs = None):
         return self.subqueries[0].docs(searcher, exclude_docs = exclude_docs)
-    
-    def doc_scores(self, searcher, exclude_docs = None):
-        query, maybequery = self.subqueries
-        
-        maybescores = dict(maybequery.doc_scores(searcher,exclude_docs = exclude_docs))
-        
-        for docnum, score in query.doc_scores(searcher, exclude_docs = exclude_docs):
-            if docnum in maybescores:
-                score += maybescores[docnum]
-            yield (docnum, score)
 
 
 class AndNot(Query):
-    """
-    Binary boolean query of the form 'a AND NOT b', where documents that match
+    """Binary boolean query of the form 'a ANDNOT b', where documents that match
     b are removed from the matches for a.
     """
     
@@ -1142,6 +1202,11 @@ class AndNot(Query):
         self.negative = negative
         self.boost = boost
     
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and\
+        self.positive == other.positive and self.negative == other.negative and\
+        self.boost == other.boost
+    
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__,
                                self.positive, self.negative)
@@ -1150,11 +1215,6 @@ class AndNot(Query):
         return u"%s ANDNOT %s" % (self.postive, self.negative)
     
     def normalize(self):
-        if self.positive is NullQuery:
-            return NullQuery
-        elif self.negative is NullQuery:
-            return self.positive.normalize()
-        
         pos = self.positive.normalize()
         neg = self.negative.normalize()
         

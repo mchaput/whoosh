@@ -756,6 +756,63 @@ class AndNotScorer(QueryScorer):
         return self.positive.score()
 
 
+class RequireScorer(QueryScorer):
+    """Takes the intersection of two sub-scorers, but only
+    takes scores from the first.
+    """
+    
+    def __init__(self, scorer, required):
+        self.scorer = scorer
+        self.intersection = IntersectionScorer([scorer, required])
+        
+        self.reset = self.intersection.reset
+        self.next = self.intersection.next
+        self.skip_to = self.intersection.skip_to
+    
+    @property
+    def id(self):
+        return self.intersection.id
+    
+    def score(self):
+        if self.id is None:
+            return 0
+        return self.scorer.score()
+
+
+class AndMaybeScorer(QueryScorer):
+    """Takes two sub-scorers, and returns documents that appear in the
+    first, but if the document also appears in the second, adds their
+    scores together.
+    """
+    
+    def __init__(self, required, optional):
+        self.required = required
+        self.optional = optional
+        
+    def reset(self):
+        self.required.reset()
+        self.optional.reset()
+        
+    def next(self):
+        self.required.next()
+        self.optional.skip_to(self.required.id)
+
+    def skip_to(self, target):
+        self.required.skip_to(target)
+        self.optional.skip_to(target)
+
+    def score(self):
+        if self.required.id == self.optional.id:
+            return self.required.score() + self.optional.score()
+        else:
+            return self.required.score()
+
+
+
+
+
+
+
 
 
 

@@ -21,6 +21,8 @@ Posting readers
 
 .. autoclass:: Exclude
 
+.. autoclass:: CachedPostingReader
+
 
 QueryScorers
 ============
@@ -29,11 +31,13 @@ QueryScorers
 	:members:
 	:inherited-members:
 
+.. autoclass:: AndMaybeScorer
+.. autoclass:: AndNotScorer
 .. autoclass:: EmptyScorer
 .. autoclass:: FakeScorer
 .. autoclass:: IntersectionScorer
-.. autoclass:: EmptyScorer
-.. autoclass:: EmptyScorer
+.. autoclass:: RequireScorer
+.. autoclass:: UnionScorer
 
 
 Exceptions
