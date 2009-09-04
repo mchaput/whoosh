@@ -451,7 +451,7 @@ class Term(Query):
         ixreader = searcher.ixreader
         
         def score_fn(docnum, weight):
-            return score_methd(ixreader, fieldnum, text, docnum, weight) * boost
+            return score_methd(searcher, fieldnum, text, docnum, weight) * boost
         
         try:
             postreader = searcher.postings(fieldnum, text, exclude_docs = exclude_docs)

@@ -35,23 +35,6 @@ class Weighting(object):
     appears.
     """
     
-    def __init__(self):
-        self._idf_cache = {}
-    
-    def idf(self, ixreader, fieldnum, text):
-        """Calculates the Inverse Document Frequency of the
-        current term. Subclasses may want to override this.
-        """
-        
-        cache = self._idf_cache
-        term = (fieldnum, text)
-        if term in cache: return cache[term]
-        
-        df = ixreader.doc_frequency(fieldnum, text)
-        idf = log(ixreader.doc_count_all() / (df + 1)) + 1.0
-        cache[term] = idf
-        return idf
-
     def avg_field_length(self, ixreader, fieldnum):
         """Returns the average length of the field per document.
         (i.e. total field length / total number of documents)
@@ -65,10 +48,10 @@ class Weighting(object):
         """
         return ixreader.doc_field_length(docnum, fieldnum) / self.avg_field_length(ixreader, fieldnum)
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
         """Returns the score for a given term in the given document.
         
-        :param ixreader: :class:`whoosh.reading.IndexReader` for the index.
+        :param searcher: :class:`whoosh.searching.Searcher` for the index.
         :param fieldnum: the field number of the term being scored.
         :param text: the text of the term being scored.
         :param docnum: the doc number of the document being scored.
@@ -99,12 +82,13 @@ class BM25F(Weighting):
         if field_B is None: field_B = {}
         self._field_B = field_B
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
         B = self._field_B.get(fieldnum, self.B)
         avl = self.avg_field_length(ixreader, fieldnum)
-        idf = self.idf(ixreader, fieldnum, text)
+        idf = searcher.idf(fieldnum, text)
         l = ixreader.doc_field_length(docnum, fieldnum)
         
         w = weight / ((1 - B) + B * (l / avl))
@@ -119,8 +103,8 @@ class Cosine(Weighting):
     from Terrier's Java implementation.
     """
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
-        idf = self.idf(ixreader, fieldnum, text)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        idf = searcher.idf(fieldnum, text)
         
         DTW = (1.0 + log(weight)) * idf
         QMF = 1.0 # TODO: Fix this
@@ -133,7 +117,8 @@ class DFree(Weighting):
     from Terrier's Java implementation.
     """
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
         fieldlen = ixreader.doc_field_length(docnum, fieldnum)
@@ -157,7 +142,8 @@ class DLH13(Weighting):
         Weighting.__init__(self)
         self.k = k
 
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
         k = self.k
@@ -179,7 +165,8 @@ class Hiemstra_LM(Weighting):
         Weighting.__init__(self)
         self.c = c
         
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
         c = self.c
@@ -197,7 +184,8 @@ class InL2(Weighting):
         Weighting.__init__(self)
         self.c = c
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
         dl = ixreader.doc_field_length(docnum, fieldnum)
@@ -213,8 +201,8 @@ class TF_IDF(Weighting):
     """Instead of doing any real scoring, this simply returns tf * idf.
     """
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
-        return weight * self.idf(ixreader, fieldnum, text)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        return weight * searcher.idf(fieldnum, text)
 
 
 class Frequency(Weighting):
@@ -223,8 +211,8 @@ class Frequency(Weighting):
     normalization and weighting.
     """
     
-    def score(self, ixreader, fieldnum, text, docnum, weight, QTF = 1):
-        return ixreader.frequency(fieldnum, text)
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+        return searcher.reader().frequency(fieldnum, text)
 
 
 # Sorting classes
