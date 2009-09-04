@@ -20,6 +20,7 @@ This module contains classes and functions related to searching the index.
 
 
 from __future__ import division
+from collections import defaultdict
 from heapq import heappush, heapreplace
 from math import log
 import time
@@ -454,12 +455,13 @@ class Results(object):
         :param docs: Look at this many of the top documents of the results.
         :param terms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify module.
+        :returns: list of unicode strings.
         """
         
         docs = min(docs, self.scored_length())
         if docs <= 0: return
         
-        reader = self.searcher.ixreader
+        reader = self.searcher.reader()
         fieldnum = self.searcher.fieldname_to_num(fieldname)
         
         expander = classify.Expander(reader, fieldname, model = model)
