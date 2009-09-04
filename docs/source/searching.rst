@@ -57,17 +57,17 @@ Scoring and sorting
 Scoring
 -------
 
-Normally the list of result documents is sorted by *score*. The :mod:`whoosh.scoring` module contains implementations of various scoring algorithms. The default is :class:`~whoosh.scoring.BM25F`.
+Normally the list of result documents is sorted by *score*. The :mod:`whoosh.scoring` module
+contains implementations of various scoring algorithms. The default is
+:class:`~whoosh.scoring.BM25F`.
 
-You can set the scoring object to use when you create the searcher using the ``weighting`` keyword argument::
+You can set the scoring object to use when you create the searcher using the ``weighting``
+keyword argument::
 
     s = myindex.searcher(weighting=whoosh.scoring.Cosine())
-    
-Or you can override the default weighting object when you call ``Searcher.search()``::
 
-    results = s.search(q, limit=10, weighting=whoosh.scoring.Cosine())
-
-(A scoring object is an object with a :meth:`~whoosh.scoring.Weighting.score` method that takes information about the term to score and returns a score as a floating point number.)
+A scoring object is an object with a :meth:`~whoosh.scoring.Weighting.score` method that
+takes information about the term to score and returns a score as a floating point number.
 
 Sorting
 -------
