@@ -23,10 +23,15 @@ from __future__ import division
 from collections import defaultdict
 from heapq import heappush, heapreplace
 from math import log
-import time
+import sys, time
 
 from whoosh import classify, query, scoring
 from whoosh.support.bitvector import BitVector
+
+if sys.platform == 'win32':
+    now = time.clock
+else:
+    now = time.time
 
 
 # Searcher class
@@ -58,9 +63,9 @@ class Searcher(object):
         self.is_closed = False
         self._idf_cache = {}
     
-    def __del__(self):
-        if hasattr(self, "is_closed") and not self.is_closed:
-            self.close()
+    #def __del__(self):
+    #    if hasattr(self, "is_closed") and not self.is_closed:
+    #        self.close()
     
     def close(self):
         self.ixreader.close()
@@ -256,7 +261,7 @@ class Searcher(object):
         
         ixreader = self.ixreader
         
-        t = time.time()
+        t = now()
         if sortedby is not None:
             if isinstance(sortedby, basestring):
                 sortedby = scoring.FieldSorter(sortedby)
@@ -288,7 +293,7 @@ class Searcher(object):
                 scores = []
             
             docvector = topdocs.docs
-        t = time.time() - t
+        t = now() - t
         
         return Results(self, query, scored_list, docvector, runtime = t, scores = scores)
     
