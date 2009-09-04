@@ -17,16 +17,21 @@
 """
 This module contains classes for writing and reading postings.
 
-The PostingReader interface is the main interface for reading posting information.
-A PostingReader object acts like a cursor moving along a list of postings.
-Individual backends must provide a PostingReader implementation that will be returned
-by the backend's :meth:`whoosh.reading.IndexReader.postings` method. Other classes in
-this module provide synthetic readers or readers that wrap other readers and modify
-their behavior.
+The PostIterator interface is the base interface for the two "cursor" interfaces
+(PostingReader and QueryScorer). It defines the basic methods for moving through
+the posting list (e.g. ``reset()``, ``next()``, ``skip_to()``).
 
-The QueryScorer interface extends the PostingReader interface with two extra methods
-to access the score of the current document. QueryScorer objects will be returned by
-the :meth:`~whoosh.query.Query.scorer` method on :class:`whoosh.query.Query` objects.
+The PostingReader interface allows reading raw posting information.
+Individual backends must provide a PostingReader implementation that will be returned
+by the backend's :meth:`whoosh.reading.IndexReader.postings` method.
+PostingReader subclasses in this module provide synthetic readers or readers that wrap
+other readers and modify their behavior.
+
+The QueryScorer interface allows retrieving and scoring search results. QueryScorer
+objects will be returned by the :meth:`~whoosh.query.Query.scorer` method on
+:class:`whoosh.query.Query` objects.
+QueryScorer subclasses in this module provide synthetic scorers or scorers that wrap
+other scorers and modify their behavior.
 """
 
 
@@ -40,6 +45,7 @@ class ReadTooFar(Exception):
     has reached the end of its items.
     """
     pass
+
 
 # Base classes
 
@@ -60,7 +66,107 @@ class PostingWriter(object):
         raise NotImplementedError
 
 
-class PostingReader(object):
+class FakeIterator(object):
+    """A mix-in that provides methods for a fake PostingReader or
+    QueryScorer.
+    """
+    
+    def __init__(self, *ids):
+        self.ids = ids
+        self.reset()
+        
+    def reset(self):
+        self.i = 0
+        if self.ids:
+            self.id = self.ids[0]
+        else:
+            self.id = None
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        
+        if self.i == len(self.ids) - 1:
+            self.id = None
+        else:
+            self.i += 1
+            self.id = self.ids[self.i]
+    
+    def skip_to(self, target):
+        if target <= self.id:
+            return
+        if self.id is None:
+            raise ReadTooFar
+        
+        i, ids = self.i, self.ids
+        
+        while ids[i] < target:
+            i += 1
+            if i == len(ids):
+                self.id = None
+                return
+        
+        self.i = i
+        self.id = ids[i]
+
+
+class PostIterator(object):
+    """Base class for PostingReader and QueryScorer. This interface
+    provides methods for moving the "cursor" along posting lists.
+    """
+    
+    def __cmp__(self, other):
+        return cmp(self.id, other.id)
+    
+    def __repr__(self):
+        return "<%s : %s>" % (self.__class__.__name__, self.id)
+    
+    def reset(self):
+        "Resets the reader to the beginning of the postings"
+        raise NotImplementedError(self)
+    
+    def next(self):
+        "Moves to the next posting."
+        raise NotImplementedError(self)
+    
+    def skip_to(self, id):
+        """Skips ahead to the given id. The default implementation
+        simply calls next() repeatedly until it gets to the id, but
+        subclasses will often be more clever.
+        """
+        
+        if id <= self.id:
+            return
+        if self.id is None:
+            raise ReadTooFar
+        
+        next = self.next
+        while self.id < id:
+            next()
+    
+    # Iterator convenience functions
+    
+    def all_ids(self):
+        """Yields all posting IDs.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        self.reset()
+        return self.ids()
+    
+    def ids(self):
+        """Yields the remaining IDs in the reader.
+        This may or may not change the cursor position, depending on the subclass
+        and backend implementations.
+        """
+        
+        next = self.next
+        while self.id is not None:
+            yield self.id
+            next()
+
+
+class PostingReader(PostIterator):
     """Base class for posting readers.
     
     "Postings" are used for two purposes in Whoosh.
@@ -127,35 +233,6 @@ class PostingReader(object):
     subclasses and different backend implementations.
     """
     
-    def __cmp__(self, other):
-        return cmp(self.id, other.id)
-    
-    def __repr__(self):
-        return "<%s : %s>" % (self.__class__.__name__, self.id)
-    
-    def reset(self):
-        "Resets the reader to the beginning of the postings"
-        raise NotImplementedError(self)
-    
-    def next(self):
-        "Moves to the next posting."
-        raise NotImplementedError(self)
-    
-    def skip_to(self, id):
-        """Skips ahead to the given id. The default implementation
-        simply calls next() repeatedly until it gets to the id, but
-        subclasses will often be more clever.
-        """
-        
-        if id <= self.id:
-            return
-        if self.id is None:
-            raise ReadTooFar
-        
-        next = self.next
-        while self.id < id:
-            next()
-            
     def value(self):
         "Returns the encoded value string for the current id."
         raise NotImplementedError
@@ -171,14 +248,6 @@ class PostingReader(object):
         return self.format.decoder(astype)(self.value())
     
     # Iterator convenience functions
-    
-    def all_ids(self):
-        """Yields all posting IDs.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
-        """
-        self.reset()
-        return self.ids()
     
     def all_items(self):
         """Yields all (id, encoded_value) pairs in the reader.
@@ -197,17 +266,6 @@ class PostingReader(object):
         self.reset()
         return self.items_as(astype)
     
-    def ids(self):
-        """Yields the remaining IDs in the reader.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
-        """
-        
-        next = self.next
-        while self.id is not None:
-            yield self.id
-            next()
-            
     def items(self):
         """Yields the remaining (id, encoded_value) pairs in the reader.
         Use items_as() to get decoded values.
@@ -438,10 +496,29 @@ class CachedPostingReader(PostingReader):
         return self._items[self.p][1]
 
 
+class FakeReader(FakeIterator, PostingReader):
+    """This is a fake posting reader for testing purposes. You create the
+    object with the posting IDs as arguments, and then returns them as you
+    call next() or skip_to().
+    
+    >>> fpr = FakeReader(1, 5, 10, 80)
+    >>> fpr.id
+    1
+    >>> fpr.next()
+    >>> fpr.id
+    5
+    """
+    
+    _value = 100
+    
+    def value(self):
+        return self._value
+    
+
 # QueryScorer interface
 
-class QueryScorer(PostingReader):
-    """QueryScorer extends the PostingReader interface with two methods:
+class QueryScorer(PostIterator):
+    """QueryScorer extends the PostIterator interface with two methods:
     
     * score() return the score for the current item.
     * __iter__() returns an iterator of (id, score) pairs.
@@ -457,9 +534,28 @@ class QueryScorer(PostingReader):
         """Returns the score for the current document.
         """
         raise NotImplementedError
-    
+
 
 # QueryScorers
+
+class FakeScorer(FakeIterator, QueryScorer):
+    """This is a fake query scorer for testing purposes. You create the
+    object with the posting IDs as arguments, and then returns them as you
+    call next() or skip_to().
+    
+    >>> fpr = FakeScorer(1, 5, 10, 80)
+    >>> fpr.id
+    1
+    >>> fpr.next()
+    >>> fpr.id
+    5
+    """
+    
+    _score = 10
+    
+    def score(self):
+        return self._score
+
 
 class EmptyScorer(QueryScorer):
     """A QueryScorer representing a query that doesn't match any documents.
@@ -479,76 +575,8 @@ class EmptyScorer(QueryScorer):
         return []
     def items_as(self, astype):
         return []
-    def value(self):
-        raise NotImplementedError("EmptyScorer has no values")
-    def value_as(self, astype):
-        raise NotImplementedError("EmptyScorer has no values")
     def score(self):
         return 0
-
-
-class FakeScorer(QueryScorer):
-    """This is a fake query scorer for testing purposes. You create the
-    object with the posting IDs as arguments, and then returns them as you
-    call next() or skip_to().
-    
-    >>> fpr = FakeScorer(1, 5, 10, 80)
-    >>> fpr.id
-    1
-    >>> fpr.next()
-    >>> fpr.id
-    5
-    """
-    
-    def __init__(self, *ids):
-        self.ids = ids
-        self._score = 10
-        self.reset()
-        
-    def __repr__(self):
-        return "<%s : %r>" % (self.id, self.ids)
-    
-    def reset(self):
-        self.i = 0
-        if self.ids:
-            self.id = self.ids[0]
-        else:
-            self.id = None
-    
-    def next(self):
-        if self.id is None:
-            raise ReadTooFar
-        
-        if self.i == len(self.ids) - 1:
-            self.id = None
-        else:
-            self.i += 1
-            self.id = self.ids[self.i]
-    
-    def skip_to(self, target):
-        if target <= self.id:
-            return
-        if self.id is None:
-            raise ReadTooFar
-        
-        i, ids = self.i, self.ids
-        
-        while ids[i] < target:
-            i += 1
-            if i == len(ids):
-                self.id = None
-                return
-        
-        self.i = i
-        self.id = ids[i]
-    
-    def value(self):
-        raise NotImplementedError("FakeScorer has no values")
-    
-    def score(self):
-        if self.id is None:
-            return 0
-        return self._score
 
 
 class IntersectionScorer(QueryScorer):
@@ -600,6 +628,7 @@ class IntersectionScorer(QueryScorer):
         state.sort()
         
         while True:
+            oldstate = tuple(s.id for s in state)
             lowid = state[0].id
             if lowid is None:
                 self.id = None
@@ -614,7 +643,9 @@ class IntersectionScorer(QueryScorer):
                     r.skip_to(highid)
                 if state[0].id is not None:
                     state.sort()
-                
+            if tuple(s.id for s in state) == oldstate:
+                raise Exception("Infinite loop")
+                    
     def score(self):
         if self.id is None:
             return 0
