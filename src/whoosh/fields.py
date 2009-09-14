@@ -23,7 +23,7 @@ import re
 
 from whoosh.analysis import IDAnalyzer, RegexAnalyzer, KeywordAnalyzer
 from whoosh.analysis import StandardAnalyzer, NgramAnalyzer
-from whoosh.formats import Existence, Frequency, Positions
+from whoosh.formats import Format, Existence, Frequency, Positions
 
 # Exceptions
 
@@ -68,6 +68,8 @@ class FieldType(object):
     
     format = vector = scorable = stored = unique = None
     indexed = True
+    __inittypes__ = dict(format=Format, vector=Format,
+                         scorable=bool, stored=bool, unique=bool)
     
     def __init__(self, format, vector = None,
                  scorable = False, stored = False,
@@ -118,6 +120,8 @@ class ID(FieldType):
     path of a file.
     """
     
+    __inittypes__ = dict(stored=bool, unique=bool, field_boost=float)
+    
     def __init__(self, stored = False, unique = False, field_boost = 1.0):
         """
         :param stored: Whether the value of this field is stored with the document.
@@ -131,6 +135,8 @@ class IDLIST(FieldType):
     """Configured field type for fields containing IDs separated by whitespace
     and/or puntuation.
     """
+    
+    __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
     
     def __init__(self, stored = False, unique = False, expression = None, field_boost = 1.0):
         """
@@ -149,6 +155,8 @@ class IDLIST(FieldType):
 
 
 class DATETIME(FieldType):
+    __inittypes__ = dict(stored=bool, unique=bool)
+    
     def __init__(self, stored = True, unique = False):
         """
         :param stored: Whether the value of this field is stored with the document.
@@ -180,11 +188,13 @@ class STORED(FieldType):
     
 
 class KEYWORD(FieldType):
-    """
-    Configured field type for fields containing space-separated or comma-separated
+    """Configured field type for fields containing space-separated or comma-separated
     keyword-like data (such as tags). The default is to not store positional information
     (so phrase searching is not allowed in this field) and to not make the field scorable.
     """
+    
+    __inittypes__ = dict(stored=bool, lowercase=bool, commas=bool, scorable=bool,
+                         unique=bool, field_boost=float)
     
     def __init__(self, stored = False, lowercase = False, commas = False,
                  scorable = False, unique = False, field_boost = 1.0):
@@ -207,6 +217,9 @@ class TEXT(FieldType):
     default is to store positional information to allow phrase searching. This field type
     is always scorable.
     """
+    
+    __inittypes__ = dict(analyzer=object, phrase=bool, vector=Format,
+                         stored=bool, field_boost=float)
     
     def __init__(self, analyzer = None, phrase = True, vector = None,
                  stored = False, field_boost = 1.0):
@@ -239,6 +252,8 @@ class NGRAM(FieldType):
     NGRAM(3,4), the value "hello" will be indexed as tokens
     "hel", "hell", "ell", "ello", "llo".
     """
+    
+    __inittypes__ = dict(minsize=int, maxsize=int, stored=bool, field_boost=float)
     
     def __init__(self, minsize = 2, maxsize = 4, stored = False, field_boost = 1.0):
         """

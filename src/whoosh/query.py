@@ -414,6 +414,8 @@ class Term(Query):
             weight = self.value_as("weight")
             return self.score_fn(docnum, weight)
     
+    __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
+    
     def __init__(self, fieldname, text, boost = 1.0):
         self.fieldname = fieldname
         self.text = text
@@ -520,6 +522,8 @@ class Not(Query):
     >>> Term("content", u"render") - Term("content", u"texture")
     """
     
+    __inittypes__ = dict(query=Query)
+    
     def __init__(self, query, boost = 1.0):
         """
         :param query: A :class:`Query` object. The results of this query
@@ -570,6 +574,8 @@ class Prefix(MultiTerm):
     >>> Prefix("content", u"comp")
     """
     
+    __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
+    
     def __init__(self, fieldname, text, boost = 1.0):
         self.fieldname = fieldname
         self.text = text
@@ -597,6 +603,8 @@ class Wildcard(MultiTerm):
     
     >>> Wildcard("content", u"in*f?x")
     """
+    
+    __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
     
     def __init__(self, fieldname, text, boost = 1.0):
         """
@@ -667,6 +675,9 @@ class Wildcard(MultiTerm):
 class FuzzyTerm(MultiTerm):
     """Matches documents containing words similar to the given term.
     """
+    
+    __inittypes__ = dict(fieldname=str, text=unicode, boost=float,
+                         minsimilarity=float, prefixlength=int)
     
     def __init__(self, fieldname, text, boost=1.0, minsimilarity=0.5, prefixlength=1):
         """

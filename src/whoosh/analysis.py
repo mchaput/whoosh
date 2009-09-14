@@ -195,6 +195,8 @@ class RegexTokenizer(Tokenizer):
     [u"hi", u"there", u"3.141", u"big", u"time", u"under_score"]
     """
     
+    __inittypes__ = dict(expression=unicode, gaps=bool)
+    
     def __init__(self, expression = r"\w+(\.?\w+)*", gaps=False):
         """
         :param expression: A regular expression object or string. Each match
@@ -318,6 +320,8 @@ class CharsetTokenizer(Tokenizer):
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
     
+    __inittype__ = dict(charmap=str)
+    
     def __init__(self, charmap):
         """
         :param charmap: a mapping from integer character numbers to unicode characters,
@@ -432,6 +436,8 @@ class NgramTokenizer(Tokenizer):
     Alternatively, if you only want sub-word grams without whitespace, you
     could combine a RegexTokenizer with NgramFilter instead.
     """
+    
+    __inittypes__ = dict(minsize=int, maxsize=int)
     
     def __init__(self, minsize, maxsize = None):
         """
@@ -557,6 +563,8 @@ class StopFilter(Filter):
     
     """
 
+    __inittypes__ = dict(stoplist=list, minsize=int, renumber=bool)
+
     def __init__(self, stoplist = STOP_WORDS, minsize = 2,
                  renumber = True):
         """
@@ -625,6 +633,8 @@ class StemFilter(Filter):
     [u"fundament", u"willow"]
     """
     
+    __inittypes__ = dict(stemfn=object, ignore=list)
+    
     def __init__(self, stemfn = stem, ignore = None):
         """
         :param stemfn: the function to use for stemming.
@@ -691,6 +701,8 @@ class CharsetFilter(Filter):
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
     
+    __inittypes__ = dict(charmap=str)
+    
     def __init__(self, charmap):
         """
         :param charmap: a mapping from integer character numbers to unicode characters,
@@ -708,6 +720,7 @@ class CharsetFilter(Filter):
             t.text = t.text.translate(charmap)
             yield t
 
+
 class NgramFilter(Filter):
     """Splits token text into N-grams.
     
@@ -718,6 +731,8 @@ class NgramFilter(Filter):
     [u"hell", u"ello", u"ther", u"here"]
     
     """
+    
+    __inittypes__ = dict(minsize=int, maxsize=int)
     
     def __init__(self, minsize, maxsize = None):
         """
@@ -955,6 +970,7 @@ def IDAnalyzer(lowercase = False):
     if lowercase:
         tokenizer = tokenizer | LowercaseFilter()
     return tokenizer
+IDAnalyzer.__inittypes__ = dict(lowercase=bool)
 
 
 def KeywordAnalyzer(lowercase = False, commas = False):
@@ -975,6 +991,7 @@ def KeywordAnalyzer(lowercase = False, commas = False):
     if lowercase:
         tokenizer = tokenizer | LowercaseFilter()
     return tokenizer
+KeywordAnalyzer.__inittypes__ = dict(lowercase=bool, commas=bool)
 
 
 def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
@@ -982,6 +999,7 @@ def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
     """
     
     return RegexTokenizer(expression=expression, gaps=gaps)
+RegexAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
 
 
 def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
@@ -997,7 +1015,7 @@ def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
     """
     
     return RegexTokenizer(expression=expression, gaps=gaps) | LowercaseFilter()
-
+SimpleAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
 
 def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter and optional StopFilter.
@@ -1018,6 +1036,7 @@ def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize 
     if stoplist is not None:
         chain = chain | StopFilter(stoplist = stoplist, minsize = minsize)
     return chain
+StandardAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool, stoplist=list, minsize=int)
 
 
 def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2, gaps=False):
@@ -1040,6 +1059,7 @@ def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2,
     if stoplist is not None:
         chain = chain | StopFilter(stoplist = stoplist, minsize = minsize)
     return chain | StemFilter()
+StemmingAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool, stoplist=list, minsize=int)
 
 
 def FancyAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
@@ -1058,11 +1078,12 @@ def FancyAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2
         than matching on the expression.
     """
     
-    return RegexTokenizer(expression=expression, gaps=gaps) |\
-           CamelFilter() |\
-           LowercaseFilter() |\
-           UnderscoreFilter() |\
+    return RegexTokenizer(expression=expression, gaps=gaps) | \
+           CamelFilter() | \
+           LowercaseFilter() | \
+           UnderscoreFilter() | \
            StopFilter(stoplist = stoplist, minsize = minsize)
+FancyAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool, stoplist=list, minsize=int)
 
 
 def NgramAnalyzer(minsize, maxsize = None):
@@ -1074,7 +1095,7 @@ def NgramAnalyzer(minsize, maxsize = None):
     """
     
     return NgramTokenizer(minsize, maxsize = maxsize) | LowercaseFilter()
-    
+NgramAnalyzer.__inittypes__ = dict(minsize=int, maxsize=int)
 
 
     
