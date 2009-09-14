@@ -40,6 +40,7 @@ class Format(object):
     
     posting_size = -1
     textual = True
+    __inittypes__ = dict(analyzer=object, field_boost=float)
     
     def __init__(self, analyzer, field_boost = 1.0, **options):
         """
@@ -124,6 +125,7 @@ class Existence(Format):
     """
     
     posting_size = 0
+    __inittypes__ = dict(analyzer=object, field_boost=float)
     
     def __init__(self, analyzer, field_boost = 1.0, **options):
         self.analyzer = analyzer
@@ -154,6 +156,7 @@ class Frequency(Format):
     """
     
     posting_size = _INT_SIZE
+    __inittypes__ = dict(analyzer=object, field_boost=float, boost_as_freq=bool)
     
     def __init__(self, analyzer, field_boost = 1.0, boost_as_freq = False, **options):
         """

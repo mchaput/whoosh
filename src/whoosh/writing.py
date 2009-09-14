@@ -98,8 +98,10 @@ class IndexWriter(DeletionMixin):
             raise IndexingError("None of the fields in %r are unique" % fields.keys())
         
         # Delete documents in which the supplied unique fields match
-        for name in unique_fields:
-            self.delete_by_term(name, fields[name])
+        from whoosh import query
+        delquery = query.Or([query.Term(name, fields[name]) for name in unique_fields])
+        delquery = delquery.normalize()
+        self.delete_by_query(delquery)
         
         # Add the given fields
         self.add_document(**fields)

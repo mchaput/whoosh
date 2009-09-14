@@ -293,6 +293,9 @@ class QueryParser(PyparsingBasedParser):
     query language similar to Lucene's.
     """
     
+    __inittypes__ = dict(default_field=str, schema="whoosh.fields.Schema",
+                         conjunction=Query, termclass=Query)
+    
     def __init__(self, default_field, schema = None,
                  conjunction = And, termclass = Term):
         """
@@ -381,9 +384,12 @@ class MultifieldParser(QueryParser):
     you want to search by default.
     """
 
-    def __init__(self, fieldnames, **kwargs):
-        super(MultifieldParser, self).__init__(fieldnames[0],
-                                               **kwargs)
+    __inittypes__ = dict(fieldnames=list, schema="whoosh.fields.Schema",
+                         conjunction=Query, termclass=Query)
+
+    def __init__(self, fieldnames, schema=None, conjunction=And, termclass=Term):
+        super(MultifieldParser, self).__init__(fieldnames[0], schema=schema,
+                                               conjunction=conjunction, termclass=termclass)
         self.fieldnames = fieldnames
         
     def _make(self, methodname, fieldname, *args):
@@ -412,6 +418,8 @@ class SimpleParser(PyparsingBasedParser):
     always ORs terms/phrases together. Put a plus sign (+) in front of a term/phrase
     to require it. Put a minus sign (-) in front of a term/phrase to forbid it.
     """
+    
+    __inittypes__ = dict(default_field=str, termclass=Query, schema="whoosh.fields.schema")
     
     def __init__(self, default_field, termclass = Term, schema = None):
         """
@@ -471,6 +479,9 @@ class SimpleNgramParser(object):
     text into grams. It can either discard grams containing spaces, or compose them as
     optional clauses to the query.
     """
+    
+    __inittypes__ = dict(fieldname=str, minchars=int, maxchars=int,
+                         discardspaces=bool, analyzerclass=type)
     
     def __init__(self, fieldname, minchars, maxchars, discardspaces = False,
                  analyzerclass = NgramAnalyzer):
