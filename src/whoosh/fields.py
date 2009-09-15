@@ -101,7 +101,7 @@ class FieldType(object):
         if self.vector and hasattr(self.vector, "clean"):
             self.vector.clean()
             
-    def index(self, value):
+    def index(self, value, **kwargs):
         """Returns an iterator of (termtext, frequency, encoded_value) tuples.
         """
         
@@ -111,7 +111,7 @@ class FieldType(object):
         if not isinstance(value, unicode):
             raise ValueError("%r is not unicode" % value)
         
-        return self.format.word_values(value)
+        return self.format.word_values(value, mode="index", **kwargs)
     
 
 class ID(FieldType):

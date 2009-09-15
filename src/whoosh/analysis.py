@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-Classes and functions for turning a piece of text into
+"""Classes and functions for turning a piece of text into
 an indexable stream of "tokens" (usually equivalent to words). There are
 three general types of classes/functions involved in analysis:
 
@@ -55,6 +54,7 @@ filter first or a tokenizer after the first item).
 """
 
 import copy, re
+from itertools import chain
 
 from whoosh.lang.porter import stem
 
@@ -83,7 +83,7 @@ class Token(object):
     Represents a "token" (usually a word) extracted from the source text
     being indexed.
     
-    See "Advaned analysis" in the user guide for more information.
+    See "Advanced analysis" in the user guide for more information.
     
     Because object instantiation in Python is slow, tokenizers should create
     ONE SINGLE Token object and YIELD IT OVER AND OVER, changing the attributes
@@ -107,7 +107,7 @@ class Token(object):
     """
     
     def __init__(self, positions = False, chars = False, boosts = False, removestops = True,
-                 **kwargs):
+                 mode = '', **kwargs):
         """
         :param positions: Whether tokens should have the token position in
             the 'pos' attribute.
@@ -117,6 +117,8 @@ class Token(object):
             in the 'boost' attribute.
         :param removestops: whether to remove stop words from the stream
             (if the tokens pass through a stop filter).
+        :param mode: contains a string describing the purpose for which the
+            analyzer is being called, i.e. 'index' or 'query'.
         """
         
         self.positions = positions
@@ -125,6 +127,7 @@ class Token(object):
         self.stopped = False
         self.boost = 1.0
         self.removestops = removestops
+        self.mode = mode
         self.__dict__.update(kwargs)
     
     def __repr__(self):
@@ -171,10 +174,10 @@ class IDTokenizer(Tokenizer):
     
     def __call__(self, value, positions = False, chars = False,
                  keeporiginal = False, removestops = True,
-                 start_pos = 0, start_char = 0,
+                 start_pos = 0, start_char = 0, mode='',
                  **kwargs):
         assert isinstance(value, unicode), "%r is not unicode" % value
-        t = Token(positions, chars, removestops = removestops)
+        t = Token(positions, chars, removestops = removestops, mode=mode)
         t.text = value
         if keeporiginal:
             t.original = value
@@ -221,8 +224,8 @@ class RegexTokenizer(Tokenizer):
     
     def __call__(self, value, positions = False, chars = False,
                  keeporiginal = False, removestops = True,
-                 start_pos = 0, start_char = 0, tokenize = True,
-                 **kwargs):
+                 start_pos = 0, start_char = 0,
+                 tokenize = True, mode = '', **kwargs):
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -238,7 +241,7 @@ class RegexTokenizer(Tokenizer):
         
         assert isinstance(value, unicode), "%r is not unicode" % value
         
-        t = Token(positions, chars, removestops = removestops)
+        t = Token(positions, chars, removestops=removestops, mode=mode)
         if not tokenize:
             t.original = t.text = value
             if positions: t.pos = start_pos
@@ -334,8 +337,8 @@ class CharsetTokenizer(Tokenizer):
 
     def __call__(self, value, positions = False, chars = False,
              keeporiginal = False, removestops = True,
-             start_pos = 0, start_char = 0, tokenize = True,
-             **kwargs):
+             start_pos = 0, start_char = 0,
+             tokenize = True, mode = '', **kwargs):
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -351,7 +354,7 @@ class CharsetTokenizer(Tokenizer):
         
         assert isinstance(value, unicode), "%r is not unicode" % value
         
-        t = Token(positions, chars, removestops = removestops)
+        t = Token(positions, chars, removestops=removestops, mode=mode)
         if not tokenize:
             t.original = t.text = value
             if positions: t.pos = start_pos
@@ -359,42 +362,42 @@ class CharsetTokenizer(Tokenizer):
                 t.startchar = start_char
                 t.endchar = start_char + len(value)
             yield t
-        
-        text = u""
-        charmap = self.charmap
-        pos = start_pos
-        startchar = currentchar = start_char
-        for char in value:
-            tchar = charmap[ord(char)]
-            if tchar:
-                text += tchar
-            else:
-                if currentchar > startchar:
-                    t.text = text
-                    if keeporiginal:
-                        t.original = t.text
-                    if positions:
-                        t.pos = pos
-                        pos += 1
-                    if chars:
-                        t.startchar = startchar
-                        t.endchar = currentchar
-                    yield t
-                startchar = currentchar + 1
-                text = u""
-                
-            currentchar += 1
-        
-        if currentchar > startchar:
-            t.text = value[startchar:currentchar]
-            if keeporiginal:
-                t.original = t.text
-            if positions:
-                t.pos = pos
-            if chars:
-                t.startchar = startchar
-                t.endchar = currentchar
-            yield t
+        else:
+            text = u""
+            charmap = self.charmap
+            pos = start_pos
+            startchar = currentchar = start_char
+            for char in value:
+                tchar = charmap[ord(char)]
+                if tchar:
+                    text += tchar
+                else:
+                    if currentchar > startchar:
+                        t.text = text
+                        if keeporiginal:
+                            t.original = t.text
+                        if positions:
+                            t.pos = pos
+                            pos += 1
+                        if chars:
+                            t.startchar = startchar
+                            t.endchar = currentchar
+                        yield t
+                    startchar = currentchar + 1
+                    text = u""
+                    
+                currentchar += 1
+            
+            if currentchar > startchar:
+                t.text = value[startchar:currentchar]
+                if keeporiginal:
+                    t.original = t.text
+                if positions:
+                    t.pos = pos
+                if chars:
+                    t.startchar = startchar
+                    t.endchar = currentchar
+                yield t
 
 
 def SpaceSeparatedTokenizer():
@@ -520,6 +523,34 @@ class RecordFilter(Filter):
             self.tokens.append(t.copy())
             yield t
 
+
+class MultiFilter(Filter):
+    """Chooses one of two or more sub-filters based on the 'mode' attribute
+    of the token stream.
+    """
+    
+    def __init__(self, **kwargs):
+        """Use keyword arguments to associate mode attribute values with
+        instantiated filters.
+        
+        >>> iwf_for_index = IntraWordFilter(mergewords=True, mergenums=False)
+        >>> iwf_for_query = IntraWordFilter(mergewords=False, mergenums=False)
+        >>> mf = MultiFilter(index=iwf_for_index, query=iwf_for_query)
+        
+        This class expects that the value of the mode attribute is consistent
+        among all tokens in a token stream.
+        """
+        self.filters = kwargs
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__ and self.filters == other.filters
+    
+    def __call__(self, tokens):
+        # Only selects on the first token
+        t = tokens.next()
+        filter = self.filters[t.mode]
+        return filter(chain([t], tokens))
+        
 
 class LowercaseFilter(Filter):
     """Uses unicode.lower() to lowercase token text.
@@ -772,8 +803,244 @@ class NgramFilter(Filter):
                     yield t
 
 
+class IntraWordFilter(Filter):
+    """Splits words into subwords and performs optional transformations on subword groups.
+    This filter funtionally based on yonik's WordDelimiterFilter in Solr, but shares no
+    code with it.
+    
+    * Split on intra-word delimiters, e.g. `Wi-Fi` -> `Wi`, `Fi`.
+    * When splitwords=True, split on case transitions, e.g. `PowerShot` -> `Power`, `Shot`.
+    * When splitnums=True, split on letter-number transitions, e.g. `SD500` -> `SD`, `500`.
+    * Leading and trailing delimiter characters are ignored.
+    * Trailing possesive "'s" removed from subwords, e.g. `O'Neil's` -> `O`, `Neil`.
+    
+    The mergewords and mergenums arguments turn on merging of subwords.
+    
+    When the merge arguments are false, subwords are not merged.
+    
+    * `PowerShot` -> `0`:`Power`, `1`:`Shot` (where `0` and `1` are token positions).
+    
+    When one or both of the merge arguments are true, consecutive runs of alphabetic
+    and/or numeric subwords are merged into a new token with the same token position
+    as the last sub-word.
+    
+    * `PowerShot` -> `0`:`Power`, `1`:`Shot`, `1`:`PowerShot`
+    * `A's+B's&C's` -> `0`:`A`, `1`:`B`, `2`:`C`, `2`:`ABC`
+    * `Super-Duper-XL500-42-AutoCoder!` -> 0:`Super`, 1:`Duper`, 2:`XL`, 2:`SuperDuperXL`,
+      `3`:`500`, `4`:`42`, `4`:`50042`, `5`:`Auto`, `6`:`Coder`, `6`:`AutoCoder`
+    
+    When using this filter you should use a tokenizer that only splits on whitespace,
+    so the tokenizer does not remove intra-word delimiters before this filter can see them,
+    and put this filter before any use of LowercaseFilter.
+    
+    >>> analyzer = RegexTokenizer(r"\\S+") | IntraWordFilter() | LowercaseFilter()
+    
+    One use for this filter is to help match different written representations of a
+    concept. For example, if the source text contained `wi-fi`, you probably want
+    `wifi`, `WiFi`, `wi-fi`, etc. to match. One way of doing this is to specify
+    mergewords=True and/or mergenums=True in the analyzer used for indexing, and
+    mergewords=False / mergenums=False in the analyzer used for querying.
+    
+    >>> iwf = MultiFilter(index=IntraWordFilter(mergewords=True, mergenums=True),
+                          query=IntraWordFilter(mergewords=False, mergenums=False))
+    >>> analyzer = RegexTokenizer(r"\\S+") | iwf | LowercaseFilter()
+    
+    (See :class:`MultiFilter`.)
+    """
+
+    # Create sets of unicode digit, uppercase, and lowercase characters.
+    digits = set()
+    uppers = set()
+    lowers = set()
+    for n in xrange(2**16-1):
+        ch = unichr(n)
+        if ch.islower(): lowers.add(ch)
+        elif ch.isupper(): uppers.add(ch)
+        elif ch.isdigit(): digits.add(ch)
+    
+    # Create escaped strings of characters for use in regular expressions
+    edigits = re.escape("".join(digits))
+    euppers = re.escape("".join(uppers))
+    elowers = re.escape("".join(lowers))
+    eletters = euppers + elowers
+    
+    __inittypes__ = dict(delims=unicode, splitwords=bool, splitnums=bool,
+                         mergewords=bool, mergenums=bool)
+    
+    def __init__(self, delims=u"-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+",
+                 splitwords=True, splitnums=True,
+                 mergewords=False, mergenums=False):
+        """
+        :param delims: a string of delimiter characters.
+        :param splitwords: split at case transitions, e.g. `PowerShot` -> `Power`, `Shot`
+        :param splitnums: split at letter-number transitions, e.g. `SD500` -> `SD`, `500`
+        :param mergewords: merge consecutive runs of alphabetic subwords into an
+            additional token with the same position as the last subword.
+        :param mergenums: merge consecutive runs of numeric subwords into an
+            additional token with the same position as the last subword.
+        """
+        
+        self.edelims = re.escape(delims)
+        
+        # Expression for splitting at delimiter characters
+        self.splitter = re.compile(u"[%s]+" % (self.edelims, ), re.UNICODE)
+        # Expression for removing "'s" from the end of sub-words
+        self.disposses = re.compile(u"(?<=[%s])'[Ss](?=$|[%s])" % (self.eletters,
+                                                                   self.edelims), re.UNICODE)
+        
+        # Expression for finding case and letter-number transitions
+        lower2upper = u"[%s][%s]" % (self.elowers, self.euppers)
+        letter2digit = u"[%s][%s]" % (self.eletters, self.edigits)
+        digit2letter = u"[%s][%s]" % (self.edigits, self.eletters)
+        if splitwords and splitnums:
+            self.boundary = re.compile(u"(%s|%s|%s)" % (lower2upper,
+                                                        letter2digit,
+                                                        digit2letter), re.UNICODE)
+        elif splitwords:
+            self.boundary = re.compile(u"%s" % (lower2upper, ), re.UNICODE)
+        elif splitnums:
+            self.boundary = re.compile(u"(%s|%s)" % (letter2digit,
+                                                     digit2letter), re.UNICODE)
+        
+        self.splitting = splitwords or splitnums
+        self.mergewords = mergewords
+        self.mergenums = mergenums
+    
+    def __eq__(self, other):
+        return other and self.__class__ is other.__class__\
+        and self.__dict__ == other.__dict__
+    
+    def split(self, string):
+        boundaries = self.boundary.finditer
+        
+        # Are we splitting on word/num boundaries?
+        if self.splitting:
+            parts = []
+            # First, split on delimiters
+            splitted = self.splitter.split(string)
+            
+            for run in splitted:
+                # For each delimited run of characters, find the
+                # boundaries (e.g. lower->upper, letter->num, num->letter)
+                # and split between them.
+                start = 0
+                for match in boundaries(run):
+                    middle = match.start() + 1
+                    parts.append(run[start:middle])
+                    start = middle
+                    
+                # Add the bit after the last split
+                if start < len(run):
+                    parts.append(run[start:])
+        else:
+            # Just split on delimiters
+            parts = self.splitter.split(string)
+        return parts
+    
+    def merge(self, parts):
+        mergewords = self.mergewords
+        mergenums = self.mergenums
+        
+        # Current type (1=alpah, 2=digit)
+        last = 0
+        # Where to insert a merged term in the original list
+        insertat = 0
+        # Buffer for parts to merge
+        buf = []
+        for pos, part in parts[:]:
+            # Set the type of this part
+            if part.isalpha(): this = 1
+            elif part.isdigit(): this = 2
+            
+            # Is this the same type as the previous part?
+            if buf and (this == last == 1 and mergewords)\
+            or (this == last == 2 and mergenums):
+                # This part is the same type as the previous.
+                # Add it to the buffer of parts to merge.
+                buf.append(part)
+            else:
+                # This part is different than the previous.
+                if len(buf) > 1:
+                    # If the buffer has at least two parts in
+                    # it, merge them and add them to the original
+                    # list of parts.
+                    parts.insert(insertat, (pos-1, u"".join(buf)))
+                    insertat += 1
+                # Reset the buffer
+                buf = [part]
+                last = this
+            insertat += 1
+        
+        # If there are parts left in the buffer at the end,
+        # merge them and add them to the original list.
+        if len(buf) > 1:
+            parts.append((pos, u"".join(buf)))
+    
+    def __call__(self, tokens):
+        disposses = self.disposses.sub
+        merge = self.merge
+        mergewords = self.mergewords
+        mergenums = self.mergenums
+        
+        # This filter renumbers tokens as it expands them.
+        # New position counter.
+        
+        newpos = None
+        for t in tokens:
+            text = t.text
+            
+            # If this is the first token we've seen, use it to set
+            # the new position counter
+            if newpos is None:
+                if t.positions:
+                    newpos = t.pos
+                else:
+                    # Token doesn't have positions, just use 0
+                    newpos = 0
+            
+            if (text.isalpha() and (text.islower() or text.isupper())) or text.isdigit():
+                # Short-circuit the common cases of no delimiters, no case transitions,
+                # only digits, etc.
+                t.pos = newpos
+                yield t
+                newpos += 1
+            else:
+                # Should we check for an apos before doing the
+                # disposses step? Or is the re faster?
+                # if "'" in text:
+                text = disposses("", text)
+                
+                # Split the token text on delimiters, word and/or number boundaries,
+                # and give the split parts positions
+                parts = [(newpos + i, part) for i, part in enumerate(self.split(text))]
+                
+                # Did the split yield more than one part?
+                if len(parts) > 1:
+                    # If the options are set, merge consecutive runs of all-letters
+                    # and/or all-numbers.
+                    if mergewords or mergenums:
+                        merge(parts)
+                    
+                    # Yield tokens for the parts
+                    for pos, text in parts:
+                        t.text = text
+                        t.pos = pos
+                        yield t
+                    
+                    # Set the new position counter based on the last part
+                    newpos = parts[-1][0] + 1
+                else:
+                    # The split only gave one part, so just yield the 
+                    # "dispossed" text.
+                    t.text = text
+                    t.pos = newpos
+                    yield t
+                    newpos += 1
+
+
 class CamelFilter(Filter):
     """Splits CamelCased words into multiple words.
+    This filter is deprecated, use IntraWordFilter instead.
     
     >>> rext = RegexTokenizer()
     >>> stream = rext(u"call getProcessedToken")
@@ -810,6 +1077,7 @@ class CamelFilter(Filter):
 
 class UnderscoreFilter(Filter):
     """Splits words with underscores into multiple words.
+    This filter is deprecated, use IntraWordFilter instead.
     
     >>> rext = RegexTokenizer()
     >>> stream = rext(u"call get_processed_token")
@@ -1062,7 +1330,9 @@ def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS, minsize=2,
 StemmingAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool, stoplist=list, minsize=int)
 
 
-def FancyAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2, gaps=False):
+def FancyAnalyzer(expression=r"\s+", stoplist = STOP_WORDS, minsize = 2, gaps=True,
+                  splitwords=True, splitnums=True,
+                  mergewords=False, mergenums=False):
     """Composes a RegexTokenizer with a CamelFilter, UnderscoreFilter, LowercaseFilter,
     and StopFilter.
     
@@ -1079,9 +1349,9 @@ def FancyAnalyzer(expression=r"\w+(\.?\w+)*", stoplist = STOP_WORDS, minsize = 2
     """
     
     return RegexTokenizer(expression=expression, gaps=gaps) | \
-           CamelFilter() | \
+           IntraWordFilter(splitwords=splitwords, splitnums=splitnums,
+                           mergewords=mergewords, mergenums=mergenums) | \
            LowercaseFilter() | \
-           UnderscoreFilter() | \
            StopFilter(stoplist = stoplist, minsize = minsize)
 FancyAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool, stoplist=list, minsize=int)
 
