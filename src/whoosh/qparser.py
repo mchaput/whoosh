@@ -227,7 +227,7 @@ class PyparsingBasedParser(object):
             raise Exception("%s field has no format" % self.field)
         
         # Just take the first token
-        for token in field.format.analyze(text, **kwargs):
+        for token in field.format.analyze(text, mode="query", **kwargs):
             return token.text
     
     def make_term(self, fieldname, text):
@@ -242,7 +242,7 @@ class PyparsingBasedParser(object):
     def make_phrase(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            texts = [t.text for t in field.format.analyze(text)]
+            texts = [t.text for t in field.format.analyze(text, mode="query")]
             if not texts:
                 return self.termclass(fieldname, u'')
             elif len(texts) == 1:
@@ -294,7 +294,7 @@ class QueryParser(PyparsingBasedParser):
     """
     
     __inittypes__ = dict(default_field=str, schema="whoosh.fields.Schema",
-                         conjunction=Query, termclass=Query)
+                         conjunction="whoosh.query.Query", termclass="whoosh.query.Query")
     
     def __init__(self, default_field, schema = None,
                  conjunction = And, termclass = Term):
@@ -385,7 +385,7 @@ class MultifieldParser(QueryParser):
     """
 
     __inittypes__ = dict(fieldnames=list, schema="whoosh.fields.Schema",
-                         conjunction=Query, termclass=Query)
+                         conjunction="whoosh.query.Query", termclass="whoosh.query.Query")
 
     def __init__(self, fieldnames, schema=None, conjunction=And, termclass=Term):
         super(MultifieldParser, self).__init__(fieldnames[0], schema=schema,
@@ -419,7 +419,7 @@ class SimpleParser(PyparsingBasedParser):
     to require it. Put a minus sign (-) in front of a term/phrase to forbid it.
     """
     
-    __inittypes__ = dict(default_field=str, termclass=Query, schema="whoosh.fields.schema")
+    __inittypes__ = dict(default_field=str, termclass="whoosh.query.Query", schema="whoosh.fields.schema")
     
     def __init__(self, default_field, termclass = Term, schema = None):
         """

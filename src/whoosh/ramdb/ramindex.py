@@ -100,7 +100,7 @@ class RamIndexWriter(IndexWriter):
                 
                 fieldlist = termlists[fieldnum]
                 fielddict = invertedindex[fieldnum]
-                for w, freq, valuestring in format.word_values(value):
+                for w, freq, valuestring in field.index(value):
                     if w not in fielddict:
                         insort(fieldlist, w)
                     fielddict[w].append((maxdoc, valuestring))

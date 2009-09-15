@@ -79,14 +79,18 @@ class Format(object):
         """
         raise NotImplementedError
     
-    def analyze(self, unicodestring, **kwargs):
+    def analyze(self, unicodestring, mode='', **kwargs):
         """Returns a :class:`whoosh.analysis.Token` iterator from the given
         unicode string.
+        
+        :param unicodestring: the string to analyzer.
+        :param mode: a string indicating the purpose for which the unicode
+            string is being analyzed, i.e. 'index' or 'query'.
         """
         
         if not self.analyzer:
             raise Exception("%s format has no analyzer" % self.__class__)
-        return self.analyzer(unicodestring, **kwargs)
+        return self.analyzer(unicodestring, mode=mode, **kwargs)
     
     def encode(self, value):
         """Returns the given value encoded as a string.
@@ -134,7 +138,7 @@ class Existence(Format):
     
     def word_values(self, value, **kwargs):
         seen = set()
-        for t in unstopped(self.analyzer(value)):
+        for t in unstopped(self.analyzer(value, **kwargs)):
             seen.add(t.text)
         
         return ((w, 1, '') for w in seen)
@@ -177,10 +181,10 @@ class Frequency(Format):
     def word_values(self, value, **kwargs):
         seen = defaultdict(int)
         if self.boost_as_freq:
-            for t in unstopped(self.analyzer(value, boosts = True)):
+            for t in unstopped(self.analyzer(value, boosts = True, **kwargs)):
                 seen[t.text] += int(t.boost)
         else:
-            for t in unstopped(self.analyzer(value)):
+            for t in unstopped(self.analyzer(value, **kwargs)):
                 seen[t.text] += 1
         
         encode = self.encode
@@ -207,7 +211,7 @@ class DocBoosts(Frequency):
     
     def word_values(self, value, doc_boost = 1.0, **kwargs):
         seen = defaultdict(int)
-        for t in unstopped(self.analyzer(value)):
+        for t in unstopped(self.analyzer(value, **kwargs)):
             seen[t.text] += 1
         
         encode = self.encode
@@ -243,7 +247,7 @@ class Positions(Format):
     
     def word_values(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(list)
-        for t in unstopped(self.analyzer(value, positions = True, start_pos = start_pos)):
+        for t in unstopped(self.analyzer(value, positions = True, start_pos = start_pos, **kwargs)):
             seen[t.text].append(start_pos + t.pos)
         
         encode = self.encode
@@ -290,7 +294,7 @@ class Characters(Positions):
         seen = defaultdict(list)
         
         for t in unstopped(self.analyzer(value, positions = True, chars = True,
-                                         start_pos = start_pos, start_char = start_char)):
+                                         start_pos = start_pos, start_char = start_char, **kwargs)):
             seen[t.text].append((t.pos, start_char + t.startchar, start_char + t.endchar))
         
         encode = self.encode
@@ -336,7 +340,7 @@ class PositionBoosts(Positions):
     def word_values(self, value, start_pos = 0, **kwargs):
         seen = defaultdict(iter)
         for t in unstopped(self.analyzer(value, positions = True, boosts = True,
-                                         start_pos = start_pos)):
+                                         start_pos = start_pos, **kwargs)):
             pos = t.pos
             boost = t.boost
             seen[t.text].append((pos, boost))
@@ -406,7 +410,8 @@ class CharacterBoosts(Characters):
         seen = defaultdict(iter)
         for t in unstopped(self.analyzer(value, positions = True, characters = True,
                                          boosts = True,
-                                         start_pos = start_pos, start_char = start_char)):
+                                         start_pos = start_pos, start_char = start_char,
+                                         **kwargs)):
             seen[t.text].append((t.pos,
                                  start_char + t.startchar, start_char + t.endchar,
                                  t.boost))

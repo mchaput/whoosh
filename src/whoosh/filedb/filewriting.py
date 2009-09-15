@@ -374,7 +374,7 @@ class SegmentWriter(object):
                     # TODO: Method for adding progressive field values, ie setting
                     # start_pos/start_char?
                     vlist = sorted((w, valuestring) for w, freq, valuestring
-                                   in vector.word_values(value))
+                                   in vector.word_values(value, mode="index"))
                     self._add_vector(fieldnum, vlist)
                     
                 # If the field is stored, put the value in storedvalues
