@@ -53,6 +53,7 @@ The first item must be a tokenizer and the rest must be filters (you can't put a
 filter first or a tokenizer after the first item).
 """
 
+from array import array
 import copy, re
 from itertools import chain
 
@@ -849,20 +850,20 @@ class IntraWordFilter(Filter):
     """
 
     # Create sets of unicode digit, uppercase, and lowercase characters.
-    digits = set()
-    uppers = set()
-    lowers = set()
+    digits = array("u")
+    uppers = array("u")
+    lowers = array("u")
     for n in xrange(2**16-1):
         ch = unichr(n)
-        if ch.islower(): lowers.add(ch)
-        elif ch.isupper(): uppers.add(ch)
-        elif ch.isdigit(): digits.add(ch)
+        if ch.islower(): lowers.append(ch)
+        elif ch.isupper(): uppers.append(ch)
+        elif ch.isdigit(): digits.append(ch)
     
     # Create escaped strings of characters for use in regular expressions
-    edigits = re.escape("".join(digits))
-    euppers = re.escape("".join(uppers))
-    elowers = re.escape("".join(lowers))
-    eletters = euppers + elowers
+    digits = re.escape("".join(digits))
+    uppers = re.escape("".join(uppers))
+    lowers = re.escape("".join(lowers))
+    letters = uppers + lowers
     
     __inittypes__ = dict(delims=unicode, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
@@ -880,18 +881,18 @@ class IntraWordFilter(Filter):
             additional token with the same position as the last subword.
         """
         
-        self.edelims = re.escape(delims)
+        self.delims = re.escape(delims)
         
         # Expression for splitting at delimiter characters
-        self.splitter = re.compile(u"[%s]+" % (self.edelims, ), re.UNICODE)
+        self.splitter = re.compile(u"[%s]+" % (self.delims, ), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
-        self.disposses = re.compile(u"(?<=[%s])'[Ss](?=$|[%s])" % (self.eletters,
-                                                                   self.edelims), re.UNICODE)
+        self.disposses = re.compile(u"(?<=[%s])'[Ss](?=$|[%s])" % (self.letters,
+                                                                   self.delims), re.UNICODE)
         
         # Expression for finding case and letter-number transitions
-        lower2upper = u"[%s][%s]" % (self.elowers, self.euppers)
-        letter2digit = u"[%s][%s]" % (self.eletters, self.edigits)
-        digit2letter = u"[%s][%s]" % (self.edigits, self.eletters)
+        lower2upper = u"[%s][%s]" % (self.lowers, self.uppers)
+        letter2digit = u"[%s][%s]" % (self.letters, self.digits)
+        digit2letter = u"[%s][%s]" % (self.digits, self.letters)
         if splitwords and splitnums:
             self.boundary = re.compile(u"(%s|%s|%s)" % (lower2upper,
                                                         letter2digit,
