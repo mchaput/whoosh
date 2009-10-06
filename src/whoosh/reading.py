@@ -196,7 +196,7 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
     
-    def terms_from(self, fieldnum, text):
+    def iter_from(self, fieldnum, text):
         """Yields (field_num, text, doc_freq, index_freq) tuples
         for all terms in the reader, starting at the given term.
         """
@@ -205,7 +205,12 @@ class IndexReader(ClosableMixin):
     def expand_prefix(self, fieldid, prefix):
         """Yields terms in the given field that start with the given prefix.
         """
-        raise NotImplementedError
+        
+        fieldid = self.schema.to_number(fieldid)
+        for fn, t, _, _ in self.iter_from(fieldid, prefix):
+            if fn != fieldid or not t.startswith(prefix):
+                return
+            yield t
     
     def all_terms(self):
         """Yields (fieldname, text) tuples for every term in the index.
