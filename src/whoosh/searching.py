@@ -208,15 +208,15 @@ class Searcher(object):
             
             For example, to sort the results by the 'path' field::
             
-                searcher.search(q, sortedby = "path")
+                searcher.find(q, sortedby = "path")
                 
             To sort the results by the 'path' field and then the 'category' field::
                 
-                searcher.search(q, sortedby = ("path", "category"))
+                searcher.find(q, sortedby = ("path", "category"))
                 
             To use a sorting object::
             
-                searcher.search(q, sortedby = scoring.NullSorter)
+                searcher.find(q, sortedby = scoring.NullSorter)
         
         :param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
         :rtype: :class:`Results`
@@ -272,7 +272,7 @@ class Searcher(object):
             else:
                 raise ValueError("sortedby argument must be a string, list, or Sorter (%r)" % sortedby)
             
-            scored_list = sortedby.order(self.ixreader, query.docs(self), reverse = reverse)
+            scored_list = sortedby.order(ixreader, query.docs(self), reverse = reverse)
             scores = None
             docvector = BitVector(ixreader.doc_count_all(), source = scored_list)
             if len(scored_list) > limit:

@@ -17,7 +17,6 @@
 """Classes and functions for classifying and extracting information from documents.
 """
 
-from __future__ import division, with_statement
 from collections import defaultdict
 from math import log
 
