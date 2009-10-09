@@ -18,6 +18,8 @@
 Miscellaneous utility functions and classes.
 """
 
+import re
+
 from collections import deque, defaultdict
 from functools import wraps
 from struct import pack, unpack
@@ -166,6 +168,28 @@ def prefix_decode_all(ls):
         last = decoded
 
 
+_nkre = re.compile(r"\D+|\d+", re.UNICODE)
+def _nkconv(i):
+    try:
+        return int(i)
+    except ValueError:
+        return i.lower()
+def natural_key(s):
+    """Converts string ``s`` into a tuple that will sort "naturally"
+    (i.e., ``name5`` will come before ``name10`` and ``1`` will come
+    before ``A``). This function is designed to be used as the ``key``
+    argument to sorting functions.
+    
+    :param s: the str/unicode string to convert.
+    :rtype: tuple
+    """
+    
+    # Use _nkre to split the input string into a sequence of
+    # digit runs and non-digit runs. Then use _nkconv() to convert
+    # the digit runs into ints and the non-digit runs to lowercase.
+    return tuple(_nkconv(m) for m in _nkre.findall(s))
+
+
 class ClosableMixin(object):
     """Mix-in for classes with a close() method to allow them to be
     used as a context manager.
@@ -256,6 +280,7 @@ def lru_cache(size):
             return result
         return wrapper
     return decorate_function
+
 
 
 

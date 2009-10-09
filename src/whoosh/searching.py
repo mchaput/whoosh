@@ -20,12 +20,12 @@ This module contains classes and functions related to searching the index.
 
 
 from __future__ import division
-from collections import defaultdict
 from heapq import heappush, heapreplace
 from math import log
 import sys, time
 
 from whoosh import classify, query, scoring
+from whoosh.scoring import Sorter, FieldSorter
 from whoosh.support.bitvector import BitVector
 
 if sys.platform == 'win32':
@@ -216,9 +216,19 @@ class Searcher(object):
                 
             To use a sorting object::
             
-                searcher.find(q, sortedby = scoring.NullSorter)
+                searcher.find(q, sortedby = scoring.FieldSorter("path", key=mykeyfn))
+            
+            Using a string or tuple simply instantiates a :class:`whoosh.scoring.FieldSorter`
+            or :class:`whoosh.scoring.MultiFieldSorter` object for you. To get a custom sort
+            order, instantiate your own ``FieldSorter`` with a ``key`` argument, or write
+            a custom :class:`whoosh.scoring.Sorter` class.
+            
+            FieldSorter and MultiFieldSorter cache the document order, using 4 bytes times
+            the number of documents in the index, and taking time to cache. To increase
+            performance, instantiate your own sorter and re-use it (but remember you need
+            to recreate it if the index changes).
         
-        :param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
+        :param reverse: if ``sortedby`` is not None, this reverses the direction of the sort.
         :rtype: :class:`Results`
         """
         
@@ -230,32 +240,9 @@ class Searcher(object):
     def search(self, query, limit = 5000, sortedby = None, reverse = False):
         """Runs the query represented by the query object and returns a Results object.
         
-        :param query: a query.Query object representing the search query. You can translate
-            a query string into a query object with e.g. qparser.QueryParser.
-        :param limit: the maximum number of documents to score. If you're only interested in
-            the top N documents, you can set limit=N to limit the scoring for a faster
-            search.
-        :param sortedby: if this parameter is not None, the results are sorted instead of scored.
-            If this value is a string, the results are sorted by the field named in the string.
-            If this value is a list or tuple, it is assumed to be a sequence of strings and the
-            results are sorted by the fieldnames in the sequence. Otherwise 'sortedby' should be
-            a scoring.Sorter object.
-            
-            The fields you want to sort by must be indexed.
-            
-            For example, to sort the results by the 'path' field::
-            
-                searcher.search(q, sortedby = "path")
-                
-            To sort the results by the 'path' field and then the 'category' field::
-                
-                searcher.search(q, sortedby = ("path", "category"))
-                
-            To use a sorting object::
-            
-                searcher.search(q, sortedby = scoring.NullSorter)
+        See the help for :meth:`~Searcher.find` for information on the parameters.
         
-        :param reverse: if 'sortedby' is not None, this reverses the direction of the sort.
+        :param query: a :class:`whoosh.query.Query` object.
         :rtype: :class:`Results`
         """
         
@@ -264,15 +251,15 @@ class Searcher(object):
         t = now()
         if sortedby is not None:
             if isinstance(sortedby, basestring):
-                sortedby = scoring.FieldSorter(sortedby)
+                sorter = scoring.FieldSorter(sortedby)
             elif isinstance(sortedby, (list, tuple)):
-                sortedby = scoring.MultiFieldSorter(sortedby)
-            elif type(sortedby) is type:
-                sortedby = sortedby()
+                sorter = scoring.MultiFieldSorter([FieldSorter(fn) for fn in sortedby])
+            elif isinstance(sortedby, Sorter):
+                sorter = sortedby
             else:
                 raise ValueError("sortedby argument must be a string, list, or Sorter (%r)" % sortedby)
             
-            scored_list = sortedby.order(ixreader, query.docs(self), reverse = reverse)
+            scored_list = sorter.order(self, query.docs(self), reverse = reverse)
             scores = None
             docvector = BitVector(ixreader.doc_count_all(), source = scored_list)
             if len(scored_list) > limit:
