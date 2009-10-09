@@ -4,6 +4,7 @@ from whoosh import analysis, fields, formats, index, qparser, query, searching, 
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
 from whoosh.searching import Searcher
+from whoosh.scoring import FieldSorter
 
 class TestSearching(unittest.TestCase):
     def make_index(self):
@@ -454,6 +455,50 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(len(r), 2)
         self.assertEqual(r[0]["a"], "First")
         self.assertEqual(r[1]["a"], "Third")
+        
+    def test_multisort(self):
+        schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(a=u"bravo", b=u"romeo")
+        w.add_document(a=u"alfa", b=u"tango")
+        w.add_document(a=u"bravo", b=u"india")
+        w.add_document(a=u"alfa", b=u"juliet")
+        w.commit()
+        
+        q = Or([Term("a", u"alfa"), Term("a", u"bravo")])
+        searcher = ix.searcher()
+        r = searcher.search(q, sortedby=('a', 'b'))
+        self.assertEqual(r[0]['b'], "juliet")
+        self.assertEqual(r[1]['b'], "tango")
+        self.assertEqual(r[2]['b'], "india")
+        self.assertEqual(r[3]['b'], "romeo")
+        
+    def test_keysort(self):
+        from whoosh.util import natural_key
+        self.assertEqual(natural_key("Hi100there2"), ('hi', 100, 'there', 2))
+        schema = fields.Schema(a=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(a=u"b100x")
+        w.add_document(a=u"b5x")
+        w.add_document(a=u"100b5x")
+        w.commit()
+        
+        q = Or([Term("a", u"b100x"), Term("a", u"b5x"), Term("a", u"100b5x")])
+        searcher = ix.searcher()
+        sorter = FieldSorter("a", key=natural_key)
+        r = searcher.search(q, sortedby=sorter)
+        self.assertEqual(r[0]['a'], "100b5x")
+        self.assertEqual(r[1]['a'], "b5x")
+        self.assertEqual(r[2]['a'], "b100x")
+    
+
+
 
 
 if __name__ == '__main__':

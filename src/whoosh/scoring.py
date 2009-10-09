@@ -226,13 +226,13 @@ class Sorter(object):
     takes a sequence of doc numbers and returns a sorted sequence.
     """
     
-    def order(self, ixreader, docnums, reverse = False):
+    def order(self, searcher, docnums, reverse=False):
         """Returns a sorted list of document numbers.
         
         Takes an unsorted sequence of docnums and returns a sorted list of
         docnums, based on whatever sorting criteria this class implements.
         
-        :param ixreader: a :class:`whoosh.reading.IndexReader` for the index.
+        :param searcher: a :class:`whoosh.searching.Searcher` for the index.
         :param docnums: The unsorted list of document numbers.
         :param reverse: Whether the "natural" sort order should be reversed.
         :returns: A sorted list of document numbers.
@@ -243,9 +243,12 @@ class Sorter(object):
 class NullSorter(Sorter):
     """Sorter that does nothing."""
     
-    def order(self, ixreader, docnums, reverse = False):
-        """Returns docnums as-is. The 'reverse' keyword is ignored."""
-        return docnums
+    def order(self, searcher, docnums, reverse=False):
+        """Returns docnums as-is, or reversed if ``reverse`` is ``True``."""
+        if reverse:
+            return list(reversed(docnums))
+        else:
+            return docnums
 
 
 class FieldSorter(Sorter):
@@ -260,7 +263,7 @@ class FieldSorter(Sorter):
     be much faster.
     """
     
-    def __init__(self, fieldname, missingfirst = False):
+    def __init__(self, fieldname, key=None, missingfirst=False):
         """
         :param fieldname: The name of the field to sort by.
         :param missingfirst: Place documents which don't have the given
@@ -269,15 +272,15 @@ class FieldSorter(Sorter):
         """
         
         self.fieldname = fieldname
+        self.key = key
         self.missingfirst = missingfirst
-        self._searcher = None
-        self._cache = None
+        self._fieldcache = None
 
-    def _make_cache(self, ixreader):
-        # Is this ixreader already cached?
-        if self._cache and self._searcher and self._searcher() is ixreader:
-            return
+    def _cache(self, searcher):
+        if self._fieldcache is not None:
+            return self._fieldcache
         
+        ixreader = searcher.reader()
         fieldnum = ixreader.fieldname_to_num(self.fieldname)
         
         # Create an array of an int for every document in the index.
@@ -289,27 +292,23 @@ class FieldSorter(Sorter):
         cache = array("i", [default] * N)
         
         # For every document containing every term in the field, set
-        # its array value to the term's (inherently sorted) position.
+        # its array value to the term's sorted position.
         i = -1
-        for i, word in enumerate(ixreader.lexicon(fieldnum)):
+        source = ixreader.lexicon(fieldnum)
+        if self.key:
+            source = sorted(source, key=self.key)
+        
+        for i, word in enumerate(source):
             for docnum in ixreader.postings(fieldnum, word).all_ids():
                 cache[docnum] = i
         
         self.limit = i
-        self._cache = cache
-        self._searcher = weakref.ref(ixreader, self._delete_cache)
-    
-    def _delete_cache(self, obj):
-        # Callback function, called by the weakref implementation when
-        # the reader we're using to do the ordering goes away.
-        self._cache = self._searcher = None
-    
-    def order(self, ixreader, docnums, reverse = False):
+        self._fieldcache = cache
+        return cache
         
-        self._make_cache(ixreader)
-        return sorted(docnums,
-                      key = self._cache.__getitem__,
-                      reverse = reverse)
+    def order(self, searcher, docnums, reverse=False):
+        keyfn = self._cache(searcher).__getitem__
+        return sorted(docnums, key = keyfn, reverse = reverse)
 
 
 class MultiFieldSorter(FieldSorter):
@@ -323,7 +322,7 @@ class MultiFieldSorter(FieldSorter):
     and so on.
     """
     
-    def __init__(self, fieldnames, missingfirst = False):
+    def __init__(self, sorters, missingfirst=False):
         """
         :param fieldnames: A list of field names to sort by.
         :param missingfirst: Place documents which don't have the given
@@ -331,18 +330,13 @@ class MultiFieldSorter(FieldSorter):
             documents last (after all documents that have the given field).
         """
         
-        self.fieldnames = fieldnames
-        self.sorters = [FieldSorter(fn)
-                        for fn in fieldnames]
+        self.sorters = sorters
         self.missingfirst = missingfirst
     
-    def order(self, ixreader, docnums, reverse = False):
-        sorters = self.sorters
-        for s in sorters:
-            s._make_cache(ixreader)
-        
+    def order(self, searcher, docnums, reverse = False):
+        caches = [s._cache(searcher) for s in self.sorters]
         return sorted(docnums,
-                      key = lambda x: tuple((s._cache[x] for s in sorters)),
+                      key = lambda x: tuple(c[x] for c in caches),
                       reverse = reverse)
 
 
