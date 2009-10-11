@@ -206,7 +206,7 @@ class DeletionMixin(object):
         """
         
         count = 0
-        for docnum in q.docs(self._searcher):
+        for docnum in q.docs(self.searcher()):
             self.delete_document(docnum)
             count += 1
         return count

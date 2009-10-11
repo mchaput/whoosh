@@ -46,10 +46,10 @@ class IndexWriter(DeletionMixin):
         else:
             self.commit()
     
-    def searcher(self):
+    def searcher(self, **kwargs):
         """Returns a searcher for the existing index."""
         if not self._searcher:
-            self._searcher = self.index.searcher()
+            self._searcher = self.index.searcher(**kwargs)
         return self._searcher
     
     def _close_reader(self):
