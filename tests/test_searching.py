@@ -497,8 +497,26 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(r[1]['a'], "b5x")
         self.assertEqual(r[2]['a'], "b100x")
     
-
-
+    def test_resultcopy(self):
+        schema = fields.Schema(a=fields.TEXT(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(a=u"alfa bravo charlie")
+        w.add_document(a=u"bravo charlie delta")
+        w.add_document(a=u"charlie delta echo")
+        w.add_document(a=u"delta echo foxtrot")
+        w.commit()
+        
+        s = ix.searcher()
+        r = s.find("a", u"charlie")
+        self.assertEqual(len(r), 3)
+        rcopy = r.copy()
+        self.assertEqual(r.scored_list, rcopy.scored_list)
+        self.assertEqual(r.scores, rcopy.scores)
+        self.assertEqual(r.docs, rcopy.docs)
+        self.assert_(r.docs is not rcopy.docs)
 
 
 if __name__ == '__main__':
