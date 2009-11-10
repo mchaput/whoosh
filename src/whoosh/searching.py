@@ -412,6 +412,24 @@ class Results(object):
         for docnum in self.scored_list:
             yield stored_fields(docnum)
     
+    def copy(self):
+        """Returns a copy of this results object.
+        """
+        
+        # Scores might be None, so only copy if it if it's a list
+        scores = self.scores
+        if isinstance(scores, list):
+            scores = scores[:]
+        
+        # Scored_list might be a tuple, so only copy it if it's a list
+        scored_list = self.scored_list
+        if isinstance(scored_list, list):
+            scored_list = scored_list[:]
+        
+        return self.__class__(self.searcher, self.query,
+                              scored_list=scored_list, docvector=self.docs.copy(),
+                              scores=scores, runtime=self.runtime)
+    
     def score(self, n):
         """Returns the score for the document at the Nth position in the
         list of results. If the search was not scored, returns None."""
