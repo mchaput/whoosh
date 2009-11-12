@@ -21,7 +21,6 @@ This module contains classes for scoring (and sorting) search results.
 from __future__ import division
 from array import array
 from math import log, pi
-import weakref
 
 
 # Weighting classes
@@ -60,6 +59,22 @@ class Weighting(object):
         :rtype: float
         """
         raise NotImplementedError
+    
+    def final(self, searcher, docnum, score):
+        """Returns a final score for each document. You can use this method
+        in subclasses to apply document-level adjustments to the score, for
+        example using the value of stored field to influence the score
+        (although that would be slow).
+        
+        :param searcher: :class:`whoosh.searching.Searcher` for the index.
+        :param docnum: the doc number of the document being scored.
+        :param score: the document's accumulated term score.
+        
+        :rtype: float
+        """
+        
+        return score
+
 
 # Scoring classes
 

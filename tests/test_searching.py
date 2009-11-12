@@ -517,6 +517,61 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(r.scores, rcopy.scores)
         self.assertEqual(r.docs, rcopy.docs)
         self.assert_(r.docs is not rcopy.docs)
+        
+    def test_weighting(self):
+        from whoosh.scoring import Weighting
+        
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               n_comments=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", n_comments=u"5")
+        w.add_document(id=u"2", n_comments=u"12")
+        w.add_document(id=u"3", n_comments=u"2")
+        w.add_document(id=u"4", n_comments=u"7")
+        w.commit()
+        
+        class CommentWeighting(Weighting):
+            def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
+                ncomments = int(searcher.stored_fields(docnum).get("n_comments"))
+                return ncomments
+        
+        s = ix.searcher(weighting=CommentWeighting())
+        r = s.find("id", "[1 TO 4]")
+        ids = [fs["id"] for fs in r]
+        self.assertEqual(ids, ["2", "4", "1", "3"])
+        
+    def test_finalweighting(self):
+        from whoosh.scoring import Weighting
+        
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               summary=fields.TEXT,
+                               n_comments=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", summary=u"alfa bravo", n_comments=u"5")
+        w.add_document(id=u"2", summary=u"alfa", n_comments=u"12")
+        w.add_document(id=u"3", summary=u"bravo", n_comments=u"2")
+        w.add_document(id=u"4", summary=u"bravo bravo", n_comments=u"7")
+        w.commit()
+        
+        class CommentWeighting(Weighting):
+            def score(self, *args, **kwargs):
+                return 0
+            
+            def final(self, searcher, docnum, score):
+                ncomments = int(searcher.stored_fields(docnum).get("n_comments"))
+                return ncomments
+        
+        s = ix.searcher(weighting=CommentWeighting())
+        r = s.find("summary", "alfa OR bravo")
+        ids = [fs["id"] for fs in r]
+        self.assertEqual(ids, ["2", "4", "1", "3"])
+        
 
 
 if __name__ == '__main__':
