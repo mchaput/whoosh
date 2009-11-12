@@ -267,7 +267,9 @@ class Searcher(object):
         else:
             # Sort by scores
             topdocs = TopDocs(limit, ixreader.doc_count_all())
-            topdocs.add_all(query.doc_scores(self))
+            final = self.weighting.final
+            topdocs.add_all((docnum, final(self, docnum, score))
+                            for docnum, score in query.doc_scores(self))
             
             best = topdocs.best()
             if best:
