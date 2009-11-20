@@ -70,7 +70,7 @@ class SegmentReader(IndexReader):
                                               in enumerate(self._scorable_fields))
         
         self.termtable = open_terms(storage, segment)
-        self.postfile = storage.open_file(segment.posts_filename, mapped=False)
+        self.postfile = None
         self.docstable = open_storedfields(storage, segment, schema.stored_field_names())
         self.doclengths = None
         if self._scorable_fields:
@@ -95,6 +95,8 @@ class SegmentReader(IndexReader):
     def close(self):
         self.docstable.close()
         self.termtable.close()
+        if self.postfile:
+            self.postfile.close()
         if self.vectortable:
             self.vectortable.close()
         if self.doclengths:
@@ -224,6 +226,8 @@ class SegmentReader(IndexReader):
         elif self.segment.deleted:
             exclude_docs = self.segment.deleted
         
+        if not self.postfile:
+            self.postfile = self.storage.open_file(self.segment.posts_filename, mapped=False)
         postreader = FilePostingReader(self.postfile, offset, format)
         if exclude_docs:
             postreader = Exclude(postreader, exclude_docs)
