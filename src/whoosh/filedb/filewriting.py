@@ -365,7 +365,7 @@ class SegmentWriter(object):
                         # Add the term count to the total for this field
                         self.field_length_totals[fieldnum] += count
                         # Set the term count to the per-document field length
-                        fieldlengths[scorable_to_pos[fieldnum]] = count
+                        fieldlengths[scorable_to_pos[fieldnum]] = min(count, DOCLENGTH_LIMIT)
                 
                 # If the field is vectored, add the words in the value to
                 # the vector table
