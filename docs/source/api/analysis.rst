@@ -21,7 +21,7 @@ Analyzers
 Tokenizers
 ==========
 
-.. autofunction:: IDTokenizer
+.. autoclass:: IDTokenizer
 .. autoclass:: RegexTokenizer
 .. autoclass:: CharsetTokenizer
 .. autoclass:: SpaceSeparatedTokenizer
@@ -32,13 +32,13 @@ Tokenizers
 Filters
 =======
 
-.. autofunction:: PassFilter
-.. autofunction:: LowercaseFilter
-.. autofunction:: UnderscoreFilter
+.. autoclass:: PassFilter
+.. autoclass:: LowercaseFilter
+.. autoclass:: UnderscoreFilter
 .. autoclass:: CharsetFilter
 .. autoclass:: StopFilter
 .. autoclass:: StemFilter
-.. autofunction:: CamelFilter
+.. autoclass:: CamelFilter
 .. autoclass:: NgramFilter
 
 
