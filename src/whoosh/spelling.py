@@ -102,14 +102,17 @@ class SpellChecker(object):
             
         return Schema(**dict(fls))
     
-    def suggest(self, text, number = 3, usescores = False):
-        """Returns a list of suggested alternative spellings of 'text'. You must
-        add words to the dictionary (using add_field, add_words, and/or add_scored_words)
-        before you can use this.
+    def suggestions_and_scores(self, text, usescores = False):
+        """Returns a list of possible alternative spellings of 'text', as
+        ('word', score) pairs. You must add words to the dictionary (using
+        add_field, add_words, and/or add_scored_words) before you can use this.
+        
+        This is a lower-level method, in case an expert user needs access
+        to the raw scores, for example to implement a custom ranking algorithm.
+        Most people will want to call :meth:`~SpellChecker.suggest` instead,
+        which simply returns the top N valued words.
         
         :param text: The word to check.
-        :param number: The maximum number of suggestions to return.
-        :param usescores: Use the per-word score to influence the suggestions.
         :rtype: list
         """
         
@@ -133,28 +136,31 @@ class SpellChecker(object):
         ix = self.index()
         s = ix.searcher()
         try:
-            results = s.search(q)
-            
-            length = len(results)
-            if len(results) > number*2:
-                length = len(results)//2
-            fieldlist = results[:length]
-            
-            suggestions = [(fs["word"], fs["score"])
-                           for fs in fieldlist
-                           if fs["word"] != text]
-            
-            if usescores:
-                def keyfn(a):
-                    return 0 - (1/distance(text, a[0])) * a[1]
-            else:
-                def keyfn(a):
-                    return distance(text, a[0])
-            
-            suggestions.sort(key = keyfn)
+            return [(fs["word"], fs["score"]) for fs in s.search(q)
+                    if fs["word"] != text]
         finally:
             s.close()
+    
+    def suggest(self, text, number=3, usescores=False):
+        """Returns a list of suggested alternative spellings of 'text'. You must
+        add words to the dictionary (using add_field, add_words, and/or add_scored_words)
+        before you can use this.
         
+        :param text: The word to check.
+        :param number: The maximum number of suggestions to return.
+        :param usescores: Use the per-word score to influence the suggestions.
+        :rtype: list
+        """
+        
+        if usescores:
+            def keyfn(a):
+                return 0 - (1/distance(text, a[0])) * a[1]
+        else:
+            def keyfn(a):
+                return distance(text, a[0])
+        
+        suggestions = self.suggestions_and_scores(text, usescores=usescores)
+        suggestions.sort(key = keyfn)
         return [word for word, _ in suggestions[:number]]
         
     def add_field(self, ix, fieldname):
