@@ -11,5 +11,8 @@ Whoosh works can be extended or replaced to meet your needs exactly.
 This software is licensed under the terms of the Apache License version 2.
 See LICENSE.txt for information.
 
+You can read the online documentation at
+http://packages.python.org/Whoosh/
+
 The primary source of information is the main Whoosh web site:
 http://whoosh.ca/
