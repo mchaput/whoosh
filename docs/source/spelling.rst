@@ -72,11 +72,11 @@ You need to populate the spell-checking dictionary with (properly spelled) words
         
         # Open the main index
         ix = index.open_dir("index")
-        searcher = ix.seacher()
+        reader = ix.reader()
         
         # Add words from the main index's 'content' field only if they
         # appear in the word list
-        speller.add_words(word for word in searcher.lexicon("content")
+        speller.add_words(word for word in reader.lexicon("content")
                           if word in wordset)
 
 Note that adding words to the dictionary should be done all at once. Each call to ``add_field()``, ``add_words()``, or ``add_scored_words()`` (see below) creates a writer, adds to the underlying index, and the closes the writer, just like adding documents to a regular Whoosh index. **DO NOT** do anything like this::
@@ -125,9 +125,9 @@ For example, if you wanted to reverse the default behavior of ``add_field()`` so
 
     # Open the main index
     ix = index.open_dir("index")
-    searcher = ix.searcher
+    reader = ix.reader()
     
-    # Searcher.iter_field() yields (term_text, doc_freq, index_freq) tuples
+    # IndexReader.iter_field() yields (term_text, doc_freq, index_freq) tuples
     # for each term in the given field.
     
     # We pull out the term text and the index frequency of each term, and
@@ -135,7 +135,7 @@ For example, if you wanted to reverse the default behavior of ``add_field()`` so
     # scores in the spelling dictionary
     speller.add_scored_words((termtext, 1 / index_freq)
                              for termtext, doc_freq, index_freq
-                             in searcher.iter_field("content"))
+                             in reader.iter_field("content"))
 
 Spell checking Whoosh queries
 -----------------------------
@@ -151,22 +151,22 @@ Then you can use the ``all_terms()`` or ``existing_terms()`` methods of the ``Qu
     termset = set()
     user_query.all_terms(termset)
     
-The ``all_terms()`` method simply adds all the terms found in the query. The ``existing_terms()`` method takes a Searcher object and only adds terms from the query *that exist* in the Searcher's underlying index. ::
+The ``all_terms()`` method simply adds all the terms found in the query. The ``existing_terms()`` method takes an IndexReader object and only adds terms from the query *that exist* in the reader's underlying index. ::
 
-    searcher = my_index.searcher()
+    reader = my_index.reader()
     termset = set()
-    user_query.existing_terms(searcher, termset)
+    user_query.existing_terms(reader, termset)
     
 Of course, it's more useful to spell check the terms that are *missing* from the index, not the ones that exist. The ``reverse=True`` keyword argument to ``existing_terms()`` lets us find the missing terms
 
     missing = set()
-    user_query.existing_terms(searcher, missing, reverse=True)
+    user_query.existing_terms(reader, missing, reverse=True)
     
 So now you have a set of ``("fieldname", "termtext")`` tuples. Now you can check them against the spelling dictionary::
 
     # Load the main index
     ix = index.open_dir("index")
-    searcher = ix.searcher
+    reader = ix.reader()
     
     # Load a spelling dictionary stored in the same directory
     # as the main index
@@ -174,7 +174,7 @@ So now you have a set of ``("fieldname", "termtext")`` tuples. Now you can check
 
     # Extract missing terms from the user query
     missing = set()
-    user_query.existing_terms(searcher, missing, reverse=True)
+    user_query.existing_terms(reader, missing, reverse=True)
     
     # Print a list of suggestions for each missing word
     for fieldname, termtext in missing:
