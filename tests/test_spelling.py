@@ -27,6 +27,20 @@ class TestSpelling(unittest.TestCase):
         sugs = sp.suggest(u"reoction")
         self.assertNotEqual(len(sugs), 0)
         self.assertEqual(sugs, [u"reaction", u"reduction", u"preaction"])
+        
+    def test_suggestionsandscores(self):
+        st = RamStorage()
+        sp = spelling.SpellChecker(st, mingram=2)
+        
+        words = [("alfa", 10), ("bravo", 9), ("charlie", 8), ("delta", 7),
+                 ("echo", 6), ("foxtrot", 5), ("golf", 4), ("hotel", 3),
+                 ("india", 2), ("juliet", 1)]
+        sp.add_scored_words((unicode(w), s) for w, s in words)
+        
+        from whoosh.scoring import Frequency
+        sugs = sp.suggestions_and_scores(u"alpha", weighting=Frequency())
+        self.assertEqual(sugs, [(u"alfa", 10, 3.0), (u"charlie", 8, 1.0)])
+
 
 
 if __name__ == '__main__':
