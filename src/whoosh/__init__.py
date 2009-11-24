@@ -14,7 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-__version__ = (0, 3, 6)
+__version__ = (0, 3, 7)
 
 
 def versionstring(build=True, extra=True):
