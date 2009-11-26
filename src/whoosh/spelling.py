@@ -21,6 +21,7 @@ as a backend for a spell-checking engine.
 from collections import defaultdict
 
 from whoosh import analysis, fields, query
+from whoosh.scoring import TF_IDF
 from whoosh.support.levenshtein import relative, distance
 
 class SpellChecker(object):
@@ -102,19 +103,28 @@ class SpellChecker(object):
             
         return Schema(**dict(fls))
     
-    def suggestions_and_scores(self, text, usescores = False):
+    def suggestions_and_scores(self, text, weighting=None):
         """Returns a list of possible alternative spellings of 'text', as
-        ('word', score) pairs. You must add words to the dictionary (using
+        ('word', score, weight) triples, where 'word' is the suggested
+        word, 'score' is the score that was assigned to the word using
+        :meth:`SpellChecker.add_field` or :meth:`SpellChecker.add_scored_words`,
+        and 'weight' is the score the word received in the search for the
+        original word's ngrams.
+        
+        You must add words to the dictionary (using
         add_field, add_words, and/or add_scored_words) before you can use this.
         
         This is a lower-level method, in case an expert user needs access
-        to the raw scores, for example to implement a custom ranking algorithm.
-        Most people will want to call :meth:`~SpellChecker.suggest` instead,
-        which simply returns the top N valued words.
+        to the raw scores, for example to implement a custom suggestion ranking
+        algorithm. Most people will want to call :meth:`~SpellChecker.suggest`
+        instead, which simply returns the top N valued words.
         
         :param text: The word to check.
         :rtype: list
         """
+        
+        if weighting is None:
+            weighting = TF_IDF()
         
         grams = defaultdict(list)
         for size in xrange(self.mingram, self.maxgram + 1):
@@ -134,9 +144,11 @@ class SpellChecker(object):
         
         q = query.Or(queries)
         ix = self.index()
-        s = ix.searcher()
+        s = ix.searcher(weighting=weighting)
         try:
-            return [(fs["word"], fs["score"]) for fs in s.search(q)
+            result = s.search(q)
+            return [(fs["word"], fs["score"], result.score(i))
+                    for i, fs in enumerate(result)
                     if fs["word"] != text]
         finally:
             s.close()
@@ -159,9 +171,9 @@ class SpellChecker(object):
             def keyfn(a):
                 return distance(text, a[0])
         
-        suggestions = self.suggestions_and_scores(text, usescores=usescores)
+        suggestions = self.suggestions_and_scores(text)
         suggestions.sort(key = keyfn)
-        return [word for word, _ in suggestions[:number]]
+        return [word for word, _, _ in suggestions[:number]]
         
     def add_field(self, ix, fieldname):
         """Adds the terms in a field from another index to the backend dictionary.
