@@ -291,6 +291,11 @@ class Searcher(object):
         """
         return self.schema.to_number(fieldid)
     
+    def fieldnum_to_name(self, fieldnum):
+        """Returns the field name corresponding to the given field number.
+        """
+        return self.schema.number_to_name(fieldnum)
+    
     def field(self, fieldid):
         """Returns the :class:`whoosh.fields.Field` object for the given field name.
         """
