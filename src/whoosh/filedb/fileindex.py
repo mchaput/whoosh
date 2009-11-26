@@ -92,7 +92,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         elif self.generation >= 0:
             self._read(schema)
         else:
-            raise EmptyIndexError
+            raise EmptyIndexError("No index named %r in storage %r" % (indexname, storage))
         
         # Open a reader for this index. This is used by the
         # deletion methods, but mostly it's to keep the underlying
