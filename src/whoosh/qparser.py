@@ -232,7 +232,6 @@ class PyparsingBasedParser(object):
     
     def make_term(self, fieldname, text):
         field = self._field(fieldname)
-        from whoosh.analysis import StandardAnalyzer
         if field:
             text = self.get_term_text(field, text)
         if not text:
@@ -388,13 +387,13 @@ class MultifieldParser(QueryParser):
                          conjunction="whoosh.query.Query", termclass="whoosh.query.Query")
 
     def __init__(self, fieldnames, schema=None, conjunction=And, termclass=Term):
-        super(MultifieldParser, self).__init__(fieldnames[0], schema=schema,
+        super(MultifieldParser, self).__init__(None, schema=schema,
                                                conjunction=conjunction, termclass=termclass)
         self.fieldnames = fieldnames
-        
+    
     def _make(self, methodname, fieldname, *args):
         method = getattr(super(MultifieldParser, self), methodname)
-        if fieldname in self.fieldnames:
+        if fieldname is None:
             return Or([method(fn, *args) for fn in self.fieldnames])
         else:
             return method(fieldname, *args)

@@ -23,6 +23,30 @@ class TestQueryParser(unittest.TestCase):
             except OSError:
                 pass
     
+    def test_fields(self):
+        s = fields.Schema(content=fields.TEXT, title=fields.TEXT, id=fields.ID)
+        
+        qp = qparser.QueryParser("content", s)
+        q = qp.parse(u"test")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "content")
+        self.assertEqual(q.text, "test")
+        
+        mq = qparser.MultifieldParser(("title", "content"), s)
+        q = mq.parse(u"test")
+        self.assertEqual(q.__class__, query.Or)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[0].fieldname, "title")
+        self.assertEqual(q[1].fieldname, "content")
+        self.assertEqual(q[0].text, "test")
+        self.assertEqual(q[1].text, "test")
+        
+        q = mq.parse(u"title:test")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "title")
+        self.assertEqual(q.text, "test")
+    
     def test_andnot(self):
         qp = qparser.QueryParser("content")
         q = qp.parse(u"this ANDNOT that")
@@ -180,13 +204,12 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(u"straße")
         self.assertEqual(q.__class__.__name__, "Term")
         self.assertEqual(q.text, u"straße")
-        
+    
     def test_star(self):
         schema = fields.Schema(text = fields.TEXT(stored=True))
         qp = qparser.QueryParser("text", schema=schema)
         q = qp.parse(u"*")
-        self.assertEqual(q.__class__.__name__, "Prefix")
-        self.assertEqual(q.text, u"")
+        self.assertEqual(q.__class__.__name__, "Every")
         
         q = qp.parse(u"*h?ll*")
         self.assertEqual(q.__class__.__name__, "Wildcard")
