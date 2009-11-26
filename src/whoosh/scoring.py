@@ -47,7 +47,7 @@ class Weighting(object):
         """
         return ixreader.doc_field_length(docnum, fieldnum) / self.avg_field_length(ixreader, fieldnum)
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         """Returns the score for a given term in the given document.
         
         :param searcher: :class:`whoosh.searching.Searcher` for the index.
@@ -97,7 +97,7 @@ class BM25F(Weighting):
         if field_B is None: field_B = {}
         self._field_B = field_B
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
@@ -118,7 +118,7 @@ class Cosine(Weighting):
     from Terrier's Java implementation.
     """
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         idf = searcher.idf(fieldnum, text)
         
         DTW = (1.0 + log(weight)) * idf
@@ -132,7 +132,7 @@ class DFree(Weighting):
     from Terrier's Java implementation.
     """
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
@@ -157,7 +157,7 @@ class DLH13(Weighting):
         Weighting.__init__(self)
         self.k = k
 
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
@@ -180,7 +180,7 @@ class Hiemstra_LM(Weighting):
         Weighting.__init__(self)
         self.c = c
         
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
@@ -199,7 +199,7 @@ class InL2(Weighting):
         Weighting.__init__(self)
         self.c = c
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
         
@@ -216,7 +216,7 @@ class TF_IDF(Weighting):
     """Instead of doing any real scoring, this simply returns tf * idf.
     """
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         return weight * searcher.idf(fieldnum, text)
 
 
@@ -226,8 +226,37 @@ class Frequency(Weighting):
     normalization and weighting.
     """
     
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF = 1):
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         return searcher.reader().frequency(fieldnum, text)
+
+
+class MultiWeighting(Weighting):
+    """Applies different weighting functions based on the field.
+    """
+    
+    def __init__(self, default, **weights):
+        """The only non-keyword argument specifies the default
+        :class:`Weighting` instance to use. Keyword arguments specify
+        Weighting instances for specific fields.
+        
+        For example, to use ``BM25`` for most fields, but ``Frequency`` for
+        the ``id`` field and ``TF_IDF`` for the ``keys`` field::
+        
+            mw = MultiWeighting(BM25(), id=Frequency(), keys=TF_IDF())
+        
+        :param default: the Weighting instance to use for fields not
+            specified in the keyword arguments.
+        """
+        
+        self.default = default
+        
+        # Store weighting functions by field number
+        self.weights = weights
+        
+    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
+        fieldname = searcher.fieldnum_to_name(fieldnum)
+        w = self.weights.get(fieldname, self.default)
+        return w.score(searcher, fieldnum, text, docnum, weight, QTF=QTF)
 
 
 # Sorting classes
