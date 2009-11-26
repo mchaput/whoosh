@@ -20,9 +20,8 @@ This module contains classes that allow reading from an index.
 
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
-from threading import Lock
 
-from whoosh.fields import FieldConfigurationError, UnknownFieldError
+from whoosh.fields import UnknownFieldError
 from whoosh.util import ClosableMixin
 from whoosh.postings import MultiPostingReader
 
@@ -250,21 +249,24 @@ class IndexReader(ClosableMixin):
                 return
             yield (t, docfreq, colfreq)
     
-    def most_frequent_terms(self, fieldid, number = 5, prefix = None):
-        """Yields the top 'number' most frequent terms in the given field as
-        a series of (frequency, text) tuples.
+    def most_frequent_terms(self, fieldid, number=5, prefix=None):
+        """Returns the top 'number' most frequent terms in the given field as
+        a list of (frequency, text) tuples.
         """
         
-        if prefix is not None:
-            iterator = self.iter_prefix(fieldid, prefix)
-        else:
-            iterator = self.iter_field(fieldid)
+        return nlargest(number, ((tf, token)
+                                 for token, _, tf
+                                 in self.iter_prefix(fieldid, prefix)))
+    
+    def most_distinctive_terms(self, fieldid, number=5, prefix=None):
+        """Returns the top 'number' terms with the highest ``tf*idf``
+        scores as a list of (score, text) tuples.
+        """
         
-        return nlargest(number,
-                        ((indexfreq, token)
-                         for token, _, indexfreq
-                         in iterator))
-        
+        return nlargest(number, ((tf * (1.0/df), token)
+                                 for token, df, tf
+                                 in self.iter_prefix(fieldid, prefix)))
+    
     def lexicon(self, fieldid):
         """Yields all terms in the given field."""
         
