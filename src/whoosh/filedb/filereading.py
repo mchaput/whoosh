@@ -211,7 +211,7 @@ class SegmentReader(IndexReader):
                 return
             yield t
     
-    def postings(self, fieldid, text, exclude_docs = None):
+    def postings(self, fieldid, text, exclude_docs = frozenset()):
         schema = self.schema
         fieldnum = schema.to_number(fieldid)
         format = schema[fieldnum].format
