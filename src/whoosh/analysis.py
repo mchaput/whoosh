@@ -873,8 +873,8 @@ class IntraWordFilter(Filter):
                  mergewords=False, mergenums=False):
         """
         :param delims: a string of delimiter characters.
-        :param splitwords: split at case transitions, e.g. `PowerShot` -> `Power`, `Shot`
-        :param splitnums: split at letter-number transitions, e.g. `SD500` -> `SD`, `500`
+        :param splitwords: if True, split at case transitions, e.g. `PowerShot` -> `Power`, `Shot`
+        :param splitnums: if True, split at letter-number transitions, e.g. `SD500` -> `SD`, `500`
         :param mergewords: merge consecutive runs of alphabetic subwords into an
             additional token with the same position as the last subword.
         :param mergenums: merge consecutive runs of numeric subwords into an
@@ -1032,7 +1032,7 @@ class IntraWordFilter(Filter):
                     newpos = parts[-1][0] + 1
                 else:
                     # The split only gave one part, so just yield the 
-                    # "dispossed" text.
+                    # "dispossesed" text.
                     t.text = text
                     t.pos = newpos
                     yield t

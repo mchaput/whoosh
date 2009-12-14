@@ -14,14 +14,14 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-The highlight module contains classes and functions for displaying short
+"""The highlight module contains classes and functions for displaying short
 excerpts from hit documents in the search results you present to the user, with
 query terms highlighted.
 """
 
 from __future__ import division
 from heapq import nlargest
+from cgi import escape as htmlescape
 
 # Fragment object
 
@@ -33,7 +33,7 @@ class Fragment(object):
     
     def __init__(self, tokens, charsbefore = 0, charsafter = 0, textlen = 999999):
         """
-        :param tokens: list of the Token objects representing the matched terms. 
+        :param tokens: list of the Token objects in the fragment. 
         :param charsbefore: approx. how many characters before the start of the first
             matched term to include in the fragment.
         :param charsafter: approx. how many characters after the end of the last
@@ -76,6 +76,7 @@ def copyandmatchfilter(termset, tokens):
         t = t.copy()
         t.matched = t.text in termset
         yield t
+
 
 # Fragmenters
 
@@ -296,7 +297,14 @@ def SHORTER(fragment):
 # Formatters
 
 class UppercaseFormatter(object):
-    def __init__(self, between = "..."):
+    """Returns a string in which the matched terms are in UPPERCASE.
+    """
+    
+    def __init__(self, between="..."):
+        """
+        :param between: the text to add between fragments.
+        """
+        
         self.between = between
         
     def _format_fragment(self, text, fragment):
@@ -320,8 +328,75 @@ class UppercaseFormatter(object):
                                   for fragment in fragments))
 
 
+class HtmlFormatter(object):
+    """Returns a string containing HTML formatting around the matched terms.
+    
+    This formatter wraps matched terms in an HTML element with two class names. The first class
+    name (set with the constructor argument ``classname``) is the same for each match. The
+    second class name (set with the constructor argument ``termclass`` is different depending on which
+    term matched. This allows you to give different formatting (for example, different background
+    colors) to the different terms in the excerpt.
+    
+    >>> hf = HtmlFormatter(tagname="span", classname="match", termclass="term")
+    >>> hf(mytext, myfragments)
+    "The <span class="match term0">template</span> <span class="match term1">geometry</span> is..."
+    """
+    
+    def __init__(self, tagname="strong", between="...", classname="match", termclass="term"):
+        """
+        :param tagname: the tag to wrap around matching terms.
+        :param between: the text to add between fragments.
+        :param classname: the class name to add to the elements wrapped around matching terms.
+        :param termclass: the class name prefix for the second class which is different for
+            each matched term.
+        """
+        
+        self.between = between
+        self.tagname = tagname
+        self.classname = classname
+        self.termclass = termclass
+        
+    def _format_fragment(self, text, fragment, seen):
+        tagname = self.tagname
+        htmlclass = " ".join((self.classname, self.termclass))
+        
+        output = []
+        index = fragment.startchar
+        
+        for t in fragment.matches:
+            if t.startchar > index:
+                output.append(text[index:t.startchar])
+            
+            ttxt = htmlescape(text[t.startchar:t.endchar])
+            if t.matched:
+                if t.text in seen:
+                    termnum = seen[t.text]
+                else:
+                    termnum = len(seen)
+                    seen[t.text] = termnum
+                ttxt = '<%s class="%s%s">%s</%s>' % (tagname, htmlclass, termnum, ttxt, tagname)
+            
+            output.append(ttxt)
+            index = t.endchar
+        
+        return "".join(output)
+    
+    def __call__(self, text, fragments):
+        seen = {}
+        return self.between.join(self._format_fragment(text, fragment, seen)
+                                 for fragment in fragments)
+
+
 class GenshiFormatter(object):
-    def __init__(self, qname, between = "..."):
+    """Returns a Genshi event stream containing HTML formatting around the matched terms.
+    """
+    
+    def __init__(self, qname="strong", between="..."):
+        """
+        :param qname: the QName for the tag to wrap around matched terms.
+        :param between: the text to add between fragments.
+        """
+        
         self.qname = qname
         self.between = between
         
@@ -378,16 +453,14 @@ class GenshiFormatter(object):
 def top_fragments(text, terms, analyzer, fragmenter, top = 3,
                   scorer = BasicFragmentScorer, minscore = 1):
     termset = frozenset(terms)
-    tokens = copyandmatchfilter(termset,
-                                analyzer(text, chars = True, keeporiginal = True))
-    
+    tokens = copyandmatchfilter(termset, analyzer(text, chars = True, keeporiginal = True))
     scored_frags = nlargest(top, ((scorer(f), f) for f in fragmenter(text, tokens)))
     return [sf for score, sf in scored_frags if score > minscore]
 
 
 def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
-              scorer = BasicFragmentScorer, minscore = 1,
-              order = FIRST):
+              scorer=BasicFragmentScorer, minscore=1,
+              order=FIRST):
     
     fragments = top_fragments(text, terms, analyzer, fragmenter,
                               top = top, minscore = minscore)
@@ -401,10 +474,10 @@ if __name__ == '__main__':
     #from genshi import QName
     
     sa = analysis.StemmingAnalyzer()
-    txt = open("/Volumes/Storage/Development/help/documents/nodes/sop/copy.txt").read().decode("utf8")
+    txt = open("/Volumes/Drobo/Development/help/documents/nodes/sop/copy.txt").read().decode("utf8")
     txt = re.sub("[\t\r\n ]+", " ", txt)
     t = time.time()
-    fs = highlight(txt, ["templat", "geometri"], sa, SentenceFragmenter(), UppercaseFormatter())
+    fs = highlight(txt, ["templat", "geometri"], sa, SentenceFragmenter(), HtmlFormatter())
     print time.time() - t
     print fs
 
