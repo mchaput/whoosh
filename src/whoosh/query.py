@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-This module contains objects that query the search index. These query
+"""This module contains objects that query the search index. These query
 objects are composable to form complex query trees.
 """
 
@@ -31,7 +30,7 @@ import fnmatch, re
 from whoosh.lang.morph_en import variations
 from whoosh.postings import QueryScorer, EmptyScorer
 from whoosh.postings import IntersectionScorer, UnionScorer
-from whoosh.postings import AndNotScorer, RequireScorer, AndMaybeScorer
+from whoosh.postings import AndNotScorer, RequireScorer, AndMaybeScorer, InverseScorer
 from whoosh.postings import ReadTooFar
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
@@ -60,8 +59,7 @@ def _not_vector(searcher, notqueries, sourcevector):
 # Exceptions
 
 class QueryError(Exception):
-    """
-    Error encountered while running a query.
+    """Error encountered while running a query.
     """
     pass
 
@@ -161,8 +159,6 @@ class Query(object):
         """Returns :class:`~whoosh.postings.QueryScorer` object you can use to
         retrieve documents and scores matching this query.
         
-        :param weighting: a :class:`whoosh.scoring.Weighting` object to use to
-            calculate scores.
         :rtype: :class:`whoosh.postings.QueryScorer`
         """
         raise NotImplementedError
@@ -391,8 +387,7 @@ class MultiTerm(Query):
 
 
 class Term(Query):
-    """
-    Matches documents containing the given term (fieldname+text pair).
+    """Matches documents containing the given term (fieldname+text pair).
     
     >>> Term("content", u"render")
     """
@@ -474,8 +469,7 @@ class Term(Query):
         
 
 class And(CompoundQuery):
-    """
-    Matches documents that match ALL of the subqueries.
+    """Matches documents that match ALL of the subqueries.
     
     >>> And([Term("content", u"render"),
              Term("content", u"shade"),
@@ -493,8 +487,7 @@ class And(CompoundQuery):
     
 
 class Or(CompoundQuery):
-    """
-    Matches documents that match ANY of the subqueries.
+    """Matches documents that match ANY of the subqueries.
     
     >>> Or([Term("content", u"render"),
             And([Term("content", u"shade"), Term("content", u"texture")]),
@@ -512,8 +505,7 @@ class Or(CompoundQuery):
     
 
 class Not(Query):
-    """
-    Excludes any documents that match the subquery.
+    """Excludes any documents that match the subquery.
     
     >>> # Match documents that contain 'render' but not 'texture'
     >>> And([Term("content", u"render"),
@@ -524,7 +516,7 @@ class Not(Query):
     
     __inittypes__ = dict(query=Query)
     
-    def __init__(self, query, boost = 1.0):
+    def __init__(self, query, boost=1.0):
         """
         :param query: A :class:`Query` object. The results of this query
             are *excluded* from the parent query.
@@ -554,21 +546,25 @@ class Not(Query):
             return self.__class__(query, boost=self.boost)
     
     def replace(self, oldtext, newtext):
-        return Not(self.query.replace(oldtext, newtext), boost = self.boost)
+        return Not(self.query.replace(oldtext, newtext), boost=self.boost)
     
     def all_terms(self, termset):
         self.query.all_terms(termset)
         
-    def existing_terms(self, ixreader, termset, reverse = False):
+    def existing_terms(self, ixreader, termset, reverse=False):
         self.query.existing_terms(ixreader, termset, reverse = reverse)
         
-    def docs(self, searcher):
-        return self.query.docs(searcher)
+    def estimate_size(self, ixreader):
+        return ixreader.doc_count()
+    
+    def scorer(self, searcher, exclude_docs=None):
+        reader = searcher.reader()
+        scorer = self.query.scorer(searcher)
+        return InverseScorer(scorer, reader.doc_count_all(), reader.is_deleted)
 
 
 class Prefix(MultiTerm):
-    """
-    Matches documents that contain any terms that start with the given text.
+    """Matches documents that contain any terms that start with the given text.
     
     >>> # Match documents containing words starting with 'comp'
     >>> Prefix("content", u"comp")
@@ -598,8 +594,7 @@ class Prefix(MultiTerm):
 
 _wildcard_exp = re.compile("(.*?)([?*]|$)");
 class Wildcard(MultiTerm):
-    """
-    Matches documents that contain any terms that match a wildcard expression.
+    """Matches documents that contain any terms that match a wildcard expression.
     
     >>> Wildcard("content", u"in*f?x")
     """
@@ -817,8 +812,7 @@ class TermRange(MultiTerm):
         
             
 class Variations(MultiTerm):
-    """
-    Query that automatically searches for morphological variations
+    """Query that automatically searches for morphological variations
     of the given word in the same field.
     """
     
@@ -1254,6 +1248,7 @@ class AndNot(Query):
     def scorer(self, searcher, exclude_docs = None):
         return AndNotScorer(self.positive.scorer(searcher, exclude_docs = exclude_docs),
                             self.negative.scorer(searcher, exclude_docs = exclude_docs))
+
 
 
 

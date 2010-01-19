@@ -31,6 +31,10 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(sa[2].__class__.__name__, "StopFilter")
         self.assertEqual([t.text for t in sa(u"The ABC 123")], ["abc", "123"])
     
+    def test_composition3(self):
+        sa = RegexTokenizer() | StopFilter()
+        self.assertEqual(sa.__class__.__name__, "CompositeAnalyzer")
+    
     def test_filter_composition(self):
         filtersonly = LowercaseFilter() | StopFilter()
         generator = filtersonly(u"Hello there")

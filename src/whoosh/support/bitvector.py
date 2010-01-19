@@ -72,6 +72,11 @@ class BitVector(object):
         
         self.bcount = None
     
+    def __eq__(self, other):
+        if isinstance(other, BitVector):
+            return self.bits == other.bits
+        return False
+    
     def __repr__(self):
         return "<BitVector %s>" % self.__str__()
     
