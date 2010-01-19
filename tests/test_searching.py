@@ -79,7 +79,10 @@ class TestSearching(unittest.TestCase):
         
     def test_variations(self):
         self._run_query(Variations("value", u"render"), [u"A", u"C", u"E"])
-        
+    
+    def test_topnot(self):
+        self._run_query(Not(Term("name", "yellow")), [u"B", u"C", u"D"])
+    
     def test_wildcard(self):
         self._run_query(Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
                         [u"A", u"C", u"D", u"E"])

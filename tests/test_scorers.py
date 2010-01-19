@@ -4,7 +4,7 @@ from time import clock as now
 
 from whoosh import fields, index, qparser, query, searching, scoring
 from whoosh.filedb.filestore import RamStorage
-from whoosh.postings import EmptyScorer, FakeScorer, AndNotScorer, UnionScorer
+from whoosh.postings import EmptyScorer, FakeScorer, AndNotScorer, UnionScorer, InverseScorer
 from whoosh.query import *
 
 class TestScorers(unittest.TestCase):
@@ -126,6 +126,26 @@ class TestScorers(unittest.TestCase):
             matches = sorted(matches)
             uqs = UnionScorer(scorers)
             self.assertEqual(list(uqs.ids()), matches)
+
+    def test_inverse(self):
+        s = FakeScorer(1, 5, 10, 11, 13)
+        inv = InverseScorer(s, 14, lambda id: False)
+        scores = []
+        while inv.id is not None:
+            scores.append(inv.id)
+            inv.next()
+        self.assertEqual(scores, [0, 2, 3, 4, 6, 7, 8, 9, 12, 14])
+        
+    def test_inverse_skip(self):
+        s = FakeScorer(1, 5, 10, 11, 13)
+        inv = InverseScorer(s, 14, lambda id: False)
+        inv.skip_to(8)
+        
+        scores = []
+        while inv.id is not None:
+            scores.append(inv.id)
+            inv.next()
+        self.assertEqual(scores, [8, 9, 12, 14])
 
     def test_andnot(self):
         pos = FakeScorer(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)

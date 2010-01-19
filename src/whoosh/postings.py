@@ -577,6 +577,49 @@ class EmptyScorer(QueryScorer):
         return []
     def score(self):
         return 0
+    
+
+class ListScorer(QueryScorer):
+    """A Scorer implementation that gets document postings and scores
+    from a sequence of (id, score) pairs.
+    """
+    
+    def __init__(self, postings):
+        self.postings = postings
+        self.reset()
+    
+    def reset(self):
+        self.i = 0
+        self.id = self.postings[0]
+    
+    def next(self):
+        self.i += 1
+        if self.i < len(self.postings):
+            self.id = self.postings[self.i]
+        else:
+            self.id = None
+    
+    def skip_to(self, id):
+        postings = self.postings
+        i = self.i
+        while i < len(postings) and postings[i][0] < id:
+            i += 1
+        if i < len(postings):
+            self.i = i
+            self.id = postings[i]
+        else:
+            self.id = None
+    
+    def ids(self):
+        return [id for id, _ in self.postings]
+    
+    def items(self):
+        return self.postings[:]
+    
+    def score(self):
+        if self.id is None:
+            return 0
+        return self.postings[self.i][1]
 
 
 class IntersectionScorer(QueryScorer):
@@ -785,6 +828,54 @@ class AndNotScorer(QueryScorer):
         if self.id is None:
             return 0
         return self.positive.score()
+
+
+class InverseScorer(QueryScorer):
+    """Takes a sub-scorer, and returns all documents *not* found
+    in the sub-scorer. Assigns a static score to the "found" documents.
+    """
+    
+    def __init__(self, scorer, maxid, is_deleted, docscore=1.0):
+        self.scorer = scorer
+        self.maxid = maxid
+        self.is_deleted = is_deleted
+        self.docscore = docscore
+        self.id = 0
+        self._find_next()
+    
+    def reset(self):
+        self.scorer.reset()
+        self.id = 0
+        self._find_next()
+    
+    def _find_next(self):
+        while self.id == self.scorer.id and not self.is_deleted(self.id):
+            self.id += 1
+            if self.scorer.id is not None:
+                self.scorer.next()
+        if self.id >= self.maxid:
+            self.id = None
+    
+    def next(self):
+        if self.id is None:
+            raise ReadTooFar
+        self.id += 1
+        self._find_next()
+    
+    def skip_to(self, target):
+        if self.id is None:
+            raise ReadTooFar
+        if target <= self.id:
+            return
+        
+        self.scorer.skip_to(target)
+        self.id = target
+        self._find_next()
+    
+    def score(self):
+        if self.id is None:
+            return 0
+        return self.docscore
 
 
 class RequireScorer(QueryScorer):

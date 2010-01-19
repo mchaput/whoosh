@@ -806,7 +806,7 @@ class NgramFilter(Filter):
 
 class IntraWordFilter(Filter):
     """Splits words into subwords and performs optional transformations on subword groups.
-    This filter funtionally based on yonik's WordDelimiterFilter in Solr, but shares no
+    This filter is funtionally based on yonik's WordDelimiterFilter in Solr, but shares no
     code with it.
     
     * Split on intra-word delimiters, e.g. `Wi-Fi` -> `Wi`, `Fi`.
@@ -822,7 +822,7 @@ class IntraWordFilter(Filter):
     * `PowerShot` -> `0`:`Power`, `1`:`Shot` (where `0` and `1` are token positions).
     
     When one or both of the merge arguments are true, consecutive runs of alphabetic
-    and/or numeric subwords are merged into a new token with the same token position
+    and/or numeric subwords are merged into an additional token with the same position
     as the last sub-word.
     
     * `PowerShot` -> `0`:`Power`, `1`:`Shot`, `1`:`PowerShot`
@@ -844,7 +844,7 @@ class IntraWordFilter(Filter):
     
     >>> iwf = MultiFilter(index=IntraWordFilter(mergewords=True, mergenums=True),
                           query=IntraWordFilter(mergewords=False, mergenums=False))
-    >>> analyzer = RegexTokenizer(r"\\S+") | iwf | LowercaseFilter()
+    >>> analyzer = RegexTokenizer(r"\S+") | iwf | LowercaseFilter()
     
     (See :class:`MultiFilter`.)
     """
