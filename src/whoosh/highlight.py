@@ -126,7 +126,7 @@ class SentenceFragmenter(object):
     character after each token's 'endchar'.
     
     When highlighting with this fragmenter, you should use an analyzer that does NOT
-    remove stop words, for example:
+    remove stop words, for example::
     
         sa = StandardAnalyzer(stoplist=None)
     """

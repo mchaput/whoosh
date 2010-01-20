@@ -24,11 +24,10 @@ The highlight module works on a pipeline:
 .. rubric:: Footnotes
 
 .. [#f1]
-    Other systems, such as Lucne, can use term vectors to highlight text 
-    without retokenizing it. In my tests I found that using a 
-    Position/Character term vector didn't give any speed improvement in 
-    Whoosh over retokenizing the text. This probably needs further 
-    investigation.
+    Some search systems, such as Lucene, can use term vectors to highlight text 
+    without retokenizing it. In my tests I found that using a Position/Character
+    term vector didn't give any speed improvement in Whoosh over retokenizing
+    the text. This probably needs further investigation.
 
 
 Usage
@@ -36,48 +35,53 @@ Usage
 
 The high-level interface is the highlight function::
 
-     excerpts = highlight(text, terms, analyzer,
-                          fragmenter, formatter, top=3,
-                          scorer=BasicFragmentScorer, minscore=1,
-                          order=FIRST)
+    excerpts = highlight(text, terms, analyzer,
+                         fragmenter, formatter, top=3,
+                         scorer=BasicFragmentScorer, minscore=1,
+                         order=FIRST)
 
 text
-     The original text of the document.
+    The original text of the document.
 
 terms
-     An iterable containing the query words to match, e.g.
-     ("render", "shader").
+    An iterable containing the query words to match, e.g.
+    ("render", "shader").
 
 analyzer
-     The analyzer to use to break the document text into tokens for
-     matching against the query terms. This is usually the analyzer
-     for the field the query terms are in.
+    The analyzer to use to break the document text into tokens for
+    matching against the query terms. This is usually the analyzer
+    for the field the query terms are in.
 
 fragmenter
-     A fragmeter callable, see below.
+    A fragmeter callable, see below.
 
 formatter
-     A formatter callable, see below.
+    A formatter callable, see below.
 
 top
-     The number of fragments to include in the output.
+    The number of fragments to include in the output.
 
 scorer
-     A scorer callable. The only scorer currently included with Whoosh
-     is BasicFragmentScorer, the default.
+    A scorer callable. The only scorer currently included with Whoosh
+    is BasicFragmentScorer, the default.
 
 minscore
-     The minimum score a fragment must have to be considered for
-     inclusion.
+    The minimum score a fragment must have to be considered for
+    inclusion.
 
 order
-     An ordering function that determines the order of the "top"
-     fragments in the output text. This will usually be either
-     SCORE (highest scoring fragments first) or FIRST (highest
-     scoring fragments in their original order). (Whoosh also
-     includes LONGER (longer fragments first) and SHORTER (shorter
-     fragments first) as examples of scoring functions, but they
-     probably aren't as generally useful.)
+    An ordering function that determines the order of the "top"
+    fragments in the output text. This will usually be either
+    SCORE (highest scoring fragments first) or FIRST (highest
+    scoring fragments in their original order). (Whoosh also
+    includes LONGER (longer fragments first) and SHORTER (shorter
+    fragments first) as examples of scoring functions, but they
+    probably aren't as generally useful.)
+
+Example
+-------
+
+
 
 
 How it works
@@ -94,23 +98,23 @@ objects.
 The available fragmenters are:
 
 NullFragmenter
-     Returns the entire text as one "fragment". This can be useful if you
-     are highlighting a short bit of text and don't need to fragment it.
+    Returns the entire text as one "fragment". This can be useful if you
+    are highlighting a short bit of text and don't need to fragment it.
 
 SimpleFragmenter
-     Or maybe "DumbFragmenter", this just breaks the token stream into
-     equal sized chunks.
+    Or maybe "DumbFragmenter", this just breaks the token stream into
+    equal sized chunks.
 
 SentenceFragmenter
-     Tries to break the text into fragments based on sentence punctuation
-     (".", "!", and "?"). This object works by looking in the original
-     text for a sentence end as the next character after each token's
-     'endchar'. Can be fooled by e.g. source code, decimals, etc.
+    Tries to break the text into fragments based on sentence punctuation
+    (".", "!", and "?"). This object works by looking in the original
+    text for a sentence end as the next character after each token's
+    'endchar'. Can be fooled by e.g. source code, decimals, etc.
 
 ContextFragmenter
-     This is a "smart" fragmenter that finds matched terms and then pulls
-     in surround text to form fragments. This fragmenter only yields
-     fragments that contain matched terms.
+    This is a "smart" fragmenter that finds matched terms and then pulls
+    in surround text to form fragments. This fragmenter only yields
+    fragments that contain matched terms.
 
 (See the docstrings for how to instantiate these)
 
@@ -129,11 +133,15 @@ to be using Genshi also, you'll probably need to implement your own
 formatter. I'll try to add more useful formatters in the future.
 
 UppercaseFormatter
-     Converts the matched terms to UPPERCASE.
+    Converts the matched terms to UPPERCASE.
+
+HtmlFormatter
+	Outputs a string containing HTML tags (with a class attribute)
+	around the the matched terms.
 
 GenshiFormatter
-     Outputs a Genshi event stream, with the matched terms wrapped in a
-     configurable element.
+    Outputs a Genshi event stream, with the matched terms wrapped in a
+    configurable element.
 
 (See the docstrings for how to instantiate these)
 
@@ -144,31 +152,31 @@ Writing your own formatter
 A formatter must be a callable (a function or an object with a __call__ 
 method). It is called with the following arguments::
 
-     formatter(text, fragments)
+    formatter(text, fragments)
 
 text
-     The original text.
+    The original text.
 
 fragments
-     An iterable of Fragment objects representing the top scoring
-     fragments.
+    An iterable of Fragment objects representing the top scoring
+    fragments.
 
 The Fragment object is a simple object that has attributes containing 
 basic information about the fragment:
 
 Fragment.startchar
-     The index of the first character of the fragment.
+    The index of the first character of the fragment.
 
 Fragment.endchar
-     The index of the last character of the fragment.
+    The index of the last character of the fragment.
 
 Fragment.matches
-     An ordered list of analysis.Token objects representing the matched
-     terms within the fragment.
+    An ordered list of analysis.Token objects representing the matched
+    terms within the fragment.
 
 Fragments.matched_terms
-     For convenience: A frozenset of the text of the matched terms within
-     the fragment -- i.e. frozenset(t.text for t in self.matches).
+    For convenience: A frozenset of the text of the matched terms within
+    the fragment -- i.e. frozenset(t.text for t in self.matches).
 
 The basic work you need to do in the formatter is:
 
