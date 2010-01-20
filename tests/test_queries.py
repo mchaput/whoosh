@@ -10,7 +10,7 @@ class TestQueries(unittest.TestCase):
     def test_all_terms(self):
         q = QueryParser("a").parse(u'hello b:there c:"my friend"')
         ts = set()
-        q.all_terms(ts)
+        q.all_terms(ts, phrases=False)
         self.assertEqual(sorted(ts), [("a", "hello"), ("b", "there")])
         ts = set()
         q.all_terms(ts, phrases=True)
@@ -30,16 +30,14 @@ class TestQueries(unittest.TestCase):
         r = ix.reader()
         q = QueryParser("value").parse(u'alfa hotel tango "sierra bravo"')
         
-        ts = set()
-        q.existing_terms(r, ts)
+        ts = q.existing_terms(r, phrases=False)
         self.assertEqual(sorted(ts), [("value", "alfa"), ("value", "hotel")])
         
-        ts = set()
-        q.existing_terms(r, ts, phrases=True)
+        ts = q.existing_terms(r)
         self.assertEqual(sorted(ts), [("value", "alfa"), ("value", "bravo"), ("value", "hotel")])
         
         ts = set()
-        q.existing_terms(r, ts, phrases=True, reverse=True)
+        q.existing_terms(r, ts, reverse=True)
         self.assertEqual(sorted(ts), [("value", "sierra"), ("value", "tango")])
 
 
