@@ -15,6 +15,7 @@
 #===============================================================================
 
 from bisect import bisect_left
+from time import clock as now
 
 from whoosh.postings import PostingReader, ReadTooFar
 from whoosh.reading import IndexReader
@@ -23,6 +24,7 @@ from whoosh.reading import IndexReader
 class RamIndexReader(IndexReader):
     def __init__(self, ix):
         self.ix = ix
+        self.schema = ix.schema
         self._stored_field_names = ix.schema.stored_field_names()
         self._scorable_fields = ix.schema.scorable_fields()
         
@@ -114,17 +116,23 @@ class RamIndexReader(IndexReader):
             else:
                 break
             
-    def postings(self, fieldid, text, exclude_docs = frozenset()):
+    def postings(self, fieldid, text, exclude_docs = None):
         fieldnum = self.ix.schema.to_number(fieldid)
+        if not exclude_docs:
+            exclude_docs = frozenset()
         excludeset = self.ix.deleted | exclude_docs
         inv = self.ix.invertedindex
-        postings = [(docnum, stringvalue) for docnum, stringvalue in inv[fieldnum][text]
-                    if docnum not in excludeset]
-        return RamPostingReader(postings)
+        format = self.schema[fieldnum].format
+        postings = inv[fieldnum][text]
+        if excludeset:
+            postings = [(docnum, stringvalue) for docnum, stringvalue
+                        in postings if docnum not in excludeset]
+        return RamPostingReader(format, postings)
 
 
 class RamPostingReader(PostingReader):
-    def __init__(self, postings):
+    def __init__(self, format, postings):
+        self.format = format
         self.postings = postings
         self.reset()
     
@@ -133,6 +141,7 @@ class RamPostingReader(PostingReader):
         self.id = self.postings[0][0]
     
     def all_items(self):
+        print "all_items"
         return self.postings
     
     def all_ids(self):

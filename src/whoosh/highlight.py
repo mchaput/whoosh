@@ -31,7 +31,7 @@ class Fragment(object):
     contain the text of the fragment or do much else.
     """
     
-    def __init__(self, tokens, charsbefore = 0, charsafter = 0, textlen = 999999):
+    def __init__(self, tokens, charsbefore=0, charsafter=0, textlen=999999):
         """
         :param tokens: list of the Token objects in the fragment. 
         :param charsbefore: approx. how many characters before the start of the first
@@ -80,7 +80,7 @@ def copyandmatchfilter(termset, tokens):
 
 # Fragmenters
 
-def NullFragmenter(text, termset, tokens):
+def NullFragmenter(text, tokens):
     """Doesn't fragment the token stream. This object just
     returns the entire stream as one "fragment". This is useful if
     you want to highlight the entire text.
@@ -92,12 +92,12 @@ class SimpleFragmenter(object):
     """Simply splits the text into roughly equal sized chunks.
     """
     
-    def __init__(self, size = 70):
+    def __init__(self, size=70):
         """
         :param size: size (in characters) to chunk to. The chunking is based on
             tokens, so the fragments will usually be smaller.
         """
-        self.size = 70
+        self.size = size
         
     def __call__(self, text, tokens):
         size = self.size
@@ -124,9 +124,14 @@ class SentenceFragmenter(object):
     """Breaks the text up on sentence end punctuation characters (".", "!", or "?").
     This object works by looking in the original text for a sentence end as the next
     character after each token's 'endchar'.
+    
+    When highlighting with this fragmenter, you should use an analyzer that does NOT
+    remove stop words, for example:
+    
+        sa = StandardAnalyzer(stoplist=None)
     """
     
-    def __init__(self, maxchars = 200, sentencechars = ".!?"):
+    def __init__(self, maxchars=200, sentencechars=".!?"):
         """
         :param maxchars: The maximum number of characters allowed in a fragment.
         """
@@ -158,7 +163,7 @@ class SentenceFragmenter(object):
                 if endchar+1 < textlen and text[endchar + 1] in sentencechars:
                     continue
                 
-                yield Fragment(frag, charsafter = 1)
+                yield Fragment(frag, charsafter=0)
                 frag = []
                 first = None
         
@@ -170,24 +175,21 @@ class ContextFragmenter(object):
     """Looks for matched terms and aggregates them with their
     surrounding context.
     
-    This fragmenter only yields fragments that contain matched terms.    
+    This fragmenter only yields fragments that contain matched terms.
     """
     
-    def __init__(self, termset, maxchars = 200, charsbefore = 20, charsafter = 20):
+    def __init__(self, termset, maxchars=200, surround=20):
         """
         :param termset: A collection (probably a set or frozenset) containing the
             terms you want to match to token.text attributes.
         :param maxchars: The maximum number of characters allowed in a fragment.
-        :param charsbefore: The number of extra characters of context to add before
-            the first matched term.
-        :param charsafter: The number of extra characters of context to add after
-            the last matched term.
+        :param surround: The number of extra characters of context to add both
+            before the first matched term and after the last matched term.
         """
         
         self.maxchars = maxchars
-        self.charsbefore = charsbefore
-        self.charsafter = charsafter
-        
+        self.charsbefore = self.charsafter = surround
+    
     def __call__(self, text, tokens):
         maxchars = self.maxchars
         charsbefore = self.charsbefore
@@ -223,7 +225,7 @@ class ContextFragmenter(object):
 
 
 #class VectorFragmenter(object):
-#    def __init__(self, termmap, maxchars = 200, charsbefore = 20, charsafter = 20):
+#    def __init__(self, termmap, maxchars=200, charsbefore=20, charsafter=20):
 #        """
 #        :param termmap: A dictionary mapping the terms you're looking for to
 #            lists of either (posn, startchar, endchar) or
@@ -342,7 +344,8 @@ class HtmlFormatter(object):
     "The <span class="match term0">template</span> <span class="match term1">geometry</span> is..."
     """
     
-    def __init__(self, tagname="strong", between="...", classname="match", termclass="term"):
+    def __init__(self, tagname="strong", between="...",
+                 classname="match", termclass="term", attrquote='"'):
         """
         :param tagname: the tag to wrap around matching terms.
         :param between: the text to add between fragments.
@@ -355,9 +358,9 @@ class HtmlFormatter(object):
         self.tagname = tagname
         self.classname = classname
         self.termclass = termclass
+        self.attrquote = attrquote
         
     def _format_fragment(self, text, fragment, seen):
-        tagname = self.tagname
         htmlclass = " ".join((self.classname, self.termclass))
         
         output = []
@@ -374,10 +377,15 @@ class HtmlFormatter(object):
                 else:
                     termnum = len(seen)
                     seen[t.text] = termnum
-                ttxt = '<%s class="%s%s">%s</%s>' % (tagname, htmlclass, termnum, ttxt, tagname)
+                ttxt = ('<%(tag)s class=%(q)s%(cls)s%(tn)s%(q)s>%(t)s</%(tag)s>' %
+                        {"tag": self.tagname, "q": self.attrquote,
+                         "cls": htmlclass, "t": ttxt, "tn": termnum})
             
             output.append(ttxt)
             index = t.endchar
+        
+        if index < fragment.endchar:
+            output.append(text[index:fragment.endchar])
         
         return "".join(output)
     
@@ -450,8 +458,8 @@ class GenshiFormatter(object):
 
 # Highlighting
 
-def top_fragments(text, terms, analyzer, fragmenter, top = 3,
-                  scorer = BasicFragmentScorer, minscore = 1):
+def top_fragments(text, terms, analyzer, fragmenter, top=3,
+                  scorer=BasicFragmentScorer, minscore=1):
     termset = frozenset(terms)
     tokens = copyandmatchfilter(termset, analyzer(text, chars = True, keeporiginal = True))
     scored_frags = nlargest(top, ((scorer(f), f) for f in fragmenter(text, tokens)))

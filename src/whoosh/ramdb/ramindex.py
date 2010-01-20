@@ -33,7 +33,7 @@ class RamIndex(Index):
         self.termlists = defaultdict(list)
         self.invertedindex = {}
         for fieldnum in xrange(len(schema)):
-            self.invertedindex[fieldnum] = {}
+            self.invertedindex[fieldnum] = defaultdict(list)
         self.indexfreqs = defaultdict(int)
         
         self.storedfields = {}
@@ -45,7 +45,7 @@ class RamIndex(Index):
         self._stored_to_pos = dict((fnum, i) for i, fnum in enumerate(self.schema.stored_fields()))
     
     def doc_count_all(self):
-        return self.doccount
+        return self.maxdoc
     
     def doc_count(self):
         return self.maxdoc - len(self.deleted)
@@ -59,11 +59,13 @@ class RamIndex(Index):
     def optimize(self):
         # TODO: Write this
         pass
-    
+
 
 class RamIndexWriter(IndexWriter):
     def __init__(self, ix):
         self.ix = ix
+        self.schema = ix.schema
+        self._stored_to_pos = dict((fnum, i) for i, fnum in enumerate(self.schema.stored_fields()))
         
     def add_document(self, **fields):
         schema = self.ix.schema
