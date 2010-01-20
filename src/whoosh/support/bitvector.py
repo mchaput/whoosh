@@ -120,35 +120,25 @@ class BitVector(object):
         return res
     
     def __and__(self, other):
-        if isinstance(other, BitVector):
-            return self._logic(operator.__and__, other)
-        else:
-            res = BitVector(size = self.size)
-            get = self.__getitem__
-            for n in other:
-                if get(n):
-                    res.set(n)
-            return res
+        if not isinstance(other, BitVector):
+            other = BitVector(self.size, source=other)
+        return self._logic(operator.__and__, other)
     
     def __or__(self, other):
-        if isinstance(other, BitVector):
-            return self._logic(operator.__or__, other)
-        else:
-            res = BitVector(self.size, bits = self.bits[:])
-            for n in other:
-                res.set(n)
-            return res
+        if not isinstance(other, BitVector):
+            other = BitVector(self.size, source=other)
+        return self._logic(operator.__or__, other)
+    
+    def __ror__(self, other):
+        return self.__or__(other)
+    
+    def __rand__(self, other):
+        return self.__and__(other)
     
     def __xor__(self, other):
-        if isinstance(other, BitVector):
-            return self._logic(operator.__xor__, other)
-        else:
-            res = BitVector(self.size)
-            get = self.__getitem__
-            for n in other:
-                if not get(n):
-                    res.set(n)
-            return res
+        if not isinstance(other, BitVector):
+            other = BitVector(self.size, source=other)
+        return self._logic(operator.__xor__, other)
     
     def __invert__(self):
         return BitVector(self.size, source=(x for x in xrange(self.size) if x not in self))
@@ -163,6 +153,8 @@ class BitVector(object):
     def set(self, index):
         """Turns the bit at the given position on."""
         
+        if index >= self.size:
+            raise IndexError("Position %s greater than the size of the vector" % index)
         self.bits[index >> 3] |= 1 << (index & 7)
         self.bcount = None
     
