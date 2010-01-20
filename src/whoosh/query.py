@@ -106,8 +106,7 @@ class Query(object):
         return q.normalize()
     
     def all_terms(self, termset=None, phrases=True):
-        """Takes a set and recursively adds all terms in this query tree
-        to the set (this method *does not* return a sequence!).
+        """Returns a set of all terms in this query tree.
         
         This method simply operates on the query itself, without reference
         to an index (unlike existing_terms()), so it will *not* add terms
@@ -118,6 +117,7 @@ class Query(object):
         set([("content", u"render"), ("path", u"/a/b")])
         
         :param phrases: Whether to add words found in Phrase queries.
+        :rtype: set
         """
         
         if termset is None:
@@ -126,9 +126,8 @@ class Query(object):
         return termset
     
     def existing_terms(self, ixreader, termset=None, reverse=False, phrases=True):
-        """Takes a set and recursively adds all terms in this query tree
-        to the set *if* they exist in the index represented by the
-        given ixreaderder (this method *does not* return a sequence!).
+        """Returns a set of all terms in this query tree that exist in the index
+        represented by the given ixreaderder.
         
         This method references the IndexReader to expand Prefix and Wildcard
         queries, and only adds terms that actually exist in the index
@@ -144,6 +143,7 @@ class Query(object):
         :param reverse: If True, this method adds *missing* terms
             rather than *existing* terms to the set.
         :param phrases: Whether to add words found in Phrase queries.
+        :rtype: set
         """
         
         if termset is None:
