@@ -26,7 +26,9 @@ Formatters
 ==========
 
 .. autoclass:: UppercaseFormatter
-    
+
+.. autoclass:: HtmlFormatter
+
 .. autoclass:: GenshiFormatter
 
 Utility classes
