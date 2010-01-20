@@ -72,7 +72,35 @@ class TestSearching(unittest.TestCase):
     def test_not(self):
         self._run_query(Or([Term("value", u"red"), Term("name", u"yellow"), Not(Term("name", u"quick"))]),
                         [u"A", u"E"])
+    
+    def test_not2(self):
+        schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        writer = ix.writer()
+        writer.add_document(name=u"a", value=u"alfa bravo charlie delta echo")
+        writer.add_document(name=u"b", value=u"bravo charlie delta echo foxtrot")
+        writer.add_document(name=u"c", value=u"charlie delta echo foxtrot golf")
+        writer.add_document(name=u"d", value=u"delta echo golf hotel india")
+        writer.add_document(name=u"e", value=u"echo golf hotel india juliet")
+        writer.commit()
         
+        searcher = ix.searcher()
+        results = searcher.find("value", "echo NOT golf")
+        self.assertEqual(sorted([d["name"] for d in results]), ["a", "b"])
+        
+        results = searcher.find("value", "echo NOT bravo")
+        self.assertEqual(sorted([d["name"] for d in results]), ["c", "d", "e"])
+        searcher.close()
+        
+        ix.delete_by_term("value", u"bravo")
+        ix.commit()
+        
+        searcher = ix.searcher()
+        results = searcher.find("value", "echo NOT charlie")
+        self.assertEqual(sorted([d["name"] for d in results]), ["d", "e"])
+        searcher.close()
+    
     def test_andnot(self):
         self._run_query(AndNot(Term("name", u"yellow"), Term("value", u"purple")),
                         [u"E"])
@@ -290,25 +318,6 @@ class TestSearching(unittest.TestCase):
         self.assertNotEqual(results.score(0), None)
         self.assertNotEqual(results.score(0), 0)
         self.assertNotEqual(results.score(0), 1)
-
-    def test_not(self):
-        schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
-        storage = RamStorage()
-        ix = storage.create_index(schema)
-        writer = ix.writer()
-        writer.add_document(name=u"a", value=u"alfa bravo charlie delta echo")
-        writer.add_document(name=u"b", value=u"bravo charlie delta echo foxtrot")
-        writer.add_document(name=u"c", value=u"charlie delta echo foxtrot golf")
-        writer.add_document(name=u"d", value=u"delta echo golf hotel india")
-        writer.add_document(name=u"e", value=u"echo golf hotel india juliet")
-        writer.commit()
-        
-        searcher = ix.searcher()
-        results = searcher.find("value", "echo NOT golf")
-        self.assertEqual(sorted([d["name"] for d in results]), ["a", "b"])
-        
-        results = searcher.find("value", "echo NOT bravo")
-        self.assertEqual(sorted([d["name"] for d in results]), ["c", "d", "e"])
 
     def test_posting_phrase(self):
         schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
