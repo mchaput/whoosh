@@ -105,7 +105,7 @@ class Query(object):
         q = And([self, Not(query)])
         return q.normalize()
     
-    def all_terms(self, termset):
+    def all_terms(self, termset, phrases=False):
         """Takes a set and recursively adds all terms in this query tree
         to the set (this method *does not* return a sequence!).
         
@@ -120,10 +120,11 @@ class Query(object):
         set([("content", u"render"), ("path", u"/a/b")])
         
         :param termset: The set to add the terms to.
+        :param phrases: Whether to add words found in Phrase queries.
         """
-        pass
+        raise NotImplementedError
     
-    def existing_terms(self, ixreader, termset, reverse = False):
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
         """Takes a set and recursively adds all terms in this query tree
         to the set *if* they exist in the index represented by the
         given ixreaderder (this method *does not* return a sequence!).
@@ -144,6 +145,7 @@ class Query(object):
         :param termset: The set to add the terms to.
         :param reverse: If True, this method adds *missing* terms
             rather than *existing* terms to the set.
+        :param phrases: Whether to add words found in Phrase queries.
         """
         raise NotImplementedError
     
@@ -260,13 +262,13 @@ class CompoundQuery(Query):
         return self.__class__([q.replace(oldtext, newtext) for q in self.subqueries],
                               boost = self.boost)
 
-    def all_terms(self, termset):
+    def all_terms(self, termset, phrases=False):
         for q in self.subqueries:
-            q.all_terms(termset)
+            q.all_terms(termset, phrases=phrases)
 
-    def existing_terms(self, ixreader, termset, reverse = False):
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
         for q in self.subqueries:
-            q.existing_terms(ixreader, termset, reverse = reverse)
+            q.existing_terms(ixreader, termset, reverse=reverse, phrases=phrases)
 
     def normalize(self):
         # Do an initial check for NullQuery.
@@ -346,10 +348,10 @@ class MultiTerm(Query):
         return Or([Term(self.fieldname, word) for word in self._words()],
                   boost = self.boost)
     
-    def all_terms(self, termset):
+    def all_terms(self, termset, phrases=False):
         pass
     
-    def existing_terms(self, ixreader, termset, reverse = False):
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
         fieldname = self.fieldname
         for word in self._words(ixreader):
             t = (fieldname, word)
@@ -431,10 +433,10 @@ class Term(Query):
             t += u"^" + unicode(self.boost)
         return t
     
-    def all_terms(self, termset):
+    def all_terms(self, termset, phrases=False):
         termset.add((self.fieldname, self.text))
     
-    def existing_terms(self, ixreader, termset, reverse = False):
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
         fieldname, text = self.fieldname, self.text
         fieldnum = ixreader.fieldname_to_num(fieldname)
         contains = (fieldnum, text) in ixreader
@@ -548,11 +550,11 @@ class Not(Query):
     def replace(self, oldtext, newtext):
         return Not(self.query.replace(oldtext, newtext), boost=self.boost)
     
-    def all_terms(self, termset):
-        self.query.all_terms(termset)
+    def all_terms(self, termset, phrases=False):
+        self.query.all_terms(termset, phrases=phrases)
         
-    def existing_terms(self, ixreader, termset, reverse=False):
-        self.query.existing_terms(ixreader, termset, reverse = reverse)
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
+        self.query.existing_terms(ixreader, termset, reverse=reverse, phrases=phrases)
         
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
@@ -715,7 +717,7 @@ class FuzzyTerm(MultiTerm):
     def __unicode__(self):
         return u"~" + self.text
     
-    def all_terms(self, termset):
+    def all_terms(self, termset, phrases=False):
         termset.add((self.fieldname, self.text))
     
     def _words(self, ixreader):
@@ -975,6 +977,22 @@ class Phrase(MultiTerm):
     
     def __unicode__(self):
         return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
+    
+    def all_terms(self, termset, phrases=False):
+        if phrases:
+            fieldname = self.fieldname
+            for word in self.words:
+                termset.add((fieldname, word))
+    
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
+        if phrases:
+            fieldname = self.fieldname
+            fieldnum = ixreader.fieldname_to_num(fieldname)
+            for word in self.words:
+                contains = (fieldnum, word) in ixreader
+                if reverse: contains = not contains
+                if contains:
+                    termset.add((fieldname, word))
     
     def normalize(self):
         if not self.words:
@@ -1239,11 +1257,11 @@ class AndNot(Query):
                       self.negative.replace(oldtext, newtext),
                       boost = self.boost)
     
-    def all_terms(self, termset):
-        self.positive.all_terms(termset)
+    def all_terms(self, termset, phrases=False):
+        self.positive.all_terms(termset, phrases=phrases)
         
-    def existing_terms(self, ixreader, termset, reverse = False):
-        self.positive.existing_terms(ixreader, termset, reverse = reverse)
+    def existing_terms(self, ixreader, termset, reverse=False, phrases=False):
+        self.positive.existing_terms(ixreader, termset, reverse=reverse, phrases=phrases)
     
     def scorer(self, searcher, exclude_docs = None):
         return AndNotScorer(self.positive.scorer(searcher, exclude_docs = exclude_docs),
