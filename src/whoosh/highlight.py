@@ -342,6 +342,11 @@ class HtmlFormatter(object):
     >>> hf = HtmlFormatter(tagname="span", classname="match", termclass="term")
     >>> hf(mytext, myfragments)
     "The <span class="match term0">template</span> <span class="match term1">geometry</span> is..."
+    
+    This object maintains a dictionary mapping terms to HTML class names (e.g.
+    ``term0`` and ``term1`` above), so that multiple excerpts will use the same class
+    for the same term. If you want to re-use the same HtmlFormatter object with different
+    searches, you should call HtmlFormatter.clear() between searches to clear the mapping.
     """
     
     def __init__(self, tagname="strong", between="...",
@@ -359,7 +364,8 @@ class HtmlFormatter(object):
         self.classname = classname
         self.termclass = termclass
         self.attrquote = attrquote
-        
+        self.seen = {}
+    
     def _format_fragment(self, text, fragment, seen):
         htmlclass = " ".join((self.classname, self.termclass))
         
@@ -390,9 +396,14 @@ class HtmlFormatter(object):
         return "".join(output)
     
     def __call__(self, text, fragments):
-        seen = {}
+        seen = self.seen
         return self.between.join(self._format_fragment(text, fragment, seen)
                                  for fragment in fragments)
+    
+    def clear(self):
+        """Clears the dictionary mapping terms to HTML classnames.
+        """
+        self.seen = {}
 
 
 class GenshiFormatter(object):
