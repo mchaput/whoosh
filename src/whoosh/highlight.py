@@ -350,13 +350,18 @@ class HtmlFormatter(object):
     """
     
     def __init__(self, tagname="strong", between="...",
-                 classname="match", termclass="term", attrquote='"'):
+                 classname="match", termclass="term", maxclasses=5,
+                 attrquote='"'):
         """
         :param tagname: the tag to wrap around matching terms.
         :param between: the text to add between fragments.
         :param classname: the class name to add to the elements wrapped around matching terms.
         :param termclass: the class name prefix for the second class which is different for
-            each matched term.
+            each matched term. For example, 
+        :param maxclasses: the maximum number of term classes to produce. This limits
+            the number of classes you have to define in CSS by recycling term class names.
+            For example, if you set maxclasses to 3 and have 5 terms, the 5 terms will use
+            the CSS classes ``term0``, ``term1``, ``term2``, ``term0``, ``term1``.
         """
         
         self.between = between
@@ -364,6 +369,7 @@ class HtmlFormatter(object):
         self.classname = classname
         self.termclass = termclass
         self.attrquote = attrquote
+        self.maxclasses = maxclasses
         self.seen = {}
     
     def _format_fragment(self, text, fragment, seen):
@@ -381,7 +387,7 @@ class HtmlFormatter(object):
                 if t.text in seen:
                     termnum = seen[t.text]
                 else:
-                    termnum = len(seen)
+                    termnum = len(seen) % self.maxclasses
                     seen[t.text] = termnum
                 ttxt = ('<%(tag)s class=%(q)s%(cls)s%(tn)s%(q)s>%(t)s</%(tag)s>' %
                         {"tag": self.tagname, "q": self.attrquote,

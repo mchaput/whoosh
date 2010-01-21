@@ -48,7 +48,13 @@ class TestHighlighting(unittest.TestCase):
         htext = highlight.highlight(self._doc, terms, sa, cf, hf)
         self.assertEqual(htext, 'alfa <strong class="match term0">bravo</strong> charlie...hotel <strong class="match term1">india</strong> juliet')
 
-
+    def test_maxclasses(self):
+        terms = frozenset(("alfa", "bravo", "charlie", "delta", "echo"))
+        sa = analysis.StandardAnalyzer()
+        cf = highlight.ContextFragmenter(terms, surround=6)
+        hf = highlight.HtmlFormatter(tagname="b", termclass="t", maxclasses=2)
+        htext = highlight.highlight(self._doc, terms, sa, cf, hf)
+        self.assertEqual(htext, '<b class="match t0">alfa</b> <b class="match t1">bravo</b> <b class="match t0">charlie</b>...<b class="match t1">delta</b> <b class="match t0">echo</b> foxtrot')
 
 
 
