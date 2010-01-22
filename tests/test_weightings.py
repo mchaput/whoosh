@@ -24,12 +24,13 @@ class TestWeightings(unittest.TestCase):
         w.commit()
         
         # provide initializer arguments for any weighting classes that require them
-        init_args = {}
+        init_args = {"MultiWeighting": ([scoring.BM25F()], {"text": scoring.Frequency()})}
         
         reader = ix.reader()
         for wclass in self._weighting_classes():
-            if wclass in init_args:
-                weighting = wclass(*init_args[wclass])
+            if wclass.__name__ in init_args:
+                args, kwargs = init_args[wclass.__name__]
+                weighting = wclass(*args, **kwargs)
             else:
                 weighting = wclass()
             searcher = Searcher(reader, weighting)

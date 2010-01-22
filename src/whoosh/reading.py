@@ -249,7 +249,7 @@ class IndexReader(ClosableMixin):
                 return
             yield (t, docfreq, colfreq)
     
-    def most_frequent_terms(self, fieldid, number=5, prefix=None):
+    def most_frequent_terms(self, fieldid, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as
         a list of (frequency, text) tuples.
         """
