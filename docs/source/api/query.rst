@@ -26,11 +26,15 @@ Query classes
 
 .. autoclass:: Variations
 
+.. autoclass:: FuzzyTerm
+
 .. autoclass:: Phrase
 
 .. autoclass:: And
 
 .. autoclass:: Or
+
+.. autoclass:: DisjunctionMax
 
 .. autoclass:: Not
 
