@@ -448,12 +448,14 @@ class SimpleParser(PyparsingBasedParser):
 
     def _Toplevel(self, node, fieldname):
         queries = [self._eval(s, fieldname) for s in node]
+        # Look for "required" clauses by looking for tuples
         reqds = [q[0] for q in queries if isinstance(q, tuple)]
+        
         if reqds:
             nots = [q for q in queries if isinstance(q, Not)]
             opts = [q for q in queries
                     if not isinstance(q, Not) and not isinstance(q, tuple)]
-            return AndMaybe([And(reqds + nots), Or(opts)])
+            return AndNot(AndMaybe(And(reqds), Or(opts)), Or(nots))
         else:
             return Or(queries)
 
@@ -464,6 +466,8 @@ class SimpleParser(PyparsingBasedParser):
         return self.make_phrase(fieldname, node[0])
 
     def _Required(self, node, fieldname):
+        # Mark "required" clauses by putting them in a tuple.
+        # This is lame, I know.
         return (self._eval(node[0], fieldname), )
 
     def _Not(self, node, fieldname):

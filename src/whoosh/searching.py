@@ -188,7 +188,7 @@ class Searcher(object):
             expander.add(ixreader.vector_as(docnum, fieldnum, "weight"))
         return expander.expanded_terms(numterms, normalize = normalize)
     
-    def find(self, defaultfield, querystring, limit = 5000, sortedby = None, reverse = False):
+    def find(self, defaultfield, querystring, limit=5000, sortedby=None, reverse=False, minscore=0.001):
         """Parses the query string using :class:`whoosh.qparser.QueryParser` and runs
         the parsed query, returning a Results object.
         
@@ -229,15 +229,16 @@ class Searcher(object):
             to recreate it if the index changes).
         
         :param reverse: if ``sortedby`` is not None, this reverses the direction of the sort.
+        :param minscore: the minimum score to include in the results.
         :rtype: :class:`Results`
         """
         
         from qparser import QueryParser
         qp = QueryParser(defaultfield)
         q = qp.parse(querystring)
-        return self.search(q, limit=limit, sortedby=sortedby, reverse=reverse)
+        return self.search(q, limit=limit, sortedby=sortedby, reverse=reverse, minscore=minscore)
     
-    def search(self, query, limit = 5000, sortedby = None, reverse = False):
+    def search(self, query, limit=5000, sortedby=None, reverse=False, minscore=0.0001):
         """Runs the query represented by the query object and returns a Results object.
         
         See the help for :meth:`~Searcher.find` for information on the parameters.
@@ -268,8 +269,9 @@ class Searcher(object):
             # Sort by scores
             topdocs = TopDocs(limit, ixreader.doc_count_all())
             final = self.weighting.final
-            topdocs.add_all((docnum, final(self, docnum, score))
-                            for docnum, score in query.doc_scores(self))
+            topdocs.add_all(((docnum, final(self, docnum, score))
+                             for docnum, score in query.doc_scores(self)),
+                             minscore)
             
             best = topdocs.best()
             if best:
@@ -322,7 +324,7 @@ class TopDocs(object):
     def __len__(self):
         return len(self.sorted)
 
-    def add_all(self, sequence):
+    def add_all(self, sequence, minscore):
         """Adds a sequence of (item, score) pairs.
         """
         
@@ -332,6 +334,8 @@ class TopDocs(object):
         
         subtotal = 0
         for docnum, score in sequence:
+            if score < minscore: continue
+            
             docs.set(docnum)
             subtotal += 1
             

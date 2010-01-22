@@ -699,9 +699,10 @@ class UnionScorer(QueryScorer):
     """Acts like the union of a set of QueryScorers
     """
     
-    def __init__(self, scorers, boost=1.0):
+    def __init__(self, scorers, boost=1.0, minmatch=0):
         self.scorers = scorers
         self.boost = boost
+        self.minmatch = minmatch
         self.state = [s for s in scorers if s.id is not None]
         
         if self.state:
@@ -744,12 +745,16 @@ class UnionScorer(QueryScorer):
         
         state = self.state
         
-        # Short circuit if there's only one reader
-        if len(state) == 1:
+        if len(state) < self.minmatch:
+            # Can't match the minimum if there aren't enough readers left
+            self.id = None
+        elif len(state) == 1:
+            # Short circuit if there's only one reader
             r = state[0]
             r.next()
             self.id = r.id
         else:
+            # Advance all the readers that match the current id
             lowid = state[0].id
             while state and state[0].id == lowid:
                 r = state[0]
@@ -758,7 +763,7 @@ class UnionScorer(QueryScorer):
                     heappop(state)
                 else:
                     heapreplace(state, r)
-        
+            
             if state:
                 self.id = state[0].id
             else:
@@ -768,6 +773,12 @@ class UnionScorer(QueryScorer):
         id = self.id
         if id is None:
             return 0
+        
+        minmatch = self.minmatch
+        if minmatch:
+            count = [r.id == id for r in self.state].count(True)
+            if count < minmatch: return 0
+        
         score = sum(r.score() for r in self.state if r.id == id)
         return score * self.boost
 

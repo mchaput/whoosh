@@ -129,7 +129,7 @@ class TestScorers(unittest.TestCase):
 
     def test_inverse(self):
         s = FakeScorer(1, 5, 10, 11, 13)
-        inv = InverseScorer(s, 14, lambda id: False)
+        inv = InverseScorer(s, 15, lambda id: False)
         scores = []
         while inv.id is not None:
             scores.append(inv.id)
@@ -138,7 +138,7 @@ class TestScorers(unittest.TestCase):
         
     def test_inverse_skip(self):
         s = FakeScorer(1, 5, 10, 11, 13)
-        inv = InverseScorer(s, 14, lambda id: False)
+        inv = InverseScorer(s, 15, lambda id: False)
         inv.skip_to(8)
         
         scores = []
