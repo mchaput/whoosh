@@ -777,12 +777,13 @@ class UnionScorer(QueryScorer):
         minmatch = self.minmatch
         if minmatch:
             count = 0
+            # Count the number of sub-scorers matching the current ID
             for r in self.state:
                 if r.id == id:
                     count += 1
+                    if count >= minmatch: break
                 else:
                     break
-                if count >= minmatch: break
             if count < minmatch: return 0
         
         score = sum(r.score() for r in self.state if r.id == id)
