@@ -252,7 +252,11 @@ class CompoundQuery(Query):
         self.boost = boost
     
     def __repr__(self):
-        return '%s(%r, boost=%s)' % (self.__class__.__name__, self.subqueries, self.boost)
+        r = "%s(%r" % (self.__class__.__name__, self.subqueries)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        r += ")"
+        return r
 
     def __unicode__(self):
         r = u"("
@@ -315,7 +319,7 @@ class CompoundQuery(Query):
         if len(subqs) == 1:
             return subqs[0]
         
-        return self.__class__(subqs)
+        return self.__class__(subqs, boost=self.boost)
     
     def _split_queries(self):
         if self._notqueries is None:
@@ -433,8 +437,11 @@ class Term(Query):
         self.boost == other.boost
     
     def __repr__(self):
-        return "%s(%r, %r, boost=%r)" % (self.__class__.__name__,
-                                         self.fieldname, self.text, self.boost)
+        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        r += ")"
+        return r
 
     def __unicode__(self):
         t = u"%s:%s" % (self.fieldname, self.text)
@@ -517,15 +524,38 @@ class Or(CompoundQuery):
         CompoundQuery.__init__(self, subqueries, boost=boost)
         self.minmatch = minmatch
     
+    def __repr__(self):
+        r = "%s(%r" % (self.__class__.__name__, self.subqueries)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        if self.minmatch:
+            r += ", minmatch=%s" % self.minmatch
+        r += ")"
+        return r
+
+    def __unicode__(self):
+        r = u"("
+        r += (self.JOINT).join([unicode(s) for s in self.subqueries])
+        r += u")"
+        if self.minmatch:
+            r += u">%s" % self.minmatch
+        return r
+    
     def estimate_size(self, ixreader):
         return sum(q.estimate_size(ixreader) for q in self.subqueries)
     
     def scorer(self, searcher, exclude_docs=None):
         return UnionScorer(self._subscorers(searcher, exclude_docs),
                            boost=self.boost, minmatch=self.minmatch)
+        
+    def normalize(self):
+        norm = CompoundQuery.normalize(self)
+        if norm.__class__ is self.__class__:
+            norm.minmatch = self.minmatch
+        return norm
 
 
-class DisjunctionMax(Or):
+class DisjunctionMax(CompoundQuery):
     """Matches all documents that match any of the subqueries, but
     scores each document using the maximum score from the subqueries.
     """
@@ -549,7 +579,7 @@ class DisjunctionMax(Or):
             return score * self.boost
     
     def __init__(self, subqueries, boost=1.0, tiebreak=0.0):
-        Or.__init__(self, subqueries, boost=boost)
+        CompoundQuery.__init__(self, subqueries, boost=boost)
         self.tiebreak = tiebreak
     
     def __unicode__(self):
@@ -558,10 +588,19 @@ class DisjunctionMax(Or):
             s += u"~" + unicode(self.tiebreak)
         return s
     
+    def estimate_size(self, ixreader):
+        return Or.estimate_size(self, ixreader)
+    
     def scorer(self, searcher, exclude_docs=None):
         return self.DisMaxScorer(self._subscorers(searcher, exclude_docs),
                                  boost=self.boost, tiebreak=self.tiebreak)
-
+    
+    def normalize(self):
+        norm = CompoundQuery.normalize(self)
+        if norm.__class__ is self.__class__:
+            norm.tiebreak = self.tiebreak
+        return norm
+        
 
 class Not(Query):
     """Excludes any documents that match the subquery.
@@ -591,8 +630,7 @@ class Not(Query):
         self.query == other.query
         
     def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__,
-                                     repr(self.query))
+        return "%s(%s)" % (self.__class__.__name__, repr(self.query))
     
     def __unicode__(self):
         return u"NOT " + unicode(self.query)
@@ -645,7 +683,11 @@ class Prefix(MultiTerm):
         self.boost == other.boost
     
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self.fieldname, self.text)
+        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
+        if self.boost != 1:
+            r += ", boost="+ self.boost
+        r += ")"
+        return r
     
     def __unicode__(self):
         return "%s:%s*" % (self.fieldname, self.text)
@@ -697,7 +739,11 @@ class Wildcard(MultiTerm):
         self.boost == other.boost
     
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self.fieldname, self.text)
+        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        r += ")"
+        return r
     
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
@@ -885,8 +931,11 @@ class Variations(MultiTerm):
         self.words = variations(self.text)
     
     def __repr__(self):
-        return "%s(%r, %r, boost=%r)" % (self.__class__.__name__,
-                                         self.fieldname, self.text, self.boost)
+        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        r += ")"
+        return r
     
     def __eq__(self, other):
         return other and self.__class__ is other.__class__ and\
