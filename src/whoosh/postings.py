@@ -792,7 +792,11 @@ class UnionScorer(QueryScorer):
 
 class AndNotScorer(QueryScorer):
     """Takes two QueryScorers and pulls items from the first,
-    removing ids that also appear in the second.
+    skipping items that also appear in the second.
+    
+    THIS SCORER IS NOT ACTUALLY USED, since it turns out to be slightly
+    faster to simply create an "excluded_docs" filter from the "not" query
+    and pass that into the "positive" query.
     """
     
     def __init__(self, positive, negative):
@@ -812,19 +816,22 @@ class AndNotScorer(QueryScorer):
         self._find_next()
     
     def _find_next(self):
-        inp, outp = self.positive, self.negative
-        while inp.id is not None and inp.id == outp.id:
-            inp.next()
-            if outp.id is not None:
-                outp.skip_to(inp.id)
-        self.id = inp.id
+        pos, neg = self.positive, self.negative
+        if pos.id is None or neg.id is None:
+            return
+        if neg.id < pos.id:
+            neg.skip_to(pos.id)
+        while pos.id == neg.id:
+            pos.next()
+            neg.skip_to(pos.id)
+        self.id = pos.id
     
     def next(self):
         if self.id is None:
             raise ReadTooFar
         
         self.positive.next()
-        if self.negative.id:
+        if self.negative.id is not None:
             self._find_next()
         else:
             self.id = self.positive.id
