@@ -72,7 +72,7 @@ class IndexWriter(DeletionMixin):
         For example, if you have a field named "title" and you want to index the
         text "a b c" but store the text "e f g", use keyword arguments like this::
         
-            add_document(title=u"a b c", _stored_title=u"e f g")
+            writer.add_document(title=u"a b c", _stored_title=u"e f g")
         """
         raise NotImplementedError
     
@@ -82,12 +82,22 @@ class IndexWriter(DeletionMixin):
         
         The keyword arguments map field names to the values to index/store.
         
+        Note that this method will only replace a *committed* document; currently
+        it cannot replace documents you've added to the IndexWriter but haven't yet
+        committed. For example, if you do this:
+        
+        >>> writer.update_document(unique_id=u"1", content=u"Replace me")
+        >>> writer.update_document(unique_id=u"1", content=u"Replacement")
+        
+        ...this will add two documents with the same value of ``unique_id``, instead of
+        the second document replacing the first.
+        
         For fields that are both indexed and stored, you can specify an alternate
         value to store using a keyword argument in the form "_stored_<fieldname>".
         For example, if you have a field named "title" and you want to index the
         text "a b c" but store the text "e f g", use keyword arguments like this::
         
-            update_document(title=u"a b c", _stored_title=u"e f g")
+            writer.update_document(title=u"a b c", _stored_title=u"e f g")
         """
         
         # Check which of the supplied fields are unique

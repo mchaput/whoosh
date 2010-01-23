@@ -31,7 +31,7 @@ import fnmatch, re
 from whoosh.lang.morph_en import variations
 from whoosh.postings import QueryScorer, EmptyScorer
 from whoosh.postings import IntersectionScorer, UnionScorer
-from whoosh.postings import AndNotScorer, RequireScorer, AndMaybeScorer, InverseScorer
+from whoosh.postings import RequireScorer, AndMaybeScorer, InverseScorer
 from whoosh.postings import ReadTooFar
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
@@ -1383,8 +1383,8 @@ class AndNot(Query):
         self.positive.existing_terms(ixreader, termset, reverse=reverse, phrases=phrases)
     
     def scorer(self, searcher, exclude_docs=None):
-        return AndNotScorer(self.positive.scorer(searcher, exclude_docs=exclude_docs),
-                            self.negative.scorer(searcher, exclude_docs=exclude_docs))
+        notvector = _not_vector(searcher, [self.negative], exclude_docs)
+        return self.positive.scorer(searcher, exclude_docs=notvector)
 
 
 def BooleanQuery(required, should, prohibited):
