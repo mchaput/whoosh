@@ -343,6 +343,10 @@ class Schema(object):
         """
         return fieldname in self._by_name
     
+    def copy(self):
+        import copy
+        return copy.deepcopy(self)
+    
     def field_by_name(self, name):
         """
         Returns the field object associated with the given name.
