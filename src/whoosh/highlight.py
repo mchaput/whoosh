@@ -85,7 +85,13 @@ def NullFragmenter(text, tokens):
     returns the entire stream as one "fragment". This is useful if
     you want to highlight the entire text.
     """
-    return [Fragment(list(tokens))]
+    
+    tokens = list(tokens)
+    before = after = 0
+    if tokens:
+        before = tokens[0].startchar
+        after = len(text) - tokens[-1].endchar
+    return [Fragment(tokens, charsbefore=before, charsafter=after)]
 
 
 class SimpleFragmenter(object):
