@@ -26,6 +26,7 @@ from cPickle import dumps, loads
 from struct import Struct
 
 from whoosh.system import _USHORT_SIZE, _INT_SIZE
+from whoosh.util import utf8encode, utf8decode
 
 
 def cdb_hash(key):
@@ -66,10 +67,10 @@ def unpackushort(s):
 
 def encode_termkey(term):
     fieldnum, text = term
-    return packushort(fieldnum) + text.encode("utf8")
+    return packushort(fieldnum) + utf8encode(text)[0]
 
 def decode_termkey(key):
-    return unpackushort(key[:_USHORT_SIZE]), key[_USHORT_SIZE:].decode("utf8")
+    return unpackushort(key[:_USHORT_SIZE]), utf8decode(key[_USHORT_SIZE:])[0]
 
 _vkey_struct = Struct("!Ii")
 _pack_vkey = _vkey_struct.pack

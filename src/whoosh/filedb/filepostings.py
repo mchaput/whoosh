@@ -14,14 +14,16 @@
 # limitations under the License.
 #===============================================================================
 
+import codecs
 from array import array
 
 from whoosh.postings import PostingWriter, PostingReader, ReadTooFar
-from whoosh.system import _INT_SIZE, _USHORT_SIZE
+from whoosh.system import _INT_SIZE
+from whoosh.util import utf8encode, utf8decode
 
 
 class FilePostingWriter(PostingWriter):
-    def __init__(self, postfile, stringids = False, blocklimit=48):
+    def __init__(self, postfile, stringids=False, blocklimit=48):
         self.postfile = postfile
         self.stringids = stringids
         
@@ -64,7 +66,7 @@ class FilePostingWriter(PostingWriter):
         postcount = len(ids)
         
         if stringids:
-            pf.write_string(ids[-1].encode("utf8"))
+            pf.write_string(utf8encode(ids[-1])[0])
         else:
             pf.write_uint(ids[-1])
         
@@ -76,7 +78,7 @@ class FilePostingWriter(PostingWriter):
         pf.write_byte(postcount)
         if stringids:
             for id in ids:
-                pf.write_string(id.encode("utf8"))
+                pf.write_string(utf8encode(id)[0])
         else:
             pf.write_array(ids)
         
@@ -204,7 +206,7 @@ class FilePostingReader(PostingReader):
         pf = self.postfile
         if self.stringids:
             pf.seek(offset)
-            maxid = pf.read_string().decode("utf8")
+            maxid = utf8decode(pf.read_string())[0]
             offset = pf.tell()
         else:
             maxid = pf.get_uint(offset)
@@ -224,7 +226,7 @@ class FilePostingReader(PostingReader):
         if self.stringids:
             pf.seek(offset)
             rs = pf.read_string
-            ids = [unicode(rs(), "utf8") for _ in xrange(postcount)]
+            ids = [utf8decode(rs())[0] for _ in xrange(postcount)]
             offset = pf.tell()
         else:
             ids = pf.get_array(offset, "I", postcount)

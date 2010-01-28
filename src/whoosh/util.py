@@ -18,12 +18,21 @@
 Miscellaneous utility functions and classes.
 """
 
-import re
+import codecs, re
 
 from collections import deque, defaultdict
 from functools import wraps
 from struct import pack, unpack
 from time import time, clock
+
+
+# Note: these functions return a tuple of (text, length), so
+# when you call them, you have to add [0] on the end, e.g.
+# str = utf8encode(unicode)[0]
+
+utf8encode = codecs.getencoder("utf_8")
+utf8decode = codecs.getdecoder("utf_8")
+
 
 # Functions
 

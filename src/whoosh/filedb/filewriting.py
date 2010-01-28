@@ -192,7 +192,7 @@ class SegmentWriter(object):
         
         self.max_doc = 0
 
-        self.pool = postpool.PostingPool(limit = postlimit)
+        self.pool = postpool.PostingPool(postlimit)
         
         # Create mappings of field numbers to the position of that field in the
         # lists of scorable and stored fields. For example, consider a schema with

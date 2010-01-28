@@ -137,11 +137,8 @@ class Existence(Format):
         self.options = options
     
     def word_values(self, value, **kwargs):
-        seen = set()
-        for t in unstopped(self.analyzer(value, **kwargs)):
-            seen.add(t.text)
-        
-        return ((w, 1, '') for w in seen)
+        return ((w, 1, '') for w
+                in set(t.text for t in unstopped(self.analyzer(value, **kwargs))))
     
     def encode(self, value):
         return ''
