@@ -23,8 +23,9 @@ import os, tempfile
 from heapq import heapify, heapreplace, heappop
 from struct import Struct
 
-from whoosh.system import _INT_SIZE, _USHORT_SIZE
 from whoosh.filedb.structfile import StructFile, pack_ushort, unpack_ushort
+from whoosh.system import _INT_SIZE, _USHORT_SIZE
+from whoosh.util import utf8encode, utf8decode
 
 
 # Utility functions
@@ -37,7 +38,7 @@ def encode_posting(fieldNum, text, doc, freq, datastring):
     """Encodes a posting as a string, for sorting."""
     
     return "".join([pack_ushort(fieldNum),
-                    text.encode("utf8"),
+                    utf8encode(text)[0],
                     chr(0),
                     pack2ints(doc, freq),
                     datastring
@@ -51,7 +52,7 @@ def decode_posting(posting):
     field_num = unpack_ushort(posting[:_USHORT_SIZE])[0]
     
     zero = posting.find(chr(0), _USHORT_SIZE)
-    text = posting[_USHORT_SIZE:zero].decode("utf8")
+    text = utf8decode(posting[_USHORT_SIZE:zero])[0]
     
     metastart = zero + 1
     metaend = metastart + _INT_SIZE * 2
