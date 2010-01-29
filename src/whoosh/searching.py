@@ -41,7 +41,7 @@ class Searcher(object):
     for searching the index.
     """
     
-    def __init__(self, ixreader, weighting = scoring.BM25F):
+    def __init__(self, ixreader, weighting=scoring.BM25F):
         """
         :param ixreader: An :class:`~whoosh.reading.IndexReader` object for
             the index to search.
@@ -188,13 +188,20 @@ class Searcher(object):
             expander.add(ixreader.vector_as(docnum, fieldnum, "weight"))
         return expander.expanded_terms(numterms, normalize = normalize)
     
-    def find(self, defaultfield, querystring, limit=5000, sortedby=None, reverse=False, minscore=0.001):
-        """Parses the query string using :class:`whoosh.qparser.QueryParser` and runs
-        the parsed query, returning a Results object.
+    def search_page(self, query, pagenum, pagelen=10, **kwargs):
+        results = self.search(query, limit=pagenum * pagelen, **kwargs)
+        return ResultsPage(results, pagenum, pagelen)
+    
+    def find(self, defaultfield, querystring, **kwargs):
+        from whoosh.qparser import QueryParser
+        qp = QueryParser(defaultfield)
+        q = qp.parse(querystring)
+        return self.search(q, **kwargs)
+    
+    def search(self, query, limit=5000, sortedby=None, reverse=False, minscore=0.0001):
+        """Runs the query represented by the ``query`` object and returns a Results object.
         
-        :param defaultfield: the name of the field to search in for terms in the query
-            string that aren't qualified with an explicit field.
-        :param querystring: a unicode string containing the unparsed query.
+        :param query: a :class:`whoosh.query.Query` object.
         :param limit: the maximum number of documents to score. If you're only interested in
             the top N documents, you can set limit=N to limit the scoring for a faster
             search.
@@ -230,20 +237,6 @@ class Searcher(object):
         
         :param reverse: if ``sortedby`` is not None, this reverses the direction of the sort.
         :param minscore: the minimum score to include in the results.
-        :rtype: :class:`Results`
-        """
-        
-        from qparser import QueryParser
-        qp = QueryParser(defaultfield)
-        q = qp.parse(querystring)
-        return self.search(q, limit=limit, sortedby=sortedby, reverse=reverse, minscore=minscore)
-    
-    def search(self, query, limit=5000, sortedby=None, reverse=False, minscore=0.0001):
-        """Runs the query represented by the query object and returns a Results object.
-        
-        See the help for :meth:`~Searcher.find` for information on the parameters.
-        
-        :param query: a :class:`whoosh.query.Query` object.
         :rtype: :class:`Results`
         """
         
@@ -302,7 +295,7 @@ class Searcher(object):
         """Returns the :class:`whoosh.fields.Field` object for the given field name.
         """
         return self.schema[fieldid]
-    
+
 
 class TopDocs(object):
     """This is like a list that only remembers the top N values that are added
@@ -422,6 +415,15 @@ class Results(object):
         stored_fields = self.searcher.stored_fields
         for docnum in self.scored_list:
             yield stored_fields(docnum)
+    
+    def iterslice(self, start, stop, step=1):
+        stored_fields = self.searcher.stored_fields
+        for docnum in self.scored_list[start:stop:step]:
+            yield stored_fields(docnum)
+    
+    @property
+    def total(self):
+        return self.docs.count()
     
     def copy(self):
         """Returns a copy of this results object.
@@ -554,54 +556,87 @@ class Results(object):
         self.scored_list = arein + notin + other
         
 
-# Utilities
-
-class Paginator(object):
-    """
-    Helper class that divides search results into pages, for use in
-    displaying the results.
+class ResultsPage(object):
+    """Represents a single page out of a longer list of results, as returned
+    by :method:`whoosh.searching.Searcher.search_page`. Supports a subset of
+    the interface of the :class:`~whoosh.searching.Results` object, namely
+    getting stored fields with __getitem__ (square brackets), iterating, and
+    the ``score()`` and ``docnum()`` methods.
+    
+    The ``offset`` attribute contains the results number this page starts
+    at (numbered from 0). For example, if the page length is 10, the ``offset``
+    attribute on the second page will be ``10``.
+    
+    The ``pagecount`` attribute contains the number of pages available.
+    
+    The ``pagenum`` attribute contains the page number. This may be less than
+    the page you requested if the results had too few pages. For example, if
+    you do::
+    
+        ResultsPage(results, 5)
+        
+    but the results object only contains 3 pages worth of hits, ``pagenum``
+    will be 3.
+    
+    The ``pagelen`` attribute contains the number of results on this page
+    (which may be less than the page length you requested if this is the
+    last page of the results).
+    
+    The ``total`` attribute contains the total number of hits in the results.
+    
+    >>> mysearcher = myindex.searcher()
+    >>> pagenum = 2
+    >>> page = mysearcher.find_page(pagenum, myquery)
+    >>> print("Page %s of %s, results %s to %s of %s" %
+    ...       (pagenum, page.pagecount, page.offset+1, page.offset+page.pagelen, page.total))
+    >>> for i, fields in enumerate(page):
+    ...   print("%s. %r" % (page.offset + i + 1, fields))
+    >>> mysearcher.close()
     """
     
-    def __init__(self, results, perpage = 10):
+    def __init__(self, results, pagenum, pagelen=10):
         """
-        :param results: the searching.Results object from a search.
-        :param perpage: the number of hits on each page.
+        :param results: a :class:`~whoosh.searching.Results` object.
+        :param pagenum: which page of the results to use, numbered from ``1``.
+        :param pagelen: the number of hits per page.
         """
-        
         self.results = results
-        self.perpage = perpage
+        self.pagenum = pagenum
+        self.total = len(results)
+        
+        self.pagecount = self.total // pagelen + 1
+        if pagenum > self.pagecount:
+            pagenum = self.pagecount
+        self.pagenum = pagenum
+        
+        offset = (pagenum - 1) * pagelen
+        if (offset + pagelen) > self.total:
+            pagelen = self.total - offset
+        self.offset = offset
+        self.pagelen = pagelen
     
-    def from_to(self, pagenum):
-        """Returns the lowest and highest indices on the given
-        page. For example, with 10 results per page, from_to(1)
-        would return (0, 9).
-        """
-        
-        lr = len(self.results)
-        perpage = self.perpage
-        
-        lower = (pagenum - 1) * perpage
-        upper = lower + perpage
-        if upper > lr:
-            upper = lr
-        
-        return (lower, upper)
+    def __getitem__(self, n):
+        offset = self.offset
+        if isinstance(n, slice):
+            start, stop, step = slice.indices(self.pagelen)
+            return self.results.__getitem__(slice(start + offset, stop + offset, step))
+        else:
+            return self.results.__getitem__(n + offset)
     
-    def pagecount(self):
-        """Returns the total number of pages of results.
+    def __iter__(self):
+        offset, pagelen = self.offset, self.pagelen
+        return self.results.iterslice(offset, offset+pagelen)
+            
+    def score(self, n):
+        """Returns the score of the hit at the nth position on this page.
         """
-        
-        return len(self.results) // self.perpage + 1
+        return self.results.score(n + self.offset)
     
-    def page(self, pagenum):
-        """Returns a list of the stored fields for the documents
-        on the given page.
+    def docnum(self, n):
+        """Returns the document number of the hit at the nth position on this page.
         """
+        return self.results.scored_list[n + self.offset]
         
-        lower, upper = self.from_to(pagenum)
-        return self.results[lower:upper]
-
-
 
 if __name__ == '__main__':
     pass

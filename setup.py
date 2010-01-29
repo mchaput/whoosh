@@ -10,7 +10,7 @@ setup(
 	name = "Whoosh",
 	version = versionstring(),
 	package_dir = {'': 'src'},
-	packages = ["whoosh", "whoosh.filedb", "whoosh.lang", "whoosh.support"],
+	packages = ["whoosh", "whoosh.filedb", "whoosh.lang", "whoosh.qparser", "whoosh.support"],
 	
 	author = "Matt Chaput",
 	author_email = "matt@whoosh.ca",
