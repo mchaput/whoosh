@@ -20,10 +20,3 @@ Results class
 .. autoclass:: ResultsPage
 	:members:
 
-Utility classes
-===============
-
-.. autoclass:: Paginator
-    :members:
-
-
