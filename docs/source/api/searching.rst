@@ -17,6 +17,8 @@ Results class
 .. autoclass:: Results
     :members:
 
+.. autoclass:: ResultsPage
+	:members:
 
 Utility classes
 ===============

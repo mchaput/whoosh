@@ -227,7 +227,7 @@ class Frequency(Weighting):
     """
     
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        return searcher.reader().frequency(fieldnum, text)
+        return weight
 
 
 class MultiWeighting(Weighting):

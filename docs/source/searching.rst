@@ -7,16 +7,21 @@ Once you've created an index and added documents to it, you can search for those
 The Searcher object
 ===================
 
-To get a :class:`whoosh.searching.Searcher` object, call ``searcher()`` on your Index objdct::
+To get a :class:`whoosh.searching.Searcher` object, call ``searcher()`` on your
+Index objdct::
 
     searcher = myindex.searcher()
 
-The Searcher object is the main high-level interface for reading the index. It has lots of useful methods for getting information about the index, such as ``most_frequent_terms()``.
+The Searcher object is the main high-level interface for reading the index. It has
+lots of useful methods for getting information about the index, such as
+``most_frequent_terms()``.
 
 >>> list(searcher.most_frequent_terms("content", 3))
 [(u"whoosh", 32), (u"index", 24), (u"document", 18)]
 
-However, the most important method on the Searcher object is :meth:`~whoosh.searching.Searcher.search`, which takes a :class:`whoosh.query.Query` object and returns a :class:`~whoosh.searching.Results` object::
+However, the most important method on the Searcher object is
+:meth:`~whoosh.searching.Searcher.search`, which takes a :class:`whoosh.query.Query`
+object and returns a :class:`~whoosh.searching.Results` object::
 
     from whoosh.qparser import QueryParser
     
@@ -25,17 +30,31 @@ However, the most important method on the Searcher object is :meth:`~whoosh.sear
     s = myindex.searcher()
     results = s.search(q)
 
-If you know you only need the top "N" documents (for example, you're creating an HTML page showing the top 10 results), you can specify that you only want that many documents to be scored and sorted::
+If you know you only need the top "N" documents (for example, you're creating an HTML
+page showing the top 10 results), you can specify that you only want that many documents
+to be scored and sorted::
 
     results = s.search(q, limit=10)
     
-You should set the limit whenever possible, because it's much more efficient than scoring and sorting every matching document.
+You should set the limit whenever possible, because it's much more efficient than scoring
+and sorting every matching document.
+
+Since display a page of results at a time is a common pattern, the ``search_page``
+method lets you conveniently retrieve only the results on a given page::
+
+	results = s.search_page(q, 1)
+
+The default page length is 10 hits. You can use the ``pagelen`` keyword argument to
+set a different page length::
+
+	results = s.search_page(q, 5, pagelen=20)
 
 
 Results object
 ==============
 
-The :class:`~whoosh.searching.Results` object acts like a list of the matched documents. You can use it to access the stored fields of each hit document, to display to the user.
+The :class:`~whoosh.searching.Results` object acts like a list of the matched documents.
+You can use it to access the stored fields of each hit document, to display to the user.
 
 >>> # How many documents matched?
 >>> len(results)

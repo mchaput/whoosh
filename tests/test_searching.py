@@ -105,10 +105,11 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         
         searcher = ix.searcher()
-        results = searcher.find("value", "echo NOT golf")
+        p = qparser.QueryParser("value")
+        results = searcher.search(p.parse("echo NOT golf"))
         self.assertEqual(sorted([d["name"] for d in results]), ["a", "b"])
         
-        results = searcher.find("value", "echo NOT bravo")
+        results = searcher.search(p.parse("echo NOT bravo"))
         self.assertEqual(sorted([d["name"] for d in results]), ["c", "d", "e"])
         searcher.close()
         
@@ -116,7 +117,7 @@ class TestSearching(unittest.TestCase):
         ix.commit()
         
         searcher = ix.searcher()
-        results = searcher.find("value", "echo NOT charlie")
+        results = searcher.search(p.parse("echo NOT charlie"))
         self.assertEqual(sorted([d["name"] for d in results]), ["d", "e"])
         searcher.close()
     
@@ -560,7 +561,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         s = ix.searcher()
-        r = s.find("a", u"charlie")
+        r = s.search(qparser.QueryParser("a").parse(u"charlie"))
         self.assertEqual(len(r), 3)
         rcopy = r.copy()
         self.assertEqual(r.scored_list, rcopy.scored_list)
@@ -589,7 +590,7 @@ class TestSearching(unittest.TestCase):
                 return ncomments
         
         s = ix.searcher(weighting=CommentWeighting())
-        r = s.find("id", "[1 TO 4]")
+        r = s.search(qparser.QueryParser("id").parse("[1 TO 4]"))
         ids = [fs["id"] for fs in r]
         self.assertEqual(ids, ["2", "4", "1", "3"])
     
@@ -635,9 +636,37 @@ class TestSearching(unittest.TestCase):
                 return ncomments
         
         s = ix.searcher(weighting=CommentWeighting())
-        r = s.find("summary", "alfa OR bravo")
+        r = s.search(qparser.QueryParser("summary").parse("alfa OR bravo"))
         ids = [fs["id"] for fs in r]
         self.assertEqual(ids, ["2", "4", "1", "3"])
+        
+    def test_pages(self):
+        from whoosh.scoring import Frequency
+        
+        schema = fields.Schema(id=fields.ID(stored=True), c=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", c=u"alfa alfa alfa alfa alfa alfa")
+        w.add_document(id=u"2", c=u"alfa alfa alfa alfa alfa")
+        w.add_document(id=u"3", c=u"alfa alfa alfa alfa")
+        w.add_document(id=u"4", c=u"alfa alfa alfa")
+        w.add_document(id=u"5", c=u"alfa alfa")
+        w.add_document(id=u"6", c=u"alfa")
+        w.commit()
+        
+        s = ix.searcher(weighting=Frequency)
+        q = query.Term("c", u"alfa")
+        r = s.search(q)
+        self.assertEqual([d["id"] for d in r], ["1", "2", "3", "4", "5", "6"])
+        r = s.search_page(q, 2, pagelen=2)
+        self.assertEqual([d["id"] for d in r], ["3", "4"])
+        
+        r = s.search_page(q, 10, pagelen=4)
+        self.assertEqual(r.total, 6)
+        self.assertEqual(r.pagenum, 2)
+        self.assertEqual(r.pagelen, 2)
         
 
 
