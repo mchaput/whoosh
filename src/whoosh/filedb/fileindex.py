@@ -82,7 +82,6 @@ class FileIndex(SegmentDeletionMixin, Index):
             self.segments = SegmentSet()
             
             # Clear existing files
-            self.unlock()
             prefix = "_%s_" % self.indexname
             for filename in self.storage:
                 if filename.startswith(prefix):

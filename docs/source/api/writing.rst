@@ -21,12 +21,14 @@ Globals
     DOCLENGTH_TYPE.
 
 
-Writer
+Writers
 ======
 
 .. autoclass:: IndexWriter
-    :members: add_document, cancel, commit, update_document
+    :members:
     
+.. autoclass:: AsyncWriter
+    :members:
 
 Exceptions
 ==========
