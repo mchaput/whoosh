@@ -14,7 +14,10 @@
 # limitations under the License.
 #===============================================================================
 
+import threading, time
+
 from whoosh.index import DeletionMixin
+from whoosh.store import LockError
 
 # Exceptions
 
@@ -128,6 +131,99 @@ class IndexWriter(DeletionMixin):
         pass
     
 
+class AsyncWriter(threading.Thread, DeletionMixin):
+    """Convenience wrapper for a writer object that might fail due to locking
+    (i.e. the ``filedb`` writer). This object will attempt once to obtain the
+    underlying writer, and if it's successful, will simply pass method calls
+    on to it.
+    
+    If this object *can't* obtain a writer immediately, it will *buffer* delete,
+    add, and update method calls in memory until you call ``commit()``. At that
+    point, this object will start running in a separate thread, trying to obtain
+    the writer over and over, and once it obtains it, "replay" all the
+    buffered method calls on it.
+    
+    In a typical scenario where you're adding a single or a few documents
+    to the index as the result of a Web transaction, this lets you just create
+    the writer, add, and commit, without having to worry about index locks,
+    retries, etc.
+    
+    The first argument is a callable which returns the actual writer.
+    Usually this will be the ``writer`` method of your Index object.
+    Any additional keyword arguments to the initializer are passed into
+    the callable.
+    
+    For example, to get an aynchronous writer, instead of this:
+    
+    >>> writer = myindex.writer(postlimit=128 * 1024 * 1024)
+    
+    Do this:
+    
+    >>> from whoosh.writing import AsyncWriter
+    >>> writer = AsyncWriter(myindex.writer, postlimit=128 * 1024 * 1024)
+    """
+    
+    def __init__(self, writerfn, delay=0.25, **writerargs):
+        """
+        :param writerfn: a callable object (function or method) which returns
+            the actual writer.
+        :param delay: the delay (in seconds) between attempts to instantiate
+            the actual writer.
+        """
+        
+        threading.Thread.__init__(self)
+        self.running = False
+        self.writerfn = writerfn
+        self.writerargs = writerargs
+        self.delay = delay
+        self.events = []
+        try:
+            self.writer = writerfn(**writerargs)
+        except LockError:
+            self.writer = None
+    
+    def _record(self, method, *args, **kwargs):
+        if self.writer:
+            getattr(self.writer, method)(*args, **kwargs)
+        else:
+            self.events.add(method, args, kwargs)
+    
+    def run(self):
+        self.running = True
+        writer = self.writer
+        while writer is None:
+            try:
+                writer = self.writerfn(**self.writerargs)
+            except LockError:
+                time.sleep(self.delay)
+        for method, args, kwargs in self.events:
+            getattr(writer, method)(*args, **kwargs)
+        writer.commit(*self.commitargs, **self.commitkwargs)
+    
+    def delete_document(self, docnum):
+        self._record("delete_document", docnum)
+    
+    def add_document(self, *args, **kwargs):
+        self._record("add_document", *args, **kwargs)
+        
+    def update_document(self, *args, **kwargs):
+        self._record("update_document", *args, **kwargs)
+    
+    def commit(self, *args, **kwargs):
+        if self.writer:
+            self.writer.commit(*args, **kwargs)
+        else:
+            self.commitargs, self.commitkwargs = args, kwargs
+            self.start()
+    
+    def cancel(self, *args, **kwargs):
+        if self.writer:
+            self.writer.cancel(*args, **kwargs)
+    
+    
 
-        
-        
+
+
+
+
+
