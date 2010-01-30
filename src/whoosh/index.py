@@ -275,21 +275,6 @@ class Index(DeletionMixin):
         """
         return -1
     
-    def lock(self):
-        """Locks this index for writing, or raises an error if the index
-        is already locked. Returns True if the index was successfully
-        locked.
-        
-        :param rtype: bool
-        """
-        return True
-    
-    def unlock(self):
-        """Unlocks the index. Only call this if you were the one who locked
-        it (without getting an exception) in the first place!
-        """
-        pass
-    
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never
         had any documents successfully written to it.

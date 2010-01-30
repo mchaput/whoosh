@@ -808,6 +808,7 @@ class AndNotScorer(QueryScorer):
         
         self.positive = positive
         self.negative = negative
+        self.id = None
         self._find_next()
     
     def reset(self):
@@ -817,8 +818,13 @@ class AndNotScorer(QueryScorer):
     
     def _find_next(self):
         pos, neg = self.positive, self.negative
-        if pos.id is None or neg.id is None:
+        if pos.id is None:
+            self.id = None
             return
+        elif neg.id is None:
+            self.id = pos.id
+            return
+        
         if neg.id < pos.id:
             neg.skip_to(pos.id)
         while pos.id == neg.id:
@@ -831,10 +837,7 @@ class AndNotScorer(QueryScorer):
             raise ReadTooFar
         
         self.positive.next()
-        if self.negative.id is not None:
-            self._find_next()
-        else:
-            self.id = self.positive.id
+        self._find_next()
         
     def skip_to(self, target):
         if self.id is None:

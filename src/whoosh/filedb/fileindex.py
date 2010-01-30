@@ -211,12 +211,6 @@ class FileIndex(SegmentDeletionMixin, Index):
     def last_modified(self):
         return self.storage.file_modified(self._toc_filename())
     
-    def lock(self):
-        return self.storage.lock("_%s_LOCK" % self.indexname)
-    
-    def unlock(self):
-        self.storage.unlock("_%s_LOCK" % self.indexname)
-        
     def is_empty(self):
         return len(self.segments) == 0
     

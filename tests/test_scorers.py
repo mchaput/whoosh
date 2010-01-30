@@ -184,5 +184,7 @@ class TestScorers(unittest.TestCase):
             self.assertEqual(ids, matched)
 
 
+if __name__ == '__main__':
+    unittest.main()
 
 
