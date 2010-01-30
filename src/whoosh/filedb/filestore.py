@@ -19,9 +19,9 @@ from cStringIO import StringIO
 from threading import Lock
 
 from whoosh.index import _DEF_INDEX_NAME
-from whoosh.store import LockError, Storage
+from whoosh.store import Storage
+from whoosh.support.filelock import FileLock
 from whoosh.filedb.structfile import StructFile
-from whoosh.filedb import filetables, filepostings
 
 
 class FileStorage(Storage):
@@ -31,6 +31,7 @@ class FileStorage(Storage):
     def __init__(self, path, mapped=True):
         self.folder = path
         self.mapped = mapped
+        self.locks = {}
         
         if not os.path.exists(path):
             raise IOError("Directory %s does not exist" % path)
@@ -93,17 +94,11 @@ class FileStorage(Storage):
                 os.remove(self._fpath(to))
         os.rename(self._fpath(frm),self._fpath(to))
     
-    def lock(self, name):
-        try:
-            os.mkdir(self._fpath(name))
-        except OSError, e:
-            raise LockError(e)
-        return True
+    def _getlock(self, name):
+        return FileLock(self._fpath(name))
     
-    def unlock(self, name):
-        fpath = self._fpath(name)
-        if os.path.exists(fpath):
-            os.rmdir(fpath)
+    def lock(self, name):
+        return FileLock(self._fpath(name))
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
@@ -167,13 +162,7 @@ class RamStorage(FileStorage):
     def lock(self, name):
         if name not in self.locks:
             self.locks[name] = Lock()
-        if not self.locks[name].acquire(False):
-            raise LockError("Could not lock %r" % name)
-        return True
-    
-    def unlock(self, name):
-        if name in self.locks:
-            self.locks[name].release()
+        return self.locks[name]
     
 
 def copy_to_ram(storage):

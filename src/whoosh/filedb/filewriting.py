@@ -18,13 +18,15 @@ from array import array
 from collections import defaultdict
 
 from whoosh.fields import UnknownFieldError
+from whoosh.store import LockError
 from whoosh.writing import IndexWriter
 from whoosh.filedb import postpool
+from whoosh.support.filelock import try_for
 from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
-from whoosh.filedb.filetables import FileTableWriter, FileListWriter, FileRecordWriter
-from whoosh.filedb.filetables import encode_termkey, encode_vectorkey, encode_terminfo
-from whoosh.filedb.filetables import enpickle, packint
+from whoosh.filedb.filetables import (FileTableWriter, FileListWriter, FileRecordWriter,
+                                      encode_termkey, encode_vectorkey, encode_terminfo,
+                                      enpickle, packint)
 from whoosh.util import fib
 
 
@@ -104,7 +106,7 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
     
-    def __init__(self, ix, postlimit = 32 * 1024 * 1024, blocklimit=128):
+    def __init__(self, ix, postlimit = 32 * 1024 * 1024, blocklimit=128, timeout=0.0, delay=0.1):
         """
         :param ix: the Index object you want to write to.
         :param postlimit: Essentially controls the maximum amount of memory the
@@ -114,8 +116,9 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
             for very large collections, e.g. ``postlimit=256*1024*1024``.
         """
         
-        # Obtain a lock
-        self.locked = ix.lock()
+        self.lock = ix.storage.lock(ix.indexname + "_LOCK")
+        if not try_for(self.lock.acquire, timeout=timeout, delay=delay):
+            raise LockError("Index %s is already locked for writing")
         
         self.index = ix
         self.segments = ix.segments.copy()
@@ -126,10 +129,8 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
     
     def _finish(self):
         self._close_reader()
+        self.lock.release()
         self._segment_writer = None
-        # Release the lock
-        if self.locked:
-            self.index.unlock()
     
     def segment_writer(self):
         """Returns the underlying SegmentWriter object."""
