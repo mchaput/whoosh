@@ -558,7 +558,7 @@ class Results(object):
 
 class ResultsPage(object):
     """Represents a single page out of a longer list of results, as returned
-    by :method:`whoosh.searching.Searcher.search_page`. Supports a subset of
+    by :func:`whoosh.searching.Searcher.search_page`. Supports a subset of
     the interface of the :class:`~whoosh.searching.Results` object, namely
     getting stored fields with __getitem__ (square brackets), iterating, and
     the ``score()`` and ``docnum()`` methods.
