@@ -181,25 +181,29 @@ class PyparsingBasedParser(object):
         return getattr(self, "_" + name)(node, fieldname)
     
     def get_term_text(self, field, text, **kwargs):
-        if not field.format:
-            raise Exception("%s field has no format" % field)
-        
         # Just take the first token
-        for token in field.format.analyze(text, mode="query", **kwargs):
-            return token.text
+        for t in field.process_text(text, mode="query", **kwargs):
+            return t
     
     def make_term(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            text = self.get_term_text(field, text)
-        if not text:
+            if field.parse_query:
+                return field.parse_query(fieldname, text)
+            else:
+                text = self.get_term_text(field, text)
+        
+        if text is None:
             return NullQuery
         return self.termclass(fieldname, text)
     
     def make_phrase(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            texts = [t.text for t in field.format.analyze(text, mode="query")]
+            if field.parse_query:
+                return field.parse_query(fieldname, text)
+            
+            texts = list(field.process_text(text, mode="query"))
             if not texts:
                 return self.termclass(fieldname, u'')
             elif len(texts) == 1:
@@ -212,8 +216,7 @@ class PyparsingBasedParser(object):
     def make_wildcard(self, fieldname, text):
         field = self._field(fieldname)
         if field:
-            ptext = self.get_term_text(field, text, tokenize=False, removestops=False)
-            if ptext: text = ptext
+            text = self.get_term_text(field, text, tokenize=False, removestops=False)
         return Wildcard(fieldname, text)
     
     def make_range(self, fieldname, start, end, startexcl, endexcl):

@@ -18,8 +18,7 @@
 Contains functions and classes related to fields.
 """
 
-import datetime
-import re
+import datetime, re, struct
 
 from whoosh.analysis import IDAnalyzer, RegexAnalyzer, KeywordAnalyzer
 from whoosh.analysis import StandardAnalyzer, NgramAnalyzer
@@ -31,7 +30,6 @@ class FieldConfigurationError(Exception):
     pass
 class UnknownFieldError(Exception):
     pass
-
 
 
 # Field Types
@@ -67,6 +65,7 @@ class FieldType(object):
     """
     
     format = vector = scorable = stored = unique = None
+    parse_query = None
     indexed = True
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
@@ -107,11 +106,14 @@ class FieldType(object):
         
         if not self.format:
             raise Exception("%s field cannot index without a format" % self.__class__)
-        
         if not isinstance(value, unicode):
             raise ValueError("%r is not unicode" % value)
-        
         return self.format.word_values(value, mode="index", **kwargs)
+    
+    def process_text(self, qstring, mode='', **kwargs):
+        if not self.format:
+            raise Exception("%s field has no format" % self)
+        return (t.text for t in self.format.analyze(qstring, mode=mode, **kwargs))
     
 
 class ID(FieldType):
@@ -122,11 +124,11 @@ class ID(FieldType):
     
     __inittypes__ = dict(stored=bool, unique=bool, field_boost=float)
     
-    def __init__(self, stored = False, unique = False, field_boost = 1.0):
+    def __init__(self, stored=False, unique=False, field_boost=1.0):
         """
         :param stored: Whether the value of this field is stored with the document.
         """
-        self.format = Existence(analyzer = IDAnalyzer(), field_boost = field_boost)
+        self.format = Existence(analyzer=IDAnalyzer(), field_boost= field_boost)
         self.stored = stored
         self.unique = unique
 
@@ -138,7 +140,7 @@ class IDLIST(FieldType):
     
     __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
     
-    def __init__(self, stored = False, unique = False, expression = None, field_boost = 1.0):
+    def __init__(self, stored=False, unique=False, expression=None, field_boost=1.0):
         """
         :param stored: Whether the value of this field is stored with the document.
         :param unique: Whether the value of this field is unique per-document.
@@ -154,10 +156,69 @@ class IDLIST(FieldType):
         self.unique = unique
 
 
+class NUMERIC(FieldType):
+    def __init__(self, type=int, stored=False, unique=False, field_boost=1.0):
+        self.type = type
+        self.stored = stored
+        self.unique = unique
+        self.format = Existence(analyzer=IDAnalyzer(), field_boost= field_boost)
+    
+    def index(self, num):
+        method = getattr(self, self.type.__name__ + "_to_text")
+        return [(method(num), 1, '')]
+    
+    def to_text(self, x):
+        ntype = self.type
+        method = getattr(self, ntype.__name__ + "_to_text")
+        return method(ntype(x))
+    
+    def process_text(self, text, **kwargs):
+        return (self.to_text(text), )
+    
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        from whoosh import query
+        return query.Term(fieldname, self.to_text(qstring), boost=boost)
+    
+    @staticmethod
+    def int_to_text(x):
+        x += (1<<(4<<2))-1 # 4 means 32-bits
+        return u"%08x" % x
+    
+    @staticmethod
+    def text_to_int(text):
+        x = int(text, 16)
+        x -= (1<<(4<<2))-1
+        return x
+    
+    @staticmethod
+    def long_to_text(x):
+        x += (1<<(8<<2))-1
+        return u"%016x" % x
+    
+    @staticmethod
+    def text_to_long(text):
+        x = long(text, 16)
+        x -= (1<<(8<<2))-1
+        return x
+    
+    @staticmethod
+    def float_to_text(x):
+        x = struct.unpack("<q", struct.pack("<d", x))[0]
+        x += (1<<(8<<2))-1
+        return u"%016x" % x
+    
+    @staticmethod
+    def text_to_float(text):
+        x = long(text, 16)
+        x -= (1<<(8<<2))-1
+        x = struct.unpack("<d", struct.pack("<q", x))[0]
+        return x
+    
+
 class DATETIME(FieldType):
     __inittypes__ = dict(stored=bool, unique=bool)
     
-    def __init__(self, stored = True, unique = False):
+    def __init__(self, stored=False, unique=False):
         """
         :param stored: Whether the value of this field is stored with the document.
         :param unique: Whether the value of this field is unique per-document.
@@ -171,9 +232,47 @@ class DATETIME(FieldType):
         if not isinstance(dt, datetime.datetime):
             raise ValueError("Value of DATETIME field must be a datetime object: %r" % dt)
         
-        text = dt.isoformat()
+        text = dt.isoformat() # 2010-02-02T17:06:19.109000
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
         return [(text, 1, '')]
+    
+    def process_text(self, text, **kwargs):
+        text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
+        return (text, )
+    
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        text = self.process_text(qstring)
+        from whoosh import query
+        return query.Prefix(fieldname, text, boost=boost)
+    
+
+class BOOLEAN(FieldType):
+    strings = (u"t", u"f")
+    trues = frozenset((u"t", u"true", u"yes", u"1"))
+    falses = frozenset((u"f", u"false", u"no", u"0"))
+    
+    __inittypes__ = dict(stored=bool)
+    
+    def __init__(self, stored=False):
+        self.stored = stored
+        self.format = Existence()
+    
+    def index(self, bit):
+        if not isinstance(bit, bool):
+            raise ValueError("Value of BOOL field must be a bool object: %r" % bit)
+        return [(self.strings[int(bit)], 1, '')]
+    
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        from whoosh import query
+        text = None
+        if qstring in self.falses:
+            text = self.strings[0]
+        elif qstring in self.trues:
+            text = self.strings[1]
+        
+        if text is None:
+            return query.NullQuery
+        return query.Term(fieldname, text, boost=boost)
     
 
 class STORED(FieldType):
