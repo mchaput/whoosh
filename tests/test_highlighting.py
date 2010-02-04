@@ -57,6 +57,5 @@ class TestHighlighting(unittest.TestCase):
         self.assertEqual(htext, '<b class="match t0">alfa</b> <b class="match t1">bravo</b> <b class="match t0">charlie</b>...<b class="match t1">delta</b> <b class="match t0">echo</b> foxtrot')
 
 
-
 if __name__ == '__main__':
     unittest.main()

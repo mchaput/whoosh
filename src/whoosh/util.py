@@ -18,6 +18,7 @@
 Miscellaneous utility functions and classes.
 """
 
+from array import array
 import codecs, re
 
 from collections import deque, defaultdict
@@ -163,7 +164,41 @@ def prefix_encode_all(ls):
         i = first_diff(last, w)
         yield chr(i) + w[i:].encode("utf8")
         last = w
-        
+
+
+def to_7bit(x, islong):
+    if not islong:
+        shift = 31
+        nchars = 5
+    else:
+        shift = 62
+        nchars = 10
+    
+    buffer = array("c", "\x00" * nchars)
+    x += (1<<shift)-1
+    while x:
+        buffer[nchars-1] = chr(x & 0x7f)
+        x >>= 7
+        nchars -= 1
+        return buffer.tostring()
+
+def from_7bit(text):
+    if len(text) == 5:
+        shift = 31
+    elif len(text) == 10:
+        shift = 62
+    else:
+        raise ValueError("text is not 5 or 10 bytes")
+    
+    x = 0
+    for char in text:
+        x <<= 7
+        char = ord(char)
+        if char > 0x7f:
+            raise Exception
+        x |= char
+    x -= (1<<shift)-1
+    return x
 
 def prefix_decode_all(ls):
     """Decompresses a list of strings compressed by prefix_encode().

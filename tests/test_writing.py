@@ -12,7 +12,7 @@ class TestWriting(unittest.TestCase):
     
     def destroy_dir(self, name):
         try:
-            os.rmdir("test_index")
+            os.rmdir("testindex")
         except:
             pass
     
@@ -21,9 +21,9 @@ class TestWriting(unittest.TestCase):
             os.remove(path)
     
     def test_asyncwriter(self):
-        self.make_dir("test_index")
+        self.make_dir("testindex")
         schema = fields.Schema(id=fields.ID, text=fields.TEXT)
-        ix = index.create_in("test_index", schema)
+        ix = index.create_in("testindex", schema)
         
         domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf", u"hotel", u"india")
         

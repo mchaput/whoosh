@@ -87,19 +87,22 @@ class SimpleParser(object):
     def get_term_text(self, fieldname, text, **kwargs):
         if self.schema:
             field = self.schema[fieldname]
-            if not field.format:
-                raise Exception("%s field has no format" % field)
-            return [token.text for token in field.format.analyze(text, mode="query", **kwargs)]
+            return list(field.process_text(text, mode="query", **kwargs))
         else:
             return [text]
     
     def make_basic_clause(self, fieldname, text, boost=1.0):
+        if self.schema:
+            field = self.schema[fieldname]
+            if field.parse_query:
+                return field.parse_query(fieldname, text, boost=boost)
+        
         parts = self.get_term_text(fieldname, text)
         if len(parts) > 1:
             return self.phraseclass(fieldname, parts, boost=boost)
         else:
             return self.termclass(fieldname, parts[0], boost=boost)
-        
+    
     def make_clause(self, text, boost=1.0):
         return self.make_basic_clause(self.fieldname, text, boost=boost)
     
