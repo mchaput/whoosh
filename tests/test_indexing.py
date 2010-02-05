@@ -223,6 +223,34 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
         tr.close()
 
+    def test_writer_delete(self):
+        s = fields.Schema(key=fields.ID(stored=True), value=fields.TEXT(stored=True))
+        st = RamStorage()
+        ix = st.create_index(s)
+        
+        w = ix.writer()
+        w.add_document(key=u"1", value=u"alfa")
+        w.add_document(key=u"2", value=u"bravo")
+        w.add_document(key=u"3", value=u"charlie")
+        w.commit()
+        
+        s = ix.searcher()
+        self.assertEqual(s.document(key=u"1")["value"], "alfa")
+        self.assertEqual(s.document(key=u"2")["value"], "bravo")
+        self.assertEqual(s.document(key=u"3")["value"], "charlie")
+        s.close()
+        
+        from whoosh.filedb.filewriting import OPTIMIZE
+        w = ix.writer()
+        w.delete_by_term("key", u"2")
+        w.commit(OPTIMIZE)
+        
+        s = ix.searcher()
+        self.assertEqual(s.document(key=u"1")["value"], "alfa")
+        self.assertEqual(s.document(key=u"3")["value"], "charlie")
+        self.assertEqual(list(s.reader().lexicon("key")), ["1", "3"])
+        s.close()
+
     def test_update(self):
         # Test update with multiple unique keys
         SAMPLE_DOCS = [{"id": u"test1", "path": u"/test/1", "text": u"Hello"},

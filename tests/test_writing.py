@@ -1,6 +1,6 @@
 import unittest
 
-import os, random
+import os, os.path, random
 
 from whoosh import fields, index, writing
 
@@ -19,6 +19,11 @@ class TestWriting(unittest.TestCase):
     def clean_file(self, path):
         if os.path.exists(path):
             os.remove(path)
+    
+    def clean_dir(self, path):
+        for filename in os.listdir(path):
+            os.remove(os.path.join(path, filename))
+        os.rmdir(path)
     
     def test_asyncwriter(self):
         self.make_dir("testindex")
@@ -45,7 +50,10 @@ class TestWriting(unittest.TestCase):
         # Check whether all documents made it into the index.
         r = ix.reader()
         self.assertEqual(sorted([int(id) for id in r.lexicon("id")]), range(20))
+        r.close()
+        ix.close()
 
+        self.clean_dir("test_index")
 
 
 if __name__ == '__main__':
