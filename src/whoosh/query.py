@@ -329,7 +329,7 @@ class CompoundQuery(Query):
     def simplify(self, ixreader):
         subs, nots = self._split_queries()
 
-        if self._subqueries:
+        if subs:
             subs = self.__class__([subq.simplify(ixreader) for subq in subs],
                                   boost=self.boost)
             if nots:
@@ -1160,7 +1160,7 @@ class Phrase(MultiTerm):
         
         wordscorers = [Term(self.fieldname, word).scorer(searcher, exclude_docs=exclude_docs)
                        for word in self.words]
-        intersection = IntersectionScorer([wordscorers], boost=self.boost)
+        intersection = IntersectionScorer(wordscorers, boost=self.boost)
         if intersection.id is None:
             return EmptyScorer()
 

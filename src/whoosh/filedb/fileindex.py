@@ -234,6 +234,8 @@ class FileIndex(SegmentDeletionMixin, Index):
             raise OutOfDateError
 
         if new_segments:
+            if not isinstance(new_segments, SegmentSet):
+                raise ValueError("FileIndex.commit() called with something other than a SegmentSet: %r" % new_segments)
             self.segments = new_segments
 
         self.generation += 1
@@ -249,7 +251,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         # probably be deleted eventually by a later call to clean_files.
 
         storage = self.storage
-        current_segment_names = set([s.name for s in self.segments])
+        current_segment_names = set(s.name for s in self.segments)
 
         tocpattern = _toc_pattern(self.indexname)
         segpattern = _segment_pattern(self.indexname)
