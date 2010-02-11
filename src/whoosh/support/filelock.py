@@ -86,6 +86,7 @@ class FcntlLock(LockBase):
     def release(self):
         import fcntl
         fcntl.flock(self.fd, fcntl.LOCK_UN)
+        os.close(self.fd)
         self.fd = None
 
 
@@ -109,6 +110,7 @@ class MsvcrtLock(LockBase):
     def release(self):
         import msvcrt
         msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
+        os.close(self.fd)
         self.fd = None
 
 

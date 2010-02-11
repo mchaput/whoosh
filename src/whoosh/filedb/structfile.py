@@ -17,7 +17,7 @@
 import mmap, os
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
-from struct import calcsize, pack, unpack, Struct
+from struct import calcsize, unpack, Struct
 
 from whoosh.system import _INT_SIZE, _USHORT_SIZE, _ULONG_SIZE, _FLOAT_SIZE
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
@@ -56,24 +56,24 @@ unpack_float = _float_struct.unpack
 # Main function
 
 class StructFile(object):
-    """Returns a "structured file" object that wraps the given file object and provides
-    numerous additional methods for writing structured data, such as "write_varint"
-    and "write_ulong".
+    """Returns a "structured file" object that wraps the given file object and
+    provides numerous additional methods for writing structured data, such as
+    "write_varint" and "write_ulong".
     """
-    
+
     def __init__(self, fileobj, name=None, onclose=None, mapped=True):
         self.file = fileobj
         self._name = name
         self.onclose = onclose
         self.is_closed = False
-        
+
         for attr in ("read", "write", "tell", "seek"):
             if hasattr(fileobj, attr):
                 setattr(self, attr, getattr(fileobj, attr))
-        
+
         # If mapped is True, set the 'map' attribute to a memory-mapped
-        # representation of the file. Otherwise, the fake 'map' that
-        # set up by the base class will be used.
+        # representation of the file. Otherwise, the fake 'map' that set up by
+        # the base class will be used.
         if mapped and hasattr(fileobj, "mode") and "r" in fileobj.mode:
             fd = fileobj.fileno()
             self.size = os.fstat(fd).st_size
@@ -83,30 +83,30 @@ class StructFile(object):
                 self._setup_fake_map()
         else:
             self._setup_fake_map()
-        
+
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
-    
+
     def flush(self):
-        """Flushes the buffer of the wrapped file. This is a no-op
-        if the wrapped file does not have a flush method.
+        """Flushes the buffer of the wrapped file. This is a no-op if the
+        wrapped file does not have a flush method.
         """
         if hasattr(self.file, "flush"):
             self.file.flush()
 
     def close(self):
-        """Closes the wrapped file. This is a no-op
-        if the wrapped file does not have a close method.
+        """Closes the wrapped file. This is a no-op if the wrapped file does
+        not have a close method.
         """
-        
+
         del self.map
         if self.onclose:
             self.onclose(self)
         if hasattr(self.file, "close"):
             self.file.close()
         self.is_closed = True
-    
-    def _setup_fake_map(self): 
+
+    def _setup_fake_map(self):
         _self = self
         class fakemap(object):
             def __getitem__(self, slice):
@@ -117,82 +117,83 @@ class StructFile(object):
                     _self.seek(slice.start)
                     return _self.read(slice.stop - slice.start)
         self.map = fakemap()
-    
+
     def write_string(self, s):
-        """Writes a string to the wrapped file. This method writes the
-        length of the string first, so you can read the string back
-        without having to know how long it was.
+        """Writes a string to the wrapped file. This method writes the length
+        of the string first, so you can read the string back without having to
+        know how long it was.
         """
         self.write_varint(len(s))
         self.file.write(s)
-    
+
     def write_string2(self, s):
         self.write(pack_ushort(len(s)) + s)
-    
+
     def read_string(self):
         """Reads a string from the wrapped file.
         """
         return self.file.read(self.read_varint())
-    
+
     def read_string2(self):
         l = self.read_ushort()
         return self.read(l)
-    
+
     def skip_string(self):
         l = self.read_varint()
         self.seek(l, 1)
-    
+
     def write_varint(self, i):
         """Writes a variable-length integer to the wrapped file.
         """
         self.file.write(varint(i))
-        
+
     def read_varint(self):
-        """Reads a variable-length encoded integer from the wrapped
-        file.
+        """Reads a variable-length encoded integer from the wrapped file.
         """
         return read_varint(self.file.read)
-    
+
     def write_byte(self, n):
         """Writes a single byte to the wrapped file, shortcut for
-        file.write(chr(n)).
+        ``file.write(chr(n))``.
         """
         self.file.write(chr(n))
-        
+
     def read_byte(self):
         return ord(self.file.read(1))
-    
+
     def get_byte(self, position):
         return ord(self.map[position])
-    
-    def write_8bitfloat(self, f, mantissabits = 5, zeroexp = 2):
-        """Writes a byte-sized representation of floating point value
-        f to the wrapped file.
-        mantissabits is the number of bits to use for the mantissa
-        (with the rest used for the exponent).
-        zeroexp is the zero point for the exponent.
-        """
+
+    def write_8bitfloat(self, f, mantissabits=5, zeroexp=2):
+        """Writes a byte-sized representation of floating point value f to the
+        wrapped file.
         
+        :param mantissabits: the number of bits to use for the mantissa
+            (with the rest used for the exponent).
+        :param zeroexp: the zero point for the exponent.
+        """
+
         self.write_byte(float_to_byte(f, mantissabits, zeroexp))
-    
-    def read_8bitfloat(self, mantissabits = 5, zeroexp = 2):
+
+    def read_8bitfloat(self, mantissabits=5, zeroexp=2):
         """Reads a byte-sized representation of a floating point value.
-        mantissabits is the number of bits to use for the mantissa
-        (with the rest used for the exponent).
-        zeroexp is the zero point for the exponent.
+        
+        :param mantissabits: the number of bits to use for the mantissa
+            (with the rest used for the exponent).
+        :param zeroexp: the zero point for the exponent.
         """
         return byte_to_float(self.read_byte(), mantissabits, zeroexp)
-    
-    def write_pickle(self, obj, protocol=-1):
+
+    def write_pickle(self, obj, protocol= -1):
         """Writes a pickled representation of obj to the wrapped file.
         """
         dump_pickle(obj, self.file, protocol)
-    
+
     def read_pickle(self):
         """Reads a pickled object from the wrapped file.
         """
         return load_pickle(self.file)
-    
+
     def write_sbyte(self, n):
         self.file.write(pack_sbyte(n))
     def write_int(self, n):
@@ -208,7 +209,7 @@ class StructFile(object):
     def write_array(self, arry):
         a = Struct("!" + arry.typecode * len(arry)).pack(*arry)
         self.file.write(a)
-    
+
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
     def read_int(self):
@@ -224,24 +225,24 @@ class StructFile(object):
     def read_array(self, typecode, length):
         packed = self.file.read(_SIZEMAP[typecode] * length)
         return Struct("!" + typecode * length).unpack(packed)
-    
+
     def get_sbyte(self, position):
-        return unpack_sbyte(self.map[position:position+1])[0]
+        return unpack_sbyte(self.map[position:position + 1])[0]
     def get_int(self, position):
-        return unpack_int(self.map[position:position+_INT_SIZE])[0]
+        return unpack_int(self.map[position:position + _INT_SIZE])[0]
     def get_uint(self, position):
-        return unpack_uint(self.map[position:position+_INT_SIZE])[0]
+        return unpack_uint(self.map[position:position + _INT_SIZE])[0]
     def get_ushort(self, position):
-        return unpack_ushort(self.map[position:position+_USHORT_SIZE])[0]
+        return unpack_ushort(self.map[position:position + _USHORT_SIZE])[0]
     def get_ulong(self, position):
-        return unpack_ulong(self.map[position:position+_ULONG_SIZE])[0]
+        return unpack_ulong(self.map[position:position + _ULONG_SIZE])[0]
     def get_float(self, position):
-        return unpack_float(self.map[position:position+_FLOAT_SIZE])[0]
+        return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
     def get_array(self, position, typecode, length):
         return unpack("!" + typecode * length,
-                      self.map[position:position+_SIZEMAP[typecode] * length])
-        
-    
+                      self.map[position:position + _SIZEMAP[typecode] * length])
+
+
 
 
 

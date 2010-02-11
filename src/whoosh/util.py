@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-"""
-Miscellaneous utility functions and classes.
+"""Miscellaneous utility functions and classes.
 """
 
 from array import array
@@ -27,9 +26,8 @@ from struct import pack, unpack
 from time import time, clock
 
 
-# Note: these functions return a tuple of (text, length), so
-# when you call them, you have to add [0] on the end, e.g.
-# str = utf8encode(unicode)[0]
+# Note: these functions return a tuple of (text, length), so when you call
+# them, you have to add [0] on the end, e.g. str = utf8encode(unicode)[0]
 
 utf8encode = codecs.getencoder("utf_8")
 utf8decode = codecs.getdecoder("utf_8")
@@ -39,9 +37,9 @@ utf8decode = codecs.getdecoder("utf_8")
 
 # Varint cache
 
-# Build a cache of the varint byte sequences for the first
-# N integers, so we don't have to constantly recalculate them
-# on the fly. This makes a small but noticeable difference.
+# Build a cache of the varint byte sequences for the first N integers, so we
+# don't have to constantly recalculate them on the fly. This makes a small but
+# noticeable difference.
 
 def _varint(i):
     s = ""
@@ -58,12 +56,23 @@ for i in xrange(0, _varint_cache_size):
 _varint_cache = tuple(_varint_cache)
 
 def varint(i):
-    """Encodes the given integer into a string of the minimum number
-    of bytes.
+    """Encodes the given integer into a string of the minimum number  of bytes.
     """
     if i < len(_varint_cache):
         return _varint_cache[i]
     return _varint(i)
+
+def varint_to_int(vi):
+    b = ord(vi[0])
+    p = 1
+    i = b & 0x7f
+    shift = 7
+    while b & 0x80 != 0:
+        b = ord(vi[p])
+        p += 1
+        i |= (b & 0x7F) << shift
+        shift += 7
+    return i
 
 def read_varint(readfn):
     """
@@ -72,7 +81,7 @@ def read_varint(readfn):
     :param readfn: a callable that reads a given number of bytes,
         like file.read().
     """
-    
+
     b = ord(readfn(1))
     i = b & 0x7F
 
@@ -86,8 +95,9 @@ def read_varint(readfn):
 
 _fib_cache = {}
 def fib(n):
-    """Returns the nth value in the Fibonacci sequence."""
-    
+    """Returns the nth value in the Fibonacci sequence.
+    """
+
     if n <= 2: return n
     if n in _fib_cache: return _fib_cache[n]
     result = fib(n - 1) + fib(n - 2)
@@ -95,12 +105,12 @@ def fib(n):
     return result
 
 
-def float_to_byte(value, mantissabits = 5, zeroexp = 2):
+def float_to_byte(value, mantissabits=5, zeroexp=2):
     """Encodes a floating point number in a single byte.
     """
-    
+
     # Assume int size == float size
-    
+
     fzero = (63 - zeroexp) << mantissabits
     bits = unpack("i", pack("f", value))[0]
     smallfloat = bits >> (24 - mantissabits)
@@ -116,15 +126,14 @@ def float_to_byte(value, mantissabits = 5, zeroexp = 2):
         return chr(255)
     else:
         return chr(smallfloat - fzero)
-    
-def byte_to_float(b, mantissabits = 5, zeroexp = 2):
-    """Decodes a floating point number stored in a single
-    byte.
+
+def byte_to_float(b, mantissabits=5, zeroexp=2):
+    """Decodes a floating point number stored in a single byte.
     """
     b = ord(b)
     if b == 0:
         return 0.0
-    
+
     bits = (b & 0xff) << (24 - mantissabits)
     bits += (63 - zeroexp) << 24
     return unpack("f", pack("i", bits))[0]
@@ -132,11 +141,11 @@ def byte_to_float(b, mantissabits = 5, zeroexp = 2):
 
 def first_diff(a, b):
     """Returns the position of the first differing character in the strings
-    a and b. For example, first_diff('render', 'rending') == 4. This
-    function limits the return value to 255 so the difference can be encoded
-    in a single byte.
+    a and b. For example, first_diff('render', 'rending') == 4. This function
+    limits the return value to 255 so the difference can be encoded in a single
+    byte.
     """
-    
+
     i = -1
     for i in xrange(0, len(a)):
         if a[i] != b[1]:
@@ -158,12 +167,23 @@ def prefix_encode_all(ls):
     the prefix it shares with its predecessor, followed by the suffix encoded
     as UTF-8.
     """
-    
+
     last = u''
     for w in ls:
         i = first_diff(last, w)
         yield chr(i) + w[i:].encode("utf8")
         last = w
+
+def prefix_decode_all(ls):
+    """Decompresses a list of strings compressed by prefix_encode().
+    """
+
+    last = u''
+    for w in ls:
+        i = ord(w[0])
+        decoded = last[:i] + w[1:].decode("utf8")
+        yield decoded
+        last = decoded
 
 
 def to_7bit(x, islong):
@@ -173,11 +193,11 @@ def to_7bit(x, islong):
     else:
         shift = 62
         nchars = 10
-    
+
     buffer = array("c", "\x00" * nchars)
-    x += (1<<shift)-1
+    x += (1 << shift) - 1
     while x:
-        buffer[nchars-1] = chr(x & 0x7f)
+        buffer[nchars - 1] = chr(x & 0x7f)
         x >>= 7
         nchars -= 1
         return buffer.tostring()
@@ -189,7 +209,7 @@ def from_7bit(text):
         shift = 62
     else:
         raise ValueError("text is not 5 or 10 bytes")
-    
+
     x = 0
     for char in text:
         x <<= 7
@@ -197,19 +217,8 @@ def from_7bit(text):
         if char > 0x7f:
             raise Exception
         x |= char
-    x -= (1<<shift)-1
+    x -= (1 << shift) - 1
     return x
-
-def prefix_decode_all(ls):
-    """Decompresses a list of strings compressed by prefix_encode().
-    """
-    
-    last = u''
-    for w in ls:
-        i = ord(w[0])
-        decoded = last[:i] + w[1:].decode("utf8")
-        yield decoded
-        last = decoded
 
 
 _nkre = re.compile(r"\D+|\d+", re.UNICODE)
@@ -219,15 +228,15 @@ def _nkconv(i):
     except ValueError:
         return i.lower()
 def natural_key(s):
-    """Converts string ``s`` into a tuple that will sort "naturally"
-    (i.e., ``name5`` will come before ``name10`` and ``1`` will come
-    before ``A``). This function is designed to be used as the ``key``
-    argument to sorting functions.
+    """Converts string ``s`` into a tuple that will sort "naturally" (i.e.,
+    ``name5`` will come before ``name10`` and ``1`` will come before ``A``).
+    This function is designed to be used as the ``key`` argument to sorting
+    functions.
     
     :param s: the str/unicode string to convert.
     :rtype: tuple
     """
-    
+
     # Use _nkre to split the input string into a sequence of
     # digit runs and non-digit runs. Then use _nkconv() to convert
     # the digit runs into ints and the non-digit runs to lowercase.
@@ -235,24 +244,23 @@ def natural_key(s):
 
 
 class ClosableMixin(object):
-    """Mix-in for classes with a close() method to allow them to be
-    used as a context manager.
+    """Mix-in for classes with a close() method to allow them to be used as a
+    context manager.
     """
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *exc_info):
         self.close()
 
 
 def protected(func):
-    """Decorator for storage-access methods. This decorator
-    (a) checks if the object has already been closed, and
-    (b) synchronizes on a threading lock. The parent object must
-    have 'is_closed' and '_sync_lock' attributes.
+    """Decorator for storage-access methods. This decorator (a) checks if the
+    object has already been closed, and (b) synchronizes on a threading lock.
+    The parent object must have 'is_closed' and '_sync_lock' attributes.
     """
-    
+
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         if self.is_closed:
@@ -264,7 +272,7 @@ def protected(func):
                 self._sync_lock.release()
         else:
             raise Exception("Could not acquire sync lock")
-    
+
     return wrapper
 
 
@@ -273,10 +281,10 @@ def lru_cache(size):
     
     :param size: the maximum number of items to keep in the cache.
     """
-    
+
     def decorate_function(func):
         prefix = "_%s_" % func.__name__
-    
+
         @wraps(func)
         def wrapper(self, *args):
             if not hasattr(self, prefix + "cache"):
@@ -292,17 +300,17 @@ def lru_cache(size):
                 refcount = getattr(self, prefix + "refcount")
             qpend = queue.append
             qpop = queue.popleft
-            
+
             # Get cache entry or compute if not found
             try:
                 result = cache[args]
             except KeyError:
                 result = cache[args] = func(self, *args)
-    
+
             # Record that this key was recently accessed
             qpend(args)
             refcount[args] += 1
-    
+
             # Purge least recently accessed cache contents
             while len(cache) > size:
                 k = qpop()
@@ -310,7 +318,7 @@ def lru_cache(size):
                 if not refcount[k]:
                     del cache[k]
                     del refcount[k]
-    
+
             # Periodically compact the queue by removing duplicate keys
             if len(queue) > size * 4:
                 for _ in xrange(len(queue)):
@@ -320,7 +328,7 @@ def lru_cache(size):
                     else:
                         refcount[k] -= 1
                 #assert len(queue) == len(cache) == len(refcount) == sum(refcount.itervalues())
-            
+
             return result
         return wrapper
     return decorate_function

@@ -14,7 +14,8 @@
 # limitations under the License.
 #===============================================================================
 
-"""Classes and functions for classifying and extracting information from documents.
+"""Classes and functions for classifying and extracting information from
+documents.
 """
 
 from collections import defaultdict
@@ -71,11 +72,11 @@ class KLModel(ExpansionModel):
 
 
 class Expander(object):
-    """Uses an ExpansionModel to expand the set of query terms based on
-    the top N result documents.
+    """Uses an ExpansionModel to expand the set of query terms based on the top
+    N result documents.
     """
     
-    def __init__(self, ixreader, fieldname, model = Bo1Model):
+    def __init__(self, ixreader, fieldname, model=Bo1Model):
         """
         :param reader: A :class:whoosh.reading.IndexReader object.
         :param fieldname: The name of the field in which to search.
@@ -90,9 +91,9 @@ class Expander(object):
             model = model(ixreader, fieldname)
         self.model = model
         
-        # Cache the collection frequency of every term in this
-        # field. This turns out to be much faster than reading each
-        # individual weight from the term index as we add words.
+        # Cache the collection frequency of every term in this field. This
+        # turns out to be much faster than reading each individual weight from
+        # the term index as we add words.
         self.collection_freq = dict((word, freq) for word, _, freq
                                       in ixreader.iter_field(fieldname))
         
@@ -118,7 +119,7 @@ class Expander(object):
             
         self.top_total += total_weight
     
-    def expanded_terms(self, number, normalize = True):
+    def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.
         
         :param number: The number of terms to return.
@@ -141,7 +142,7 @@ class Expander(object):
         else:
             norm = maxweight
         tlist = [(weight / norm, t) for weight, t in tlist]
-        tlist.sort(reverse = True)
+        tlist.sort(reverse=True)
         
         return [(t, weight) for weight, t in tlist[:number]]
 

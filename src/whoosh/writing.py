@@ -31,13 +31,13 @@ class IndexWriter(DeletionMixin):
     """High-level object for writing to an index.
     
     To get a writer for a particular index, call
-    call :meth:`~whoosh.index.Index.writer` on the Index object.
+    :meth:`~whoosh.index.Index.writer` on the Index object.
     
     >>> writer = my_index.writer()
     
     You can use this object as a context manager. If an exception is thrown
-    from within the context it calls cancel(), otherwise it calls commit()
-    when the context exits.
+    from within the context it calls cancel(), otherwise it calls commit() when
+    the context exits.
     """
     
     def __enter__(self):
@@ -50,7 +50,9 @@ class IndexWriter(DeletionMixin):
             self.commit()
     
     def searcher(self, **kwargs):
-        """Returns a searcher for the existing index."""
+        """Returns a searcher for the existing index.
+        """
+        
         if not self._searcher:
             self._searcher = self.index.searcher(**kwargs)
         return self._searcher
@@ -61,44 +63,47 @@ class IndexWriter(DeletionMixin):
             self._searcher = None
     
     def delete_document(self, docnum, delete=True):
-        """Deletes a document by number."""
+        """Deletes a document by number.
+        """
         raise NotImplementedError
     
     def add_document(self, **fields):
-        """Adds all the fields of a document at once. This is an alternative to calling
-        start_document(), add_field() [...], end_document().
+        """Adds all the fields of a document at once. This is an alternative to
+        calling start_document(), add_field() [...], end_document().
         
         The keyword arguments map field names to the values to index/store.
         
-        For fields that are both indexed and stored, you can specify an alternate
-        value to store using a keyword argument in the form "_stored_<fieldname>".
-        For example, if you have a field named "title" and you want to index the
-        text "a b c" but store the text "e f g", use keyword arguments like this::
+        For fields that are both indexed and stored, you can specify an
+        alternate value to store using a keyword argument in the form
+        "_stored_<fieldname>". For example, if you have a field named "title"
+        and you want to index the text "a b c" but store the text "e f g", use
+        keyword arguments like this::
         
             writer.add_document(title=u"a b c", _stored_title=u"e f g")
         """
         raise NotImplementedError
     
     def update_document(self, **fields):
-        """Adds or replaces a document. At least one of the fields for which you
-        supply values must be marked as 'unique' in the index's schema.
+        """Adds or replaces a document. At least one of the fields for which
+        you supply values must be marked as 'unique' in the index's schema.
         
         The keyword arguments map field names to the values to index/store.
         
-        Note that this method will only replace a *committed* document; currently
-        it cannot replace documents you've added to the IndexWriter but haven't yet
-        committed. For example, if you do this:
+        Note that this method will only replace a *committed* document;
+        currently it cannot replace documents you've added to the IndexWriter
+        but haven't yet committed. For example, if you do this:
         
         >>> writer.update_document(unique_id=u"1", content=u"Replace me")
         >>> writer.update_document(unique_id=u"1", content=u"Replacement")
         
-        ...this will add two documents with the same value of ``unique_id``, instead of
-        the second document replacing the first.
+        ...this will add two documents with the same value of ``unique_id``,
+        instead of the second document replacing the first.
         
-        For fields that are both indexed and stored, you can specify an alternate
-        value to store using a keyword argument in the form "_stored_<fieldname>".
-        For example, if you have a field named "title" and you want to index the
-        text "a b c" but store the text "e f g", use keyword arguments like this::
+        For fields that are both indexed and stored, you can specify an
+        alternate value to store using a keyword argument in the form
+        "_stored_<fieldname>". For example, if you have a field named "title"
+        and you want to index the text "a b c" but store the text "e f g", use
+        keyword arguments like this::
         
             writer.update_document(title=u"a b c", _stored_title=u"e f g")
         """
@@ -112,7 +117,8 @@ class IndexWriter(DeletionMixin):
         
         # Delete documents in which the supplied unique fields match
         from whoosh import query
-        delquery = query.Or([query.Term(name, fields[name]) for name in unique_fields])
+        delquery = query.Or([query.Term(name, fields[name])
+                             for name in unique_fields])
         delquery = delquery.normalize()
         self.delete_by_query(delquery)
         
@@ -134,24 +140,23 @@ class IndexWriter(DeletionMixin):
 class AsyncWriter(threading.Thread, DeletionMixin):
     """Convenience wrapper for a writer object that might fail due to locking
     (i.e. the ``filedb`` writer). This object will attempt once to obtain the
-    underlying writer, and if it's successful, will simply pass method calls
-    on to it.
+    underlying writer, and if it's successful, will simply pass method calls on
+    to it.
     
-    If this object *can't* obtain a writer immediately, it will *buffer* delete,
-    add, and update method calls in memory until you call ``commit()``. At that
-    point, this object will start running in a separate thread, trying to obtain
-    the writer over and over, and once it obtains it, "replay" all the
-    buffered method calls on it.
+    If this object *can't* obtain a writer immediately, it will *buffer*
+    delete, add, and update method calls in memory until you call ``commit()``.
+    At that point, this object will start running in a separate thread, trying
+    to obtain the writer over and over, and once it obtains it, "replay" all
+    the buffered method calls on it.
     
-    In a typical scenario where you're adding a single or a few documents
-    to the index as the result of a Web transaction, this lets you just create
-    the writer, add, and commit, without having to worry about index locks,
+    In a typical scenario where you're adding a single or a few documents to
+    the index as the result of a Web transaction, this lets you just create the
+    writer, add, and commit, without having to worry about index locks,
     retries, etc.
     
-    The first argument is a callable which returns the actual writer.
-    Usually this will be the ``writer`` method of your Index object.
-    Any additional keyword arguments to the initializer are passed into
-    the callable.
+    The first argument is a callable which returns the actual writer. Usually
+    this will be the ``writer`` method of your Index object. Any additional
+    keyword arguments to the initializer are passed into the callable.
     
     For example, to get an aynchronous writer, instead of this:
     

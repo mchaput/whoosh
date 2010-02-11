@@ -17,21 +17,21 @@
 """
 This module contains classes for writing and reading postings.
 
-The PostIterator interface is the base interface for the two "cursor" interfaces
-(PostingReader and QueryScorer). It defines the basic methods for moving through
-the posting list (e.g. ``reset()``, ``next()``, ``skip_to()``).
+The PostIterator interface is the base interface for the two "cursor"
+interfaces (PostingReader and QueryScorer). It defines the basic methods for
+moving through the posting list (e.g. ``reset()``, ``next()``, ``skip_to()``).
 
-The PostingReader interface allows reading raw posting information.
-Individual backends must provide a PostingReader implementation that will be returned
-by the backend's :meth:`whoosh.reading.IndexReader.postings` method.
-PostingReader subclasses in this module provide synthetic readers or readers that wrap
-other readers and modify their behavior.
+The PostingReader interface allows reading raw posting information. Individual
+backends must provide a PostingReader implementation that will be returned by
+the backend's :meth:`whoosh.reading.IndexReader.postings` method. PostingReader
+subclasses in this module provide synthetic readers or readers that wrap other
+readers and modify their behavior.
 
-The QueryScorer interface allows retrieving and scoring search results. QueryScorer
-objects will be returned by the :meth:`~whoosh.query.Query.scorer` method on
-:class:`whoosh.query.Query` objects.
-QueryScorer subclasses in this module provide synthetic scorers or scorers that wrap
-other scorers and modify their behavior.
+The QueryScorer interface allows retrieving and scoring search results.
+QueryScorer objects will be returned by the :meth:`~whoosh.query.Query.scorer`
+method on :class:`whoosh.query.Query` objects. QueryScorer subclasses in this
+module provide synthetic scorers or scorers that wrap other scorers and modify
+their behavior.
 """
 
 
@@ -41,8 +41,8 @@ from heapq import heapify, heappop, heapreplace
 # Exceptions
 
 class ReadTooFar(Exception):
-    """Raised if a user calls next() or skip_to() on a reader that
-    has reached the end of its items.
+    """Raised if a user calls next() or skip_to() on a reader that has reached
+    the end of its items.
     """
     pass
 
@@ -67,8 +67,8 @@ class PostingWriter(object):
 
 
 class PostIterator(object):
-    """Base class for PostingReader and QueryScorer. This interface
-    provides methods for moving the "cursor" along posting lists.
+    """Base class for PostingReader and QueryScorer. This interface provides
+    methods for moving the "cursor" along posting lists.
     """
     
     def __cmp__(self, other):
@@ -86,9 +86,9 @@ class PostIterator(object):
         raise NotImplementedError(self)
     
     def skip_to(self, id):
-        """Skips ahead to the given id. The default implementation
-        simply calls next() repeatedly until it gets to the id, but
-        subclasses will often be more clever.
+        """Skips ahead to the given id. The default implementation simply calls
+        next() repeatedly until it gets to the id, but subclasses will often be
+        more clever.
         """
         
         if id <= self.id:
@@ -103,17 +103,16 @@ class PostIterator(object):
     # Iterator convenience functions
     
     def all_ids(self):
-        """Yields all posting IDs.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
+        """Yields all posting IDs. This may or may not change the cursor
+        position, depending on the subclass and backend implementations.
         """
         self.reset()
         return self.ids()
     
     def ids(self):
-        """Yields the remaining IDs in the reader.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
+        """Yields the remaining IDs in the reader. This may or may not change
+        the cursor position, depending on the subclass and backend
+        implementations.
         """
         
         next = self.next
@@ -127,38 +126,36 @@ class PostingReader(PostIterator):
     
     "Postings" are used for two purposes in Whoosh.
     
-    For each term in the index, the postings are the list of
-    documents the term appears in and any associated value for each
-    document. For example, if the field format is Frequency, the
-    postings for the field might look like::
+    For each term in the index, the postings are the list of documents the term
+    appears in and any associated value for each document. For example, if the
+    field format is Frequency, the postings for the field might look like::
       
         [(0, 1), (10, 3), (12, 5)]
         
-    ...where 0, 10, and 12 are document numbers, and 1, 3, and
-    5 are the frequencies of the term in those documents.
+    ...where 0, 10, and 12 are document numbers, and 1, 3, and 5 are the
+    frequencies of the term in those documents.
       
     To get a PostingReader object for a term, use the
-    :meth:`~whoosh.reading.IndexReader.postings` method on an IndexReader
-    or Searcher object.
+    :meth:`~whoosh.reading.IndexReader.postings` method on an IndexReader or
+    Searcher object.
     
     >>> # Get a PostingReader for the term "render" in the "content" field.
     >>> r = myindex.reader()
     >>> preader = r.postings("content", u"render")
       
-    For fields with term vectors, the vector postings are the list of
-    terms that appear in the field and any associated value for each
-    term. For example, if the term vector format is Frequency, the
-    postings for the term vector might look like::
+    For fields with term vectors, the vector postings are the list of terms
+    that appear in the field and any associated value for each term. For
+    example, if the term vector format is Frequency, the postings for the term
+    vector might look like::
     
         [(u"apple", 1), (u"bear", 5), (u"cab", 2)]
         
-    ...where "apple", "bear", and "cab" are the terms in the document
-    field, and 1, 5, 2 are the frequencies of those terms in the document
-    field.
+    ...where "apple", "bear", and "cab" are the terms in the document field,
+    and 1, 5, 2 are the frequencies of those terms in the document field.
     
     To get a PostingReader object for a vector, use the
-    :meth:`~whoosh.reading.IndexReader.vector` method on an IndexReader
-    or Searcher object.
+    :meth:`~whoosh.reading.IndexReader.vector` method on an IndexReader or
+    Searcher object.
     
     >>> # Get a PostingReader for the vector of the "content" field
     >>> # of document 100 
@@ -178,15 +175,17 @@ class PostingReader(PostIterator):
     
     * ids() returns an iterator of the remaining IDs.
     * items() returns an iterator of the remaining (id, encoded_value) pairs.
-    * items_as(astype) returns an interator of the remaining (id, decoded_value) pairs.
+    * items_as(astype) returns an interator of the remaining
+      (id, decoded_value) pairs.
     
     all_ids(), all_items(), and all_as() are similar, but return iterators of
-    *all* IDs/items in the reader, regardless of the current position of the reader.
+    *all* IDs/items in the reader, regardless of the current position of the
+    reader.
       
-    Different implementations may leave the reader in different positions during and
-    after use of the iteration methods; that is, the effect of the iterators on the
-    reader's position is undefined and may be different in different PostingReader
-    subclasses and different backend implementations.
+    Different implementations may leave the reader in different positions
+    during and after use of the iteration methods; that is, the effect of the
+    iterators on the reader's position is undefined and may be different in
+    different PostingReader subclasses and different backend implementations.
     """
     
     def value(self):
@@ -207,26 +206,24 @@ class PostingReader(PostIterator):
     
     def all_items(self):
         """Yields all (id, encoded_value) pairs in the reader.
-        Use all_as() to get decoded values.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
+        Use all_as() to get decoded values. This may or may not change the
+        cursor position, depending on the subclass and backend implementations.
         """
         self.reset()
         return self.items()
     
     def all_as(self, astype):
         """Yield a series of (id, decoded_value) pairs for each posting.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
+        This may or may not change the cursor position, depending on the
+        subclass and backend implementations.
         """
         self.reset()
         return self.items_as(astype)
     
     def items(self):
         """Yields the remaining (id, encoded_value) pairs in the reader.
-        Use items_as() to get decoded values.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
+        Use items_as() to get decoded values. This may or may not change the
+        cursor position, depending on the subclass and backend implementations.
         """
         
         next = self.next
@@ -236,8 +233,8 @@ class PostingReader(PostIterator):
             
     def items_as(self, astype):
         """Yields the remaining (id, decoded_value) pairs in the reader.
-        This may or may not change the cursor position, depending on the subclass
-        and backend implementations.
+        This may or may not change the cursor position, depending on the
+        subclass and backend implementations.
         """
         decoder = self.format.decoder(astype)
         for id, valuestring in self.items():
@@ -318,9 +315,11 @@ class MultiPostingReader(PostingReader):
         """
         :param format: the :class:`~whoosh.formats.Format` object for the field
             being read.
-        :param readers: a list of :class:`~whoosh.postings.PostingReader` objects.
-        :param idoffsets: a list of integers, where each item in the list represents
-            the ID offset of the corresponding reader in the 'readers' list.
+        :param readers: a list of :class:`~whoosh.postings.PostingReader`
+            objects.
+        :param idoffsets: a list of integers, where each item in the list
+            represents the ID offset of the corresponding reader in the
+            'readers' list.
         """
         
         self.format = format
@@ -519,8 +518,8 @@ class CachedPostingReader(PostingReader):
 
 class FakeReader(FakeIterator, PostingReader):
     """This is a fake posting reader for testing purposes. You create the
-    object with the posting IDs as arguments, and then returns them as you
-    call next() or skip_to().
+    object with the posting IDs as arguments, and then returns them as you call
+    next() or skip_to().
     
     >>> fpr = FakeReader(1, 5, 10, 80)
     >>> fpr.id
@@ -540,8 +539,8 @@ class FakeReader(FakeIterator, PostingReader):
 
 class FakeScorer(FakeIterator, QueryScorer):
     """This is a fake query scorer for testing purposes. You create the
-    object with the posting IDs as arguments, and then returns them as you
-    call next() or skip_to().
+    object with the posting IDs as arguments, and then returns them as you call
+    next() or skip_to().
     
     >>> fpr = FakeScorer(1, 5, 10, 80)
     >>> fpr.id
@@ -791,12 +790,12 @@ class UnionScorer(QueryScorer):
 
 
 class AndNotScorer(QueryScorer):
-    """Takes two QueryScorers and pulls items from the first,
-    skipping items that also appear in the second.
+    """Takes two QueryScorers and pulls items from the first, skipping items
+    that also appear in the second.
     
-    THIS SCORER IS NOT ACTUALLY USED, since it turns out to be slightly
-    faster to simply create an "excluded_docs" filter from the "not" query
-    and pass that into the "positive" query.
+    THIS SCORER IS NOT ACTUALLY USED, since it turns out to be slightly faster
+    to simply create an "excluded_docs" filter from the "not" query and pass
+    that into the "positive" query.
     """
     
     def __init__(self, positive, negative):
@@ -859,8 +858,8 @@ class AndNotScorer(QueryScorer):
 
 
 class InverseScorer(QueryScorer):
-    """Takes a sub-scorer, and returns all documents *not* found
-    in the sub-scorer. Assigns a static score to the "found" documents.
+    """Takes a sub-scorer, and returns all documents *not* found in the
+    sub-scorer. Assigns a static score to the "found" documents.
     """
     
     def __init__(self, scorer, maxid, is_deleted, docscore=1.0):
@@ -907,8 +906,8 @@ class InverseScorer(QueryScorer):
 
 
 class RequireScorer(QueryScorer):
-    """Takes the intersection of two sub-scorers, but only
-    takes scores from the first.
+    """Takes the intersection of two sub-scorers, but only takes scores from
+    the first.
     """
     
     def __init__(self, scorer, required):
@@ -930,9 +929,8 @@ class RequireScorer(QueryScorer):
 
 
 class AndMaybeScorer(QueryScorer):
-    """Takes two sub-scorers, and returns documents that appear in the
-    first, but if the document also appears in the second, adds their
-    scores together.
+    """Takes two sub-scorers, and returns documents that appear in the first,
+    but if the document also appears in the second, adds their scores together.
     """
     
     def __init__(self, required, optional):

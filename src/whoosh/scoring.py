@@ -33,20 +33,20 @@ class Weighting(object):
     returns a score given a term and a document in which that term
     appears.
     """
-    
+
     def avg_field_length(self, ixreader, fieldnum):
         """Returns the average length of the field per document.
         (i.e. total field length / total number of documents)
         """
         return ixreader.field_length(fieldnum) / ixreader.doc_count_all()
-    
+
     def fl_over_avfl(self, ixreader, docnum, fieldnum):
         """Returns the length of the current field in the current
         document divided by the average length of the field
         across all documents. This is used by some scoring algorithms.
         """
         return ixreader.doc_field_length(docnum, fieldnum) / self.avg_field_length(ixreader, fieldnum)
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         """Returns the score for a given term in the given document.
         
@@ -59,7 +59,7 @@ class Weighting(object):
         :rtype: float
         """
         raise NotImplementedError
-    
+
     def final(self, searcher, docnum, score):
         """Returns a final score for each document. You can use this method
         in subclasses to apply document-level adjustments to the score, for
@@ -72,7 +72,7 @@ class Weighting(object):
         
         :rtype: float
         """
-        
+
         return score
 
 
@@ -81,34 +81,34 @@ class Weighting(object):
 class BM25F(Weighting):
     """Generates a BM25F score.
     """
-    
-    def __init__(self, B = 0.75, K1 = 1.2, field_B = None):
+
+    def __init__(self, B=0.75, K1=1.2, field_B=None):
         """
         :param B: free parameter, see the BM25 literature.
         :param K1: free parameter, see the BM25 literature.
         :param field_B: If given, a dictionary mapping fieldnums to
             field-specific B values.
         """
-        
+
         Weighting.__init__(self)
         self.K1 = K1
         self.B = B
-        
+
         if field_B is None: field_B = {}
         self._field_B = field_B
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
-        
+
         B = self._field_B.get(fieldnum, self.B)
         avl = self.avg_field_length(ixreader, fieldnum)
         idf = searcher.idf(fieldnum, text)
         l = ixreader.doc_field_length(docnum, fieldnum)
-        
+
         w = weight / ((1 - B) + B * (l / avl))
         return idf * (w / (self.K1 + w))
-        
+
 
 # The following scoring algorithms are translated from classes in
 # the Terrier search engine's uk.ac.gla.terrier.matching.models package.
@@ -117,10 +117,10 @@ class Cosine(Weighting):
     """A cosine vector-space scoring algorithm, translated into Python
     from Terrier's Java implementation.
     """
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         idf = searcher.idf(fieldnum, text)
-        
+
         DTW = (1.0 + log(weight)) * idf
         QMF = 1.0 # TODO: Fix this
         QTW = ((0.5 + (0.5 * QTF / QMF))) * idf
@@ -131,43 +131,43 @@ class DFree(Weighting):
     """The DFree probabilistic weighting algorithm, translated into Python
     from Terrier's Java implementation.
     """
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
-        
+
         fieldlen = ixreader.doc_field_length(docnum, fieldnum)
         prior = weight / fieldlen
         post = (weight + 1.0) / fieldlen
         invprior = ixreader.field_length(fieldnum) / ixreader.frequency(fieldnum, text)
         norm = weight * log(post / prior, 2)
-        
+
         return QTF\
                 * norm\
-                * (weight * (- log(prior * invprior, 2))
-                   + (weight + 1.0) * (+ log(post * invprior, 2)) + 0.5 * log(post/prior, 2))
+                * (weight * (-log(prior * invprior, 2))
+                   + (weight + 1.0) * (+log(post * invprior, 2)) + 0.5 * log(post / prior, 2))
 
 
 class DLH13(Weighting):
     """The DLH13 probabilistic weighting algorithm, translated into Python
     from Terrier's Java implementation.
     """
-    
-    def __init__(self, k = 0.5):
+
+    def __init__(self, k=0.5):
         Weighting.__init__(self)
         self.k = k
 
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
-        
+
         k = self.k
         dl = ixreader.doc_field_length(docnum, fieldnum)
         f = weight / dl
         tc = ixreader.frequency(fieldnum, text)
         dc = ixreader.doc_count_all()
         avl = self.avg_field_length(ixreader, fieldnum)
-        
+
         return QTF * (weight * log((weight * avl / dl) * (dc / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
 
 
@@ -175,15 +175,15 @@ class Hiemstra_LM(Weighting):
     """The Hiemstra LM probabilistic weighting algorithm, translated into Python
     from Terrier's Java implementation.
     """
-    
-    def __init__(self, c = 0.15):
+
+    def __init__(self, c=0.15):
         Weighting.__init__(self)
         self.c = c
-        
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
-        
+
         c = self.c
         tc = ixreader.frequency(fieldnum, text)
         dl = ixreader.doc_field_length(docnum, fieldnum)
@@ -194,38 +194,37 @@ class InL2(Weighting):
     """The InL2 LM probabilistic weighting algorithm, translated into Python
     from Terrier's Java implementation.
     """
-    
-    def __init__(self, c = 1.0):
+
+    def __init__(self, c=1.0):
         Weighting.__init__(self)
         self.c = c
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         ixreader = searcher.reader()
         if not ixreader.scorable(fieldnum): return weight
-        
+
         dl = ixreader.doc_field_length(docnum, fieldnum)
         TF = weight * log(1.0 + (self.c * self.avg_field_length(ixreader, fieldnum)) / dl)
         norm = 1.0 / (TF + 1.0)
         df = ixreader.doc_frequency(fieldnum, text)
         idf_dfr = log((ixreader.doc_count_all() + 1) / (df + 0.5), 2)
-        
+
         return TF * idf_dfr * QTF * norm
 
 
 class TF_IDF(Weighting):
     """Instead of doing any real scoring, this simply returns tf * idf.
     """
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         return weight * searcher.idf(fieldnum, text)
 
 
 class Frequency(Weighting):
-    """Instead of doing any real scoring, simply returns the
-    term frequency. This may be useful when you don't care about
-    normalization and weighting.
+    """Instead of doing any real scoring, simply returns the term frequency.
+    This may be useful when you don't care about normalization and weighting.
     """
-    
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         return weight
 
@@ -233,7 +232,7 @@ class Frequency(Weighting):
 class MultiWeighting(Weighting):
     """Applies different weighting functions based on the field.
     """
-    
+
     def __init__(self, default, **weights):
         """The only non-keyword argument specifies the default
         :class:`Weighting` instance to use. Keyword arguments specify
@@ -247,12 +246,12 @@ class MultiWeighting(Weighting):
         :param default: the Weighting instance to use for fields not
             specified in the keyword arguments.
         """
-        
+
         self.default = default
-        
+
         # Store weighting functions by field number
         self.weights = weights
-        
+
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         fieldname = searcher.fieldnum_to_name(fieldnum)
         w = self.weights.get(fieldname, self.default)
@@ -269,7 +268,7 @@ class Sorter(object):
     Concrete subclasses must implement the order() method, which
     takes a sequence of doc numbers and returns a sorted sequence.
     """
-    
+
     def order(self, searcher, docnums, reverse=False):
         """Returns a sorted list of document numbers.
         
@@ -286,7 +285,7 @@ class Sorter(object):
 
 class NullSorter(Sorter):
     """Sorter that does nothing."""
-    
+
     def order(self, searcher, docnums, reverse=False):
         """Returns docnums as-is, or reversed if ``reverse`` is ``True``."""
         if reverse:
@@ -298,15 +297,15 @@ class NullSorter(Sorter):
 class FieldSorter(Sorter):
     """Used by searching.Searcher to sort document results based on the
     value of an indexed field, rather than score. See the 'sortedby'
-    keyword argument to the Searcher's :meth:`~whoosh.searching.Searcher.search`
-    method.
+    keyword argument to the Searcher's
+    :func:`~whoosh.searching.Searcher.search` method.
     
     This object creates a cache of document orders for the given field.
     Creating the cache may make the first sorted search of a field
     seem slow, but subsequent sorted searches of the same field will
     be much faster.
     """
-    
+
     def __init__(self, fieldname, key=None, missingfirst=False):
         """
         :param fieldname: The name of the field to sort by.
@@ -314,7 +313,7 @@ class FieldSorter(Sorter):
             field first in the sorted results. The default is to put those
             documents last (after all documents that have the given field).
         """
-        
+
         self.fieldname = fieldname
         self.key = key
         self.missingfirst = missingfirst
@@ -323,10 +322,10 @@ class FieldSorter(Sorter):
     def _cache(self, searcher):
         if self._fieldcache is not None:
             return self._fieldcache
-        
+
         ixreader = searcher.reader()
         fieldnum = ixreader.fieldname_to_num(self.fieldname)
-        
+
         # Create an array of an int for every document in the index.
         N = ixreader.doc_count_all()
         if self.missingfirst:
@@ -334,25 +333,25 @@ class FieldSorter(Sorter):
         else:
             default = N + 1
         cache = array("i", [default] * N)
-        
+
         # For every document containing every term in the field, set
         # its array value to the term's sorted position.
         i = -1
         source = ixreader.lexicon(fieldnum)
         if self.key:
             source = sorted(source, key=self.key)
-        
+
         for i, word in enumerate(source):
             for docnum in ixreader.postings(fieldnum, word).all_ids():
                 cache[docnum] = i
-        
+
         self.limit = i
         self._fieldcache = cache
         return cache
-        
+
     def order(self, searcher, docnums, reverse=False):
         keyfn = self._cache(searcher).__getitem__
-        return sorted(docnums, key = keyfn, reverse = reverse)
+        return sorted(docnums, key=keyfn, reverse=reverse)
 
 
 class MultiFieldSorter(FieldSorter):
@@ -365,7 +364,7 @@ class MultiFieldSorter(FieldSorter):
     field has the same value, it will use the second field to sort them,
     and so on.
     """
-    
+
     def __init__(self, sorters, missingfirst=False):
         """
         :param fieldnames: A list of field names to sort by.
@@ -373,15 +372,15 @@ class MultiFieldSorter(FieldSorter):
             field first in the sorted results. The default is to put those
             documents last (after all documents that have the given field).
         """
-        
+
         self.sorters = sorters
         self.missingfirst = missingfirst
-    
-    def order(self, searcher, docnums, reverse = False):
+
+    def order(self, searcher, docnums, reverse=False):
         caches = [s._cache(searcher) for s in self.sorters]
         return sorted(docnums,
-                      key = lambda x: tuple(c[x] for c in caches),
-                      reverse = reverse)
+                      key=lambda x: tuple(c[x] for c in caches),
+                      reverse=reverse)
 
 
 
