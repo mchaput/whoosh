@@ -33,10 +33,10 @@ class IndexError(Exception):
     """Generic index error."""
 
 class IndexVersionError(IndexError):
-    """Raised when you try to open an index using a format that the
-    current version of Whoosh cannot read. That is, when the index you're
-    trying to open is either not backward or forward compatible with this
-    version of Whoosh.
+    """Raised when you try to open an index using a format that the current
+    version of Whoosh cannot read. That is, when the index you're trying to
+    open is either not backward or forward compatible with this version of
+    Whoosh.
     """
     
     def __init__(self, msg, version, release=None):
@@ -45,8 +45,8 @@ class IndexVersionError(IndexError):
         self.release = release
 
 class OutOfDateError(IndexError):
-    """Raised when you try to commit changes to an index which is not
-    the latest generation.
+    """Raised when you try to commit changes to an index which is not the
+    latest generation.
     """
 
 class EmptyIndexError(IndexError):
@@ -57,8 +57,8 @@ class EmptyIndexError(IndexError):
 # Convenience functions
 
 def create_in(dirname, schema, indexname=None):
-    """Convenience function to create an index in a directory. Takes care of creating
-    a FileStorage object for you. indexname is t
+    """Convenience function to create an index in a directory. Takes care of
+    creating a FileStorage object for you.
     
     :param dirname: the path string of the directory in which to create the index.
     :param schema: a :class:`whoosh.fields.Schema` object describing the index's fields.
@@ -75,14 +75,16 @@ def create_in(dirname, schema, indexname=None):
     return storage.create_index(schema, indexname)
 
 def open_dir(dirname, indexname = None, mapped=True):
-    """Convenience function for opening an index in a directory. Takes care of creating
-    a FileStorage object for you. dirname is the filename of the directory in
-    containing the index. indexname is the name of the index to create; you only need to
-    specify this if you have multiple indexes within the same storage object.
+    """Convenience function for opening an index in a directory. Takes care of
+    creating a FileStorage object for you. dirname is the filename of the
+    directory in containing the index. indexname is the name of the index to
+    create; you only need to specify this if you have multiple indexes within
+    the same storage object.
     
-    :param dirname: the path string of the directory in which to create the index.
-    :param indexname: the name of the index to create; you only need to specify this if
-        you have multiple indexes within the same storage object.
+    :param dirname: the path string of the directory in which to create the
+        index.
+    :param indexname: the name of the index to create; you only need to specify
+        this if you have multiple indexes within the same storage object.
     :param mapped: whether to use memory mapping to speed up disk reading.
     :returns: :class:`Index`
     """
@@ -98,7 +100,8 @@ def exists_in(dirname, indexname = None):
     """Returns True if dirname contains a Whoosh index.
     
     :param dirname: the file path of a directory.
-    :param indexname: the name of the index. If None, the default index name is used.
+    :param indexname: the name of the index. If None, the default index name is
+        used.
     :param rtype: bool
     """
     
@@ -112,11 +115,11 @@ def exists_in(dirname, indexname = None):
     return False
 
 def exists(storage, indexname = None):
-    """Returns True if the given Storage object contains a Whoosh
-    index.
+    """Returns True if the given Storage object contains a Whoosh index.
     
     :param storage: a store.Storage object.
-    :param indexname: the name of the index. If None, the default index name is used.
+    :param indexname: the name of the index. If None, the default index name is
+        used.
     :param rtype: bool
     """
     
@@ -134,19 +137,20 @@ def exists(storage, indexname = None):
 def version_in(dirname, indexname = None):
     """Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
-    created the index -- e.g. (0, 1, 24) -- and format_version is the
-    version number of the on-disk format used for the index -- e.g. -102.
+    created the index -- e.g. (0, 1, 24) -- and format_version is the version
+    number of the on-disk format used for the index -- e.g. -102.
     
     The second number (format version) may be useful for figuring out if you
-    need to recreate an index because the format has changed. However, you
-    can just try to open the index and see if you get an IndexVersionError
+    need to recreate an index because the format has changed. However, you can
+    just try to open the index and see if you get an IndexVersionError
     exception.
     
-    Note that the release and format version are available as attributes
-    on the Index object in Index.release and Index.version.
+    Note that the release and format version are available as attributes on the
+    Index object in Index.release and Index.version.
     
     :param dirname: the file path of a directory containing an index.
-    :param indexname: the name of the index. If None, the default index name is used.
+    :param indexname: the name of the index. If None, the default index name is
+        used.
     :returns: ((major_ver, minor_ver, build_ver), format_ver)
     """
     
@@ -158,19 +162,20 @@ def version_in(dirname, indexname = None):
 def version(storage, indexname = None):
     """Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
-    created the index -- e.g. (0, 1, 24) -- and format_version is the
-    version number of the on-disk format used for the index -- e.g. -102.
+    created the index -- e.g. (0, 1, 24) -- and format_version is the version
+    number of the on-disk format used for the index -- e.g. -102.
     
     The second number (format version) may be useful for figuring out if you
-    need to recreate an index because the format has changed. However, you
-    can just try to open the index and see if you get an IndexVersionError
+    need to recreate an index because the format has changed. However, you can
+    just try to open the index and see if you get an IndexVersionError
     exception.
     
-    Note that the release and format version are available as attributes
-    on the Index object in Index.release and Index.version.
+    Note that the release and format version are available as attributes on the
+    Index object in Index.release and Index.version.
     
     :param storage: a store.Storage object.
-    :param indexname: the name of the index. If None, the default index name is used.
+    :param indexname: the name of the index. If None, the default index name is
+        used.
     :returns: ((major_ver, minor_ver, build_ver), format_ver)
     """
     
@@ -188,9 +193,9 @@ def version(storage, indexname = None):
 
 class DeletionMixin(object):
     def delete_by_term(self, fieldname, text):
-        """Deletes any documents containing "term" in the "fieldname"
-        field. This is useful when you have an indexed field containing
-        a unique ID (such as "pathname") for each document.
+        """Deletes any documents containing "term" in the "fieldname" field.
+        This is useful when you have an indexed field containing a unique ID
+        (such as "pathname") for each document.
         
         :returns: the number of documents deleted.
         """
@@ -219,11 +224,12 @@ class Index(DeletionMixin):
     
     def __init__(self, storage, schema = None, indexname = _DEF_INDEX_NAME):
         """
-        :param storage: The :class:`whoosh.store.Storage` object in which this index resides.
-            See the store module for more details.
-        :param schema: A :class:`whoosh.fields.Schema` object defining the fields of this index.
-        :param indexname: An optional name to use for the index. Use this if you need
-            to keep multiple indexes in the same storage object.
+        :param storage: The :class:`whoosh.store.Storage` object in which this
+            index resides. See the store module for more details.
+        :param schema: A :class:`whoosh.fields.Schema` object defining the
+            fields of this index.
+        :param indexname: An optional name to use for the index. Use this if
+            you need to keep multiple indexes in the same storage object.
         """
         
         self.storage = storage
@@ -235,8 +241,9 @@ class Index(DeletionMixin):
         self.schema = schema
     
     def close(self):
-        """Closes any open resources held by the Index object itself. This may not close all
-        resources being used everywhere, for example by a Searcher object.
+        """Closes any open resources held by the Index object itself. This may
+        not close all resources being used everywhere, for example by a
+        Searcher object.
         """
         pass
     
@@ -252,8 +259,8 @@ class Index(DeletionMixin):
     
     def refresh(self):
         """Returns a new Index object representing the latest generation
-        of this index (if this object is the latest generation, or the
-        backend doesn't support versioning, returns self).
+        of this index (if this object is the latest generation, or the backend
+        doesn't support versioning, returns self).
         
         :returns: :class:`Index`
         """
@@ -261,9 +268,9 @@ class Index(DeletionMixin):
     
     def up_to_date(self):
         """Returns True if this object represents the latest generation of
-        this index. Returns False if this object is not the latest
-        generation (that is, someone else has updated the index since
-        you opened this object).
+        this index. Returns False if this object is not the latest generation
+        (that is, someone else has updated the index since you opened this
+        object).
         
         :param rtype: bool
         """
@@ -276,8 +283,8 @@ class Index(DeletionMixin):
         return -1
     
     def is_empty(self):
-        """Returns True if this index is empty (that is, it has never
-        had any documents successfully written to it.
+        """Returns True if this index is empty (that is, it has never had any
+        documents successfully written to it.
         
         :param rtype: bool
         """
@@ -305,15 +312,15 @@ class Index(DeletionMixin):
         raise NotImplementedError
     
     def field_length(self, fieldid):
-        """Returns the total number of terms in a given field.
-        This is used by some scoring algorithms. Note that this
-        necessarily includes terms in deleted documents.
+        """Returns the total number of terms in a given field. This is used by
+        some scoring algorithms. Note that this necessarily includes terms in
+        deleted documents.
         """
         raise NotImplementedError
     
     def searcher(self, **kwargs):
-        """Returns a Searcher object for this index. Keyword arguments
-        are passed to the Searcher object's constructor.
+        """Returns a Searcher object for this index. Keyword arguments are
+        passed to the Searcher object's constructor.
         
         :rtype: :class:`whoosh.searching.Searcher`
         """

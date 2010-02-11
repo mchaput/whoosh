@@ -18,8 +18,8 @@ from whoosh.query import Term, DisjunctionMax, And, Or, AndMaybe, AndNot, Phrase
 
 
 class SimpleParser(object):
-    def __init__(self, fieldname, schema=None, termclass=Term, phraseclass=Phrase,
-                 minmatch=0, minpercent=0.75,
+    def __init__(self, fieldname, schema=None, termclass=Term,
+                 phraseclass=Phrase, minmatch=0, minpercent=0.75,
                  phrasefields=None):
         self.fieldname = fieldname
         self.schema = schema
@@ -131,8 +131,8 @@ class SimpleParser(object):
 
 
 class DisMaxParser(SimpleParser):
-    def __init__(self, fieldboosts, schema=None, termclass=Term, phraseclass=Phrase,
-                 minmatch=0, minpercent=0.75, tiebreak=0.0,
+    def __init__(self, fieldboosts, schema=None, termclass=Term,
+                 phraseclass=Phrase, minmatch=0, minpercent=0.75, tiebreak=0.0,
                  phrasefields=None):
         self.fieldboosts = fieldboosts
         self.schema = schema

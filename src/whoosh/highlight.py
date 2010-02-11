@@ -26,24 +26,26 @@ from cgi import escape as htmlescape
 # Fragment object
 
 class Fragment(object):
-    """Represents a fragment (extract) from a hit document. This object is mainly
-    used to keep track of the start and end points of the fragment; it does not
-    contain the text of the fragment or do much else.
+    """Represents a fragment (extract) from a hit document. This object is
+    mainly used to keep track of the start and end points of the fragment; it
+    does not contain the text of the fragment or do much else.
     """
     
     def __init__(self, tokens, charsbefore=0, charsafter=0, textlen=999999):
         """
         :param tokens: list of the Token objects in the fragment. 
-        :param charsbefore: approx. how many characters before the start of the first
-            matched term to include in the fragment.
-        :param charsafter: approx. how many characters after the end of the last
-            matched term to include in the fragment.
+        :param charsbefore: approx. how many characters before the start of the
+            first matched term to include in the fragment.
+        :param charsafter: approx. how many characters after the end of the
+            last matched term to include in the fragment.
         :param textlen: length in characters of the document text.
         """
         
-        #: index of the first character of the fragment in the original document
+        #: index of the first character of the fragment in the original
+        # document
         self.startchar = max(0, tokens[0].startchar - charsbefore)
-        #: index after the last character of the fragment in the original document
+        #: index after the last character of the fragment in the original
+        #document
         self.endchar = min(textlen, tokens[-1].endchar + charsafter)
         self.matches = [t for t in tokens if t.matched]
         self.matched_terms = frozenset(t.text for t in self.matches)
@@ -81,9 +83,9 @@ def copyandmatchfilter(termset, tokens):
 # Fragmenters
 
 def NullFragmenter(text, tokens):
-    """Doesn't fragment the token stream. This object just
-    returns the entire stream as one "fragment". This is useful if
-    you want to highlight the entire text.
+    """Doesn't fragment the token stream. This object just returns the entire
+    stream as one "fragment". This is useful if you want to highlight the
+    entire text.
     """
     
     tokens = list(tokens)
@@ -127,12 +129,12 @@ class SimpleFragmenter(object):
 
 
 class SentenceFragmenter(object):
-    """Breaks the text up on sentence end punctuation characters (".", "!", or "?").
-    This object works by looking in the original text for a sentence end as the next
-    character after each token's 'endchar'.
+    """Breaks the text up on sentence end punctuation characters
+    (".", "!", or "?"). This object works by looking in the original text for a
+    sentence end as the next character after each token's 'endchar'.
     
-    When highlighting with this fragmenter, you should use an analyzer that does NOT
-    remove stop words, for example::
+    When highlighting with this fragmenter, you should use an analyzer that
+    does NOT remove stop words, for example::
     
         sa = StandardAnalyzer(stoplist=None)
     """
@@ -166,7 +168,7 @@ class SentenceFragmenter(object):
             frag.append(t)
             if frag and endchar < textlen and text[endchar] in sentencechars:
                 # Don't break for two periods in a row (e.g. ignore "...")
-                if endchar+1 < textlen and text[endchar + 1] in sentencechars:
+                if endchar + 1 < textlen and text[endchar + 1] in sentencechars:
                     continue
                 
                 yield Fragment(frag, charsafter=0)
@@ -178,17 +180,18 @@ class SentenceFragmenter(object):
 
 
 class ContextFragmenter(object):
-    """Looks for matched terms and aggregates them with their
-    surrounding context.
+    """Looks for matched terms and aggregates them with their surrounding
+    context.
     
     This fragmenter only yields fragments that contain matched terms.
     """
     
     def __init__(self, termset, maxchars=200, surround=20):
         """
-        :param termset: A collection (probably a set or frozenset) containing the
-            terms you want to match to token.text attributes.
-        :param maxchars: The maximum number of characters allowed in a fragment.
+        :param termset: A collection (probably a set or frozenset) containing
+            the terms you want to match to token.text attributes.
+        :param maxchars: The maximum number of characters allowed in a
+            fragment.
         :param surround: The number of extra characters of context to add both
             before the first matched term and after the last matched term.
         """
@@ -339,10 +342,11 @@ class UppercaseFormatter(object):
 class HtmlFormatter(object):
     """Returns a string containing HTML formatting around the matched terms.
     
-    This formatter wraps matched terms in an HTML element with two class names. The first class
-    name (set with the constructor argument ``classname``) is the same for each match. The
-    second class name (set with the constructor argument ``termclass`` is different depending on which
-    term matched. This allows you to give different formatting (for example, different background
+    This formatter wraps matched terms in an HTML element with two class names.
+    The first class name (set with the constructor argument ``classname``) is
+    the same for each match. The second class name (set with the constructor
+    argument ``termclass`` is different depending on which term matched. This
+    allows you to give different formatting (for example, different background
     colors) to the different terms in the excerpt.
     
     >>> hf = HtmlFormatter(tagname="span", classname="match", termclass="term")
@@ -350,10 +354,13 @@ class HtmlFormatter(object):
     "The <span class="match term0">template</span> <span class="match term1">geometry</span> is..."
     
     This object maintains a dictionary mapping terms to HTML class names (e.g.
-    ``term0`` and ``term1`` above), so that multiple excerpts will use the same class
-    for the same term. If you want to re-use the same HtmlFormatter object with different
-    searches, you should call HtmlFormatter.clear() between searches to clear the mapping.
+    ``term0`` and ``term1`` above), so that multiple excerpts will use the same
+    class for the same term. If you want to re-use the same HtmlFormatter
+    object with different searches, you should call HtmlFormatter.clear()
+    between searches to clear the mapping.
     """
+    
+    template = '<%(tag)s class=%(q)s%(cls)s%(tn)s%(q)s>%(t)s</%(tag)s>'
     
     def __init__(self, tagname="strong", between="...",
                  classname="match", termclass="term", maxclasses=5,
@@ -361,13 +368,15 @@ class HtmlFormatter(object):
         """
         :param tagname: the tag to wrap around matching terms.
         :param between: the text to add between fragments.
-        :param classname: the class name to add to the elements wrapped around matching terms.
-        :param termclass: the class name prefix for the second class which is different for
-            each matched term. For example, 
-        :param maxclasses: the maximum number of term classes to produce. This limits
-            the number of classes you have to define in CSS by recycling term class names.
-            For example, if you set maxclasses to 3 and have 5 terms, the 5 terms will use
-            the CSS classes ``term0``, ``term1``, ``term2``, ``term0``, ``term1``.
+        :param classname: the class name to add to the elements wrapped around
+            matching terms.
+        :param termclass: the class name prefix for the second class which is
+            different for each matched term.
+        :param maxclasses: the maximum number of term classes to produce. This
+            limits the number of classes you have to define in CSS by recycling
+            term class names. For example, if you set maxclasses to 3 and have
+            5 terms, the 5 terms will use the CSS classes ``term0``, ``term1``,
+            ``term2``, ``term0``, ``term1``.
         """
         
         self.between = between
@@ -395,10 +404,10 @@ class HtmlFormatter(object):
                 else:
                     termnum = len(seen) % self.maxclasses
                     seen[t.text] = termnum
-                ttxt = ('<%(tag)s class=%(q)s%(cls)s%(tn)s%(q)s>%(t)s</%(tag)s>' %
-                        {"tag": self.tagname, "q": self.attrquote,
-                         "cls": htmlclass, "t": ttxt, "tn": termnum})
-            
+                ttxt = self.template % {"tag": self.tagname,
+                                        "q": self.attrquote,
+                                        "cls": htmlclass,
+                                        "t": ttxt, "tn": termnum}
             output.append(ttxt)
             index = t.endchar
         
@@ -419,7 +428,8 @@ class HtmlFormatter(object):
 
 
 class GenshiFormatter(object):
-    """Returns a Genshi event stream containing HTML formatting around the matched terms.
+    """Returns a Genshi event stream containing HTML formatting around the
+    matched terms.
     """
     
     def __init__(self, qname="strong", between="..."):
@@ -432,7 +442,8 @@ class GenshiFormatter(object):
         self.between = between
         
         from genshi.core import START, END, TEXT, Attrs, Stream #@UnresolvedImport
-        self.START, self.END, self.TEXT, self.Attrs, self.Stream = (START, END, TEXT, Attrs, Stream)
+        self.START, self.END, self.TEXT = START, END, TEXT
+        self.Attrs, self.Stream = Attrs, Stream
 
     def _add_text(self, text, output):
         if output and output[-1][0] == self.TEXT:
@@ -484,8 +495,10 @@ class GenshiFormatter(object):
 def top_fragments(text, terms, analyzer, fragmenter, top=3,
                   scorer=BasicFragmentScorer, minscore=1):
     termset = frozenset(terms)
-    tokens = copyandmatchfilter(termset, analyzer(text, chars = True, keeporiginal = True))
-    scored_frags = nlargest(top, ((scorer(f), f) for f in fragmenter(text, tokens)))
+    tokens = copyandmatchfilter(termset, analyzer(text, chars=True,
+                                                  keeporiginal=True))
+    scored_frags = nlargest(top, ((scorer(f), f)
+                                  for f in fragmenter(text, tokens)))
     return [sf for score, sf in scored_frags if score > minscore]
 
 
@@ -494,23 +507,13 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
               order=FIRST):
     
     fragments = top_fragments(text, terms, analyzer, fragmenter,
-                              top = top, minscore = minscore)
-    fragments.sort(key = order)
+                              top=top, minscore=minscore)
+    fragments.sort(key=order)
     return formatter(text, fragments)
     
 
 if __name__ == '__main__':
-    import re, time
-    from whoosh import analysis
-    #from genshi import QName
-    
-    sa = analysis.StemmingAnalyzer()
-    txt = open("/Volumes/Drobo/Development/help/documents/nodes/sop/copy.txt").read().decode("utf8")
-    txt = re.sub("[\t\r\n ]+", " ", txt)
-    t = time.time()
-    fs = highlight(txt, ["templat", "geometri"], sa, SentenceFragmenter(), HtmlFormatter())
-    print time.time() - t
-    print fs
+    pass
 
 
 
