@@ -227,6 +227,7 @@ class PostingPool(object):
         self.finished = False
 
         self.runs = []
+        self.tempfilenames = []
         self.count = 0
 
     def add_posting(self, field_num, text, doc, freq, datastring):
@@ -250,7 +251,7 @@ class PostingPool(object):
         # Sorts the buffer and writes the current buffer to a "run" on disk.
 
         if self.size > 0:
-            tempfd, tempname = tempfile.mkstemp(".run")
+            tempfd, tempname = tempfile.mkstemp(".whooshrun")
             runfile = StructFile(os.fdopen(tempfd, "w+b"))
 
             self.postings.sort()
@@ -260,6 +261,7 @@ class PostingPool(object):
             runfile.seek(0)
 
             self.runs.append((runfile, self.count))
+            self.tempfilenames.append(tempname)
             #print "Flushed run:", self.runs
 
             self.postings = []
@@ -309,7 +311,10 @@ class PostingPool(object):
         for rr in run_readers:
             assert rr.count == 0
             rr.close()
-
+            
+        for tempfilename in self.tempfilenames:
+            os.remove(tempfilename)
+            
         # And we're done.
         self.finished = True
 
