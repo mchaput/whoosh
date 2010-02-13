@@ -20,12 +20,13 @@ The field format essentially determines what information is stored about each
 occurance of a term.
 """
 
+from array import array
 from collections import defaultdict
 from struct import pack, unpack, calcsize
 from cStringIO import StringIO
 
 from whoosh.analysis import unstopped
-from whoosh.system import _INT_SIZE, _USHORT_SIZE, _FLOAT_SIZE
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
@@ -193,13 +194,13 @@ class Frequency(Format):
         return ((w, freq, encode(freq)) for w, freq in seen.iteritems())
 
     def encode(self, freq):
-        return pack("!I", freq)
+        return pack_uint(freq)
     
     def decode_frequency(self, valuestring):
-        return unpack("!I", valuestring)[0]
+        return unpack_uint(valuestring)[0]
     
     def decode_weight(self, valuestring):
-        freq = unpack("!I", valuestring)[0]
+        freq = unpack_uint(valuestring)[0]
         return freq * self.field_boost
     
 
@@ -223,18 +224,18 @@ class DocBoosts(Frequency):
     
     def encode(self, freq_docboost):
         freq, docboost = freq_docboost
-        return pack("!I", freq) + float_to_byte(docboost)
+        return pack_uint(freq) + float_to_byte(docboost)
     
     def decode_docboosts(self, valuestring):
-        freq = unpack("!I", valuestring[:_INT_SIZE])[0]
+        freq = unpack_uint(valuestring[:_INT_SIZE])[0]
         docboost = byte_to_float(valuestring[-1])
         return (freq, docboost)
     
     def decode_frequency(self, valuestring):
-        return unpack("!I", valuestring[0:_INT_SIZE])[0]
+        return unpack_uint(valuestring[0:_INT_SIZE])[0]
     
     def decode_weight(self, valuestring):
-        freq = unpack("!I", valuestring[:_INT_SIZE])[0]
+        freq = unpack_uint(valuestring[:_INT_SIZE])[0]
         docboost = byte_to_float(valuestring[-1])
         return freq * docboost * self.field_boost
     
@@ -266,11 +267,13 @@ class Positions(Format):
         for pos in positions:
             codes.append(varint(pos - base))
             base = pos
-        return pack("!I", len(positions)) + "".join(codes)
+        return pack_uint(len(positions)) + "".join(codes)
+
+        #return pack_uint(len(positions)) + array("I", positions).tostring()
     
     def decode_positions(self, valuestring):
         read = StringIO(valuestring).read
-        freq = unpack("!I", read(_INT_SIZE))[0]
+        freq = unpack_uint(read(_INT_SIZE))[0]
         position = 0
         positions = []
         for _ in xrange(freq):
@@ -279,7 +282,7 @@ class Positions(Format):
         return positions
     
     def decode_frequency(self, valuestring):
-        return unpack("!I", valuestring[:_INT_SIZE])[0]
+        return unpack_uint(valuestring[:_INT_SIZE])[0]
     
     def decode_weight(self, valuestring):
         return self.decode_frequency(valuestring) * self.field_boost
@@ -319,11 +322,11 @@ class Characters(Positions):
             codes.extend((varint(startchar - charbase),
                           varint(endchar - startchar)))
             charbase = endchar
-        return pack("!I", len(posns_chars)) + "".join(codes)
+        return pack_uint(len(posns_chars)) + "".join(codes)
     
     def decode_characters(self, valuestring):
         read = StringIO(valuestring).read
-        freq = unpack("!I", read(_INT_SIZE))[0]
+        freq = unpack_uint(read(_INT_SIZE))[0]
         position = 0
         endchar = 0
         posns_chars = []
@@ -335,7 +338,7 @@ class Characters(Positions):
         return posns_chars
     
     def decode_positions(self, valuestring):
-        return [pos for pos, startchar, endchar
+        return [pos for pos, startchar, endchar #@UnusedVariable
                 in self.decode_characters(valuestring)]
     
 
@@ -373,7 +376,7 @@ class PositionBoosts(Positions):
     def decode_position_boosts(self, valuestring):
         f = StringIO(valuestring)
         read = f.read
-        freq = unpack("!I", read(_INT_SIZE))[0]
+        freq = unpack_uint(read(_INT_SIZE))[0]
         
         # Skip summed boost
         f.seek(_FLOAT_SIZE, 1)
@@ -390,7 +393,7 @@ class PositionBoosts(Positions):
         f = StringIO(valuestring)
         read, seek = f.read, f.seek
         
-        freq = unpack("!I", read(_INT_SIZE))[0]
+        freq = unpack_uint(read(_INT_SIZE))[0]
         # Skip summed boost
         seek(_FLOAT_SIZE, 1)
         
@@ -455,7 +458,7 @@ class CharacterBoosts(Characters):
         f = StringIO(valuestring)
         read = f.read
         
-        freq = unpack("!I", read(_INT_SIZE))[0]
+        freq = unpack_uint(read(_INT_SIZE))[0]
         # Skip summed boost
         f.seek(_FLOAT_SIZE, 1)
         
@@ -475,7 +478,7 @@ class CharacterBoosts(Characters):
                 in self.decode_character_boosts(valuestring)]
     
     def decode_position_boosts(self, valuestring):
-        return [(pos, boost) for pos, startchar, endchar, boost
+        return [(pos, boost) for pos, startchar, endchar, boost #@UnusedVariable
                 in self.decode_character_boosts(valuestring)]
 
 

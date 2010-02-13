@@ -17,9 +17,13 @@
 import mmap, os
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
-from struct import calcsize, unpack, Struct
+from struct import calcsize, Struct
 
-from whoosh.system import _INT_SIZE, _USHORT_SIZE, _ULONG_SIZE, _FLOAT_SIZE
+from whoosh.system import (_INT_SIZE, _USHORT_SIZE, _ULONG_SIZE, _FLOAT_SIZE,
+                           pack_sbyte, pack_ushort, pack_int, pack_uint,
+                           pack_ulong, pack_float,
+                           unpack_sbyte, unpack_ushort, unpack_int,
+                           unpack_uint, unpack_ulong, unpack_float)
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
@@ -30,27 +34,6 @@ _ORDERMAP = {"little": "<", "big": ">"}
 
 _types = (("sbyte", "b"), ("ushort", "H"), ("int", "i"),
           ("ulong", "L"), ("float", "f"))
-
-_sbyte_struct = Struct("!b")
-_ushort_struct = Struct("!H")
-_int_struct = Struct("!i")
-_uint_struct = Struct("!I")
-_ulong_struct = Struct("!L")
-_float_struct = Struct("!f")
-
-pack_sbyte = _sbyte_struct.pack
-pack_ushort = _ushort_struct.pack
-pack_int = _int_struct.pack
-pack_uint = _uint_struct.pack
-pack_ulong = _ulong_struct.pack
-pack_float = _float_struct.pack
-
-unpack_sbyte = _sbyte_struct.unpack
-unpack_ushort = _ushort_struct.unpack
-unpack_int = _int_struct.unpack
-unpack_uint = _uint_struct.unpack
-unpack_ulong = _ulong_struct.unpack
-unpack_float = _float_struct.unpack
 
 
 # Main function
