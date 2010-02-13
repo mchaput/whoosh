@@ -34,11 +34,11 @@ _2int_struct = Struct("!II")
 pack2ints = _2int_struct.pack
 unpack2ints = _2int_struct.unpack
 
-def encode_posting(fieldNum, text, doc, freq, datastring):
+def encode_posting(fieldnum, text, doc, freq, datastring):
     """Encodes a posting as a string, for sorting.
     """
 
-    return "".join([pack_ushort(fieldNum),
+    return "".join([pack_ushort(fieldnum),
                     utf8encode(text)[0],
                     chr(0),
                     pack2ints(doc, freq),
@@ -50,7 +50,7 @@ def decode_posting(posting):
     (field_number, text, document_number, datastring) tuple.
     """
 
-    field_num = unpack_ushort(posting[:_USHORT_SIZE])[0]
+    fieldnum = unpack_ushort(posting[:_USHORT_SIZE])[0]
 
     zero = posting.find(chr(0), _USHORT_SIZE)
     text = utf8decode(posting[_USHORT_SIZE:zero])[0]
@@ -61,7 +61,7 @@ def decode_posting(posting):
 
     datastring = posting[metaend:]
 
-    return field_num, text, doc, freq, datastring
+    return fieldnum, text, doc, freq, datastring
 
 def merge(run_readers, max_chunk_size):
     # Initialize a list of terms we're "current"ly looking at, by taking the
