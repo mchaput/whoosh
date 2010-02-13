@@ -34,7 +34,7 @@ module provide synthetic scorers or scorers that wrap other scorers and modify
 their behavior.
 """
 
-
+from collections import defaultdict
 from heapq import heapify, heappop, heapreplace
 
 
@@ -787,6 +787,24 @@ class UnionScorer(QueryScorer):
         
         score = sum(r.score() for r in self.state if r.id == id)
         return score * self.boost
+
+
+class HashJoinScorer(ListScorer):
+    """Like UnionScorer, but does a hash join instead of advancing the
+    subscorers together.
+    """
+    
+    def __init__(self, scorers, boost=1.0, minmatch=0):
+        scores = defaultdict(float)
+        mins = defaultdict(int)
+        for scorer in scorers:
+            for docnum, score in scorer:
+                scores[docnum] += score
+                mins[docnum] += 1
+        
+        ListScorer.__init__(self, [(docnum, score) for docnum, score
+                                   in scores.iteritems()
+                                   if mins[docnum] > minmatch])
 
 
 class AndNotScorer(QueryScorer):
