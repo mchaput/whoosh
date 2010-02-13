@@ -1,3 +1,6 @@
 syntax: glob
 *.pyc
 *~
+
+syntax: glob
+*testindex
