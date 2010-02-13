@@ -20,7 +20,6 @@ to D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
 from array import array
-from bisect import bisect_right
 from collections import defaultdict
 from cPickle import dumps, loads
 from struct import Struct
@@ -41,10 +40,7 @@ _2ints = Struct("!II")
 pack2ints = _2ints.pack
 def writeints(f, value1, value2):
     f.write(pack2ints(value1, value2))
-
-_unpack2ints = _2ints.unpack
-def unpack2ints(s):
-    return _unpack2ints(s)
+unpack2ints = _2ints.unpack
 
 _unpackint = Struct("!I").unpack
 def readint(map, offset):
@@ -182,6 +178,9 @@ class FileHashReader(object):
     def read(self, position, length):
         return self.map[position:position + length]
 
+    def readint(self, position):
+        return unpackint(self.map[position:position+_INT_SIZE])
+
     def read2ints(self, position):
         return unpack2ints(self.map[position:position + _INT_SIZE * 2])
 
@@ -236,6 +235,10 @@ class FileHashReader(object):
         u, pos = self.read2ints(slotpos)
         return pos
 
+    def _key_at(self, pos):
+        keylen = self.readint(pos)
+        return self.read(pos+8, keylen)
+
     def _get_ranges(self, key):
         read = self.read
         read2ints = self.read2ints
@@ -273,11 +276,9 @@ class FileHashReader(object):
 
 
 class OrderedHashWriter(FileHashWriter):
-    def __init__(self, dbfile, blocksize=100):
+    def __init__(self, dbfile):
         FileHashWriter.__init__(self, dbfile)
-        self.blocksize = blocksize
-        self.index = []
-        self.indexcount = None
+        self.index = array("I")
         self.lastkey = None
 
     def add_all(self, items):
@@ -287,8 +288,6 @@ class OrderedHashWriter(FileHashWriter):
         write = dbfile.write
 
         ix = self.index
-        ic = self.indexcount
-        bs = self.blocksize
         lk = self.lastkey
 
         for key, value in items:
@@ -296,15 +295,7 @@ class OrderedHashWriter(FileHashWriter):
                 raise ValueError("Keys must increase: %r .. %r" % (lk, key))
             lk = key
 
-            if ic is None:
-                ix.append(key)
-                ic = 0
-            else:
-                ic += 1
-                if ic == bs:
-                    ix.append(key)
-                    ic = 0
-
+            ix.append(pos)
             writeints(dbfile, len(key), len(value))
             write(key + value)
 
@@ -312,12 +303,12 @@ class OrderedHashWriter(FileHashWriter):
             hashes[h & 255].append((h, pos))
             pos += len(key) + len(value) + 8
 
-        self.indexcount = ic
-        self.lastkey = lk
-
     def close(self):
         self._write_hashes()
-        self.dbfile.write_pickle(self.index)
+        
+        self.index.append(1<<32-1)
+        self.dbfile.write(self.index.tostring())
+        
         self._write_directory()
         self.dbfile.close()
 
@@ -327,26 +318,42 @@ class OrderedHashReader(FileHashReader):
         FileHashReader.__init__(self, dbfile)
         lastpos, lastnum = self.read2ints(255 * 8)
         dbfile.seek(lastpos + lastnum * 8)
-        self.index = dbfile.read_pickle()
-
+        
+        self.index = array("I")
+        self.index.fromstring(dbfile.read())
+        last = self.index.pop()
+        if last != 1<<32-1:
+            self.index.byteswap()
+    
     def _closest_key(self, key):
+        key_at = self._key_at
         index = self.index
-        i = max(0, bisect_right(index, key) - 1)
-        return index[i]
+        lo = 0
+        hi = len(index)
+        while lo < hi:
+            mid = (lo+hi)//2
+            midkey = key_at(index[mid])
+            if midkey < key: lo = mid+1
+            else: hi = mid
+        #i = max(0, mid - 1)
+        if lo == len(index):
+            return None
+        return index[lo]
+    
+    def closest_key(self, key):
+        pos = self._closest_key(key)
+        if pos is None:
+            return None
+        return self._key_at(pos)
 
     def _ranges_from(self, key):
-        read = self.read
-        ckey = self._closest_key(key)
-        pos = self._key_position(ckey)
+        #read = self.read
+        pos = self._closest_key(key)
+        if pos is None:
+            return
 
-        if ckey != key:
-            for keypos, keylen, _, _ in self._ranges(pos=pos):
-                k = read(keypos, keylen)
-                if k >= key:
-                    pos = keypos - 8
-                    break
-
-        return self._ranges(pos=pos)
+        for x in self._ranges(pos=pos):
+            yield x
 
     def items_from(self, key):
         read = self.read
@@ -358,7 +365,7 @@ class OrderedHashReader(FileHashReader):
         for keypos, keylen, _, _ in self._ranges_from(key):
             yield read(keypos, keylen)
 
-    def values(self, key):
+    def values_from(self, key):
         read = self.read
         for _, _, datapos, datalen in self._ranges_from(key):
             yield read(datapos, datalen)
