@@ -22,9 +22,10 @@ from whoosh.filedb.filetables import (FileTableReader, FileRecordReader,
                                       FileListReader, encode_termkey,
                                       decode_termkey, encode_vectorkey,
                                       decode_vectorkey, decode_terminfo,
-                                      depickle, unpackint)
+                                      depickle)
 from whoosh.postings import Exclude
 from whoosh.reading import IndexReader, TermNotFound
+from whoosh.system import unpack_uint
 from whoosh.util import protected
 
 
@@ -55,7 +56,7 @@ def open_vectors(storage, segment):
     vectorfile = storage.open_file(segment.vector_filename)
     return FileTableReader(vectorfile, keycoder=encode_vectorkey,
                             keydecoder=decode_vectorkey,
-                            valuedecoder=unpackint)
+                            valuedecoder=lambda x: unpack_uint(x)[0])
 
 
 # Reader class
