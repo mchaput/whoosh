@@ -27,7 +27,8 @@ from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (FileTableWriter, FileListWriter,
                                       FileRecordWriter, encode_termkey,
                                       encode_vectorkey, encode_terminfo,
-                                      enpickle, packint)
+                                      enpickle)
+from whoosh.system import pack_uint
 from whoosh.util import fib
 
 
@@ -91,7 +92,7 @@ def create_storedfields(storage, segment):
 def create_vectors(storage, segment):
     vectorfile = storage.create_file(segment.vector_filename)
     return FileTableWriter(vectorfile, keycoder=encode_vectorkey,
-                           valuecoder=packint)
+                           valuecoder=pack_uint)
 
 def create_doclengths(storage, segment, fieldcount):
     recordformat = "!" + DOCLENGTH_TYPE * fieldcount
