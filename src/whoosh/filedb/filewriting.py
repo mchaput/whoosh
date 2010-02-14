@@ -255,7 +255,7 @@ class SegmentWriter(object):
         and closes all open files.
         """
 
-        self._flush_pool()
+        self.pool.flush(self.termtable, self.postwriter, self.schema)
         self._close_all()
 
     def add_reader(self, reader):
@@ -426,59 +426,7 @@ class SegmentWriter(object):
 
         self.vectortable.add((self.max_doc, fieldnum), offset)
 
-    def _flush_pool(self):
-        # This method pulls postings out of the posting pool (built up as
-        # documents are added) and writes them to the posting file. Each time
-        # it encounters a posting for a new term, it writes the previous term
-        # to the term index (by waiting to write the term entry, we can easily
-        # count the document frequency and sum the terms by looking at the
-        # postings).
 
-        termtable = self.termtable
-        postwriter = self.postwriter
-        schema = self.schema
-
-        current_fieldnum = None # Field number of the current term
-        current_text = None # Text of the current term
-        first = True
-        current_freq = 0
-        offset = None
-
-        # Loop through the postings in the pool. Postings always come out of
-        # the pool in (field number, lexical) order.
-        for fieldnum, text, docnum, freq, valuestring in self.pool:
-            # Is this the first time through, or is this a new term?
-            if first or fieldnum > current_fieldnum or text > current_text:
-                if first:
-                    first = False
-                else:
-                    # This is a new term, so finish the postings and add the
-                    # term to the term table
-                    postcount = postwriter.finish()
-                    termtable.add((current_fieldnum, current_text),
-                                  (current_freq, offset, postcount))
-
-                # Reset the post writer and the term variables
-                current_fieldnum = fieldnum
-                current_text = text
-                current_freq = 0
-                offset = postwriter.start(schema[fieldnum].format)
-
-            elif (fieldnum < current_fieldnum
-                  or (fieldnum == current_fieldnum and text < current_text)):
-                # This should never happen!
-                raise Exception("Postings are out of order: %s:%s .. %s:%s" %
-                                (current_fieldnum, current_text, fieldnum, text))
-
-            # Write a posting for this occurrence of the current term
-            current_freq += freq
-            postwriter.write(docnum, valuestring)
-
-        # If there are still "uncommitted" postings at the end, finish them off
-        if not first:
-            postcount = postwriter.finish()
-            termtable.add((current_fieldnum, current_text),
-                          (current_freq, offset, postcount))
 
 
 
