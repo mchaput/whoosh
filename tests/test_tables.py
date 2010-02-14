@@ -5,8 +5,9 @@ from os.path import exists
 from shutil import rmtree
 
 from whoosh.filedb.filestore import FileStorage
-from whoosh.filedb.filetables import (FileHashReader, FileHashWriter,
-                                      OrderedHashWriter, OrderedHashReader)
+from whoosh.filedb.filetables import (HashReader, HashWriter,
+                                      OrderedHashWriter, OrderedHashReader,
+                                      encode_termkey, decode_termkey)
 
 
 class TestTables(unittest.TestCase):
@@ -23,18 +24,48 @@ class TestTables(unittest.TestCase):
             except:
                 pass
     
+    def test_termkey(self):
+        term = (2, "bravo")
+        self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        
+    def test_random_termkeys(self):
+        for _ in xrange(100):
+            term = (random.randint(0, 15000),
+                    "".join(unichr(random.randint(0, 62000))
+                            for _ in xrange(1, 20)))
+            self.assertEqual(term, decode_termkey(encode_termkey(term)))
+    
     def test_hash(self):
         st = self.make_storage("testindex")
         hwf = st.create_file("test.hsh")
-        hw = FileHashWriter(hwf)
+        hw = HashWriter(hwf)
         hw.add("foo", "bar")
         hw.add("glonk", "baz")
         hw.close()
         
         hrf = st.open_file("test.hsh")
-        hr = FileHashReader(hrf)
+        hr = HashReader(hrf)
         self.assertEqual(hr.get("foo"), "bar")
         self.assertEqual(hr.get("baz"), None)
+        hr.close()
+        
+        self.destroy_dir("testindex")
+    
+    def test_hash_contents(self):
+        samp = set((('alfa', 'bravo'), ('charlie', 'delta'), ('echo', 'foxtrot'),
+                   ('golf', 'hotel'), ('india', 'juliet'), ('kilo', 'lima'),
+                   ('mike', 'november'), ('oskar', 'papa'), ('quebec', 'romeo'),
+                   ('sierra', 'tango'), ('ultra', 'victor'), ('whiskey', 'xray')))
+        
+        st = self.make_storage("testindex")
+        hwf = st.create_file("test.hsh")
+        hw = HashWriter(hwf)
+        hw.add_all(samp)
+        hw.close()
+        
+        hrf = st.open_file("test.hsh")
+        hr = HashReader(hrf)
+        self.assertEqual(samp, set(hr.items()))
         hr.close()
         
         self.destroy_dir("testindex")
@@ -54,7 +85,7 @@ class TestTables(unittest.TestCase):
         
         st = self.make_storage("testindex")
         hwf = st.create_file("test.hsh")
-        hw = FileHashWriter(hwf)
+        hw = HashWriter(hwf)
         for k, v in samp.iteritems():
             hw.add(k, v)
         hw.close()
@@ -62,7 +93,7 @@ class TestTables(unittest.TestCase):
         keys = samp.keys()
         random.shuffle(keys)
         hrf = st.open_file("test.hsh")
-        hr = FileHashReader(hrf)
+        hr = HashReader(hrf)
         for k in keys:
             v = hr[k]
             self.assertEqual(v, samp[k])
@@ -74,14 +105,14 @@ class TestTables(unittest.TestCase):
         times = 10000
         st = self.make_storage("testindex")
         hwf = st.create_file("test.hsh")
-        hw = FileHashWriter(hwf)
+        hw = HashWriter(hwf)
         hw.add_all(("%08x" % x, str(x)) for x in xrange(times))
         hw.close()
         
         keys = range(times)
         random.shuffle(keys)
         hrf = st.open_file("test.hsh")
-        hr = FileHashReader(hrf)
+        hr = HashReader(hrf)
         for x in keys:
             self.assertEqual(hr["%08x" % x], str(x))
         hr.close()
