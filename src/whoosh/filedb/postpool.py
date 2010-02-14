@@ -23,8 +23,9 @@ import os, tempfile
 from heapq import heapify, heapreplace, heappop
 from struct import Struct
 
-from whoosh.filedb.structfile import StructFile, pack_ushort, unpack_ushort
-from whoosh.system import _INT_SIZE, _SHORT_SIZE
+from whoosh.filedb.structfile import StructFile
+from whoosh.system import (_INT_SIZE, _SHORT_SIZE,
+                           pack_ushort, unpack_ushort)
 from whoosh.util import utf8encode, utf8decode
 
 
