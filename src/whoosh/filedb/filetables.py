@@ -24,7 +24,7 @@ from collections import defaultdict
 from cPickle import dumps, loads
 from struct import Struct
 
-from whoosh.system import (_SHORT_SIZE, _INT_SIZE, _LONG_SIZE,
+from whoosh.system import (_SHORT_SIZE, _INT_SIZE,
                            pack_ushort, unpack_ushort,
                            pack_uint, unpack_uint)
 from whoosh.util import utf8encode, utf8decode
@@ -66,7 +66,7 @@ decode_vectorkey = _vkey_struct.unpack
 encode_docnum = pack_uint
 decode_docnum = lambda x: unpack_uint(x)[0]
 
-_terminfo_struct = Struct("!III")
+_terminfo_struct = Struct("!III") # frequency, offset, postcount
 _pack_terminfo = _terminfo_struct.pack
 encode_terminfo = lambda cf_offset_df: _pack_terminfo(*cf_offset_df)
 decode_terminfo = _terminfo_struct.unpack
@@ -80,7 +80,10 @@ depickle = loads
 class FileHashWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
+        # Seek past the first 2048 bytes of the file... we'll come back here
+        # to write the header later
         dbfile.seek(HEADER_SIZE)
+        # Store the directory of hashed values
         self.hashes = defaultdict(list)
 
     def add_all(self, items):
@@ -95,7 +98,7 @@ class FileHashWriter(object):
 
             h = cdb_hash(key)
             hashes[h & 255].append((h, pos))
-            pos += len(key) + len(value) + 8
+            pos += len(key) + len(value) + _2INTS_SIZE
 
     def add(self, key, value):
         self.add_all(((key, value),))
@@ -161,12 +164,11 @@ class FileHashReader(object):
 
     def _ranges(self, pos=HEADER_SIZE):
         eod = self.end_of_data
-
-        dbfile = self.dbfile
+        read = self.read
         while pos < eod:
-            keylen, datalen = unpack_2ints(dbfile.read(_2INTS_SIZE))
+            keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
             keypos = pos + _2INTS_SIZE
-            datapos = pos + _2ints_struct + keylen
+            datapos = pos + _2INTS_SIZE + keylen
             pos = datapos + datalen
             yield (keypos, keylen, datapos, datalen)
 
@@ -222,17 +224,17 @@ class FileHashReader(object):
             return
 
         slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
-        for _ in xrange(0, hslots):
-            u, pos = unpack_2ints(read(slotpos, _2INTS_SIZE))
+        for _ in xrange(hslots):
+            slothash, pos = unpack_2ints(read(slotpos, _2INTS_SIZE))
             if not pos:
                 return
 
-            slotpos += 8
+            slotpos += _2INTS_SIZE
             # If we reach the end of the hashtable, wrap around
             if slotpos == hpos + (hslots << 3):
                 slotpos = hpos
 
-            if u == keyhash:
+            if slothash == keyhash:
                 keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
                 if keylen == len(key):
                     if key == read(pos + _2INTS_SIZE, keylen):
@@ -272,10 +274,12 @@ class OrderedHashWriter(FileHashWriter):
             ix.append(pos)
             write(pack_2ints(len(key), len(value)))
             write(key + value)
+            pos += len(key) + len(value) + _2INTS_SIZE
 
             h = cdb_hash(key)
             hashes[h & 255].append((h, pos))
-            pos += len(key) + len(value) + 8
+        
+        self.lastkey = lk
 
     def close(self):
         self._write_hashes()
@@ -290,8 +294,8 @@ class OrderedHashWriter(FileHashWriter):
 class OrderedHashReader(FileHashReader):
     def __init__(self, dbfile):
         FileHashReader.__init__(self, dbfile)
-        lastpos, lastnum = self.read2ints(255 * 8)
-        dbfile.seek(lastpos + lastnum * 8)
+        lastpos, lastnum = unpack_2ints(self.read(255 * _2INTS_SIZE, _2INTS_SIZE))
+        dbfile.seek(lastpos + lastnum * _2INTS_SIZE)
         
         self.index = array("I")
         self.index.fromstring(dbfile.read())
@@ -373,6 +377,7 @@ class FileTableReader(OrderedHashReader):
         self._items_from = sup.items_from
         self._keys = sup.keys
         self._keys_from = sup.keys_from
+        self._get = sup.get
         self._getitem = sup.__getitem__
         self._contains = sup.__contains__
 
@@ -382,6 +387,10 @@ class FileTableReader(OrderedHashReader):
 
     def __contains__(self, key):
         return self._contains(self.keycoder(key))
+
+    def get(self, key, default=None):
+        k = self.keycoder(key)
+        return self._get(k, default)
 
     def items(self):
         kd = self.keydecoder
@@ -489,7 +498,6 @@ class FileListReader(object):
 def dump_hash(hashreader):
     dbfile = hashreader.dbfile
     read = hashreader.read
-    read2 = hashreader.read
     eod = hashreader.end_of_data
 
     # Dump hashtables
@@ -502,6 +510,8 @@ def dump_hash(hashreader):
             for j in xrange(0, numslots):
                 print "  %X : %d" % unpack_2ints(read(pos, _2INTS_SIZE))
                 pos += _2INTS_SIZE
+        else:
+            print "Bucket %d empty" % bucketnum
 
     # Dump keys and values
     print "-----"
@@ -509,7 +519,7 @@ def dump_hash(hashreader):
     dbfile.seek(pos)
     while pos < eod:
         keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
-        keypos = pos + _INT_SIZE
+        keypos = pos + _2INTS_SIZE
         datapos = pos + _2INTS_SIZE + keylen
         key = read(keypos, keylen)
         data = read(datapos, datalen)
