@@ -274,10 +274,11 @@ class OrderedHashWriter(FileHashWriter):
             ix.append(pos)
             write(pack_2ints(len(key), len(value)))
             write(key + value)
-            pos += len(key) + len(value) + _2INTS_SIZE
 
             h = cdb_hash(key)
             hashes[h & 255].append((h, pos))
+            
+            pos += len(key) + len(value) + _2INTS_SIZE
         
         self.lastkey = lk
 
