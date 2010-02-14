@@ -1,6 +1,6 @@
 syntax: glob
 *.pyc
 *~
-
-syntax: glob
+*.DS_Store
+bmark
 *testindex
