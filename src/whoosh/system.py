@@ -18,15 +18,15 @@
 from struct import Struct, calcsize
 
 _INT_SIZE = calcsize("!i")
-_USHORT_SIZE = calcsize("!H")
-_ULONG_SIZE = calcsize("!L")
+_SHORT_SIZE = calcsize("!H")
+_LONG_SIZE = calcsize("!Q")
 _FLOAT_SIZE = calcsize("!f")
 
 _sbyte_struct = Struct("!b")
 _ushort_struct = Struct("!H")
 _int_struct = Struct("!i")
 _uint_struct = Struct("!I")
-_ulong_struct = Struct("!L")
+_ulong_struct = Struct("!Q")
 _float_struct = Struct("!f")
 
 pack_sbyte = _sbyte_struct.pack

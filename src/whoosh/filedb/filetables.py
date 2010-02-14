@@ -24,7 +24,9 @@ from collections import defaultdict
 from cPickle import dumps, loads
 from struct import Struct
 
-from whoosh.system import _USHORT_SIZE, _INT_SIZE
+from whoosh.system import (_SHORT_SIZE, _INT_SIZE, _LONG_SIZE,
+                           pack_ushort, unpack_ushort,
+                           pack_uint, unpack_uint)
 from whoosh.util import utf8encode, utf8decode
 
 
@@ -34,59 +36,42 @@ def cdb_hash(key):
         h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
     return h
 
-# Read/write convenience functions
+# The CDB algorithm involves reading and writing pairs of (unsigned) ints in
+# many different places, so I'll name some convenience functions and variables
 
-_2ints = Struct("!II")
-pack2ints = _2ints.pack
-def writeints(f, value1, value2):
-    f.write(pack2ints(value1, value2))
-unpack2ints = _2ints.unpack
+_2ints_struct = Struct("!II")
+_2INTS_SIZE = _2ints_struct.size
+pack_2ints = _2ints_struct.pack
+unpack_2ints = _2ints_struct.unpack
 
-_unpackint = Struct("!I").unpack
-def readint(map, offset):
-    return _unpackint(map[offset:offset + 4])[0]
+HEADER_SIZE = 256 * _2INTS_SIZE
 
-# Encoders and decoders for storing complex types in
-# string -> string hash files.
 
-_int_struct = Struct("!i")
-packint = _int_struct.pack
-_unpackint = _int_struct.unpack
-def unpackint(s):
-    return _unpackint(s)[0]
-
-_ushort_struct = Struct("!H")
-packushort = _ushort_struct.pack
-_unpackushort = _ushort_struct.unpack
-def unpackushort(s):
-    return _unpackushort(s)[0]
+# Encoders and decoders for storing complex types in string -> string hash
+# files.
 
 def encode_termkey(term):
     fieldnum, text = term
-    return packushort(fieldnum) + utf8encode(text)[0]
+    return pack_ushort(fieldnum) + utf8encode(text)[0]
 
 def decode_termkey(key):
-    return unpackushort(key[:_USHORT_SIZE]), utf8decode(key[_USHORT_SIZE:])[0]
+    return (unpack_ushort(key[:_SHORT_SIZE])[0],
+            utf8decode(key[_SHORT_SIZE:])[0])
 
-_vkey_struct = Struct("!Ii")
+_vkey_struct = Struct("!IH")
 _pack_vkey = _vkey_struct.pack
-def encode_vectorkey(docandfield):
-    return _pack_vkey(*docandfield)
-
+encode_vectorkey = lambda docandfield: _pack_vkey(*docandfield)
 decode_vectorkey = _vkey_struct.unpack
-encode_docnum = packint
-decode_docnum = unpackint
 
-_terminfo_struct = Struct("!ILI")
-_terminfo_pack = _terminfo_struct.pack
-def encode_terminfo(cf_offset_df):
-    return _terminfo_pack(*cf_offset_df)
+encode_docnum = pack_uint
+decode_docnum = lambda x: unpack_uint(x)[0]
+
+_terminfo_struct = Struct("!III")
+_pack_terminfo = _terminfo_struct.pack
+encode_terminfo = lambda cf_offset_df: _pack_terminfo(*cf_offset_df)
 decode_terminfo = _terminfo_struct.unpack
 
-def enpickle(data):
-    "Encodes a value as a string for storage in a table."
-    return dumps(data, -1)
-
+enpickle = lambda data: dumps(data, -1)
 depickle = loads
 
 
@@ -95,7 +80,7 @@ depickle = loads
 class FileHashWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
-        dbfile.seek(2048)
+        dbfile.seek(HEADER_SIZE)
         self.hashes = defaultdict(list)
 
     def add_all(self, items):
@@ -105,7 +90,7 @@ class FileHashWriter(object):
         write = dbfile.write
 
         for key, value in items:
-            writeints(dbfile, len(key), len(value))
+            write(pack_2ints(len(key), len(value)))
             write(key + value)
 
             h = cdb_hash(key)
@@ -114,11 +99,6 @@ class FileHashWriter(object):
 
     def add(self, key, value):
         self.add_all(((key, value),))
-
-    def add_key(self, key):
-        dbfile = self.dbfile
-
-        writeints(dbfile)
 
     def _write_hashes(self):
         dbfile = self.dbfile
@@ -139,9 +119,10 @@ class FileHashWriter(object):
                     n = (n + 1) % numslots
                 hashtable[n] = (hashval, position)
 
+            write = dbfile.write
             for hashval, position in hashtable:
-                writeints(dbfile, hashval, position)
-                pos += 8
+                write(pack_2ints(hashval, position))
+                pos += _2INTS_SIZE
 
         dbfile.flush()
 
@@ -151,8 +132,8 @@ class FileHashWriter(object):
 
         dbfile.seek(0)
         for position, numslots in directory:
-            writeints(dbfile, position, numslots)
-        assert dbfile.tell() == 2048
+            dbfile.write(pack_2ints(position, numslots))
+        assert dbfile.tell() == HEADER_SIZE
         dbfile.flush()
 
     def close(self):
@@ -178,20 +159,14 @@ class FileHashReader(object):
     def read(self, position, length):
         return self.map[position:position + length]
 
-    def readint(self, position):
-        return unpackint(self.map[position:position+_INT_SIZE])
-
-    def read2ints(self, position):
-        return unpack2ints(self.map[position:position + _INT_SIZE * 2])
-
-    def _ranges(self, pos=2048):
-        read2ints = self.read2ints
+    def _ranges(self, pos=HEADER_SIZE):
         eod = self.end_of_data
 
+        dbfile = self.dbfile
         while pos < eod:
-            keylen, datalen = read2ints(pos)
-            keypos = pos + 8
-            datapos = pos + 8 + keylen
+            keylen, datalen = unpack_2ints(dbfile.read(_2INTS_SIZE))
+            keypos = pos + _2INTS_SIZE
+            datapos = pos + _2ints_struct + keylen
             pos = datapos + datalen
             yield (keypos, keylen, datapos, datalen)
 
@@ -224,7 +199,7 @@ class FileHashReader(object):
         return default
 
     def _hashtable_info(self, keyhash):
-        return self.read2ints(keyhash << 3 & 2047)
+        return unpack_2ints(self.read(keyhash << 3 & 2047, _2INTS_SIZE))
 
     def _key_position(self, key):
         keyhash = cdb_hash(key)
@@ -232,16 +207,15 @@ class FileHashReader(object):
         if not hslots:
             raise KeyError(key)
         slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
-        u, pos = self.read2ints(slotpos)
-        return pos
+        
+        return self.dbfile.get_uint(slotpos + _INT_SIZE)
 
     def _key_at(self, pos):
-        keylen = self.readint(pos)
-        return self.read(pos+8, keylen)
+        keylen = self.dbfile.get_uint(pos)
+        return self.read(pos + _2INTS_SIZE, keylen)
 
     def _get_ranges(self, key):
         read = self.read
-        read2ints = self.read2ints
         keyhash = cdb_hash(key)
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
@@ -249,7 +223,7 @@ class FileHashReader(object):
 
         slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
         for _ in xrange(0, hslots):
-            u, pos = read2ints(slotpos)
+            u, pos = unpack_2ints(read(slotpos, _2INTS_SIZE))
             if not pos:
                 return
 
@@ -259,10 +233,10 @@ class FileHashReader(object):
                 slotpos = hpos
 
             if u == keyhash:
-                keylen, datalen = read2ints(pos)
+                keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
                 if keylen == len(key):
-                    if key == read(pos + 8, keylen):
-                        yield (pos + 8 + keylen, datalen)
+                    if key == read(pos + _2INTS_SIZE, keylen):
+                        yield (pos + _2INTS_SIZE + keylen, datalen)
 
     def all(self, key):
         read = self.read
@@ -296,7 +270,7 @@ class OrderedHashWriter(FileHashWriter):
             lk = key
 
             ix.append(pos)
-            writeints(dbfile, len(key), len(value))
+            write(pack_2ints(len(key), len(value)))
             write(key + value)
 
             h = cdb_hash(key)
@@ -504,8 +478,8 @@ class FileListReader(object):
 
     def __getitem__(self, num):
         dbfile = self.dbfile
-        offset = self.offset + num * (_INT_SIZE * 2)
-        position, length = unpack2ints(dbfile.map[offset:offset + _INT_SIZE * 2])
+        offset = self.offset + num * _2INTS_SIZE
+        position, length = unpack_2ints(dbfile.map[offset:offset + _2INTS_SIZE])
         v = dbfile.map[position:position + length]
         return self.valuedecoder(v)
 
@@ -515,28 +489,28 @@ class FileListReader(object):
 def dump_hash(hashreader):
     dbfile = hashreader.dbfile
     read = hashreader.read
-    read2ints = hashreader.read2ints
+    read2 = hashreader.read
     eod = hashreader.end_of_data
 
     # Dump hashtables
-    for bucketnum in xrange(0, 255):
-        pos, numslots = read2ints(bucketnum * 8)
+    for bucketnum in xrange(0, 256):
+        pos, numslots = unpack_2ints(read(bucketnum * _2INTS_SIZE, _2INTS_SIZE))
         if numslots:
             print "Bucket %d: %d slots" % (bucketnum, numslots)
 
             dbfile.seek(pos)
             for j in xrange(0, numslots):
-                print "  %X : %d" % read2ints(pos)
-                pos += 8
+                print "  %X : %d" % unpack_2ints(read(pos, _2INTS_SIZE))
+                pos += _2INTS_SIZE
 
     # Dump keys and values
     print "-----"
-    dbfile.seek(2048)
-    pos = 2048
+    pos = HEADER_SIZE
+    dbfile.seek(pos)
     while pos < eod:
-        keylen, datalen = read2ints(pos)
-        keypos = pos + 8
-        datapos = pos + 8 + keylen
+        keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
+        keypos = pos + _INT_SIZE
+        datapos = pos + _2INTS_SIZE + keylen
         key = read(keypos, keylen)
         data = read(datapos, datalen)
         print "%d +%d,%d:%r->%r" % (pos, keylen, datalen, key, data)
