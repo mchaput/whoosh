@@ -77,7 +77,7 @@ depickle = loads
 
 # Table classes
 
-class FileHashWriter(object):
+class HashWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
         # Seek past the first 2048 bytes of the file... we'll come back here
@@ -145,7 +145,7 @@ class FileHashWriter(object):
         self.dbfile.close()
 
 
-class FileHashReader(object):
+class HashReader(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
         self.map = dbfile.map
@@ -251,9 +251,9 @@ class FileHashReader(object):
         return False
 
 
-class OrderedHashWriter(FileHashWriter):
+class OrderedHashWriter(HashWriter):
     def __init__(self, dbfile):
-        FileHashWriter.__init__(self, dbfile)
+        HashWriter.__init__(self, dbfile)
         self.index = array("I")
         self.lastkey = None
 
@@ -292,9 +292,9 @@ class OrderedHashWriter(FileHashWriter):
         self.dbfile.close()
 
 
-class OrderedHashReader(FileHashReader):
+class OrderedHashReader(HashReader):
     def __init__(self, dbfile):
-        FileHashReader.__init__(self, dbfile)
+        HashReader.__init__(self, dbfile)
         lastpos, lastnum = unpack_2ints(self.read(255 * _2INTS_SIZE, _2INTS_SIZE))
         dbfile.seek(lastpos + lastnum * _2INTS_SIZE)
         
