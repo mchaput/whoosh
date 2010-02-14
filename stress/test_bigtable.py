@@ -28,26 +28,19 @@ class Test(unittest.TestCase):
                            for _ in xrange(randint(min, max)))
         
         count = 100000
-        import time
-        t = time.time()
         samp = dict((randstring(1,50), randstring(1,50))
                     for _ in xrange(count))
-        print time.time() - t
         
-        t = time.time()
         fhw = FileHashWriter(st.create_file("big.hsh"))
         fhw.add_all(samp.iteritems())
         fhw.close()
-        print time.time() - t
         
-        t = time.time()
         fhr = FileHashReader(st.open_file("big.hsh"))
         keys = samp.keys()
         shuffle(keys)
         for key in keys:
             self.assertEqual(samp[key], fhr[key])
         fhr.close()
-        print time.time() - t
         
         self.destroy_storage("testindex")
 
