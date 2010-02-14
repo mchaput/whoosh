@@ -24,7 +24,7 @@ from heapq import heapify, heapreplace, heappop
 from struct import Struct
 
 from whoosh.filedb.structfile import StructFile, pack_ushort, unpack_ushort
-from whoosh.system import _INT_SIZE, _USHORT_SIZE
+from whoosh.system import _INT_SIZE, _SHORT_SIZE
 from whoosh.util import utf8encode, utf8decode
 
 
@@ -50,10 +50,10 @@ def decode_posting(posting):
     (field_number, text, document_number, datastring) tuple.
     """
 
-    field_num = unpack_ushort(posting[:_USHORT_SIZE])[0]
+    field_num = unpack_ushort(posting[:_SHORT_SIZE])[0]
 
-    zero = posting.find(chr(0), _USHORT_SIZE)
-    text = utf8decode(posting[_USHORT_SIZE:zero])[0]
+    zero = posting.find(chr(0), _SHORT_SIZE)
+    text = utf8decode(posting[_SHORT_SIZE:zero])[0]
 
     metastart = zero + 1
     metaend = metastart + _INT_SIZE * 2

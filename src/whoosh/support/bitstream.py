@@ -6,10 +6,10 @@ http://mail.python.org/pipermail/python-list/2003-November/237481.html
 
 from array import array
 
-from whoosh.system import _ULONG_SIZE
+from whoosh.system import _LONG_SIZE
 
 
-_bitsperlong = _ULONG_SIZE * 8
+_bitsperlong = _LONG_SIZE * 8
 
 class BitStreamReader(object):
     def __init__(self, source):
@@ -18,7 +18,7 @@ class BitStreamReader(object):
 
         # Pad to longword boundary, then make an array
 
-        source += -len(source) % _ULONG_SIZE * chr(0)
+        source += -len(source) % _LONG_SIZE * chr(0)
         bits = array("L")
         bits.fromstring(source)
         self._bitstream = bits
