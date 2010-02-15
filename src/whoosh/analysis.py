@@ -1073,7 +1073,7 @@ class BiWordFilter(Filter):
     This can be used in fields dedicated to phrase searching. In the example
     above,  the three "bi-word" tokens will be faster to find than the four
     original words since there are fewer of them and they will be much less
-    frequent (especially than "the" and "of").
+    frequent (especially compared to words like "the" and "of").
     """
     
     def __init__(self, sep="-"):
@@ -1083,24 +1083,41 @@ class BiWordFilter(Filter):
         sep = self.sep
         prev_text = None
         prev_startchar = None
+        prev_pos = None
+        atleastone = False
         
         for token in tokens:
             # Save the original text of this token
             text = token.text
             
+            # Save the original position
+            positions = token.positions
+            if positions: ps = token.pos
+            
+            # Save the original start char
+            chars = token.chars
+            if chars: sc = token.startchar
+            
             if prev_text is not None:
-                if token.characters:
-                    # Save the original startchar
-                    sc = token.startchar
-                    # Use the startchar from the previous token
-                    token.startchar = prev_startchar
-                    prev_startchar = sc
+                # Use the pos and startchar from the previous token
+                if positions: token.pos = prev_pos
+                if chars: token.startchar = prev_startchar
+                
                 # Join the previous token text and the current token text to
                 # form the biword token
                 token.text = "".join((prev_text, sep, text))
                 yield token
-                
-                prev_text = text
+                atleastone = True
+            
+            # Save the originals and the new "previous" values
+            prev_text = text
+            if chars: prev_startchar = sc
+            if positions: prev_pos = ps
+        
+        # If at no bi-words were emitted, that is, the token stream only had
+        # a single token, then emit that single token.
+        if not atleastone:
+            yield token
         
 
 class BoostTextFilter(Filter):
