@@ -74,6 +74,21 @@ class TestAnalysis(unittest.TestCase):
                                                 (2, "SuperDuperXL"), (3, "500"), (4, "42"),
                                                 (4, "50042"), (5, "Auto"), (6, "Coder"),
                                                 (6, "AutoCoder")])
+    
+    def test_biword(self):
+        ana = RegexTokenizer(r"\w+") | BiWordFilter()
+        result = [t.copy() for t in ana(u"the sign of four",
+                                        chars=True, positions=True)]
+        self.assertEqual(["the-sign", "sign-of", "of-four"],
+                         [t.text for t in result])
+        self.assertEqual([(0, 8), (4, 11), (9, 16)],
+                         [(t.startchar, t.endchar) for t in result])
+        self.assertEqual([0, 1, 2], [t.pos for t in result])
+        
+        result = [t.copy() for t in ana(u"single")]
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].text, "single")
+        
         
 
 if __name__ == '__main__':
