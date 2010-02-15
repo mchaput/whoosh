@@ -1061,81 +1061,47 @@ class IntraWordFilter(Filter):
                     newpos += 1
 
 
-class CamelFilter(Filter):
-    """Splits CamelCased words into multiple words. This filter is deprecated,
-    use IntraWordFilter instead.
+class BiWordFilter(Filter):
+    """Merges adjacent tokens into "bi-word" tokens, so that for example::
     
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"call getProcessedToken")
-    >>> [token.text for token in CamelFilter(stream)]
-    [u"call", u"getProcessedToken", u"get", u"Processed", u"Token"]
+        "the", "sign", "of", "four"
+        
+    becomes::
     
-    Obviously this filter needs to precede LowercaseFilter if they are both in
-    a filter chain.
+        "the-sign", "sign-of", "of-four"
+        
+    This can be used in fields dedicated to phrase searching. In the example
+    above,  the three "bi-word" tokens will be faster to find than the four
+    original words since there are fewer of them and they will be much less
+    frequent (especially than "the" and "of").
     """
     
-    camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-    
+    def __init__(self, sep="-"):
+        self.sep = sep
+        
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
-        camel_exp = self.camel_exp
-        for t in tokens:
-            yield t
-            text = t.text
+        sep = self.sep
+        prev_text = None
+        prev_startchar = None
+        
+        for token in tokens:
+            # Save the original text of this token
+            text = token.text
             
-            if (text
-                and not text.islower()
-                and not text.isupper()
-                and not text.isdigit()):
-                chars = t.chars
-                if chars:
-                    oldstart = t.startchar
+            if prev_text is not None:
+                if token.characters:
+                    # Save the original startchar
+                    sc = token.startchar
+                    # Use the startchar from the previous token
+                    token.startchar = prev_startchar
+                    prev_startchar = sc
+                # Join the previous token text and the current token text to
+                # form the biword token
+                token.text = "".join((prev_text, sep, text))
+                yield token
                 
-                for match in camel_exp.finditer(text):
-                    sub = match.group(0)
-                    if sub != text:
-                        t.text = sub
-                        if chars:
-                            t.startchar = oldstart + match.start()
-                            t.endchar = oldstart + match.end()
-                        yield t
-
-
-class UnderscoreFilter(Filter):
-    """Splits words with underscores into multiple words. This filter is
-    deprecated, use IntraWordFilter instead.
-    
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"call get_processed_token")
-    >>> [token.text for token in CamelFilter(stream)]
-    [u"call", u"get_processed_token", u"get", u"processed", u"token"]
-    
-    Obviously you should not split words on underscores in the tokenizer if you
-    want to use this filter.
-    """
-    
-    underscore_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-    
-    def __call__(self, tokens):
-        underscore_exp = self.underscore_exp
-        for t in tokens:
-            yield t
-            text = t.text
-            
-            if text:
-                chars = t.chars
-                if chars:
-                    oldstart = t.startchar
-                
-                for match in underscore_exp.finditer(text):
-                    sub = match.group(0)
-                    if sub != text:
-                        t.text = sub
-                        if chars:
-                            t.startchar = oldstart + match.start()
-                            t.endchar = oldstart + match.end()
-                        yield t
-
+                prev_text = text
+        
 
 class BoostTextFilter(Filter):
     """Advanced filter. Looks for embedded boost markers in the actual text of
