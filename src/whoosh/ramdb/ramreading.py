@@ -48,7 +48,7 @@ class RamIndexReader(IndexReader):
     
     def all_stored_fields(self):
         sfn = self._stored_field_names
-        for sfs in self.ix.storedfields:
+        for sfs in self.ix.storedfields.itervalues():
             yield dict(zip(sfn, sfs))
             
     def doc_count_all(self):
@@ -69,8 +69,14 @@ class RamIndexReader(IndexReader):
         dfl = self.doc_field_length
         return [dfl(docnum, fnum) for fnum in self._scorable_fields]
     
-    def has_vector(self, docnum, fieldnum):
+    def has_vector(self, docnum, fieldid):
+        fieldnum = self.ix.schema.to_number(fieldid)
         return (docnum, fieldnum) in self.ix.vectors
+    
+    def vector(self, docnum, fieldid):
+        fieldnum = self.ix.schema.to_number(fieldid)
+        vformat = self.ix.schema[fieldnum].vector
+        return RamPostingReader(vformat, self.ix.vectors[(docnum, fieldnum)])
     
     def __iter__(self):
         tls = self.ix.termlists
@@ -88,19 +94,20 @@ class RamIndexReader(IndexReader):
     
     def frequency(self, fieldid, text):
         fieldnum = self.ix.schema.to_number(fieldid)
-        return self.ix.indexfreq[(fieldnum, text)]
+        return self.ix.indexfreqs[(fieldnum, text)]
     
     def iter_from(self, fieldid, text):
         tls = self.ix.termlists
         inv = self.ix.invertedindex
         ixf = self.ix.indexfreqs
-        for fieldnum in sorted(tls.keys()):
-            fieldtexts = tls[fieldnum]
-            start = bisect_left(fieldtexts, text)
-            for text in fieldtexts[start:]:
-                docfreq = len(inv[fieldnum][text])
-                indexfreq = ixf[(fieldnum, text)]
-                yield (fieldnum, text, docfreq, indexfreq)
+        
+        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldtexts = tls[fieldnum]
+        start = bisect_left(fieldtexts, text)
+        for text in fieldtexts[start:]:
+            docfreq = len(inv[fieldnum][text])
+            indexfreq = ixf[(fieldnum, text)]
+            yield (fieldnum, text, docfreq, indexfreq)
     
     def lexicon(self, fieldid):
         fieldnum = self.ix.schema.to_number(fieldid)
