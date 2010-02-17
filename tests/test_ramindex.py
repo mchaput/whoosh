@@ -1,5 +1,8 @@
 import unittest
 
+import os.path
+from shutil import rmtree
+
 from whoosh import query
 from whoosh.analysis import StandardAnalyzer
 from whoosh.fields import *
@@ -131,8 +134,21 @@ class TestRamIndex(unittest.TestCase):
                   (u'storage', 1), (u'the', 2)]
         vec = list(r.vector_as("frequency", 1, "text"))
         self.assertEqual(target, vec)
+        
+    def test_todisk(self):
+        if not os.path.exists("testindex"):
+            os.mkdir("testindex")
 
+        ix = self.make_index()
 
+        from whoosh.index import create_in
+        fix = create_in("testindex", ix.schema)
+        
+        w = fix.writer()
+        w.add_reader(ix.reader())
+        w.commit()
+        
+        rmtree("testindex", ignore_errors=True)
 
 
 if __name__ == '__main__':

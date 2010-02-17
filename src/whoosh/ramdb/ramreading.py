@@ -148,7 +148,6 @@ class RamPostingReader(PostingReader):
         self.id = self.postings[0][0]
     
     def all_items(self):
-        print "all_items"
         return self.postings
     
     def all_ids(self):

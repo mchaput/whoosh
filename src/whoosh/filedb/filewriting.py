@@ -145,6 +145,9 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
     def add_document(self, **fields):
         self.segment_writer().add_document(fields)
 
+    def add_reader(self, reader):
+        self.segment_writer().add_reader(reader)
+
     def commit(self, mergetype=MERGE_SMALL):
         """Finishes writing and unlocks the index.
         
