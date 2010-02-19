@@ -15,6 +15,7 @@
 #===============================================================================
 
 import mmap, os
+from array import array
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
 from struct import calcsize, Struct, pack, unpack
