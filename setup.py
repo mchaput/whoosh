@@ -14,19 +14,19 @@ setup(
 	
 	author = "Matt Chaput",
 	author_email = "matt@whoosh.ca",
-	description = "Fast, pure-Python full text indexing, search, and spell checking library.",
 	
+	description = "Fast, pure-Python full text indexing, search, and spell checking library.",
     long_description = open("README.txt").read(),
 
 	license = "Apache 2.0",
 	keywords = "index search text spell",
-	url = "http://whoosh.ca",
+	url = "http://bitbucket.org/mchaput/whoosh",
 	
 	zip_safe = True,
 	test_suite = "tests",
 	
 	classifiers = [
-	"Development Status :: 4 - Beta",
+	"Development Status :: 5 - Stable",
 	"Intended Audience :: Developers",
 	"License :: OSI Approved :: Apache Software License",
 	"Natural Language :: English",

@@ -230,7 +230,7 @@ class PostingPool(object):
         self.tempfilenames = []
         self.count = 0
 
-    def add_posting(self, field_num, text, doc, freq, datastring):
+    def add_posting(self, fieldnum, text, docnum, freq, datastring):
         """Adds a posting to the pool.
         """
 
@@ -238,7 +238,7 @@ class PostingPool(object):
             #print "Flushing..."
             self._flush_run()
 
-        posting = encode_posting(field_num, text, doc, freq, datastring)
+        posting = encode_posting(fieldnum, text, docnum, freq, datastring)
         self.size += len(posting)
         self.postings.append(posting)
         self.count += 1
@@ -249,6 +249,7 @@ class PostingPool(object):
 
         if self.size > 0:
             tempfd, tempname = tempfile.mkstemp(".whooshrun")
+            print "Run:", tempname
             runfile = StructFile(os.fdopen(tempfd, "w+b"))
 
             self.postings.sort()
@@ -276,6 +277,7 @@ class PostingPool(object):
             # disk, so the postings are still in memory: just yield them from
             # there.
 
+            print "--"
             self.postings.sort()
             for p in self.postings:
                 yield decode_posting(p)
