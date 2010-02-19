@@ -589,12 +589,12 @@ class ListScorer(QueryScorer):
     
     def reset(self):
         self.i = 0
-        self.id = self.postings[0]
+        self.id = self.postings[0][0]
     
     def next(self):
         self.i += 1
         if self.i < len(self.postings):
-            self.id = self.postings[self.i]
+            self.id = self.postings[self.i][0]
         else:
             self.id = None
     
@@ -803,7 +803,7 @@ class HashJoinScorer(ListScorer):
                 mins[docnum] += 1
         
         ListScorer.__init__(self, [(docnum, score) for docnum, score
-                                   in scores.iteritems()
+                                   in sorted(scores.iteritems())
                                    if mins[docnum] > minmatch])
 
 
