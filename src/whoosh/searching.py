@@ -292,6 +292,9 @@ class Searcher(object):
         return Results(self, query, scored_list, docvector, runtime=t,
                        scores=scores)
 
+    def docnums(self, query):
+        return list(query.docs(self))
+
     def fieldname_to_num(self, fieldid):
         """Returns the field number of the given field name.
         """
@@ -339,16 +342,12 @@ class TopDocs(object):
 
         subtotal = 0
         for docnum, score in sequence:
-            if score < minscore: continue
-
             docs.set(docnum)
             subtotal += 1
-
+            
             if len(heap) >= capacity:
-                if score <= heap[0][0]:
-                    continue
-                else:
-                    heapreplace(heap, (score, docnum))
+                if score <= heap[0][0]: continue
+                heapreplace(heap, (score, docnum))
             else:
                 heappush(heap, (score, docnum))
 
@@ -366,7 +365,6 @@ class TopDocs(object):
         rather than calling this method multiple times.
         """
 
-        # Throw away the score and just return a list of items
         return [(item, score) for score, item in reversed(sorted(self.heap))]
 
 
@@ -402,7 +400,8 @@ class Results(object):
         self.runtime = runtime
 
     def __repr__(self):
-        return "<%s/%s Results for %r runtime=%s>" % (len(self), self.docs.count(),
+        return "<%s/%s Results for %r runtime=%s>" % (self.scored_length(),
+                                                      self.docs.count(),
                                                       self.query,
                                                       self.runtime)
 

@@ -154,7 +154,7 @@ class BitVector(object):
         """Turns the bit at the given position on."""
         
         if index >= self.size:
-            raise IndexError("Position %s greater than the size of the vector" % index)
+            raise IndexError("Position %s greater than the size of the vector" % repr(index))
         self.bits[index >> 3] |= 1 << (index & 7)
         self.bcount = None
     

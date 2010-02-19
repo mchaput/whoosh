@@ -160,12 +160,12 @@ class AsyncWriter(threading.Thread, DeletionMixin):
     
     For example, to get an aynchronous writer, instead of this:
     
-    >>> writer = myindex.writer(postlimit=128 * 1024 * 1024)
+    >>> writer = myindex.writer(postlimitmb=128)
     
     Do this:
     
     >>> from whoosh.writing import AsyncWriter
-    >>> writer = AsyncWriter(myindex.writer, postlimit=128 * 1024 * 1024)
+    >>> writer = AsyncWriter(myindex.writer, postlimitmb=128)
     """
     
     def __init__(self, writerfn, delay=0.25, **writerargs):

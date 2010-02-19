@@ -30,7 +30,7 @@ import fnmatch, re
 
 from whoosh.lang.morph_en import variations
 from whoosh.postings import QueryScorer, EmptyScorer
-from whoosh.postings import IntersectionScorer, UnionScorer
+from whoosh.postings import IntersectionScorer, UnionScorer, HashJoinScorer
 from whoosh.postings import RequireScorer, AndMaybeScorer, InverseScorer
 from whoosh.postings import ReadTooFar
 from whoosh.reading import TermNotFound
@@ -1061,7 +1061,7 @@ class Phrase(MultiTerm):
             docnum = self.intersection.id
             fieldnum = self.fieldnum
             if not self.reader.has_vector(docnum, fieldnum):
-                raise QueryError("Phrase query: document %s field %r has no vector")
+                raise QueryError("Phrase query: document %s field %r has no vector" % (docnum, fieldnum))
             vreader = self.reader.vector(docnum, fieldnum)
             # The vector is in sorted order, so grab the positions lists in
             # sorted order and put them in a dictionary
@@ -1264,12 +1264,12 @@ class NullQuery(Query):
 NullQuery = NullQuery()
 
 
-# ===========================================================================================
+# =============================================================================
 #
 # Binary classes
 # You probably don't want to use these
 #
-# ===========================================================================================
+# =============================================================================
 
 class Require(CompoundQuery):
     """Binary query returns results from the first query that also appear in

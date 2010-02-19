@@ -115,11 +115,13 @@ class SegmentReader(IndexReader):
                                                mapped=False)
 
     def vector(self, docnum, fieldid):
-        self._open_vectors()
         schema = self.schema
         fieldnum = schema.to_number(fieldid)
         vformat = schema[fieldnum].vector
-
+        if not vformat:
+            raise Exception("No vectors are stored for field %r" % fieldid)
+        
+        self._open_vectors()
         offset = self.vectortable[(docnum, fieldnum)]
         return FilePostingReader(self.vpostfile, offset, vformat,
                                  stringids=True)
