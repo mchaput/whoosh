@@ -77,7 +77,8 @@ def write_postings(postiter, termtable, postwriter, schema):
 
     # Loop through the postings in the pool. Postings always come out of
     # the pool in (field number, lexical) order.
-    for fieldnum, text, docnum, freq, valuestring in postiter:
+    for posting in postiter:
+        fieldnum, text, docnum, freq, valuestring = decode_posting(posting)
         # Is this the first time through, or is this a new term?
         if first or fieldnum > current_fieldnum or text > current_text:
             if first:
@@ -141,8 +142,17 @@ def read_run(filename, count):
     read = stream.read_string2
     while count:
         count -= 1
-        yield decode_posting(read())
+        yield read()
     stream.close()
+    
+def merge_runs(runs):
+    tempfd, tempname = tempfile.mkstemp(".whooshrun")
+    runfile = StructFile(os.fdopen(tempfd, "w+b"))
+    c = sum(count for filename, count in runs)
+    for p in imerge([read_run(filename, count) for filename, count in runs]):
+        runfile.write_string2(p)
+    runfile.close()
+    return (tempname, c)
     
 
 class PostingPool(object):
@@ -208,7 +218,7 @@ class PostingPool(object):
     def iter_postings(self):
         if self.postings and len(self.runs) == 0:
             self.postings.sort()
-            return (decode_posting(posting) for posting in self.postings)
+            return (posting for posting in self.postings)
         
         if not self.postings and not self.runs:
             return []
@@ -261,8 +271,6 @@ class PoolWritingTask(Process):
         
     def run(self):
         queue = self.queue
-        
-        print "limitmb=", self.limitmb
         subpool = PostingPool(self.limitmb, callback=self.outqueue.put)
         
         while True:
@@ -286,36 +294,6 @@ def iterqueue(q):
         if item is None: return
         yield item
 
-
-class PoolMergingTask(Process):
-    def __init__(self, runs, outqueue, remaining):
-        Process.__init__(self)
-        print "Starting merger:", runs
-        self.runs = runs
-        self.outqueue = outqueue
-        self.remaining = remaining
-        
-    def run(self):
-        runs = self.runs
-        remaining = self.remaining
-        outqueue = self.outqueue
-        
-        if len(runs) >=4 and remaining >= 2:
-            mid = len(runs)//2
-            inqueue1 = Queue()
-            m1 = PoolMergingTask(runs[:mid], inqueue1, remaining-2)
-            m1.start()
-            inqueue2 = Queue()
-            m2 = PoolMergingTask(runs[mid:], inqueue2, remaining-2)
-            m2.start()
-            for item in imerge([iterqueue(inqueue1), iterqueue(inqueue2)]):
-                outqueue.put(item)
-            outqueue.put(None)
-        else:
-            for item in imerge([read_run(run, count) for run, count in runs]):
-                outqueue.put(item)
-            outqueue.put(None)
-        
 
 class MultiPool(object):
     def __init__(self, procs, limitmb=32, pmerge=True):
@@ -357,18 +335,14 @@ class MultiPool(object):
         self.namequeue.close()
         for task in self.tasks:
             task.terminate()
+        print "Filenames:", time.time() - t
         
-        if self.pmerge and len(runs) >= 4:
-            mid = len(runs)//2
-            inqueue1 = Queue()
-            m1 = PoolMergingTask(runs[:mid], inqueue1, self.procs-2)
-            m1.start()
-            inqueue2 = Queue()
-            m2 = PoolMergingTask(runs[mid:], inqueue2, self.procs-2)
-            m2.start()
-            iter = imerge([iterqueue(inqueue1), iterqueue(inqueue2)])
-        else:
-            iter = imerge([read_run(runname, count) for runname, count in runs])
+        t = time.time()
+        iter = imerge([read_run(runname, count) for runname, count in runs])
+        #iter = read_run(*merge_runs(runs))
+        print "Unify:", time.time() - t
+        
+        t = time.time()
         write_postings(iter, termtable, postwriter, schema)
         print "Merge:", time.time() - t
 
