@@ -196,7 +196,7 @@ class Searcher(object):
 
     def find(self, defaultfield, querystring, **kwargs):
         from whoosh.qparser import QueryParser
-        qp = QueryParser(defaultfield)
+        qp = QueryParser(defaultfield, schema=self.ixreader.schema)
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 

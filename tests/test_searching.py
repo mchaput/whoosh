@@ -438,6 +438,23 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(sc.id, 3)
         self.assert_(sc.score() > score1)
 
+    def test_stop_phrase(self):
+        schema = fields.Schema(title=fields.TEXT(stored=True))
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        writer = ix.writer()
+        writer.add_document(title=u"Richard of York")
+        writer.add_document(title=u"Lily the Pink")
+        writer.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("title", schema=schema)
+        q = qp.parse(u"richard of york")
+        self.assertEqual(len(s.search(q)), 1)
+        #q = qp.parse(u"lily the pink")
+        #self.assertEqual(len(s.search(q)), 1)
+        self.assertEqual(len(s.find("title", u"lily the pink")), 1)
+        
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True),
                                hobbies=fields.TEXT(stored=True))
