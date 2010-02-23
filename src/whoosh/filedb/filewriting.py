@@ -185,7 +185,7 @@ class SegmentWriter(object):
     fields, handles the posting pool, and writes out the term index.
     """
 
-    def __init__(self, ix, pool, blocklimit, name=None):
+    def __init__(self, ix, pool, blocklimit=128, name=None):
         """
         :param ix: the Index object in which to write the new segment.
         :param postlimitmb: the maximum size, in MB for a run in the posting
@@ -423,6 +423,116 @@ class SegmentWriter(object):
 
 
 
+# Multiprocessing classes
+
+try:
+    from multiprocessing import Process, JoinableQueue
+except ImportError:
+    class Process(object):
+        def __init__(self):
+            raise Exception("multiprocessing.Process not available")
+
+
+class MultiprocWriter(object):
+    """Implements a subset of the IndexWriter interface, allowing
+    parallel writing of documents to parallel segments within an on-disk
+    index.
+    
+    This class is only available if 
+    """
+    
+    class WriterProcess(Process):
+        def __init__(self, indexdir, indexname,
+                     segmentname, queue, postlimit, blocklimit):
+            Process.__init__(self)
+            self.indexdir = indexdir
+            self.indexname = indexname
+            self.segmentname = segmentname
+            self.queue = queue
+            self.postlimit = postlimit
+            self.blocklimit = blocklimit
+        
+        def run(self):
+            queue = self.queue
+            from whoosh import index
+            ix = index.open_dir(self.indexdir, indexname=self.indexname)
+            writer = SegmentWriter(ix, self.postlimit, self.blocklimit,
+                                   name=self.segmentname)
+            
+            while True:
+                fields = queue.get(block=True)
+                if fields is None:
+                    break
+                writer.add_document(fields)
+                queue.task_done()
+            
+            print "Closing writer", writer
+            writer.close()
+            ix.close()
+            queue.task_done()
+    
+    def __init__(self, indexdir, indexname, processcount,
+                 maxqueuesize=1000, postlimit=32*1024*1024, blocklimit=128):
+        self.indexdir = indexdir
+        self.indexname = indexname
+        self.processcount = processcount
+        self.maxqueuesize = maxqueuesize
+        self.postlimit = postlimit
+        self.blocklimit = blocklimit
+        
+        self.processes = []
+        self.queue = None
+    
+    def _setup(self):
+        self.queue = JoinableQueue(self.maxqueuesize)
+        
+        from whoosh.index import open_dir
+        ix = open_dir(self.indexdir, indexname=self.indexname)
+        segmentnames = [ix._next_segment_name()
+                        for _ in xrange(self.processcount)]
+        
+        self.processes = [self.WriterProcess(self.indexdir, self.indexname,
+                                             segmentname, self.queue,
+                                             self.postlimit, self.blocklimit)
+                          for segmentname in segmentnames]
+        
+        for proc in self.processes:
+            proc.start()
+    
+    def add_document(self, **fields):
+        if not self.queue:
+            self._setup()
+        self.queue.put(fields)
+
+    def commit(self, mergetype=MERGE_SMALL):
+        """Finishes writing and unlocks the index.
+        
+        :param mergetype: How to merge existing segments. One of
+            :class:`whoosh.filedb.filewriting.NO_MERGE`,
+            :class:`whoosh.filedb.filewriting.MERGE_SMALL`,
+            or :class:`whoosh.filedb.filewriting.OPTIMIZE`.
+        """
+        
+        print "Joining..."
+        for _ in self.processes:
+            self.queue.put(None)
+        self.queue.join()
+        
+        #print "Terminating..."
+        #for proc in self.processes:
+        #    proc.terminate()
+        
+        print "Done!"
+        
+#            self._close_reader()
+#            if self._segment_writer or mergetype is OPTIMIZE:
+#                self._merge_segments(mergetype)
+#            self.index.commit(self.segments)
+#            self._finish()
+
+    def cancel(self):
+        raise NotImplementedError
+    
 
 
 

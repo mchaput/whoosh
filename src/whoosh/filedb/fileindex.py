@@ -100,7 +100,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         # files open so they don't get deleted from underneath us.
         self._searcher = self.searcher()
 
-        self.segment_num_lock = Lock()
+        self.segment_num_lock = None
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__,
@@ -199,6 +199,9 @@ class FileIndex(SegmentDeletionMixin, Index):
 
     def _next_segment_name(self):
         #Returns the name of the next segment in sequence.
+        if self.segment_num_lock is None:
+            self.segment_num_lock = Lock()
+        
         if self.segment_num_lock.acquire():
             try:
                 self.segment_counter += 1
@@ -420,7 +423,7 @@ class SegmentSet(object):
             from whoosh.reading import MultiReader
             readers = [SegmentReader(storage, segment, schema)
                        for segment in segments]
-            return MultiReader(readers, self._doc_offsets, schema)
+            return MultiReader(readers, schema)
 
 
 class Segment(object):
