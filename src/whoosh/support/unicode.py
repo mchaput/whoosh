@@ -213,13 +213,20 @@ pattern = re.compile(r'([0-9A-F]+)\.\.([0-9A-F]+);\ (\S.*\S)')
 _starts = []
 _ends = []
 _names = []
-for line in _blockdata.splitlines():
-    m = pattern.match(line)
-    if m:
-        start, end, name = m.groups()
-        _starts.append(int(start, 16))
-        _ends.append(int(end, 16))
-        _names.append(name)
+class blocks(object):
+    pass
+def _init():
+    count = 0
+    for line in _blockdata.splitlines():
+        m = pattern.match(line)
+        if m:
+            start, end, name = m.groups()
+            _starts.append(int(start, 16))
+            _ends.append(int(end, 16))
+            _names.append(name)
+            setattr(blocks, name.replace(" ", "_"), count)
+            count += 1
+_init()
 
 
 def blockname(ch):

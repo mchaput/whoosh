@@ -1,7 +1,7 @@
 import unittest
 
 from whoosh.analysis import *
-from whoosh.support.unicode import blockname, blocknum
+from whoosh.support.unicode import blocks, blockname, blocknum
 
 class TestAnalysis(unittest.TestCase):
     def test_regextokenizer(self):
@@ -97,6 +97,8 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(blocknum(u'a'), 0)
         self.assertEqual(blocknum(unichr(0x0b80)), 22)
         self.assertEqual(blocknum(unichr(2048)), None)
+        self.assertEqual(blocknum(u'a'), blocks.Basic_Latin)
+        self.assertEqual(blocknum(unichr(0x0b80)), blocks.Tamil)
         
         
 
