@@ -4,3 +4,6 @@ syntax: glob
 *.DS_Store
 bmark
 *testindex
+
+syntax: regexp
+^build$

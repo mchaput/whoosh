@@ -279,12 +279,17 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def __init__(self, readers, doc_offsets, schema):
+    def __init__(self, readers, schema):
         self.readers = readers
-        self.doc_offsets = doc_offsets
         self.schema = schema
+        
+        self.doc_offsets = []
+        base = 0
+        for r in self.readers:
+            self.doc_offsets.append(base)
+            base += r.doc_count_all()
+        
         self._scorable_fields = self.schema.scorable_fields()
-
         self.is_closed = False
 
     def __contains__(self, term):
@@ -296,8 +301,8 @@ class MultiReader(IndexReader):
     def has_deletions(self):
         return any(r.has_deletions() for r in self.readers)
 
-    def is_deleted(self):
-        segmentnum, segmentdoc = self._segment_and_doc
+    def is_deleted(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].is_deleted(segmentdoc)
 
     def stored_fields(self, docnum):
