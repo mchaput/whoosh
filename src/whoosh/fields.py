@@ -261,8 +261,7 @@ class BOOLEAN(FieldType):
         self.format = Existence()
     
     def index(self, bit):
-        if not isinstance(bit, bool):
-            raise ValueError("Value of BOOL field must be a bool object: %r" % bit)
+        bit = bool(bit)
         return [(self.strings[int(bit)], 1, '')]
     
     def parse_query(self, fieldname, qstring, boost=1.0):
