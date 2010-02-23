@@ -958,6 +958,9 @@ class Variations(MultiTerm):
         self.fieldname == other.fieldname and self.text == other.text and\
         self.boost == other.boost
 
+    def _all_terms(self, termset, phrases=True):
+        termset.add(self.text)
+
     def _words(self, ixreader):
         fieldname = self.fieldname
         return [word for word in self.words if (fieldname, word) in ixreader]
