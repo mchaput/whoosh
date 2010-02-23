@@ -140,112 +140,7 @@ DEFAULT_PARSER = _make_default_parser()
 
 # Query parser objects
 
-class PyparsingBasedParser(object):
-    def _field(self, fieldname):
-        if self.schema:
-            return self.schema[fieldname]
-
-    def parse(self, input, normalize=True):
-        """Parses the input string and returns a Query object/tree.
-        
-        This method may return None if the input string does not result in any
-        valid queries. It may also raise a variety of exceptions if the input
-        string is malformed.
-        
-        :param input: the unicode string to parse.
-        :param normalize: whether to call normalize() on the query object/tree
-            before returning it. This should be left on unless you're trying to
-            debug the parser output.
-        :rtype: :class:`whoosh.query.Query`
-        """
-
-        ast = self.parser(input)[0]
-        q = self._eval(ast, self.default_field)
-        if q and normalize:
-            q = q.normalize()
-        return q
-
-    # These methods are called by the parsing code to generate query
-    # objects. They are useful for subclassing.
-
-    def _eval(self, node, fieldname):
-        # Get the name of the AST node and call the corresponding
-        # method to get a query object
-        name = node.getName()
-        return getattr(self, "_" + name)(node, fieldname)
-
-    def get_term_text(self, field, text, **kwargs):
-        # Just take the first token
-        for t in field.process_text(text, mode="query", **kwargs):
-            return t
-
-    def make_term(self, fieldname, text):
-        field = self._field(fieldname)
-        if field:
-            if field.parse_query:
-                return field.parse_query(fieldname, text)
-            else:
-                text = self.get_term_text(field, text)
-
-        if text is None:
-            return NullQuery
-        return self.termclass(fieldname, text)
-
-    def make_phrase(self, fieldname, text):
-        field = self._field(fieldname)
-        if field:
-            if field.parse_query:
-                return field.parse_query(fieldname, text)
-
-            texts = list(field.process_text(text, mode="query"))
-            if not texts:
-                return self.termclass(fieldname, u'')
-            elif len(texts) == 1:
-                return self.termclass(fieldname, texts[0])
-            else:
-                return Phrase(fieldname, texts)
-        else:
-            return Phrase(fieldname, text.split(" "))
-
-    def make_wildcard(self, fieldname, text):
-        field = self._field(fieldname)
-        if field:
-            text = self.get_term_text(field, text, tokenize=False,
-                                      removestops=False)
-        return Wildcard(fieldname, text)
-
-    def make_range(self, fieldname, start, end, startexcl, endexcl):
-        field = self._field(fieldname)
-        if field:
-            if start:
-                start = self.get_term_text(field, start, tokenize=False,
-                                           removestops=False)
-            if end:
-                end = self.get_term_text(field, end, tokenize=False,
-                                         removestops=False)
-
-        if not start and not end:
-            raise QueryError("TermRange must have start and/or end")
-        if not start:
-            start = u''
-        if not end:
-            end = u'\uFFFF'
-        return TermRange(fieldname, start, end, startexcl, endexcl)
-
-    def make_and(self, qs):
-        return And(qs)
-
-    def make_or(self, qs):
-        return Or(qs)
-
-    def make_andnot(self, positive, negative):
-        return AndNot(positive, negative)
-
-    def make_not(self, q):
-        return Not(q)
-
-
-class QueryParser(PyparsingBasedParser):
+class QueryParser(object):
     """The default parser for Whoosh, implementing a powerful fielded query
     language similar to Lucene's.
     """
@@ -279,6 +174,113 @@ class QueryParser(PyparsingBasedParser):
         self.termclass = termclass
         self.schema = schema
         self.parser = DEFAULT_PARSER
+    
+    def _field(self, fieldname):
+        if self.schema:
+            return self.schema[fieldname]
+
+    def parse(self, input, normalize=True):
+        """Parses the input string and returns a Query object/tree.
+        
+        This method may return None if the input string does not result in any
+        valid queries. It may also raise a variety of exceptions if the input
+        string is malformed.
+        
+        :param input: the unicode string to parse.
+        :param normalize: whether to call normalize() on the query object/tree
+            before returning it. This should be left on unless you're trying to
+            debug the parser output.
+        :rtype: :class:`whoosh.query.Query`
+        """
+
+        ast = self.parser(input)[0]
+        q = self._eval(ast, self.default_field)
+        if q and normalize:
+            q = q.normalize()
+        return q
+
+    # These methods are called by the parsing code to generate query
+    # objects. They are useful for subclassing.
+
+    def _eval(self, node, fieldname):
+        # Get the name of the AST node and call the corresponding
+        # method to get a query object
+        name = node.getName()
+        return getattr(self, "_" + name)(node, fieldname)
+
+    def get_single_text(self, field, text, **kwargs):
+        # Just take the first token
+        for t in field.process_text(text, mode="query", **kwargs):
+            return t
+
+    def make_term(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            if field.parse_query:
+                return field.parse_query(fieldname, text)
+            else:
+                texts = list(field.process_text(text, mode="query"))
+                if len(texts) > 1:
+                    return Phrase(fieldname, texts)
+                else:
+                    text = texts[0]
+
+        if text is None:
+            return NullQuery
+        return self.termclass(fieldname, text)
+
+    def make_phrase(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            if field.parse_query:
+                return field.parse_query(fieldname, text)
+
+            texts = list(field.process_text(text, mode="query"))
+            if len(texts) == 1:
+                return self.termclass(fieldname, texts[0])
+            elif len(texts) == 0:
+                return NullQuery
+            else:
+                return Phrase(fieldname, texts)
+        else:
+            return Phrase(fieldname, text.split(" "))
+        
+    def make_wildcard(self, fieldname, text):
+        field = self._field(fieldname)
+        if field:
+            text = self.get_single_text(field, text, tokenize=False,
+                                      removestops=False)
+        return Wildcard(fieldname, text)
+
+    def make_range(self, fieldname, start, end, startexcl, endexcl):
+        field = self._field(fieldname)
+        if field:
+            if start:
+                start = self.get_single_text(field, start, tokenize=False,
+                                           removestops=False)
+            if end:
+                end = self.get_single_text(field, end, tokenize=False,
+                                         removestops=False)
+
+        if not start and not end:
+            raise QueryError("TermRange must have start and/or end")
+        if not start:
+            start = u''
+        if not end:
+            end = u'\uFFFF'
+        return TermRange(fieldname, start, end, startexcl, endexcl)
+
+    def make_and(self, qs):
+        return And(qs)
+
+    def make_or(self, qs):
+        return Or(qs)
+
+    def make_andnot(self, positive, negative):
+        return AndNot(positive, negative)
+
+    def make_not(self, q):
+        return Not(q)
 
     # These methods take the AST from pyparsing, extract the relevant data, and
     # call the appropriate make_* methods to create query objects.
