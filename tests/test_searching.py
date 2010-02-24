@@ -704,6 +704,11 @@ class TestSearching(unittest.TestCase):
         self.assertTrue(len(keyterms) > 0)
         self.assertEqual(keyterms[0][0], "distinctive")
         
+        r = s.search(query.Term("path", u"b"))
+        keyterms2 = list(r.key_terms("content"))
+        self.assertTrue(len(keyterms2) > 0)
+        self.assertEqual(keyterms2[0][0], "distinctive")
+        
 
 
 if __name__ == '__main__':
