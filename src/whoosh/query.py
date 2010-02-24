@@ -105,9 +105,9 @@ class Query(object):
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
         
-        This method simply operates on the query itself, without reference
-        to an index (unlike existing_terms()), so it will *not* add terms
-        that require an index to compute, such as Prefix and Wildcard.
+        This method simply operates on the query itself, without reference to
+        an index (unlike existing_terms()), so it will *not* add terms that
+        require an index to compute, such as Prefix and Wildcard.
         
         >>> q = And([Term("content", u"render"), Term("path", u"/a/b")])
         >>> q.all_terms()
@@ -124,22 +124,23 @@ class Query(object):
 
     def existing_terms(self, ixreader, termset=None, reverse=False,
                        phrases=True):
-        """Returns a set of all terms in this query tree that exist in the index
-        represented by the given ixreaderder.
+        """Returns a set of all terms in this query tree that exist in the
+        index represented by the given ixreaderder.
         
         This method references the IndexReader to expand Prefix and Wildcard
         queries, and only adds terms that actually exist in the index (unless
         reverse=True).
         
         >>> ixreader = my_index.reader()
-        >>> q = And([Or([Term("content", u"render"), Term("content", u"rendering")]),
-                     Prefix("path", u"/a/")])
+        >>> q = And([Or([Term("content", u"render"),
+        ...             Term("content", u"rendering")]),
+        ...             Prefix("path", u"/a/")])
         >>> q.existing_terms(ixreader, termset)
         set([("content", u"render"), ("path", u"/a/b"), ("path", u"/a/c")])
         
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
-        :param reverse: If True, this method adds *missing* terms
-            rather than *existing* terms to the set.
+        :param reverse: If True, this method adds *missing* terms rather than
+            *existing* terms to the set.
         :param phrases: Whether to add words found in Phrase queries.
         :rtype: set
         """
@@ -207,7 +208,9 @@ class Query(object):
         want to call it yourself if you're writing your own parser or building
         your own queries.
         
-        >>> q = And([And([Term("f", u"a"), Term("f", u"b")]), Term("f", u"c"), Or([])])
+        >>> q = And([And([Term("f", u"a"),
+        ...               Term("f", u"b")]),
+        ...               Term("f", u"c"), Or([])])
         >>> q.normalize()
         And([Term("f", u"a"), Term("f", u"b"), Term("f", u"c")])
         
@@ -488,8 +491,8 @@ class And(CompoundQuery):
     """Matches documents that match ALL of the subqueries.
     
     >>> And([Term("content", u"render"),
-             Term("content", u"shade"),
-             Not(Term("content", u"texture"))])
+    ...      Term("content", u"shade"),
+    ...      Not(Term("content", u"texture"))])
     >>> # You can also do this
     >>> Term("content", u"render") & Term("content", u"shade")
     """
@@ -509,8 +512,8 @@ class Or(CompoundQuery):
     """Matches documents that match ANY of the subqueries.
     
     >>> Or([Term("content", u"render"),
-            And([Term("content", u"shade"), Term("content", u"texture")]),
-            Not(Term("content", u"network"))])
+    ...     And([Term("content", u"shade"), Term("content", u"texture")]),
+    ...     Not(Term("content", u"network"))])
     >>> # You can also do this
     >>> Term("content", u"render") | Term("content", u"shade")
     """
@@ -605,7 +608,7 @@ class Not(Query):
     
     >>> # Match documents that contain 'render' but not 'texture'
     >>> And([Term("content", u"render"),
-             Not(Term("content", u"texture"))])
+    ...      Not(Term("content", u"texture"))])
     >>> # You can also do this
     >>> Term("content", u"render") - Term("content", u"texture")
     """
@@ -650,7 +653,8 @@ class Not(Query):
         self.query.all_terms(termset, phrases=phrases)
 
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        self.query.existing_terms(ixreader, termset, reverse=reverse, phrases=phrases)
+        self.query.existing_terms(ixreader, termset, reverse=reverse,
+                                  phrases=phrases)
 
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
@@ -791,10 +795,10 @@ class FuzzyTerm(MultiTerm):
         """
         :param fieldname: The name of the field to search.
         :param text: The text to search for.
-        :param boost: A boost factor to apply to scores of documents matching this
-            query.
-        :param minsimilarity: The minimum similarity ratio to match. 1.0 is
-            the maximum (an exact match to 'text').
+        :param boost: A boost factor to apply to scores of documents matching
+            this query.
+        :param minsimilarity: The minimum similarity ratio to match. 1.0 is the
+            maximum (an exact match to 'text').
         :param prefixlength: The matched terms must share this many initial
             characters with 'text'. For example, if text is "light" and
             prefixlength is 2, then only terms starting with "li" are checked
@@ -833,7 +837,8 @@ class FuzzyTerm(MultiTerm):
     def _words(self, ixreader):
         text = self.text
         minsim = self.minsimilarity
-        for term in ixreader.expand_prefix(self.fieldname, text[:self.prefixlength]):
+        for term in ixreader.expand_prefix(self.fieldname,
+                                           text[:self.prefixlength]):
             if text == term:
                 yield term
             elif relative(text, term) > minsim:
@@ -848,7 +853,8 @@ class TermRange(MultiTerm):
     >>> TermRange("id", u"apple", u"pear")
     """
 
-    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False, boost=1.0):
+    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
+                 boost=1.0):
         """
         :param fieldname: The name of the field to search.
         :param start: Match terms equal to or greather than this.
@@ -869,11 +875,14 @@ class TermRange(MultiTerm):
         self.boost = boost
 
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.fieldname == other.fieldname and\
-        self.start == other.start and self.end == other.end and\
-        self.startexcl == other.startexcl and self.endexcl == other.endexcl and\
-        self.boost == other.boost
+        return (other
+                and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.start == other.start
+                and self.end == other.end
+                and self.startexcl == other.startexcl
+                and self.endexcl == other.endexcl
+                and self.boost == other.boost)
 
     def __repr__(self):
         return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,

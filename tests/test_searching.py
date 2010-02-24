@@ -438,6 +438,23 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(sc.id, 3)
         self.assert_(sc.score() > score1)
 
+    def test_stop_phrase(self):
+        schema = fields.Schema(title=fields.TEXT(stored=True))
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        writer = ix.writer()
+        writer.add_document(title=u"Richard of York")
+        writer.add_document(title=u"Lily the Pink")
+        writer.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("title", schema=schema)
+        q = qp.parse(u"richard of york")
+        self.assertEqual(len(s.search(q)), 1)
+        #q = qp.parse(u"lily the pink")
+        #self.assertEqual(len(s.search(q)), 1)
+        self.assertEqual(len(s.find("title", u"lily the pink")), 1)
+        
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True),
                                hobbies=fields.TEXT(stored=True))
@@ -667,6 +684,30 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(r.total, 6)
         self.assertEqual(r.pagenum, 2)
         self.assertEqual(r.pagelen, 2)
+        
+    def test_keyterms(self):
+        ana = analysis.StandardAnalyzer()
+        vectorformat = formats.Frequency(ana)
+        schema = fields.Schema(path=fields.ID,
+                               content=fields.TEXT(analyzer=ana,
+                                                   vector=vectorformat))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        w = ix.writer()
+        w.add_document(path=u"a",content=u"This is some generic content")
+        w.add_document(path=u"b",content=u"This is some distinctive content")
+        w.commit()
+        
+        s = ix.searcher()
+        docnum = s.document_number(path=u"b")
+        keyterms = list(s.key_terms([docnum], "content"))
+        self.assertTrue(len(keyterms) > 0)
+        self.assertEqual(keyterms[0][0], "distinctive")
+        
+        r = s.search(query.Term("path", u"b"))
+        keyterms2 = list(r.key_terms("content"))
+        self.assertTrue(len(keyterms2) > 0)
+        self.assertEqual(keyterms2[0][0], "distinctive")
         
 
 

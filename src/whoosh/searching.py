@@ -185,9 +185,9 @@ class Searcher(object):
         ixreader = self.ixreader
         fieldnum = self.fieldname_to_num(fieldname)
 
-        expander = classify.Expander(self, fieldname, model=model)
+        expander = classify.Expander(self.reader(), fieldname, model=model)
         for docnum in docnums:
-            expander.add(ixreader.vector_as(docnum, fieldnum, "weight"))
+            expander.add(ixreader.vector_as("weight", docnum, fieldnum))
         return expander.expanded_terms(numterms, normalize=normalize)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
@@ -196,7 +196,7 @@ class Searcher(object):
 
     def find(self, defaultfield, querystring, **kwargs):
         from whoosh.qparser import QueryParser
-        qp = QueryParser(defaultfield)
+        qp = QueryParser(defaultfield, schema=self.ixreader.schema)
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 
