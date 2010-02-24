@@ -30,7 +30,7 @@ import fnmatch, re
 
 from whoosh.lang.morph_en import variations
 from whoosh.postings import QueryScorer, EmptyScorer
-from whoosh.postings import IntersectionScorer, UnionScorer, HashJoinScorer
+from whoosh.postings import IntersectionScorer, UnionScorer
 from whoosh.postings import RequireScorer, AndMaybeScorer, InverseScorer
 from whoosh.postings import ReadTooFar
 from whoosh.reading import TermNotFound
