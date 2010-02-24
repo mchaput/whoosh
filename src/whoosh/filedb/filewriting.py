@@ -106,11 +106,11 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
 
-    def __init__(self, ix, pool=None, blocklimit=128,
+    def __init__(self, ix, pool=None, limitmb=32, blocklimit=128,
                  timeout=0.0, delay=0.1):
         """
         :param ix: the Index object you want to write to.
-        :param postlimitmb: Essentially controls the maximum amount of memory
+        :param limitmb: Essentially controls the maximum amount of memory
             the indexer uses at a time, in MB (the actual amount of memory used
             by the Python process will be much larger because of other
             overhead). The default (32MB) is a bit small. You may want to
@@ -124,7 +124,7 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
 
         self.index = ix
         self.segments = ix.segments.copy()
-        self.pool = pool or PostingPool(32)
+        self.pool = pool or PostingPool(limitmb)
         self.blocklimit = blocklimit
         self._segment_writer = None
         self._searcher = ix.searcher()
