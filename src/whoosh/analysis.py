@@ -57,6 +57,7 @@ from itertools import chain
 
 from whoosh.lang.porter import stem
 
+
 # Default list of stop words (words so common it's usually wasteful to index
 # them). This list is used by the StopFilter class, which allows you to supply
 # an optional list to override this one.
@@ -514,19 +515,26 @@ class PassFilter(Filter):
             yield t
 
 
-class RecordFilter(Filter):
-    """A debug filter that remembers the tokens that pass through it, and
-    stores them in the 'tokens' attribute.
+class LoggingFilter(Filter):
+    """Prints the contents of every filter that passes through as a debug
+    log entry.
     """
     
-    def __init__(self):
-        self.tokens = None
+    def __init__(self, logger=None):
+        """
+        :param target: the logger to use. If omitted, the "whoosh.analysis"
+            logger is used.
+        """
+        
+        if logger is None:
+            import logging
+            logger = logging.getLogger("whoosh.analysis")
+        self.logger = logger
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
-        self.tokens = []
+        logger = self.logger
         for t in tokens:
-            self.tokens.append(t.copy())
+            logger.debug(repr(t))
             yield t
 
 
