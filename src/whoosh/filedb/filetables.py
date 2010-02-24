@@ -417,6 +417,125 @@ class FileTableReader(OrderedHashReader):
             yield kd(k)
 
 
+#
+
+class FixedHashWriter(HashWriter):
+    def __init__(self, dbfile, keysize, datasize):
+        self.dbfile = dbfile
+        dbfile.seek(HEADER_SIZE)
+        self.hashes = defaultdict(list)
+        self.keysize = keysize
+        self.datasize = datasize
+        self.recordsize = keysize + datasize
+
+    def add_all(self, items):
+        dbfile = self.dbfile
+        hashes = self.hashes
+        recordsize = self.recordsize
+        pos = dbfile.tell()
+        write = dbfile.write
+
+        for key, value in items:
+            write(key + value)
+
+            h = cdb_hash(key)
+            hashes[h & 255].append((h, pos))
+            pos += recordsize
+
+    def add(self, key, value):
+        self.add_all(((key, value),))
+
+
+class FixedHashReader(HashReader):
+    def __init__(self, dbfile, keysize, datasize):
+        self.dbfile = dbfile
+        self.keysize = keysize
+        self.datasize = datasize
+        self.recordsize = keysize + datasize
+        
+        self.map = dbfile.map
+        self.end_of_data = dbfile.get_uint(0)
+        self.is_closed = False
+
+    def read(self, position, length):
+        return self.map[position:position + length]
+
+    def _ranges(self, pos=HEADER_SIZE):
+        keysize = self.keysize
+        recordsize = self.recordsize
+        eod = self.end_of_data
+        while pos < eod:
+            yield (pos, pos + keysize)
+            pos += recordsize
+
+    def __iter__(self):
+        return self.items()
+
+    def items(self):
+        keysize = self.keysize
+        datasize = self.datasize
+        read = self.read
+        for keypos, datapos in self._ranges():
+            yield (read(keypos, keysize), read(datapos, datasize))
+
+    def keys(self):
+        keysize = self.keysize
+        read = self.read
+        for keypos, _ in self._ranges():
+            yield read(keypos, keysize)
+
+    def values(self):
+        datasize = self.datasize
+        read = self.read
+        for _, datapos in self._ranges():
+            yield read(datapos, datasize)
+
+    def __getitem__(self, key):
+        for data in self.all(key):
+            return data
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        for data in self.all(key):
+            return data
+        return default
+
+    def _key_at(self, pos):
+        return self.read(pos, self.keysize)
+
+    def _get_ranges(self, key):
+        raise NotImplementedError
+
+    def _get_data_poses(self, key):
+        keysize = self.keysize
+        read = self.read
+        keyhash = cdb_hash(key)
+        hpos, hslots = self._hashtable_info(keyhash)
+        if not hslots:
+            return
+
+        slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
+        for _ in xrange(hslots):
+            slothash, pos = unpack_2ints(read(slotpos, _2INTS_SIZE))
+            if not pos:
+                return
+
+            slotpos += _2INTS_SIZE
+            # If we reach the end of the hashtable, wrap around
+            if slotpos == hpos + (hslots << 3):
+                slotpos = hpos
+
+            if slothash == keyhash:
+                if key == read(pos, keysize):
+                    yield pos + keysize
+
+    def all(self, key):
+        datasize = self.datasize
+        read = self.read
+        for datapos in self._get_ranges(key):
+            yield read(datapos, datasize)
+
+
 class FileRecordWriter(object):
     def __init__(self, dbfile, format):
         self.dbfile = dbfile
