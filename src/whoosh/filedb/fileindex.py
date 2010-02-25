@@ -299,8 +299,8 @@ class FileIndex(SegmentDeletionMixin, Index):
         return self.segments.reader(self.storage, self.schema)
 
     def writer(self, **kwargs):
-        from whoosh.filedb.filewriting import FileIndexWriter
-        return FileIndexWriter(self, **kwargs)
+        from whoosh.filedb.filewriting import SegmentWriter
+        return SegmentWriter(self, **kwargs)
 
 
 # SegmentSet object

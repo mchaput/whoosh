@@ -71,7 +71,7 @@ def OPTIMIZE(ix, writer, segments):
     return SegmentSet()
 
 
-class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
+class SegmentWriter(SegmentDeletionMixin, IndexWriter):
     def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
                  timeout=0.0, delay=0.1, **poolargs):
         self.lock = ix.storage.lock(ix.indexname + "_LOCK")
