@@ -16,10 +16,10 @@
 #===============================================================================
 
 import os, tempfile, time
-from array import array
+from collections import defaultdict
 from heapq import heapify, heappush, heappop
 from multiprocessing import Process, Queue, JoinableQueue
-from struct import Struct, unpack
+from struct import Struct
 
 from whoosh.filedb.structfile import StructFile
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE,
@@ -35,12 +35,11 @@ def encode_posting(fieldNum, text, doc, freq, datastring):
     """Encodes a posting as a string, for sorting.
     """
 
-    return "".join([pack_ushort(fieldNum),
+    return "".join((pack_ushort(fieldNum),
                     utf8encode(text)[0],
                     chr(0),
                     pack2ints(doc, freq),
-                    datastring
-                    ])
+                    datastring))
 
 def decode_posting(posting):
     """Decodes an encoded posting string into a
@@ -59,63 +58,6 @@ def decode_posting(posting):
     datastring = posting[metaend:]
 
     return field_num, text, doc, freq, datastring
-
-
-def write_postings(postiter, termtable, postwriter, schema, total, logchunk=10000):
-    # This method pulls postings out of the posting pool (built up as
-    # documents are added) and writes them to the posting file. Each time
-    # it encounters a posting for a new term, it writes the previous term
-    # to the term index (by waiting to write the term entry, we can easily
-    # count the document frequency and sum the terms by looking at the
-    # postings).
-
-    current_fieldnum = None # Field number of the current term
-    current_text = None # Text of the current term
-    first = True
-    current_freq = 0
-    offset = None
-    #c = 0
-    #total = float(total)
-    #chunkstart = time.time()
-
-    # Loop through the postings in the pool. Postings always come out of
-    # the pool in (field number, lexical) order.
-    for fieldnum, text, docnum, freq, valuestring in postiter:
-        # Is this the first time through, or is this a new term?
-        if first or fieldnum > current_fieldnum or text > current_text:
-            if first:
-                first = False
-            else:
-                # This is a new term, so finish the postings and add the
-                # term to the term table
-                postcount = postwriter.finish()
-                termtable.add((current_fieldnum, current_text),
-                              (current_freq, offset, postcount))
-                #c += 1
-                #if not c % logchunk:
-                #    chunkstart = time.time()
-
-            # Reset the post writer and the term variables
-            current_fieldnum = fieldnum
-            current_text = text
-            current_freq = 0
-            offset = postwriter.start(schema[fieldnum].format)
-
-        elif (fieldnum < current_fieldnum
-              or (fieldnum == current_fieldnum and text < current_text)):
-            # This should never happen!
-            raise Exception("Postings are out of order: %s:%s .. %s:%s" %
-                            (current_fieldnum, current_text, fieldnum, text))
-
-        # Write a posting for this occurrence of the current term
-        current_freq += freq
-        postwriter.write(docnum, valuestring)
-
-    # If there are still "uncommitted" postings at the end, finish them off
-    if not first:
-        postcount = postwriter.finish()
-        termtable.add((current_fieldnum, current_text),
-                      (current_freq, offset, postcount))
 
 
 def imerge(iterators):
@@ -149,10 +91,77 @@ def read_run(filename, count):
         count -= 1
         yield decode_posting(read())
     stream.close()
-    
 
-class PostingPool(object):
-    def __init__(self, limitmb, callback=None):
+
+class PoolBase(object):
+    def cancel(self):
+        pass
+    
+    def fieldlength_totals(self):
+        return self._fieldlength_totals
+    
+    def write_postings(self, schema, termtable, postwriter, postiter, total,
+                       logchunk=10000):
+        # This method pulls postings out of the posting pool (built up as
+        # documents are added) and writes them to the posting file. Each time
+        # it encounters a posting for a new term, it writes the previous term
+        # to the term index (by waiting to write the term entry, we can easily
+        # count the document frequency and sum the terms by looking at the
+        # postings).
+    
+        current_fieldnum = None # Field number of the current term
+        current_text = None # Text of the current term
+        first = True
+        current_freq = 0
+        offset = None
+        #c = 0
+        #total = float(total)
+        #chunkstart = time.time()
+    
+        # Loop through the postings in the pool. Postings always come out of
+        # the pool in (field number, lexical) order.
+        for fieldnum, text, docnum, freq, valuestring in postiter:
+            # Is this the first time through, or is this a new term?
+            if first or fieldnum > current_fieldnum or text > current_text:
+                if first:
+                    first = False
+                else:
+                    # This is a new term, so finish the postings and add the
+                    # term to the term table
+                    postcount = postwriter.finish()
+                    termtable.add((current_fieldnum, current_text),
+                                  (current_freq, offset, postcount))
+                    #c += 1
+                    #if not c % logchunk:
+                    #    chunkstart = time.time()
+    
+                # Reset the post writer and the term variables
+                current_fieldnum = fieldnum
+                current_text = text
+                current_freq = 0
+                offset = postwriter.start(schema[fieldnum].format)
+    
+            elif (fieldnum < current_fieldnum
+                  or (fieldnum == current_fieldnum and text < current_text)):
+                # This should never happen!
+                raise Exception("Postings are out of order: %s:%s .. %s:%s" %
+                                (current_fieldnum, current_text, fieldnum, text))
+    
+            # Write a posting for this occurrence of the current term
+            current_freq += freq
+            postwriter.write(docnum, valuestring)
+    
+        # If there are still "uncommitted" postings at the end, finish them off
+        if not first:
+            postcount = postwriter.finish()
+            termtable.add((current_fieldnum, current_text),
+                          (current_freq, offset, postcount))
+
+
+class TempfilePool(PoolBase):
+    def __init__(self, lengthfile, limitmb=32, callback=None):
+        self.lengthfile = lengthfile
+        
         self.limit = limitmb * 1024 * 1024
         self.callback = callback
         
@@ -160,11 +169,8 @@ class PostingPool(object):
         self.count = 0
         self.postings = []
         self.runs = []
+        self._fieldlength_totals = defaultdict(int)
         
-        #lenfd, self.lengthfilename = tempfile.mkstemp(".whooshlens")
-        #self.lengthfile = os.fdopen(lenfd, "w+b")
-        self.lengths = array("I")
-    
     def add_content(self, docnum, fieldnum, field, value):
         add_posting = self.add_posting
         termcount = 0
@@ -174,8 +180,11 @@ class PostingPool(object):
             #assert w != ""
             add_posting(fieldnum, w, docnum, freq, valuestring)
             termcount += freq
-            
-        self.lengths.extend((docnum, fieldnum, termcount))
+        
+        if field.scorable and termcount and self.lengthfile:
+            self.lengthfile.add((docnum, fieldnum), termcount)
+            self._fieldlength_totals[fieldnum] += termcount
+        return termcount
         
     def add_posting(self, fieldnum, text, docnum, freq, datastring):
         if self.size >= self.limit:
@@ -205,87 +214,69 @@ class PostingPool(object):
             self.size = 0
             self.count = 0
             
-    #def dump_lengths(self):
-    #    if self.lengths:
-    #        self.lengths.tofile(self.lengthfile)
-    #        self.lengthfile.flush()
-    #        self.lengths = array("I")
-    
-    def iter_postings(self):
-        if self.postings and len(self.runs) == 0:
-            self.postings.sort()
-            return ((decode_posting(posting) for posting in self.postings),
-                    len(self.postings))
-        
-        if not self.postings and not self.runs:
-            return ([], 0)
-        
-        return (imerge([read_run(runname, count)
-                        for runname, count in self.runs]),
-                sum(count for runname, count in self.runs))
-    
     def run_filenames(self):
         return [filename for filename, _ in self.runs]
     
-    def close_files(self):
-        for _, runfile, _ in self.runs:
-            runfile.close()
-        self.lengthfile.close()
-            
+    def cancel(self):
+        self.cleanup()
+    
     def cleanup(self):
         for filename, _, _ in self.runs:
             os.remove(filename)
-        os.remove(self.lengthfilename)
     
-    def flush_postings(self, termtable, postwriter, schema):
-        iterator, total = self.iter_postings()
-        write_postings(iterator, termtable, postwriter, schema, total)
-    
-#    def flush_lengths(self):
-#        self.dump_lengths()
-#        lengthfile = self.lengthfile
-#        lengthfile.seek(0)
-#        while True:
-#            s = lengthfile.read(40000)
-#            if not s: break
-#            a = array("I")
-#            a.fromstring(s)
-#            for i in xrange(0, len(a), 3):
-#                yield tuple(a[i:i+3])
-    
-    def close(self):
-        self.close_files()
+    def finish(self, schema, termtable, postingwriter):
+        if self.postings and len(self.runs) == 0:
+            self.postings.sort()
+            iter = (decode_posting(posting) for posting in self.postings)
+            total = len(self.postings)
+        elif not self.postings and not self.runs:
+            iter = []
+            total = 0
+        else:
+            iter = imerge([read_run(runname, count)
+                           for runname, count in self.runs])
+            total = sum(count for runname, count in self.runs)
+        
+        self.write_postings(schema, termtable, postingwriter, iter, total)
         self.cleanup()
         
 
 # Multiprocessing
 
 class PoolWritingTask(Process):
-    def __init__(self, inqueue, outqueue, limitmb):
+    def __init__(self, postingqueue, lengthqueue, controlqueue, limitmb):
         Process.__init__(self)
-        self.queue = inqueue
-        self.outqueue = outqueue
+        self.postingqueue = postingqueue
+        self.lengthqueue = lengthqueue
+        self.controlqueue = controlqueue
         self.limitmb = limitmb
-        self.runfilenames = None
         
     def run(self):
-        queue = self.queue
-        subpool = PostingPool(self.limitmb, callback=self.outqueue.put)
+        pqueue = self.postingqueue
+        lqueue = self.lengthqueue
+        cqueue = self.controlqueue
+        
+        subpool = TempfilePool(None, limitmb=self.limitmb,
+                               callback=lambda x: cqueue.put(x))
         
         while True:
-            unit = queue.get()
+            unit = pqueue.get()
             if unit is None:
                 break
             
             if unit[0]:
-                subpool.add_content(*unit[1])
+                docnum, fieldnum, field, value = unit[1]
+                length = subpool.add_content(docnum, fieldnum, field, value)
+                if field.scorable:
+                    lqueue.put((docnum, fieldnum, length))
             else:
                 subpool.add_posting(*unit[1])
-            queue.task_done()
+            pqueue.task_done()
         
         subpool.dump_run()
-        queue.task_done()
-        
+        pqueue.task_done()
+        #print "Task", self.name, "finished"
+
 
 def iterqueue(q):
     while True:
@@ -294,52 +285,81 @@ def iterqueue(q):
         yield item
         
 
-class MultiPool(object):
-    def __init__(self, procs, limitmb=32, pmerge=True):
+class MultiPool(PoolBase):
+    def __init__(self, lengthfile, procs=2, limitmb=32):
+        self.lengthfile = lengthfile
+        self._fieldlength_totals = defaultdict(int)
+        
         self.procs = procs
         self.limitmb = limitmb
-        self.pmerge = pmerge
-        self.queue = None
         self.tasks = []
+        self.runs = []
+        self.finished = 0
         
     def _start_tasks(self):
-        if self.queue is None:
-            self.t = time.time()
-            self.queue = JoinableQueue()
-            self.namequeue = Queue()
-        if len(self.tasks) < self.procs:
-            task = PoolWritingTask(self.queue, self.namequeue, self.limitmb)
+        tasks = self.tasks
+        if not tasks:
+            self.postingqueue = JoinableQueue()
+            self.lengthqueue = Queue()
+            self.controlqueue = Queue()
+        
+        if len(tasks) < self.procs:
+            task = PoolWritingTask(self.postingqueue, self.lengthqueue,
+                                   self.controlqueue, self.limitmb)
             self.tasks.append(task)
             task.start()
     
     def add_content(self, *args):
         self._start_tasks()
-        self.queue.put((True, args))
+        self.postingqueue.put((True, args))
+        while not self.lengthqueue.empty():
+            unit = self.lengthqueue.get(block=False)
+            self.lengthfile.add(unit[:2], unit[2])
         
     def add_posting(self, *args):
         self._start_tasks()
         self.queue.put((False, args))
         
-    def flush_postings(self, termtable, postwriter, schema):
-        queue = self.queue
-        for _ in self.tasks:
-            queue.put(None)
-        queue.join()
-        print "Spool:", time.time() - self.t
+    def finish(self, schema, termtable, postingwriter):
+        _fieldlength_totals = self._fieldlength_totals
+        if not self.tasks:
+            return
+        
+        lfile = self.lengthfile
+        pqueue = self.postingqueue
+        lqueue = self.lengthqueue
+        cqueue = self.controlqueue
+        
+        for _ in xrange(self.procs):
+            pqueue.put(None)
+        
+        print "Joining..."
+        t = time.time()
+        pqueue.join()
+        print "Join:", time.time() - t
         
         t = time.time()
+        while not lqueue.empty():
+            unit = lqueue.get(block=False)
+            lfile.add(unit[:2], unit[2])
+        print "Length queue:", time.time() - t
+        
         runs = []
-        while not self.namequeue.empty():
-            runs.append(self.namequeue.get())
-        self.namequeue.close()
+        while not cqueue.empty():
+            result = cqueue.get()
+            runs.append(result)
+            
         for task in self.tasks:
             task.terminate()
-        
-        print "Merging", len(runs), "runs"
+            
+        t = time.time()
         iterator = imerge([read_run(runname, count) for runname, count in runs])
         total = sum(count for runname, count in runs)
-        write_postings(iterator, termtable, postwriter, schema, total)
+        self.write_postings(schema, termtable, postingwriter, iterator, total)
         print "Merge:", time.time() - t
+        
+        
+        
 
 
 if __name__ == "__main__":

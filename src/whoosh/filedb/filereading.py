@@ -15,48 +15,16 @@
 #===============================================================================
 
 from threading import Lock
+from marshal import loads
 
 from whoosh.fields import FieldConfigurationError
 from whoosh.filedb.filepostings import FilePostingReader
-from whoosh.filedb.filetables import (FileTableReader, FileRecordReader,
-                                      FileListReader, encode_termkey,
-                                      decode_termkey, encode_vectorkey,
-                                      decode_vectorkey, decode_terminfo,
-                                      depickle)
+from whoosh.filedb.filetables import (FileTableReader, FileListReader,
+                                      StructHashReader)
+from whoosh.filedb import misc
 from whoosh.postings import Exclude
 from whoosh.reading import IndexReader, TermNotFound
-from whoosh.system import unpack_uint
 from whoosh.util import protected
-
-
-# Convenience functions
-
-def open_terms(storage, segment):
-    termfile = storage.open_file(segment.term_filename)
-    return FileTableReader(termfile,
-                           keycoder=encode_termkey,
-                           keydecoder=decode_termkey,
-                           valuedecoder=decode_terminfo)
-
-def open_doclengths(storage, segment, fieldcount):
-    from whoosh.filedb.filewriting import DOCLENGTH_TYPE
-    rformat = "!" + DOCLENGTH_TYPE * fieldcount
-    recordfile = storage.open_file(segment.doclen_filename)
-    return FileRecordReader(recordfile, rformat)
-
-def open_storedfields(storage, segment, storedfieldnames):
-    def dictifier(value):
-        value = depickle(value)
-        return dict(zip(storedfieldnames, value))
-    listfile = storage.open_file(segment.docs_filename, mapped=False)
-    return FileListReader(listfile, segment.doc_count_all(),
-                          valuedecoder=dictifier)
-
-def open_vectors(storage, segment):
-    vectorfile = storage.open_file(segment.vector_filename)
-    return FileTableReader(vectorfile, keycoder=encode_vectorkey,
-                            keydecoder=decode_vectorkey,
-                            valuedecoder=lambda x: unpack_uint(x)[0])
 
 
 # Reader class
@@ -66,76 +34,87 @@ class SegmentReader(IndexReader):
         self.storage = storage
         self.segment = segment
         self.schema = schema
+        
+        storedfieldnames = schema.stored_field_names()
+        def decode_storedfields(value):
+            return dict(zip(storedfieldnames, loads(value)))
 
-        self._scorable_fields = schema.scorable_fields()
-        self._fieldnum_to_scorable_pos = dict((fnum, i) for i, fnum
-                                              in enumerate(self._scorable_fields))
-
-        self.termtable = open_terms(storage, segment)
+        # Term index
+        tf = storage.open_file(segment.term_filename)
+        self.termsindex = FileTableReader(tf,
+                                          keycoder=misc.encode_termkey,
+                                          keydecoder=misc.decode_termkey,
+                                          valuedecoder=misc.decode_terminfo)
+        
+        # Term postings file, vector index, and vector postings: lazy load
         self.postfile = None
-        self.docstable = open_storedfields(storage, segment,
-                                           schema.stored_field_names())
-        self.doclengths = None
-        if self._scorable_fields:
-            self.doclengths = open_doclengths(storage, segment,
-                                              len(self._scorable_fields))
-
+        self.vectorindex = None
+        self.vpostfile = None
+        
+        # Stored fields file
+        sf = storage.open_file(segment.docs_filename, mapped=False)
+        self.storedfields = FileListReader(sf,
+                                           valuedecoder=decode_storedfields)
+        
+        # Field length file
+        flf = storage.open_file(segment.doclen_filename)
+        self.fieldlengths = StructHashReader(flf, "!IH", "!I")
+        
+        # Copy methods from underlying segment
         self.has_deletions = segment.has_deletions
         self.is_deleted = segment.is_deleted
         self.doc_count = segment.doc_count
         self.doc_count_all = segment.doc_count_all
-
-        self.vectortable = None
+        
         self.is_closed = False
         self._sync_lock = Lock()
 
+    def _open_vectors(self):
+        if self.vectorindex: return
+        
+        storage, segment = self.storage, self.segment
+        
+        # Vector index
+        vf = storage.open_file(segment.vector_filename)
+        self.vectorindex = StructHashReader(vf, "!IH", "!I")
+        
+        # Vector postings file
+        self.vpostfile = storage.open_files(segment.vectorposts_filename,
+                                            mapped=False)
+    
+    def _open_postfile(self):
+        if self.postfile: return
+        self.postfile = self.storage.open_file(self.segment.posts_filename,
+                                               mapped=False)
+    
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
 
     @protected
     def __contains__(self, term):
-        return (self.schema.to_number(term[0]), term[1]) in self.termtable
+        return (self.schema.to_number(term[0]), term[1]) in self.termsindex
 
     def close(self):
-        self.docstable.close()
-        self.termtable.close()
+        self.storedfields.close()
+        self.termsindex.close()
         if self.postfile:
             self.postfile.close()
-        if self.vectortable:
-            self.vectortable.close()
-        if self.doclengths:
-            self.doclengths.close()
+        if self.vectorindex:
+            self.vectorindex.close()
+        if self.fieldlengths:
+            self.fieldlengths.close()
         self.is_closed = True
-
-    def _open_vectors(self):
-        if not self.vectortable:
-            storage, segment = self.storage, self.segment
-            self.vectortable = open_vectors(storage, segment)
-            self.vpostfile = storage.open_file(segment.vectorposts_filename,
-                                               mapped=False)
-
-    def vector(self, docnum, fieldid):
-        schema = self.schema
-        fieldnum = schema.to_number(fieldid)
-        vformat = schema[fieldnum].vector
-        if not vformat:
-            raise Exception("No vectors are stored for field %r" % fieldid)
-        
-        self._open_vectors()
-        offset = self.vectortable[(docnum, fieldnum)]
-        return FilePostingReader(self.vpostfile, offset, vformat,
-                                 stringids=True)
 
     @protected
     def stored_fields(self, docnum):
-        return self.docstable[docnum]
+        return self.storedfields[docnum]
 
     @protected
     def all_stored_fields(self):
         is_deleted = self.segment.is_deleted
-        for docnum in xrange(0, self.segment.doc_count_all()):
+        for docnum in xrange(self.segment.doc_count_all()):
             if not is_deleted(docnum):
-                yield self.docstable[docnum]
+                yield self.storedfields[docnum]
 
     def field_length(self, fieldid):
         fieldid = self.schema.to_number(fieldid)
@@ -143,53 +122,43 @@ class SegmentReader(IndexReader):
 
     @protected
     def doc_field_length(self, docnum, fieldid):
-        fieldid = self.schema.to_number(fieldid)
-        if fieldid not in self._scorable_fields:
-            raise FieldConfigurationError("Field %r does not store lengths" % fieldid)
-
-        pos = self._fieldnum_to_scorable_pos[fieldid]
-        return self.doclengths.at(docnum, pos)
-
-    @protected
-    def doc_field_lengths(self, docnum):
-        if not self.doclengths:
-            return []
-        return self.doclengths.record(docnum)
+        fieldnum = self.schema.to_number(fieldid)
+        return self.fieldlengths.get((docnum, fieldnum), 0)
 
     @protected
     def has_vector(self, docnum, fieldnum):
         self._open_vectors()
-        return (docnum, fieldnum) in self.vectortable
+        return (docnum, fieldnum) in self.vectorindex
 
     @protected
     def __iter__(self):
-        for (fn, t), (totalfreq, _, postcount) in self.termtable:
+        for (fn, t), (totalfreq, _, postcount) in self.termsindex:
             yield (fn, t, postcount, totalfreq)
 
     @protected
     def iter_from(self, fieldnum, text):
-        tt = self.termtable
+        tt = self.termsindex
         for (fn, t), (totalfreq, _, postcount) in tt.items_from((fieldnum, text)):
             yield (fn, t, postcount, totalfreq)
 
     @protected
     def _term_info(self, fieldnum, text):
         try:
-            return self.termtable[(fieldnum, text)]
+            return self.termsindex[(fieldnum, text)]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldnum, text))
 
     def doc_frequency(self, fieldid, text):
         try:
-            fieldid = self.schema.to_number(fieldid)
-            return self._term_info(fieldid, text)[2]
+            fieldnum = self.schema.to_number(fieldid)
+            return self._term_info(fieldnum, text)[2]
         except TermNotFound:
             return 0
 
     def frequency(self, fieldid, text):
         try:
-            fieldid = self.schema.to_number(fieldid)
-            return self._term_info(fieldid, text)[0]
+            fieldnum = self.schema.to_number(fieldid)
+            return self._term_info(fieldnum, text)[0]
         except TermNotFound:
             return 0
 
@@ -199,7 +168,7 @@ class SegmentReader(IndexReader):
         # and throws away the value, but overriding to use
         # FileTableReader.keys_from() is much, much faster.
 
-        tt = self.termtable
+        tt = self.termsindex
         fieldid = self.schema.to_number(fieldid)
         for fn, t in tt.keys_from((fieldid, '')):
             if fn != fieldid:
@@ -212,7 +181,7 @@ class SegmentReader(IndexReader):
         # iter_from() and throws away the value, but overriding to use
         # FileTableReader.keys_from() is much, much faster.
 
-        tt = self.termtable
+        tt = self.termsindex
         fieldid = self.schema.to_number(fieldid)
         for fn, t in tt.keys_from((fieldid, prefix)):
             if fn != fieldid or not t.startswith(prefix):
@@ -225,7 +194,7 @@ class SegmentReader(IndexReader):
         format = schema[fieldnum].format
 
         try:
-            totalfreq, offset, postcount = self.termtable[(fieldnum, text)] #@UnusedVariable
+            offset = self.termsindex[(fieldnum, text)][1]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldid, text))
 
@@ -234,13 +203,26 @@ class SegmentReader(IndexReader):
         elif self.segment.deleted:
             exclude_docs = self.segment.deleted
 
-        if not self.postfile:
-            self.postfile = self.storage.open_file(self.segment.posts_filename,
-                                                   mapped=False)
+        self._open_postfile()
         postreader = FilePostingReader(self.postfile, offset, format)
         if exclude_docs:
             postreader = Exclude(postreader, exclude_docs)
         return postreader
+    
+    def vector(self, docnum, fieldid):
+        schema = self.schema
+        fieldnum = schema.to_number(fieldid)
+        vformat = schema[fieldnum].vector
+        if not vformat:
+            raise Exception("No vectors are stored for field %r" % fieldid)
+        
+        self._open_vectors()
+        offset = self.vectorindex.get((docnum, fieldnum))
+        if offset is None:
+            raise Exception("No vector found for document %s field %r" % (docnum, fieldid))
+        
+        return FilePostingReader(self.vpostfile, offset, vformat,
+                                 stringids=True)
 
 
 

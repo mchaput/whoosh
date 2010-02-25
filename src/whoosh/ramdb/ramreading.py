@@ -65,10 +65,6 @@ class RamIndexReader(IndexReader):
         fieldnum = self.ix.schema.to_number(fieldid)
         return self.ix.fieldlengths[(docnum, fieldnum)]
     
-    def doc_field_lengths(self, docnum):
-        dfl = self.doc_field_length
-        return [dfl(docnum, fnum) for fnum in self._scorable_fields]
-    
     def has_vector(self, docnum, fieldid):
         fieldnum = self.ix.schema.to_number(fieldid)
         return (docnum, fieldnum) in self.ix.vectors

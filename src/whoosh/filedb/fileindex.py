@@ -220,7 +220,12 @@ class FileIndex(SegmentDeletionMixin, Index):
         return self.storage.file_modified(self._toc_filename())
 
     def is_empty(self):
+        """Low-level: Returns the number of segments in this index.
+        """
         return len(self.segments) == 0
+
+    def segment_count(self):
+        return len(self.segments)
 
     def optimize(self):
         if len(self.segments) < 2 and not self.segments.has_deletions():

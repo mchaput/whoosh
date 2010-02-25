@@ -14,26 +14,20 @@
 # limitations under the License.
 #===============================================================================
 
-from array import array
 from collections import defaultdict
+from marshal import dumps
 
 from whoosh.fields import UnknownFieldError
-from whoosh.store import LockError
-from whoosh.writing import IndexWriter
-from whoosh.filedb.pools import PostingPool
-from whoosh.support.filelock import try_for
 from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
-from whoosh.filedb.filetables import (FileTableWriter, FileListWriter,
-                                      FileRecordWriter, encode_termkey,
-                                      encode_vectorkey, encode_terminfo,
-                                      enpickle)
-from whoosh.system import pack_uint
+from whoosh.filedb.filetables import (FileListWriter, FileTableWriter,
+                                      StructHashWriter)
+from whoosh.filedb import misc
+from whoosh.filedb.pools import TempfilePool, MultiPool
+from whoosh.store import LockError
+from whoosh.support.filelock import try_for
 from whoosh.util import fib
-
-
-DOCLENGTH_TYPE = "H"
-DOCLENGTH_LIMIT = 2 ** 16 - 1
+from whoosh.writing import IndexWriter
 
 
 # Merge policies
@@ -77,462 +71,199 @@ def OPTIMIZE(ix, writer, segments):
     return SegmentSet()
 
 
-# Convenience functions
-
-def create_terms(storage, segment):
-    termfile = storage.create_file(segment.term_filename)
-    return FileTableWriter(termfile,
-                           keycoder=encode_termkey,
-                           valuecoder=encode_terminfo)
-
-def create_storedfields(storage, segment):
-    listfile = storage.create_file(segment.docs_filename)
-    return FileListWriter(listfile, valuecoder=enpickle)
-
-def create_vectors(storage, segment):
-    vectorfile = storage.create_file(segment.vector_filename)
-    return FileTableWriter(vectorfile, keycoder=encode_vectorkey,
-                           valuecoder=pack_uint)
-
-def create_doclengths(storage, segment, fieldcount):
-    recordformat = "!" + DOCLENGTH_TYPE * fieldcount
-    recordfile = storage.create_file(segment.doclen_filename)
-    return FileRecordWriter(recordfile, recordformat)
-
-
-# Writing classes
-
 class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
-    # This class is mostly a shell for SegmentWriter. It exists to handle
-    # multiple SegmentWriters during merging/optimizing.
-
-    def __init__(self, ix, pool=None, limitmb=32, blocklimit=128,
-                 timeout=0.0, delay=0.1):
-        """
-        :param ix: the Index object you want to write to.
-        :param limitmb: Essentially controls the maximum amount of memory
-            the indexer uses at a time, in MB (the actual amount of memory used
-            by the Python process will be much larger because of other
-            overhead). The default (32MB) is a bit small. You may want to
-            increase this value for very large collections, e.g.
-            ``postlimitmb=256``.
-        """
-
+    def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
+                 timeout=0.0, delay=0.1, **poolargs):
         self.lock = ix.storage.lock(ix.indexname + "_LOCK")
         if not try_for(self.lock.acquire, timeout=timeout, delay=delay):
-            raise LockError("Index %s is already locked for writing")
-
-        self.index = ix
-        self.segments = ix.segments.copy()
-        self.pool = pool or PostingPool(limitmb)
-        self.blocklimit = blocklimit
-        self._segment_writer = None
-        self._searcher = ix.searcher()
-
-    def _finish(self):
-        self._close_reader()
-        self.lock.release()
-        self._segment_writer = None
-
-    def segment_writer(self):
-        """Returns the underlying SegmentWriter object.
-        """
-
-        if not self._segment_writer:
-            self._segment_writer = SegmentWriter(self.index, self.pool,
-                                                 self.blocklimit)
-        return self._segment_writer
-
-    def add_document(self, **fields):
-        self.segment_writer().add_document(fields)
-
-    def add_reader(self, reader):
-        self.segment_writer().add_reader(reader)
-
-    def commit(self, mergetype=MERGE_SMALL):
-        """Finishes writing and unlocks the index.
+            raise LockError
         
-        :param mergetype: How to merge existing segments. One of
-            :class:`whoosh.filedb.filewriting.NO_MERGE`,
-            :class:`whoosh.filedb.filewriting.MERGE_SMALL`,
-            or :class:`whoosh.filedb.filewriting.OPTIMIZE`.
-        """
-
-        self._close_reader()
-        if self._segment_writer or mergetype is OPTIMIZE:
-            self._merge_segments(mergetype)
-        self.index.commit(self.segments)
-        self._finish()
-
-    def cancel(self):
-        if self._segment_writer:
-            self._segment_writer._close_all()
-        self._finish()
-
-    def _merge_segments(self, mergetype):
-        sw = self.segment_writer()
-        new_segments = mergetype(self.index, sw, self.segments)
-        sw.close()
-        new_segments.append(sw.segment())
-        self.segments = new_segments
-
-
-class SegmentWriter(object):
-    """Do not instantiate this object directly; it is created by the
-    IndexWriter object.
-    
-    Handles the actual writing of new documents to the index: writes stored
-    fields, handles the posting pool, and writes out the term index.
-    """
-
-    def __init__(self, ix, pool, blocklimit=128, name=None):
-        """
-        :param ix: the Index object in which to write the new segment.
-        :param postlimitmb: the maximum size, in MB for a run in the posting
-            pool.
-        :param blocklimit: the maximum number of postings in a posting block.
-        :param name: the name of the segment.
-        """
-
         self.index = ix
+        self.blocklimit = 128
+        
         self.schema = ix.schema
-        self.storage = storage = ix.storage
-        self.name = name or ix._next_segment_name()
-
-        self.max_doc = 0
-
-        self.pool = pool
-
-        # Create mappings of field numbers to the position of that field in the
-        # lists of scorable and stored fields. For example, consider a schema
-        # with fields (A, B, C, D, E, F). If B, D, and E are scorable, then the
-        # list of scorable fields is (B, D, E). The _scorable_to_pos dictionary
-        # would then map B -> 0, D -> 1, and E -> 2.
-        self._scorable_to_pos = dict((fnum, i)
-                                     for i, fnum
-                                     in enumerate(self.schema.scorable_fields()))
-        self._stored_to_pos = dict((fnum, i)
-                                   for i, fnum
-                                   in enumerate(self.schema.stored_fields()))
-
-        # Create a temporary segment object just so we can access its
-        # *_filename attributes (so if we want to change the naming convention,
-        # we only have to do it in one place).
-        tempseg = Segment(self.name, 0, 0, None)
-        self.termtable = create_terms(storage, tempseg)
-        self.docslist = create_storedfields(storage, tempseg)
-        self.doclengths = None
-        if self.schema.scorable_fields():
-            self.doclengths = create_doclengths(storage, tempseg, len(self._scorable_to_pos))
-
-        postfile = storage.create_file(tempseg.posts_filename)
-        self.postwriter = FilePostingWriter(postfile, blocklimit=blocklimit)
-
-        self.vectortable = None
-        if self.schema.has_vectored_fields():
-            # Table associating document fields with (postoffset, postcount)
-            self.vectortable = create_vectors(storage, tempseg)
-            vpostfile = storage.create_file(tempseg.vectorposts_filename)
-            self.vpostwriter = FilePostingWriter(vpostfile, stringids=True)
-
-        # Keep track of the total number of tokens (across all docs)
-        # in each field
-        self.field_length_totals = defaultdict(int)
-
-    def segment(self):
-        """Returns an index.Segment object for the segment being written."""
-        return Segment(self.name, self.max_doc, dict(self.field_length_totals))
-
-    def _close_all(self):
-        self.termtable.close()
-        self.postwriter.close()
-        self.docslist.close()
-
-        if self.doclengths:
-            self.doclengths.close()
-
-        if self.vectortable:
-            self.vectortable.close()
-            self.vpostwriter.close()
-
-    def close(self):
-        """Finishes writing the segment (flushes the posting pool out to disk)
-        and closes all open files.
-        """
-
-        self.pool.flush_postings(self.termtable, self.postwriter, self.schema)
-        self._close_all()
-
-    def add_reader(self, reader):
-        """Adds the contents of another segment to this one. This is used to
-        merge existing segments into the new one before deleting them.
+        self.name = ix._next_segment_name()
         
-        :param ix: The index.Index object containing the segment to merge.
-        :param segment: The index.Segment object to merge into this one.
-        """
-
-        start_doc = self.max_doc
+        # Create a temporary segment to use its .*_filename attributes
+        segment = Segment(self.name, 0, 0, None)
+        
+        self._searcher = ix.searcher()
+        self.docnum = 0
+        self.fieldlength_totals = defaultdict(int)
+        
+        storedfieldnames = ix.schema.stored_field_names()
+        def encode_storedfields(fielddict):
+            return dumps([fielddict.get(k) for k in storedfieldnames])
+        
+        storage = ix.storage
+        
+        # Term index
+        tf = storage.create_file(segment.term_filename)
+        self.termsindex = FileTableWriter(tf,
+                                          keycoder=misc.encode_termkey,
+                                          valuecoder=misc.encode_terminfo)
+        
+        # Term posting file
+        pf = storage.create_file(segment.posts_filename)
+        self.postwriter = FilePostingWriter(pf, blocklimit=blocklimit)
+        
+        # Vector index
+        vf = storage.create_file(segment.vector_filename)
+        self.vectorindex = StructHashWriter(vf, "!IH", "!I")
+        
+        # Vector posting file
+        vpf = storage.create_file(segment.vectorposts_filename)
+        self.vpostwriter = FilePostingWriter(vpf, stringids=True)
+        
+        # Stored fields file
+        sf = storage.create_file(segment.docs_filename)
+        self.storedfields = FileListWriter(sf,
+                                           valuecoder=encode_storedfields)
+        
+        # Field length file
+        flf = storage.create_file(segment.doclen_filename)
+        self.fieldlengths = StructHashWriter(flf, "!IH", "!I")
+        
+        # Create the pool
+        if poolclass is None:
+            if procs:
+                poolclass = MultiPool
+                poolargs["procs"] = procs
+            else:
+                poolclass = TempfilePool
+        self.pool = poolclass(self.fieldlengths, **poolargs)
+        
+    def add_reader(self, reader):
+        startdoc = self.docnum
+        
         has_deletions = reader.has_deletions()
-
         if has_deletions:
-            doc_map = {}
-
+            docmap = {}
+            
         schema = self.schema
-        name2num = schema.name_to_number
-        stored_to_pos = self._stored_to_pos
-
-        def storedkeyhelper(item):
-            return stored_to_pos[name2num(item[0])]
-
-        # Merge document info
-        docnum = 0
         vectored_fieldnums = schema.vectored_fields()
+        scored_fieldnums = schema.scored_fields()
+        
+        # Add stored documents, vectors, and field lengths
         for docnum in xrange(reader.doc_count_all()):
-            if not reader.is_deleted(docnum):
-                # Copy the stored fields and field lengths from the reader
-                # into this segment
-                storeditems = reader.stored_fields(docnum).items()
-                storedvalues = [v for k, v
-                                in sorted(storeditems, key=storedkeyhelper)]
-                self._add_doc_data(storedvalues,
-                                   reader.doc_field_lengths(docnum))
-
+            if (not has_deletions) or (not reader.is_deleted(docnum)):
+                stored = reader.stored_fields(docnum)
+                self._add_stored_fields(stored)
+                
                 if has_deletions:
-                    doc_map[docnum] = self.max_doc
-
-                # Copy term vectors
+                    docmap[docnum] = self.docnum
+                
+                for fieldnum in scored_fieldnums:
+                    self.pool.add_field_length(self.docnum, fieldnum,
+                                               reader.doc_field_length(docnum, fieldnum))
                 for fieldnum in vectored_fieldnums:
                     if reader.has_vector(docnum, fieldnum):
                         self._add_vector(fieldnum,
                                          reader.vector(docnum, fieldnum).items())
-
-                self.max_doc += 1
-
-        # Add field length totals
-        for fieldnum in schema.scorable_fields():
-            self.field_length_totals[fieldnum] += reader.field_length(fieldnum)
-
-        # Merge terms
+                self.docnum += 1
+        
         current_fieldnum = None
         decoder = None
         for fieldnum, text, _, _ in reader:
             if fieldnum != current_fieldnum:
                 current_fieldnum = fieldnum
                 decoder = schema[fieldnum].format.decode_frequency
-
+                
             postreader = reader.postings(fieldnum, text)
             for docnum, valuestring in postreader.all_items():
                 if has_deletions:
-                    newdoc = doc_map[docnum]
+                    newdoc = docmap[docnum]
                 else:
-                    newdoc = start_doc + docnum
-
+                    newdoc = startdoc + docnum
+                
                 # TODO: Is there a faster way to do this?
                 freq = decoder(valuestring)
                 self.pool.add_posting(fieldnum, text, newdoc, freq, valuestring)
-
-    def add_document(self, fields):
-        scorable_to_pos = self._scorable_to_pos
-        stored_to_pos = self._stored_to_pos
+        
+    def add_document(self, **fields):
         schema = self.schema
-
+        name2num = schema.name_to_number
+        
         # Sort the keys by their order in the schema
-        fieldnames = [name for name in fields.keys()
-                      if not name.startswith("_")]
-        fieldnames.sort(key=schema.name_to_number)
-
+        fieldnames = [name for name in fields.keys() if not name.startswith("_")]
+        fieldnames.sort(key=name2num)
+        
         # Check if the caller gave us a bogus field
         for name in fieldnames:
             if name not in schema:
                 raise UnknownFieldError("There is no field named %r" % name)
-
-        # Create an array of counters to record the length of each field
-        fieldlengths = array(DOCLENGTH_TYPE, [0] * len(scorable_to_pos))
-
-        # Create a list (initially a list of Nones) in which we will put stored
-        # field values as we get them. Why isn't this an empty list that we
-        # append to? Because if the caller doesn't supply a value for a stored
-        # field, we don't want to have a list in the wrong order/of the wrong
-        # length.
-        storedvalues = [None] * len(stored_to_pos)
-
-        docnum = self.max_doc
+            
+        storedvalues = {}
+        
+        docnum = self.docnum
         for name in fieldnames:
             value = fields.get(name)
             if value:
-                fieldnum = schema.name_to_number(name)
+                fieldnum = name2num(name)
                 field = schema.field_by_number(fieldnum)
-
-                # If the field is indexed, add the words in the value to the
-                # index
+                
                 if field.indexed:
                     self.pool.add_content(docnum, fieldnum, field, value)
-                    
-                    #if field.scorable:
-                    #    # Add the term count to the total for this field
-                    #    self.field_length_totals[fieldnum] += count
-                    #    # Set the term count to the per-document field length
-                    #    pos = scorable_to_pos[fieldnum]
-                    #    fieldlengths[pos] = min(count, DOCLENGTH_LIMIT)
-
-                # If the field is vectored, add the words in the value to the
-                # vector table
-                vector = field.vector
-                if vector:
-                    # TODO: Method for adding progressive field values, ie
-                    # setting start_pos/start_char?
+                
+                vformat = field.vector
+                if vformat:
                     vlist = sorted((w, valuestring) for w, freq, valuestring
-                                   in vector.word_values(value, mode="index"))
+                                   in vformat.word_values(value, mode="index"))
                     self._add_vector(fieldnum, vlist)
-
-                # If the field is stored, put the value in storedvalues
+                    
                 if field.stored:
                     # Caller can override the stored value by including a key
                     # _stored_<fieldname>
                     storedname = "_stored_" + name
                     if storedname in fields:
-                        stored_value = fields[storedname]
-                    else :
-                        stored_value = value
-
-                    storedvalues[stored_to_pos[fieldnum]] = stored_value
-
-        self._add_doc_data(storedvalues, fieldlengths)
-        self.max_doc += 1
-
-    def _add_terms(self):
-        pass
-
-    def _add_doc_data(self, storedvalues, fieldlengths):
-        self.docslist.append(storedvalues)
-        if self.doclengths:
-            self.doclengths.append(fieldlengths)
-
+                        storedvalues[name] = fields[storedname]
+                    else:
+                        storedvalues[name] = value
+                        
+        self._add_stored_fields(storedvalues)
+        self.docnum += 1
+    
+    def _add_stored_fields(self, storeddict):
+        self.storedfields.append(storeddict)
+        
     def _add_vector(self, fieldnum, vlist):
         vpostwriter = self.vpostwriter
         vformat = self.schema[fieldnum].vector
-
+        
         offset = vpostwriter.start(vformat)
         for text, valuestring in vlist:
             assert isinstance(text, unicode), "%r is not unicode" % text
             vpostwriter.write(text, valuestring)
         vpostwriter.finish()
-
-        self.vectortable.add((self.max_doc, fieldnum), offset)
-
-
-
-
-# Multiprocessing classes
-
-try:
-    from multiprocessing import Process, JoinableQueue
-except ImportError:
-    class Process(object):
-        def __init__(self):
-            raise Exception("multiprocessing.Process not available")
-
-
-class MultiprocWriter(object):
-    """Implements a subset of the IndexWriter interface, allowing
-    parallel writing of documents to parallel segments within an on-disk
-    index.
-    
-    This class is only available if 
-    """
-    
-    class WriterProcess(Process):
-        def __init__(self, indexdir, indexname,
-                     segmentname, queue, postlimit, blocklimit):
-            Process.__init__(self)
-            self.indexdir = indexdir
-            self.indexname = indexname
-            self.segmentname = segmentname
-            self.queue = queue
-            self.postlimit = postlimit
-            self.blocklimit = blocklimit
         
-        def run(self):
-            queue = self.queue
-            from whoosh import index
-            ix = index.open_dir(self.indexdir, indexname=self.indexname)
-            writer = SegmentWriter(ix, self.postlimit, self.blocklimit,
-                                   name=self.segmentname)
-            
-            while True:
-                fields = queue.get(block=True)
-                if fields is None:
-                    break
-                writer.add_document(fields)
-                queue.task_done()
-            
-            print "Closing writer", writer
-            writer.close()
-            ix.close()
-            queue.task_done()
+        self.vectorindex.add((self.docnum, fieldnum), offset)
     
-    def __init__(self, indexdir, indexname, processcount,
-                 maxqueuesize=1000, postlimit=32*1024*1024, blocklimit=128):
-        self.indexdir = indexdir
-        self.indexname = indexname
-        self.processcount = processcount
-        self.maxqueuesize = maxqueuesize
-        self.postlimit = postlimit
-        self.blocklimit = blocklimit
+    def _finish(self):
+        self._close_reader()
+        self.termsindex.close()
+        self.postwriter.close()
+        self.vectorindex.close()
+        self.vpostwriter.close()
+        self.storedfields.close()
+        self.fieldlengths.close()
         
-        self.processes = []
-        self.queue = None
+        self.lock.release()
     
-    def _setup(self):
-        self.queue = JoinableQueue(self.maxqueuesize)
-        
-        from whoosh.index import open_dir
-        ix = open_dir(self.indexdir, indexname=self.indexname)
-        segmentnames = [ix._next_segment_name()
-                        for _ in xrange(self.processcount)]
-        
-        self.processes = [self.WriterProcess(self.indexdir, self.indexname,
-                                             segmentname, self.queue,
-                                             self.postlimit, self.blocklimit)
-                          for segmentname in segmentnames]
-        
-        for proc in self.processes:
-            proc.start()
-    
-    def add_document(self, **fields):
-        if not self.queue:
-            self._setup()
-        self.queue.put(fields)
-
     def commit(self, mergetype=MERGE_SMALL):
-        """Finishes writing and unlocks the index.
+        self.pool.finish(self.schema, self.termsindex, self.postwriter)
         
-        :param mergetype: How to merge existing segments. One of
-            :class:`whoosh.filedb.filewriting.NO_MERGE`,
-            :class:`whoosh.filedb.filewriting.MERGE_SMALL`,
-            or :class:`whoosh.filedb.filewriting.OPTIMIZE`.
-        """
+        thissegment = Segment(self.name, self.docnum,
+                              self.pool.fieldlength_totals())
         
-        print "Joining..."
-        for _ in self.processes:
-            self.queue.put(None)
-        self.queue.join()
+        new_segments = mergetype(self.index, self, self.index.segments.copy())
+        new_segments.append(thissegment)
+        self.index.commit(new_segments)
         
-        #print "Terminating..."
-        #for proc in self.processes:
-        #    proc.terminate()
+        self._finish()
         
-        print "Done!"
-        
-#            self._close_reader()
-#            if self._segment_writer or mergetype is OPTIMIZE:
-#                self._merge_segments(mergetype)
-#            self.index.commit(self.segments)
-#            self._finish()
-
     def cancel(self):
-        raise NotImplementedError
-    
+        self.pool.cancel()
+        self._finish()
 
 
 

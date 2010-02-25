@@ -21,13 +21,10 @@ to D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 
 from array import array
 from collections import defaultdict
-from cPickle import dumps, loads
 from struct import Struct
 
-from whoosh.system import (_SHORT_SIZE, _INT_SIZE,
-                           pack_ushort, unpack_ushort,
-                           pack_uint, unpack_uint)
-from whoosh.util import utf8encode, utf8decode
+from whoosh.filedb.misc import enpickle, depickle
+from whoosh.system import _INT_SIZE
 
 
 def cdb_hash(key):
@@ -45,34 +42,6 @@ pack_2ints = _2ints_struct.pack
 unpack_2ints = _2ints_struct.unpack
 
 HEADER_SIZE = 256 * _2INTS_SIZE
-
-
-# Encoders and decoders for storing complex types in string -> string hash
-# files.
-
-def encode_termkey(term):
-    fieldnum, text = term
-    return pack_ushort(fieldnum) + utf8encode(text)[0]
-
-def decode_termkey(key):
-    return (unpack_ushort(key[:_SHORT_SIZE])[0],
-            utf8decode(key[_SHORT_SIZE:])[0])
-
-_vkey_struct = Struct("!IH")
-_pack_vkey = _vkey_struct.pack
-encode_vectorkey = lambda docandfield: _pack_vkey(*docandfield)
-decode_vectorkey = _vkey_struct.unpack
-
-encode_docnum = pack_uint
-decode_docnum = lambda x: unpack_uint(x)[0]
-
-_terminfo_struct = Struct("!III") # frequency, offset, postcount
-_pack_terminfo = _terminfo_struct.pack
-encode_terminfo = lambda cf_offset_df: _pack_terminfo(*cf_offset_df)
-decode_terminfo = _terminfo_struct.unpack
-
-enpickle = lambda data: dumps(data, -1)
-depickle = loads
 
 
 # Table classes
@@ -200,6 +169,16 @@ class HashReader(object):
             return data
         return default
 
+    def all(self, key):
+        read = self.read
+        for datapos, datalen in self._get_ranges(key):
+            yield read(datapos, datalen)
+
+    def __contains__(self, key):
+        for _ in self._get_ranges(key):
+            return True
+        return False
+
     def _hashtable_info(self, keyhash):
         return unpack_2ints(self.read(keyhash << 3 & 2047, _2INTS_SIZE))
 
@@ -239,16 +218,6 @@ class HashReader(object):
                 if keylen == len(key):
                     if key == read(pos + _2INTS_SIZE, keylen):
                         yield (pos + _2INTS_SIZE + keylen, datalen)
-
-    def all(self, key):
-        read = self.read
-        for datapos, datalen in self._get_ranges(key):
-            yield read(datapos, datalen)
-
-    def __contains__(self, key):
-        for _ in self._get_ranges(key):
-            return True
-        return False
 
 
 class OrderedHashWriter(HashWriter):
@@ -442,9 +411,6 @@ class FixedHashWriter(HashWriter):
             hashes[h & 255].append((h, pos))
             pos += recordsize
 
-    def add(self, key, value):
-        self.add_all(((key, value),))
-
 
 class FixedHashReader(HashReader):
     def __init__(self, dbfile, keysize, datasize):
@@ -500,6 +466,12 @@ class FixedHashReader(HashReader):
             return data
         return default
 
+    def all(self, key):
+        datasize = self.datasize
+        read = self.read
+        for datapos in self._get_data_poses(key):
+            yield read(datapos, datasize)
+
     def _key_at(self, pos):
         return self.read(pos, self.keysize)
 
@@ -529,51 +501,109 @@ class FixedHashReader(HashReader):
                 if key == read(pos, keysize):
                     yield pos + keysize
 
+
+class StructHashWriter(FixedHashWriter):
+    def __init__(self, dbfile, keyspec, dataspec):
+        keystruct = Struct(keyspec)
+        datastruct = Struct(dataspec)
+        FixedHashWriter.__init__(self, dbfile, keystruct.size, datastruct.size)
+        
+        _packkey = keystruct.pack
+        _packdata = datastruct.pack
+        
+        if keyspec[0] in "@=!<>":
+            multikey = len(keyspec)-1 > 1
+        else:
+            multikey = len(keyspec) > 1
+        if dataspec[0] in "@=!<>":
+            multidata = len(dataspec)-1 > 1
+        else:
+            multidata = len(dataspec) > 1
+            
+        if multikey:
+            packkey = lambda x: _packkey(*x)
+        else:
+            packkey = _packkey
+            
+        if multidata:
+            packdata = lambda x: _packdata(*x)
+        else:
+            packdata = _packdata
+        
+        self.packkey = packkey
+        self.packdata = packdata
+        
+    def add_all(self, items):
+        packkey = self.packkey
+        packdata = self.packdata
+        FixedHashWriter.add_all(self, ((packkey(key), packdata(data))
+                                       for key, data in items))
+        
+
+class StructHashReader(FixedHashReader):
+    def __init__(self, dbfile, keyspec, dataspec):
+        keystruct = Struct(keyspec)
+        datastruct = Struct(dataspec)
+        FixedHashReader.__init__(self, dbfile, keystruct.size, datastruct.size)
+        
+        _packkey = keystruct.pack
+        _unpackkey = keystruct.unpack
+        _unpackdata = datastruct.unpack
+        
+        if keyspec[0] in "@=!<>":
+            multikey = len(keyspec)-1 > 1
+        else:
+            multikey = len(keyspec) > 1
+        if dataspec[0] in "@=!<>":
+            multidata = len(dataspec)-1 > 1
+        else:
+            multidata = len(dataspec) > 1
+        
+        if multikey:
+            packkey = lambda x: _packkey(*x)
+            unpackkey = _unpackkey
+        else:
+            packkey = _packkey
+            unpackkey = lambda x: _unpackkey(x)[0]
+            
+        if multidata:
+            unpackdata = _unpackdata
+        else:
+            unpackdata = lambda x: _unpackdata(x)[0]
+        
+        self.packkey = packkey
+        self.unpackkey = unpackkey
+        self.unpackdata = unpackdata
+        
+    def items(self):
+        unpackkey = self.unpackkey
+        unpackdata = self.unpackdata
+        return ((unpackkey(key), unpackdata(data))
+                 for key, data in FixedHashReader.items(self))
+        
+    def keys(self):
+        unpackkey = self.unpackkey
+        return (unpackkey(key) for key in FixedHashReader.keys(self))
+    
+    def values(self):
+        unpackdata = self.unpackdata
+        return (unpackdata(data) for data in FixedHashReader.values(self))
+    
     def all(self, key):
-        datasize = self.datasize
-        read = self.read
-        for datapos in self._get_ranges(key):
-            yield read(datapos, datasize)
+        k = self.packkey(key)
+        unpackdata = self.unpackdata
+        for data in FixedHashReader.all(self, k):
+            yield unpackdata(data)
 
-
-class FileRecordWriter(object):
-    def __init__(self, dbfile, format):
-        self.dbfile = dbfile
-        self.format = format
-        self._pack = Struct(format).pack
-
-    def close(self):
-        self.dbfile.close()
-
-    def append(self, args):
-        self.dbfile.write(self._pack(*args))
-
-
-class FileRecordReader(object):
-    def __init__(self, dbfile, format):
-        self.dbfile = dbfile
-        self.map = dbfile.map
-        self.format = format
-        struct = Struct(format)
-        self._unpack = struct.unpack
-        self.itemsize = struct.size
-
-    def close(self):
-        del self.map
-        self.dbfile.close()
-
-    def record(self, recordnum):
-        itemsize = self.itemsize
-        return self._unpack(self.map[recordnum * itemsize: recordnum * itemsize + itemsize])
-
-    def at(self, recordnum, itemnum):
-        return self.record(recordnum)[itemnum]
+    def __contains__(self, key):
+        return FixedHashReader.__contains__(self, self.packkey(key))
 
 
 class FileListWriter(object):
     def __init__(self, dbfile, valuecoder=str):
         self.dbfile = dbfile
         self.directory = array("I")
+        dbfile.write_uint(0)
         dbfile.write_uint(0)
         self.valuecoder = valuecoder
 
@@ -584,6 +614,7 @@ class FileListWriter(object):
         f.flush()
         f.seek(0)
         f.write_uint(directory_pos)
+        f.write_uint(len(self.directory))
         f.close()
 
     def append(self, value):
@@ -595,12 +626,12 @@ class FileListWriter(object):
 
 
 class FileListReader(object):
-    def __init__(self, dbfile, length, valuedecoder=str):
+    def __init__(self, dbfile, valuedecoder=str):
         self.dbfile = dbfile
-        self.length = length
         self.valuedecoder = valuedecoder
 
         self.offset = dbfile.get_uint(0)
+        self.length = dbfile.get_uint(_INT_SIZE)
 
     def close(self):
         self.dbfile.close()
