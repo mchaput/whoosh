@@ -342,6 +342,7 @@ class TopDocs(object):
 
         subtotal = 0
         for docnum, score in sequence:
+            if score < minscore: continue
             docs.set(docnum)
             subtotal += 1
             
