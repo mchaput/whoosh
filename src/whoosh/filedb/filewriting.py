@@ -79,6 +79,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             raise LockError
         
         self.index = ix
+        self.segments = ix.segments.copy()
         self.blocklimit = 128
         
         self.schema = ix.schema
@@ -142,7 +143,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             
         schema = self.schema
         vectored_fieldnums = schema.vectored_fields()
-        scored_fieldnums = schema.scored_fields()
+        scorable_fieldnums = schema.scorable_fields()
         
         # Add stored documents, vectors, and field lengths
         for docnum in xrange(reader.doc_count_all()):
@@ -153,7 +154,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 if has_deletions:
                     docmap[docnum] = self.docnum
                 
-                for fieldnum in scored_fieldnums:
+                for fieldnum in scorable_fieldnums:
                     self.pool.add_field_length(self.docnum, fieldnum,
                                                reader.doc_field_length(docnum, fieldnum))
                 for fieldnum in vectored_fieldnums:
@@ -238,7 +239,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         self.vectorindex.add((self.docnum, fieldnum), offset)
     
-    def _finish(self):
+    def _close_all(self):
         self._close_reader()
         self.termsindex.close()
         self.postwriter.close()
@@ -247,23 +248,32 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         self.storedfields.close()
         self.fieldlengths.close()
         
-        self.lock.release()
-    
     def commit(self, mergetype=MERGE_SMALL):
+        # Call the merge policy function. The policy may choose to merge other
+        # segments into this writer's pool
+        new_segments = mergetype(self.index, self, self.segments)
+        
+        # Tell the pool we're finished adding information, it should add its
+        # accumulated data to the terms index and posting file.
         self.pool.finish(self.schema, self.termsindex, self.postwriter)
         
+        # Create a Segment object for the segment created by this writer and
+        # add it to the list of remaining segments returned by the merge policy
+        # function
         thissegment = Segment(self.name, self.docnum,
                               self.pool.fieldlength_totals())
-        
-        new_segments = mergetype(self.index, self, self.index.segments.copy())
         new_segments.append(thissegment)
-        self.index.commit(new_segments)
         
-        self._finish()
+        # Close all files, tell the index to write a new TOC with the new
+        # segment list, and release the lock.
+        self._close_all()
+        self.index.commit(new_segments)
+        self.lock.release()
         
     def cancel(self):
         self.pool.cancel()
-        self._finish()
+        self._close_all()
+        self.lock.release()
 
 
 
