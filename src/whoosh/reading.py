@@ -99,13 +99,6 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def doc_field_lengths(self, docnum):
-        """Returns an array corresponding to the lengths of the scorable fields
-        in the given document. It's up to the caller to correlate the positions
-        of the numbers in the array with the scorable fields in the schema.
-        """
-        raise NotImplementedError
-
     def has_vector(self, docnum, fieldid):
         """Returns True if the given document has a term vector for the given
         field.
@@ -332,10 +325,6 @@ class MultiReader(IndexReader):
         fieldid = self.schema.to_number(fieldid)
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].doc_field_length(segmentdoc, fieldid)
-
-    def doc_field_lengths(self, docnum):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].doc_field_lengths(segmentdoc)
 
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
