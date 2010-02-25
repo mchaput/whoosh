@@ -437,6 +437,11 @@ class FixedHashReader(HashReader):
     def __iter__(self):
         return self.items()
 
+    def __contains__(self, key):
+        for _ in self._get_data_poses(key):
+            return True
+        return False
+
     def items(self):
         keysize = self.keysize
         datasize = self.datasize
