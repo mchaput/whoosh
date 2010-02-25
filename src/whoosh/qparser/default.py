@@ -220,6 +220,8 @@ class QueryParser(object):
                 return field.parse_query(fieldname, text)
             else:
                 texts = list(field.process_text(text, mode="query"))
+                if not texts:
+                    return NullQuery
                 if len(texts) > 1:
                     return Phrase(fieldname, texts)
                 else:
