@@ -100,6 +100,10 @@ class PoolBase(object):
     def fieldlength_totals(self):
         return self._fieldlength_totals
     
+    def add_field_length(self, docnum, fieldnum, termcount):
+        self.lengthfile.add((docnum, fieldnum), termcount)
+        self._fieldlength_totals[fieldnum] += termcount
+    
     def write_postings(self, schema, termtable, postwriter, postiter, total,
                        logchunk=10000):
         # This method pulls postings out of the posting pool (built up as

@@ -30,7 +30,6 @@ from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 
 
 _INDEX_VERSION = -105
-_EXTENSIONS = "dci|dcz|tiz|fvz|pst|vps"
 
 
 # A mix-in that adds methods for deleting
@@ -445,13 +444,15 @@ class Segment(object):
     along the way).
     """
 
-    def __init__(self, name, max_doc, field_length_totals, deleted=None):
+    EXTENSIONS = "dci|dcz|tiz|fvz|pst|vps"
+
+    def __init__(self, name, doccount, fieldlength_totals, deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
             from its name and the generation).
-        :param max_doc: The maximum document number in the segment.
+        :param doccount: The maximum document number in the segment.
         :param term_count: Total count of all terms in all documents.
-        :param field_length_totals: A dictionary mapping field numbers to the
+        :param fieldlength_totals: A dictionary mapping field numbers to the
             total number of terms in that field across all documents in the
             segment.
         :param deleted: A set of deleted document numbers, or None if no
@@ -459,8 +460,8 @@ class Segment(object):
         """
 
         self.name = name
-        self.max_doc = max_doc
-        self.field_length_totals = field_length_totals
+        self.doccount = doccount
+        self.fieldlength_totals = fieldlength_totals
         self.deleted = deleted
 
         self.doclen_filename = self.name + ".dci"
@@ -478,8 +479,7 @@ class Segment(object):
             deleted = set(self.deleted)
         else:
             deleted = None
-        return Segment(self.name, self.max_doc,
-                       self.field_length_totals,
+        return Segment(self.name, self.doccount, self.fieldlength_totals,
                        deleted)
 
     def doc_count_all(self):
@@ -487,13 +487,13 @@ class Segment(object):
         :returns: the total number of documents, DELETED OR UNDELETED, in this
             segment.
         """
-        return self.max_doc
+        return self.doccount
 
     def doc_count(self):
         """
         :returns: the number of (undeleted) documents in this segment.
         """
-        return self.max_doc - self.deleted_count()
+        return self.doccount - self.deleted_count()
 
     def has_deletions(self):
         """
@@ -514,7 +514,7 @@ class Segment(object):
         :returns: the total number of terms in the given field across all
             documents in this segment.
         """
-        return self.field_length_totals.get(fieldnum, 0)
+        return self.fieldlength_totals.get(fieldnum, 0)
 
     def delete_document(self, docnum, delete=True):
         """Deletes the given document number. The document is not actually
@@ -559,7 +559,7 @@ def _segment_pattern(indexname):
     name is the name of the index.
     """
 
-    return re.compile("(_%s_[0-9]+).(%s)" % (indexname, _EXTENSIONS))
+    return re.compile("(_%s_[0-9]+).(%s)" % (indexname, Segment.EXTENSIONS))
 
 
 
