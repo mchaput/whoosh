@@ -275,10 +275,8 @@ class PoolWritingTask(Process):
                     lqueue.put((docnum, fieldnum, length))
             else:
                 subpool.add_posting(*unit[1])
-            pqueue.task_done()
         
         subpool.dump_run()
-        pqueue.task_done()
         #print "Task", self.name, "finished"
 
 
@@ -303,7 +301,7 @@ class MultiPool(PoolBase):
     def _start_tasks(self):
         tasks = self.tasks
         if not tasks:
-            self.postingqueue = JoinableQueue()
+            self.postingqueue = Queue()
             self.lengthqueue = Queue()
             self.controlqueue = Queue()
         
@@ -334,12 +332,13 @@ class MultiPool(PoolBase):
         lqueue = self.lengthqueue
         cqueue = self.controlqueue
         
-        for _ in xrange(self.procs):
+        for _ in self.tasks:
             pqueue.put(None)
         
         print "Joining..."
         t = time.time()
-        pqueue.join()
+        for task in self.tasks:
+            task.join()
         print "Join:", time.time() - t
         
         t = time.time()
