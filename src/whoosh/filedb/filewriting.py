@@ -98,31 +98,35 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         storage = ix.storage
         
-        # Term index
-        tf = storage.create_file(segment.term_filename)
+        # Terms index
+        tf = storage.create_file(segment.termsindex_filename)
         self.termsindex = FileTableWriter(tf,
                                           keycoder=misc.encode_termkey,
                                           valuecoder=misc.encode_terminfo)
         
-        # Term posting file
-        pf = storage.create_file(segment.posts_filename)
+        # Term postings file
+        pf = storage.create_file(segment.termposts_filename)
         self.postwriter = FilePostingWriter(pf, blocklimit=blocklimit)
         
-        # Vector index
-        vf = storage.create_file(segment.vector_filename)
-        self.vectorindex = StructHashWriter(vf, "!IH", "!I")
-        
-        # Vector posting file
-        vpf = storage.create_file(segment.vectorposts_filename)
-        self.vpostwriter = FilePostingWriter(vpf, stringids=True)
+        if ix.schema.has_vectored_fields():
+            # Vector index
+            vf = storage.create_file(segment.vectorindex_filename)
+            self.vectorindex = StructHashWriter(vf, "!IH", "!I")
+            
+            # Vector posting file
+            vpf = storage.create_file(segment.vectorposts_filename)
+            self.vpostwriter = FilePostingWriter(vpf, stringids=True)
+        else:
+            self.vectorindex = None
+            self.vpostwriter = None
         
         # Stored fields file
-        sf = storage.create_file(segment.docs_filename)
+        sf = storage.create_file(segment.storedfields_filename)
         self.storedfields = FileListWriter(sf,
                                            valuecoder=encode_storedfields)
         
         # Field length file
-        flf = storage.create_file(segment.doclen_filename)
+        flf = storage.create_file(segment.fieldlengths_filename)
         self.fieldlengths = StructHashWriter(flf, "!IH", "!I")
         
         # Create the pool
@@ -133,7 +137,10 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             else:
                 poolclass = TempfilePool
         self.pool = poolclass(self.fieldlengths, **poolargs)
-        
+    
+    def searcher(self):
+        return self.index.searcher()
+    
     def add_reader(self, reader):
         startdoc = self.docnum
         
@@ -240,11 +247,12 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         self.vectorindex.add((self.docnum, fieldnum), offset)
     
     def _close_all(self):
-        self._close_reader()
         self.termsindex.close()
         self.postwriter.close()
-        self.vectorindex.close()
-        self.vpostwriter.close()
+        if self.vectorindex:
+            self.vectorindex.close()
+        if self.vpostwriter:
+            self.vpostwriter.close()
         self.storedfields.close()
         self.fieldlengths.close()
         

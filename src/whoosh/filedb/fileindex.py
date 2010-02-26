@@ -97,7 +97,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         # Open a reader for this index. This is used by the
         # deletion methods, but mostly it's to keep the underlying
         # files open so they don't get deleted from underneath us.
-        self._searcher = self.searcher()
+        self._acquire_readlocks()
 
         self.segment_num_lock = None
 
@@ -105,14 +105,20 @@ class FileIndex(SegmentDeletionMixin, Index):
         return "%s(%r, %r)" % (self.__class__.__name__,
                                self.storage, self.indexname)
 
-    def __del__(self):
-        if (hasattr(self, "_searcher")
-            and self._searcher
-            and not self._searcher.is_closed):
-            self._searcher.close()
+    def _acquire_readlocks(self):
+        self._readlocks = [self.storage.readlock(name)
+                           for name in self.segments.filenames()
+                           if self.storage.file_exists(name)]
+        for lck in self._readlocks:
+            lck.acquire(blocking=False)
+
+    def _release_readlocks(self):
+        for lck in self._readlocks:
+            lck.release()
+        self._readlocks = []
 
     def close(self):
-        self._searcher.close()
+        self._release_readlocks()
 
     def latest_generation(self):
         pattern = _toc_pattern(self.indexname)
@@ -235,7 +241,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         w.commit(OPTIMIZE)
 
     def commit(self, new_segments=None):
-        self._searcher.close()
+        self._release_readlocks()
 
         if not self.up_to_date():
             raise OutOfDateError
@@ -249,12 +255,12 @@ class FileIndex(SegmentDeletionMixin, Index):
         self._write()
         self._clean_files()
 
-        self._searcher = self.searcher()
+        self._acquire_readlocks()
 
     def _clean_files(self):
         # Attempts to remove unused index files (called when a new generation
         # is created). If existing Index and/or reader objects have the files
-        # open, they may not get deleted immediately (i.e. on Windows) but will
+        # open, they may not be deleted immediately (i.e. on Windows) but will
         # probably be deleted eventually by a later call to clean_files.
 
         storage = self.storage
@@ -263,26 +269,24 @@ class FileIndex(SegmentDeletionMixin, Index):
         tocpattern = _toc_pattern(self.indexname)
         segpattern = _segment_pattern(self.indexname)
 
+        todelete = set()
         for filename in storage:
-            m = tocpattern.match(filename)
-            if m:
-                num = int(m.group(1))
-                if num != self.generation:
-                    try:
-                        storage.delete_file(filename)
-                    except OSError:
-                        # Another process still has this file open
-                        pass
-            else:
-                m = segpattern.match(filename)
-                if m:
-                    name = m.group(1)
-                    if name not in current_segment_names:
-                        try:
-                            storage.delete_file(filename)
-                        except OSError:
-                            # Another process still has this file open
-                            pass
+            tocm = tocpattern.match(filename)
+            segm = segpattern.match(filename)
+            if tocm:
+                if int(tocm.group(1)) != self.generation:
+                    todelete.add(filename)
+            elif segm:
+                name = segm.group(1)
+                if name not in current_segment_names:
+                    todelete.add(filename)
+        
+        for filename in todelete:
+            try:
+                storage.delete_file(filename)
+            except OSError:
+                # Another process still has this file open
+                pass
 
     def doc_count_all(self):
         return self.segments.doc_count_all()
@@ -360,6 +364,12 @@ class SegmentSet(object):
     def copy(self):
         """:returns: a deep copy of this set."""
         return self.__class__([s.copy() for s in self.segments])
+
+    def filenames(self):
+        nameset = set()
+        for segment in self.segments:
+            nameset |= segment.filenames()
+        return nameset
 
     def doc_offsets(self):
         # Recomputes the document offset list. This must be called if you
@@ -444,8 +454,10 @@ class Segment(object):
     along the way).
     """
 
-    EXTENSIONS = "dci|dcz|tiz|fvz|pst|vps"
-
+    EXTENSIONS = {"fieldlengths": "dci", "storedfields": "dcz",
+                  "termsindex":"tiz", "termposts": "pst",
+                  "vectorindex": "fvz", "vectorposts": "vps"}
+    
     def __init__(self, name, doccount, fieldlength_totals, deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
@@ -464,12 +476,11 @@ class Segment(object):
         self.fieldlength_totals = fieldlength_totals
         self.deleted = deleted
 
-        self.doclen_filename = self.name + ".dci"
-        self.docs_filename = self.name + ".dcz"
-        self.term_filename = self.name + ".tiz"
-        self.vector_filename = self.name + ".fvz"
-        self.posts_filename = self.name + ".pst"
-        self.vectorposts_filename = self.name + ".vps"
+        self._filenames = set()
+        for attr, ext in self.EXTENSIONS.iteritems():
+            fname = self.name + ext
+            setattr(self, attr + "_filename", fname)
+            self._filenames.add(fname)
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.name)
@@ -481,6 +492,9 @@ class Segment(object):
             deleted = None
         return Segment(self.name, self.doccount, self.fieldlength_totals,
                        deleted)
+
+    def filenames(self):
+        return self._filenames
 
     def doc_count_all(self):
         """
@@ -559,7 +573,8 @@ def _segment_pattern(indexname):
     name is the name of the index.
     """
 
-    return re.compile("(_%s_[0-9]+).(%s)" % (indexname, Segment.EXTENSIONS))
+    return re.compile("(_%s_[0-9]+).(%s)" % (indexname,
+                                             Segment.EXTENSIONS.values()))
 
 
 

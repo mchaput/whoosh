@@ -40,7 +40,7 @@ class SegmentReader(IndexReader):
             return dict(zip(storedfieldnames, loads(value)))
 
         # Term index
-        tf = storage.open_file(segment.term_filename)
+        tf = storage.open_file(segment.termsindex_filename)
         self.termsindex = FileTableReader(tf,
                                           keycoder=misc.encode_termkey,
                                           keydecoder=misc.decode_termkey,
@@ -52,12 +52,12 @@ class SegmentReader(IndexReader):
         self.vpostfile = None
         
         # Stored fields file
-        sf = storage.open_file(segment.docs_filename, mapped=False)
+        sf = storage.open_file(segment.storedfields_filename, mapped=False)
         self.storedfields = FileListReader(sf,
                                            valuedecoder=decode_storedfields)
         
         # Field length file
-        flf = storage.open_file(segment.doclen_filename)
+        flf = storage.open_file(segment.fieldlengths_filename)
         self.fieldlengths = StructHashReader(flf, "!IH", "!I")
         
         # Copy methods from underlying segment
@@ -75,7 +75,7 @@ class SegmentReader(IndexReader):
         storage, segment = self.storage, self.segment
         
         # Vector index
-        vf = storage.open_file(segment.vector_filename)
+        vf = storage.open_file(segment.vectorindex_filename)
         self.vectorindex = StructHashReader(vf, "!IH", "!I")
         
         # Vector postings file
@@ -84,7 +84,7 @@ class SegmentReader(IndexReader):
     
     def _open_postfile(self):
         if self.postfile: return
-        self.postfile = self.storage.open_file(self.segment.posts_filename,
+        self.postfile = self.storage.open_file(self.segment.termposts_filename,
                                                mapped=False)
     
     def __repr__(self):

@@ -15,6 +15,7 @@
 #===============================================================================
 
 import os
+from collections import defaultdict
 from cStringIO import StringIO
 from threading import Lock
 
@@ -95,11 +96,11 @@ class FileStorage(Storage):
                 os.remove(self._fpath(to))
         os.rename(self._fpath(frm), self._fpath(to))
 
-    def _getlock(self, name):
-        return FileLock(self._fpath(name))
-
     def lock(self, name):
-        return FileLock(self._fpath(name))
+        return FileLock(self._fpath(name), False)
+    
+    def readlock(self, name):
+        return FileLock(self._fpath(name), True)
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
@@ -108,6 +109,12 @@ class FileStorage(Storage):
 class RamStorage(FileStorage):
     """Storage object that keeps the index in memory.
     """
+
+    class RamReadLock(object):
+        def acquire(self, blocking=None):
+            return True
+        def release(self):
+            pass
 
     def __init__(self):
         self.files = {}
@@ -158,12 +165,15 @@ class RamStorage(FileStorage):
     def open_file(self, name, *args, **kwargs):
         if name not in self.files:
             raise NameError
-        return StructFile(StringIO(self.files[name]), *args, **kwargs)
+        return StructFile(StringIO(self.files[name]), name=name, *args, **kwargs)
 
     def lock(self, name):
         if name not in self.locks:
             self.locks[name] = Lock()
         return self.locks[name]
+    
+    def readlock(self, name):
+        return self.RamReadLock()
 
 
 def copy_to_ram(storage):

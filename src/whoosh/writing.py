@@ -53,14 +53,8 @@ class IndexWriter(DeletionMixin):
         """Returns a searcher for the existing index.
         """
         
-        if not self._searcher:
-            self._searcher = self.index.searcher(**kwargs)
-        return self._searcher
-    
-    def _close_reader(self):
-        if self._searcher:
-            self._searcher.close()
-            self._searcher = None
+        from whoosh.searching import Searcher
+        return Searcher(self.reader(), **kwargs)
     
     def delete_document(self, docnum, delete=True):
         """Deletes a document by number.
