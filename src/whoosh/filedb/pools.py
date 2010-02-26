@@ -225,7 +225,7 @@ class TempfilePool(PoolBase):
         self.cleanup()
     
     def cleanup(self):
-        for filename, _, _ in self.runs:
+        for filename, _ in self.runs:
             os.remove(filename)
     
     def finish(self, schema, termtable, postingwriter):
