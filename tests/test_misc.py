@@ -29,8 +29,10 @@ class TestMisc(unittest.TestCase):
         st = FileStorage("testindex")
         lock1 = st.lock("testlock")
         lock2 = st.lock("testlock")
+        self.assertFalse(lock1 is lock2)
         
         self.assertTrue(lock1.acquire())
+        self.assertTrue(os.path.exists("testindex/testlock"))
         self.assertFalse(lock2.acquire())
         lock1.release()
         self.assertTrue(lock2.acquire())
