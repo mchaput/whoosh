@@ -33,7 +33,11 @@ def get_messages(tarfilename, headers=True):
     s = set()
     for text in get_texts(tarfilename):
         message = message_from_string(text)
-        d = {"body": message.as_string().decode("latin_1")}
+        body = message.as_string().decode("latin_1")
+        blank = body.find("\n\n")
+        if blank > -1:
+            body = body[blank+2:]
+        d = {"body": body}
         if headers:
             for k in message.keys():
                 fn = header_to_field.get(k)
@@ -62,30 +66,28 @@ def get_cached_messages(cachename):
         pass
     f.close()
 
-def do_index(cachename, procs=0, chunk=1000, skip=1, upto=600000):
+def do_index(cachename, procs=0, chunk=1000, skip=1, upto=600000, limitmb=128):
     if not os.path.exists("testindex"):
         os.mkdir("testindex")
     ix = index.create_in("testindex", schema)
-    w = ix.writer(procs=procs, limitmb=128)
+    w = ix.writer(procs=procs, limitmb=limitmb)
     
     starttime = chunkstarttime = time.time()
     c = 0
     skipc = skip
     for d in get_cached_messages(cachename):
         skipc -= 1
-        if not skipc:
-            w.add_document(**d)
-            skipc = skip
-            c += 1
-            if c > upto:
-                break
-            if not c % chunk:
-                now = time.time()
-                print "Indexed %d messages, %f for %d, %f total" % (c,
-                                                                    now - chunkstarttime,
-                                                                    chunk,
-                                                                    now - starttime)
-                chunkstarttime = now
+        if skipc: continue
+        w.add_document(**d)
+        skipc = skip
+        c += 1
+        if c > upto:
+            break
+        if not c % chunk:
+            now = time.time()
+            print "Indexed %d messages, %f for %d, %f total" % (c, now - chunkstarttime, chunk, now - starttime)
+            chunkstarttime = now
+    
     spooltime = time.time()
     print "Spool", spooltime - starttime
     w.commit()
@@ -98,7 +100,10 @@ def do_index(cachename, procs=0, chunk=1000, skip=1, upto=600000):
 
 
 if __name__=="__main__":
-    #do_index("messages.bin", procs=4, upto=10000)
+    #t = time.time()
+    #cache_messages(enronEmailPath, "messages.bin")
+    #print time.time() - t
+    do_index("messages.bin", procs=4, limitmb=32, upto=250000)#, upto=10000)
     
     from whoosh.filedb.filetables import StructHashReader, FileListReader
     from whoosh.filedb.filestore import FileStorage
@@ -115,20 +120,31 @@ if __name__=="__main__":
         lf = fs.open_file("_MAIN_1.dci")
         shr = StructHashReader(lf, "!IH", "!I")
         print "Direct length:", shr.get((docnum, fieldnum))
+        shr.close()
         
     
         df = fs.open_file("_MAIN_1.dcz")
         flr = FileListReader(df, valuedecoder=marshal.loads)
         print "Direct fields:", flr[docnum]
-    
+        flr.close()
+        
+        t = time.time()
         ix = fs.open_index()
+        print "Open index:", time.time() - t
+        
+        t = time.time()
         r = ix.reader()
+        print "Open reader:", time.time() - t
+        
         print "Reader length:", r.doc_field_length(docnum, fieldnum)
         print "Reader fields:", r.stored_fields(docnum)[fieldname]
+        r.close()
+        ix.close()
     
-    show(0, "subject")
+    show(3, "subject")
+    ix = fs.open_index()
+    #print list(ix.reader().most_frequent_terms("body", 10))
     
-    #t = time.time()
-    #save_messages(enronEmailPath, "messages.bin")
-    #print time.time() - t
+    
+    
     

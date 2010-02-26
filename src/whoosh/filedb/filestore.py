@@ -97,11 +97,8 @@ class FileStorage(Storage):
         os.rename(self._fpath(frm), self._fpath(to))
 
     def lock(self, name):
-        return FileLock(self._fpath(name), False)
+        return FileLock(self._fpath(name))
     
-    def readlock(self, name):
-        return FileLock(self._fpath(name), True)
-
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
 
@@ -109,12 +106,6 @@ class FileStorage(Storage):
 class RamStorage(FileStorage):
     """Storage object that keeps the index in memory.
     """
-
-    class RamReadLock(object):
-        def acquire(self, blocking=None):
-            return True
-        def release(self):
-            pass
 
     def __init__(self):
         self.files = {}
@@ -172,9 +163,6 @@ class RamStorage(FileStorage):
             self.locks[name] = Lock()
         return self.locks[name]
     
-    def readlock(self, name):
-        return self.RamReadLock()
-
 
 def copy_to_ram(storage):
     """Copies the given FileStorage object into a new RamStorage object.
