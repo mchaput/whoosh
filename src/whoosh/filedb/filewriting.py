@@ -131,7 +131,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Create the pool
         if poolclass is None:
-            if procs:
+            if procs > 1:
                 poolclass = MultiPool
                 poolargs["procs"] = procs
             else:

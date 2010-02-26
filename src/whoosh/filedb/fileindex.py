@@ -478,7 +478,7 @@ class Segment(object):
 
         self._filenames = set()
         for attr, ext in self.EXTENSIONS.iteritems():
-            fname = self.name + ext
+            fname = "%s.%s" % (self.name, ext)
             setattr(self, attr + "_filename", fname)
             self._filenames.add(fname)
 
