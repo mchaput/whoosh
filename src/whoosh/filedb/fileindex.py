@@ -14,7 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-import cPickle, re
+import cPickle, os, re
 from bisect import bisect_right
 from time import time
 from threading import Lock
@@ -106,15 +106,12 @@ class FileIndex(SegmentDeletionMixin, Index):
                                self.storage, self.indexname)
 
     def _acquire_readlocks(self):
-        self._readlocks = [self.storage.readlock(name)
+        self._readlocks = [self.storage.open_file(name, mapped=False)
                            for name in self.segments.filenames()
                            if self.storage.file_exists(name)]
-        for lck in self._readlocks:
-            lck.acquire(blocking=False)
 
     def _release_readlocks(self):
-        for lck in self._readlocks:
-            lck.release()
+        (f.close() for f in self._readlocks)
         self._readlocks = []
 
     def close(self):

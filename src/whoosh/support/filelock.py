@@ -40,10 +40,9 @@ class LockBase(object):
     """Base class for file locks.
     """
     
-    def __init__(self, filename, is_readlock):
+    def __init__(self, filename):
         self.fd = None
         self.filename = filename
-        self.is_readlock = is_readlock
         self.locked = False
     
     def __del__(self):
@@ -74,14 +73,9 @@ class FcntlLock(LockBase):
         import fcntl
         
         flags = os.O_CREAT | os.O_WRONLY
-        if self.is_readlock:
-            flags = os.O_RDONLY
         self.fd = os.open(self.filename, flags)
         
-        if self.is_readlock:
-            mode = fcntl.LOCK_SH
-        else:
-            mode = fcntl.LOCK_EX
+        mode = fcntl.LOCK_EX
         if not blocking: mode |= fcntl.LOCK_NB
         
         try:
@@ -108,13 +102,10 @@ class MsvcrtLock(LockBase):
         import msvcrt
         
         flags = os.O_CREAT | os.O_WRONLY
-        if self.is_readlock:
-            flags = os.O_RDONLY
-        self.fd = os.open(self.filename, flags)
-        
         mode = msvcrt.LK_NBLCK
         if blocking: mode = msvcrt.LK_LOCK
-        
+            
+        self.fd = os.open(self.filename, flags)
         try:
             msvcrt.locking(self.fd, mode, 1)
             return True

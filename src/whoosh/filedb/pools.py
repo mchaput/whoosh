@@ -18,6 +18,7 @@
 import os, tempfile, time
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
+from Queue import Empty, Full
 from multiprocessing import Process, Queue, JoinableQueue
 from struct import Struct
 
@@ -251,41 +252,39 @@ class PoolWritingTask(Process):
     def __init__(self, postingqueue, lengthqueue, controlqueue, limitmb):
         Process.__init__(self)
         self.postingqueue = postingqueue
-        self.lengthqueue = lengthqueue
+        #self.lengthqueue = lengthqueue
         self.controlqueue = controlqueue
         self.limitmb = limitmb
         
     def run(self):
         pqueue = self.postingqueue
-        lqueue = self.lengthqueue
+        #lqueue = self.lengthqueue
         cqueue = self.controlqueue
         
         subpool = TempfilePool(None, limitmb=self.limitmb,
                                callback=lambda x: cqueue.put(x))
         
         while True:
-            unit = pqueue.get()
+            unit = pqueue.get(timeout=2)
             if unit is None:
                 break
             
             if unit[0]:
                 docnum, fieldnum, field, value = unit[1]
                 length = subpool.add_content(docnum, fieldnum, field, value)
-                if field.scorable:
-                    lqueue.put((docnum, fieldnum, length))
+                #if field.scorable:
+                #    lqueue.put((docnum, fieldnum, length))
             else:
                 subpool.add_posting(*unit[1])
+            pqueue.task_done()
         
         subpool.dump_run()
+        pqueue.task_done()
+        pqueue.close()
+        #lqueue.close()
+        cqueue.close()
         #print "Task", self.name, "finished"
 
-
-def iterqueue(q):
-    while True:
-        item = q.get()
-        if item is None: return
-        yield item
-        
 
 class MultiPool(PoolBase):
     def __init__(self, lengthfile, procs=2, limitmb=32):
@@ -301,8 +300,8 @@ class MultiPool(PoolBase):
     def _start_tasks(self):
         tasks = self.tasks
         if not tasks:
-            self.postingqueue = Queue()
-            self.lengthqueue = Queue()
+            self.postingqueue = JoinableQueue(100000)
+            self.lengthqueue = None #Queue()
             self.controlqueue = Queue()
         
         if len(tasks) < self.procs:
@@ -314,9 +313,12 @@ class MultiPool(PoolBase):
     def add_content(self, *args):
         self._start_tasks()
         self.postingqueue.put((True, args))
-        while not self.lengthqueue.empty():
-            unit = self.lengthqueue.get(block=False)
-            self.lengthfile.add(unit[:2], unit[2])
+        #try:
+        #    while True:
+        #        unit = self.lengthqueue.get(block=False)
+        #        self.lengthfile.add(unit[:2], unit[2])
+        #except Empty:
+        #    pass
         
     def add_posting(self, *args):
         self._start_tasks()
@@ -335,21 +337,34 @@ class MultiPool(PoolBase):
         for _ in self.tasks:
             pqueue.put(None)
         
+        #t = time.time()
+        #print "lsize1:", lqueue.qsize()
+        #try:
+        #    while True:
+        #        unit = lqueue.get(block=False)
+        #        lfile.add(unit[:2], unit[2])
+        #except Empty:
+        #    pass
+        #print "Length queue1:", time.time() - t
+        
         print "Joining..."
         t = time.time()
-        for task in self.tasks:
-            task.join()
+        pqueue.join()
         print "Join:", time.time() - t
         
-        t = time.time()
-        while not lqueue.empty():
-            unit = lqueue.get(block=False)
-            lfile.add(unit[:2], unit[2])
-        print "Length queue:", time.time() - t
+        #t = time.time()
+        #print "lsize2:", lqueue.qsize()
+        #try:
+        #    while True:
+        #        unit = lqueue.get(block=False)
+        #        lfile.add(unit[:2], unit[2])
+        #except Empty:
+        #    pass
+        #print "Length queue2:", time.time() - t
         
         runs = []
         while not cqueue.empty():
-            result = cqueue.get()
+            result = cqueue.get(timeout=2)
             runs.append(result)
             
         for task in self.tasks:
