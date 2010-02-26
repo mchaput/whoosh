@@ -6,8 +6,8 @@ from shutil import rmtree
 
 from whoosh.filedb.filestore import FileStorage
 from whoosh.filedb.filetables import (HashReader, HashWriter,
-                                      OrderedHashWriter, OrderedHashReader,
-                                      encode_termkey, decode_termkey)
+                                      OrderedHashWriter, OrderedHashReader)
+from whoosh.filedb.misc import encode_termkey, decode_termkey
 
 
 class TestTables(unittest.TestCase):

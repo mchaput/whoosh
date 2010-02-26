@@ -218,6 +218,7 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(ix.doc_count(), 2)
         
         ix.optimize()
+        self.assertEqual(ix.doc_count_all(), 2)
         self.assertEqual(ix.doc_count(), 2)
         tr = ix.reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
@@ -316,26 +317,6 @@ class TestIndexing(unittest.TestCase):
         finally:
             self.destroy_index("testindex")
             
-    def test_longfield(self):
-        schema = fields.Schema(field=fields.TEXT)
-        ix = self.make_index("testindex", schema, "longfield")
-
-        import random
-        from whoosh.filedb.filewriting import DOCLENGTH_LIMIT
-        domain = [u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf"]
-        size = DOCLENGTH_LIMIT + 20
-        value = u" ".join(random.choice(domain) for _ in xrange(size))
-        
-        try:
-            writer = ix.writer()
-            writer.add_document(field=value)
-            writer.commit()
-            
-            reader = ix.reader()
-            self.assertEqual(reader.doc_field_length(0, 0), DOCLENGTH_LIMIT)
-        finally:
-            self.destroy_index("testindex")
-
 
 if __name__ == '__main__':
     unittest.main()

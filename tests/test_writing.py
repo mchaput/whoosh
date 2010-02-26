@@ -28,11 +28,11 @@ class TestWriting(unittest.TestCase):
         domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf", u"hotel", u"india")
         
         writers = []
+        # Simulate doing 20 (near-)simultaneous commits. If we weren't using
+        # AsyncWriter, at least some of these would fail because the first
+        # writer wouldn't be finished yet.
         for i in xrange(20):
             w = writing.AsyncWriter(ix.writer)
-            # Simulate doing 20 (near-)simultaneous commits. If we weren't using
-            # AsyncWriter, at least some of these would fail because the first
-            # writer wouldn't be finished yet.
             writers.append(w)
             w.add_document(id=unicode(i), text=u" ".join(random.sample(domain, 5)))
             w.commit()
