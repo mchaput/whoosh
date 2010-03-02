@@ -18,8 +18,8 @@
 import os, tempfile, time
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
-from Queue import Empty, Full
-from multiprocessing import Process, Queue, JoinableQueue
+from Queue import Empty
+from multiprocessing import Process, Queue
 from struct import Struct
 
 from whoosh.filedb.structfile import StructFile
@@ -30,6 +30,10 @@ from whoosh.util import utf8encode, utf8decode
 _2int_struct = Struct("!II")
 pack2ints = _2int_struct.pack
 unpack2ints = _2int_struct.unpack
+
+_length_struct = Struct("!IHI") # Docnum, fieldnum, length
+pack_length = _length_struct.pack
+unpack_length = _length_struct.unpack
 
 
 def encode_posting(fieldNum, text, doc, freq, datastring):
@@ -100,10 +104,6 @@ class PoolBase(object):
     
     def fieldlength_totals(self):
         return self._fieldlength_totals
-    
-    def add_field_length(self, docnum, fieldnum, termcount):
-        self.lengthfile.add((docnum, fieldnum), termcount)
-        self._fieldlength_totals[fieldnum] += termcount
     
     def write_postings(self, schema, termtable, postwriter, postiter, total,
                        logchunk=10000):
@@ -226,7 +226,7 @@ class TempfilePool(PoolBase):
         self.cleanup()
     
     def cleanup(self):
-        for filename, _ in self.runs:
+        for filename, _, _ in self.runs:
             os.remove(filename)
     
     def finish(self, schema, termtable, postingwriter):
@@ -249,41 +249,36 @@ class TempfilePool(PoolBase):
 # Multiprocessing
 
 class PoolWritingTask(Process):
-    def __init__(self, postingqueue, lengthqueue, controlqueue, limitmb):
+    def __init__(self, postingqueue, resultqueue, lengthfilename, limitmb):
         Process.__init__(self)
         self.postingqueue = postingqueue
-        #self.lengthqueue = lengthqueue
-        self.controlqueue = controlqueue
+        self.resultqueue = resultqueue
+        self.lengthfilename = lengthfilename
         self.limitmb = limitmb
         
     def run(self):
         pqueue = self.postingqueue
-        #lqueue = self.lengthqueue
-        cqueue = self.controlqueue
+        rqueue = self.resultqueue
         
-        subpool = TempfilePool(None, limitmb=self.limitmb,
-                               callback=lambda x: cqueue.put(x))
+        lengthfile = open(self.lengthfilename, "wb")
+        subpool = TempfilePool(None, limitmb=self.limitmb)
         
         while True:
-            unit = pqueue.get(timeout=2)
+            unit = pqueue.get()
             if unit is None:
                 break
             
             if unit[0]:
                 docnum, fieldnum, field, value = unit[1]
                 length = subpool.add_content(docnum, fieldnum, field, value)
-                #if field.scorable:
-                #    lqueue.put((docnum, fieldnum, length))
+                if field.scorable:
+                    lengthfile.write(pack_length(docnum, fieldnum, length))
             else:
                 subpool.add_posting(*unit[1])
-            pqueue.task_done()
         
+        lengthfile.close()
         subpool.dump_run()
-        pqueue.task_done()
-        pqueue.close()
-        #lqueue.close()
-        cqueue.close()
-        #print "Task", self.name, "finished"
+        rqueue.put(subpool.runs)
 
 
 class MultiPool(PoolBase):
@@ -293,37 +288,35 @@ class MultiPool(PoolBase):
         
         self.procs = procs
         self.limitmb = limitmb
-        self.tasks = []
-        self.runs = []
-        self.finished = 0
         
-    def _start_tasks(self):
-        tasks = self.tasks
-        if not tasks:
-            self.postingqueue = JoinableQueue(100000)
-            self.lengthqueue = None #Queue()
-            self.controlqueue = Queue()
-        
-        if len(tasks) < self.procs:
-            task = PoolWritingTask(self.postingqueue, self.lengthqueue,
-                                   self.controlqueue, self.limitmb)
-            self.tasks.append(task)
+        self.postingqueue = Queue()
+        self.resultsqueue = Queue()
+        self.lengthfilenames = [fname for fd, fname in
+                                [tempfile.mkstemp(".whooshlen")
+                                 for _ in xrange(procs)]]
+        self.tasks = [PoolWritingTask(self.postingqueue, self.resultsqueue,
+                                      fname, self.limitmb)
+                      for fname in self.lengthfilenames]
+        for task in self.tasks:
             task.start()
-    
+        
     def add_content(self, *args):
-        self._start_tasks()
         self.postingqueue.put((True, args))
-        #try:
-        #    while True:
-        #        unit = self.lengthqueue.get(block=False)
-        #        self.lengthfile.add(unit[:2], unit[2])
-        #except Empty:
-        #    pass
         
     def add_posting(self, *args):
-        self._start_tasks()
-        self.queue.put((False, args))
-        
+        self.postingqueue.put((False, args))
+    
+    def _read_lengths(self):
+        size = _length_struct.size
+        for fname in self.lengthfilenames:
+            f = open(fname, "rb")
+            while True:
+                data = f.read(size)
+                if not data: break
+                docnum, fieldnum, length = unpack_length(data)
+                yield ((docnum, fieldnum), length)
+            f.close()
+    
     def finish(self, schema, termtable, postingwriter):
         _fieldlength_totals = self._fieldlength_totals
         if not self.tasks:
@@ -331,45 +324,33 @@ class MultiPool(PoolBase):
         
         lfile = self.lengthfile
         pqueue = self.postingqueue
-        lqueue = self.lengthqueue
-        cqueue = self.controlqueue
+        rqueue = self.resultsqueue
         
-        for _ in self.tasks:
+        for _ in xrange(self.procs):
             pqueue.put(None)
-        
-        #t = time.time()
-        #print "lsize1:", lqueue.qsize()
-        #try:
-        #    while True:
-        #        unit = lqueue.get(block=False)
-        #        lfile.add(unit[:2], unit[2])
-        #except Empty:
-        #    pass
-        #print "Length queue1:", time.time() - t
         
         print "Joining..."
         t = time.time()
-        pqueue.join()
+        for task in self.tasks:
+            task.join()
         print "Join:", time.time() - t
         
-        #t = time.time()
-        #print "lsize2:", lqueue.qsize()
-        #try:
-        #    while True:
-        #        unit = lqueue.get(block=False)
-        #        lfile.add(unit[:2], unit[2])
-        #except Empty:
-        #    pass
-        #print "Length queue2:", time.time() - t
+        print "Reading lengths..."
+        t = time.time()
+        lfile.add_all(self._read_lengths())
+        print "Lengths:", time.time() - t
         
         runs = []
-        while not cqueue.empty():
-            result = cqueue.get(timeout=2)
-            runs.append(result)
+        try:
+            while True:
+                taskruns = rqueue.get(timeout=2)
+                runs.extend(taskruns)
+        except Empty:
+            pass
             
-        for task in self.tasks:
-            task.terminate()
-            
+        #for task in self.tasks:
+        #    task.terminate()
+        
         t = time.time()
         iterator = imerge([read_run(runname, count) for runname, count in runs])
         total = sum(count for runname, count in runs)
