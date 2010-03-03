@@ -604,6 +604,56 @@ class StructHashReader(FixedHashReader):
         return FixedHashReader.__contains__(self, self.packkey(key))
 
 
+class LengthWriter(object):
+    def __init__(self, dbfile, doccount, scorables):
+        self.dbfile = dbfile
+        self.doccount = doccount
+        self.indices = dict((fieldnum, i) for i, fieldnum in scorables)
+        for _ in xrange(doccount * len(scorables)):
+            dbfile.write_int(0)
+        
+    def add_all(self, items):
+        dbfile = self.dbfile
+        doccount = self.doccount
+        indices = self.indices
+        for (docnum, fieldnum), length in items:
+            index = indices[fieldnum]
+            pos = index * (doccount * _INT_SIZE) + (docnum * _INT_SIZE)
+            dbfile.seek(pos)
+            dbfile.write_uint(length)
+    
+    def add(self, *args):
+        self.add_all([args])
+    
+    def close(self):
+        self.dbfile.close()
+
+
+class LengthReader(object):
+    def __init__(self, dbfile, doccount, scorables, cachesize=4096):
+        self.dbfile = dbfile
+        self.doccount = doccount
+        self.indices = dict((fieldnum, i) for i, fieldnum in scorables)
+        self.cachesize = cachesize
+        self.caches = {}
+        
+    def get(self, docnum, fieldnum):
+        cachesize = self.cachesize
+        index = self.indices[fieldnum]
+        pos = index * (self.doccount * _INT_SIZE) + (docnum * _INT_SIZE)
+        return self.dbfile.get_uint(pos)
+    
+        caches = self.caches
+        if fieldnum in caches:
+            startdoc, data = caches[fieldnum]
+            if docnum >= startdoc and docnum < startdoc + cachesize:
+                return data[docnum-startdoc]
+        
+        data = self.dbfile.get_array(pos, "I", cachesize)
+        caches[fieldnum] = (docnum, data)
+        return data[0]
+
+
 class FileListWriter(object):
     def __init__(self, dbfile, valuecoder=str):
         self.dbfile = dbfile
