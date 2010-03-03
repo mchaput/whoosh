@@ -357,7 +357,10 @@ class MultiPool(PoolBase):
         self.write_postings(schema, termtable, postingwriter, iterator, total)
         print "Merge:", time.time() - t
         
-        
+        for fname in self.lengthfilenames:
+            os.remove(fname)
+        for runname, _ in runs:
+            os.remove(runname)
         
 
 

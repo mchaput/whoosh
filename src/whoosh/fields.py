@@ -446,6 +446,10 @@ class Schema(object):
         import copy
         return copy.deepcopy(self)
     
+    def clean(self):
+        for field in self._by_number:
+            field.clean()
+    
     def field_by_name(self, name):
         """Returns the field object associated with the given name.
         

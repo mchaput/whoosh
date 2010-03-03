@@ -421,7 +421,7 @@ class HtmlFormatter(object):
         return self.between.join(self._format_fragment(text, fragment, seen)
                                  for fragment in fragments)
     
-    def clear(self):
+    def clean(self):
         """Clears the dictionary mapping terms to HTML classnames.
         """
         self.seen = {}
