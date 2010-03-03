@@ -224,7 +224,7 @@ class StructFile(object):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
     def get_array(self, position, typecode, length):
         s = Struct("!" + typecode * length)
-        return s.unpack(self.map[position:position + _SIZEMAP[typecode] * length])
+        return s.unpack(self.map[position:position + s.size * length])
 
 
 
