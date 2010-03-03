@@ -121,9 +121,9 @@ class SegmentReader(IndexReader):
         return self.segment.field_length(fieldid)
 
     @protected
-    def doc_field_length(self, docnum, fieldid):
+    def doc_field_length(self, docnum, fieldid, default=0):
         fieldnum = self.schema.to_number(fieldid)
-        return self.fieldlengths.get((docnum, fieldnum), 0)
+        return self.fieldlengths.get((docnum, fieldnum), default)
 
     @protected
     def has_vector(self, docnum, fieldnum):

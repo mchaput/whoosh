@@ -93,7 +93,7 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def doc_field_length(self, docnum, fieldid):
+    def doc_field_length(self, docnum, fieldid, default=0):
         """Returns the number of terms in the given field in the given
         document. This is used by some scoring algorithms.
         """
@@ -321,10 +321,11 @@ class MultiReader(IndexReader):
     def field_length(self, fieldnum):
         return sum(dr.field_length(fieldnum) for dr in self.readers)
 
-    def doc_field_length(self, docnum, fieldid):
+    def doc_field_length(self, docnum, fieldid, default=0):
         fieldid = self.schema.to_number(fieldid)
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].doc_field_length(segmentdoc, fieldid)
+        return self.readers[segmentnum].doc_field_length(segmentdoc, fieldid,
+                                                         default=default)
 
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
