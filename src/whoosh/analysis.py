@@ -62,10 +62,11 @@ from whoosh.lang.porter import stem
 # them). This list is used by the StopFilter class, which allows you to supply
 # an optional list to override this one.
 
-STOP_WORDS = frozenset(("the", "to", "of", "a", "and", "is", "in", "this",
-                        "you", "for", "be", "on", "or", "will", "if", "can",
-                        "are", "that", "by", "with", "it", "as", "from", "an",
-                        "when", "not", "may", "tbd", "us", "we", "yet"))
+STOP_WORDS = frozenset(('a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can',
+                        'for', 'from', 'have', 'if', 'in', 'is', 'it', 'may',
+                        'not', 'of', 'on', 'or', 'tbd', 'that', 'the', 'this',
+                        'to', 'us', 'we', 'when', 'will', 'with', 'yet',
+                        'you', 'your'))
 
 
 # Utility functions

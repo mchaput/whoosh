@@ -140,8 +140,7 @@ class FileIndex(SegmentDeletionMixin, Index):
 
     def _write(self):
         # Writes the content of this index to the .toc file.
-        for field in self.schema:
-            field.clean()
+        self.schema.clean()
         #stream = self.storage.create_file(self._toc_filename())
 
         # Use a temporary file for atomic write.
