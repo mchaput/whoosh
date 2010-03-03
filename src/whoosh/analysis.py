@@ -599,6 +599,7 @@ class StripFilter(Filter):
             yield t
 
 
+
 class StopFilter(Filter):
     """Marks "stop" words (words too common to index) in the stream (and by
     default removes them).
@@ -611,9 +612,9 @@ class StopFilter(Filter):
     
     """
 
-    __inittypes__ = dict(stoplist=list, minsize=int, renumber=bool)
+    __inittypes__ = dict(stoplist=list, minsize=int, maxsize=int, renumber=bool)
 
-    def __init__(self, stoplist=STOP_WORDS, minsize=2,
+    def __init__(self, stoplist=STOP_WORDS, minsize=2, maxsize=None,
                  renumber=True):
         """
         :param stoplist: A collection of words to remove from the stream.
@@ -621,6 +622,8 @@ class StopFilter(Filter):
             common stop words.
         :param minsize: The minimum length of token texts. Tokens with
             text smaller than this will be stopped.
+        :param maxsize: The maximum length of token texts. Tokens with text
+            larger than this will be stopped. Use None to allow any length.
         :param renumber: Change the 'pos' attribute of unstopped tokens
             to reflect their position with the stopped words removed.
         :param remove: Whether to remove the stopped words from the stream
@@ -633,6 +636,7 @@ class StopFilter(Filter):
         else:
             self.stops = frozenset(stoplist)
         self.min = minsize
+        self.max = maxsize
         self.renumber = renumber
     
     def __eq__(self, other):
@@ -646,19 +650,22 @@ class StopFilter(Filter):
         assert hasattr(tokens, "__iter__")
         stoplist = self.stops
         minsize = self.min
+        maxsize = self.max
         renumber = self.renumber
         
         pos = None
         for t in tokens:
             text = t.text
-            if len(text) >= minsize and text not in stoplist:
+            if (len(text) >= minsize
+                and (maxsize is None or len(text) <= maxsize)
+                and text not in stoplist):
                 # This is not a stop word
                 if renumber and t.positions:
                     if pos is None:
                         pos = t.pos
                     else:
                         pos += 1
-                    t.pos = pos
+                        t.pos = pos
                 t.stopped = False
                 yield t
             else:
