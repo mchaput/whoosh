@@ -15,7 +15,7 @@
 # limitations under the License.
 #===============================================================================
 
-import os, tempfile, time
+import os, shutil, tempfile, time
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
 from Queue import Empty
@@ -99,6 +99,9 @@ def read_run(filename, count):
 
 
 class PoolBase(object):
+    def _filename(self, name):
+        return os.path.join(self._dir, name)
+    
     def cancel(self):
         pass
     
@@ -164,17 +167,22 @@ class PoolBase(object):
 
 
 class TempfilePool(PoolBase):
-    def __init__(self, lengthfile, limitmb=32, callback=None):
+    def __init__(self, lengthfile, limitmb=32, dir=None, runbase=''):
         self.lengthfile = lengthfile
         
         self.limit = limitmb * 1024 * 1024
-        self.callback = callback
         
         self.size = 0
         self.count = 0
         self.postings = []
         self.runs = []
         self._fieldlength_totals = defaultdict(int)
+        
+        if dir is None:
+            self._dir = tempfile.mkdtemp("whoosh")
+        else:
+            self._dir = dir
+        self.runbase = runbase
         
     def add_content(self, docnum, fieldnum, field, value):
         add_posting = self.add_posting
@@ -186,9 +194,10 @@ class TempfilePool(PoolBase):
             add_posting(fieldnum, w, docnum, freq, valuestring)
             termcount += freq
         
-        if field.scorable and termcount and self.lengthfile:
-            self.lengthfile.add((docnum, fieldnum), termcount)
+        if field.scorable and termcount:
             self._fieldlength_totals[fieldnum] += termcount
+            if self.lengthfile:
+                self.lengthfile.add((docnum, fieldnum), termcount)
         return termcount
         
     def add_posting(self, fieldnum, text, docnum, freq, datastring):
@@ -203,8 +212,8 @@ class TempfilePool(PoolBase):
         
     def dump_run(self):
         if self.size > 0:
-            tempfd, tempname = tempfile.mkstemp(".whooshrun")
-            runfile = StructFile(os.fdopen(tempfd, "w+b"))
+            tempname = self._filename(self.runbase + str(time.time()) + ".run")
+            runfile = StructFile(open(tempname, "w+b"))
 
             self.postings.sort()
             for p in self.postings:
@@ -212,9 +221,6 @@ class TempfilePool(PoolBase):
             runfile.close()
 
             self.runs.append((tempname, self.count))
-            if self.callback:
-                self.callback((tempname, self.count))
-
             self.postings = []
             self.size = 0
             self.count = 0
@@ -226,8 +232,7 @@ class TempfilePool(PoolBase):
         self.cleanup()
     
     def cleanup(self):
-        for filename, _, _ in self.runs:
-            os.remove(filename)
+        shutil.rmtree(self._dir)
     
     def finish(self, schema, termtable, postingwriter):
         if self.postings and len(self.runs) == 0:
@@ -249,8 +254,9 @@ class TempfilePool(PoolBase):
 # Multiprocessing
 
 class PoolWritingTask(Process):
-    def __init__(self, postingqueue, resultqueue, lengthfilename, limitmb):
+    def __init__(self, dir, postingqueue, resultqueue, lengthfilename, limitmb):
         Process.__init__(self)
+        self.dir = dir
         self.postingqueue = postingqueue
         self.resultqueue = resultqueue
         self.lengthfilename = lengthfilename
@@ -261,7 +267,8 @@ class PoolWritingTask(Process):
         rqueue = self.resultqueue
         
         lengthfile = open(self.lengthfilename, "wb")
-        subpool = TempfilePool(None, limitmb=self.limitmb)
+        subpool = TempfilePool(None, limitmb=self.limitmb,
+                               dir=self.dir, runbase=self.name)
         
         while True:
             unit = pqueue.get()
@@ -278,7 +285,7 @@ class PoolWritingTask(Process):
         
         lengthfile.close()
         subpool.dump_run()
-        rqueue.put(subpool.runs)
+        rqueue.put((subpool.runs, subpool.fieldlength_totals()))
 
 
 class MultiPool(PoolBase):
@@ -291,10 +298,13 @@ class MultiPool(PoolBase):
         
         self.postingqueue = Queue()
         self.resultsqueue = Queue()
-        self.lengthfilenames = [fname for fd, fname in
-                                [tempfile.mkstemp(".whooshlen")
-                                 for _ in xrange(procs)]]
-        self.tasks = [PoolWritingTask(self.postingqueue, self.resultsqueue,
+        
+        self._dir = tempfile.mkdtemp(".whoosh")
+        self.lengthfilenames = [self._filename(str(n) + ".len")
+                                for n in xrange(procs)]
+        
+        self.tasks = [PoolWritingTask(self._dir,
+                                      self.postingqueue, self.resultsqueue,
                                       fname, self.limitmb)
                       for fname in self.lengthfilenames]
         for task in self.tasks:
@@ -317,6 +327,9 @@ class MultiPool(PoolBase):
                 yield ((docnum, fieldnum), length)
             f.close()
     
+    def cleanup(self):
+        shutil.rmtree(self._dir)
+    
     def finish(self, schema, termtable, postingwriter):
         _fieldlength_totals = self._fieldlength_totals
         if not self.tasks:
@@ -335,18 +348,21 @@ class MultiPool(PoolBase):
             task.join()
         print "Join:", time.time() - t
         
+        print "Getting results..."
+        t = time.time()
+        runs = []
+        for task in self.tasks:
+            taskruns, flentotals = rqueue.get()
+            runs.extend(taskruns)
+            print "totals=", flentotals
+            for fieldnum, total in flentotals.iteritems():
+                _fieldlength_totals[fieldnum] += total
+        print "Results:", time.time() - t
+        
         print "Reading lengths..."
         t = time.time()
         lfile.add_all(self._read_lengths())
         print "Lengths:", time.time() - t
-        
-        runs = []
-        try:
-            while True:
-                taskruns = rqueue.get(timeout=2)
-                runs.extend(taskruns)
-        except Empty:
-            pass
             
         #for task in self.tasks:
         #    task.terminate()
@@ -357,10 +373,7 @@ class MultiPool(PoolBase):
         self.write_postings(schema, termtable, postingwriter, iterator, total)
         print "Merge:", time.time() - t
         
-        for fname in self.lengthfilenames:
-            os.remove(fname)
-        for runname, _ in runs:
-            os.remove(runname)
+        self.cleanup()
         
 
 
