@@ -55,6 +55,9 @@ class RamIndex(Index):
         # Maps fieldnum -> total field length
         self.fieldlength_totals = defaultdict(int)
         
+        # Maps fieldnum -> maximum field length in a document
+        self.fieldlength_maxes = {}
+        
         # Maps (docnum, fieldnum) -> posting list
         self.vectors = {}
         
@@ -184,6 +187,8 @@ class RamIndex(Index):
                     if field.scorable:
                         fieldlength_totals[fieldnum] += count
                         fieldlengths[(maxdoc, fieldnum)] = count
+                        if count > self.fieldlength_maxes.get(fieldnum, 0):
+                            self.fieldlength_maxes[fieldnum] = count
                     
             vector = field.vector
             if vector:
