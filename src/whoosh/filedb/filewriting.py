@@ -111,7 +111,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         if ix.schema.has_vectored_fields():
             # Vector index
             vf = storage.create_file(segment.vectorindex_filename)
-            self.vectorindex = StructHashWriter(vf, "!IH", "!I")
+            self.vectorindex = StructHashWriter(vf, "<IH", "<I")
             
             # Vector posting file
             vpf = storage.create_file(segment.vectorposts_filename)

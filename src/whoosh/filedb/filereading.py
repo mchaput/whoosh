@@ -77,7 +77,7 @@ class SegmentReader(IndexReader):
         
         # Vector index
         vf = storage.open_file(segment.vectorindex_filename)
-        self.vectorindex = StructHashReader(vf, "!IH", "!I")
+        self.vectorindex = StructHashReader(vf, "<IH", "<I")
         
         # Vector postings file
         self.vpostfile = storage.open_file(segment.vectorposts_filename,
