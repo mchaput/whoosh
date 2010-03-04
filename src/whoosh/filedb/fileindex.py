@@ -290,8 +290,7 @@ class FileIndex(SegmentDeletionMixin, Index):
     def doc_count(self):
         return self.segments.doc_count()
 
-    def field_length(self, fieldid):
-        fieldnum = self.schema.to_number(fieldid)
+    def field_length(self, fieldnum):
         return sum(s.field_length(fieldnum) for s in self.segments)
 
     def reader(self):
@@ -454,7 +453,8 @@ class Segment(object):
                   "termsindex":"tiz", "termposts": "pst",
                   "vectorindex": "fvz", "vectorposts": "vps"}
     
-    def __init__(self, name, doccount, fieldlength_totals, deleted=None):
+    def __init__(self, name, doccount, fieldlength_totals, fieldlength_maxes,
+                 deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
             from its name and the generation).
@@ -470,6 +470,7 @@ class Segment(object):
         self.name = name
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
+        self.fieldlength_maxes = fieldlength_maxes
         self.deleted = deleted
 
         self._filenames = set()
@@ -486,7 +487,8 @@ class Segment(object):
             deleted = set(self.deleted)
         else:
             deleted = None
-        return Segment(self.name, self.doccount, self.fieldlength_totals,
+        return Segment(self.name, self.doccount,
+                       self.fieldlength_totals, self.fieldlength_maxes,
                        deleted)
 
     def filenames(self):
@@ -518,13 +520,21 @@ class Segment(object):
         if self.deleted is None: return 0
         return len(self.deleted)
 
-    def field_length(self, fieldnum):
-        """
+    def field_length(self, fieldnum, default=0):
+        """Returns the total number of terms in the given field across all
+        documents in this segment.
+        
         :param fieldnum: the internal number of the field.
-        :returns: the total number of terms in the given field across all
-            documents in this segment.
         """
-        return self.fieldlength_totals.get(fieldnum, 0)
+        return self.fieldlength_totals.get(fieldnum, default)
+
+    def max_field_length(self, fieldnum, default=0):
+        """Returns the maximum length of the given field in any of the
+        documents in the segment.
+        
+        :param fieldnum: the internal number of the field.
+        """
+        return self.fieldlength_maxes.get(fieldnum, default)
 
     def delete_document(self, docnum, delete=True):
         """Deletes the given document number. The document is not actually

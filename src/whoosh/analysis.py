@@ -1318,7 +1318,7 @@ def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
 SimpleAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
 
 def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
-                     minsize=2, gaps=False):
+                     minsize=2, maxsize=None, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter and optional
     StopFilter.
     
@@ -1330,6 +1330,7 @@ def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
     :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
@@ -1337,14 +1338,16 @@ def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     chain = ret | LowercaseFilter()
     if stoplist is not None:
-        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize)
+        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize,
+                                   maxsize=maxsize)
     return chain
 StandardAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
-                                      stoplist=list, minsize=int)
+                                      stoplist=list, minsize=int, maxsize=int)
 
 
 def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
-                     minsize=2, gaps=False, stemfn=stem, ignore=None):
+                     minsize=2, maxsize=None, gaps=False, stemfn=stem,
+                     ignore=None):
     """Composes a RegexTokenizer with a lower case filter, an optional stop
     filter, and a stemming filter.
     
@@ -1356,6 +1359,7 @@ def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
     :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
@@ -1363,14 +1367,15 @@ def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     chain = ret | LowercaseFilter()
     if stoplist is not None:
-        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize)
+        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize,
+                                   maxsize=maxsize)
     return chain | StemFilter(stemfn=stemfn, ignore=ignore)
 StemmingAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
-                                      stoplist=list, minsize=int)
+                                      stoplist=list, minsize=int, maxsize=int)
 
 
-def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2, gaps=True,
-                  splitwords=True, splitnums=True,
+def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
+                  maxsize=None, gaps=True, splitwords=True, splitnums=True,
                   mergewords=False, mergenums=False):
     """Composes a RegexTokenizer with a CamelFilter, UnderscoreFilter,
     LowercaseFilter, and StopFilter.
@@ -1383,6 +1388,7 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2, gaps=True,
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
     :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
@@ -1395,7 +1401,7 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2, gaps=True,
     
     return ret | iwf | lcf | swf
 FancyAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
-                                   stoplist=list, minsize=int)
+                                   stoplist=list, minsize=int, maxsize=int)
 
 
 def NgramAnalyzer(minsize, maxsize=None):

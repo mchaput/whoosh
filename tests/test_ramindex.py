@@ -98,6 +98,7 @@ class TestRamIndex(unittest.TestCase):
         self.assertEqual(list(r.all_stored_fields()), target)
         
         self.assertEqual(r.field_length("text"), 59)
+        self.assertEqual(r.max_field_length("text"), 11)
         self.assertEqual(r.doc_field_length(3, "text"), 8)
         
         self.assertEqual(r.doc_frequency("text", "the"), 5)

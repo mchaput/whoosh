@@ -20,7 +20,7 @@ from marshal import loads
 from whoosh.fields import FieldConfigurationError
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (FileTableReader, FileListReader,
-                                      StructHashReader)
+                                      StructHashReader, LengthReader)
 from whoosh.filedb import misc
 from whoosh.postings import Exclude
 from whoosh.reading import IndexReader, TermNotFound
@@ -58,7 +58,8 @@ class SegmentReader(IndexReader):
         
         # Field length file
         flf = storage.open_file(segment.fieldlengths_filename)
-        self.fieldlengths = StructHashReader(flf, "!IH", "!I")
+        self.fieldlengths = LengthReader(flf, segment.doc_count_all(),
+                                         schema.scorable_fields())
         
         # Copy methods from underlying segment
         self.has_deletions = segment.has_deletions
@@ -116,14 +117,15 @@ class SegmentReader(IndexReader):
             if not is_deleted(docnum):
                 yield self.storedfields[docnum]
 
-    def field_length(self, fieldid):
-        fieldid = self.schema.to_number(fieldid)
-        return self.segment.field_length(fieldid)
+    def field_length(self, fieldnum):
+        return self.segment.field_length(fieldnum)
 
     @protected
-    def doc_field_length(self, docnum, fieldid, default=0):
-        fieldnum = self.schema.to_number(fieldid)
-        return self.fieldlengths.get((docnum, fieldnum), default)
+    def doc_field_length(self, docnum, fieldnum, default=0):
+        return self.fieldlengths.get(docnum, fieldnum, default)
+
+    def max_field_length(self, fieldnum):
+        return self.segment.max_field_length(fieldnum)
 
     @protected
     def has_vector(self, docnum, fieldnum):

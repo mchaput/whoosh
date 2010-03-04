@@ -2,7 +2,7 @@ import os, os.path, unittest
 from random import random, randint
 
 from whoosh.formats import *
-from whoosh.postings import FakeReader, IntersectionScorer, UnionScorer, Exclude
+from whoosh.postings import ListReader, IntersectionScorer, UnionScorer, Exclude
 from whoosh.filedb.filestore import FileStorage
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.util import float_to_byte, byte_to_float
@@ -10,9 +10,9 @@ from whoosh.util import float_to_byte, byte_to_float
 
 class TestMultireaders(unittest.TestCase):
     def make_readers(self):
-        c1 = FakeReader(10, 12, 20, 30, 40, 50, 60)
-        c2 = FakeReader(2, 12, 20, 25, 30, 45, 50)
-        c3 = FakeReader(15, 19, 20, 21, 28, 30, 31, 50)
+        c1 = ListReader([10, 12, 20, 30, 40, 50, 60])
+        c2 = ListReader([2, 12, 20, 25, 30, 45, 50])
+        c3 = ListReader([15, 19, 20, 21, 28, 30, 31, 50])
         return (c1, c2, c3)
     
     def test_intersect(self):

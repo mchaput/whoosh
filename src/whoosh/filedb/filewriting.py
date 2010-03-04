@@ -21,7 +21,7 @@ from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (FileListWriter, FileTableWriter,
-                                      StructHashWriter)
+                                      StructHashWriter, LengthWriter)
 from whoosh.filedb import misc
 from whoosh.filedb.pools import TempfilePool, MultiPool
 from whoosh.store import LockError
@@ -86,7 +86,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         self.name = ix._next_segment_name()
         
         # Create a temporary segment to use its .*_filename attributes
-        segment = Segment(self.name, 0, 0, None)
+        segment = Segment(self.name, 0, 0, None, None)
         
         self._searcher = ix.searcher()
         self.docnum = 0
@@ -126,8 +126,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                                            valuecoder=encode_storedfields)
         
         # Field length file
-        flf = storage.create_file(segment.fieldlengths_filename)
-        self.fieldlengths = StructHashWriter(flf, "!IH", "!I")
+        self.fieldlengths = storage.create_file(segment.fieldlengths_filename)
         
         # Create the pool
         if poolclass is None:
@@ -254,7 +253,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         if self.vpostwriter:
             self.vpostwriter.close()
         self.storedfields.close()
-        self.fieldlengths.close()
+        if not self.fieldlengths.is_closed:
+            self.fieldlengths.close()
         
     def commit(self, mergetype=MERGE_SMALL):
         # Call the merge policy function. The policy may choose to merge other
@@ -263,13 +263,14 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Tell the pool we're finished adding information, it should add its
         # accumulated data to the terms index and posting file.
-        self.pool.finish(self.schema, self.termsindex, self.postwriter)
+        self.pool.finish(self.schema, self.docnum, self.termsindex, self.postwriter)
         
         # Create a Segment object for the segment created by this writer and
         # add it to the list of remaining segments returned by the merge policy
         # function
         thissegment = Segment(self.name, self.docnum,
-                              self.pool.fieldlength_totals())
+                              self.pool.fieldlength_totals(),
+                              self.pool.fieldlength_maxes())
         new_segments.append(thissegment)
         
         # Close all files, tell the index to write a new TOC with the new
