@@ -57,13 +57,15 @@ class RamIndexReader(IndexReader):
     def doc_count(self):
         return self.ix.doc_count()
     
-    def field_length(self, fieldid):
-        fieldnum = self.ix.schema.to_number(fieldid)
+    def field_length(self, fieldnum):
         return self.ix.fieldlength_totals[fieldnum]
     
     def doc_field_length(self, docnum, fieldid):
         fieldnum = self.ix.schema.to_number(fieldid)
         return self.ix.fieldlengths[(docnum, fieldnum)]
+    
+    def max_field_length(self, fieldnum):
+        return self.ix.fieldlength_maxes[fieldnum]
     
     def has_vector(self, docnum, fieldid):
         fieldnum = self.ix.schema.to_number(fieldid)

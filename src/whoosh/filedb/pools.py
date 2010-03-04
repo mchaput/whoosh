@@ -28,11 +28,11 @@ from whoosh.system import (_INT_SIZE, _SHORT_SIZE,
                            pack_ushort, unpack_ushort)
 from whoosh.util import utf8encode, utf8decode
 
-_2int_struct = Struct("!II")
+_2int_struct = Struct("<II")
 pack2ints = _2int_struct.pack
 unpack2ints = _2int_struct.unpack
 
-_length_struct = Struct("!IHI") # Docnum, fieldnum, length
+_length_struct = Struct("<IHI") # Docnum, fieldnum, length
 pack_length = _length_struct.pack
 unpack_length = _length_struct.unpack
 
@@ -230,10 +230,7 @@ class TempfilePool(PoolBase):
             termcount += freq
         
         if field.scorable and termcount:
-            self._fieldlength_totals[fieldnum] += termcount
-            if termcount > self._fieldlength_maxes.get(fieldnum, 0):
-                self._fieldlength_maxes[fieldnum] = termcount
-            self.lenspool.add(docnum, fieldnum, termcount)
+            self.add_field_length(docnum, fieldnum, termcount)
             
         return termcount
     
@@ -246,7 +243,13 @@ class TempfilePool(PoolBase):
         self.size += len(posting)
         self.postings.append(posting)
         self.count += 1
-        
+    
+    def add_field_length(self, docnum, fieldnum, length):
+        self._fieldlength_totals[fieldnum] += length
+        if length > self._fieldlength_maxes.get(fieldnum, 0):
+            self._fieldlength_maxes[fieldnum] = length
+        self.lenspool.add(docnum, fieldnum, length)
+    
     def dump_run(self):
         if self.size > 0:
             tempname = self._filename(self.runbase + str(time.time()) + ".run")
@@ -316,11 +319,13 @@ class PoolWritingTask(Process):
             if unit is None:
                 break
             
-            if unit[0]:
-                docnum, fieldnum, field, value = unit[1]
-                subpool.add_content(docnum, fieldnum, field, value)
-            else:
-                subpool.add_posting(*unit[1])
+            code, args = unit
+            if code == 0:
+                subpool.add_content(*args)
+            elif code == 1:
+                subpool.add_posting(*args)
+            elif code == 2:
+                subpool.add_field_length(*args)
         
         subpool.lenspool.finish()
         subpool.dump_run()
@@ -347,10 +352,13 @@ class MultiPool(PoolBase):
             task.start()
     
     def add_content(self, *args):
-        self.postingqueue.put((True, args))
+        self.postingqueue.put((0, args))
         
     def add_posting(self, *args):
-        self.postingqueue.put((False, args))
+        self.postingqueue.put((1, args))
+    
+    def add_field_length(self, *args):
+        self.postingqueue.put((2, args))
     
     def cancel(self):
         for task in self.tasks:
