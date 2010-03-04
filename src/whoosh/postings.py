@@ -244,29 +244,31 @@ class PostingReader(PostIterator):
 class QueryScorer(PostIterator):
     """QueryScorer extends the PostIterator interface with two methods:
     
-    * score() return the score for the current item.
-    * __iter__() returns an iterator of (id, score) pairs.
+    * weight() return the weight for the current item.
+    * __iter__() returns an iterator of (id, weight) pairs.
     """
     
     def __iter__(self):
         next = self.next
+        weight = self.weight
         while self.id is not None:
-            yield self.id, self.score()
+            yield self.id, weight()
             next()
     
-    def score(self):
-        """Returns the score for the current document.
+    def weight(self):
+        """Returns the weight for the current document.
         """
         raise NotImplementedError
 
 
-class FakeIterator(object):
-    """A mix-in that provides methods for a fake PostingReader or
-    QueryScorer.
+class ListIterator(object):
+    """A mix-in that provides methods for a PostingReader or QueryScorer that
+    takes its ids from a list.
     """
     
-    def __init__(self, *ids):
+    def __init__(self, ids, value=1.0):
         self.ids = ids
+        self._value = value
         self.reset()
         
     def reset(self):
@@ -516,20 +518,16 @@ class CachedPostingReader(PostingReader):
         return self._items[self.p][1]
 
 
-class FakeReader(FakeIterator, PostingReader):
-    """This is a fake posting reader for testing purposes. You create the
-    object with the posting IDs as arguments, and then returns them as you call
-    next() or skip_to().
+class ListReader(ListIterator, PostingReader):
+    """PostingReader that takes its ids from a list.
     
-    >>> fpr = FakeReader(1, 5, 10, 80)
-    >>> fpr.id
+    >>> lr = ListReader([1, 5, 10, 80])
+    >>> lr.id
     1
-    >>> fpr.next()
+    >>> lr.next()
     >>> fpr.id
     5
     """
-    
-    _value = 100
     
     def value(self):
         return self._value
@@ -537,23 +535,19 @@ class FakeReader(FakeIterator, PostingReader):
 
 # QueryScorers
 
-class FakeScorer(FakeIterator, QueryScorer):
-    """This is a fake query scorer for testing purposes. You create the
-    object with the posting IDs as arguments, and then returns them as you call
-    next() or skip_to().
+class ListScorer(ListIterator, QueryScorer):
+    """A query scorer that takes its IDs from a list.
     
-    >>> fpr = FakeScorer(1, 5, 10, 80)
-    >>> fpr.id
+    >>> ls = ListScorer([1, 5, 10, 80])
+    >>> ls.id
     1
-    >>> fpr.next()
-    >>> fpr.id
+    >>> ls.next()
+    >>> ls.id
     5
     """
     
-    _score = 10
-    
-    def score(self):
-        return self._score
+    def weight(self):
+        return self._value
 
 
 class EmptyScorer(QueryScorer):
@@ -574,13 +568,13 @@ class EmptyScorer(QueryScorer):
         return []
     def items_as(self, astype):
         return []
-    def score(self):
+    def weight(self):
         return 0
     
 
-class ListScorer(QueryScorer):
+class ItemListScorer(QueryScorer):
     """A Scorer implementation that gets document postings and scores
-    from a sequence of (id, score) pairs.
+    from a sequence of (id, weight) pairs.
     """
     
     def __init__(self, postings):
@@ -615,7 +609,7 @@ class ListScorer(QueryScorer):
     def items(self):
         return self.postings[:]
     
-    def score(self):
+    def weight(self):
         if self.id is None:
             return 0
         return self.postings[self.i][1]
@@ -688,10 +682,10 @@ class IntersectionScorer(QueryScorer):
             if tuple(s.id for s in state) == oldstate:
                 raise Exception("Infinite loop")
                     
-    def score(self):
+    def weight(self):
         if self.id is None:
             return 0
-        return sum(r.score() for r in self.state) * self.boost
+        return sum(r.weight() for r in self.state) * self.boost
                 
 
 class UnionScorer(QueryScorer):
@@ -768,7 +762,7 @@ class UnionScorer(QueryScorer):
             else:
                 self.id = None
             
-    def score(self):
+    def weight(self):
         id = self.id
         if id is None:
             return 0
@@ -785,26 +779,8 @@ class UnionScorer(QueryScorer):
                     break
             if count < minmatch: return 0
         
-        score = sum(r.score() for r in self.state if r.id == id)
-        return score * self.boost
-
-
-class HashJoinScorer(ListScorer):
-    """Like UnionScorer, but does a hash join instead of advancing the
-    subscorers together.
-    """
-    
-    def __init__(self, scorers, boost=1.0, minmatch=0):
-        scores = defaultdict(float)
-        mins = defaultdict(int)
-        for scorer in scorers:
-            for docnum, score in scorer:
-                scores[docnum] += score
-                mins[docnum] += 1
-        
-        ListScorer.__init__(self, [(docnum, score) for docnum, score
-                                   in sorted(scores.iteritems())
-                                   if mins[docnum] > minmatch])
+        weight = sum(r.weight() for r in self.state if r.id == id)
+        return weight * self.boost
 
 
 class AndNotScorer(QueryScorer):
@@ -869,10 +845,10 @@ class AndNotScorer(QueryScorer):
         else:
             self.id = self.positive.id
         
-    def score(self):
+    def weight(self):
         if self.id is None:
             return 0
-        return self.positive.score()
+        return self.positive.weight()
 
 
 class InverseScorer(QueryScorer):
@@ -880,11 +856,11 @@ class InverseScorer(QueryScorer):
     sub-scorer. Assigns a static score to the "found" documents.
     """
     
-    def __init__(self, scorer, maxid, is_deleted, docscore=1.0):
+    def __init__(self, scorer, maxid, is_deleted, useweight=1.0):
         self.scorer = scorer
         self.maxid = maxid
         self.is_deleted = is_deleted
-        self.docscore = docscore
+        self.useweight = useweight
         self.id = 0
         self._find_next()
     
@@ -917,14 +893,14 @@ class InverseScorer(QueryScorer):
         self.id = target
         self._find_next()
     
-    def score(self):
+    def weight(self):
         if self.id is None:
             return 0
-        return self.docscore
+        return self.useweight
 
 
 class RequireScorer(QueryScorer):
-    """Takes the intersection of two sub-scorers, but only takes scores from
+    """Takes the intersection of two sub-scorers, but only takes weights from
     the first.
     """
     
@@ -940,15 +916,16 @@ class RequireScorer(QueryScorer):
     def id(self):
         return self.intersection.id
     
-    def score(self):
+    def weight(self):
         if self.id is None:
             return 0
-        return self.scorer.score()
+        return self.scorer.weight()
 
 
 class AndMaybeScorer(QueryScorer):
     """Takes two sub-scorers, and returns documents that appear in the first,
-    but if the document also appears in the second, adds their scores together.
+    but if the document also appears in the second, adds their weights
+    together.
     """
     
     def __init__(self, required, optional):
@@ -967,11 +944,11 @@ class AndMaybeScorer(QueryScorer):
         self.required.skip_to(target)
         self.optional.skip_to(target)
 
-    def score(self):
+    def weight(self):
         if self.required.id == self.optional.id:
-            return self.required.score() + self.optional.score()
+            return self.required.weight() + self.optional.weight()
         else:
-            return self.required.score()
+            return self.required.weight()
 
 
 

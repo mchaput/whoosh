@@ -311,13 +311,6 @@ class Index(DeletionMixin):
         """
         raise NotImplementedError
     
-    def field_length(self, fieldid):
-        """Returns the total number of terms in a given field. This is used by
-        some scoring algorithms. Note that this necessarily includes terms in
-        deleted documents.
-        """
-        raise NotImplementedError
-    
     def searcher(self, **kwargs):
         """Returns a Searcher object for this index. Keyword arguments are
         passed to the Searcher object's constructor.

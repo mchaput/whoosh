@@ -18,12 +18,17 @@
 """
 
 from array import array
-import codecs, re
+import codecs, re, sys, time
 
 from collections import deque, defaultdict
 from functools import wraps
 from struct import pack, unpack
-from time import time, clock
+
+
+if sys.platform == 'win32':
+    now = time.clock
+else:
+    now = time.time
 
 
 # Note: these functions return a tuple of (text, length), so when you call

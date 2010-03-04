@@ -19,6 +19,7 @@ on-disk key-value database format. The current format is identical
 to D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
+from sys import byteorder
 from array import array
 from collections import defaultdict
 from struct import Struct
@@ -254,7 +255,8 @@ class OrderedHashWriter(HashWriter):
     def close(self):
         self._write_hashes()
         
-        self.index.append(1<<32-1)
+        self.dbfile.write_uint(len(self.index))
+        if byteorder == "little": self.index.byteswap()
         self.dbfile.write(self.index.tostring())
         
         self._write_directory()
@@ -266,27 +268,24 @@ class OrderedHashReader(HashReader):
         HashReader.__init__(self, dbfile)
         lastpos, lastnum = unpack_2ints(self.read(255 * _2INTS_SIZE, _2INTS_SIZE))
         dbfile.seek(lastpos + lastnum * _2INTS_SIZE)
-        
-        self.index = array("I")
-        self.index.fromstring(dbfile.read())
-        last = self.index.pop()
-        if last != 1<<32-1:
-            self.index.byteswap()
+        self.length = dbfile.read_uint()
+        self.indexbase = dbfile.tell()
     
     def _closest_key(self, key):
+        dbfile = self.dbfile
         key_at = self._key_at
-        index = self.index
+        indexbase = self.indexbase
         lo = 0
-        hi = len(index)
+        hi = self.length
         while lo < hi:
             mid = (lo+hi)//2
-            midkey = key_at(index[mid])
+            midkey = key_at(dbfile.get_uint(indexbase + mid * _INT_SIZE))
             if midkey < key: lo = mid+1
             else: hi = mid
         #i = max(0, mid - 1)
-        if lo == len(index):
+        if lo == self.length:
             return None
-        return index[lo]
+        return dbfile.get_uint(indexbase + lo * _INT_SIZE)
     
     def closest_key(self, key):
         pos = self._closest_key(key)
@@ -602,6 +601,61 @@ class StructHashReader(FixedHashReader):
 
     def __contains__(self, key):
         return FixedHashReader.__contains__(self, self.packkey(key))
+
+
+class LengthWriter(object):
+    def __init__(self, dbfile, doccount, scorables):
+        self.dbfile = dbfile
+        self.doccount = doccount
+        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
+        
+        dbfile.seek(doccount * len(scorables) * _INT_SIZE)
+        dbfile.write("\x00")
+        
+    def add_all(self, items):
+        dbfile = self.dbfile
+        doccount = self.doccount
+        indices = self.indices
+        for docnum, fieldnum, length in items:
+            index = indices[fieldnum]
+            pos = (index * doccount * _INT_SIZE) + (docnum * _INT_SIZE)
+            dbfile.seek(pos)
+            dbfile.write_uint(length)
+            
+    def add(self, *args):
+        self.add_all([args])
+        
+    def close(self):
+        self.dbfile.close()
+        
+
+class LengthReader(object):
+    def __init__(self, dbfile, doccount, scorables, cachesize=32000):
+        self.dbfile = dbfile
+        self.doccount = doccount
+        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
+        self.cachesize = cachesize
+        self.caches = {}
+        
+    def get(self, docnum, fieldnum, default=0):
+        #cachesize = self.cachesize
+        #caches = self.caches
+        #if fieldnum in caches:
+        #    start, data = caches[fieldnum]
+        #    if docnum >= start and docnum < start + cachesize:
+        #        return data[docnum - start]
+        
+        indices = self.indices
+        index = indices[fieldnum]
+        pos = (index * self.doccount * _INT_SIZE) + (docnum * _INT_SIZE)
+        #n = min(docnum + cachesize, self.doccount - docnum)
+        #data = self.dbfile.get_array(pos, "I", n)
+        #caches[fieldnum] = (docnum, data)
+        #return data[0]
+        return self.dbfile.get_uint(pos)
+    
+    def close(self):
+        self.dbfile.close()
 
 
 class FileListWriter(object):
