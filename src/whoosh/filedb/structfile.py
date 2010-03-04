@@ -83,6 +83,8 @@ class StructFile(object):
         not have a close method.
         """
 
+        if self.is_closed:
+            raise Exception("This file is already closed")
         del self.map
         if self.onclose:
             self.onclose(self)
@@ -207,8 +209,8 @@ class StructFile(object):
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
     def read_array(self, typecode, length):
-        packed = self.file.read(_SIZEMAP[typecode] * length)
-        return Struct("!" + typecode * length).unpack(packed)
+        s = Struct("!" + typecode * length)
+        return s.unpack(self.file.read(s.size))
 
     def get_sbyte(self, position):
         return unpack_sbyte(self.map[position:position + 1])[0]
@@ -224,7 +226,7 @@ class StructFile(object):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
     def get_array(self, position, typecode, length):
         s = Struct("!" + typecode * length)
-        return s.unpack(self.map[position:position + s.size * length])
+        return s.unpack(self.map[position:position + s.size])
 
 
 

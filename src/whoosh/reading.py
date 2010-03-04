@@ -99,6 +99,11 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
+    def max_field_length(self, fieldnum, default=0):
+        """Returns the maximum length of the field across all documents.
+        """
+        raise NotImplementedError
+
     def has_vector(self, docnum, fieldid):
         """Returns True if the given document has a term vector for the given
         field.
