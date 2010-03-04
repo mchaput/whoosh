@@ -29,7 +29,7 @@ from bisect import bisect_left, bisect_right
 import fnmatch, re
 
 from whoosh.lang.morph_en import variations
-from whoosh.postings import QueryScorer, EmptyScorer
+from whoosh.postings import QueryScorer, EmptyScorer, ListScorer
 from whoosh.postings import IntersectionScorer, UnionScorer
 from whoosh.postings import RequireScorer, AndMaybeScorer, InverseScorer
 from whoosh.postings import ReadTooFar
@@ -187,15 +187,13 @@ class Query(object):
 
     def doc_scores(self, searcher, exclude_docs=None):
         """Returns an iterator of (docnum, score) pairs matching this query.
-        This is a convenience method for when you don't need a QueryScorer
-        (i.e. you don't need to use skip_to).
         
         >>> list(my_query.doc_scores(ixreader))
         [(10, 0.73), (34, 2.54), (78, 0.05), (103, 12.84)]
         
         :param searcher: A :class:`whoosh.searching.Searcher` object.
-        :param exclude_docs: A :class:`~whoosh.support.bitvector.BitVector`
-            of document numbers to exclude from the results, or None to not
+        :param exclude_docs: A :class:`~whoosh.support.bitvector.BitVector` or
+            set of document numbers to exclude from the results, or None to not
             exclude any documents.
         """
 
@@ -405,9 +403,10 @@ class Term(Query):
     """
 
     class TermScorer(QueryScorer):
-        def __init__(self, postreader, score_fn):
+        def __init__(self, postreader, scorefn, boost):
             self.postreader = postreader
-            self.score_fn = score_fn
+            self.scorefn = scorefn
+            self.boost = boost
             for name in ("__cmp__", "reset", "all_items", "all_ids", "all_as",
                          "next", "skip_to", "value", "value_as"):
                 setattr(self, name, getattr(postreader, name))
@@ -416,10 +415,9 @@ class Term(Query):
         def id(self):
             return self.postreader.id
 
-        def score(self):
-            docnum = self.postreader.id
-            weight = self.value_as("weight")
-            return self.score_fn(docnum, weight)
+        def weight(self):
+            return self.scorefn(self.value_as("weight"),
+                                self.postreader.id) * self.boost
 
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
 
@@ -473,18 +471,29 @@ class Term(Query):
     def scorer(self, searcher, exclude_docs=None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         text = self.text
-        boost = self.boost
-        score_methd = searcher.weighting.score
-
-        def score_fn(docnum, weight):
-            return score_methd(searcher, fieldnum, text, docnum, weight) * boost
-
+        
         try:
-            postreader = searcher.postings(fieldnum, text,
+            postreader = searcher.postings(fieldnum, self.text,
                                            exclude_docs=exclude_docs)
-            return Term.TermScorer(postreader, score_fn)
+            
+            sc = searcher.weighting.score
+            scorefn = lambda w, dn: sc(searcher, fieldnum, text, dn, w)
+            return Term.TermScorer(postreader, scorefn, self.boost)
         except TermNotFound:
             return EmptyScorer()
+        
+    def doc_scores(self, searcher, exclude_docs=None):
+        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        if not searcher.scorable(fieldnum):
+            return ((docnum, 1.0) 
+                    for docnum in self.docs(searcher, exclude_docs=exclude_docs))
+        
+        scorefn = searcher.weighting.score
+        text = self.text
+        postreader = searcher.reader().postings(fieldnum, text,
+                                                exclude_docs=exclude_docs)
+        return ((docnum, scorefn(searcher, fieldnum, text, docnum, weight))
+                for docnum, weight in postreader.items_as("weight"))
 
 
 class And(CompoundQuery):
@@ -566,13 +575,13 @@ class DisjunctionMax(CompoundQuery):
             UnionScorer.__init__(self, scorers, boost=boost)
             self.tiebreak = tiebreak
 
-        def score(self):
+        def weight(self):
             id = self.id
             tiebreak = self.tiebreak
             if id is None:
                 return 0
 
-            scores = [r.score() for r in self.state if r.id == id]
+            scores = [r.weight() for r in self.state if r.id == id]
             score = max(scores)
             if tiebreak:
                 score += sum(s * tiebreak for s in scores)
@@ -1032,18 +1041,13 @@ class Phrase(MultiTerm):
             self.count = len(current)
             self.id = isect.id
 
-        def score(self):
-            if self.id is None:
-                return 0
-            return self.intersection.score() * self.boost
-
     class PostingPhraseScorer(PhraseScorer):
         "Scorer for PhraseQuery that uses Position postings."
 
-        def __init__(self, intersection, slop=1, boost=1.0):
+        def __init__(self, intersection, slop=1):
             self.intersection = intersection
             self.slop = slop
-            self.boost = boost
+            self.weight = intersection.weight
             self._find()
 
         def _poses(self):
@@ -1056,15 +1060,14 @@ class Phrase(MultiTerm):
     class VectorPhraseScorer(PhraseScorer):
         "Scorer for PhraseQuery that uses Position term vectors."
 
-        def __init__(self, reader, fieldnum, words, intersection, slop=1,
-                     boost=1.0):
+        def __init__(self, reader, fieldnum, words, intersection, slop=1):
             self.reader = reader
             self.fieldnum = fieldnum
             self.words = words
             self.sortedwords = sorted(words)
             self.intersection = intersection
+            self.weight = intersection.weight
             self.slop = slop
-            self.boost = boost
             self._find()
 
         def _poses(self):
@@ -1178,12 +1181,10 @@ class Phrase(MultiTerm):
 
         field = searcher.field(fieldnum)
         if field.format and field.format.supports("positions"):
-            return Phrase.PostingPhraseScorer(intersection, slop=self.slop,
-                                              boost=self.boost)
+            return Phrase.PostingPhraseScorer(intersection, slop=self.slop)
         elif field.vector and field.vector.supports("positions"):
             return Phrase.VectorPhraseScorer(ixreader, fieldnum, self.words,
-                                             intersection, slop=self.slop,
-                                             boost=self.boost)
+                                             intersection, slop=self.slop)
         else:
             raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
 
@@ -1223,7 +1224,7 @@ class Every(Query):
             self.id = target
             self._find()
 
-        def score(self):
+        def weight(self):
             return self.boost
 
     def __init__(self, boost=1):

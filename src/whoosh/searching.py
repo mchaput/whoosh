@@ -26,11 +26,7 @@ import sys, time
 from whoosh import classify, query, scoring
 from whoosh.scoring import Sorter, FieldSorter
 from whoosh.support.bitvector import BitVector
-
-if sys.platform == 'win32':
-    now = time.clock
-else:
-    now = time.time
+from whoosh.util import now
 
 
 # Searcher class
@@ -49,10 +45,11 @@ class Searcher(object):
         """
 
         self.ixreader = ixreader
+        self.doccount = ixreader.doc_count_all()
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "postings", "vector", "vector_as",
-                     "schema"):
+                     "schema", "scorable"):
             setattr(self, name, getattr(ixreader, name))
 
         if type(weighting) is type:
@@ -75,18 +72,17 @@ class Searcher(object):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
         return self.ixreader
 
-    def idf(self, fieldid, text):
+    def idf(self, fieldnum, text):
         """Calculates the Inverse Document Frequency of the
         current term. Subclasses may want to override this.
         """
 
-        fieldnum = self.fieldname_to_num(fieldid)
         cache = self._idf_cache
         term = (fieldnum, text)
         if term in cache: return cache[term]
 
         df = self.ixreader.doc_frequency(fieldnum, text)
-        idf = log(self.ixreader.doc_count_all() / (df + 1)) + 1.0
+        idf = log(self.doccount / (df + 1)) + 1.0
         cache[term] = idf
         return idf
 
@@ -261,7 +257,8 @@ class Searcher(object):
             elif isinstance(sortedby, Sorter):
                 sorter = sortedby
             else:
-                raise ValueError("sortedby argument must be a string, list, or Sorter (%r)" % sortedby)
+                raise ValueError("sortedby argument must be a string, list, or"
+                                 " Sorter (%r)" % sortedby)
 
             scored_list = sorter.order(self, query.docs(self), reverse=reverse)
             scores = None
@@ -272,9 +269,9 @@ class Searcher(object):
             # Sort by scores
             topdocs = TopDocs(limit, ixreader.doc_count_all())
             final = self.weighting.final
-            topdocs.add_all(((docnum, final(self, docnum, score))
-                             for docnum, score in query.doc_scores(self)),
-                             minscore)
+            gener = ((docnum, final(self, docnum, score))
+                     for docnum, score in query.doc_scores(self))
+            topdocs.add_all(gener, minscore)
 
             best = topdocs.best()
             if best:

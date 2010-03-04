@@ -111,8 +111,10 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(dr.doc_field_length(1, "f2"), 4)
         self.assertEqual(dr.doc_field_length(2, "f2"), 7)
         
-        self.assertEqual(ix.field_length("f1"), 16)
-        self.assertEqual(ix.field_length("f2"), 14)
+        self.assertEqual(dr.field_length("f1"), 16)
+        self.assertEqual(dr.field_length("f2"), 14)
+        self.assertEqual(dr.max_field_length("f1"), 8)
+        self.assertEqual(dr.max_field_length("f2"), 7)
         
     def test_merged_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
