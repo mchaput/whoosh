@@ -432,11 +432,11 @@ class TestSearching(unittest.TestCase):
         q = query.Phrase("value", [u"little", u"miss", u"muffet"])
         sc = q.scorer(searcher)
         self.assertEqual(sc.id, 0)
-        score1 = sc.score()
+        score1 = sc.weight()
         self.assert_(score1 > 0)
         sc.next()
         self.assertEqual(sc.id, 3)
-        self.assert_(sc.score() > score1)
+        self.assert_(sc.weight() > score1)
 
     def test_stop_phrase(self):
         schema = fields.Schema(title=fields.TEXT(stored=True))
@@ -463,22 +463,25 @@ class TestSearching(unittest.TestCase):
         writer = idx.writer() 
         writer.add_document(name=u'Frank', hobbies=u'baseball, basketball')
         writer.commit()
-        self.assertEqual(idx.segments[0].field_length(0), 2) # hobbies
-        self.assertEqual(idx.segments[0].field_length(1), 1) # name
+        r = idx.reader()
+        self.assertEqual(r.field_length(0), 2) # hobbies
+        self.assertEqual(r.field_length(1), 1) # name
+        r.close()
         
         writer = idx.writer()
         writer.add_document(name=u'Jonny') 
         writer.commit()
+        r = idx.reader()
         self.assertEqual(len(idx.segments), 1)
-        self.assertEqual(idx.segments[0].field_length(0), 2) # hobbies
-        self.assertEqual(idx.segments[0].field_length(1), 2) # name
+        self.assertEqual(r.field_length(0), 2) # hobbies
+        self.assertEqual(r.field_length(1), 2) # name
         
-        reader = idx.reader()
-        searcher = Searcher(reader)
+        searcher = Searcher(r)
         parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
         q = parser.parse(u"baseball")
         result = searcher.search(q)
         self.assertEqual(len(result), 1)
+        searcher.close()
         
     def test_search_fieldname_underscores(self):
         s = fields.Schema(my_name=fields.ID(stored=True), my_value=fields.TEXT)

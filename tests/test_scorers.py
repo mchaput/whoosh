@@ -4,7 +4,7 @@ from time import clock as now
 
 from whoosh import fields, index, qparser, query, searching, scoring
 from whoosh.filedb.filestore import RamStorage
-from whoosh.postings import EmptyScorer, FakeScorer, AndNotScorer, UnionScorer, InverseScorer
+from whoosh.postings import EmptyScorer, ListScorer, AndNotScorer, UnionScorer, InverseScorer
 from whoosh.query import *
 
 class TestScorers(unittest.TestCase):
@@ -94,18 +94,18 @@ class TestScorers(unittest.TestCase):
             self.assertEqual(keys, matches)
 
     def test_union(self):
-        s1 = FakeScorer(1, 2, 3, 4, 5, 6, 7, 8)
-        s2 = FakeScorer(2, 4, 8, 10, 20, 30)
-        s3 = FakeScorer(10, 100, 200)
+        s1 = ListScorer([1, 2, 3, 4, 5, 6, 7, 8])
+        s2 = ListScorer([2, 4, 8, 10, 20, 30])
+        s3 = ListScorer([10, 100, 200])
         result = [1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 100, 200]
         uqs = UnionScorer([s1, s2, s3])
         self.assertEqual(list(uqs.ids()), result)
         
     def test_union_scores(self):
-        s1 = FakeScorer(1, 2, 3)
-        s2 = FakeScorer(2, 4, 8)
-        s3 = FakeScorer(2, 3, 8)
-        result = [(1, 10), (2, 30), (3, 20), (4, 10), (8, 20)]
+        s1 = ListScorer([1, 2, 3])
+        s2 = ListScorer([2, 4, 8])
+        s3 = ListScorer([2, 3, 8])
+        result = [(1, 1.0), (2, 3.0), (3, 2.0), (4, 1.0), (8, 2.0)]
         uqs = UnionScorer([s1, s2, s3])
         self.assertEqual(list(uqs), result)
 
@@ -122,13 +122,13 @@ class TestScorers(unittest.TestCase):
             for _ in xrange(randint(*clauselimits)):
                 nums = sample(vals, randint(*rangelimits))
                 matches = matches.union(nums)
-                scorers.append(FakeScorer(*sorted(nums)))
+                scorers.append(ListScorer(sorted(nums)))
             matches = sorted(matches)
             uqs = UnionScorer(scorers)
             self.assertEqual(list(uqs.ids()), matches)
 
     def test_inverse(self):
-        s = FakeScorer(1, 5, 10, 11, 13)
+        s = ListScorer([1, 5, 10, 11, 13])
         inv = InverseScorer(s, 15, lambda id: False)
         scores = []
         while inv.id is not None:
@@ -137,7 +137,7 @@ class TestScorers(unittest.TestCase):
         self.assertEqual(scores, [0, 2, 3, 4, 6, 7, 8, 9, 12, 14])
         
     def test_inverse_skip(self):
-        s = FakeScorer(1, 5, 10, 11, 13)
+        s = ListScorer([1, 5, 10, 11, 13])
         inv = InverseScorer(s, 15, lambda id: False)
         inv.skip_to(8)
         
@@ -148,8 +148,8 @@ class TestScorers(unittest.TestCase):
         self.assertEqual(scores, [8, 9, 12, 14])
 
     def test_andnot(self):
-        pos = FakeScorer(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        neg = FakeScorer(1, 2, 5, 7, 8, 10)
+        pos = ListScorer([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        neg = ListScorer([1, 2, 5, 7, 8, 10])
         ans = AndNotScorer(pos, neg)
         ids = list(ans.all_ids())
         self.assertEqual(ids, [3, 4, 6, 9])
@@ -161,7 +161,7 @@ class TestScorers(unittest.TestCase):
         ids = list(ans.all_ids())
         self.assertEqual(ids, [])
         
-        pos = FakeScorer(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        pos = ListScorer([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         neg = EmptyScorer()
         ans = AndNotScorer(pos, neg)
         ids = list(ans.all_ids())
@@ -177,8 +177,8 @@ class TestScorers(unittest.TestCase):
             negs = sorted(sample(rng, randint(0, rangesize-1)))
             negset = frozenset(negs)
             matched = [n for n in rng if n not in negset]
-            pos = FakeScorer(*rng)
-            neg = FakeScorer(*negs)
+            pos = ListScorer(rng)
+            neg = ListScorer(negs)
             ans = AndNotScorer(pos, neg)
             ids = list(ans.all_ids())
             self.assertEqual(ids, matched)

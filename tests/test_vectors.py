@@ -63,7 +63,7 @@ class TestVectors(unittest.TestCase):
             
             docnum = searcher.document_number(title=u"two")
             vec = list(searcher.vector_as("frequency", docnum, "content"))
-            self.assertEqual(vec, [(u'along', 1), (u'book', 1), (u'read', 1), (u'your', 1)])
+            self.assertEqual(vec, [(u'along', 1), (u'book', 1), (u'read', 1)])
         finally:
             pass
             #self.destroy_index("testindex")

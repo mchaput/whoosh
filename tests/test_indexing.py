@@ -75,12 +75,14 @@ class TestIndexing(unittest.TestCase):
             except Exception:
                 w.cancel()
                 raise
-                
+            
+            f1 = s.name_to_number("f1")
+            f2 = s.name_to_number("f2")
             dr = ix.reader()
             try:
-                ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
+                ls1 = [dr.doc_field_length(i, f1) for i in xrange(0, len(lengths))]
                 self.assertEqual(ls1, [0]*len(lengths))
-                ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
+                ls2 = [dr.doc_field_length(i, f2) for i in xrange(0, len(lengths))]
                 self.assertEqual(ls2, lengths)
             finally:
                 dr.close()
@@ -100,21 +102,23 @@ class TestIndexing(unittest.TestCase):
         w.add_document(f1 = u"D E F", f2 = u"U V A B C D E")
         w.commit()
         
+        f1 = s.name_to_number("f1")
+        f2 = s.name_to_number("f2")
         dr = ix.reader()
-        ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, 3)]
-        ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, 3)]
+        ls1 = [dr.doc_field_length(i, f1) for i in xrange(0, 3)]
+        ls2 = [dr.doc_field_length(i, f2) for i in xrange(0, 3)]
         self.assertEqual(dr.stored_fields(0)["f1"], "A B C D E")
-        self.assertEqual(dr.doc_field_length(0, "f1"), 5)
-        self.assertEqual(dr.doc_field_length(1, "f1"), 8)
-        self.assertEqual(dr.doc_field_length(2, "f1"), 3)
-        self.assertEqual(dr.doc_field_length(0, "f2"), 3)
-        self.assertEqual(dr.doc_field_length(1, "f2"), 4)
-        self.assertEqual(dr.doc_field_length(2, "f2"), 7)
+        self.assertEqual(dr.doc_field_length(0, f1), 5)
+        self.assertEqual(dr.doc_field_length(1, f1), 8)
+        self.assertEqual(dr.doc_field_length(2, f1), 3)
+        self.assertEqual(dr.doc_field_length(0, f2), 3)
+        self.assertEqual(dr.doc_field_length(1, f2), 4)
+        self.assertEqual(dr.doc_field_length(2, f2), 7)
         
-        self.assertEqual(dr.field_length("f1"), 16)
-        self.assertEqual(dr.field_length("f2"), 14)
-        self.assertEqual(dr.max_field_length("f1"), 8)
-        self.assertEqual(dr.max_field_length("f2"), 7)
+        self.assertEqual(dr.field_length(f1), 16)
+        self.assertEqual(dr.field_length(f2), 14)
+        self.assertEqual(dr.max_field_length(f1), 8)
+        self.assertEqual(dr.max_field_length(f2), 7)
         
     def test_merged_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),

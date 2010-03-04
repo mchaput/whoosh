@@ -4,7 +4,6 @@ import os.path
 from shutil import rmtree
 
 from whoosh import query
-from whoosh.analysis import StandardAnalyzer
 from whoosh.fields import *
 from whoosh.ramdb.ramindex import RamIndex
 
@@ -97,9 +96,10 @@ class TestRamIndex(unittest.TestCase):
                   ]
         self.assertEqual(list(r.all_stored_fields()), target)
         
-        self.assertEqual(r.field_length("text"), 59)
-        self.assertEqual(r.max_field_length("text"), 11)
-        self.assertEqual(r.doc_field_length(3, "text"), 8)
+        fnum = ix.schema.name_to_number("text")
+        self.assertEqual(r.field_length(fnum), 59)
+        self.assertEqual(r.max_field_length(fnum), 11)
+        self.assertEqual(r.doc_field_length(3, fnum), 8)
         
         self.assertEqual(r.doc_frequency("text", "the"), 5)
         self.assertEqual(r.frequency("text", "the"), 9)
