@@ -14,7 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-import mmap, os
+import mmap, os, sys
 from array import array
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
@@ -28,6 +28,7 @@ from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
+IS_LITTLE = sys.byteorder == "little"
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")
 _ORDERMAP = {"little": "<", "big": ">"}
 
@@ -193,8 +194,10 @@ class StructFile(object):
     def write_float(self, n):
         self.file.write(pack_float(n))
     def write_array(self, arry):
-        a = Struct("!" + arry.typecode * len(arry)).pack(*arry)
-        self.file.write(a)
+        if not IS_LITTLE:
+            arry = array(arry.typecode, arry)
+            arry.byteswap()
+        self.file.write(arry.tostring())
 
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
@@ -209,8 +212,11 @@ class StructFile(object):
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
     def read_array(self, typecode, length):
-        s = Struct("!" + typecode * length)
-        return s.unpack(self.file.read(s.size))
+        source = self.file.read(length * _SIZEMAP[typecode])
+        a = array(typecode)
+        a.fromstring(source)
+        if not IS_LITTLE: a.byteswap()
+        return a
 
     def get_sbyte(self, position):
         return unpack_sbyte(self.map[position:position + 1])[0]
@@ -225,8 +231,11 @@ class StructFile(object):
     def get_float(self, position):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
     def get_array(self, position, typecode, length):
-        s = Struct("!" + typecode * length)
-        return s.unpack(self.map[position:position + s.size])
+        source = self.map[position:position + length * _SIZEMAP[typecode]]
+        a = array(typecode)
+        a.fromstring(source)
+        if not IS_LITTLE: a.byteswap()
+        return a
 
 
 

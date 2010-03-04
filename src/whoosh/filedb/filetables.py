@@ -37,7 +37,7 @@ def cdb_hash(key):
 # The CDB algorithm involves reading and writing pairs of (unsigned) ints in
 # many different places, so I'll name some convenience functions and variables
 
-_2ints_struct = Struct("!II")
+_2ints_struct = Struct("<II")
 _2INTS_SIZE = _2ints_struct.size
 pack_2ints = _2ints_struct.pack
 unpack_2ints = _2ints_struct.unpack
@@ -255,9 +255,10 @@ class OrderedHashWriter(HashWriter):
     def close(self):
         self._write_hashes()
         
-        self.dbfile.write_uint(len(self.index))
-        if byteorder == "little": self.index.byteswap()
-        self.dbfile.write(self.index.tostring())
+        index = self.index
+        self.dbfile.write_uint(len(index))
+        if byteorder != "little": index.byteswap()
+        self.dbfile.write(index.tostring())
         
         self._write_directory()
         self.dbfile.close()

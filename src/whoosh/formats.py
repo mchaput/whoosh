@@ -371,7 +371,7 @@ class PositionBoosts(Positions):
             codes.extend((varint(pos - base), float_to_byte(boost)))
             base = pos
         
-        return pack("!If", len(posns_boosts), summedboost) + "".join(codes)
+        return pack("<If", len(posns_boosts), summedboost) + "".join(codes)
     
     def decode_position_boosts(self, valuestring):
         f = StringIO(valuestring)
@@ -407,7 +407,7 @@ class PositionBoosts(Positions):
         return positions
     
     def decode_weight(self, valuestring):
-        freq, summedboost = unpack("!If",
+        freq, summedboost = unpack("<If",
                                    valuestring[:_INT_SIZE + _FLOAT_SIZE])
         return freq * summedboost
     
@@ -451,7 +451,7 @@ class CharacterBoosts(Characters):
                           float_to_byte(boost)))
             charbase = endchar
         
-        b = pack("!If", len(posns_chars_boosts), summedboost)
+        b = pack("<If", len(posns_chars_boosts), summedboost)
         return b + "".join(codes)
     
     def decode_character_boosts(self, valuestring):
