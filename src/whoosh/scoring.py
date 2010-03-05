@@ -34,19 +34,6 @@ class Weighting(object):
     appears.
     """
 
-    def avg_field_length(self, ixreader, fieldnum):
-        """Returns the average length of the field per document.
-        (i.e. total field length / total number of documents)
-        """
-        return ixreader.field_length(fieldnum) / ixreader.doc_count_all()
-
-    def fl_over_avfl(self, ixreader, docnum, fieldnum):
-        """Returns the length of the current field in the current
-        document divided by the average length of the field
-        across all documents. This is used by some scoring algorithms.
-        """
-        return ixreader.doc_field_length(docnum, fieldnum) / self.avg_field_length(ixreader, fieldnum)
-
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         """Returns the score for a given term in the given document.
         
@@ -98,13 +85,12 @@ class BM25F(Weighting):
         self._field_B = field_B
 
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
+        if not searcher.scorable(fieldnum): return weight
 
         B = self._field_B.get(fieldnum, self.B)
-        avl = self.avg_field_length(ixreader, fieldnum)
+        avl = searcher.avg_field_length[fieldnum]
         idf = searcher.idf(fieldnum, text)
-        l = ixreader.doc_field_length(docnum, fieldnum)
+        l = searcher.doc_field_length(docnum, fieldnum)
 
         w = weight / ((1 - B) + B * (l / avl))
         return idf * (w / (self.K1 + w))
@@ -158,15 +144,14 @@ class DLH13(Weighting):
         self.k = k
 
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
+        if not searcher.scorable(fieldnum): return weight
 
         k = self.k
-        dl = ixreader.doc_field_length(docnum, fieldnum)
+        dl = searcher.doc_field_length(docnum, fieldnum)
         f = weight / dl
-        tc = ixreader.frequency(fieldnum, text)
-        dc = ixreader.doc_count_all()
-        avl = self.avg_field_length(ixreader, fieldnum)
+        tc = searcher.frequency(fieldnum, text)
+        dc = searcher.doccount
+        avl = searcher.avg_field_length[fieldnum]
 
         return QTF * (weight * log((weight * avl / dl) * (dc / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
 
@@ -204,7 +189,7 @@ class InL2(Weighting):
         if not ixreader.scorable(fieldnum): return weight
 
         dl = ixreader.doc_field_length(docnum, fieldnum)
-        TF = weight * log(1.0 + (self.c * self.avg_field_length(ixreader, fieldnum)) / dl)
+        TF = weight * log(1.0 + (self.c * searcher.avg_field_length[fieldnum]) / dl)
         norm = 1.0 / (TF + 1.0)
         df = ixreader.doc_frequency(fieldnum, text)
         idf_dfr = log((ixreader.doc_count_all() + 1) / (df + 0.5), 2)

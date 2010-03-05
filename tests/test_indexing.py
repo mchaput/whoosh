@@ -6,6 +6,7 @@ from shutil import rmtree
 from whoosh import fields, index, query, qparser
 from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
+from whoosh.util import length_to_byte, byte_to_length
 
 
 class TestIndexing(unittest.TestCase):
@@ -83,7 +84,8 @@ class TestIndexing(unittest.TestCase):
                 ls1 = [dr.doc_field_length(i, f1) for i in xrange(0, len(lengths))]
                 self.assertEqual(ls1, [0]*len(lengths))
                 ls2 = [dr.doc_field_length(i, f2) for i in xrange(0, len(lengths))]
-                self.assertEqual(ls2, lengths)
+                self.assertEqual(ls2, [byte_to_length(length_to_byte(l))
+                                       for l in lengths])
             finally:
                 dr.close()
                 
@@ -105,8 +107,6 @@ class TestIndexing(unittest.TestCase):
         f1 = s.name_to_number("f1")
         f2 = s.name_to_number("f2")
         dr = ix.reader()
-        ls1 = [dr.doc_field_length(i, f1) for i in xrange(0, 3)]
-        ls2 = [dr.doc_field_length(i, f2) for i in xrange(0, 3)]
         self.assertEqual(dr.stored_fields(0)["f1"], "A B C D E")
         self.assertEqual(dr.doc_field_length(0, f1), 5)
         self.assertEqual(dr.doc_field_length(1, f1), 8)

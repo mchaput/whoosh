@@ -18,6 +18,7 @@
 """
 
 from array import array
+from math import log
 import codecs, re, sys, time
 
 from collections import deque, defaultdict
@@ -143,6 +144,35 @@ def byte_to_float(b, mantissabits=5, zeroexp=2):
     bits += (63 - zeroexp) << 24
     return unpack("f", pack("i", bits))[0]
 
+
+# Length-to-byte approximation functions
+
+def length_to_byte(length):
+    """Returns a logarithmic approximation of the given number, in the range
+    0-255. The approximation has high precision at the low end (e.g.
+    1 -> 0, 2 -> 1, 3 -> 2 ...) and low precision at the high end. Numbers
+    equal to or greater than 108116 all approximate to 255.
+    
+    This is useful for storing field lengths, where the general case is small
+    documents and very large documents are more rare.
+    """
+    
+    # This encoding formula works up to 108116 -> 255, so if the length is
+    # equal to or greater than that limit, just return 255.
+    if length >= 108116: return 255
+    
+    # The parameters of this formula where chosen heuristically so that low
+    # numbers would approximate closely, and the byte range 0-255 would cover
+    # a decent range of document lengths (i.e. 1 to ~100000).
+    return int(round(log((length/27.0)+1, 1.033)))
+
+def _byte_to_length(n):
+    return int(round((pow(1.033, n)-1)*27))
+
+_length_byte_cache = array("i", (_byte_to_length(i) for i in xrange(256)))
+byte_to_length = _length_byte_cache.__getitem__
+
+# Prefix encoding functions
 
 def first_diff(a, b):
     """Returns the position of the first differing character in the strings

@@ -21,7 +21,7 @@ from struct import Struct
 
 from whoosh.system import (pack_uint, pack_ushort,
                            unpack_uint, unpack_ushort,
-                           _SHORT_SIZE, _INT_SIZE)
+                           _SHORT_SIZE)
 from whoosh.util import utf8encode, utf8decode
 
 
@@ -32,7 +32,7 @@ def decode_termkey(key):
     return (unpack_ushort(key[:_SHORT_SIZE])[0],
             utf8decode(key[_SHORT_SIZE:])[0])
 
-_terminfo_struct = Struct("<III") # frequency, offset, postcount
+_terminfo_struct = Struct("!III") # frequency, offset, postcount
 _pack_terminfo = _terminfo_struct.pack
 encode_terminfo = lambda cf_offset_df: _pack_terminfo(*cf_offset_df)
 decode_terminfo = _terminfo_struct.unpack

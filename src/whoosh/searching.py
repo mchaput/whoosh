@@ -47,9 +47,15 @@ class Searcher(object):
         self.ixreader = ixreader
         self.doccount = ixreader.doc_count_all()
 
+        self.avg_field_length = {}
+        for fieldnum in ixreader.schema.scorable_fields():
+            self.avg_field_length[fieldnum] = (ixreader.field_length(fieldnum)
+                                               / (self.doccount or 1))
+
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "postings", "vector", "vector_as",
-                     "schema", "scorable"):
+                     "schema", "scorable", "frequency", "doc_field_length",
+                     "max_field_length"):
             setattr(self, name, getattr(ixreader, name))
 
         if type(weighting) is type:

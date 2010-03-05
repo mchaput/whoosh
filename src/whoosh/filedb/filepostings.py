@@ -23,7 +23,7 @@ from whoosh.util import utf8encode, utf8decode
 
 
 class FilePostingWriter(PostingWriter):
-    def __init__(self, postfile, stringids=False, blocklimit=48):
+    def __init__(self, postfile, stringids=False, blocklimit=128):
         self.postfile = postfile
         self.stringids = stringids
 

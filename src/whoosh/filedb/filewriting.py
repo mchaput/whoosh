@@ -111,7 +111,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         if ix.schema.has_vectored_fields():
             # Vector index
             vf = storage.create_file(segment.vectorindex_filename)
-            self.vectorindex = StructHashWriter(vf, "<IH", "<I")
+            self.vectorindex = StructHashWriter(vf, "!IH", "!I")
             
             # Vector posting file
             vpf = storage.create_file(segment.vectorposts_filename)
@@ -132,10 +132,9 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         if poolclass is None:
             if procs > 1:
                 poolclass = MultiPool
-                poolargs["procs"] = procs
             else:
                 poolclass = TempfilePool
-        self.pool = poolclass(self.fieldlengths, **poolargs)
+        self.pool = poolclass(self.fieldlengths, procs=procs, **poolargs)
     
     def searcher(self):
         return self.index.searcher()

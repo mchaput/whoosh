@@ -68,6 +68,8 @@ class StructFile(object):
                 self._setup_fake_map()
         else:
             self._setup_fake_map()
+            
+        self.is_real = hasattr(fileobj, "fileno")
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
@@ -197,7 +199,10 @@ class StructFile(object):
         if not IS_LITTLE:
             arry = array(arry.typecode, arry)
             arry.byteswap()
-        self.file.write(arry.tostring())
+        if self.is_real:
+            arry.tofile(self.file)
+        else:
+            self.file.write(arry.tostring())
 
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
@@ -212,9 +217,11 @@ class StructFile(object):
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
     def read_array(self, typecode, length):
-        source = self.file.read(length * _SIZEMAP[typecode])
         a = array(typecode)
-        a.fromstring(source)
+        if self.is_real:
+            a.fromfile(self.file, length)
+        else:
+            a.fromstring(self.file.read(length * _SIZEMAP[typecode]))
         if not IS_LITTLE: a.byteswap()
         return a
 

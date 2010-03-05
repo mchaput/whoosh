@@ -4,6 +4,7 @@ import os, os.path, threading, time
 
 from whoosh.filedb.filestore import FileStorage
 from whoosh.support.filelock import try_for
+from whoosh.util import length_to_byte, byte_to_length
 
 
 class TestMisc(unittest.TestCase):
@@ -74,6 +75,13 @@ class TestMisc(unittest.TestCase):
         
         self.clean_file("testindex/testlock")
         self.destroy_dir("testindex")
+        
+    def test_length_byte(self):
+        source = range(11)
+        xform = [length_to_byte(n) for n in source]
+        result = [byte_to_length(n) for n in xform]
+        #print "\n", source, "\n", xform, "\n", result
+        self.assertEqual(source, result)
 
 
 if __name__ == '__main__':
