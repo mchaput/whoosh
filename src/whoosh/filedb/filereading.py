@@ -24,7 +24,7 @@ from whoosh.filedb.filetables import (FileTableReader, FileListReader,
 from whoosh.filedb import misc
 from whoosh.postings import Exclude
 from whoosh.reading import IndexReader, TermNotFound
-from whoosh.util import protected
+from whoosh.util import protected, byte_to_length
 
 
 # Reader class
@@ -57,16 +57,23 @@ class SegmentReader(IndexReader):
                                            valuedecoder=decode_storedfields)
         
         # Field length file
-        flf = storage.open_file(segment.fieldlengths_filename)
-        self.fieldlengths = LengthReader(flf, segment.doc_count_all(),
-                                         schema.scorable_fields())
+        scorables = schema.scorable_fields()
+        if scorables:
+            self.indices = dict((fieldnum, i) for i, fieldnum
+                                in enumerate(scorables))
+            lengthcount = segment.doc_count_all() * len(self.indices)
+            flf = storage.open_file(segment.fieldlengths_filename)
+            self.fieldlengths = flf.read_array("B", lengthcount)
+            flf.close()
+        else:
+            self.fieldlengths = []
         
         # Copy methods from underlying segment
         self.has_deletions = segment.has_deletions
         self.is_deleted = segment.is_deleted
         self.doc_count = segment.doc_count
-        self.doc_count_all = segment.doc_count_all
         
+        self.dc = segment.doc_count_all()
         self.is_closed = False
         self._sync_lock = Lock()
 
@@ -77,7 +84,7 @@ class SegmentReader(IndexReader):
         
         # Vector index
         vf = storage.open_file(segment.vectorindex_filename)
-        self.vectorindex = StructHashReader(vf, "<IH", "<I")
+        self.vectorindex = StructHashReader(vf, "!IH", "!I")
         
         # Vector postings file
         self.vpostfile = storage.open_file(segment.vectorposts_filename,
@@ -102,9 +109,12 @@ class SegmentReader(IndexReader):
             self.postfile.close()
         if self.vectorindex:
             self.vectorindex.close()
-        if self.fieldlengths:
-            self.fieldlengths.close()
+        #if self.fieldlengths:
+        #    self.fieldlengths.close()
         self.is_closed = True
+
+    def doc_count_all(self):
+        return self.dc
 
     @protected
     def stored_fields(self, docnum):
@@ -122,7 +132,9 @@ class SegmentReader(IndexReader):
 
     @protected
     def doc_field_length(self, docnum, fieldnum, default=0):
-        return self.fieldlengths.get(docnum, fieldnum, default)
+        index = self.indices[fieldnum]
+        pos = index * self.dc + docnum
+        return byte_to_length(self.fieldlengths[pos])
 
     def max_field_length(self, fieldnum):
         return self.segment.max_field_length(fieldnum)

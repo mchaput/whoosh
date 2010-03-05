@@ -26,6 +26,7 @@ from struct import Struct
 
 from whoosh.filedb.misc import enpickle, depickle
 from whoosh.system import _INT_SIZE
+from whoosh.util import length_to_byte, byte_to_length
 
 
 def cdb_hash(key):
@@ -37,7 +38,7 @@ def cdb_hash(key):
 # The CDB algorithm involves reading and writing pairs of (unsigned) ints in
 # many different places, so I'll name some convenience functions and variables
 
-_2ints_struct = Struct("<II")
+_2ints_struct = Struct("!II")
 _2INTS_SIZE = _2ints_struct.size
 pack_2ints = _2ints_struct.pack
 unpack_2ints = _2ints_struct.unpack
@@ -257,7 +258,7 @@ class OrderedHashWriter(HashWriter):
         
         index = self.index
         self.dbfile.write_uint(len(index))
-        if byteorder != "little": index.byteswap()
+        if byteorder == "little": index.byteswap()
         self.dbfile.write(index.tostring())
         
         self._write_directory()
@@ -610,7 +611,7 @@ class LengthWriter(object):
         self.doccount = doccount
         self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
         
-        dbfile.seek(doccount * len(scorables) * _INT_SIZE)
+        dbfile.seek(doccount * len(scorables))
         dbfile.write("\x00")
         
     def add_all(self, items):
@@ -619,10 +620,10 @@ class LengthWriter(object):
         indices = self.indices
         for docnum, fieldnum, length in items:
             index = indices[fieldnum]
-            pos = (index * doccount * _INT_SIZE) + (docnum * _INT_SIZE)
+            pos = (index * doccount) + docnum
             dbfile.seek(pos)
-            dbfile.write_uint(length)
-            
+            dbfile.write_byte(length)
+    
     def add(self, *args):
         self.add_all([args])
         
@@ -637,23 +638,12 @@ class LengthReader(object):
         self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
         self.cachesize = cachesize
         self.caches = {}
-        
+    
     def get(self, docnum, fieldnum, default=0):
-        #cachesize = self.cachesize
-        #caches = self.caches
-        #if fieldnum in caches:
-        #    start, data = caches[fieldnum]
-        #    if docnum >= start and docnum < start + cachesize:
-        #        return data[docnum - start]
-        
         indices = self.indices
         index = indices[fieldnum]
-        pos = (index * self.doccount * _INT_SIZE) + (docnum * _INT_SIZE)
-        #n = min(docnum + cachesize, self.doccount - docnum)
-        #data = self.dbfile.get_array(pos, "I", n)
-        #caches[fieldnum] = (docnum, data)
-        #return data[0]
-        return self.dbfile.get_uint(pos)
+        pos = (index * self.doccount) + (docnum)
+        return byte_to_length(self.dbfile.get_byte(pos))
     
     def close(self):
         self.dbfile.close()

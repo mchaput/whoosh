@@ -15,9 +15,10 @@
 # limitations under the License.
 #===============================================================================
 
-import os, shutil, tempfile, time
+import itertools, os, shutil, tempfile, time
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
+from marshal import load, dump, loads, dumps
 from Queue import Empty
 from multiprocessing import Process, Queue
 from struct import Struct
@@ -26,44 +27,44 @@ from whoosh.filedb.filetables import LengthWriter
 from whoosh.filedb.structfile import StructFile
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE,
                            pack_ushort, unpack_ushort)
-from whoosh.util import utf8encode, utf8decode
+from whoosh.util import utf8encode, utf8decode, length_to_byte
 
-_2int_struct = Struct("<II")
+_2int_struct = Struct("!II")
 pack2ints = _2int_struct.pack
 unpack2ints = _2int_struct.unpack
 
-_length_struct = Struct("<IHI") # Docnum, fieldnum, length
+_length_struct = Struct("!IHB") # Docnum, fieldnum, lengthbyte
 pack_length = _length_struct.pack
 unpack_length = _length_struct.unpack
 
 
-def encode_posting(fieldNum, text, doc, freq, datastring):
-    """Encodes a posting as a string, for sorting.
-    """
-
-    return "".join((pack_ushort(fieldNum),
-                    utf8encode(text)[0],
-                    chr(0),
-                    pack2ints(doc, freq),
-                    datastring))
-
-def decode_posting(posting):
-    """Decodes an encoded posting string into a
-    (field_number, text, document_number, datastring) tuple.
-    """
-
-    field_num = unpack_ushort(posting[:_SHORT_SIZE])[0]
-
-    zero = posting.find(chr(0), _SHORT_SIZE)
-    text = utf8decode(posting[_SHORT_SIZE:zero])[0]
-
-    metastart = zero + 1
-    metaend = metastart + _INT_SIZE * 2
-    doc, freq = unpack2ints(posting[metastart:metaend])
-
-    datastring = posting[metaend:]
-
-    return field_num, text, doc, freq, datastring
+#def encode_posting(fieldNum, text, doc, freq, datastring):
+#    """Encodes a posting as a string, for sorting.
+#    """
+#
+#    return "".join((pack_ushort(fieldNum),
+#                    utf8encode(text)[0],
+#                    chr(0),
+#                    pack2ints(doc, freq),
+#                    datastring))
+#
+#def decode_posting(posting):
+#    """Decodes an encoded posting string into a
+#    (field_number, text, document_number, datastring) tuple.
+#    """
+#
+#    field_num = unpack_ushort(posting[:_SHORT_SIZE])[0]
+#
+#    zero = posting.find(chr(0), _SHORT_SIZE)
+#    text = utf8decode(posting[_SHORT_SIZE:zero])[0]
+#
+#    metastart = zero + 1
+#    metaend = metastart + _INT_SIZE * 2
+#    doc, freq = unpack2ints(posting[metastart:metaend])
+#
+#    datastring = posting[metaend:]
+#
+#    return field_num, text, doc, freq, datastring
 
 
 def imerge(iterators):
@@ -89,14 +90,107 @@ def imerge(iterators):
         for item in gen:
             yield item
 
+def bimerge(iter1, iter2):
+    try:
+        p1 = iter1.next()
+    except StopIteration:
+        for p2 in iter2:
+            yield p2
+        return
+    
+    try:
+        p2 = iter2.next()
+    except StopIteration:
+        for p1 in iter1:
+            yield p1
+        return
+            
+    while True:
+        if p1 < p2:
+            yield p1
+            try:
+                p1 = iter1.next()
+            except StopIteration:
+                for p2 in iter2:
+                    yield p2
+                return
+        else:
+            yield p2
+            try:
+                p2 = iter2.next()
+            except StopIteration:
+                for p1 in iter1:
+                    yield p1
+                return
+
+def dividemerge(iters):
+    length = len(iters)
+    if length == 0:
+        return []
+    if length == 1:
+        return iters[0]
+    
+    mid = length >> 1
+    return bimerge(dividemerge(iters[:mid]), dividemerge(iters[mid:]))
+    
 
 def read_run(filename, count):
-    stream = StructFile(open(filename, "rb"))
-    read = stream.read_string2
+    f = open(filename, "rb")
     while count:
         count -= 1
-        yield decode_posting(read())
-    stream.close()
+        yield load(f)
+    f.close()
+
+
+def write_postings(schema, termtable, postwriter, postiter):
+    # This method pulls postings out of the posting pool (built up as
+    # documents are added) and writes them to the posting file. Each time
+    # it encounters a posting for a new term, it writes the previous term
+    # to the term index (by waiting to write the term entry, we can easily
+    # count the document frequency and sum the terms by looking at the
+    # postings).
+
+    current_fieldnum = None # Field number of the current term
+    current_text = None # Text of the current term
+    first = True
+    current_freq = 0
+    offset = None
+
+    # Loop through the postings in the pool. Postings always come out of
+    # the pool in (field number, lexical) order.
+    for fieldnum, text, docnum, freq, valuestring in postiter:
+        # Is this the first time through, or is this a new term?
+        if first or fieldnum > current_fieldnum or text > current_text:
+            if first:
+                first = False
+            else:
+                # This is a new term, so finish the postings and add the
+                # term to the term table
+                postcount = postwriter.finish()
+                termtable.add((current_fieldnum, current_text),
+                              (current_freq, offset, postcount))
+
+            # Reset the post writer and the term variables
+            current_fieldnum = fieldnum
+            current_text = text
+            current_freq = 0
+            offset = postwriter.start(schema[fieldnum].format)
+
+        elif (fieldnum < current_fieldnum
+              or (fieldnum == current_fieldnum and text < current_text)):
+            # This should never happen!
+            raise Exception("Postings are out of order: %s:%s .. %s:%s" %
+                            (current_fieldnum, current_text, fieldnum, text))
+
+        # Write a posting for this occurrence of the current term
+        current_freq += freq
+        postwriter.write(docnum, valuestring)
+
+    # If there are still "uncommitted" postings at the end, finish them off
+    if not first:
+        postcount = postwriter.finish()
+        termtable.add((current_fieldnum, current_text),
+                      (current_freq, offset, postcount))
 
 
 class LengthSpool(object):
@@ -108,7 +202,7 @@ class LengthSpool(object):
         self.file = open(self.filename, "wb")
         
     def add(self, docnum, fieldnum, length):
-        self.file.write(pack_length(docnum, fieldnum, length))
+        self.file.write(pack_length(docnum, fieldnum, length_to_byte(length)))
         
     def finish(self):
         self.file.close()
@@ -142,66 +236,9 @@ class PoolBase(object):
     def fieldlength_maxes(self):
         return self._fieldlength_maxes
     
-    def write_postings(self, schema, termtable, postwriter, postiter, total,
-                       logchunk=10000):
-        # This method pulls postings out of the posting pool (built up as
-        # documents are added) and writes them to the posting file. Each time
-        # it encounters a posting for a new term, it writes the previous term
-        # to the term index (by waiting to write the term entry, we can easily
-        # count the document frequency and sum the terms by looking at the
-        # postings).
-    
-        current_fieldnum = None # Field number of the current term
-        current_text = None # Text of the current term
-        first = True
-        current_freq = 0
-        offset = None
-        #c = 0
-        #total = float(total)
-        #chunkstart = time.time()
-    
-        # Loop through the postings in the pool. Postings always come out of
-        # the pool in (field number, lexical) order.
-        for fieldnum, text, docnum, freq, valuestring in postiter:
-            # Is this the first time through, or is this a new term?
-            if first or fieldnum > current_fieldnum or text > current_text:
-                if first:
-                    first = False
-                else:
-                    # This is a new term, so finish the postings and add the
-                    # term to the term table
-                    postcount = postwriter.finish()
-                    termtable.add((current_fieldnum, current_text),
-                                  (current_freq, offset, postcount))
-                    #c += 1
-                    #if not c % logchunk:
-                    #    chunkstart = time.time()
-    
-                # Reset the post writer and the term variables
-                current_fieldnum = fieldnum
-                current_text = text
-                current_freq = 0
-                offset = postwriter.start(schema[fieldnum].format)
-    
-            elif (fieldnum < current_fieldnum
-                  or (fieldnum == current_fieldnum and text < current_text)):
-                # This should never happen!
-                raise Exception("Postings are out of order: %s:%s .. %s:%s" %
-                                (current_fieldnum, current_text, fieldnum, text))
-    
-            # Write a posting for this occurrence of the current term
-            current_freq += freq
-            postwriter.write(docnum, valuestring)
-    
-        # If there are still "uncommitted" postings at the end, finish them off
-        if not first:
-            postcount = postwriter.finish()
-            termtable.add((current_fieldnum, current_text),
-                          (current_freq, offset, postcount))
-
 
 class TempfilePool(PoolBase):
-    def __init__(self, lengthfile, limitmb=32, dir=None, basename=''):
+    def __init__(self, lengthfile, limitmb=32, dir=None, basename='', **kw):
         if dir is None:
             dir = tempfile.mkdtemp("whoosh")
         PoolBase.__init__(self, dir)
@@ -214,7 +251,7 @@ class TempfilePool(PoolBase):
         self.postings = []
         self.runs = []
         
-        self.runbase = basename
+        self.basename = basename
         
         self.lenspool = LengthSpool(self._filename(basename + "length"))
         self.lenspool.create()
@@ -239,9 +276,8 @@ class TempfilePool(PoolBase):
             #print "Flushing..."
             self.dump_run()
 
-        posting = encode_posting(fieldnum, text, docnum, freq, datastring)
-        self.size += len(posting)
-        self.postings.append(posting)
+        self.size += len(text) + 2 + 8 + len(datastring)
+        self.postings.append((fieldnum, text, docnum, freq, datastring))
         self.count += 1
     
     def add_field_length(self, docnum, fieldnum, length):
@@ -252,12 +288,11 @@ class TempfilePool(PoolBase):
     
     def dump_run(self):
         if self.size > 0:
-            tempname = self._filename(self.runbase + str(time.time()) + ".run")
-            runfile = StructFile(open(tempname, "w+b"))
-
+            tempname = self._filename(self.basename + str(time.time()) + ".run")
+            runfile = open(tempname, "w+b")
             self.postings.sort()
             for p in self.postings:
-                runfile.write_string2(p)
+                dump(p, runfile)
             runfile.close()
 
             self.runs.append((tempname, self.count))
@@ -274,26 +309,29 @@ class TempfilePool(PoolBase):
     def cleanup(self):
         shutil.rmtree(self._dir)
     
-    def finish(self, schema, doccount, termtable, postingwriter):
-        self.lenspool.finish()
+    def _finish_lengths(self, schema, doccount):
         lengthfile = LengthWriter(self.lengthfile, doccount,
                                   schema.scorable_fields())
         lengthfile.add_all(self.lenspool.readback())
         lengthfile.close()
+    
+    def finish(self, schema, doccount, termtable, postingwriter):
+        self.lenspool.finish()
+        self._finish_lengths(schema, doccount)
         
         if self.postings and len(self.runs) == 0:
             self.postings.sort()
-            iter = (decode_posting(posting) for posting in self.postings)
-            total = len(self.postings)
+            postiter = iter(self.postings)
+            #total = len(self.postings)
         elif not self.postings and not self.runs:
-            iter = []
-            total = 0
+            postiter = iter([])
+            #total = 0
         else:
-            iter = imerge([read_run(runname, count)
-                           for runname, count in self.runs])
-            total = sum(count for runname, count in self.runs)
+            postiter = imerge([read_run(runname, count)
+                               for runname, count in self.runs])
+            #total = sum(count for runname, count in self.runs)
         
-        self.write_postings(schema, termtable, postingwriter, iter, total)
+        write_postings(schema, termtable, postingwriter, postiter)
         self.cleanup()
         
 
@@ -334,7 +372,7 @@ class PoolWritingTask(Process):
 
 
 class MultiPool(PoolBase):
-    def __init__(self, lengthfile, procs=2, limitmb=32):
+    def __init__(self, lengthfile, procs=2, limitmb=32, **kw):
         dir = tempfile.mkdtemp(".whoosh")
         PoolBase.__init__(self, dir)
         
@@ -409,9 +447,10 @@ class MultiPool(PoolBase):
         print "Lengths:", time.time() - t
             
         t = time.time()
-        iterator = imerge([read_run(runname, count) for runname, count in runs])
+        iterator = dividemerge([read_run(runname, count)
+                                for runname, count in runs])
         total = sum(count for runname, count in runs)
-        self.write_postings(schema, termtable, postingwriter, iterator, total)
+        write_postings(schema, termtable, postingwriter, iterator)
         print "Merge:", time.time() - t
         
         self.cleanup()

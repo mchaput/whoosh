@@ -22,7 +22,7 @@ occurance of a term.
 
 from array import array
 from collections import defaultdict
-from struct import pack, unpack, calcsize
+from struct import Struct
 from cStringIO import StringIO
 
 from whoosh.analysis import unstopped
@@ -349,6 +349,10 @@ class PositionBoosts(Positions):
     Supports: frequency, weight, positions, position_boosts.
     """
     
+    _struct = Struct("!If")
+    _pack = _struct.pack
+    _unpack = _struct.unpack
+    
     def word_values(self, value, start_pos=0, **kwargs):
         seen = defaultdict(iter)
         for t in unstopped(self.analyzer(value, positions=True, boosts=True,
@@ -371,7 +375,7 @@ class PositionBoosts(Positions):
             codes.extend((varint(pos - base), float_to_byte(boost)))
             base = pos
         
-        return pack("<If", len(posns_boosts), summedboost) + "".join(codes)
+        return self._pack(len(posns_boosts), summedboost) + "".join(codes)
     
     def decode_position_boosts(self, valuestring):
         f = StringIO(valuestring)
@@ -407,8 +411,7 @@ class PositionBoosts(Positions):
         return positions
     
     def decode_weight(self, valuestring):
-        freq, summedboost = unpack("<If",
-                                   valuestring[:_INT_SIZE + _FLOAT_SIZE])
+        freq, summedboost = self._unpack(valuestring[:_INT_SIZE + _FLOAT_SIZE])
         return freq * summedboost
     
 
@@ -419,6 +422,10 @@ class CharacterBoosts(Characters):
     Supports: frequency, weight, positions, position_boosts, characters,
     character_boosts.
     """
+    
+    _struct = Struct("!If")
+    _pack = _struct.pack
+    _unpack = _struct.unpack
     
     def word_values(self, value, start_pos=0, start_char=0, **kwargs):
         seen = defaultdict(iter)
@@ -451,7 +458,7 @@ class CharacterBoosts(Characters):
                           float_to_byte(boost)))
             charbase = endchar
         
-        b = pack("<If", len(posns_chars_boosts), summedboost)
+        b = self._pack(len(posns_chars_boosts), summedboost)
         return b + "".join(codes)
     
     def decode_character_boosts(self, valuestring):
