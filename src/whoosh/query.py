@@ -1030,7 +1030,7 @@ class Phrase(MultiTerm):
                             # TODO: Fix this somehow?
                             if delta <= slop:
                                 newpositions.append(newpos)
-
+                    
                     current = newpositions
                     if not current:
                         break
@@ -1083,7 +1083,6 @@ class Phrase(MultiTerm):
             poses = {}
             for word in self.sortedwords:
                 vreader.skip_to(word)
-                assert vreader.id == word
                 if vreader.id != word:
                     # Since the term index and term vector can potentially use
                     # different analyzers, it's possible that the words in the
