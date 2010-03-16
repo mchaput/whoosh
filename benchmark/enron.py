@@ -1,16 +1,19 @@
+from __future__ import division
 from email import message_from_string
-import gc, marshal, os.path, tarfile, time
+import gc, marshal, os.path, tarfile
 from marshal import dump, load
 
 from whoosh import analysis, index
 from whoosh.fields import *
-from whoosh.filedb import pools
+from whoosh.filedb import pools, pools2
+from whoosh.util import now
 
 
 enronURL = "http://www.cs.cmu.edu/~enron/"
 
-ana = analysis.StemmingAnalyzer()
-schema = Schema(body=TEXT(stored=True), date=ID, frm=ID, to=IDLIST,
+ana = analysis.StemmingAnalyzer(maxsize=40)
+schema = Schema(body=TEXT(analyzer=ana, stored=True), date=ID(stored=True),
+                frm=ID(stored=True), to=IDLIST(stored=True),
                 subject=TEXT(stored=True), cc=IDLIST, bcc=IDLIST)
 
 header_to_field = {"Date": "date", "From": "frm", "To": "to",
@@ -65,13 +68,13 @@ def get_cached_messages(cachename):
         pass
     f.close()
 
-def do_index(cachename, procs=0, chunk=1000, skip=1, upto=600000, limitmb=128):
+def do_index(cachename, chunk=1000, skip=1, upto=600000, **kwargs):
     if not os.path.exists("testindex"):
         os.mkdir("testindex")
     ix = index.create_in("testindex", schema)
-    w = ix.writer(procs=procs, limitmb=limitmb)
+    w = ix.writer(**kwargs)
     
-    starttime = chunkstarttime = time.time()
+    starttime = chunkstarttime = now()
     c = 0
     skipc = skip
     for d in get_cached_messages(cachename):
@@ -83,16 +86,14 @@ def do_index(cachename, procs=0, chunk=1000, skip=1, upto=600000, limitmb=128):
             if c > upto:
                 break
             if not c % chunk:
-                now = time.time()
-                print "Indexed %d messages, %f for %d, %f total" % (c,
-                                                                    now - chunkstarttime,
-                                                                    chunk,
-                                                                    now - starttime)
-                chunkstarttime = now
-    spooltime = time.time()
+                t = now()
+                print "Indexed %d messages, %f for %d, %f total, %f docs/s" % (c, t - chunkstarttime, chunk, t - starttime, c/t)
+                schema.clean()
+                chunkstarttime = t
+    spooltime = now()
     print "Spool", spooltime - starttime
     w.commit()
-    committime = time.time()
+    committime = now()
     print "Commit", (committime - spooltime)
     print "Total", (committime - starttime), "for", c
     
@@ -101,39 +102,59 @@ def do_index(cachename, procs=0, chunk=1000, skip=1, upto=600000, limitmb=128):
 
 
 if __name__=="__main__":
-    t = time.time()
-    cache_messages("/Volumes/Drobo/Development/Corpus/enron_mail_030204.tar", "messages.bin")
-    print time.time() - t
+    #t = now()
+    #cache_messages("c:/Documents and Settings/matt/Desktop/Search/enron_mail_030204.tar", "messages.bin")
+    #print now() - t
+    #do_index("messages.bin", limitmb=128, procs=5)#, upto=10000)
     
-    do_index("messages.bin", procs=4, limitmb=64, skip=2) #, upto=10000)
+    #import cProfile
+    #cProfile.run('do_index("messages.bin", limitmb=128, upto=10000)', "index.profile")
+    #from pstats import Stats
+    #p = Stats("index.profile")
+    #p.sort_stats("time").print_stats()
     
     from whoosh.filedb.filetables import StructHashReader, FileListReader
     from whoosh.filedb.filestore import FileStorage
     from whoosh.filedb import misc
     fs = FileStorage("testindex")
     
-    names = [schema.number_to_name(i) for i in xrange(len(schema))]
-    print names
-    
-    def show(docnum, fieldid):
-        fieldnum = schema.to_number(fieldid)
-        fieldname = schema.number_to_name(fieldnum)
-        print "Field number:", fieldnum
-        lf = fs.open_file("_MAIN_1.dci")
-        shr = StructHashReader(lf, "!IH", "!I")
-        print "Direct length:", shr.get((docnum, fieldnum))
-        
-    
-        df = fs.open_file("_MAIN_1.dcz")
-        flr = FileListReader(df, valuedecoder=marshal.loads)
-        print "Direct fields:", flr[docnum]
-    
-        ix = fs.open_index()
-        r = ix.reader()
-        print "Reader length:", r.doc_field_length(docnum, fieldnum)
-        print "Reader fields:", r.stored_fields(docnum)[fieldname]
-    
-    show(0, "subject")
+    from whoosh import query
+    ix = fs.open_index()
+    s = ix.searcher()
+    print s.search(query.And([query.Term("body", u"enron"), query.Term("body", u"zimbra")]))
+
+    r = s.reader()
+    t = now()
+    fn = schema.name_to_number("body")
+    pr = r.postings(fn, u"enron")
+    dc = pr.format.decoder("weight")
+    bc = 0
+    minw = 0
+    skipped = 0
+    total = 0
+    nextoffset = pr.baseoffset
+    from heapq import heappush, heapreplace
+    hp = []
+    while bc < pr.blockcount:
+        #maxid, nextoffset, postcount, offset = pr._read_block_header(nextoffset)
+        weights = [dc(v) for v in pr.values]
+        bases = [w/r.doc_field_length(id, fn) for id, w in zip(pr.ids, weights)]
+        mb = max(bases)
+        if hp and mb <= hp[0]:
+            skipped += 1
+        else:
+            for b in bases:
+                if len(hp) < 10:
+                    print "Adding", b
+                    heappush(hp, b)
+                elif b > hp[0]:
+                    print "Replacing", b
+                    heapreplace(hp, b)
+        pr._next_block()
+        bc += 1
+    print ":", now() - t
+    print hp
+    print "Skipped", skipped, "blocks of", bc, ":", skipped/bc
     
     
     

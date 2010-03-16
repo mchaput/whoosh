@@ -18,6 +18,7 @@
 documents.
 """
 
+from __future__ import division
 from collections import defaultdict
 from math import log
 
@@ -26,7 +27,7 @@ from math import log
 
 class ExpansionModel(object):
     def __init__(self, ixreader, fieldname):
-        self.N = float(ixreader.doc_count_all())
+        self.N = ixreader.doc_count_all()
         self.collection_total = ixreader.field_length(fieldname)
         self.mean_length = self.collection_total / self.N
     
