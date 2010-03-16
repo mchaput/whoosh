@@ -14,6 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
+import types
 from array import array
 from struct import Struct
 
@@ -23,7 +24,7 @@ from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 from whoosh.util import utf8encode, utf8decode, length_to_byte, byte_to_length
 
 
-class PostHeader(object):
+class BlockInfo(object):
     __slots__ = ("nextoffset", "postcount", "maxweight", "maxwol", "minlength",
                  "maxid", "dataoffset")
     
@@ -67,7 +68,7 @@ class PostHeader(object):
     @staticmethod
     def from_file(file, stringids=False):
         nextoffset, postcount, maxweight, maxwol, minlength\
-        = PostHeader._struct.unpack(file.read(PostHeader._struct.size))
+        = BlockInfo._struct.unpack(file.read(BlockInfo._struct.size))
         assert postcount > 0
         minlength = byte_to_length(minlength)
         
@@ -77,7 +78,7 @@ class PostHeader(object):
             maxid = file.read_uint()
         
         dataoffset = file.tell()
-        return PostHeader(nextoffset=nextoffset, postcount=postcount,
+        return BlockInfo(nextoffset=nextoffset, postcount=postcount,
                           maxweight=maxweight, maxwol=maxwol, maxid=maxid,
                           minlength=minlength, dataoffset=dataoffset)
     
@@ -165,7 +166,7 @@ class FilePostingWriter(PostingWriter):
         weights = self.blockweights
         postcount = len(ids)
 
-        # Write the header
+        # Write the blockinfo
         maxid = ids[-1]
         maxweight = max(weights)
         maxwol = 0.0
@@ -176,11 +177,11 @@ class FilePostingWriter(PostingWriter):
             assert minlength > 0
             maxwol = max(w / l for w, l in zip(weights, lens))
 
-        header_start = pf.tell()
-        header = PostHeader(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
+        blockinfo_start = pf.tell()
+        blockinfo = BlockInfo(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
                             minlength=minlength, postcount=postcount,
                             maxid=maxid)
-        header.to_file(pf)
+        blockinfo.to_file(pf)
         
         # Write the IDs
         if stringids:
@@ -208,7 +209,7 @@ class FilePostingWriter(PostingWriter):
         # Seek back and write the pointer to the next block
         pf.flush()
         nextoffset = pf.tell()
-        pf.seek(header_start)
+        pf.seek(blockinfo_start)
         pf.write_uint(nextoffset)
         pf.seek(nextoffset)
 
@@ -218,12 +219,14 @@ class FilePostingWriter(PostingWriter):
 
 
 class FilePostingReader(Matcher):
-    def __init__(self, postfile, offset, format,
-                 fieldnum=None, text=None, stringids=False):
+    def __init__(self, postfile, offset, format, scorefn, qualityfn, bqualityfn,
+                 stringids=False):
         self.postfile = postfile
         self.format = format
-        self.fieldnum = fieldnum
-        self.text = text
+        # Bind the score and quality functions to this object as methods
+        self.score = types.MethodType(scorefn, self, self.__class__)
+        self.quality = types.MethodType(qualityfn, self, self.__class__)
+        self.block_quality = types.MethodType(bqualityfn, self, self.__class__)
         self.stringids = stringids
         self._active = True
         
@@ -251,14 +254,14 @@ class FilePostingReader(Matcher):
     def all_ids(self):
         nextoffset = self.baseoffset
         for _ in xrange(self.blockcount):
-            header = self._read_block_header(nextoffset)
-            nextoffset = header.nextoffset
-            ids, __ = self._read_ids(header.dataoffset, header.postcount)
+            blockinfo = self._read_blockinfo(nextoffset)
+            nextoffset = blockinfo.nextoffset
+            ids, __ = self._read_ids(blockinfo.dataoffset, blockinfo.postcount)
             for id in ids:
                 yield id
 
     def next(self):
-        if self.i == self.header.postcount - 1:
+        if self.i == self.blockinfo.postcount - 1:
             self._next_block()
             return True
         else:
@@ -273,8 +276,8 @@ class FilePostingReader(Matcher):
         if id <= self.ids[i]: return
         
         # Skip to the block that would contain the target ID
-        if id > self.header.maxid:
-            self._skip_to_block(lambda header: id > header.maxid)
+        if id > self.blockinfo.maxid:
+            self._skip_to_block(lambda: id > self.blockinfo.maxid)
         if not self._active: return
 
         # Iterate through the IDs in the block until we find or pass the
@@ -288,10 +291,10 @@ class FilePostingReader(Matcher):
                 return
         self.i = i
 
-    def _read_block_header(self, offset):
+    def _read_blockinfo(self, offset):
         pf = self.postfile
         pf.seek(offset)
-        return PostHeader.from_file(pf, self.stringids)
+        return BlockInfo.from_file(pf, self.stringids)
         
     def _read_ids(self, offset, postcount):
         pf = self.postfile
@@ -344,13 +347,13 @@ class FilePostingReader(Matcher):
         return values
 
     def _consume_block(self):
-        postcount = self.header.postcount
-        self.ids, woffset = self._read_ids(self.header.dataoffset, postcount)
+        postcount = self.blockinfo.postcount
+        self.ids, woffset = self._read_ids(self.blockinfo.dataoffset, postcount)
         self.weights, voffset = self._read_weights(woffset, postcount)
-        self.values = self._read_values(voffset, self.header.nextoffset, postcount)
+        self.values = self._read_values(voffset, self.blockinfo.nextoffset, postcount)
         self.i = 0
 
-    def _next_block(self):
+    def _next_block(self, consume=True):
         self.currentblock += 1
         if self.currentblock == self.blockcount:
             self._active = False
@@ -359,39 +362,40 @@ class FilePostingReader(Matcher):
         if self.currentblock == 0:
             pos = self.baseoffset
         else:
-            pos = self.header.nextoffset
+            pos = self.blockinfo.nextoffset
 
-        self.header = self._read_block_header(pos)
-        self._consume_block()
+        self.blockinfo = self._read_blockinfo(pos)
+        if consume:
+            self._consume_block()
 
     def _skip_to_block(self, targetfn):
-        blockcount = self.blockcount
-        blocknum = self.currentblock
+        skipped = 0
+        while self._active and targetfn():
+            self._next_block(consume=False)
+            skipped += 1
 
-        header = self.header
-        while targetfn(header) and blocknum < blockcount - 1:
-            blocknum += 1
-            if blocknum == blockcount:
-                self._active = False
-                return
-            header = self._read_block_header(header.nextoffset)
-
-        self.currentblock = blocknum
-        self.header = header
-        self._consume_block()
+        if self._active:
+            self._consume_block()
+        
+        return skipped
     
     def supports_quality(self):
         return True
     
-    def quality(self, scorefn):
-        return scorefn(self.header)
+    def skip_to_quality(self, minparm):
+        bq = self.block_quality
+        if bq() > minparm: return 0
+        return self._skip_to_block(lambda: bq() <= minparm)
     
-    def skip_to_quality(self, scorefn, minparm):
-        if self.quality(scorefn) > minparm: return
-        self._skip_to_block(lambda m: scorefn(m) <= minparm)
+    def quality(self):
+        raise Exception("quality method should have been replaced")
     
-    def score(self, scorefn):
-        return scorefn(self)
+    def block_quality(self):
+        raise Exception("block_quality method should have been replaced")
+    
+    def score(self):
+        raise Exception("score method should have been replaced")
+    
     
         
 

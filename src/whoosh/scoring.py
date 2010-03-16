@@ -102,24 +102,28 @@ class BM25F(Weighting):
 
         return BM25F._score(B, self.K1, weight, l, avl, idf)
     
-    def score_fn(self, searcher):
+    def score_fn(self, searcher, fieldnum, text):
+        avl = searcher.avg_field_length[fieldnum]
+        B = self._field_B.get(fieldnum, self.B)
+        idf = searcher.idf(fieldnum, text)
+        dfl = searcher.doc_field_length
+        bm25f = BM25F._score
+        
         def f(m):
-            fieldnum = m.fieldnum
-            B = self._field_B.get(fieldnum, self.B)
-            avl = searcher.avg_field_length[fieldnum]
-            idf = searcher.idf(fieldnum, m.text)
-            l = searcher.doc_field_length(m.id(), fieldnum)
-            return BM25F._score(B, self.K1, m.weight(), l, avl, idf)
+            l = dfl(m.id(), fieldnum)
+            return bm25f(B, self.K1, m.weight(), l, avl, idf)
         return f
     
-    def posting_quality_fn(self, searcher):
+    def quality_fn(self, searcher, fieldnum, text):
         dfl = searcher.doc_field_length
         def fn(m):
-            return m.weight() / dfl(m.id(), m.fieldnum)
+            return m.weight() / dfl(m.id(), fieldnum)
         return fn
     
-    def matcher_quality(self, matcher):
-        return matcher.header.maxwol
+    def block_quality_fn(self, searcher, fieldnum, text):
+        def fn(m):
+            return m.blockinfo.maxwol
+        return fn
 
 
 class TF_IDF(Weighting):

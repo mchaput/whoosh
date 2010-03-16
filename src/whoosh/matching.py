@@ -38,10 +38,16 @@ class Matcher(object):
     def replace(self):
         return self
     
+    def depth(self):
+        return 0
+    
     def supports_quality(self):
         return False
     
-    def quality(self, scorefn):
+    def quality(self):
+        raise NoQualityAvailable
+    
+    def block_quality(self):
         raise NoQualityAvailable
     
     def reset(self):
@@ -62,7 +68,7 @@ class Matcher(object):
     def weight(self):
         raise NotImplementedError
     
-    def score(self, scorefn):
+    def score(self):
         raise NotImplementedError
     
 
@@ -78,6 +84,9 @@ class WrappingMatcher(Matcher):
     def __init__(self, child):
         self.child = child
     
+    def depth(self):
+        return 1 + self.child.depth()
+    
     def replace(self):
         r = self.child.replace()
         if not r.is_active(): return NullMatcher
@@ -87,8 +96,11 @@ class WrappingMatcher(Matcher):
     def supports_quality(self):
         return self.child.supports_quality()
     
-    def quality(self, scorefn):
-        return self.child.quality(scorefn)
+    def quality(self):
+        return self.child.quality()
+    
+    def block_quality(self):
+        return self.child.block_quality()
     
     def reset(self):
         self.child.reset()
@@ -111,8 +123,8 @@ class WrappingMatcher(Matcher):
     def weight(self):
         return self.child.weight()
     
-    def score(self, scorefn):
-        return self.child.score(scorefn)
+    def score(self):
+        return self.child.score()
     
 
 class BiMatcher(Matcher):
@@ -124,6 +136,9 @@ class BiMatcher(Matcher):
         super(BiMatcher, self).__init__()
         self.a = a
         self.b = b
+
+    def depth(self):
+        return 1 + max(self.a.depth(), self.b.depth())
 
     def reset(self):
         self.a.reset()
@@ -144,16 +159,17 @@ class AdditiveBiMatcher(BiMatcher):
     added together in some way.
     """
     
-    def quality(self, scorefn):
-        qa = self.a.quality(scorefn)
-        qb = self.b.quality(scorefn)
-        return qa + qb
+    def quality(self):
+        return self.a.quality() + self.b.quality()
+    
+    def block_quality(self):
+        return self.a.block_quality() + self.b.block_quality()
     
     def weight(self):
         return self.a.weight() + self.b.weight()
     
-    def score(self, scorefn):
-        return (self.a.score(scorefn) + self.b.score(scorefn))
+    def score(self):
+        return (self.a.score() + self.b.score())
     
 
 class UnionMatcher(AdditiveBiMatcher):
@@ -164,11 +180,13 @@ class UnionMatcher(AdditiveBiMatcher):
         a = self.a.replace()
         b = self.b.replace()
         
-        a_active = a
+        a_active = a.is_active()
         b_active = b.is_active()
         if not (a_active or b_active): return NullMatcher
-        if not a_active: return b
-        if not b_active: return a
+        if not a_active:
+            return b
+        if not b_active:
+            return a
         
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
@@ -189,6 +207,8 @@ class UnionMatcher(AdditiveBiMatcher):
         b = self.b
         a_active = a.is_active()
         b_active = b.is_active()
+        
+        # Shortcut when one matcher is inactive
         if not (a_active or b_active):
             raise ReadTooFar
         elif not a_active:
@@ -203,29 +223,45 @@ class UnionMatcher(AdditiveBiMatcher):
         if b_id <= a_id: br = b.next()
         return ar or br
     
-    def score(self, scorefn):
-        id_a = self.a.id()
-        id_b = self.b.id()
-        if id_a < id_b:
-            return self.a.score(scorefn)
-        elif id_b < id_a:
-            return self.b.score(scorefn)
-        else:
-            return (self.a.score(scorefn) + self.b.score(scorefn))
-        
-    def skip_to_quality(self, scorefn, minparm):
+    def score(self):
         a = self.a
         b = self.b
         
-        aq = a.quality(scorefn)
-        bq = b.quality(scorefn)
-        while (a.is_active() or b.is_active()) and aq + bq <= minparm:
+        if not a.is_active(): return b.score()
+        if not b.is_active(): return a.score()
+        
+        id_a = a.id()
+        id_b = b.id()
+        if id_a < id_b:
+            return a.score()
+        elif id_b < id_a:
+            return b.score()
+        else:
+            return (a.score() + b.score())
+        
+    def skip_to_quality(self, minquality):
+        a = self.a
+        b = self.b
+        
+        # Short circuit if one matcher is inactive
+        if not a.is_active():
+            sk = b.skip_to_quality(minquality)
+            return sk
+        elif not b.is_active():
+            return a.skip_to_quality(minquality)
+        
+        skipped = 0
+        aq = a.block_quality()
+        bq = b.block_quality()
+        while a.is_active() and b.is_active() and aq + bq <= minquality:
             if aq < bq:
-                a.skip_to_quality(scorefn, minparm - bq)
-                aq = a.quality(scorefn)
+                skipped += a.skip_to_quality(minquality - bq)
+                aq = a.block_quality()
             else:
-                b.skip_to_quality(scorefn, minparm - aq)
-                bq = b.quality(scorefn)
+                skipped += b.skip_to_quality(minquality - aq)
+                bq = b.block_quality()
+                
+        return skipped
         
 
 class DisjunctionMaxMatcher(UnionMatcher):
@@ -233,25 +269,30 @@ class DisjunctionMaxMatcher(UnionMatcher):
         super(DisjunctionMaxMatcher, self).__init__(a, b)
         self.tiebreak = tiebreak
         
-    def score(self, scorefn):
-        return max(self.a.score(scorefn), self.b.score(scorefn))
+    def score(self):
+        return max(self.a.score(), self.b.score())
     
-    def quality(self, scorefn):
-        return max(self.a.quality(scorefn), self.b.quality(scorefn))
+    def quality(self):
+        return max(self.a.quality(), self.b.quality())
     
-    def skip_to_quality(self, scorefn, minparm):
+    def block_quality(self):
+        return max(self.a.block_quality(), self.b.block_quality())
+    
+    def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
         
-        aq = a.quality(scorefn)
-        bq = b.quality(scorefn)
-        while (a.is_active() or b.is_active()) and max(aq, bq) <= minparm:
-            if a.is_active() and aq <= minparm:
-                a.skip_to_quality(scorefn, minparm)
-                aq = a.quality(scorefn)
-            if b.is_active() and bq <= minparm:
-                b.skip_to_quality(scorefn, minparm)
-                bq = b.quality(scorefn)
+        skipped = 0
+        aq = a.block_quality()
+        bq = b.block_quality()
+        while (a.is_active() or b.is_active()) and max(aq, bq) <= minquality:
+            if a.is_active() and aq <= minquality:
+                skipped += a.skip_to_quality(minquality)
+                aq = a.block_quality()
+            if b.is_active() and bq <= minquality:
+                skipped += b.skip_to_quality(minquality)
+                bq = b.block_quality()
+        return skipped
         
 
 class IntersectionMatcher(AdditiveBiMatcher):
@@ -307,20 +348,23 @@ class IntersectionMatcher(AdditiveBiMatcher):
         rn = self._find_next()
         return ra or rb or rn
     
-    def skip_to_quality(self, scorefn, minparm):
+    def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
         
-        aq = a.quality(scorefn)
-        bq = b.quality(scorefn)
-        while a.is_active() and b.is_active() and aq + bq <= minparm:
+        skipped = 0
+        aq = a.block_quality()
+        bq = b.block_quality()
+        while a.is_active() and b.is_active() and aq + bq <= minquality:
             if aq < bq:
-                a.skip_to_quality(scorefn, minparm - bq)
+                skipped += a.skip_to_quality(minquality - bq)
             else:
-                b.skip_to_quality(scorefn, minparm - aq)
-            self._find_next()
-            aq = a.quality(scorefn)
-            bq = b.quality(scorefn)
+                skipped += b.skip_to_quality(minquality - aq)
+            if a.id() != b.id():
+                self._find_next()
+            aq = a.block_quality()
+            bq = b.block_quality()
+        return skipped
     
     def reset(self):
         super(IntersectionMatcher, self).reset()
@@ -365,12 +409,16 @@ class AndNotMatcher(BiMatcher):
         if not self.b.is_active(): return self.a
         return self
     
-    def quality(self, scorefn):
-        return self.a.quality(scorefn)
+    def quality(self):
+        return self.a.quality()
     
-    def skip_to_quality(self, scorefn, minparm):
-        self.a.skip_to_quality(scorefn, minparm)
+    def block_quality(self):
+        return self.a.block_quality()
+    
+    def skip_to_quality(self, minquality):
+        skipped = self.a.skip_to_quality(minquality)
         self._find_next()
+        return skipped
     
     def id(self):
         return self.a.id()
@@ -398,8 +446,8 @@ class AndNotMatcher(BiMatcher):
     def weight(self):
         return self.a.weight()
     
-    def score(self, scorefn):
-        return self.a.score(scorefn)
+    def score(self):
+        return self.a.score()
 
 
 class InverseMatcher(WrappingMatcher):
@@ -451,8 +499,8 @@ class InverseMatcher(WrappingMatcher):
     def weight(self):
         return self.weight
     
-    def score(self, scorefn):
-        return scorefn(self._weight)
+    def score(self):
+        return self._weight
 
 
 class RequireMatcher(WrappingMatcher):
@@ -469,18 +517,22 @@ class RequireMatcher(WrappingMatcher):
         if not self.child.is_active(): return NullMatcher
         return self
     
-    def quality(self, scorefn):
-        return self.a.quality(scorefn)
+    def quality(self):
+        return self.a.quality()
     
-    def skip_to_quality(self, scorefn, minparm):
-        self.a.skip_to_quality(scorefn, minparm)
+    def block_quality(self):
+        return self.a.block_quality()
+    
+    def skip_to_quality(self, minquality):
+        skipped = self.a.skip_to_quality(minquality)
         self.child._find_next()
+        return skipped
     
     def weight(self):
         return self.a.weight()
     
-    def score(self, scorefn):
-        return self.a.score(scorefn)
+    def score(self):
+        return self.a.score()
 
 
 class AndMaybeMatcher(AdditiveBiMatcher):
@@ -508,11 +560,11 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         else:
             return self.a.weight()
     
-    def score(self, scorefn):
+    def score(self):
         if self.a.id() == self.b.id():
-            return self.a.score(scorefn) + self.b.score(scorefn)
+            return self.a.score() + self.b.score()
         else:
-            return self.a.score(scorefn)
+            return self.a.score()
     
 
 class BasePhraseMatcher(WrappingMatcher):
@@ -549,7 +601,7 @@ class BasePhraseMatcher(WrappingMatcher):
                     start = bisect_left(current, newpos - slop)
                     end = bisect_right(current, newpos)
                     for curpos in current[start:end]:
-                        delta = newpos -  curpos
+                        delta = newpos - curpos
                         # Note that the delta can be less than 1. This is
                         # useful sometimes where multiple tokens are generated
                         # with the same position. However it means the query
