@@ -3,11 +3,12 @@ import marshal, time
 from array import array
 from heapq import heappush, heapreplace, heappop
 
-from whoosh import index, searching
+from whoosh import index, scoring, searching
 from whoosh.util import now
 from whoosh.filedb.filepostings2 import FilePostingWriter, FilePostingReader
 from whoosh.matching import IntersectionMatcher, UnionMatcher
 from whoosh.postings import IntersectionScorer, UnionScorer
+from whoosh.query import And, Or, Term
 
 ix = index.open_dir("testindex")
 storage = ix.storage
@@ -108,19 +109,11 @@ def compare_postings():
     print now() - t
 
 
-def get_enron():
-    a = get_offsets()
-    offset = a[315024]
-    format = ix.schema[bodyfn].format
-    pf = storage.open_file("test.postings")
-    mr = FilePostingReader(pf, offset, format, fieldnum=bodyfn, text=u"enron")
-    return mr
-
-
 def all():
     r = ix.reader()
+    ser = searching.Searcher(r)
     dfl = r.doc_field_length
-    mr = get_enron()
+    mr = get_enron(ser)
     h = []
     t = now()
     for blocknum in xrange(mr.blockcount):
@@ -183,18 +176,6 @@ def test_headers():
     for blocknum in xrange(mr.blockcount):
         assert mr.header.maxid == mr.ids[-1]
 
-
-def get_dict():
-    return marshal.load(storage.open_file("test.dict").file)
-
-
-def get_matcher(d, text):
-    offset = d[text]
-    format = ix.schema[bodyfn].format
-    pf = storage.open_file("test.postings")
-    return FilePostingReader(pf, offset, format, fieldnum=bodyfn, text=text)
-
-
 def intersect(atxt, btxt, cls=IntersectionMatcher):
     d = get_dict()
     
@@ -235,83 +216,62 @@ def intersect(atxt, btxt, cls=IntersectionMatcher):
 #                    raise Exception
 
 
-def search(mr, optimize, limit=10):
-    r = ix.reader()
-    dfl = ix.reader().doc_field_length
-    ser = searching.Searcher(r)
-    wt = ser.weighting
-    scf = wt.score_fn(ser)
-    pqf = wt.posting_quality_fn(ser)
-    
+def get_enron(searcher):
+    sf = searcher.weighting.score_fn(searcher, bodyfn, u"enron")
+    qf = searcher.weighting.quality_fn(searcher, bodyfn, u"enron")
+    bqf = searcher.weighting.block_quality_fn(searcher, bodyfn, u"enron")
+    a = get_offsets()
+    offset = a[315024]
+    format = ix.schema[bodyfn].format
+    pf = storage.open_file("test.postings")
+    mr = FilePostingReader(pf, offset, format, sf, qf, bqf)
+    return mr
+
+def get_dict():
+    return marshal.load(storage.open_file("test.dict").file)
+
+def get_matcher(searcher, d, text):
+    sf = searcher.weighting.score_fn(searcher, bodyfn, u"enron")
+    qf = searcher.weighting.quality_fn(searcher, bodyfn, u"enron")
+    bqf = searcher.weighting.block_quality_fn(searcher, bodyfn, u"enron")
+    offset = d[text]
+    format = ix.schema[bodyfn].format
+    pf = storage.open_file("test.postings")
+    return FilePostingReader(pf, offset, format, sf, qf, bqf)
+
+def search(mr, optimize, limit=10, replace=True):
     skipped = 0
     t = now()
     h = []
     while mr.is_active():
         ret = mr.next()
         if optimize and ret and len(h) == limit:
-            b = mr.currentblock
-            mr.skip_to_quality(wt.matcher_quality, h[0][2])
-            skipped += mr.currentblock - b
+            skipped += mr.skip_to_quality(h[0][2])
         
         id = mr.id()
-        pq = mr.quality(pqf)
-        sc = mr.score(scf)
+        pq = mr.quality()
+        sc = mr.score()
         #print id, sc
         if len(h) < limit:
             heappush(h, (sc, id, pq))
         elif sc > h[0][0]:
             heapreplace(h, (sc, id, pq))
+        
+        if replace: mr = mr.replace()
     
     #return now() - t
-    print "Search:", now() - t
-    print "Skipped:", skipped
-    return sorted(h)
+    print "Search:", now() - t, "len=", len(h)
+    if skipped: print "skipped: %s" % skipped
+    return [(doc, score) for score, doc, q in sorted(h)]
 
-def search_byhand(mr, optimize, limit=10):
-    r = ix.reader()
-    dfl = ix.reader().doc_field_length
-    ser = searching.Searcher(r)
-    fnum = mr.fieldnum
-    idf = ser.idf(mr.fieldnum, mr.text)
-    avglength = ser.avg_field_length[mr.fieldnum]
-    B = 0.75
-    K1 = 1.2
-    
-    def bm25(weight, length):
-        w = weight / ((1 - B) + B * (length / avglength))
-        return idf * (w / (K1 + w))
-    
-    def sfn(header):
-        return header.maxwol
-        
+
+def old_combo(t1, t2, cls, limit=10):
+    ser = ix.searcher()
+    q = cls([Term("body", t1), Term("body", t2)])
     t = now()
-    h = []
-    skipped = 0
-    while mr.is_active():
-        ret = mr.next()
-        if optimize and ret and len(h) == limit:
-            b = mr.currentblock
-            #print "qual=", mr.quality(sfn), "-- target=", h[0][2]
-            mr.skip_to_quality(sfn, h[0][2])
-            delta = mr.currentblock - b
-            skipped += delta
-            #print "  ", delta
-        id = mr.id()
-        
-        w = mr.weight()
-        l = dfl(id, fnum)
-        sc = bm25(w, l)
-        wol = w/l
-        #print id, sc
-        if len(h) < limit:
-            heappush(h, (sc, id, wol))
-        elif sc > h[0][0]:
-            heapreplace(h, (sc, id, wol))
+    h = ser.search(q)
+    print "Old intersection:", now() - t, "len=", len(h)
     
-    #return now() - t
-    print "Search:", now() - t
-    print "skipped: %s/%s" % (skipped, mr.blockcount), "%.02f%%" % (float(skipped)/mr.blockcount*100)
-    return sorted(h)
 
 def search_wol(mr, limit=10):
     dfl = ix.reader().doc_field_length
@@ -342,9 +302,9 @@ def search_wol(mr, limit=10):
     return [i[1] for i in sorted(h)]
 
 def test_optimize(mr, fn, limit):
-    x1 = fn(mr, True, limit)
+    x1 = fn(mr, False, limit)
     mr.reset()
-    x2 = fn(mr, False, limit)
+    x2 = fn(mr, True, limit)
     if x1 != x2:
         print x1
         print x2
@@ -357,13 +317,21 @@ def test_optimize(mr, fn, limit):
         print "OK"
 
 
-def optimize_intersect(atxt, btxt, limit):
-    d = get_dict()
-    a = get_matcher(d, atxt)
-    b = get_matcher(d, btxt)
+def optimize_intersect(d, atxt, btxt, limit):
+    ser = ix.searcher()
+    a = get_matcher(ser, d, atxt)
+    b = get_matcher(ser, d, btxt)
     ins = IntersectionMatcher(a, b)
-    print "--"
-    test_optimize(ins, limit)
+    print "--intersect"
+    test_optimize(ins, search, limit)
+    
+def optimize_union(d, atxt, btxt, limit):
+    ser = ix.searcher()
+    a = get_matcher(ser, d, atxt)
+    b = get_matcher(ser, d, btxt)
+    un = UnionMatcher(a, b)
+    print "--union"
+    test_optimize(un, search, limit)
 
 
 #convert_postings()
@@ -374,9 +342,16 @@ def optimize_intersect(atxt, btxt, limit):
 #search_wol(get_enron())
 
 #search_byhand(get_enron(), True)
-test_optimize(get_enron(), search_byhand, 10)
+#test_optimize(search_byhand, 10)
+#test_optimize(get_enron(ix.searcher()), search, 10)
 
-#optimize_intersect(u"enron", u"real", 10)
+#old_intersection(u"zebra", u"enron", 10)
+#optimize_intersect(u"zebra", u"enron", 10)
+d = get_dict()
+#search(get_matcher(ix.searcher(), d, u"enron"), True, 10)
+#search(get_matcher(ix.searcher(), d, u"zebra"), True, 10)
+old_combo(u"zebra", u"enron", Or, 10)
+optimize_union(d, u"zebra", u"enron", 10)
 
 #save_dict()
 #get_dict()
