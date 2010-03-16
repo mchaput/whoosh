@@ -31,7 +31,7 @@ class PostHeader(object):
     _struct = Struct("!IBffB")
     
     def __init__(self, nextoffset=None, postcount=None,
-                 maxweight=0.0, maxwol=0.0, minlength=0,
+                 maxweight=None, maxwol=None, minlength=None,
                  maxid=None, dataoffset=None):
         self.nextoffset = nextoffset
         self.postcount = postcount
@@ -42,10 +42,12 @@ class PostHeader(object):
         self.dataoffset = dataoffset
     
     def __repr__(self):
-        return ("<%s nextoffset=%r postcount=%r maxweight=%r maxwol=%r"
+        return ("<%s nextoffset=%r postcount=%r maxweight=%r"
+                " maxwol=%r minlength=%r"
                 " maxid=%r dataoffset=%r>" % (self.__class__.__name__,
                                               self.nextoffset, self.postcount,
                                               self.maxweight, self.maxwol,
+                                              self.minlength,
                                               self.maxid, self.dataoffset))
     
     def to_file(self, file):
@@ -65,7 +67,7 @@ class PostHeader(object):
     @staticmethod
     def from_file(file, stringids=False):
         nextoffset, postcount, maxweight, maxwol, minlength\
- = PostHeader._struct.unpack(file.read(PostHeader._struct.size))
+        = PostHeader._struct.unpack(file.read(PostHeader._struct.size))
         assert postcount > 0
         minlength = byte_to_length(minlength)
         
@@ -77,7 +79,7 @@ class PostHeader(object):
         dataoffset = file.tell()
         return PostHeader(nextoffset=nextoffset, postcount=postcount,
                           maxweight=maxweight, maxwol=maxwol, maxid=maxid,
-                          dataoffset=dataoffset)
+                          minlength=minlength, dataoffset=dataoffset)
     
 
 class FilePostingWriter(PostingWriter):
@@ -171,6 +173,7 @@ class FilePostingWriter(PostingWriter):
         if dfl_fn and self.schema[fieldnum].scorable:
             lens = [dfl_fn(id, fieldnum) for id in ids]
             minlength = min(lens)
+            assert minlength > 0
             maxwol = max(w / l for w, l in zip(weights, lens))
 
         header_start = pf.tell()
@@ -271,7 +274,7 @@ class FilePostingReader(Matcher):
         
         # Skip to the block that would contain the target ID
         if id > self.header.maxid:
-            self._skip_to_block(lambda h: id > h.maxid)
+            self._skip_to_block(lambda header: id > header.maxid)
         if not self._active: return
 
         # Iterate through the IDs in the block until we find or pass the
@@ -385,9 +388,10 @@ class FilePostingReader(Matcher):
     
     def skip_to_quality(self, scorefn, minparm):
         if self.quality(scorefn) > minparm: return
-        self._skip_to_block(lambda h: scorefn(h) > minparm)
+        self._skip_to_block(lambda m: scorefn(m) <= minparm)
     
-    
+    def score(self, scorefn):
+        return scorefn(self)
     
         
 

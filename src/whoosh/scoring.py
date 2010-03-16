@@ -63,26 +63,34 @@ class Weighting(object):
         return score
 
 
-# Scoring classes
+# Weighting classes
 
 class BM25F(Weighting):
     """Generates a BM25F score.
     """
 
-    def __init__(self, B=0.75, K1=1.2, field_B=None):
+    def __init__(self, B=0.75, K1=1.2, **kwargs):
         """
-        :param B: free parameter, see the BM25 literature.
+        :param B: free parameter, see the BM25 literature. Keyword arguments of
+            the form ``fieldname_B`` (for example, ``body_B``) set field-
+            specific values for B.
         :param K1: free parameter, see the BM25 literature.
-        :param field_B: If given, a dictionary mapping fieldnums to
-            field-specific B values.
         """
 
         Weighting.__init__(self)
         self.K1 = K1
         self.B = B
 
-        if field_B is None: field_B = {}
-        self._field_B = field_B
+        self._field_B = {}
+        for k, v in kwargs.iteritems():
+            if k.endswith("_B"):
+                fieldname = k[:-2]
+                self._field_B[fieldname] = v
+
+    @staticmethod
+    def _score(B, K1, weight, length, avglength, idf):
+        w = weight / ((1 - B) + B * (length / avglength))
+        return idf * (w / (K1 + w))
 
     def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
         if not searcher.scorable(fieldnum): return weight
@@ -92,109 +100,26 @@ class BM25F(Weighting):
         idf = searcher.idf(fieldnum, text)
         l = searcher.doc_field_length(docnum, fieldnum)
 
-        w = weight / ((1 - B) + B * (l / avl))
-        return idf * (w / (self.K1 + w))
-
-
-# The following scoring algorithms are translated from classes in
-# the Terrier search engine's uk.ac.gla.terrier.matching.models package.
-
-class Cosine(Weighting):
-    """A cosine vector-space scoring algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        idf = searcher.idf(fieldnum, text)
-
-        DTW = (1.0 + log(weight)) * idf
-        QMF = 1.0 # TODO: Fix this
-        QTW = ((0.5 + (0.5 * QTF / QMF))) * idf
-        return DTW * QTW
-
-
-class DFree(Weighting):
-    """The DFree probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        fieldlen = ixreader.doc_field_length(docnum, fieldnum)
-        prior = weight / fieldlen
-        post = (weight + 1.0) / fieldlen
-        invprior = ixreader.field_length(fieldnum) / ixreader.frequency(fieldnum, text)
-        norm = weight * log(post / prior, 2)
-
-        return QTF\
-                * norm\
-                * (weight * (-log(prior * invprior, 2))
-                   + (weight + 1.0) * (+log(post * invprior, 2)) + 0.5 * log(post / prior, 2))
-
-
-class DLH13(Weighting):
-    """The DLH13 probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def __init__(self, k=0.5):
-        Weighting.__init__(self)
-        self.k = k
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        if not searcher.scorable(fieldnum): return weight
-
-        k = self.k
-        dl = searcher.doc_field_length(docnum, fieldnum)
-        f = weight / dl
-        tc = searcher.frequency(fieldnum, text)
-        dc = searcher.doccount
-        avl = searcher.avg_field_length[fieldnum]
-
-        return QTF * (weight * log((weight * avl / dl) * (dc / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
-
-
-class Hiemstra_LM(Weighting):
-    """The Hiemstra LM probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def __init__(self, c=0.15):
-        Weighting.__init__(self)
-        self.c = c
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        c = self.c
-        tc = ixreader.frequency(fieldnum, text)
-        dl = ixreader.doc_field_length(docnum, fieldnum)
-        return log(1 + (c * weight * ixreader.field_length(fieldnum)) / ((1 - c) * tc * dl))
-
-
-class InL2(Weighting):
-    """The InL2 LM probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def __init__(self, c=1.0):
-        Weighting.__init__(self)
-        self.c = c
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        dl = ixreader.doc_field_length(docnum, fieldnum)
-        TF = weight * log(1.0 + (self.c * searcher.avg_field_length[fieldnum]) / dl)
-        norm = 1.0 / (TF + 1.0)
-        df = ixreader.doc_frequency(fieldnum, text)
-        idf_dfr = log((ixreader.doc_count_all() + 1) / (df + 0.5), 2)
-
-        return TF * idf_dfr * QTF * norm
+        return BM25F._score(B, self.K1, weight, l, avl, idf)
+    
+    def score_fn(self, searcher):
+        def f(m):
+            fieldnum = m.fieldnum
+            B = self._field_B.get(fieldnum, self.B)
+            avl = searcher.avg_field_length[fieldnum]
+            idf = searcher.idf(fieldnum, m.text)
+            l = searcher.doc_field_length(m.id(), fieldnum)
+            return BM25F._score(B, self.K1, m.weight(), l, avl, idf)
+        return f
+    
+    def posting_quality_fn(self, searcher):
+        dfl = searcher.doc_field_length
+        def fn(m):
+            return m.weight() / dfl(m.id(), m.fieldnum)
+        return fn
+    
+    def matcher_quality(self, matcher):
+        return matcher.header.maxwol
 
 
 class TF_IDF(Weighting):
@@ -205,7 +130,7 @@ class TF_IDF(Weighting):
         return weight * searcher.idf(fieldnum, text)
 
 
-class Frequency(Weighting):
+class Weight(Weighting):
     """Instead of doing any real scoring, simply returns the term frequency.
     This may be useful when you don't care about normalization and weighting.
     """
