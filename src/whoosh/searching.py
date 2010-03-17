@@ -79,16 +79,15 @@ class Searcher(object):
         return self.ixreader
 
     def idf(self, fieldnum, text):
-        """Calculates the Inverse Document Frequency of the
-        current term. Subclasses may want to override this.
+        """Calculates the Inverse Document Frequency of the current term (calls
+        idf() on the searcher's Weighting object).
         """
 
         cache = self._idf_cache
         term = (fieldnum, text)
         if term in cache: return cache[term]
 
-        df = self.ixreader.doc_frequency(fieldnum, text)
-        idf = log(self.doccount / (df + 1)) + 1.0
+        idf = self.weighting.idf(self, fieldnum, text)
         cache[term] = idf
         return idf
 
