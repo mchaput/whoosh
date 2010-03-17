@@ -243,6 +243,8 @@ def search(mr, optimize, limit=10, replace=True):
     skipped = 0
     t = now()
     h = []
+    optimize = optimize and mr.supports_quality()
+    
     while mr.is_active():
         ret = mr.next()
         if optimize and ret and len(h) == limit:
@@ -301,10 +303,9 @@ def search_wol(mr, limit=10):
     print "skipped: %s/%s" % (skipped, mr.blockcount), "%.02f%%" % (float(skipped)/mr.blockcount*100)
     return [i[1] for i in sorted(h)]
 
-def test_optimize(mr, fn, limit):
-    x1 = fn(mr, False, limit)
-    mr.reset()
-    x2 = fn(mr, True, limit)
+def test_optimize(mr1, mr2, fn, limit):
+    x1 = fn(mr1, False, limit)
+    x2 = fn(mr2, True, limit)
     if x1 != x2:
         print x1
         print x2
@@ -317,22 +318,22 @@ def test_optimize(mr, fn, limit):
         print "OK"
 
 
-def optimize_intersect(d, atxt, btxt, limit):
+def combine(d, cls, atxt, btxt):
     ser = ix.searcher()
-    a = get_matcher(ser, d, atxt)
-    b = get_matcher(ser, d, btxt)
-    ins = IntersectionMatcher(a, b)
-    print "--intersect"
-    test_optimize(ins, search, limit)
-    
-def optimize_union(d, atxt, btxt, limit):
-    ser = ix.searcher()
-    a = get_matcher(ser, d, atxt)
-    b = get_matcher(ser, d, btxt)
-    un = UnionMatcher(a, b)
-    print "--union"
-    test_optimize(un, search, limit)
+    a1 = get_matcher(ser, d, atxt)
+    b1 = get_matcher(ser, d, btxt)
+    return cls(a1, b1)
 
+def optimize_combo(d, cls, atxt, btxt, limit):
+    mr1 = combine(d, cls, atxt, btxt)
+    mr2 = mr1.copy()
+    print "--", cls
+    test_optimize(mr1, mr2, search, limit)
+    
+def all_ids(mr):
+    t = now()
+    ls = list(mr.all_ids())
+    print "All IDs:", now() - t, len(ls)
 
 #convert_postings()
 #compare_postings()
@@ -344,14 +345,15 @@ def optimize_union(d, atxt, btxt, limit):
 #search_byhand(get_enron(), True)
 #test_optimize(search_byhand, 10)
 #test_optimize(get_enron(ix.searcher()), search, 10)
+#old_combo(u"zebra", u"enron", Or, 10)
 
-#old_intersection(u"zebra", u"enron", 10)
-#optimize_intersect(u"zebra", u"enron", 10)
 d = get_dict()
 #search(get_matcher(ix.searcher(), d, u"enron"), True, 10)
 #search(get_matcher(ix.searcher(), d, u"zebra"), True, 10)
-old_combo(u"zebra", u"enron", Or, 10)
-optimize_union(d, u"zebra", u"enron", 10)
+
+#optimize_intersect(u"zebra", u"enron", 10)
+#optimize_combo(d, UnionMatcher, u"zebra", u"enron", 10)
+all_ids(combine(d, UnionMatcher, u"zebra", u"enron"))
 
 #save_dict()
 #get_dict()

@@ -38,6 +38,9 @@ class Matcher(object):
     def replace(self):
         return self
     
+    def copy(self):
+        raise NotImplementedError
+    
     def depth(self):
         return 0
     
@@ -50,11 +53,18 @@ class Matcher(object):
     def block_quality(self):
         raise NoQualityAvailable
     
-    def reset(self):
-        raise NotImplementedError
-    
     def id(self):
         raise NotImplementedError
+    
+    def all_ids(self):
+        i = 0
+        while self.is_active():
+            yield self.id()
+            self.next()
+            i += 1
+            if i == 10:
+                self = self.replace()
+                i = 0
     
     def value(self):
         raise NotImplementedError
@@ -81,8 +91,12 @@ class WrappingMatcher(Matcher):
     """Base class for matchers that wrap sub-matchers.
     """
     
-    def __init__(self, child):
+    def __init__(self, child, boost=1.0):
         self.child = child
+        self.boost = boost
+    
+    def copy(self):
+        return self.__class__(self.child.copy(), boost=self.boost)
     
     def depth(self):
         return 1 + self.child.depth()
@@ -93,20 +107,11 @@ class WrappingMatcher(Matcher):
         if r is not self.child: return self.__class__(r)
         return self
     
-    def supports_quality(self):
-        return self.child.supports_quality()
-    
-    def quality(self):
-        return self.child.quality()
-    
-    def block_quality(self):
-        return self.child.block_quality()
-    
-    def reset(self):
-        self.child.reset()
-        
     def id(self):
         return self.child.id()
+    
+    def all_ids(self):
+        return self.child.all_ids()
     
     def is_active(self):
         return self.child.is_active()
@@ -120,11 +125,23 @@ class WrappingMatcher(Matcher):
     def next(self):
         self.child.next()
     
+    def supports_quality(self):
+        return self.child.supports_quality()
+    
+    def skip_to_quality(self, minquality):
+        return self.child.skip_to_quality(minquality/self.boost)
+    
+    def quality(self):
+        return self.child.quality() * self.boost
+    
+    def block_quality(self):
+        return self.child.block_quality() * self.boost
+    
     def weight(self):
-        return self.child.weight()
+        return self.child.weight() * self.boost
     
     def score(self):
-        return self.child.score()
+        return self.child.score() * self.boost
     
 
 class BiMatcher(Matcher):
@@ -132,18 +149,18 @@ class BiMatcher(Matcher):
     some way.
     """
     
-    def __init__(self, a, b):
+    def __init__(self, a, b, boost=1.0):
         super(BiMatcher, self).__init__()
         self.a = a
         self.b = b
+        self.boost = boost
+
+    def copy(self):
+        return self.__class__(self.a.copy(), self.b.copy(), boost=self.boost)
 
     def depth(self):
         return 1 + max(self.a.depth(), self.b.depth())
 
-    def reset(self):
-        self.a.reset()
-        self.b.reset()
-        
     def skip_to(self, id):
         if not self.active(): raise ReadTooFar
         ra = self.a.skip_to(id)
@@ -166,10 +183,10 @@ class AdditiveBiMatcher(BiMatcher):
         return self.a.block_quality() + self.b.block_quality()
     
     def weight(self):
-        return self.a.weight() + self.b.weight()
+        return (self.a.weight() + self.b.weight()) * self.boost
     
     def score(self):
-        return (self.a.score() + self.b.score())
+        return (self.a.score() + self.b.score()) * self.boost
     
 
 class UnionMatcher(AdditiveBiMatcher):
@@ -202,6 +219,9 @@ class UnionMatcher(AdditiveBiMatcher):
         if not b.is_active(): return a.id()
         return min(a.id(), b.id())
     
+    def all_ids(self):
+        return iter(set(self.a.all_ids()) | set(self.b.all_ids()))
+    
     def next(self):
         a = self.a
         b = self.b
@@ -227,21 +247,22 @@ class UnionMatcher(AdditiveBiMatcher):
         a = self.a
         b = self.b
         
-        if not a.is_active(): return b.score()
-        if not b.is_active(): return a.score()
+        if not a.is_active(): return b.score() * self.boost
+        if not b.is_active(): return a.score() * self.boost
         
         id_a = a.id()
         id_b = b.id()
         if id_a < id_b:
-            return a.score()
+            return a.score() * self.boost
         elif id_b < id_a:
-            return b.score()
+            return b.score() * self.boost
         else:
-            return (a.score() + b.score())
+            return (a.score() + b.score()) * self.boost
         
     def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
+        minquality = minquality / self.boost
         
         # Short circuit if one matcher is inactive
         if not a.is_active():
@@ -265,31 +286,43 @@ class UnionMatcher(AdditiveBiMatcher):
         
 
 class DisjunctionMaxMatcher(UnionMatcher):
-    def __init__(self, a, b, tiebreak=0.0):
-        super(DisjunctionMaxMatcher, self).__init__(a, b)
+    def __init__(self, a, b, tiebreak=0.0, boost=1.0):
+        super(DisjunctionMaxMatcher, self).__init__(a, b, boost=boost)
         self.tiebreak = tiebreak
-        
+    
+    def copy(self):
+        return self.__class__(self.a.copy(), self.b.copy(),
+                              tiebreak=self.tiebreak, boost=self.boost)
+    
     def score(self):
-        return max(self.a.score(), self.b.score())
+        return max(self.a.score(), self.b.score()) * self.boost
     
     def quality(self):
-        return max(self.a.quality(), self.b.quality())
+        return max(self.a.quality(), self.b.quality()) * self.boost
     
     def block_quality(self):
-        return max(self.a.block_quality(), self.b.block_quality())
+        return max(self.a.block_quality(), self.b.block_quality()) * self.boost
     
     def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
+        minquality = minquality / self.boost
+        
+        # Short circuit if one matcher is inactive
+        if not a.is_active():
+            sk = b.skip_to_quality(minquality)
+            return sk
+        elif not b.is_active():
+            return a.skip_to_quality(minquality)
         
         skipped = 0
         aq = a.block_quality()
         bq = b.block_quality()
-        while (a.is_active() or b.is_active()) and max(aq, bq) <= minquality:
-            if a.is_active() and aq <= minquality:
+        while a.is_active() and b.is_active() and max(aq, bq) <= minquality:
+            if aq <= minquality:
                 skipped += a.skip_to_quality(minquality)
                 aq = a.block_quality()
-            if b.is_active() and bq <= minquality:
+            if bq <= minquality:
                 skipped += b.skip_to_quality(minquality)
                 bq = b.block_quality()
         return skipped
@@ -299,8 +332,8 @@ class IntersectionMatcher(AdditiveBiMatcher):
     """Matches the intersection (AND) of the postings in the two sub-matchers.
     """
     
-    def __init__(self, a, b):
-        super(IntersectionMatcher, self).__init__(a, b)
+    def __init__(self, a, b, boost=1.0):
+        super(IntersectionMatcher, self).__init__(a, b, boost=boost)
         if self.a.id() != self.b.id():
             self._find_next()
     
@@ -341,6 +374,9 @@ class IntersectionMatcher(AdditiveBiMatcher):
     def id(self):
         return self.a.id()
     
+    def all_ids(self):
+        return iter(set(self.a.all_ids()) & set(self.b.all_ids()))
+    
     def skip_to(self, id):
         if not self.is_active(): raise ReadTooFar
         ra = self.a.skip_to(id)
@@ -351,6 +387,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
     def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
+        minquality = minquality / self.boost
         
         skipped = 0
         aq = a.block_quality()
@@ -366,10 +403,6 @@ class IntersectionMatcher(AdditiveBiMatcher):
             bq = b.block_quality()
         return skipped
     
-    def reset(self):
-        super(IntersectionMatcher, self).reset()
-        self._find_next()
-        
     def next(self):
         if not self.is_active(): raise ReadTooFar
         
@@ -423,11 +456,9 @@ class AndNotMatcher(BiMatcher):
     def id(self):
         return self.a.id()
     
-    def reset(self):
-        self.a.reset()
-        self.b.reset()
-        self._find_next()
-
+    def all_ids(self):
+        return iter(set(self.a.all_ids()) - set(self.b.all_ids()))
+    
     def next(self):
         if not self.a.is_active(): raise ReadTooFar
         ar = self.a.next()
@@ -463,6 +494,10 @@ class InverseMatcher(WrappingMatcher):
         self._id = 0
         self._find_next()
     
+    def copy(self):
+        return self.__class__(self.child.copy(), self.maxid,
+                              weight=self._weight, missing=self.missing)
+    
     def is_active(self):
         return self._id is not None
     
@@ -479,11 +514,6 @@ class InverseMatcher(WrappingMatcher):
         if self._id >= self.maxid:
             self._id = None
     
-    def reset(self):
-        self.child.reset()
-        self._id = 0
-        self._find_next()
-        
     def next(self):
         if self._id is None: raise ReadTooFar
         self._id += 1
@@ -512,6 +542,9 @@ class RequireMatcher(WrappingMatcher):
         self.a = a
         self.b = b
         self.child = IntersectionMatcher(a, b)
+    
+    def copy(self):
+        return self.__class__(self.a.copy(), self.b.copy())
     
     def replace(self):
         if not self.child.is_active(): return NullMatcher
@@ -574,10 +607,6 @@ class BasePhraseMatcher(WrappingMatcher):
         self.slop = slop
         self._find_next()
     
-    def reset(self):
-        self.child.reset()
-        self._find_next()
-    
     def next(self):
         ri = self.isect.next()
         rn = self._find_next()
@@ -629,11 +658,20 @@ class PostingPhraseMatcher(BasePhraseMatcher):
 
 
 class VectorPhraseMatcher(BasePhraseMatcher):
-    def __init__(self, reader, word_matchers, isect, slop=1):
-        super(VectorPhraseMatcher, self).__init__(word_matchers, isect, slop=slop)
+    def __init__(self, reader, fieldnum, words, isect, slop=1):
+        """
+        :param reader: an IndexReader.
+        :param words: a sequence of token texts representing the words in the
+            phrase.
+        :param isect: an intersection matcher for the words in the phrase.
+        :param slop: 
+        """
+        
+        ms = [reader.postings(fieldnum, word) for word in words]
+        super(VectorPhraseMatcher, self).__init__(ms, isect, slop=slop)
         self.reader = reader
-        self.fieldnum = word_matchers[0].fieldnum
-        self.words = [m.text for m in word_matchers]
+        self.fieldnum = fieldnum
+        self.words = words
         self.sortedwords = sorted(self.words)
     
     def _poses(self):
@@ -649,7 +687,11 @@ class VectorPhraseMatcher(BasePhraseMatcher):
             poses[word] = vreader.value_as("positions")
         # Now put the position lists in phrase order
         return [poses[word] for word in self.words]
-            
+
+
+
+
+
 
 
 

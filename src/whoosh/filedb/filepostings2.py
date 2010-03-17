@@ -220,27 +220,33 @@ class FilePostingWriter(PostingWriter):
 
 class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorefn, qualityfn, bqualityfn,
-                 stringids=False):
+                 stringids=False, boost=1.0):
         self.postfile = postfile
+        self.startoffset = offset
         self.format = format
         # Bind the score and quality functions to this object as methods
+        self._fns = (scorefn, qualityfn, bqualityfn)
         self.score = types.MethodType(scorefn, self, self.__class__)
         self.quality = types.MethodType(qualityfn, self, self.__class__)
         self.block_quality = types.MethodType(bqualityfn, self, self.__class__)
+        
         self.stringids = stringids
-        self._active = True
+        self.boost = boost
         
         self.blockcount = postfile.get_uint(offset)
         self.baseoffset = offset + _INT_SIZE
-        self.reset()
+        self._active = True
+        self.currentblock = -1
+        self._next_block()
+
+    def copy(self):
+        scorefn, qualityfn, bqualityfn = self._fns
+        return self.__class__(self.postfile, self.startoffset, self.format,
+                              scorefn, qualityfn, bqualityfn,
+                              stringids=self.stringids, boost=self.boost)
 
     def is_active(self):
         return self._active
-
-    def reset(self):
-        self.currentblock = -1
-        self._active = True
-        self._next_block()
 
     def id(self):
         return self.ids[self.i]
@@ -382,10 +388,10 @@ class FilePostingReader(Matcher):
     def supports_quality(self):
         return True
     
-    def skip_to_quality(self, minparm):
+    def skip_to_quality(self, minquality):
         bq = self.block_quality
-        if bq() > minparm: return 0
-        return self._skip_to_block(lambda: bq() <= minparm)
+        if bq() > minquality: return 0
+        return self._skip_to_block(lambda: bq() <= minquality)
     
     def quality(self):
         raise Exception("quality method should have been replaced")

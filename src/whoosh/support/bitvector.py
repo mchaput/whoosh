@@ -6,7 +6,7 @@ import operator
 from array import array
 
 #: Table of the number of '1' bits in each byte (0-255)
-BYTE_COUNTS = array('B',[
+BYTE_COUNTS = array('B', [
     0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
     1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
     1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
@@ -57,7 +57,7 @@ class BitVector(object):
     a set()/frozenset() of integers. To get the size, use BitVector.size.
     """
     
-    def __init__(self, size, source = None, bits = None):
+    def __init__(self, size, source=None, bits=None):
         self.size = size
         
         if bits:
@@ -114,9 +114,9 @@ class BitVector(object):
     def _logic(self, op, bitv):
         if self.size != bitv.size:
             raise ValueError("Can't combine bitvectors of different sizes")
-        res = BitVector(size = self.size )
+        res = BitVector(size=self.size)
         lpb = map(op, self.bits, bitv.bits)
-        res.bits = array('B', lpb )
+        res.bits = array('B', lpb)
         return res
     
     def __and__(self, other):
@@ -176,28 +176,59 @@ class BitVector(object):
     def copy(self):
         """Returns a copy of this BitArray."""
         
-        return BitVector(self.size, bits = self.bits)
+        return BitVector(self.size, bits=self.bits)
 
 
-if __name__ == "__main__":
-    b = BitVector(10)
-    b.set(1)
-    b.set(9)
-    b.set(5)
-    print b
-    print b[2]
-    print b[5]
-    b.clear(5)
-    print b[5]
-    print b
+class BitSet(object):
+    """A set-like object for holding positive integers. It is dynamically
+    backed by either a set or BitVector depending on how many numbers are in
+    the set.
     
-    c = BitVector(10)
-    c.set(1)
-    c.set(5)
-    print " ", b
-    print "^", c
-    print "=", b ^ c
+    Provides ``add``, ``remove``, ``__contains__``, ``__len__``, ``__iter__``,
+    ``__and__``, ``__or__``, and ``__nonzero__`` methods.
+    """
     
+    def __init__(self, size, source=None):
+        self.size = size
+        
+        self._back = ()
+        self._switch(size > 256)
+        
+        if source:
+            add = self.add
+            for num in source:
+                add(num)
+    
+    def _switch(self, toset):
+        if toset:
+            self._back = set(self._back)
+            self.add = self._set_add
+            self.remove = self._back.remove
+        else:
+            self._back = BitVector()
+            self.add = self._back.set
+            self.remove = self._vec_remove
+            
+        self.__contains__ = self._back.__contains__
+        self.__len__ = self._back.__len__
+        self.__iter__ = self._back.__iter__
+        self.__nonzero__ = self._back.__nonzero__
+
+    def __and__(self, other):
+        self._back = self._back & other
+        
+    def __or__(self, other):
+        self._back = self._back | other
+
+    def _set_add(self, num):
+        self._back.add(num)
+        if len(self._back) * 4 > self.size // 8 + 32:
+            self._switch(False)
+            
+    def _vec_remove(self, num):
+        self._back.clear(num)
+        if len(self._back) * 4 < self.size // 8 - 32:
+            self._switch(True)
     
     
     
