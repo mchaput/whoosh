@@ -22,7 +22,7 @@ from heapq import heapify, heapreplace, heappop, nlargest
 
 from whoosh.fields import UnknownFieldError
 from whoosh.util import ClosableMixin
-from whoosh.postings import MultiPostingReader
+from whoosh.matching import MultiMatcher
 
 # Exceptions
 
@@ -111,8 +111,8 @@ class IndexReader(ClosableMixin):
         raise NotImplementedError
 
     def postings(self, fieldid, text, exclude_docs=None):
-        """Returns a :class:`~whoosh.postings.PostingReader` for the postings
-        of the given term.
+        """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
+        given term.
         
         >>> pr = searcher.postings("content", "render")
         >>> pr.skip_to(10)
@@ -123,13 +123,13 @@ class IndexReader(ClosableMixin):
         :param text: the text of the term.
         :exclude_docs: an optional BitVector of documents to exclude from the
             results, or None to not exclude any documents.
-        :rtype: :class:`whoosh.postings.PostingReader`
+        :rtype: :class:`whoosh.matching.Matcher`
         """
 
         raise NotImplementedError
 
     def vector(self, docnum, fieldid):
-        """Returns a :class:`~whoosh.postings.PostingReader` object for the
+        """Returns a :class:`~whoosh.matching.Matcher` object for the
         given term vector.
         
         >>> docnum = searcher.document_number(path=u'/a/b/c')
@@ -141,15 +141,15 @@ class IndexReader(ClosableMixin):
             the term vector.
         :param fieldid: the field name or field number of the field for which
             you want the term vector.
-        :rtype: :class:`whoosh.postings.PostingReader`
+        :rtype: :class:`whoosh.matching.Matcher`
         """
         raise NotImplementedError
 
     def vector_as(self, astype, docnum, fieldid):
         """Returns an iterator of (termtext, value) pairs for the terms in the
         given term vector. This is a convenient shortcut to calling vector()
-        and using the PostingReader object when all you want are the terms
-        and/or values.
+        and using the Matcher object when all you want are the terms and/or
+        values.
         
         >>> docnum = searcher.document_number(path=u'/a/b/c')
         >>> searcher.vector_as("frequency", docnum, "content")
@@ -164,7 +164,15 @@ class IndexReader(ClosableMixin):
         """
 
         vec = self.vector(docnum, fieldid)
-        return vec.all_as(astype)
+        
+        if astype == "weight":
+            while vec.is_active():
+                yield (vec.id(), vec.weight())
+        else:
+            format = self.schema[fieldid].format
+            decoder = format.decoder(astype)
+            while vec.is_active():
+                yield (vec.id(), decoder(vec.value()))
 
     def format(self, fieldid):
         """Returns the Format object corresponding to the given field name.
@@ -348,19 +356,21 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].has_vector(segmentdoc, fieldid)
 
-    def postings(self, fieldid, text, exclude_docs=None):
+    def postings(self, fieldid, text, scorefns=None, exclude_docs=None):
         format = self.schema[fieldid].format
         postreaders = []
         docoffsets = []
         for i, r in enumerate(self.readers):
             if (fieldid, text) in r:
-                postreaders.append(r.postings(fieldid, text,
-                                              exclude_docs=exclude_docs))
+                pr = r.postings(fieldid, text, format, scorefns=scorefns,
+                                exclude_docs=exclude_docs)
+                postreaders.append(pr)
                 docoffsets.append(self.doc_offsets[i])
+        
         if not postreaders:
             raise TermNotFound(fieldid, text)
         else:
-            return MultiPostingReader(format, postreaders, docoffsets)
+            return MultiMatcher(postreaders, docoffsets)
 
     def vector(self, docnum, fieldid):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)

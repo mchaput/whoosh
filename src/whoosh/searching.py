@@ -53,10 +53,15 @@ class Searcher(object):
                                                / (self.doccount or 1))
 
         # Copy attributes/methods from wrapped reader
-        for name in ("stored_fields", "postings", "vector", "vector_as",
+        for name in ("stored_fields", "vector", "vector_as",
                      "schema", "scorable", "frequency", "doc_field_length",
                      "max_field_length"):
             setattr(self, name, getattr(ixreader, name))
+        # Copy attributes/methods from schema
+        self.fieldname_to_num = self.schema.name_to_number
+        self.fieldnum_to_name = self.schema.number_to_name
+        self.fieldid_to_num = self.schema.to_number
+        self.field = self.schema.__getitem__
 
         if type(weighting) is type:
             self.weighting = weighting()
@@ -65,10 +70,7 @@ class Searcher(object):
 
         self.is_closed = False
         self._idf_cache = {}
-
-    #def __del__(self):
-    #    if hasattr(self, "is_closed") and not self.is_closed:
-    #        self.close()
+        self._sorter_cache = {}
 
     def close(self):
         self.ixreader.close()
@@ -77,6 +79,20 @@ class Searcher(object):
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
         return self.ixreader
+
+    def postings(self, fieldname, text, exclude_docs=None):
+        """Returns a :class:`whoosh.matching.Matcher` for the postings of the
+        given term. Unlike the :func:`whoosh.reading.IndexReader.postings`
+        method, this method automatically sets the scoring functions on the
+        matcher from the searcher's weighting object.
+        """
+        
+        fieldnum = self.fieldid_to_num(fieldname)
+        sfn = self.weighting.score_fn(self, fieldnum, text)
+        qfn = self.weighting.quality_fn(self, fieldnum, text)
+        bqfn = self.weighting.block_quality_fn(self, fieldnum, text)
+        return self.ixreader.postings(fieldnum, text, scorefns=(sfn, qfn, bqfn),
+                                      exclude_docs=exclude_docs)
 
     def idf(self, fieldnum, text):
         """Calculates the Inverse Document Frequency of the current term (calls
@@ -201,7 +217,31 @@ class Searcher(object):
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 
-    def search(self, query, limit=5000, sortedby=None, reverse=False, minscore=0.0001):
+    def _field_sorter(self, fieldname):
+        if fieldname in self._sorter_cache:
+            sorter = self._sorter_cache[fieldname]
+        else:
+            sorter = scoring.FieldSorter(fieldname)
+            self._sorter_cache[fieldname] = sorter
+        return sorter
+
+    def sort_query(self, query, sortedby, reverse=False):
+        if isinstance(sortedby, basestring):
+            sorter = self._field_sorter(sortedby)
+        elif isinstance(sortedby, (list, tuple)):
+            sorter = scoring.MultiFieldSorter([self._field_sorter(fname)
+                                               for fname in sortedby])
+        elif isinstance(sortedby, Sorter):
+            sorter = sortedby
+        else:
+            raise ValueError("sortedby argument (%R) must be a string, list,"
+                             " or Sorter" % sortedby)
+
+        sorted_docs = sorter.order(self, query.docs(self), reverse=reverse)
+        return SortResults(sorted_docs)
+    
+    def search(self, query, limit=10, sortedby=None, reverse=False,
+               optimize=True):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -247,128 +287,101 @@ class Searcher(object):
         :param reverse: if ``sortedby`` is not None, this reverses the
             direction of the sort.
         :param minscore: the minimum score to include in the results.
+        :param optimize: use optimizations to get faster results when possible.
         :rtype: :class:`Results`
         """
 
         ixreader = self.ixreader
 
-        t = now()
         if sortedby is not None:
-            if isinstance(sortedby, basestring):
-                sorter = scoring.FieldSorter(sortedby)
-            elif isinstance(sortedby, (list, tuple)):
-                sorter = scoring.MultiFieldSorter([FieldSorter(fn)
-                                                   for fn in sortedby])
-            elif isinstance(sortedby, Sorter):
-                sorter = sortedby
-            else:
-                raise ValueError("sortedby argument must be a string, list, or"
-                                 " Sorter (%r)" % sortedby)
+            return self.sort_query(query, sortedby, reverse=reverse)
+        
+        t = now()
+        topdocs = TopDocs(limit, ixreader.doc_count_all())
+        final = self.weighting.final
+        gener = ((docnum, final(self, docnum, score))
+                 for docnum, score in query.doc_scores(self))
+        topdocs.add_all(gener, minscore)
 
-            scored_list = sorter.order(self, query.docs(self), reverse=reverse)
-            scores = None
-            docvector = BitVector(ixreader.doc_count_all(), source=scored_list)
-            if len(scored_list) > limit:
-                scored_list = list(scored_list)[:limit]
+        best = topdocs.best()
+        if best:
+            # topdocs.best() returns a list like
+            # [(docnum, score), (docnum, score), ... ]
+            # This unpacks that into two lists: docnums and scores
+            scored_list, scores = zip(*topdocs.best())
         else:
-            # Sort by scores
-            topdocs = TopDocs(limit, ixreader.doc_count_all())
-            final = self.weighting.final
-            gener = ((docnum, final(self, docnum, score))
-                     for docnum, score in query.doc_scores(self))
-            topdocs.add_all(gener, minscore)
+            scored_list = []
+            scores = []
 
-            best = topdocs.best()
-            if best:
-                # topdocs.best() returns a list like
-                # [(docnum, score), (docnum, score), ... ]
-                # This unpacks that into two lists: docnums and scores
-                scored_list, scores = zip(*topdocs.best())
-            else:
-                scored_list = []
-                scores = []
-
-            docvector = topdocs.docs
+        docvector = topdocs.docs
         t = now() - t
 
         return Results(self, query, scored_list, docvector, runtime=t,
                        scores=scores)
 
     def docnums(self, query):
-        return list(query.docs(self))
-
-    def fieldname_to_num(self, fieldid):
-        """Returns the field number of the given field name.
-        """
-        return self.schema.to_number(fieldid)
-
-    def fieldnum_to_name(self, fieldnum):
-        """Returns the field name corresponding to the given field number.
-        """
-        return self.schema.number_to_name(fieldnum)
-
-    def field(self, fieldid):
-        """Returns the :class:`whoosh.fields.Field` object for the given field
-        name.
-        """
-        return self.schema[fieldid]
+        return query.docs(self)
 
 
-class TopDocs(object):
-    """This is like a list that only remembers the top N values that are added
-    to it. This increases efficiency when you only want the top N values, since
-    you don't have to sort most of the values (once the object reaches capacity
-    and the next item to consider has a lower score than the lowest item in the
-    collection, you can just throw it away).
-    
-    The reason we use this instead of heapq.nlargest is this object keeps
-    track of all docnums that were added, even if they're not in the "top N".
+def collect(matcher, limit=10, usequality=True, replace=True):
     """
-
-    def __init__(self, capacity, max_doc, docvector=None):
-        self.capacity = capacity
-        self.docs = docvector or BitVector(max_doc)
-        self.heap = []
-        self._total = 0
-
-    def __len__(self):
-        return len(self.sorted)
-
-    def add_all(self, sequence, minscore):
-        """Adds a sequence of (item, score) pairs.
-        """
-
-        heap = self.heap
-        docs = self.docs
-        capacity = self.capacity
-
-        subtotal = 0
-        for docnum, score in sequence:
-            if score < minscore: continue
-            docs.set(docnum)
-            subtotal += 1
+    
+    :param matcher: the :class:`whoosh.matching.Matcher` to use.
+    :param limit: the number of top results to calculate. For example, if
+        ``limit=10``, only return the top 10 scoring documents.
+    :param usequality: whether to use block quality optimizations to speed up
+        results. This should usually be left on.
+    :param replace: whether to use matcher replacement optimizations to speed
+        up results. This should usually be left on.
+    """
+    
+    # Heap of (score, docnum, postingquality) tuples
+    h = []
+    
+    # Can't use quality optimizations if the matcher doesn't support them
+    usequality = usequality and matcher.supports_quality()
+    
+    # This flag indicates for each iteration of the loop whether to check
+    # block quality.
+    checkquality = True
+    
+    while matcher.is_active():
+        # The lowest scoring document in the heap
+        if h: lowest = h[0]
+        
+        # If this is the first iteration OR the last matcher.next() returned
+        # True (indicating a possible quality change), and if the heap is full,
+        # try skipping to a higher quality block
+        if usequality and checkquality and len(h) == limit:
+            matcher.skip_to_quality(lowest[2])
+        
+        # Document number and quality of the current document
+        id = matcher.id()
+        postingquality = matcher.quality()
+        
+        if len(h) < limit:
+            # The heap isn't full, so just add this document
+            heappush(h, (matcher.score(), id, postingquality))
             
-            if len(heap) >= capacity:
-                if score <= heap[0][0]: continue
-                heapreplace(heap, (score, docnum))
-            else:
-                heappush(heap, (score, docnum))
-
-        self._total += subtotal
-
-    def total(self):
-        """Returns the total number of documents added so far.
-        """
-
-        return self._total
-
-    def best(self):
-        """Returns the "top N" items. Note that this call involves sorting and
-        reversing the internal queue, so you may want to cache the results
-        rather than calling this method multiple times.
-        """
-
-        return [(item, score) for score, item in reversed(sorted(self.heap))]
+        elif postingquality > lowest[2]:
+            # The heap is full, but the posting quality indicates this document
+            # is good enough to make the top N, so caculate its true score and
+            # add it to the heap
+            score = matcher.score()
+            if score > lowest[0]:
+                heapreplace(h, (score, id, postingquality))
+        
+        # Move to the next document
+        checkquality = matcher.next()
+        
+        # Ask the matcher to replace itself with a more efficient version if
+        # possible
+        if replace: matcher = matcher.replace()
+    
+    # Turn the heap into a sorted list, and unzip it into separate lists
+    h = sorted(h)
+    return ([i[1] for i in h], # Document numbers
+            [i[0] for i in h]) # Scores
 
 
 class Results(object):
@@ -378,83 +391,64 @@ class Results(object):
     that position in the results.
     """
 
-    def __init__(self, searcher, query, scored_list, docvector,
-                 scores=None, runtime=0):
+    def __init__(self, searcher, query, top_n, scores, runtime=-1):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
         :param query: the original query that created these results.
-        :param scored_list: an ordered list of document numbers
-            representing the 'hits'.
-        :param docvector: a BitVector object where the indices are
-            document numbers and an 'on' bit means that document is
-            present in the results.
+        :param top_n: a list of (docnum, score) tuples representing the top
+            N search results.
         :param scores: a list of scores corresponding to the document
-            numbers in scored_list, or None if no scores are available.
+            numbers in top_n, or None if the results do not have scores.
         :param runtime: the time it took to run this search.
         """
 
         self.searcher = searcher
         self.query = query
-
-        self.scored_list = scored_list
+        assert len(top_n) == len(scores)
+        self.top_n = top_n
         self.scores = scores
-        self.docs = docvector
         self.runtime = runtime
 
     def __repr__(self):
-        return "<%s/%s Results for %r runtime=%s>" % (self.scored_length(),
-                                                      self.docs.count(),
-                                                      self.query,
-                                                      self.runtime)
+        return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
+                                                       self.sarcher.doccount,
+                                                       self.query,
+                                                       self.runtime)
 
     def __len__(self):
-        """Returns the TOTAL number of documents found by this search. Note
-        this may be greater than the number of ranked documents.
-        """
-        return self.docs.count()
+        return len(self.top_n)
 
     def __getitem__(self, n):
         stored_fields = self.searcher.stored_fields
         if isinstance(n, slice):
-            return [stored_fields(i) for i in self.scored_list.__getitem__(n)]
+            return [stored_fields(i) for i in self.top_n.__getitem__(n)]
         else:
-            return stored_fields(self.scored_list[n])
+            return stored_fields(self.top_n[n])
 
     def __iter__(self):
         """Yields the stored fields of each result document in ranked order.
         """
         stored_fields = self.searcher.stored_fields
-        for docnum in self.scored_list:
+        for docnum in self.top_n:
             yield stored_fields(docnum)
 
     def iterslice(self, start, stop, step=1):
         stored_fields = self.searcher.stored_fields
-        for docnum in self.scored_list[start:stop:step]:
+        for docnum in self.top_n[start:stop:step]:
             yield stored_fields(docnum)
-
-    @property
-    def total(self):
-        return self.docs.count()
 
     def copy(self):
         """Returns a copy of this results object.
         """
-
-        # Scores might be None, so only copy if it if it's a list
-        scores = self.scores
-        if isinstance(scores, list):
-            scores = scores[:]
-
-        # Scored_list might be a tuple, so only copy it if it's a list
-        scored_list = self.scored_list
-        if isinstance(scored_list, list):
-            scored_list = scored_list[:]
-
-        return self.__class__(self.searcher, self.query,
-                              scored_list=scored_list,
-                              docvector=self.docs.copy(),
-                              scores=scores, runtime=self.runtime)
+        
+        if self.scores:
+            scores = self.scores[:]
+        else:
+            scores = None
+        
+        return self.__class__(self.searcher, self.query, self.top_n[:],
+                              scores, runtime=self.runtime)
 
     def score(self, n):
         """Returns the score for the document at the Nth position in the list
@@ -466,20 +460,12 @@ class Results(object):
         else:
             return None
 
-    def scored_length(self):
-        """Returns the number of RANKED documents. Note this may be fewer than
-        the total number of documents the query matched, if you used the
-        'limit' keyword of the Searcher.search() method to limit the
-        scoring."""
-
-        return len(self.scored_list)
-
     def docnum(self, n):
         """Returns the document number of the result at position n in the list
         of ranked documents. Use __getitem__ (i.e. Results[n]) to get the
         stored fields directly.
         """
-        return self.scored_list[n]
+        return self.top_n[n]
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -497,80 +483,18 @@ class Results(object):
         :returns: list of unicode strings.
         """
 
-        docs = min(docs, self.scored_length())
-        if docs <= 0: return
+        if not len(self):
+            return
+        docs = min(docs, len(self))
 
         reader = self.searcher.reader()
         fieldnum = self.searcher.fieldname_to_num(fieldname)
 
         expander = classify.Expander(reader, fieldname, model=model)
-        for docnum in self.scored_list[:docs]:
+        for docnum in self.top_n[:docs]:
             expander.add(reader.vector_as("weight", docnum, fieldnum))
 
         return expander.expanded_terms(numterms, normalize=normalize)
-
-    def extend(self, results):
-        """Appends hits from 'results' (that are not already in this
-        results object) to the end of these results.
-        
-        :param results: another results object.
-        """
-
-        docs = self.docs
-        self.scored_list.extend(docnum for docnum in results.scored_list
-                                if docnum not in docs)
-        self.docs = docs | results.docs
-
-        # TODO: merge the query terms?
-
-    def filter(self, results):
-        """Removes any hits that are not also in the other results object.
-        """
-
-        docs = self.docs & results.docs
-        self.scored_list = [docnum for docnum in self.scored_list
-                            if docnum in docs]
-        self.docs = docs
-
-    def upgrade(self, results, reverse=False):
-        """Re-sorts the results so any hits that are also in 'results' appear
-        before hits not in 'results', otherwise keeping their current relative
-        positions. This does not add the documents in the other results object
-        to this one.
-        
-        :param results: another results object.
-        :param reverse: if True, lower the position of hits in the other
-            results object instead of raising them.
-        """
-
-        scored_list = self.scored_list
-        otherdocs = results.docs
-        arein = [docnum for docnum in scored_list if docnum in otherdocs]
-        notin = [docnum for docnum in scored_list if docnum not in otherdocs]
-
-        if reverse:
-            self.scored_list = notin + arein
-        else:
-            self.scored_list = arein + notin
-
-    def upgrade_and_extend(self, results):
-        """Combines the effects of extend() and increase(): hits that are also
-        in 'results' are raised. Then any hits from 'results' that are not in
-        this results object are appended to the end of these results.
-        
-        :param results: another results object.
-        """
-
-        docs = self.docs
-        otherdocs = results.docs
-        scored_list = self.scored_list
-
-        arein = [docnum for docnum in scored_list if docnum in otherdocs]
-        notin = [docnum for docnum in scored_list if docnum not in otherdocs]
-        other = [docnum for docnum in results.scored_list if docnum not in docs]
-
-        self.docs = docs | otherdocs
-        self.scored_list = arein + notin + other
 
 
 class ResultsPage(object):

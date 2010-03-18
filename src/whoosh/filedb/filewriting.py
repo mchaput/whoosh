@@ -106,7 +106,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Term postings file
         pf = storage.create_file(segment.termposts_filename)
-        self.postwriter = FilePostingWriter(pf, blocklimit=blocklimit)
+        self.postwriter = FilePostingWriter(self.schema, pf,
+                                            blocklimit=blocklimit)
         
         if ix.schema.has_vectored_fields():
             # Vector index

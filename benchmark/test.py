@@ -5,7 +5,7 @@ from heapq import heappush, heapreplace, heappop
 
 from whoosh import index, scoring, searching
 from whoosh.util import now
-from whoosh.filedb.filepostings2 import FilePostingWriter, FilePostingReader
+from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.matching import IntersectionMatcher, UnionMatcher
 from whoosh.postings import IntersectionScorer, UnionScorer
 from whoosh.query import And, Or, Term
@@ -244,6 +244,7 @@ def search(mr, optimize, limit=10, replace=True):
     t = now()
     h = []
     optimize = optimize and mr.supports_quality()
+    i = 0
     
     while mr.is_active():
         ret = mr.next()
@@ -252,14 +253,14 @@ def search(mr, optimize, limit=10, replace=True):
         
         id = mr.id()
         pq = mr.quality()
-        sc = mr.score()
-        #print id, sc
         if len(h) < limit:
-            heappush(h, (sc, id, pq))
-        elif sc > h[0][0]:
-            heapreplace(h, (sc, id, pq))
+            heappush(h, (mr.score(), id, pq))
+        elif pq > h[0][2]:
+            sc = mr.score()
+            if sc > h[0][0]:
+                heapreplace(h, (sc, id, pq))
         
-        if replace: mr = mr.replace()
+        mr = mr.replace()
     
     #return now() - t
     print "Search:", now() - t, "len=", len(h)
@@ -326,7 +327,7 @@ def combine(d, cls, atxt, btxt):
 
 def optimize_combo(d, cls, atxt, btxt, limit):
     mr1 = combine(d, cls, atxt, btxt)
-    mr2 = mr1.copy()
+    mr2 = mr1.copy() 
     print "--", cls
     test_optimize(mr1, mr2, search, limit)
     
@@ -352,8 +353,8 @@ d = get_dict()
 #search(get_matcher(ix.searcher(), d, u"zebra"), True, 10)
 
 #optimize_intersect(u"zebra", u"enron", 10)
-#optimize_combo(d, UnionMatcher, u"zebra", u"enron", 10)
-all_ids(combine(d, UnionMatcher, u"zebra", u"enron"))
+optimize_combo(d, UnionMatcher, u"zebra", u"enron", 10)
+#all_ids(combine(d, UnionMatcher, u"zebra", u"enron"))
 
 #save_dict()
 #get_dict()

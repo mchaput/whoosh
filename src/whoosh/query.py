@@ -29,10 +29,7 @@ from bisect import bisect_left, bisect_right
 import fnmatch, re
 
 from whoosh.lang.morph_en import variations
-from whoosh.postings import QueryScorer, EmptyScorer, ListScorer
-from whoosh.postings import IntersectionScorer, UnionScorer
-from whoosh.postings import RequireScorer, AndMaybeScorer, InverseScorer
-from whoosh.postings import ReadTooFar
+from whoosh.matching import *
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
@@ -159,11 +156,11 @@ class Query(object):
         """
         raise NotImplementedError
 
-    def scorer(self, searcher, exclude_docs=None):
-        """Returns :class:`~whoosh.postings.QueryScorer` object you can use to
+    def matcher(self, searcher, exclude_docs=None):
+        """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
         
-        :rtype: :class:`whoosh.postings.QueryScorer`
+        :rtype: :class:`whoosh.matching.Matcher`
         """
         raise NotImplementedError
 
@@ -181,23 +178,9 @@ class Query(object):
         """
 
         try:
-            return self.scorer(searcher).all_ids()
+            return self.matcher(searcher, exclude_docs=exclude_docs).all_ids()
         except TermNotFound:
             return []
-
-    def doc_scores(self, searcher, exclude_docs=None):
-        """Returns an iterator of (docnum, score) pairs matching this query.
-        
-        >>> list(my_query.doc_scores(ixreader))
-        [(10, 0.73), (34, 2.54), (78, 0.05), (103, 12.84)]
-        
-        :param searcher: A :class:`whoosh.searching.Searcher` object.
-        :param exclude_docs: A :class:`~whoosh.support.bitvector.BitVector` or
-            set of document numbers to exclude from the results, or None to not
-            exclude any documents.
-        """
-
-        return iter(self.scorer(searcher, exclude_docs=exclude_docs))
 
     def normalize(self):
         """Returns a recursively "normalized" form of this query. The
@@ -341,12 +324,22 @@ class CompoundQuery(Query):
         else:
             return NullQuery
 
-    def _subscorers(self, searcher, exclude_docs):
+    def _submatchers(self, searcher, exclude_docs):
         subs, nots = self._split_queries()
         exclude_docs = _not_vector(searcher, nots, exclude_docs)
-        subscorers = [subquery.scorer(searcher, exclude_docs=exclude_docs)
-                      for subquery in subs]
-        return subscorers
+        subs.sort(key=lambda q: q.estimate_size(searcher))
+        
+        return [subquery.matcher(searcher, exclude_docs=exclude_docs)
+                for subquery in subs]
+
+    def _matcher(self, matchercls, searcher, exclude_docs):
+        submatchers = self._submatchers(searcher, exclude_docs)
+        
+        tree = make_tree(matchercls, submatchers)
+        if self.boost == 1.0:
+            return tree
+        else:
+            return WrappingMatcher(tree, self.boost)
 
 
 class MultiTerm(Query):
@@ -378,20 +371,21 @@ class MultiTerm(Query):
         return sum(ixreader.doc_frequency(fieldnum, text)
                    for text in self._words(ixreader))
 
-    def scorer(self, searcher, exclude_docs=None):
-        fn = self.fieldname
-        scorers = []
+    def matcher(self, searcher, exclude_docs=None):
+        matchers = []
+        fieldname = self.fieldname
         for word in self._words(searcher.reader()):
             try:
-                q = Term(fn, word).scorer(searcher, exclude_docs=exclude_docs)
-                scorers.append(q)
+                q = Term(fieldname, word).matcher(searcher,
+                                                  exclude_docs=exclude_docs)
+                matchers.append(q)
             except TermNotFound:
                 pass
 
-        if scorers:
-            return UnionScorer(scorers, boost=self.boost)
+        if matchers:
+            return Or(matchers, boost=self.boost).matcher(searcher)
         else:
-            return EmptyScorer()
+            return NullMatcher()
 
 
 # Concrete classes
@@ -401,23 +395,6 @@ class Term(Query):
     
     >>> Term("content", u"render")
     """
-
-    class TermScorer(QueryScorer):
-        def __init__(self, postreader, scorefn, boost):
-            self.postreader = postreader
-            self.scorefn = scorefn
-            self.boost = boost
-            for name in ("__cmp__", "reset", "all_items", "all_ids", "all_as",
-                         "next", "skip_to", "value", "value_as"):
-                setattr(self, name, getattr(postreader, name))
-
-        @property
-        def id(self):
-            return self.postreader.id
-
-        def weight(self):
-            return self.scorefn(self.value_as("weight"),
-                                self.postreader.id) * self.boost
 
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
 
@@ -468,33 +445,14 @@ class Term(Query):
         fieldnum = ixreader.fieldname_to_num(self.fieldname)
         return ixreader.doc_frequency(fieldnum, self.text)
 
-    def scorer(self, searcher, exclude_docs=None):
+    def matcher(self, searcher, exclude_docs=None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
-        text = self.text
-        
         try:
-            postreader = searcher.postings(fieldnum, self.text,
-                                           exclude_docs=exclude_docs)
-            
-            sc = searcher.weighting.score
-            scorefn = lambda w, dn: sc(searcher, fieldnum, text, dn, w)
-            return Term.TermScorer(postreader, scorefn, self.boost)
+            return searcher.postings(fieldnum, self.text,
+                                     exclude_docs=exclude_docs)
         except TermNotFound:
-            return EmptyScorer()
+            return NullMatcher()
         
-    def doc_scores(self, searcher, exclude_docs=None):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
-        if not searcher.scorable(fieldnum):
-            return ((docnum, 1.0) 
-                    for docnum in self.docs(searcher, exclude_docs=exclude_docs))
-        
-        scorefn = searcher.weighting.score
-        text = self.text
-        postreader = searcher.reader().postings(fieldnum, text,
-                                                exclude_docs=exclude_docs)
-        return ((docnum, scorefn(searcher, fieldnum, text, docnum, weight))
-                for docnum, weight in postreader.items_as("weight"))
-
 
 class And(CompoundQuery):
     """Matches documents that match ALL of the subqueries.
@@ -512,9 +470,8 @@ class And(CompoundQuery):
     def estimate_size(self, ixreader):
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
-    def scorer(self, searcher, exclude_docs=None):
-        return IntersectionScorer(self._subscorers(searcher, exclude_docs),
-                                  boost=self.boost)
+    def matcher(self, searcher, exclude_docs=None):
+        return self._matcher(IntersectionMatcher, searcher, exclude_docs)
 
 
 class Or(CompoundQuery):
@@ -553,40 +510,21 @@ class Or(CompoundQuery):
 
     def estimate_size(self, ixreader):
         return sum(q.estimate_size(ixreader) for q in self.subqueries)
-
-    def scorer(self, searcher, exclude_docs=None):
-        return UnionScorer(self._subscorers(searcher, exclude_docs),
-                           boost=self.boost, minmatch=self.minmatch)
-
+    
     def normalize(self):
         norm = CompoundQuery.normalize(self)
         if norm.__class__ is self.__class__:
             norm.minmatch = self.minmatch
         return norm
 
+    def matcher(self, searcher, exclude_docs=None):
+        return self._matcher(UnionMatcher, searcher, exclude_docs)
+
 
 class DisjunctionMax(CompoundQuery):
     """Matches all documents that match any of the subqueries, but scores each
     document using the maximum score from the subqueries.
     """
-
-    class DisMaxScorer(UnionScorer):
-        def __init__(self, scorers, boost=1.0, tiebreak=0.0):
-            UnionScorer.__init__(self, scorers, boost=boost)
-            self.tiebreak = tiebreak
-
-        def weight(self):
-            id = self.id
-            tiebreak = self.tiebreak
-            if id is None:
-                return 0
-
-            scores = [r.weight() for r in self.state if r.id == id]
-            score = max(scores)
-            if tiebreak:
-                score += sum(s * tiebreak for s in scores)
-
-            return score * self.boost
 
     def __init__(self, subqueries, boost=1.0, tiebreak=0.0):
         CompoundQuery.__init__(self, subqueries, boost=boost)
@@ -601,15 +539,14 @@ class DisjunctionMax(CompoundQuery):
     def estimate_size(self, ixreader):
         return Or.estimate_size(self, ixreader)
 
-    def scorer(self, searcher, exclude_docs=None):
-        return self.DisMaxScorer(self._subscorers(searcher, exclude_docs),
-                                 boost=self.boost, tiebreak=self.tiebreak)
-
     def normalize(self):
         norm = CompoundQuery.normalize(self)
         if norm.__class__ is self.__class__:
             norm.tiebreak = self.tiebreak
         return norm
+    
+    def matcher(self, searcher, exclude_docs=None):
+        return self._matcher(DisjunctionMaxMatcher, searcher, exclude_docs)
 
 
 class Not(Query):
@@ -668,10 +605,11 @@ class Not(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def scorer(self, searcher, exclude_docs=None):
+    def matcher(self, searcher, exclude_docs=None):
         reader = searcher.reader()
-        scorer = self.query.scorer(searcher)
-        return InverseScorer(scorer, reader.doc_count_all(), reader.is_deleted)
+        child = self.query.matcher(searcher)
+        return InverseMatcher(child, reader.doc_count_all(),
+                              missing=reader.is_deleted)
 
 
 class Prefix(MultiTerm):
@@ -987,112 +925,6 @@ class Variations(MultiTerm):
 class Phrase(MultiTerm):
     """Matches documents containing a given phrase."""
 
-    class PhraseScorer(QueryScorer):
-        def __repr__(self):
-            return "<%s %r: %r>" % (self.__class__.__name__,
-                                    self.intersection, self.id)
-
-        def reset(self):
-            self.intersection.reset()
-            self._find()
-
-        def next(self):
-            if self.id is None:
-                raise ReadTooFar
-
-            self.intersection.next()
-            self._find()
-
-        def skip_to(self, target):
-            self.intersection.skip_to(target)
-            self._find()
-
-        def _find(self):
-            isect = self.intersection
-            slop = self.slop
-            current = []
-            while not current and isect.id is not None:
-                poses = self._poses()
-                current = poses[0]
-                for poslist in poses[1:]:
-                    newpositions = []
-                    for newpos in poslist:
-                        start = bisect_left(current, newpos - slop)
-                        end = bisect_right(current, newpos)
-                        for curpos in current[start:end]:
-                            delta = newpos - curpos
-                            # Note that the delta can be less than 1. This is
-                            # useful sometimes where multiple tokens are
-                            # generated with the same position. However it
-                            # means the phrase "linda linda linda" will match a
-                            # single "linda" because it will match three times
-                            # with a delta of 0.
-                            # TODO: Fix this somehow?
-                            if delta <= slop:
-                                newpositions.append(newpos)
-                    
-                    current = newpositions
-                    if not current:
-                        break
-
-                if not current:
-                    isect.next()
-
-            self.count = len(current)
-            self.id = isect.id
-
-    class PostingPhraseScorer(PhraseScorer):
-        "Scorer for PhraseQuery that uses Position postings."
-
-        def __init__(self, intersection, slop=1):
-            self.intersection = intersection
-            self.slop = slop
-            self.weight = intersection.weight
-            self._find()
-
-        def _poses(self):
-            # Each sub-scorer of the intersection represents a word in the
-            # phrase. The positions of each word is therefore the value of the
-            # current posting for each sub-scorer.
-            return [scorer.value_as("positions")
-                    for scorer in self.intersection.scorers]
-
-    class VectorPhraseScorer(PhraseScorer):
-        "Scorer for PhraseQuery that uses Position term vectors."
-
-        def __init__(self, reader, fieldnum, words, intersection, slop=1):
-            self.reader = reader
-            self.fieldnum = fieldnum
-            self.words = words
-            self.sortedwords = sorted(words)
-            self.intersection = intersection
-            self.weight = intersection.weight
-            self.slop = slop
-            self._find()
-
-        def _poses(self):
-            # Use a term vector for the current document to get the positions
-            # of the words in the phrase
-            docnum = self.intersection.id
-            fieldnum = self.fieldnum
-            if not self.reader.has_vector(docnum, fieldnum):
-                raise QueryError("Phrase query: document %s field %r has no vector" % (docnum, fieldnum))
-            vreader = self.reader.vector(docnum, fieldnum)
-            # The vector is in sorted order, so grab the positions lists in
-            # sorted order and put them in a dictionary
-            poses = {}
-            for word in self.sortedwords:
-                vreader.skip_to(word)
-                if vreader.id != word:
-                    # Since the term index and term vector can potentially use
-                    # different analyzers, it's possible that the words in the
-                    # term index might not match the words in the vector.
-                    raise QueryError("Phrase query: %r in term index but not in vector (possible analyzer mismatch)" % word)
-                poses[word] = vreader.value_as("positions")
-            # Now put the position lists in phrase order
-            poses = [poses[word] for word in self.words]
-            return poses
-
     def __init__(self, fieldname, words, slop=1, boost=1.0):
         """
         :param fieldname: the field to search.
@@ -1164,70 +996,33 @@ class Phrase(MultiTerm):
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)
 
-    def scorer(self, searcher, exclude_docs=None):
+    def matcher(self, searcher, exclude_docs=None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
 
         # Shortcut the query if one of the words doesn't exist.
-        ixreader = searcher.reader()
         for word in self.words:
-            if (fieldnum, word) not in ixreader: return EmptyScorer()
+            if (fieldnum, word) not in searcher: return NullMatcher()
         
-        wordscorers = [Term(self.fieldname, word).scorer(searcher, exclude_docs=exclude_docs)
-                       for word in self.words]
-        intersection = IntersectionScorer(wordscorers, boost=self.boost)
-        if intersection.id is None:
-            return EmptyScorer()
-
+        wordmatchers = [searcher.postings(fieldnum, word, exclude_docs=exclude_docs)
+                        for word in self.words]
+        isect = make_tree(wordmatchers)
+        
         field = searcher.field(fieldnum)
         if field.format and field.format.supports("positions"):
-            return Phrase.PostingPhraseScorer(intersection, slop=self.slop)
+            return PostingPhraseMatcher(wordmatchers, isect, slop=self.slop)
+        
         elif field.vector and field.vector.supports("positions"):
-            return Phrase.VectorPhraseScorer(ixreader, fieldnum, self.words,
-                                             intersection, slop=self.slop)
+            return VectorPhraseMatcher(searcher, fieldnum, self.words, isect,
+                                       slop=self.slop)
+            
         else:
-            raise QueryError("Phrase search: %r field has no positions" % self.fieldname)
+            raise QueryError("Phrase search: %r field has no positions"
+                             % self.fieldname)
 
 
 class Every(Query):
     """A query that matches every document in the index.
     """
-
-    class EveryScorer(QueryScorer):
-        def __init__(self, limit, exclude, boost):
-            self.limit = limit
-            self.exclude = exclude
-            self.boost = boost
-            self.reset()
-
-        def _find(self):
-            # Skip excluded document numbers
-            id = self.id
-            limit = self.limit
-            exclude = self.exclude
-            while id < limit and id in exclude:
-                id += 1
-            if id >= limit:
-                self.id = None
-            else:
-                self.id = id
-
-        def reset(self):
-            self.id = 0
-            self._find()
-
-        def next(self):
-            self.id += 1
-            self._find()
-
-        def seek(self, target):
-            self.id = target
-            self._find()
-
-        def weight(self):
-            return self.boost
-
-    def __init__(self, boost=1):
-        self.boost = boost
 
     def __eq__(self, other):
         return other and self.__class__ is other.__class__ and\
@@ -1239,22 +1034,10 @@ class Every(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def scorer(self, searcher, exclude_docs=None):
+    def matcher(self, searcher, exclude_docs=None):
         if not exclude_docs:
             exclude_docs = frozenset()
-        return Every.EveryScorer(searcher.reader().doc_count_all(),
-                                 exclude_docs, self.boost)
-
-    def docs(self, searcher, exclude_docs=None):
-        alldocs = xrange(searcher.reader().doc_count_all())
-        if exclude_docs is None: exclude_docs = frozenset()
-        return (docnum for docnum in alldocs if docnum not in exclude_docs)
-
-    def doc_scores(self, searcher, exclude_docs=None):
-        alldocs = xrange(searcher.reader().doc_count_all())
-        if exclude_docs is None: exclude_docs = frozenset()
-        return ((docnum, self.boost) for docnum in alldocs
-                if docnum not in exclude_docs)
+        return EveryMatcher(searcher.reader().doc_count_all(), exclude_docs)
 
 
 class NullQuery(Query):
@@ -1263,25 +1046,16 @@ class NullQuery(Query):
         return self
     def estimate_size(self, ixreader):
         return 0
-    def scorer(self, searcher, exclude_docs=None):
-        return EmptyScorer()
     def normalize(self):
         return self
     def simplify(self, ixreader):
         return self
     def docs(self, searcher, exclude_docs=None):
         return []
-    def doc_scores(self, searcher, exclude_docs=None):
-        return []
+    def matcher(self, searcher, exclude_docs=None):
+        return NullMatcher()
 NullQuery = NullQuery()
 
-
-# =============================================================================
-#
-# Binary classes
-# You probably don't want to use these
-#
-# =============================================================================
 
 class Require(CompoundQuery):
     """Binary query returns results from the first query that also appear in
@@ -1300,16 +1074,10 @@ class Require(CompoundQuery):
             contribute to the scoring.
         """
 
-        # The superclass CompoundQuery expects the subqueries to be
-        # in a sequence in self.subqueries
+        # The superclass CompoundQuery expects the subqueries to be in a
+        # sequence in self.subqueries
         self.subqueries = (scoredquery, requiredquery)
         self.boost = boost
-
-    def scorer(self, searcher, exclude_docs=None):
-        scored, required = self.subqueries
-        scorer = RequireScorer(scored.scorer(searcher, exclude_docs=exclude_docs),
-                               required.scorer(searcher, exclude_docs=exclude_docs))
-        return scorer
 
     def normalize(self):
         subqueries = [q.normalize() for q in self.subqueries]
@@ -1319,6 +1087,11 @@ class Require(CompoundQuery):
 
     def docs(self, searcher, exclude_docs=None):
         return And(self.subqueries).docs(searcher, exclude_docs=exclude_docs)
+    
+    def matcher(self, searcher, exclude_docs=None):
+        scored, required = self.subqueries
+        return RequireMatcher(scored.matcher(searcher, exclude_docs=exclude_docs),
+                              required.matcher(searcher, exclude_docs=exclude_docs))
 
 
 class AndMaybe(CompoundQuery):
@@ -1342,12 +1115,6 @@ class AndMaybe(CompoundQuery):
         self.subqueries = (requiredquery, optionalquery)
         self.boost = boost
 
-    def scorer(self, searcher, exclude_docs=None):
-        required, optional = self.subqueries
-        scorer = AndMaybeScorer(required.scorer(searcher, exclude_docs=exclude_docs),
-                                optional.scorer(searcher, exclude_docs=exclude_docs))
-        return scorer
-
     def normalize(self):
         required, optional = (q.normalize() for q in self.subqueries)
         if required is NullQuery:
@@ -1358,6 +1125,11 @@ class AndMaybe(CompoundQuery):
 
     def docs(self, searcher, exclude_docs=None):
         return self.subqueries[0].docs(searcher, exclude_docs=exclude_docs)
+    
+    def matcher(self, searcher, exclude_docs=None):
+        required, optional = self.subqueries
+        return AndMaybeMatcher(required.matcher(searcher, exclude_docs=exclude_docs),
+                                optional.matcher(searcher, exclude_docs=exclude_docs))
 
 
 class AndNot(Query):
@@ -1414,9 +1186,9 @@ class AndNot(Query):
         self.positive.existing_terms(ixreader, termset, reverse=reverse,
                                      phrases=phrases)
 
-    def scorer(self, searcher, exclude_docs=None):
+    def matcher(self, searcher, exclude_docs=None):
         notvector = _not_vector(searcher, [self.negative], exclude_docs)
-        return self.positive.scorer(searcher, exclude_docs=notvector)
+        return self.positive.matcher(searcher, exclude_docs=notvector)
 
 
 def BooleanQuery(required, should, prohibited):

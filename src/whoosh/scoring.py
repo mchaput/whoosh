@@ -74,9 +74,38 @@ class Weighting(object):
         """
 
         return score
+    
+    def score_fn(self, searcher, fieldnum, text):
+        """Returns a function which takes a :class:`whoosh.matching.Matcher`
+        and returns a score.
+        """
+        def fn(m):
+            return self.score(searcher, fieldnum, text, m.id(), m.weight())
+        return fn
+    
+    def quality_fn(self, searcher, fieldnum, text):
+        """Returns a function which takes a :class:`whoosh.matching.Matcher`
+        and returns an appoximate quality rating for the matcher's current
+        posting. If the weighting class does not support approximate quality
+        ratings, this method should return None instead of a function.
+        """
+        return None
+    
+    def block_quality_fn(self, searcher, fieldnum, text):
+        """Returns a function which takes a :class:`whoosh.matching.Matcher`
+        and returns an appoximate quality rating for the matcher's current
+        block (whatever concept of block the matcher might use). If the
+        weighting class does not support approximate quality ratings, this
+        method should return None instead of a function.
+        """
+        return None
 
 
 class WOLWeighting(Weighting):
+    """Abstract middleware class for weightings that can use
+    "weight-over-length" (WOL) as an approximate quality rating.
+    """
+    
     def quality_fn(self, searcher, fieldnum, text):
         dfl = searcher.doc_field_length
         def fn(m):

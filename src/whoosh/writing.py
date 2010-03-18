@@ -131,6 +131,32 @@ class IndexWriter(DeletionMixin):
         pass
     
 
+class PostingWriter(object):
+    def start(self, fieldnum):
+        """Start a new set of postings for a new term. Implementations may
+        raise an exception if this is called without a corresponding call to
+        finish().
+        """
+        raise NotImplementedError
+    
+    def write(self, id, valuestring):
+        """Add a posting with the given ID and value.
+        """
+        raise NotImplementedError
+    
+    def finish(self):
+        """Finish writing the postings for the current term. Implementations
+        may raise an exception if this is called without a preceding call to
+        start().
+        """
+        pass
+    
+    def close(self):
+        """Finish writing all postings and close the underlying file.
+        """
+        pass
+
+
 class AsyncWriter(threading.Thread, DeletionMixin):
     """Convenience wrapper for a writer object that might fail due to locking
     (i.e. the ``filedb`` writer). This object will attempt once to obtain the

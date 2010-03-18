@@ -119,6 +119,12 @@ class BitVector(object):
         res.bits = array('B', lpb)
         return res
     
+    def union(self, other):
+        return self.__or__(other)
+    
+    def intersection(self, other):
+        return self.__and__(other)
+    
     def __and__(self, other):
         if not isinstance(other, BitVector):
             other = BitVector(self.size, source=other)
@@ -184,8 +190,9 @@ class BitSet(object):
     backed by either a set or BitVector depending on how many numbers are in
     the set.
     
-    Provides ``add``, ``remove``, ``__contains__``, ``__len__``, ``__iter__``,
-    ``__and__``, ``__or__``, and ``__nonzero__`` methods.
+    Provides ``add``, ``remove``, ``union``, ``intersection``,
+    ``__contains__``, ``__len__``, ``__iter__``, ``__and__``, ``__or__``, and
+    ``__nonzero__`` methods.
     """
     
     def __init__(self, size, source=None):
@@ -214,11 +221,20 @@ class BitSet(object):
         self.__iter__ = self._back.__iter__
         self.__nonzero__ = self._back.__nonzero__
 
+    def as_set(self):
+        return frozenset(self._back)
+
+    def union(self, other):
+        return self.__or__(other)
+    
+    def intersection(self, other):
+        return self.__and__(other)
+
     def __and__(self, other):
-        self._back = self._back & other
+        self._back = self._back.intersection(other)
         
     def __or__(self, other):
-        self._back = self._back | other
+        self._back = self._back.union(other)
 
     def _set_add(self, num):
         self._back.add(num)
