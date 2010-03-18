@@ -174,7 +174,7 @@ def write_postings(schema, termtable, postwriter, postiter):
             current_fieldnum = fieldnum
             current_text = text
             current_freq = 0
-            offset = postwriter.start(schema[fieldnum].format)
+            offset = postwriter.start(fieldnum)
 
         elif (fieldnum < current_fieldnum
               or (fieldnum == current_fieldnum and text < current_text)):
