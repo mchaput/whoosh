@@ -192,7 +192,7 @@ class BitSet(object):
     
     Provides ``add``, ``remove``, ``union``, ``intersection``,
     ``__contains__``, ``__len__``, ``__iter__``, ``__and__``, ``__or__``, and
-    ``__nonzero__`` methods.
+    methods.
     """
     
     def __init__(self, size, source=None):
@@ -202,9 +202,8 @@ class BitSet(object):
         self._switch(size > 256)
         
         if source:
-            add = self.add
             for num in source:
-                add(num)
+                self.add(num)
     
     def _switch(self, toset):
         if toset:
@@ -212,14 +211,13 @@ class BitSet(object):
             self.add = self._set_add
             self.remove = self._back.remove
         else:
-            self._back = BitVector()
+            self._back = BitVector(self.size, source=self._back)
             self.add = self._back.set
             self.remove = self._vec_remove
             
         self.__contains__ = self._back.__contains__
         self.__len__ = self._back.__len__
         self.__iter__ = self._back.__iter__
-        self.__nonzero__ = self._back.__nonzero__
 
     def as_set(self):
         return frozenset(self._back)
