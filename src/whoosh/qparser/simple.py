@@ -154,10 +154,6 @@ class DisMaxParser(SimpleParser):
         
 
 
-if __name__ == "__main__":
-    print SimpleParser("a").parse('alfa +bravo -"charlie delta" echo')
-    print DisMaxParser({"a": 1.0, "b": 0.5}, minpercent=0.8).parse('alfa bravo charlie delta echo foxtrot golf hotel india')
-    
 
 
 
