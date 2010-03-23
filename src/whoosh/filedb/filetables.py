@@ -15,8 +15,8 @@
 #===============================================================================
 
 """This module defines writer and reader classes for a fast, immutable
-on-disk key-value database format. The current format is identical
-to D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
+on-disk key-value database format. The current format is based heavily on
+D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
 from sys import byteorder
@@ -29,11 +29,13 @@ from whoosh.system import _INT_SIZE
 from whoosh.util import length_to_byte, byte_to_length
 
 
+# NOTE: cdb_hash is not used, it's faster to use Python's built-in hash()
 def cdb_hash(key):
     h = 5381L
     for c in key:
         h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
     return h
+
 
 # The CDB algorithm involves reading and writing pairs of (unsigned) ints in
 # many different places, so I'll name some convenience functions and variables
@@ -606,48 +608,82 @@ class StructHashReader(FixedHashReader):
 
 
 class LengthWriter(object):
+    def __init__(self, dbfile, doccount, scorables, lengths=None):
+        self.dbfile = dbfile
+        self.doccount = doccount
+        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
+        
+        if lengths is None:
+            lengths = array("B", (0 for _ in xrange(doccount)))
+        self.lengths = lengths
+    
+    def add_all(self, items):
+        lengths = self.lengths
+        doccount = self.doccount
+        indices = self.indices
+        for docnum, fieldnum, byte in items:
+            index = indices[fieldnum]
+            pos = (index * doccount) + docnum
+            lengths[pos] = byte
+    
+    def add(self, docnum, fieldnum, byte):
+        index = self.indices[fieldnum]
+        pos = (index * self.doccount) + docnum
+        self.lengths[pos] = byte
+        
+    def close(self):
+        self.dbfile.write_array(self.lengths)
+        self.dbfile.close()
+        
+
+class LengthReader(object):
     def __init__(self, dbfile, doccount, scorables):
         self.dbfile = dbfile
         self.doccount = doccount
         self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
         
-        dbfile.seek(doccount * len(scorables))
-        dbfile.write("\x00")
-        
-    def add_all(self, items):
-        dbfile = self.dbfile
-        doccount = self.doccount
-        indices = self.indices
-        for docnum, fieldnum, length in items:
-            index = indices[fieldnum]
-            pos = (index * doccount) + docnum
-            dbfile.seek(pos)
-            dbfile.write_byte(length)
-    
-    def add(self, *args):
-        self.add_all([args])
-        
-    def close(self):
-        self.dbfile.close()
-        
-
-class LengthReader(object):
-    def __init__(self, dbfile, doccount, scorables, cachesize=32000):
-        self.dbfile = dbfile
-        self.doccount = doccount
-        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
-        self.cachesize = cachesize
-        self.caches = {}
+    @staticmethod
+    def load(dbfile, doccount, scorables, inmemory=True):
+        if inmemory:
+            lengthcount = doccount * len(scorables)
+            lengths = dbfile.read_array("B", lengthcount)
+            dbfile.close()
+            return MemoryLengthReader(lengths, doccount, scorables)
+        else:
+            return LengthReader(dbfile, doccount, scorables)
     
     def get(self, docnum, fieldnum, default=0):
-        indices = self.indices
-        index = indices[fieldnum]
-        pos = (index * self.doccount) + (docnum)
+        try:
+            index = self.indices[fieldnum]
+        except KeyError:
+            return default
+        
+        pos = (index * self.doccount) + docnum
         return byte_to_length(self.dbfile.get_byte(pos))
     
     def close(self):
-        self.dbfile.close()
+        if not self.inmemory:
+            self.dbfile.close()
+            
 
+class MemoryLengthReader(object):
+    def __init__(self, lengths, doccount, scorables):
+        self.lengths = lengths
+        self.doccount = doccount
+        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
+        
+    def get(self, docnum, fieldnum, default=0):
+        try:
+            index = self.indices[fieldnum]
+        except KeyError:
+            return default
+        
+        pos = (index * self.doccount) + docnum
+        return byte_to_length(self.lengths[pos])
+    
+    def close(self):
+        pass
+        
 
 class FileListWriter(object):
     def __init__(self, dbfile, valuecoder=str):
@@ -657,6 +693,13 @@ class FileListWriter(object):
         dbfile.write_uint(0)
         self.valuecoder = valuecoder
 
+    def append(self, value):
+        f = self.dbfile
+        self.directory.append(f.tell())
+        v = self.valuecoder(value)
+        self.directory.append(len(v))
+        f.write(v)
+        
     def close(self):
         f = self.dbfile
         directory_pos = f.tell()
@@ -664,15 +707,8 @@ class FileListWriter(object):
         f.flush()
         f.seek(0)
         f.write_uint(directory_pos)
-        f.write_uint(len(self.directory))
+        f.write_uint(len(self.directory)//2)
         f.close()
-
-    def append(self, value):
-        f = self.dbfile
-        self.directory.append(f.tell())
-        v = self.valuecoder(value)
-        self.directory.append(len(v))
-        f.write(v)
 
 
 class FileListReader(object):
@@ -688,8 +724,8 @@ class FileListReader(object):
 
     def __getitem__(self, num):
         dbfile = self.dbfile
-        offset = self.offset + num * _2INTS_SIZE
-        position, length = unpack_2ints(dbfile.map[offset:offset + _2INTS_SIZE])
+        dir_offset = self.offset + num * _2INTS_SIZE
+        position, length = unpack_2ints(dbfile.map[dir_offset:dir_offset + _2INTS_SIZE])
         v = dbfile.map[position:position + length]
         return self.valuedecoder(v)
 

@@ -123,11 +123,10 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Stored fields file
         sf = storage.create_file(segment.storedfields_filename)
-        self.storedfields = FileListWriter(sf,
-                                           valuecoder=encode_storedfields)
+        self.storedfields = FileListWriter(sf, valuecoder=encode_storedfields)
         
-        # Field length file
-        self.fieldlengths = storage.create_file(segment.fieldlengths_filename)
+        # Field lengths file
+        self.lengthfile = storage.create_file(segment.fieldlengths_filename)
         
         # Create the pool
         if poolclass is None:
@@ -135,7 +134,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 poolclass = MultiPool
             else:
                 poolclass = TempfilePool
-        self.pool = poolclass(self.fieldlengths, procs=procs, **poolargs)
+        self.pool = poolclass(self.schema, procs=procs, **poolargs)
     
     def searcher(self):
         return self.index.searcher()
@@ -186,7 +185,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 # TODO: Is there a faster way to do this?
                 freq = decoder(valuestring)
                 self.pool.add_posting(fieldnum, text, newdoc, freq, valuestring)
-        
+    
     def add_document(self, **fields):
         schema = self.schema
         name2num = schema.name_to_number
@@ -253,8 +252,6 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         if self.vpostwriter:
             self.vpostwriter.close()
         self.storedfields.close()
-        if not self.fieldlengths.is_closed:
-            self.fieldlengths.close()
         
     def commit(self, mergetype=MERGE_SMALL):
         # Call the merge policy function. The policy may choose to merge other
@@ -262,8 +259,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         new_segments = mergetype(self.index, self, self.segments)
         
         # Tell the pool we're finished adding information, it should add its
-        # accumulated data to the terms index and posting file.
-        self.pool.finish(self.schema, self.docnum, self.termsindex, self.postwriter)
+        # accumulated data to the lengths, terms index, and posting files.
+        self.pool.finish(self.docnum, self.lengthfile, self.termsindex, self.postwriter)
         
         # Create a Segment object for the segment created by this writer and
         # add it to the list of remaining segments returned by the merge policy

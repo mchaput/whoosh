@@ -22,9 +22,9 @@ from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (FileTableReader, FileListReader,
                                       StructHashReader, LengthReader)
 from whoosh.filedb import misc
-from whoosh.postings import Exclude
+from whoosh.matching import ExcludeMatcher
 from whoosh.reading import IndexReader, TermNotFound
-from whoosh.util import protected, byte_to_length
+from whoosh.util import protected
 
 
 # Reader class
@@ -53,20 +53,15 @@ class SegmentReader(IndexReader):
         
         # Stored fields file
         sf = storage.open_file(segment.storedfields_filename, mapped=False)
-        self.storedfields = FileListReader(sf,
-                                           valuedecoder=decode_storedfields)
+        self.storedfields = FileListReader(sf, valuedecoder=decode_storedfields)
         
         # Field length file
+        self.fieldlengths = None
         scorables = schema.scorable_fields()
         if scorables:
-            self.indices = dict((fieldnum, i) for i, fieldnum
-                                in enumerate(scorables))
-            lengthcount = segment.doc_count_all() * len(self.indices)
             flf = storage.open_file(segment.fieldlengths_filename)
-            self.fieldlengths = flf.read_array("B", lengthcount)
-            flf.close()
-        else:
-            self.fieldlengths = []
+            self.fieldlengths = LengthReader.load(flf, segment.doc_count_all(),
+                                                  scorables)
         
         # Copy methods from underlying segment
         self.has_deletions = segment.has_deletions
@@ -109,8 +104,8 @@ class SegmentReader(IndexReader):
             self.postfile.close()
         if self.vectorindex:
             self.vectorindex.close()
-        #if self.fieldlengths:
-        #    self.fieldlengths.close()
+        if self.fieldlengths:
+            self.fieldlengths.close()
         self.is_closed = True
 
     def doc_count_all(self):
@@ -132,9 +127,7 @@ class SegmentReader(IndexReader):
 
     @protected
     def doc_field_length(self, docnum, fieldnum, default=0):
-        index = self.indices[fieldnum]
-        pos = index * self.dc + docnum
-        return byte_to_length(self.fieldlengths[pos])
+        return self.fieldlengths.get(docnum, fieldnum, default=default)
 
     def max_field_length(self, fieldnum):
         return self.segment.max_field_length(fieldnum)
@@ -202,7 +195,7 @@ class SegmentReader(IndexReader):
                 return
             yield t
 
-    def postings(self, fieldid, text, exclude_docs=frozenset()):
+    def postings(self, fieldid, text, exclude_docs=frozenset(), scorefns=None):
         schema = self.schema
         fieldnum = schema.to_number(fieldid)
         format = schema[fieldnum].format
@@ -218,9 +211,10 @@ class SegmentReader(IndexReader):
             exclude_docs = self.segment.deleted
 
         self._open_postfile()
-        postreader = FilePostingReader(self.postfile, offset, format)
+        postreader = FilePostingReader(self.postfile, offset, format,
+                                       scorefns=scorefns)
         if exclude_docs:
-            postreader = Exclude(postreader, exclude_docs)
+            postreader = ExcludeMatcher(postreader, exclude_docs)
         return postreader
     
     def vector(self, docnum, fieldid):
