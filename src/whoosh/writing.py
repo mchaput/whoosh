@@ -62,10 +62,7 @@ class IndexWriter(DeletionMixin):
         raise NotImplementedError
     
     def add_document(self, **fields):
-        """Adds all the fields of a document at once. This is an alternative to
-        calling start_document(), add_field() [...], end_document().
-        
-        The keyword arguments map field names to the values to index/store.
+        """The keyword arguments map field names to the values to index/store.
         
         For fields that are both indexed and stored, you can specify an
         alternate value to store using a keyword argument in the form
@@ -78,10 +75,7 @@ class IndexWriter(DeletionMixin):
         raise NotImplementedError
     
     def update_document(self, **fields):
-        """Adds or replaces a document. At least one of the fields for which
-        you supply values must be marked as 'unique' in the index's schema.
-        
-        The keyword arguments map field names to the values to index/store.
+        """The keyword arguments map field names to the values to index/store.
         
         Note that this method will only replace a *committed* document;
         currently it cannot replace documents you've added to the IndexWriter
@@ -107,7 +101,8 @@ class IndexWriter(DeletionMixin):
                          in self.index.schema.fields()
                          if name in fields and field.unique]
         if not unique_fields:
-            raise IndexingError("None of the fields in %r are unique" % fields.keys())
+            raise IndexingError("None of the fields in %r"
+                                " are unique" % fields.keys())
         
         # Delete documents in which the supplied unique fields match
         from whoosh import query

@@ -259,7 +259,40 @@ class MultiMatcher(Matcher):
     
     def score(self):
         return self.matchers[self.current].score()
+
+
+class ExcludeMatcher(WrappingMatcher):
+    def __init__(self, child, excluded):
+        super(ExcludeMatcher, self).__init__(child)
+        self.excluded = excluded
+        self.find_next()
     
+    def _find_next(self):
+        child = self.child
+        excluded = self.excluded
+        r = False
+        while child.is_active() and child.id() in excluded:
+            nr = child.next()
+            r = r or nr
+        return r
+    
+    def next(self):
+        self.child.next()
+        self._find_next()
+        
+    def skip_to(self, id):
+        self.child.skip_to(id)
+        self._find_next()
+        
+    def all_ids(self):
+        excluded = self.excluded
+        return (id for id in self.child.all_ids() if id not in excluded)
+    
+    def all_items(self):
+        excluded = self.excluded
+        return (item for item in self.child.all_items()
+                if item[0] not in excluded)
+
 
 class BiMatcher(Matcher):
     """Base class for matchers that combine the results of two sub-matchers in

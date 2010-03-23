@@ -297,27 +297,11 @@ class Searcher(object):
             return self.sort_query(query, sortedby, reverse=reverse)
         
         t = now()
-        topdocs = TopDocs(limit, ixreader.doc_count_all())
-        final = self.weighting.final
-        gener = ((docnum, final(self, docnum, score))
-                 for docnum, score in query.doc_scores(self))
-        topdocs.add_all(gener, minscore)
+        matcher = query.matcher(self)
+        scores, docnums = collect(matcher, limit)
+        runtime = now() - t
 
-        best = topdocs.best()
-        if best:
-            # topdocs.best() returns a list like
-            # [(docnum, score), (docnum, score), ... ]
-            # This unpacks that into two lists: docnums and scores
-            scored_list, scores = zip(*topdocs.best())
-        else:
-            scored_list = []
-            scores = []
-
-        docvector = topdocs.docs
-        t = now() - t
-
-        return Results(self, query, scored_list, docvector, runtime=t,
-                       scores=scores)
+        return Results(self, query, docnums, scores, runtime)
 
     def docnums(self, query):
         return query.docs(self)
@@ -334,6 +318,16 @@ def collect(matcher, limit=10, usequality=True, replace=True):
     :param replace: whether to use matcher replacement optimizations to speed
         up results. This should usually be left on.
     """
+    
+    # No limit? We have to score everything? Short circuit here and do it very
+    # simply
+    if limit is None:
+        h = []
+        while matcher.is_active():
+            h.append(matcher.score(), matcher.id())
+            if replace: matcher = matcher.replace()
+        h.sort()
+        
     
     # Heap of (score, docnum, postingquality) tuples
     h = []
@@ -380,8 +374,8 @@ def collect(matcher, limit=10, usequality=True, replace=True):
     
     # Turn the heap into a sorted list, and unzip it into separate lists
     h = sorted(h)
-    return ([i[1] for i in h], # Document numbers
-            [i[0] for i in h]) # Scores
+    return ([i[0] for i in h], # Scores
+            [i[1] for i in h]) # Document numbers
 
 
 class Results(object):

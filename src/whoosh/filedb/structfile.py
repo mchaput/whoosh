@@ -196,7 +196,7 @@ class StructFile(object):
     def write_float(self, n):
         self.file.write(pack_float(n))
     def write_array(self, arry):
-        if not IS_LITTLE:
+        if IS_LITTLE:
             arry = array(arry.typecode, arry)
             arry.byteswap()
         if self.is_real:
@@ -222,7 +222,7 @@ class StructFile(object):
             a.fromfile(self.file, length)
         else:
             a.fromstring(self.file.read(length * _SIZEMAP[typecode]))
-        if not IS_LITTLE: a.byteswap()
+        if IS_LITTLE: a.byteswap()
         return a
 
     def get_sbyte(self, position):
@@ -241,7 +241,7 @@ class StructFile(object):
         source = self.map[position:position + length * _SIZEMAP[typecode]]
         a = array(typecode)
         a.fromstring(source)
-        if not IS_LITTLE: a.byteswap()
+        if IS_LITTLE: a.byteswap()
         return a
 
 

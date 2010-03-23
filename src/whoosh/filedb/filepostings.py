@@ -29,7 +29,7 @@ class BlockInfo(object):
                  "maxid", "dataoffset")
     
     # nextblockoffset, unused, postcount, maxweight, maxwol, unused, minlength
-    _struct = Struct("!IiiBfffB")
+    _struct = Struct("!IiBfffB")
     
     def __init__(self, nextoffset=None, postcount=None,
                  maxweight=None, maxwol=None, minlength=None,
@@ -103,6 +103,7 @@ class FilePostingWriter(PostingWriter):
             self.blockids = array("I")
         self.blockweights = array("f")
         self.blockvalues = []
+        self.blocklengths = []
         self.blockoffset = self.postfile.tell()
 
     def start(self, fieldnum):
@@ -123,10 +124,11 @@ class FilePostingWriter(PostingWriter):
 
         return self.startoffset
 
-    def write(self, id, valuestring):
+    def write(self, id, valuestring, dfl):
         self.blockids.append(id)
         self.blockvalues.append(valuestring)
         self.blockweights.append(self.format.decode_weight(valuestring))
+        self.blocklengths.append(dfl)
         if len(self.blockids) >= self.blocklimit:
             self._write_block()
 
@@ -156,13 +158,13 @@ class FilePostingWriter(PostingWriter):
 
     def _write_block(self):
         posting_size = self.format.posting_size
-        dfl_fn = self.dfl_fn
         fieldnum = self.fieldnum
         stringids = self.stringids
         pf = self.postfile
         ids = self.blockids
         values = self.blockvalues
         weights = self.blockweights
+        lengths = self.blocklengths
         postcount = len(ids)
 
         # Write the blockinfo
@@ -170,11 +172,10 @@ class FilePostingWriter(PostingWriter):
         maxweight = max(weights)
         maxwol = 0.0
         minlength = 0
-        if dfl_fn and self.schema[fieldnum].scorable:
-            lens = [dfl_fn(id, fieldnum) for id in ids]
-            minlength = min(lens)
+        if self.schema[fieldnum].scorable:
+            minlength = min(lengths)
             assert minlength > 0
-            maxwol = max(w / l for w, l in zip(weights, lens))
+            maxwol = max(w / l for w, l in zip(weights, lengths))
 
         blockinfo_start = pf.tell()
         blockinfo = BlockInfo(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
