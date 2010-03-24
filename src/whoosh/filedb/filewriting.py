@@ -79,6 +79,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             raise LockError
         
         self.index = ix
+        self.schema = ix.schema
         self.segments = ix.segments.copy()
         self.blocklimit = 128
         
