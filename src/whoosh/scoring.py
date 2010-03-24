@@ -34,6 +34,8 @@ class Weighting(object):
     appears.
     """
 
+    use_final = False
+
     def idf(self, searcher, fieldnum, text):
         """Calculates the Inverse Document Frequency of the
         current term. Subclasses may want to override this.
@@ -43,8 +45,9 @@ class Weighting(object):
         term = (fieldnum, text)
         if term in cache: return cache[term]
 
-        df = searcher.ixreader.doc_frequency(fieldnum, text)
-        idf = log(searcher.doccount / (df + 1)) + 1.0
+        n = searcher.ixreader.doc_frequency(fieldnum, text)
+        idf = log((searcher.doccount) / (n+1)) + 1
+        
         cache[term] = idf
         return idf
 
@@ -109,7 +112,7 @@ class WOLWeighting(Weighting):
     def quality_fn(self, searcher, fieldnum, text):
         dfl = searcher.doc_field_length
         def fn(m):
-            return m.weight() / dfl(m.id(), fieldnum)
+            return m.weight() / dfl(m.id(), fieldnum, 1)
         return fn
     
     def block_quality_fn(self, searcher, fieldnum, text):
@@ -157,7 +160,7 @@ class BM25F(WOLWeighting):
         return BM25F._score(B, self.K1, weight, l, avl, idf)
     
     def score_fn(self, searcher, fieldnum, text):
-        avl = searcher.avg_field_length[fieldnum]
+        avl = searcher.avg_field_length.get(fieldnum, 1)
         B = self._field_B.get(fieldnum, self.B)
         idf = self.idf(searcher, fieldnum, text)
         dfl = searcher.doc_field_length
@@ -170,7 +173,7 @@ class BM25F(WOLWeighting):
     
 
 class TF_IDF(Weighting):
-    """Instead of doing any real scoring, this simply returns tf * idf.
+    """Instead of doing any fancy scoring, simply returns weight * idf.
     """
 
     def score(self, searcher, fieldnum, text, docnum, weight):
@@ -180,14 +183,17 @@ class TF_IDF(Weighting):
         idf = searcher.idf(fieldnum, text)
         def fn(m):
             return idf * m.weight()
+        return fn
     
     def quality_fn(self, searcher, fieldnum, text):
         def fn(m):
             return m.weight()
+        return fn
     
     def block_quality_fn(self, searcher, fieldnum, text):
         def fn(m):
             return m.blockinfo.maxweight
+        return fn
 
 
 class Frequency(Weighting):
@@ -201,14 +207,17 @@ class Frequency(Weighting):
     def score_fn(self, searcher, fieldnum, text):
         def fn(m):
             return m.weight()
+        return fn
     
     def quality_fn(self, searcher, fieldnum, text):
         def fn(m):
             return m.weight()
+        return fn
     
     def block_quality_fn(self, searcher, fieldnum, text):
         def fn(m):
             return m.blockinfo.maxweight
+        return fn
 
 
 class MultiWeighting(Weighting):
@@ -253,6 +262,30 @@ class MultiWeighting(Weighting):
     def block_quality_fn(self, searcher, fieldnum, text):
         w = self._weighting(searcher, fieldnum)
         return w.block_quality_fn(searcher, fieldnum, text)
+
+
+class ReverseWeighting(Weighting):
+    """Wraps a Weighting object and subtracts its scores from 0, essentially
+    reversing the weighting.
+    """
+    
+    def __init__(self, weighting):
+        self.weighting = weighting
+        
+    def score(self, searcher, fieldnum, text, docnum, weight):
+        return 0-self.weighting.score(searcher, fieldnum, text, docnum, weight)
+    
+    def score_fn(self, searcher, fieldnum, text):
+        sfn = self.weighting.score_fn(searcher, fieldnum, text)
+        return lambda m: 0 - sfn(m)
+    
+    def quality_fn(self, searcher, fieldnum, text):
+        qfn = self.weighting.quality_fn(searcher, fieldnum, text)
+        return lambda m: 0 - qfn(m)
+    
+    def block_quality_fn(self, searcher, fieldnum, text):
+        qqfn = self.weighting.block_quality_fn(searcher, fieldnum, text)
+        return lambda m: 0 - qqfn(m)
 
 
 # Sorting classes

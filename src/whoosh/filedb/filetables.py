@@ -668,18 +668,23 @@ class LengthReader(object):
 
 class MemoryLengthReader(object):
     def __init__(self, lengths, doccount, scorables):
+        assert len(lengths) == doccount * len(scorables)
         self.lengths = lengths
         self.doccount = doccount
         self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
         
     def get(self, docnum, fieldnum, default=0):
+        if not self.lengths: return default
         try:
             index = self.indices[fieldnum]
         except KeyError:
             return default
         
         pos = (index * self.doccount) + docnum
-        return byte_to_length(self.lengths[pos])
+        try:
+            return byte_to_length(self.lengths[pos])
+        except IndexError, e:
+            raise IndexError("lens=%r pos=%r" % (self.lengths, pos))
     
     def close(self):
         pass

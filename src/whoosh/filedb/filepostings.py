@@ -84,8 +84,7 @@ class BlockInfo(object):
     
 
 class FilePostingWriter(PostingWriter):
-    def __init__(self, schema, postfile, stringids=False, blocklimit=128):
-        self.schema = schema
+    def __init__(self, postfile, stringids=False, blocklimit=128):
         self.postfile = postfile
         self.stringids = stringids
 
@@ -106,12 +105,11 @@ class FilePostingWriter(PostingWriter):
         self.blocklengths = []
         self.blockoffset = self.postfile.tell()
 
-    def start(self, fieldnum):
+    def start(self, format):
         if self.inblock:
             raise Exception("Called start() in a block")
 
-        self.fieldnum = fieldnum
-        self.format = self.schema[fieldnum].format
+        self.format = format
         self.blockcount = 0
         self.posttotal = 0
         self.startoffset = self.postfile.tell()
@@ -128,7 +126,8 @@ class FilePostingWriter(PostingWriter):
         self.blockids.append(id)
         self.blockvalues.append(valuestring)
         self.blockweights.append(self.format.decode_weight(valuestring))
-        self.blocklengths.append(dfl)
+        if dfl:
+            self.blocklengths.append(dfl)
         if len(self.blockids) >= self.blocklimit:
             self._write_block()
 
@@ -158,13 +157,11 @@ class FilePostingWriter(PostingWriter):
 
     def _write_block(self):
         posting_size = self.format.posting_size
-        fieldnum = self.fieldnum
         stringids = self.stringids
         pf = self.postfile
         ids = self.blockids
         values = self.blockvalues
         weights = self.blockweights
-        lengths = self.blocklengths
         postcount = len(ids)
 
         # Write the blockinfo
@@ -172,10 +169,9 @@ class FilePostingWriter(PostingWriter):
         maxweight = max(weights)
         maxwol = 0.0
         minlength = 0
-        if self.schema[fieldnum].scorable:
-            minlength = min(lengths)
-            assert minlength > 0
-            maxwol = max(w / l for w, l in zip(weights, lengths))
+        if self.blocklengths:
+            minlength = min(self.blocklengths)
+            maxwol = max(w / l for w, l in zip(weights, self.blocklengths))
 
         blockinfo_start = pf.tell()
         blockinfo = BlockInfo(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
@@ -242,6 +238,9 @@ class FilePostingReader(Matcher):
         self._active = True
         self.currentblock = -1
         self._next_block()
+
+    def close(self):
+        pass
 
     def copy(self):
         return self.__class__(self.postfile, self.startoffset, self.format,
@@ -388,7 +387,7 @@ class FilePostingReader(Matcher):
         return skipped
     
     def supports_quality(self):
-        return True
+        return self._scorefns and self._scorefns[1] and self._scorefns[2]
     
     def skip_to_quality(self, minquality):
         bq = self.block_quality
@@ -402,7 +401,7 @@ class FilePostingReader(Matcher):
         raise Exception("No block_quality function given")
     
     def score(self):
-        raise Exception("No score function given")
+        raise Exception("No score function given: %s" % repr(self._scorefns))
     
     
         

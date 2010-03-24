@@ -127,7 +127,7 @@ class IndexWriter(DeletionMixin):
     
 
 class PostingWriter(object):
-    def start(self, fieldnum):
+    def start(self, format):
         """Start a new set of postings for a new term. Implementations may
         raise an exception if this is called without a corresponding call to
         finish().

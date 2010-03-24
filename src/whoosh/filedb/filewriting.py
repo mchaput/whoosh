@@ -106,8 +106,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Term postings file
         pf = storage.create_file(segment.termposts_filename)
-        self.postwriter = FilePostingWriter(self.schema, pf,
-                                            blocklimit=blocklimit)
+        self.postwriter = FilePostingWriter(pf, blocklimit=blocklimit)
         
         if ix.schema.has_vectored_fields():
             # Vector index
@@ -165,7 +164,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 for fieldnum in vectored_fieldnums:
                     if reader.has_vector(docnum, fieldnum):
                         self._add_vector(fieldnum,
-                                         reader.vector(docnum, fieldnum).items())
+                                         reader.vector(docnum, fieldnum).all_items())
                 self.docnum += 1
         
         current_fieldnum = None
@@ -204,7 +203,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         docnum = self.docnum
         for name in fieldnames:
             value = fields.get(name)
-            if value:
+            if value is not None:
                 fieldnum = name2num(name)
                 field = schema.field_by_number(fieldnum)
                 
@@ -216,7 +215,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                     vlist = sorted((w, valuestring) for w, freq, valuestring
                                    in vformat.word_values(value, mode="index"))
                     self._add_vector(fieldnum, vlist)
-                    
+                
                 if field.stored:
                     # Caller can override the stored value by including a key
                     # _stored_<fieldname>
@@ -234,12 +233,10 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
     def _add_vector(self, fieldnum, vlist):
         vpostwriter = self.vpostwriter
-        vformat = self.schema[fieldnum].vector
-        
-        offset = vpostwriter.start(vformat)
+        offset = vpostwriter.start(self.schema[fieldnum].vector)
         for text, valuestring in vlist:
             assert isinstance(text, unicode), "%r is not unicode" % text
-            vpostwriter.write(text, valuestring)
+            vpostwriter.write(text, valuestring, 0)
         vpostwriter.finish()
         
         self.vectorindex.add((self.docnum, fieldnum), offset)

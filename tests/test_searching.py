@@ -31,9 +31,10 @@ class TestSearching(unittest.TestCase):
         return self._get_keys([s.stored_fields(docnum) for docnum
                                in q.docs(s)])
     
-    def _doc_scores(self, q, s, w):
-        return self._get_keys([s.stored_fields(docnum) for docnum, score
-                               in q.doc_scores(s, weighting = w)])
+    def _run_query(self, q, target):
+        ix = self.make_index()
+        s = ix.searcher()
+        self.assertEqual(target, self._docs(q, s))
     
     def test_empty_index(self):
         schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT)
@@ -47,11 +48,6 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
         self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
     
-    def _run_query(self, q, result):
-        ix = self.make_index()
-        s = ix.searcher()
-        self.assertEqual(self._docs(q, s), result)
-        
     def test_term(self):
         self._run_query(Term("name", u"yellow"), [u"A", u"E"])
         self._run_query(Term("value", u"zeta"), [])
@@ -69,28 +65,24 @@ class TestSearching(unittest.TestCase):
         self._run_query(Or([Term("value", u"red"), Term("name", u"yellow")]),
                         [u"A", u"D", u"E"])
     
-    def test_or_minmatch(self):
-        schema = fields.Schema(k=fields.STORED, v=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(schema)
-        
-        w = ix.writer()
-        w.add_document(k=1, v=u"alfa bravo charlie delta echo")
-        w.add_document(k=2, v=u"bravo charlie delta echo foxtrot")
-        w.add_document(k=3, v=u"charlie delta echo foxtrot golf")
-        w.add_document(k=4, v=u"delta echo foxtrot golf hotel")
-        w.add_document(k=5, v=u"echo foxtrot golf hotel india")
-        w.add_document(k=6, v=u"foxtrot golf hotel india juliet")
-        w.commit()
-        
-        s = ix.searcher()
-        q = Or([Term("v", "echo"), Term("v", "foxtrot")], minmatch=2)
-        r = s.search(q)
-        self.assertEqual(sorted(d["k"] for d in r), [2, 3, 4, 5])
-    
     def test_not(self):
         self._run_query(Or([Term("value", u"red"), Term("name", u"yellow"), Not(Term("name", u"quick"))]),
                         [u"A", u"E"])
+    
+    def test_topnot(self):
+        self._run_query(Not(Term("value", "red")), [u"B", "C", "E"])
+        self._run_query(Not(Term("name", "yellow")), [u"B", u"C", u"D"])
+    
+    def test_andnot(self):
+        self._run_query(AndNot(Term("name", u"yellow"), Term("value", u"purple")),
+                        [u"E"])
+    
+    def test_variations(self):
+        self._run_query(Variations("value", u"render"), [u"A", u"C", u"E"])
+    
+    def test_wildcard(self):
+        self._run_query(Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
+                        [u"A", u"C", u"D", u"E"])
     
     def test_not2(self):
         schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
@@ -121,25 +113,24 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(sorted([d["name"] for d in results]), ["d", "e"])
         searcher.close()
     
-    def test_andnot(self):
-        self._run_query(AndNot(Term("name", u"yellow"), Term("value", u"purple")),
-                        [u"E"])
-    
-    def test_variations(self):
-        self._run_query(Variations("value", u"render"), [u"A", u"C", u"E"])
-    
-    def test_topnot(self):
-        self._run_query(Not(Term("name", "yellow")), [u"B", u"C", u"D"])
-    
-    def test_wildcard(self):
-        self._run_query(Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
-                        [u"A", u"C", u"D", u"E"])
-    
-#        for wcls in dir(scoring):
-#            if wcls is scoring.Weighting: continue
-#            if isinstance(wcls, scoring.Weighting):
-#                for query, result in tests:
-#                    self.assertEqual(self._doc_scores(query, s, wcls), result)
+#    def test_or_minmatch(self):
+#        schema = fields.Schema(k=fields.STORED, v=fields.TEXT)
+#        st = RamStorage()
+#        ix = st.create_index(schema)
+#        
+#        w = ix.writer()
+#        w.add_document(k=1, v=u"alfa bravo charlie delta echo")
+#        w.add_document(k=2, v=u"bravo charlie delta echo foxtrot")
+#        w.add_document(k=3, v=u"charlie delta echo foxtrot golf")
+#        w.add_document(k=4, v=u"delta echo foxtrot golf hotel")
+#        w.add_document(k=5, v=u"echo foxtrot golf hotel india")
+#        w.add_document(k=6, v=u"foxtrot golf hotel india juliet")
+#        w.commit()
+#        
+#        s = ix.searcher()
+#        q = Or([Term("v", "echo"), Term("v", "foxtrot")], minmatch=2)
+#        r = s.search(q)
+#        self.assertEqual(sorted(d["k"] for d in r), [2, 3, 4, 5])
     
     def test_range(self):
         schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
@@ -327,7 +318,7 @@ class TestSearching(unittest.TestCase):
         writer.add_document(title=u"Miss Mary",
                             content=u"Mary had a little white lamb its fleece was white as snow")
         writer.add_document(title=u"Snow White",
-                            content=u"Snow white lived in the forrest with seven dwarfs")
+                            content=u"Snow white lived in the forest with seven dwarfs")
         writer.commit()
         
         searcher = ix.searcher()
@@ -357,8 +348,8 @@ class TestSearching(unittest.TestCase):
             return sorted([fields['name'] for fields in results])
         
         q = query.Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
-        sc = q.scorer(searcher)
-        self.assertEqual(sc.__class__.__name__, "PostingPhraseScorer")
+        m = q.matcher(searcher)
+        self.assertEqual(m.__class__.__name__, "PostingPhraseMatcher")
         
         self.assertEqual(names(searcher.search(q)), ["A"])
         
@@ -379,7 +370,9 @@ class TestSearching(unittest.TestCase):
     
     def test_vector_phrase(self):
         ana = analysis.StandardAnalyzer()
-        ftype = fields.FieldType(formats.Frequency(ana), formats.Positions(ana), scorable=True)
+        ftype = fields.FieldType(format=formats.Frequency(ana),
+                                 vector=formats.Positions(ana),
+                                 scorable=True)
         schema = fields.Schema(name=fields.ID(stored=True), value=ftype)
         storage = RamStorage()
         ix = storage.create_index(schema)
@@ -397,8 +390,8 @@ class TestSearching(unittest.TestCase):
             return sorted([fields['name'] for fields in results])
         
         q = query.Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
-        sc = q.scorer(searcher)
-        self.assertEqual(sc.__class__.__name__, "VectorPhraseScorer")
+        m = q.matcher(searcher)
+        self.assertEqual(m.__class__.__name__, "VectorPhraseMatcher")
         
         self.assertEqual(names(searcher.search(q)), ["A"])
         
@@ -430,13 +423,13 @@ class TestSearching(unittest.TestCase):
         
         searcher = ix.searcher()
         q = query.Phrase("value", [u"little", u"miss", u"muffet"])
-        sc = q.scorer(searcher)
-        self.assertEqual(sc.id, 0)
-        score1 = sc.weight()
-        self.assert_(score1 > 0)
-        sc.next()
-        self.assertEqual(sc.id, 3)
-        self.assert_(sc.weight() > score1)
+        m = q.matcher(searcher)
+        self.assertEqual(m.id(), 0)
+        score1 = m.weight()
+        self.assertTrue(score1 > 0)
+        m.next()
+        self.assertEqual(m.id(), 3)
+        self.assertTrue(m.weight() > score1)
 
     def test_stop_phrase(self):
         schema = fields.Schema(title=fields.TEXT(stored=True))
@@ -584,29 +577,27 @@ class TestSearching(unittest.TestCase):
         r = s.search(qparser.QueryParser("a").parse(u"charlie"))
         self.assertEqual(len(r), 3)
         rcopy = r.copy()
-        self.assertEqual(r.scored_list, rcopy.scored_list)
+        self.assertEqual(r.top_n, rcopy.top_n)
         self.assertEqual(r.scores, rcopy.scores)
-        self.assertEqual(r.docs, rcopy.docs)
-        self.assert_(r.docs is not rcopy.docs)
         
     def test_weighting(self):
         from whoosh.scoring import Weighting
         
         schema = fields.Schema(id=fields.ID(stored=True),
-                               n_comments=fields.ID(stored=True))
+                               n_comments=fields.STORED)
         st = RamStorage()
         ix = st.create_index(schema)
         
         w = ix.writer()
-        w.add_document(id=u"1", n_comments=u"5")
-        w.add_document(id=u"2", n_comments=u"12")
-        w.add_document(id=u"3", n_comments=u"2")
-        w.add_document(id=u"4", n_comments=u"7")
+        w.add_document(id=u"1", n_comments=5)
+        w.add_document(id=u"2", n_comments=12)
+        w.add_document(id=u"3", n_comments=2)
+        w.add_document(id=u"4", n_comments=7)
         w.commit()
         
         class CommentWeighting(Weighting):
             def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-                ncomments = int(searcher.stored_fields(docnum).get("n_comments", "0"))
+                ncomments = searcher.stored_fields(docnum).get("n_comments", 0)
                 return ncomments
         
         s = ix.searcher(weighting=CommentWeighting())
@@ -615,12 +606,14 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(ids, ["2", "4", "1", "3"])
     
     def test_dismax(self):
-        schema = fields.Schema(id=fields.STORED, f1=fields.TEXT, f2=fields.TEXT, f3=fields.TEXT)
+        schema = fields.Schema(id=fields.STORED,
+                               f1=fields.TEXT, f2=fields.TEXT, f3=fields.TEXT)
         st = RamStorage()
         ix = st.create_index(schema)
         
         w = ix.writer()
-        w.add_document(id=1, f1=u"alfa bravo charlie delta", f2=u"alfa alfa alfa",
+        w.add_document(id=1, f1=u"alfa bravo charlie delta",
+                       f2=u"alfa alfa alfa",
                        f3 = u"alfa echo foxtrot hotel india")
         w.commit()
         
@@ -628,37 +621,37 @@ class TestSearching(unittest.TestCase):
         qs = [Term("f1", "alfa"), Term("f2", "alfa"), Term("f3", "alfa")]
         r = s.search(DisjunctionMax(qs))
         self.assertEqual(r.score(0), 3.0)
-        r = s.search(DisjunctionMax(qs, tiebreak=0.5))
-        self.assertEqual(r.score(0), 3.0 + 0.5 + 1.5 + 0.5)
     
     def test_finalweighting(self):
         from whoosh.scoring import Weighting
         
         schema = fields.Schema(id=fields.ID(stored=True),
                                summary=fields.TEXT,
-                               n_comments=fields.ID(stored=True))
+                               n_comments=fields.STORED)
         st = RamStorage()
         ix = st.create_index(schema)
         
         w = ix.writer()
-        w.add_document(id=u"1", summary=u"alfa bravo", n_comments=u"5")
-        w.add_document(id=u"2", summary=u"alfa", n_comments=u"12")
-        w.add_document(id=u"3", summary=u"bravo", n_comments=u"2")
-        w.add_document(id=u"4", summary=u"bravo bravo", n_comments=u"7")
+        w.add_document(id=u"1", summary=u"alfa bravo", n_comments=5)
+        w.add_document(id=u"2", summary=u"alfa", n_comments=12)
+        w.add_document(id=u"3", summary=u"bravo", n_comments=2)
+        w.add_document(id=u"4", summary=u"bravo bravo", n_comments=7)
         w.commit()
         
         class CommentWeighting(Weighting):
+            use_final = True
+            
             def score(self, *args, **kwargs):
                 return 0
             
             def final(self, searcher, docnum, score):
-                ncomments = int(searcher.stored_fields(docnum).get("n_comments"))
+                ncomments = searcher.stored_fields(docnum).get("n_comments", 0)
                 return ncomments
         
         s = ix.searcher(weighting=CommentWeighting())
         r = s.search(qparser.QueryParser("summary").parse("alfa OR bravo"))
         ids = [fs["id"] for fs in r]
-        self.assertEqual(ids, ["2", "4", "1", "3"])
+        self.assertEqual(["2", "4", "1", "3"], ids)
         
     def test_pages(self):
         from whoosh.scoring import Frequency

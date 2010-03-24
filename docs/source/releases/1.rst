@@ -1,0 +1,22 @@
+========================
+Whoosh 1.0 release notes
+========================
+
+API changes
+===========
+
+* Custom Weighting implementations that use the ``final()`` method must now
+  set the ``use_final`` attribute to ``True``::
+  
+  	from whoosh.scoring import BM25F
+  
+  	class MyWeighting(BM25F):
+  		use_final = True
+  		
+  		def final(searcher, docnum, score):
+  			return score + docnum * 10
+  			
+  This disables the new optimizations, forcing Whoosh to score every matching
+  document.
+  
+
