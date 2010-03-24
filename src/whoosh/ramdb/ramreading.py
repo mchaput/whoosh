@@ -30,7 +30,7 @@ class RamIndexReader(IndexReader):
         
     def __contains__(self, term):
         fieldid, text = term
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         inv = self.ix.invertedindex
         return fieldnum in inv and text in inv[fieldnum]
     
@@ -61,19 +61,19 @@ class RamIndexReader(IndexReader):
         return self.ix.fieldlength_totals[fieldnum]
     
     def doc_field_length(self, docnum, fieldid):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         return self.ix.fieldlengths[(docnum, fieldnum)]
     
     def max_field_length(self, fieldnum):
         return self.ix.fieldlength_maxes[fieldnum]
     
     def has_vector(self, docnum, fieldid):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         return (docnum, fieldnum) in self.ix.vectors
     
     def vector(self, docnum, fieldid):
-        fieldnum = self.ix.schema.to_number(fieldid)
-        vformat = self.ix.schema[fieldnum].vector
+        fieldnum = self.schema.to_number(fieldid)
+        vformat = self.schema[fieldnum].vector
         return RamPostingReader(vformat, self.ix.vectors[(docnum, fieldnum)])
     
     def __iter__(self):
@@ -87,11 +87,11 @@ class RamIndexReader(IndexReader):
                 yield (fieldnum, text, docfreq, indexfreq)
                 
     def doc_frequency(self, fieldid, text):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         return len(self.ix.invertedindex[fieldnum][text])
     
     def frequency(self, fieldid, text):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         return self.ix.indexfreqs[(fieldnum, text)]
     
     def iter_from(self, fieldid, text):
@@ -99,7 +99,7 @@ class RamIndexReader(IndexReader):
         inv = self.ix.invertedindex
         ixf = self.ix.indexfreqs
         
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         fieldtexts = tls[fieldnum]
         start = bisect_left(fieldtexts, text)
         for text in fieldtexts[start:]:
@@ -108,11 +108,11 @@ class RamIndexReader(IndexReader):
             yield (fieldnum, text, docfreq, indexfreq)
     
     def lexicon(self, fieldid):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         return self.ix.termlists[fieldnum]
     
     def expand_prefix(self, fieldid, prefix):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         fieldtexts = self.ix.termlists[fieldnum]
         start = bisect_left(fieldtexts, prefix)
         for text in fieldtexts[start:]:
@@ -122,7 +122,7 @@ class RamIndexReader(IndexReader):
                 break
             
     def postings(self, fieldid, text, exclude_docs = None):
-        fieldnum = self.ix.schema.to_number(fieldid)
+        fieldnum = self.schema.to_number(fieldid)
         if not exclude_docs:
             exclude_docs = frozenset()
         excludeset = self.ix.deleted | exclude_docs
