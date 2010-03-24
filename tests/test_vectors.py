@@ -58,11 +58,11 @@ class TestVectors(unittest.TestCase):
             searcher = Searcher(reader)
             
             docnum = searcher.document_number(title=u"one")
-            vec = list(reader.vector(docnum, "content").items_as("frequency"))
+            vec = list(reader.vector_as("frequency", docnum, "content"))
             self.assertEqual(vec, [(u'black', 1), (u'hole', 1), (u'story', 2)])
             
             docnum = searcher.document_number(title=u"two")
-            vec = list(searcher.vector_as("frequency", docnum, "content"))
+            vec = list(reader.vector_as("frequency", docnum, "content"))
             self.assertEqual(vec, [(u'along', 1), (u'book', 1), (u'read', 1)])
         finally:
             pass

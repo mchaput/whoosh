@@ -155,6 +155,7 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
     current_freq = 0
     offset = None
     getlength = lengths.get
+    format = None
 
     # Loop through the postings in the pool. Postings always come out of
     # the pool in (field number, lexical) order.
@@ -171,10 +172,12 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
                               (current_freq, offset, postcount))
 
             # Reset the post writer and the term variables
+            if fieldnum != current_fieldnum:
+                format = schema[fieldnum].format
             current_fieldnum = fieldnum
             current_text = text
             current_freq = 0
-            offset = postwriter.start(fieldnum)
+            offset = postwriter.start(format)
 
         elif (fieldnum < current_fieldnum
               or (fieldnum == current_fieldnum and text < current_text)):
@@ -278,7 +281,8 @@ class TempfilePool(PoolBase):
             #print "Flushing..."
             self.dump_run()
 
-        self.size += len(text) + 2 + 8 + len(datastring)
+        self.size += len(text) + 2 + 8
+        if datastring: self.size += len(datastring)
         self.postings.append((fieldnum, text, docnum, freq, datastring))
         self.count += 1
     
@@ -328,13 +332,16 @@ class TempfilePool(PoolBase):
     
     def _lengths_array(self, doccount):
         full = array("B")
-        for fieldnum in sorted(self.length_arrays.keys()):
-            arry = self.length_arrays[fieldnum]
-            if len(arry) < doccount:
-                for _ in xrange(doccount - len(arry)):
-                    arry.append(0)
-            full.extend(arry)
-            del self.length_arrays[fieldnum]
+        for fieldnum in self.schema.scorable_fields():
+            if fieldnum in self.length_arrays:
+                arry = self.length_arrays[fieldnum]
+                if len(arry) < doccount:
+                    for _ in xrange(doccount - len(arry)):
+                        arry.append(0)
+                full.extend(arry)
+                del self.length_arrays[fieldnum]
+            else:
+                full.extend(0 for _ in xrange(doccount))
         return full
     
     def _finish_lengths(self, lengthfile, doccount):
@@ -350,7 +357,6 @@ class TempfilePool(PoolBase):
     
     def finish(self, doccount, lengthfile, termtable, postingwriter):
         lengtharray = self._finish_lengths(lengthfile, doccount)
-        print "la=", lengtharray
         lengths = MemoryLengthReader(lengtharray, doccount,
                                      self.schema.scorable_fields())
         

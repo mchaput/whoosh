@@ -17,7 +17,7 @@
 from bisect import bisect_left
 from time import clock as now
 
-from whoosh.postings import PostingReader, ReadTooFar
+from whoosh.matching import Matcher, ReadTooFar
 from whoosh.reading import IndexReader
 
 
@@ -135,7 +135,7 @@ class RamIndexReader(IndexReader):
         return RamPostingReader(format, postings)
 
 
-class RamPostingReader(PostingReader):
+class RamPostingReader(Matcher):
     def __init__(self, format, postings):
         self.format = format
         self.postings = postings

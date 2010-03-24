@@ -1,35 +1,36 @@
-import os, os.path, unittest
+import unittest
 from random import random, randint
 
 from whoosh.formats import *
-from whoosh.postings import ListReader, IntersectionScorer, UnionScorer, Exclude
+from whoosh.matching import (ListMatcher, IntersectionMatcher, UnionMatcher,
+                             ExcludeMatcher)
 from whoosh.filedb.filestore import FileStorage
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
-from whoosh.util import float_to_byte, byte_to_float
 
 
 class TestMultireaders(unittest.TestCase):
     def make_readers(self):
-        c1 = ListReader([10, 12, 20, 30, 40, 50, 60])
-        c2 = ListReader([2, 12, 20, 25, 30, 45, 50])
-        c3 = ListReader([15, 19, 20, 21, 28, 30, 31, 50])
+        c1 = ListMatcher([10, 12, 20, 30, 40, 50, 60])
+        c2 = ListMatcher([2, 12, 20, 25, 30, 45, 50])
+        c3 = ListMatcher([15, 19, 20, 21, 28, 30, 31, 50])
         return (c1, c2, c3)
     
     def test_intersect(self):
-        isect = IntersectionScorer(self.make_readers())
+        c1, c2, c3 = self.make_readers()
+        isect = IntersectionMatcher(c1, IntersectionMatcher(c2, c3))
         self.assertEqual(list(isect.all_ids()), [20, 30, 50])
 
     def test_union(self):
         c1, c2, c3 = self.make_readers()
-        idset = sorted(set(c1.ids + c2.ids + c3.ids))
-        union = UnionScorer([c1, c2, c3])
+        idset = sorted(set(c1._ids + c2._ids + c3._ids))
+        union = UnionMatcher(c1, UnionMatcher(c2, c3))
         self.assertEqual(list(union.all_ids()), idset)
         
     def test_exclude(self):
         excluded = set((12, 20, 25, 32, 50))
         for c in self.make_readers():
-            target = sorted(set(c.ids) - excluded)
-            excl = Exclude(c, excluded)
+            target = sorted(set(c._ids) - excluded)
+            excl = ExcludeMatcher(c, excluded)
             self.assertEqual(list(excl.all_ids()), target)
 
 class TestReadWrite(unittest.TestCase):
@@ -64,7 +65,7 @@ class TestReadWrite(unittest.TestCase):
             fpw = FilePostingWriter(postfile, blocklimit=8)
             fpw.start(format)
             for id, freq in postings:
-                fpw.write(id, format.encode(freq))
+                fpw.write(id, format.encode(freq), 0)
             fpw.close()
             
             postfile = self.open_file("readwrite")
@@ -83,7 +84,7 @@ class TestReadWrite(unittest.TestCase):
             fpw = FilePostingWriter(postfile, blocklimit=8)
             fpw.start(format)
             for id, freq in postings:
-                fpw.write(id, format.encode(freq))
+                fpw.write(id, format.encode(freq), 0)
             fpw.close()
             
             postfile = self.open_file("skip")
@@ -101,12 +102,12 @@ class TestReadWrite(unittest.TestCase):
             fpw = FilePostingWriter(postfile, blocklimit=8)
             fpw.start(format)
             for id, value in postings:
-                fpw.write(id, format.encode(value))
+                fpw.write(id, format.encode(value), 0)
             fpw.close()
             
             postfile = self.open_file(astype)
             fpr = FilePostingReader(postfile, 0, format)
-            readback = list(fpr.all_as(astype))
+            readback = list(fpr.items_as(format.decoder(astype)))
             fpr.close()
         finally:
             self.delete_file(astype)

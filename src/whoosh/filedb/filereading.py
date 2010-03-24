@@ -127,6 +127,7 @@ class SegmentReader(IndexReader):
 
     @protected
     def doc_field_length(self, docnum, fieldnum, default=0):
+        if self.fieldlengths is None: return default
         return self.fieldlengths.get(docnum, fieldnum, default=default)
 
     def max_field_length(self, fieldnum):

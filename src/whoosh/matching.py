@@ -83,11 +83,15 @@ class Matcher(object):
                 self = self.replace()
                 i = 0
     
+    def items_as(self, decoder):
+        return ((id, decoder(v)) for id, v in self.all_items())
+    
     def value(self):
         raise NotImplementedError
     
     def skip_to(self, id):
-        raise NotImplementedError
+        while self.is_active() and self.id() < id:
+            self.next()
     
     def next(self):
         raise NotImplementedError
@@ -99,9 +103,43 @@ class Matcher(object):
         raise NotImplementedError
     
 
-class NullMatcher(object):
+class NullMatcher(Matcher):
     def is_active(self):
         return False
+    
+    def all_ids(self):
+        return []
+
+
+class ListMatcher(Matcher):
+    def __init__(self, ids, position=0, weight=1.0):
+        self._ids = ids
+        self._i = position
+        self._weight = weight
+    
+    def __repr__(self):
+        return "%s(%r, %d)" % (self.__class__.__name__, self._ids, self._i)
+    
+    def is_active(self):
+        return self._i < len(self._ids)
+    
+    def copy(self):
+        return self.__class__(self._ids[:], self._i, self._weight)
+    
+    def id(self):
+        return self._ids[self._i]
+    
+    def all_ids(self):
+        return iter(self._ids)
+    
+    def next(self):
+        self._i += 1
+        
+    def weight(self):
+        return self._weight
+    
+    def score(self):
+        return self._weight
 
 
 class WrappingMatcher(Matcher):
@@ -120,7 +158,7 @@ class WrappingMatcher(Matcher):
     
     def replace(self):
         r = self.child.replace()
-        if not r.is_active(): return NullMatcher
+        if not r.is_active(): return NullMatcher()
         if r is not self.child: return self.__class__(r)
         return self
     
@@ -166,22 +204,16 @@ class MultiMatcher(Matcher):
         self.matchers = matchers
         self.offsets = idoffsets
         self.current = 0
-        self._active = bool(matchers)
         self._next_matcher()
-        
-    def _next_matcher(self):
-        if not self._active: return
-        matchers = self.matchers
-        current = self.current
-        
-        while not matchers[current].is_active():
-            current += 1
-            if current >= len(matchers):
-                self._active = False
-                return
-        
-        self.current = current
     
+    def is_active(self):
+        return self.current < len(self.matchers)
+    
+    def _next_matcher(self):
+        matchers = self.matchers
+        while self.current < len(matchers) and not matchers[self.current].is_active():
+            self.current += 1
+        
     def copy(self):
         return self.__class__([mr.copy() for mr in self.matchers[self.current:]],
                               self.offsets[self.current:])
@@ -189,13 +221,11 @@ class MultiMatcher(Matcher):
     def depth(self):
         return 1 + max(mr.depth() for mr in self.matchers[self.current:])
     
-    def is_active(self):
-        return self._active
-    
     def replace(self):
-        if not self._active: return NullMatcher()
+        if not self.is_active(): return NullMatcher()
         if self.current == len(self.matchers) - 1:
             return self.matchers[-1]
+        return self
     
     def id(self):
         current = self.current
@@ -211,38 +241,29 @@ class MultiMatcher(Matcher):
         return self.matchers[self.current].value()
     
     def next(self):
+        if not self.is_active(): raise ReadTooFar
+        
+        self.matchers[self.current].next()
         if not self.matchers[self.current].is_active():
             self._next_matcher()
-        if not self._active: raise ReadTooFar
         
-        return self.matchers[self.current].next()
-    
     def skip_to(self, id):
-        if not self._active: raise ReadTooFar
+        if not self.is_active(): raise ReadTooFar
         if id <= self.id(): return
         
-        current = self.current
         matchers = self.matchers
         offsets = self.offsets
         r = False
         
-        while current < len(matchers):
-            mr = matchers[current]
-            if not mr.is_active():
-                current += 1
-                continue
-            
-            if id < mr.id():
-                break
-            
-            sr = mr.skip_to(id - offsets[current])
+        while self.current < len(matchers) and id > self.id():
+            mr = matchers[self.current]
+            sr = mr.skip_to(id - offsets[self.current])
             r = sr or r
             if mr.is_active():
                 break
             
-            current += 1
+            self.current += 1
             
-        self.current = current
         return r
     
     def supports_quality(self):
@@ -265,7 +286,7 @@ class ExcludeMatcher(WrappingMatcher):
     def __init__(self, child, excluded):
         super(ExcludeMatcher, self).__init__(child)
         self.excluded = excluded
-        self.find_next()
+        self._find_next()
     
     def _find_next(self):
         child = self.child
@@ -311,7 +332,7 @@ class BiMatcher(Matcher):
         return 1 + max(self.a.depth(), self.b.depth())
 
     def skip_to(self, id):
-        if not self.active(): raise ReadTooFar
+        if not self.is_active(): raise ReadTooFar
         ra = self.a.skip_to(id)
         rb = self.b.skip_to(id)
         return ra or rb
@@ -348,7 +369,7 @@ class UnionMatcher(AdditiveBiMatcher):
         
         a_active = a.is_active()
         b_active = b.is_active()
-        if not (a_active or b_active): return NullMatcher
+        if not (a_active or b_active): return NullMatcher()
         if not a_active:
             return b
         if not b_active:
@@ -369,7 +390,7 @@ class UnionMatcher(AdditiveBiMatcher):
         return min(a.id(), b.id())
     
     def all_ids(self):
-        return iter(set(self.a.all_ids()) | set(self.b.all_ids()))
+        return iter(sorted(set(self.a.all_ids()) | set(self.b.all_ids())))
     
     def next(self):
         a = self.a
@@ -435,9 +456,8 @@ class UnionMatcher(AdditiveBiMatcher):
         
 
 class DisjunctionMaxMatcher(UnionMatcher):
-    def __init__(self, a, b, tiebreak=0.0, boost=1.0):
-        super(DisjunctionMaxMatcher, self).__init__(a, b, boost=boost)
-        self.tiebreak = tiebreak
+    def __init__(self, a, b):
+        super(DisjunctionMaxMatcher, self).__init__(a, b)
     
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy(),
@@ -481,8 +501,8 @@ class IntersectionMatcher(AdditiveBiMatcher):
     """Matches the intersection (AND) of the postings in the two sub-matchers.
     """
     
-    def __init__(self, a, b, boost=1.0):
-        super(IntersectionMatcher, self).__init__(a, b, boost=boost)
+    def __init__(self, a, b):
+        super(IntersectionMatcher, self).__init__(a, b)
         if self.a.id() != self.b.id():
             self._find_next()
     
@@ -492,7 +512,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
         
         a_active = a
         b_active = b.is_active()
-        if not (a_active and b_active): return NullMatcher
+        if not (a_active and b_active): return NullMatcher()
         
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
@@ -512,10 +532,12 @@ class IntersectionMatcher(AdditiveBiMatcher):
         while a.is_active() and b.is_active() and a_id != b_id:
             if a_id < b_id:
                 ra = a.skip_to(b_id)
+                if not a.is_active(): return
                 r = r or ra
                 a_id = a.id()
             else:
                 rb = b.skip_to(a_id)
+                if not b.is_active(): return
                 r = r or rb
                 b_id = b.id()
         return r
@@ -524,14 +546,17 @@ class IntersectionMatcher(AdditiveBiMatcher):
         return self.a.id()
     
     def all_ids(self):
-        return iter(set(self.a.all_ids()) & set(self.b.all_ids()))
+        return iter(sorted(set(self.a.all_ids()) & set(self.b.all_ids())))
     
     def skip_to(self, id):
         if not self.is_active(): raise ReadTooFar
         ra = self.a.skip_to(id)
         rb = self.b.skip_to(id)
-        rn = self._find_next()
-        return ra or rb or rn
+        if self.is_active():
+            rn = False
+            if self.a.id() != self.b.id():
+                rn = self._find_next()
+            return ra or rb or rn
     
     def skip_to_quality(self, minquality):
         a = self.a
@@ -568,6 +593,9 @@ class AndNotMatcher(BiMatcher):
     the second sub-matcher.
     """
 
+    def is_active(self):
+        return self.a.is_active()
+
     def _find_next(self):
         pos = self.a
         neg = self.b
@@ -587,7 +615,7 @@ class AndNotMatcher(BiMatcher):
         return r
     
     def replace(self):
-        if not self.a.is_active(): return NullMatcher
+        if not self.a.is_active(): return NullMatcher()
         if not self.b.is_active(): return self.a
         return self
     
@@ -606,7 +634,7 @@ class AndNotMatcher(BiMatcher):
         return self.a.id()
     
     def all_ids(self):
-        return iter(set(self.a.all_ids()) - set(self.b.all_ids()))
+        return iter(sorted(set(self.a.all_ids()) - set(self.b.all_ids())))
     
     def next(self):
         if not self.a.is_active(): raise ReadTooFar
@@ -635,20 +663,20 @@ class InverseMatcher(WrappingMatcher):
     wrapped matcher.
     """
     
-    def __init__(self, child, maxid, missing=None, weight=1.0):
+    def __init__(self, child, limit, missing=None, weight=1.0):
         super(InverseMatcher, self).__init__(child)
-        self.maxid = maxid
+        self.limit = limit
         self._weight = weight
         self.missing = missing or (lambda id: False)
         self._id = 0
         self._find_next()
     
     def copy(self):
-        return self.__class__(self.child.copy(), self.maxid,
+        return self.__class__(self.child.copy(), self.limit,
                               weight=self._weight, missing=self.missing)
     
     def is_active(self):
-        return self._id is not None
+        return self._id < self.limit
     
     def supports_quality(self):
         return False
@@ -656,27 +684,40 @@ class InverseMatcher(WrappingMatcher):
     def _find_next(self):
         child = self.child
         missing = self.missing
-        while self._id == child.id() and not missing(id):
+        
+        if not child.is_active() and not missing(self._id):
+            return
+        
+        if child.is_active() and child.id() < self._id:
+            child.skip_to(self._id)
+        
+        while self._id < self.limit and ((child.is_active() and self._id == child.id()) or missing(id)):
             self._id += 1
             if child.is_active():
                 child.next()
-        if self._id >= self.maxid:
-            self._id = None
+    
+    def id(self):
+        return self._id
+    
+    def all_ids(self):
+        missing = self.missing
+        negs = set(self.child.all_ids())
+        return (id for id in xrange(self.limit)
+                if id not in negs and not missing(id))
     
     def next(self):
-        if self._id is None: raise ReadTooFar
+        if self._id >= self.limit: raise ReadTooFar
         self._id += 1
-        return self._find_next()
+        self._find_next()
         
     def skip_to(self, id):
-        _id = self._id
-        if _id is None: raise ReadTooFar
-        if id < _id: return
+        if self._id >= self.limit: raise ReadTooFar
+        if id < self._id: return
         self._id = id
         self._find_next()
     
     def weight(self):
-        return self.weight
+        return self._weight
     
     def score(self):
         return self._weight
@@ -696,7 +737,7 @@ class RequireMatcher(WrappingMatcher):
         return self.__class__(self.a.copy(), self.b.copy())
     
     def replace(self):
-        if not self.child.is_active(): return NullMatcher
+        if not self.child.is_active(): return NullMatcher()
         return self
     
     def quality(self):
@@ -730,7 +771,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     def replace(self):
         ar = self.a.replace()
         br = self.b.replace()
-        if not ar.is_active(): return NullMatcher
+        if not ar.is_active(): return NullMatcher()
         if not br.is_active(): return ar
         if ar is not self.a or br is not self.b:
             return self.__class__(ar, br)
@@ -750,14 +791,15 @@ class AndMaybeMatcher(AdditiveBiMatcher):
 
 
 class BasePhraseMatcher(WrappingMatcher):
-    def __init__(self, isect, decodefn, slop=1):
+    def __init__(self, isect, decodefn, slop=1, boost=1.0):
         self.child = isect
         self.decode_positions = decodefn
         self.slop = slop
+        self.boost = boost
         self._find_next()
     
     def next(self):
-        ri = self.isect.next()
+        ri = self.child.next()
         rn = self._find_next()
         return ri or rn
     
@@ -802,9 +844,10 @@ class BasePhraseMatcher(WrappingMatcher):
 
 
 class PostingPhraseMatcher(BasePhraseMatcher):
-    def __init__(self, wordmatchers, isect, decodefn, slop=1):
-        super(PostingPhraseMatcher, self).__init__(isect, decodefn, slop=slop)
+    def __init__(self, wordmatchers, isect, decodefn, slop=1, boost=1.0):
         self.wordmatchers = wordmatchers
+        super(PostingPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
+                                                   boost=boost)
     
     def _poses(self):
         decode_positions = self.decode_positions
@@ -812,7 +855,7 @@ class PostingPhraseMatcher(BasePhraseMatcher):
 
 
 class VectorPhraseMatcher(BasePhraseMatcher):
-    def __init__(self, searcher, fieldnum, words, isect, slop=1):
+    def __init__(self, searcher, fieldnum, words, isect, slop=1, boost=1.0):
         """
         :param reader: an IndexReader.
         :param words: a sequence of token texts representing the words in the
@@ -821,12 +864,13 @@ class VectorPhraseMatcher(BasePhraseMatcher):
         :param slop: 
         """
         
-        decodefn = searcher.field(fieldnum).format.decoder("positions")
-        super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop)
+        decodefn = searcher.field(fieldnum).vector.decoder("positions")
         self.reader = searcher.reader()
         self.fieldnum = fieldnum
         self.words = words
         self.sortedwords = sorted(self.words)
+        super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
+                                                  boost=boost)
     
     def _poses(self):
         vreader = self.reader.vector(self.child.id(), self.fieldnum)
@@ -834,9 +878,9 @@ class VectorPhraseMatcher(BasePhraseMatcher):
         decode_positions = self.decode_positions
         for word in self.sortedwords:
             vreader.skip_to(word)
-            if vreader.id != word:
+            if vreader.id() != word:
                 raise Exception("Phrase query: %r in term index but not in"
-                                "vector (possible analyzer mismatch" % word)
+                                " vector (possible analyzer mismatch)" % word)
             poses[word] = decode_positions(vreader.value())
         # Now put the position lists in phrase order
         return [poses[word] for word in self.words]

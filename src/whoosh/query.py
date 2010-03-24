@@ -327,7 +327,9 @@ class CompoundQuery(Query):
     def _submatchers(self, searcher, exclude_docs):
         subs, nots = self._split_queries()
         exclude_docs = _not_vector(searcher, nots, exclude_docs)
-        subs.sort(key=lambda q: q.estimate_size(searcher))
+        
+        r = searcher.reader()
+        subs.sort(key=lambda q: q.estimate_size(r))
         
         return [subquery.matcher(searcher, exclude_docs=exclude_docs)
                 for subquery in subs]
@@ -372,18 +374,10 @@ class MultiTerm(Query):
                    for text in self._words(ixreader))
 
     def matcher(self, searcher, exclude_docs=None):
-        matchers = []
         fieldname = self.fieldname
-        for word in self._words(searcher.reader()):
-            try:
-                q = Term(fieldname, word).matcher(searcher,
-                                                  exclude_docs=exclude_docs)
-                matchers.append(q)
-            except TermNotFound:
-                pass
-
-        if matchers:
-            return Or(matchers, boost=self.boost).matcher(searcher)
+        qs = [Term(fieldname, word) for word in self._words(searcher.reader())]
+        if qs:
+            return Or(qs).matcher(searcher, exclude_docs=exclude_docs)
         else:
             return NullMatcher()
 
@@ -448,8 +442,11 @@ class Term(Query):
     def matcher(self, searcher, exclude_docs=None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
         try:
-            return searcher.postings(fieldnum, self.text,
-                                     exclude_docs=exclude_docs)
+            m = searcher.postings(fieldnum, self.text, exclude_docs=exclude_docs)
+            if self.boost != 1:
+                m = WrappingMatcher(m, boost=self.boost)
+                
+            return m
         except TermNotFound:
             return NullMatcher()
         
@@ -606,10 +603,11 @@ class Not(Query):
         return ixreader.doc_count()
 
     def matcher(self, searcher, exclude_docs=None):
+        # Usually only called if Not is the root query. Otherwise, queries such
+        # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
         child = self.query.matcher(searcher)
-        return InverseMatcher(child, reader.doc_count_all(),
-                              missing=reader.is_deleted)
+        return InverseMatcher(child, searcher.doccount, missing=reader.is_deleted)
 
 
 class Prefix(MultiTerm):
@@ -998,22 +996,25 @@ class Phrase(MultiTerm):
 
     def matcher(self, searcher, exclude_docs=None):
         fieldnum = searcher.fieldname_to_num(self.fieldname)
+        reader = searcher.reader()
 
         # Shortcut the query if one of the words doesn't exist.
         for word in self.words:
-            if (fieldnum, word) not in searcher: return NullMatcher()
+            if (fieldnum, word) not in reader: return NullMatcher()
         
         wordmatchers = [searcher.postings(fieldnum, word, exclude_docs=exclude_docs)
                         for word in self.words]
-        isect = make_tree(wordmatchers)
+        isect = make_tree(IntersectionMatcher, wordmatchers)
         
         field = searcher.field(fieldnum)
         if field.format and field.format.supports("positions"):
-            return PostingPhraseMatcher(wordmatchers, isect, slop=self.slop)
+            decodefn = field.format.decoder("positions")
+            return PostingPhraseMatcher(wordmatchers, isect, decodefn,
+                                        slop=self.slop, boost=self.boost)
         
         elif field.vector and field.vector.supports("positions"):
             return VectorPhraseMatcher(searcher, fieldnum, self.words, isect,
-                                       slop=self.slop)
+                                       slop=self.slop, boost=self.boost)
             
         else:
             raise QueryError("Phrase search: %r field has no positions"
@@ -1024,9 +1025,13 @@ class Every(Query):
     """A query that matches every document in the index.
     """
 
+    def __init__(self, boost=1.0):
+        self.boost = boost
+
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.boost == other.boost
+        return (other
+                and self.__class__ is other.__class__
+                and self.boost == other.boost)
 
     def __unicode__(self):
         return u"*"
@@ -1037,7 +1042,8 @@ class Every(Query):
     def matcher(self, searcher, exclude_docs=None):
         if not exclude_docs:
             exclude_docs = frozenset()
-        return EveryMatcher(searcher.reader().doc_count_all(), exclude_docs)
+        return EveryMatcher(searcher.reader().doc_count_all(), exclude_docs,
+                            weight=self.boost)
 
 
 class NullQuery(Query):

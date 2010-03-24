@@ -24,6 +24,7 @@ from math import log
 import sys, time
 
 from whoosh import classify, query, scoring
+from whoosh.matching import NullMatcher
 from whoosh.scoring import Sorter, FieldSorter
 from whoosh.support.bitvector import BitVector
 from whoosh.util import now
@@ -88,10 +89,17 @@ class Searcher(object):
         """
         
         fieldnum = self.fieldid_to_num(fieldname)
-        sfn = self.weighting.score_fn(self, fieldnum, text)
-        qfn = self.weighting.quality_fn(self, fieldnum, text)
-        bqfn = self.weighting.block_quality_fn(self, fieldnum, text)
-        return self.ixreader.postings(fieldnum, text, scorefns=(sfn, qfn, bqfn),
+        if self.doccount:
+            sfn = self.weighting.score_fn(self, fieldnum, text)
+            qfn = self.weighting.quality_fn(self, fieldnum, text)
+            bqfn = self.weighting.block_quality_fn(self, fieldnum, text)
+            scorefns = (sfn, qfn, bqfn)
+        else:
+            # Scoring functions tend to cache information that isn't available
+            # on an empty index.
+            scorefns = None
+        
+        return self.ixreader.postings(fieldnum, text, scorefns=scorefns,
                                       exclude_docs=exclude_docs)
 
     def idf(self, fieldnum, text):
@@ -237,8 +245,11 @@ class Searcher(object):
             raise ValueError("sortedby argument (%R) must be a string, list,"
                              " or Sorter" % sortedby)
 
+        t = now()
         sorted_docs = sorter.order(self, query.docs(self), reverse=reverse)
-        return SortResults(sorted_docs)
+        runtime = now() - t
+        
+        return Results(self, query, sorted_docs, None, runtime)
     
     def search(self, query, limit=10, sortedby=None, reverse=False,
                optimize=True):
@@ -298,7 +309,11 @@ class Searcher(object):
         
         t = now()
         matcher = query.matcher(self)
-        scores, docnums = collect(matcher, limit)
+        if isinstance(matcher, NullMatcher):
+            scores = []
+            docnums = []
+        else:
+            scores, docnums = collect(self, matcher, limit)
         runtime = now() - t
 
         return Results(self, query, docnums, scores, runtime)
@@ -307,7 +322,7 @@ class Searcher(object):
         return query.docs(self)
 
 
-def collect(matcher, limit=10, usequality=True, replace=True):
+def collect(searcher, matcher, limit=10, usequality=True, replace=True):
     """
     
     :param matcher: the :class:`whoosh.matching.Matcher` to use.
@@ -332,12 +347,17 @@ def collect(matcher, limit=10, usequality=True, replace=True):
     # Heap of (score, docnum, postingquality) tuples
     h = []
     
+    use_final = searcher.weighting.use_final
+    if use_final:
+        final = searcher.weighting.final
+    
     # Can't use quality optimizations if the matcher doesn't support them
-    usequality = usequality and matcher.supports_quality()
+    usequality = usequality and matcher.supports_quality() and not use_final
     
     # This flag indicates for each iteration of the loop whether to check
     # block quality.
     checkquality = True
+    postingquality = 0
     
     while matcher.is_active():
         # The lowest scoring document in the heap
@@ -351,19 +371,25 @@ def collect(matcher, limit=10, usequality=True, replace=True):
         
         # Document number and quality of the current document
         id = matcher.id()
-        postingquality = matcher.quality()
+        if usequality:
+            postingquality = matcher.quality()
         
         if len(h) < limit:
             # The heap isn't full, so just add this document
-            heappush(h, (matcher.score(), id, postingquality))
+            s = matcher.score()
+            if use_final:
+                s = final(searcher, id, s)
+            heappush(h, (s, id, postingquality))
             
-        elif postingquality > lowest[2]:
+        elif not usequality or postingquality > lowest[2]:
             # The heap is full, but the posting quality indicates this document
-            # is good enough to make the top N, so caculate its true score and
+            # is good enough to make the top N, so calculate its true score and
             # add it to the heap
-            score = matcher.score()
-            if score > lowest[0]:
-                heapreplace(h, (score, id, postingquality))
+            s = matcher.score()
+            if use_final:
+                s = final(searcher, id, s)
+            if s > lowest[0]:
+                heapreplace(h, (s, id, postingquality))
         
         # Move to the next document
         checkquality = matcher.next()
@@ -372,8 +398,9 @@ def collect(matcher, limit=10, usequality=True, replace=True):
         # possible
         if replace: matcher = matcher.replace()
     
-    # Turn the heap into a sorted list, and unzip it into separate lists
-    h = sorted(h)
+    # Turn the heap into a reverse-sorted list (highest scores first), and
+    # unzip it into separate lists
+    h.sort(reverse=True)
     return ([i[0] for i in h], # Scores
             [i[1] for i in h]) # Document numbers
 
@@ -399,14 +426,14 @@ class Results(object):
 
         self.searcher = searcher
         self.query = query
-        assert len(top_n) == len(scores)
+        if scores:
+            assert len(top_n) == len(scores)
         self.top_n = top_n
         self.scores = scores
         self.runtime = runtime
 
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
-                                                       self.sarcher.doccount,
                                                        self.query,
                                                        self.runtime)
 

@@ -164,15 +164,16 @@ class IndexReader(ClosableMixin):
         """
 
         vec = self.vector(docnum, fieldid)
-        
         if astype == "weight":
             while vec.is_active():
                 yield (vec.id(), vec.weight())
+                vec.next()
         else:
             format = self.schema[fieldid].format
             decoder = format.decoder(astype)
             while vec.is_active():
                 yield (vec.id(), decoder(vec.value()))
+                vec.next()
 
     def format(self, fieldid):
         """Returns the Format object corresponding to the given field name.
@@ -362,7 +363,7 @@ class MultiReader(IndexReader):
         docoffsets = []
         for i, r in enumerate(self.readers):
             if (fieldid, text) in r:
-                pr = r.postings(fieldid, text, format, scorefns=scorefns,
+                pr = r.postings(fieldid, text, scorefns=scorefns,
                                 exclude_docs=exclude_docs)
                 postreaders.append(pr)
                 docoffsets.append(self.doc_offsets[i])
