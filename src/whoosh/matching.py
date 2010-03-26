@@ -151,7 +151,10 @@ class WrappingMatcher(Matcher):
         self.boost = boost
     
     def copy(self):
-        return self.__class__(self.child.copy(), boost=self.boost)
+        kwargs = {}
+        if hasattr(self, "boost"):
+            kwargs["boost"] = self.boost
+        return self.__class__(self.child.copy(), **kwargs)
     
     def depth(self):
         return 1 + self.child.depth()
@@ -283,10 +286,14 @@ class MultiMatcher(Matcher):
 
 
 class ExcludeMatcher(WrappingMatcher):
-    def __init__(self, child, excluded):
+    def __init__(self, child, excluded, boost=1.0):
         super(ExcludeMatcher, self).__init__(child)
         self.excluded = excluded
+        self.boost = boost
         self._find_next()
+    
+    def copy(self):
+        return self.__class__(self.child.copy(), self.excluded, boost=self.boost)
     
     def _find_next(self):
         child = self.child
@@ -503,7 +510,9 @@ class IntersectionMatcher(AdditiveBiMatcher):
     
     def __init__(self, a, b):
         super(IntersectionMatcher, self).__init__(a, b)
-        if self.a.id() != self.b.id():
+        if (self.a.is_active()
+            and self.b.is_active()
+            and self.a.id() != self.b.id()):
             self._find_next()
     
     def replace(self):
@@ -593,6 +602,13 @@ class AndNotMatcher(BiMatcher):
     the second sub-matcher.
     """
 
+    def __init__(self, a, b):
+        super(AndNotMatcher, self).__init__(a, b)
+        if (self.a.is_active()
+            and self.b.is_active()
+            and self.a.id() != self.b.id()):
+            self._find_next()
+
     def is_active(self):
         return self.a.is_active()
 
@@ -606,7 +622,7 @@ class AndNotMatcher(BiMatcher):
         if neg.id() < pos_id:
             neg.skip_to(pos_id)
         
-        while pos_id == neg.id():
+        while neg.is_active() and pos_id == neg.id():
             nr = pos.next()
             r = r or nr
             pos_id = pos.id()
@@ -639,7 +655,9 @@ class AndNotMatcher(BiMatcher):
     def next(self):
         if not self.a.is_active(): raise ReadTooFar
         ar = self.a.next()
-        nr = self._find_next()
+        nr = False
+        if self.b.is_active():
+            nr = self._find_next()
         return ar or nr
         
     def skip_to(self, id):
@@ -755,6 +773,7 @@ class RequireMatcher(WrappingMatcher):
         return self.a.weight()
     
     def score(self):
+        print "score:", self.a.score()
         return self.a.score()
 
 
@@ -763,9 +782,19 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     in the second sub-matcher, adds their scores.
     """
     
+    def is_active(self):
+        return self.a.is_active()
+    
+    def id(self):
+        return self.a.id()
+    
     def next(self):
+        if not self.a.is_active(): raise ReadTooFar
+        
         ar = self.a.next()
-        br = self.b.skip_to(self.a.id())
+        br = False
+        if self.b.is_active():
+            br = self.b.skip_to(self.a.id())
         return ar or br
     
     def replace(self):
@@ -784,7 +813,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             return self.a.weight()
     
     def score(self):
-        if self.a.id() == self.b.id():
+        if self.b.is_active() and self.a.id() == self.b.id():
             return self.a.score() + self.b.score()
         else:
             return self.a.score()
@@ -887,7 +916,7 @@ class VectorPhraseMatcher(BasePhraseMatcher):
 
 
 class EveryMatcher(Matcher):
-    def __init__(self, limit, exclude, weight=1.0):
+    def __init__(self, limit, exclude=(), weight=1.0):
         self.limit = limit
         self.exclude = exclude
         self._id = 0
