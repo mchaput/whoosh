@@ -18,7 +18,7 @@ class Test(unittest.TestCase):
             try:
                 rmtree(dirname)
             except OSError:
-                pass
+                raise
     
     def test_bigtable(self):
         st = self.make_storage("testindex")

@@ -58,8 +58,11 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def stored_fields(self, docnum):
+    def stored_fields(self, docnum, numerickeys=False):
         """Returns the stored fields for the given document number.
+        
+        :param numerickeys: use field numbers as the dictionary keys instead of
+            field names.
         """
         raise NotImplementedError
 
@@ -296,7 +299,6 @@ class MultiReader(IndexReader):
             self.doc_offsets.append(base)
             base += r.doc_count_all()
         
-        self._scorable_fields = self.schema.scorable_fields()
         self.is_closed = False
 
     def __contains__(self, term):
@@ -312,9 +314,10 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].is_deleted(segmentdoc)
 
-    def stored_fields(self, docnum):
+    def stored_fields(self, docnum, numerickeys=False):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].stored_fields(segmentdoc)
+        return self.readers[segmentnum].stored_fields(segmentdoc,
+                                                      numerickeys=numerickeys)
 
     def all_stored_fields(self):
         for reader in self.readers:
@@ -336,10 +339,10 @@ class MultiReader(IndexReader):
         return sum(dr.field_length(fieldnum) for dr in self.readers)
 
     def doc_field_length(self, docnum, fieldid, default=0):
-        fieldid = self.schema.to_number(fieldid)
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].doc_field_length(segmentdoc, fieldid,
-                                                         default=default)
+        reader = self.readers[segmentnum]
+        fieldnum = reader.schema.to_number(fieldid)
+        return reader.doc_field_length(segmentdoc, fieldnum, default=default)
 
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -358,10 +361,10 @@ class MultiReader(IndexReader):
         return self.readers[segmentnum].has_vector(segmentdoc, fieldid)
 
     def postings(self, fieldid, text, scorefns=None, exclude_docs=None):
-        format = self.schema[fieldid].format
         postreaders = []
         docoffsets = []
         for i, r in enumerate(self.readers):
+            format = r.schema[fieldid].format
             if (fieldid, text) in r:
                 pr = r.postings(fieldid, text, scorefns=scorefns,
                                 exclude_docs=exclude_docs)

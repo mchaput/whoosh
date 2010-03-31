@@ -65,7 +65,7 @@ class RamIndex(Index):
         self.deleted = set()
         
         self._stored_to_pos = dict((fnum, i) for i, fnum
-                                   in enumerate(self.schema.stored_fields()))
+                                   in enumerate(self.schema.stored_field_nums()))
     
     def close(self):
         del self.termlists
@@ -152,7 +152,7 @@ class RamIndex(Index):
         fieldnames.sort(key = schema.name_to_number)
         
         stored_to_pos = dict((fnum, i) for i, fnum
-                             in enumerate(schema.stored_fields()))
+                             in enumerate(schema.stored_field_nums()))
         storedvalues = [None] * len(stored_to_pos)
         
         for name in fieldnames:

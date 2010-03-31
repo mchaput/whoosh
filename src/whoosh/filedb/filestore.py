@@ -54,8 +54,7 @@ class FileStorage(Storage):
         return f
 
     def open_file(self, name, *args, **kwargs):
-        f = StructFile(open(self._fpath(name), "rb"), *args, **kwargs)
-        f._name = name
+        f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
         return f
 
     def _fpath(self, fname):

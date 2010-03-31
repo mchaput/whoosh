@@ -403,6 +403,7 @@ class Schema(object):
         self._names = []
         self._by_name = {}
         self._numbers = {}
+        self._removed = set()
         
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
@@ -506,6 +507,9 @@ class Schema(object):
         self._names.append(name)
         self._by_name[name] = fieldtype
     
+    def remove(self, fieldid):
+        self._removed.add(self.to_number(fieldid))
+    
     def to_number(self, id):
         """Given a field name or number, returns the field's number.
         """
@@ -552,7 +556,7 @@ class Schema(object):
         """
         return [i for i, field in enumerate(self) if field.scorable]
 
-    def stored_fields(self):
+    def stored_field_nums(self):
         """Returns a list of field numbers corresponding to the fields that are stored.
         """
         return [i for i, field in enumerate(self) if field.stored]
@@ -562,6 +566,29 @@ class Schema(object):
         
         bn = self._by_name
         return [name for name in self._names if bn[name].stored]
+
+    def removed_fields(self):
+        """Returns the list of fields that have been marked for removal.
+        """
+        return sorted(self._removed)
+    
+    def fieldnum_map(self):
+        """If this schema has fields marked for removal, returns a dictionary
+        mapping old field numbers to new field numbers. If no fields are marked
+        for removal, returns None.
+        """
+        
+        removed = self._removed
+        if removed:
+            fnum = 0
+            fmap = {}
+            for i in xrange(len(self)):
+                if i in removed: continue
+                fmap[fnum] = i
+                fnum += 1
+            return fmap
+        else:
+            return None
 
     def analyzer(self, fieldname):
         """Returns the content analyzer for the given fieldname, or None if

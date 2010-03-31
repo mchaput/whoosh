@@ -85,6 +85,8 @@ class FcntlLock(LockBase):
         except IOError, e:
             if e.errno not in (errno.EAGAIN, errno.EACCES):
                 raise
+            os.close(self.fd)
+            self.fd = None
             return False
         
     def release(self):
@@ -112,6 +114,8 @@ class MsvcrtLock(LockBase):
         except IOError, e:
             if e.errno not in (errno.EAGAIN, errno.EACCES, errno.EDEADLK):
                 raise
+            os.close(self.fd)
+            self.fd = None
             return False
         
     def release(self):

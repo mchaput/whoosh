@@ -30,14 +30,13 @@ from whoosh.util import protected
 # Reader class
 
 class SegmentReader(IndexReader):
-    def __init__(self, storage, segment, schema):
+    def __init__(self, storage, segment):
         self.storage = storage
         self.segment = segment
-        self.schema = schema
+        self.schema = segment.schema
         
-        storedfieldnames = schema.stored_field_names()
-        def decode_storedfields(value):
-            return dict(zip(storedfieldnames, loads(value)))
+        self.storedfieldnums = self.schema.stored_field_nums()
+        self.storedfieldnames = self.schema.stored_field_names()
 
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
@@ -53,7 +52,7 @@ class SegmentReader(IndexReader):
         
         # Stored fields file
         sf = storage.open_file(segment.storedfields_filename, mapped=False)
-        self.storedfields = FileListReader(sf, valuedecoder=decode_storedfields)
+        self.storedfields = FileListReader(sf, valuedecoder=loads)
         
         # Field length file
         self.fieldlengths = None
@@ -112,15 +111,21 @@ class SegmentReader(IndexReader):
         return self.dc
 
     @protected
-    def stored_fields(self, docnum):
-        return self.storedfields[docnum]
+    def stored_fields(self, docnum, numerickeys=False):
+        if numerickeys:
+            keys = self.storedfieldnums
+        else:
+            keys = self.storedfieldnames
+        
+        return dict(zip(keys, self.storedfields[docnum]))
 
     @protected
-    def all_stored_fields(self):
+    def all_stored_fields(self, numerickeys=False):
         is_deleted = self.segment.is_deleted
+        sf = self.stored_fields
         for docnum in xrange(self.segment.doc_count_all()):
             if not is_deleted(docnum):
-                yield self.storedfields[docnum]
+                yield sf(docnum, numerickeys=numerickeys)
 
     def field_length(self, fieldnum):
         return self.segment.field_length(fieldnum)

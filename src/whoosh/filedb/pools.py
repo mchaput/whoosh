@@ -37,35 +37,6 @@ pack_length = _length_struct.pack
 unpack_length = _length_struct.unpack
 
 
-#def encode_posting(fieldNum, text, doc, freq, datastring):
-#    """Encodes a posting as a string, for sorting.
-#    """
-#
-#    return "".join((pack_ushort(fieldNum),
-#                    utf8encode(text)[0],
-#                    chr(0),
-#                    pack2ints(doc, freq),
-#                    datastring))
-#
-#def decode_posting(posting):
-#    """Decodes an encoded posting string into a
-#    (field_number, text, document_number, datastring) tuple.
-#    """
-#
-#    field_num = unpack_ushort(posting[:_SHORT_SIZE])[0]
-#
-#    zero = posting.find(chr(0), _SHORT_SIZE)
-#    text = utf8decode(posting[_SHORT_SIZE:zero])[0]
-#
-#    metastart = zero + 1
-#    metaend = metastart + _INT_SIZE * 2
-#    doc, freq = unpack2ints(posting[metastart:metaend])
-#
-#    datastring = posting[metaend:]
-#
-#    return field_num, text, doc, freq, datastring
-
-
 def imerge(iterators):
     current = []
     for g in iterators:
@@ -152,14 +123,14 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
     current_fieldnum = None # Field number of the current term
     current_text = None # Text of the current term
     first = True
-    current_freq = 0
+    current_weight = 0
     offset = None
     getlength = lengths.get
     format = None
 
-    # Loop through the postings in the pool. Postings always come out of
-    # the pool in (field number, lexical) order.
-    for fieldnum, text, docnum, freq, valuestring in postiter:
+    # Loop through the postings in the pool. Postings always come out of the
+    # pool in (field number, lexical) order.
+    for fieldnum, text, docnum, weight, valuestring in postiter:
         # Is this the first time through, or is this a new term?
         if first or fieldnum > current_fieldnum or text > current_text:
             if first:
@@ -169,14 +140,14 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
                 # term to the term table
                 postcount = postwriter.finish()
                 termtable.add((current_fieldnum, current_text),
-                              (current_freq, offset, postcount))
+                              (current_weight, offset, postcount))
 
             # Reset the post writer and the term variables
             if fieldnum != current_fieldnum:
                 format = schema[fieldnum].format
             current_fieldnum = fieldnum
             current_text = text
-            current_freq = 0
+            current_weight = 0
             offset = postwriter.start(format)
 
         elif (fieldnum < current_fieldnum
@@ -186,39 +157,14 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
                             (current_fieldnum, current_text, fieldnum, text))
 
         # Write a posting for this occurrence of the current term
-        current_freq += freq
-        postwriter.write(docnum, valuestring, getlength(docnum, fieldnum))
+        current_weight += weight
+        postwriter.write(docnum, weight, valuestring, getlength(docnum, fieldnum))
 
     # If there are still "uncommitted" postings at the end, finish them off
     if not first:
         postcount = postwriter.finish()
         termtable.add((current_fieldnum, current_text),
-                      (current_freq, offset, postcount))
-
-
-#class LengthSpool(object):
-#    def __init__(self, filename):
-#        self.filename = filename
-#        self.file = None
-#        
-#    def create(self):
-#        self.file = open(self.filename, "wb")
-#        
-#    def add(self, docnum, fieldnum, length):
-#        self.file.write(pack_length(docnum, fieldnum, length_to_byte(length)))
-#        
-#    def finish(self):
-#        self.file.close()
-#        self.file = None
-#        
-#    def readback(self):
-#        f = open(self.filename, "rb")
-#        size = _length_struct.size
-#        while True:
-#            data = f.read(size)
-#            if not data: break
-#            yield unpack_length(data)
-#        f.close()
+                      (current_weight, offset, postcount))
 
 
 class PoolBase(object):
@@ -240,57 +186,10 @@ class PoolBase(object):
     def fieldlength_maxes(self):
         return self._fieldlength_maxes
     
-
-class TempfilePool(PoolBase):
-    def __init__(self, schema, limitmb=32, dir=None, basename='', **kw):
-        if dir is None:
-            dir = tempfile.mkdtemp("whoosh")
-        PoolBase.__init__(self, schema, dir)
-        
-        self.length_arrays = {}
-        
-        self.limit = limitmb * 1024 * 1024
-        
-        self.size = 0
-        self.count = 0
-        self.postings = []
-        self.runs = []
-        
-        self.basename = basename
-        
-        #self.lenspool = LengthSpool(self._filename(basename + "length"))
-        #self.lenspool.create()
-    
-    def add_content(self, docnum, fieldnum, field, value):
-        add_posting = self.add_posting
-        termcount = 0
-        # TODO: Method for adding progressive field values, ie
-        # setting start_pos/start_char?
-        for w, freq, valuestring in field.index(value):
-            #assert w != ""
-            add_posting(fieldnum, w, docnum, freq, valuestring)
-            termcount += freq
-        
-        if field.scorable and termcount:
-            self.add_field_length(docnum, fieldnum, termcount)
-            
-        return termcount
-    
-    def add_posting(self, fieldnum, text, docnum, freq, datastring):
-        if self.size >= self.limit:
-            #print "Flushing..."
-            self.dump_run()
-
-        self.size += len(text) + 2 + 8
-        if datastring: self.size += len(datastring)
-        self.postings.append((fieldnum, text, docnum, freq, datastring))
-        self.count += 1
-    
     def add_field_length(self, docnum, fieldnum, length):
         self._fieldlength_totals[fieldnum] += length
         if length > self._fieldlength_maxes.get(fieldnum, 0):
             self._fieldlength_maxes[fieldnum] = length
-        #self.lenspool.add(docnum, fieldnum, length)
         
         if fieldnum not in self.length_arrays:
             self.length_arrays[fieldnum] = array("B")
@@ -299,29 +198,6 @@ class TempfilePool(PoolBase):
             for _ in xrange(docnum - len(arry) + 1):
                 arry.append(0)
         arry[docnum] = length_to_byte(length)
-    
-    def dump_run(self):
-        if self.size > 0:
-            tempname = self._filename(self.basename + str(now()) + ".run")
-            runfile = open(tempname, "w+b")
-            self.postings.sort()
-            for p in self.postings:
-                dump(p, runfile)
-            runfile.close()
-
-            self.runs.append((tempname, self.count))
-            self.postings = []
-            self.size = 0
-            self.count = 0
-            
-    def run_filenames(self):
-        return [filename for filename, _ in self.runs]
-    
-    def cancel(self):
-        self.cleanup()
-    
-    def cleanup(self):
-        shutil.rmtree(self._dir)
     
     def _readback_lengths(self):
         for fieldnum, arry in self.length_arrays.iteritems():
@@ -347,13 +223,81 @@ class TempfilePool(PoolBase):
     def _finish_lengths(self, lengthfile, doccount):
         lengths = self._lengths_array(doccount)
         lengthfile.write_array(lengths)
-        lengthfile.close()
         return lengths
     
     def _write_lengths_to(self, lengthfile, doccount):
         lengths = self._lengths_array(doccount)
         lengthfile.write_array(lengths)
-        lengthfile.close()
+    
+    def add_content(self, docnum, fieldnum, field, value):
+        add_posting = self.add_posting
+        termcount = 0
+        # TODO: Method for adding progressive field values, ie
+        # setting start_pos/start_char?
+        for w, freq, weight, valuestring in field.index(value):
+            #assert w != ""
+            add_posting(fieldnum, w, docnum, weight, valuestring)
+            termcount += freq
+        
+        if field.scorable and termcount:
+            self.add_field_length(docnum, fieldnum, termcount)
+            
+        return termcount
+
+
+class TempfilePool(PoolBase):
+    def __init__(self, schema, limitmb=32, dir=None, basename='', **kw):
+        if dir is None:
+            dir = tempfile.mkdtemp("whoosh")
+        PoolBase.__init__(self, schema, dir)
+        
+        self.length_arrays = {}
+        
+        self.limit = limitmb * 1024 * 1024
+        
+        self.size = 0
+        self.count = 0
+        self.postings = []
+        self.runs = []
+        
+        self.basename = basename
+        
+        #self.lenspool = LengthSpool(self._filename(basename + "length"))
+        #self.lenspool.create()
+    
+    def add_posting(self, fieldnum, text, docnum, weight, valuestring):
+        if self.size >= self.limit:
+            #print "Flushing..."
+            self.dump_run()
+
+        self.size += len(text) + 2 + 8
+        if valuestring: self.size += len(valuestring)
+        self.postings.append((fieldnum, text, docnum, weight, valuestring))
+        self.count += 1
+    
+    def dump_run(self):
+        if self.size > 0:
+            tempname = self._filename(self.basename + str(now()) + ".run")
+            runfile = open(tempname, "w+b")
+            self.postings.sort()
+            for p in self.postings:
+                dump(p, runfile)
+            runfile.close()
+
+            self.runs.append((tempname, self.count))
+            self.postings = []
+            self.size = 0
+            self.count = 0
+            
+    def run_filenames(self):
+        return [filename for filename, _ in self.runs]
+    
+    def cancel(self):
+        self.cleanup()
+    
+    def cleanup(self):
+        if os.path.exists(self._dir):
+            shutil.rmtree(self._dir)
     
     def finish(self, doccount, lengthfile, termtable, postingwriter):
         lengtharray = self._finish_lengths(lengthfile, doccount)
@@ -380,8 +324,9 @@ class TempfilePool(PoolBase):
 # Multiprocessing
 
 class PoolWritingTask(Process):
-    def __init__(self, dir, postingqueue, resultqueue, limitmb):
+    def __init__(self, schema, dir, postingqueue, resultqueue, limitmb):
         Process.__init__(self)
+        self.schema = schema
         self.dir = dir
         self.postingqueue = postingqueue
         self.resultqueue = resultqueue
@@ -391,7 +336,7 @@ class PoolWritingTask(Process):
         pqueue = self.postingqueue
         rqueue = self.resultqueue
         
-        subpool = TempfilePool(None, limitmb=self.limitmb, dir=self.dir,
+        subpool = TempfilePool(self.schema, limitmb=self.limitmb, dir=self.dir,
                                basename=self.name)
         
         while True:
@@ -424,7 +369,7 @@ class MultiPool(PoolBase):
         
         self.postingqueue = Queue()
         self.resultsqueue = Queue()
-        self.tasks = [PoolWritingTask(self._dir, self.postingqueue,
+        self.tasks = [PoolWritingTask(self.schema, self._dir, self.postingqueue,
                                       self.resultsqueue, self.limitmb)
                       for _ in xrange(procs)]
         for task in self.tasks:
@@ -489,9 +434,7 @@ class MultiPool(PoolBase):
                                            doccount, scorables)
             for i, byte in enumerate(sublengths.lengths):
                 if byte != 0: lenarray[i] = byte
-        lenwriter = LengthWriter(StructFile(lengthfile), doccount, scorables,
-                                 lengths=lenarray)
-        lenwriter.close()
+        lengthfile.write_array(lenarray)
         lengths = MemoryLengthReader(lenarray, doccount, scorables)
         print "Lengths:", now() - t
         
