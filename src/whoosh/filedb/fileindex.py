@@ -294,7 +294,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         return sum(s.field_length(fieldnum) for s in self.segments)
 
     def reader(self):
-        return self.segments.reader(self.storage, self.schema)
+        return self.segments.reader(self.storage)
 
     def writer(self, **kwargs):
         from whoosh.filedb.filewriting import SegmentWriter
@@ -431,7 +431,11 @@ class SegmentSet(object):
         else:
             from whoosh.reading import MultiReader
             readers = [SegmentReader(storage, segment) for segment in segments]
-            return MultiReader(readers)
+            if readers:
+                schema = readers[0].schema
+            else:
+                schema = Schema()
+            return MultiReader(readers, schema)
 
 
 class Segment(object):

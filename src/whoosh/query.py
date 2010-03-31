@@ -440,7 +440,11 @@ class Term(Query):
         return ixreader.doc_frequency(fieldnum, self.text)
 
     def matcher(self, searcher, exclude_docs=None):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        try:
+            fieldnum = searcher.fieldname_to_num(self.fieldname)
+        except KeyError:
+            return NullMatcher()
+        
         try:
             m = searcher.postings(fieldnum, self.text, exclude_docs=exclude_docs)
             if self.boost != 1:

@@ -55,7 +55,7 @@ def MERGE_SMALL(ix, writer, segments):
         if count > 0:
             total_docs += count
             if total_docs < fib(i + 5):
-                reader = SegmentReader(ix.storage, seg, ix.schema)
+                reader = SegmentReader(ix.storage, seg)
                 writer.add_reader(reader)
                 reader.close()
             else:
@@ -69,7 +69,7 @@ def OPTIMIZE(ix, writer, segments):
 
     from whoosh.filedb.filereading import SegmentReader
     for seg in segments:
-        reader = SegmentReader(ix.storage, seg, ix.schema)
+        reader = SegmentReader(ix.storage, seg)
         writer.add_reader(reader)
         reader.close()
     return SegmentSet()

@@ -311,32 +311,32 @@ class TestIndexing(unittest.TestCase):
         ix.close()
         self.destroy_index("testindex")
         
-    def test_remove_field(self):
-        a = analysis.StandardAnalyzer()
-        f1 = fields.ID(stored=True)
-        f2 = fields.TEXT(stored=True, vector=formats.Frequency(analyzer=a))
-        f3 = fields.ID(stored=True)
-        
-        schema = fields.Schema(f1=f1, f2=f2, f3=f3)
-        
-        st = RamStorage()
-        ix = st.create_index(schema)
-        self.assertEqual(len(ix.schema), 3)
-        
-        w = ix.writer()
-        w.add_document(f1=u"one", f2=u"alfa bravo charlie delta", f3=u"1")
-        w.add_document(f1=u"two", f2=u"bravo charlie delta echo", f3=u"2")
-        w.add_document(f1=u"three", f2=u"harlie delta echo foxtrot", f3=u"3")
-        w.add_document(f1=u"four", f2=u"delta echo foxtrot india", f3=u"4")
-        w.commit()
-        
-        ix.remove_field("f2")
-        ix.optimize()
-        
-        self.assertEqual(len(ix.schema), 2)
-        r = ix.reader()
-        self.assertEqual(list(r.all_terms()), [(0, "four"), (0, "one"), (0, "three"), (0, "two"),
-                                               (1, "1"), (1, "2"), (1, "3"), (1, "4")])
+#    def test_remove_field(self):
+#        a = analysis.StandardAnalyzer()
+#        f1 = fields.ID(stored=True)
+#        f2 = fields.TEXT(stored=True, vector=formats.Frequency(analyzer=a))
+#        f3 = fields.ID(stored=True)
+#        
+#        schema = fields.Schema(f1=f1, f2=f2, f3=f3)
+#        
+#        st = RamStorage()
+#        ix = st.create_index(schema)
+#        self.assertEqual(len(ix.schema), 3)
+#        
+#        w = ix.writer()
+#        w.add_document(f1=u"one", f2=u"alfa bravo charlie delta", f3=u"1")
+#        w.add_document(f1=u"two", f2=u"bravo charlie delta echo", f3=u"2")
+#        w.add_document(f1=u"three", f2=u"harlie delta echo foxtrot", f3=u"3")
+#        w.add_document(f1=u"four", f2=u"delta echo foxtrot india", f3=u"4")
+#        w.commit()
+#        
+#        ix.remove_field("f2")
+#        ix.optimize()
+#        
+#        self.assertEqual(len(ix.schema), 2)
+#        r = ix.reader()
+#        self.assertEqual(list(r.all_terms()), [(0, "four"), (0, "one"), (0, "three"), (0, "two"),
+#                                               (1, "1"), (1, "2"), (1, "3"), (1, "4")])
         
 
 
