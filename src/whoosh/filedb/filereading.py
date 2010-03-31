@@ -56,7 +56,7 @@ class SegmentReader(IndexReader):
         
         # Field length file
         self.fieldlengths = None
-        scorables = schema.scorable_fields()
+        scorables = self.schema.scorable_fields()
         if scorables:
             flf = storage.open_file(segment.fieldlengths_filename)
             self.fieldlengths = LengthReader.load(flf, segment.doc_count_all(),
