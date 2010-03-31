@@ -18,5 +18,14 @@ API changes
   			
   This disables the new optimizations, forcing Whoosh to score every matching
   document.
-  
+
+* :class:`whoosh.writing.AsyncWriter` now takes an :class:`whoosh.index.Index`
+  object as its first argument, not a callable. Also, the keyword arguments to
+  pass to the index's ``writer()`` method should now be passed as a dictionary
+  using the ``writerargs`` keyword argument.
+
+Misc
+====
+
+* Unit tests should no longer leave directories and files behind.
 

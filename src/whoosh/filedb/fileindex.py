@@ -111,7 +111,8 @@ class FileIndex(SegmentDeletionMixin, Index):
                            if self.storage.file_exists(name)]
 
     def _release_readlocks(self):
-        (f.close() for f in self._readlocks)
+        for f in self._readlocks:
+            f.close()
         self._readlocks = []
 
     def close(self):
@@ -233,8 +234,7 @@ class FileIndex(SegmentDeletionMixin, Index):
             return
 
         from whoosh.filedb.filewriting import OPTIMIZE
-        w = self.writer()
-        w.commit(OPTIMIZE)
+        self.writer().commit(OPTIMIZE)
 
     def commit(self, new_segments=None):
         self._release_readlocks()
@@ -423,16 +423,15 @@ class SegmentSet(object):
         segment, segdocnum = self._segment_and_docnum(docnum)
         return segment.is_deleted(segdocnum)
 
-    def reader(self, storage, schema):
+    def reader(self, storage):
         from whoosh.filedb.filereading import SegmentReader
         segments = self.segments
         if len(segments) == 1:
-            return SegmentReader(storage, segments[0], schema)
+            return SegmentReader(storage, segments[0])
         else:
             from whoosh.reading import MultiReader
-            readers = [SegmentReader(storage, segment, schema)
-                       for segment in segments]
-            return MultiReader(readers, schema)
+            readers = [SegmentReader(storage, segment) for segment in segments]
+            return MultiReader(readers)
 
 
 class Segment(object):
@@ -453,7 +452,7 @@ class Segment(object):
                   "termsindex":"tiz", "termposts": "pst",
                   "vectorindex": "fvz", "vectorposts": "vps"}
     
-    def __init__(self, name, doccount, fieldlength_totals, fieldlength_maxes,
+    def __init__(self, name, schema, doccount, fieldlength_totals, fieldlength_maxes,
                  deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
@@ -467,7 +466,12 @@ class Segment(object):
             deleted documents exist in this segment.
         """
 
+        assert isinstance(name, basestring)
+        assert isinstance(schema, Schema)
+        assert isinstance(doccount, (int, long))
+        
         self.name = name
+        self.schema = schema
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
         self.fieldlength_maxes = fieldlength_maxes
@@ -487,7 +491,7 @@ class Segment(object):
             deleted = set(self.deleted)
         else:
             deleted = None
-        return Segment(self.name, self.doccount,
+        return Segment(self.name, self.schema, self.doccount,
                        self.fieldlength_totals, self.fieldlength_maxes,
                        deleted)
 

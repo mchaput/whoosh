@@ -134,7 +134,7 @@ class PostingWriter(object):
         """
         raise NotImplementedError
     
-    def write(self, id, valuestring):
+    def write(self, id, weight, valuestring):
         """Add a posting with the given ID and value.
         """
         raise NotImplementedError
@@ -169,10 +169,6 @@ class AsyncWriter(threading.Thread, DeletionMixin):
     writer, add, and commit, without having to worry about index locks,
     retries, etc.
     
-    The first argument is a callable which returns the actual writer. Usually
-    this will be the ``writer`` method of your Index object. Any additional
-    keyword arguments to the initializer are passed into the callable.
-    
     For example, to get an aynchronous writer, instead of this:
     
     >>> writer = myindex.writer(postlimitmb=128)
@@ -180,29 +176,33 @@ class AsyncWriter(threading.Thread, DeletionMixin):
     Do this:
     
     >>> from whoosh.writing import AsyncWriter
-    >>> writer = AsyncWriter(myindex.writer, postlimitmb=128)
+    >>> writer = AsyncWriter(myindex, )
     """
     
-    def __init__(self, writerfn, delay=0.25, **writerargs):
+    def __init__(self, index, delay=0.25, writerargs=None):
         """
-        :param writerfn: a callable object (function or method) which returns
-            the actual writer.
+        :param index: the :class:`whoosh.index.Index` to write to.
         :param delay: the delay (in seconds) between attempts to instantiate
             the actual writer.
+        :param writerargs: an optional dictionary specifying keyword arguments
+            to to be passed to the index's ``writer()`` method.
         """
         
         threading.Thread.__init__(self)
         self.running = False
-        self.writerfn = writerfn
-        self.writerargs = writerargs
+        self.index = index
+        self.writerargs = writerargs or {}
         self.delay = delay
         self.events = []
         try:
-            self.writer = writerfn(**writerargs)
+            self.writer = self.index.writer(**self.writerargs)
         except LockError:
             self.writer = None
     
-    def _record(self, method, *args, **kwargs):
+    def searcher(self):
+        return self.index.searcher()
+    
+    def _record(self, method, args, kwargs):
         if self.writer:
             getattr(self.writer, method)(*args, **kwargs)
         else:
@@ -224,10 +224,10 @@ class AsyncWriter(threading.Thread, DeletionMixin):
         self._record("delete_document", docnum)
     
     def add_document(self, *args, **kwargs):
-        self._record("add_document", *args, **kwargs)
+        self._record("add_document", args, kwargs)
         
     def update_document(self, *args, **kwargs):
-        self._record("update_document", *args, **kwargs)
+        self._record("update_document", args, kwargs)
     
     def commit(self, *args, **kwargs):
         if self.writer:
@@ -241,6 +241,78 @@ class AsyncWriter(threading.Thread, DeletionMixin):
             self.writer.cancel(*args, **kwargs)
     
     
+class BatchWriter(object):
+    """Convenience wrapper that batches up calls to ``add_document()``,
+    ``update_document()``, and/or ``delete_document()``, and commits them
+    whenever a maximum amount of time passes or a maximum number of batched
+    changes accumulates.
+    
+    In scenarios where you are continuously adding single documents very
+    rapidly (for example a web application where lots of users are adding
+    content simultaneously), and you don't mind a delay between documents being
+    added and becoming searchable, using a BatchWriter is *much* faster than
+    opening and committing a writer for each document you add.
+    
+    >>> from whoosh.writing import BatchWriter
+    >>> writer = BatchWriter(myindex)
+    
+    Calling ``commit()`` on this object opens a writer and commits any batched
+    up changes. You can continue to make changes after calling ``commit()``,
+    and you can call ``commit()`` multiple times.
+    
+    You should explicitly call ``commit()`` on this object before it goes out
+    of scope to make sure any uncommitted changes are saved.
+    """
+
+    def __init__(self, index, period=60, limit=10, writerargs=None,
+                 commitargs=None):
+        """
+        :param index: the :class:`whoosh.index.Index` to write to.
+        :param period: the maximum amount of time (in seconds) between commits.
+        :param limit: the maximum number of changes to accumulate before
+            committing.
+        :param writerargs: dictionary specifying keyword arguments to be passed
+            to the index's ``writer()`` method.
+        :param commitargs: dictionary specifying keyword arguments to be passed
+            to the writer's ``commit()`` method.
+        """
+        self.index = index
+        self.period = period
+        self.limit = limit
+        self.writerargs = writerargs or {}
+        self.commitargs = commitargs or {}
+        
+        self.events = []
+        self.timer = threading.Timer(self.period, self.commit)
+    
+    def __del__(self):
+        self.commit(restart=False)
+    
+    def commit(self, restart=True):
+        self.timer.cancel()
+        if self.events:
+            writer = self.index.writer(**self.writerargs)
+            for method, args, kwargs in self.events:
+                getattr(writer, method)(*args, **kwargs)
+            writer.commit(**self.commitargs)
+            self.events = []
+        
+        if restart:
+            self.timer = threading.Timer(self.period, self.commit)
+    
+    def _record(self, method, args, kwargs):
+        self.events.append((method, args, kwargs))
+        if len(self.events) >= self.limit:
+            self.commit()
+        
+    def delete_document(self, *args, **kwargs):
+        self._record("delete_document", args, kwargs)
+        
+    def add_document(self, *args, **kwargs):
+        self._record("add_document", args, kwargs)
+
+    def update_document(self, *args, **kwargs):
+        self._record("update_document", args, kwargs)
 
 
 

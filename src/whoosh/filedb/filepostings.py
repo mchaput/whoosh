@@ -122,10 +122,10 @@ class FilePostingWriter(PostingWriter):
 
         return self.startoffset
 
-    def write(self, id, valuestring, dfl):
+    def write(self, id, weight, valuestring, dfl):
         self.blockids.append(id)
         self.blockvalues.append(valuestring)
-        self.blockweights.append(self.format.decode_weight(valuestring))
+        self.blockweights.append(weight)
         if dfl:
             self.blocklengths.append(dfl)
         if len(self.blockids) >= self.blocklimit:

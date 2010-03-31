@@ -1,9 +1,8 @@
 import unittest
-from os import mkdir
-from os.path import exists
+import os.path
 from shutil import rmtree
 
-from whoosh import fields, index, query, qparser
+from whoosh import analysis, fields, formats, query
 from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length
@@ -11,18 +10,18 @@ from whoosh.util import length_to_byte, byte_to_length
 
 class TestIndexing(unittest.TestCase):
     def make_index(self, dirname, schema, ixname):
-        if not exists(dirname):
-            mkdir(dirname)
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
         st = FileStorage(dirname)
         ix = st.create_index(schema, indexname = ixname)
         return ix
     
     def destroy_index(self, dirname):
-        if exists(dirname):
+        if os.path.exists(dirname):
             try:
                 rmtree(dirname)
             except OSError, e:
-                pass
+                raise
     
     def test_creation(self):
         s = fields.Schema(content=fields.TEXT(phrase = True),
@@ -241,26 +240,17 @@ class TestIndexing(unittest.TestCase):
                                path=fields.ID(unique=True, stored=True),
                                text=fields.TEXT)
         ix = self.make_index("testindex", schema, "test_update")
-        try:
-            writer = ix.writer()
-            try:
-                for doc in SAMPLE_DOCS:
-                    writer.add_document(**doc)
-                writer.commit()
-            except:
-                writer.cancel()
-                raise
-            
-            writer = ix.writer()
-            try:
-                writer.update_document(id=u"test2", path=u"test/1", text=u"Replacement")
-                writer.commit()
-            except:
-                writer.cancel()
-                raise
-        finally:
-            ix.close()
-            self.destroy_index("testindex")
+        writer = ix.writer()
+        for doc in SAMPLE_DOCS:
+            writer.add_document(**doc)
+        writer.commit()
+        
+        writer = ix.writer()
+        writer.update_document(id=u"test2", path=u"test/1", text=u"Replacement")
+        writer.commit()
+        
+        ix.close()
+        self.destroy_index("testindex")
 
     def test_reindex(self):
         SAMPLE_DOCS = [
@@ -272,25 +262,24 @@ class TestIndexing(unittest.TestCase):
         schema = fields.Schema(text=fields.TEXT(stored=True),
                                id=fields.ID(unique=True, stored=True))
         ix = self.make_index("testindex", schema, "test_reindex")
-        try:
-            def reindex():
-                writer = ix.writer()
-                try:
-                    for doc in SAMPLE_DOCS:
-                        writer.update_document(**doc)
-                    writer.commit()
-                except:
-                    writer.cancel()
-                    raise
+        
+        def reindex():
+            writer = ix.writer()
+            try:
+                for doc in SAMPLE_DOCS:
+                    writer.update_document(**doc)
+                writer.commit()
+            except:
+                writer.cancel()
+                raise
 
-            reindex()
-            self.assertEqual(ix.doc_count_all(), 3)
-            reindex()
-            self.assertEqual(ix.doc_count_all(), 3)
-            
-        finally:
-            ix.close()
-            self.destroy_index("testindex")
+        reindex()
+        self.assertEqual(ix.doc_count_all(), 3)
+        reindex()
+        self.assertEqual(ix.doc_count_all(), 3)
+        
+        ix.close()
+        self.destroy_index("testindex")
             
     def test_noscorables1(self):
         values = [u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot",
@@ -301,28 +290,65 @@ class TestIndexing(unittest.TestCase):
         
         schema = fields.Schema(id=fields.ID, tags=fields.KEYWORD)
         ix = self.make_index("testindex", schema, "noscorables1")
-        try:
-            w = ix.writer()
-            for i in xrange(times):
-                w.add_document(id=choice(values), tags=u" ".join(sample(values, randint(2, 7))))
-            w.commit()
-            
-            s = ix.searcher()
-            r = s.search(query.Term("id", "bravo"))
-            s.close()
-        finally:
-            self.destroy_index("testindex")
+        
+        w = ix.writer()
+        for i in xrange(times):
+            w.add_document(id=choice(values), tags=u" ".join(sample(values, randint(2, 7))))
+        w.commit()
+        
+        s = ix.searcher()
+        s.search(query.Term("id", "bravo"))
+        s.close()
+        ix.close()
+        self.destroy_index("testindex")
             
     def test_noscorables2(self):
         schema = fields.Schema(field=fields.ID)
         ix = self.make_index("testindex", schema, "noscorables2")
-        try:
-            writer = ix.writer()
-            writer.add_document(field=u'foo')
-            writer.commit()
-        finally:
-            self.destroy_index("testindex")
-            
+        writer = ix.writer()
+        writer.add_document(field=u'foo')
+        writer.commit()
+        ix.close()
+        self.destroy_index("testindex")
+        
+    def test_remove_field(self):
+        a = analysis.StandardAnalyzer()
+        f1 = fields.ID(stored=True)
+        f2 = fields.TEXT(stored=True, vector=formats.Frequency(analyzer=a))
+        f3 = fields.ID(stored=True)
+        
+        schema = fields.Schema(f1=f1, f2=f2, f3=f3)
+        
+        st = RamStorage()
+        ix = st.create_index(schema)
+        self.assertEqual(len(ix.schema), 3)
+        
+        w = ix.writer()
+        w.add_document(f1=u"one", f2=u"alfa bravo charlie delta", f3=u"1")
+        w.add_document(f1=u"two", f2=u"bravo charlie delta echo", f3=u"2")
+        w.add_document(f1=u"three", f2=u"harlie delta echo foxtrot", f3=u"3")
+        w.add_document(f1=u"four", f2=u"delta echo foxtrot india", f3=u"4")
+        w.commit()
+        
+        ix.remove_field("f2")
+        ix.optimize()
+        
+        self.assertEqual(len(ix.schema), 2)
+        r = ix.reader()
+        self.assertEqual(list(r.all_terms()), [(0, "four"), (0, "one"), (0, "three"), (0, "two"),
+                                               (1, "1"), (1, "2"), (1, "3"), (1, "4")])
+        
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     unittest.main()

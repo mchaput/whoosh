@@ -148,5 +148,63 @@ class Expander(object):
         return [(t, weight) for weight, t in tlist[:number]]
 
 
+# Similarity functions
+
+def shingles(input, size=2):
+    d = defaultdict(int)
+    for shingle in (input[i:i+size] for i in xrange(len(input)-(size-1))):
+        d[shingle] += 1
+    return d.iteritems()
+
+
+def simhash(features, hashbits=32):
+    if hashbits == 32:
+        hashfn = hash
+    else:
+        hashfn = lambda s: _hash(s, hashbits)
+    
+    vs = [0] * hashbits
+    for feature, weight in features:
+        h = hashfn(feature)
+        for i in xrange(hashbits):
+            if h & (1 << i):
+                vs[i] += weight
+            else:
+                vs[i] -= weight
+    
+    out = 0
+    for i, v in enumerate(vs):
+        if v > 0:
+            out |= 1 << i
+    return out
+
+
+def _hash(s, hashbits):
+    # A variable-length version of Python's builtin hash
+    if s == "":
+        return 0
+    else:
+        x = ord(s[0])<<7
+        m = 1000003
+        mask = 2 ** hashbits-1
+        for c in s:
+            x = ((x * m) ^ ord(c)) & mask
+        x ^= len(s)
+        if x == -1: 
+            x = -2
+        return x
+
+    
+def hamming_distance(first_hash, other_hash, hashbits=32):
+    x = (first_hash ^ other_hash) & ((1 << hashbits) - 1)
+    tot = 0
+    while x:
+        tot += 1
+        x &= x-1
+    return tot
+
+
+
+
 
 

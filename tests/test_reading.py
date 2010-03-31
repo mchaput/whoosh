@@ -3,6 +3,7 @@ import unittest
 from whoosh import analysis, fields
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
+from whoosh.searching import Searcher
 
 class TestReading(unittest.TestCase):
     def _create_index(self):
@@ -121,7 +122,33 @@ class TestReading(unittest.TestCase):
                                  (u'over', 1.0),
                                  (u'quick', 1.0),
                                  ])
-
         
+    def test_stored_fields(self):
+        s = fields.Schema(a=fields.ID(stored=True), b=fields.STORED,
+                          c=fields.KEYWORD, d=fields.TEXT(stored=True))
+        st = RamStorage()
+        ix = st.create_index(s)
+        
+        writer = ix.writer()
+        writer.add_document(a=u"1", b="a", c=u"zulu", d=u"Alfa")
+        writer.add_document(a=u"2", b="b", c=u"yankee", d=u"Bravo")
+        writer.add_document(a=u"3", b="c", c=u"xray", d=u"Charlie")
+        writer.commit()
+        
+        r = ix.reader()
+        self.assertEqual(r.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
+        self.assertEqual(r.stored_fields(1, numerickeys=True), {0: u"2", 1: "b", 3: u"Bravo"})
+        self.assertEqual(r.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
+        
+        sr = Searcher(r)
+        self.assertEqual(sr.document(a=u"1"), {"a": u"1", "b": "a", "d": u"Alfa"})
+        self.assertEqual(sr.document(a=u"2"), {"a": u"2", "b": "b", "d": u"Bravo"})
+
+
+
+
+
+
+
 if __name__ == '__main__':
     unittest.main()

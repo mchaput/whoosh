@@ -71,12 +71,13 @@ class Format(object):
     
     def word_values(self, value, **kwargs):
         """Takes the text value to be indexed and yields a series of
-        ("tokentext", frequency, valuestring) tuples, where frequency is the
-        number of times "tokentext" appeared in the value, and valuestring is
-        encoded field-specific posting value for the token. For example, in a
-        Frequency format, the value string would be the same as frequency; in a
-        Positions format, the value string would encode a list of token
-        positions at which "tokentext" occured.
+        ("tokentext", frequency, weight, valuestring) tuples, where frequency
+        is the number of times "tokentext" appeared in the value, weight is the
+        weight (a float usually equal to frequency in the absence of per-term
+        boosts) and valuestring is encoded field-specific posting value for the
+        token. For example, in a Frequency format, the value string would be
+        the same as frequency; in a Positions format, the value string would
+        encode a list of token positions at which "tokentext" occured.
         
         :param value: The unicode text to index.
         """
@@ -142,7 +143,7 @@ class Existence(Format):
     def word_values(self, value, **kwargs):
         wordset = set(t.text for t
                       in unstopped(self.analyzer(value, **kwargs)))
-        return ((w, 1, '') for w in wordset)
+        return ((w, 1, 1.0, '') for w in wordset)
     
     def encode(self, value):
         return ''
@@ -191,7 +192,8 @@ class Frequency(Format):
                 seen[t.text] += 1
         
         encode = self.encode
-        return ((w, freq, encode(freq)) for w, freq in seen.iteritems())
+        return ((w, freq, float(freq), encode(freq))
+                for w, freq in seen.iteritems())
 
     def encode(self, freq):
         return pack_uint(freq)
@@ -219,7 +221,7 @@ class DocBoosts(Frequency):
             seen[t.text] += 1
         
         encode = self.encode
-        return ((w, freq, encode((freq, doc_boost)))
+        return ((w, freq, freq * doc_boost, encode((freq, doc_boost)))
                 for w, freq in seen.iteritems())
     
     def encode(self, freq_docboost):
@@ -257,7 +259,7 @@ class Positions(Format):
             seen[t.text].append(start_pos + t.pos)
         
         encode = self.encode
-        return ((w, len(poslist), encode(poslist))
+        return ((w, len(poslist), float(len(poslist)), encode(poslist))
                 for w, poslist in seen.iteritems())
     
     def encode(self, positions):
@@ -309,7 +311,8 @@ class Characters(Positions):
                                  start_char + t.endchar))
         
         encode = self.encode
-        return ((w, len(ls), encode(ls)) for w, ls in seen.iteritems())
+        return ((w, len(ls), float(len(ls)), encode(ls))
+                for w, ls in seen.iteritems())
     
     def encode(self, posns_chars):
         # posns_chars = [(pos, startchar, endchar), ...]
@@ -362,7 +365,7 @@ class PositionBoosts(Positions):
             seen[t.text].append((pos, boost))
         
         encode = self.encode
-        return ((w, len(poslist), encode(poslist))
+        return ((w, len(poslist), sum(p[1] for p in poslist), encode(poslist))
                 for w, poslist in seen.iteritems())
     
     def encode(self, posns_boosts):
@@ -439,7 +442,7 @@ class CharacterBoosts(Characters):
                                  t.boost))
         
         encode = self.encode
-        return ((w, len(poslist), encode(poslist))
+        return ((w, len(poslist), sum(p[3] for p in poslist), encode(poslist))
                 for w, poslist in seen.iteritems())
     
     def encode(self, posns_chars_boosts):

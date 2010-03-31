@@ -14,7 +14,7 @@ class TestMatchers(unittest.TestCase):
         nm = NullMatcher()
         self.assertFalse(nm.is_active())
         self.assertEqual(list(nm.all_ids()), [])
-        
+    
     def test_listmatcher(self):
         ids = [1, 2, 5, 9, 10]
         
@@ -362,7 +362,7 @@ class TestMatchers(unittest.TestCase):
         
         vals = range(100)
         
-        for testnum in xrange(testcount):
+        for _ in xrange(testcount):
             target = set()
             matchers = []
             for _ in xrange(randint(*clauselimits)):
