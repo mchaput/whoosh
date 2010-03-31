@@ -1,11 +1,12 @@
 from __future__ import division
+from bz2 import compress, decompress
 from email import message_from_string
 import gc, marshal, os.path, tarfile
 from marshal import dump, load
 
 from whoosh import analysis, index
 from whoosh.fields import *
-from whoosh.filedb import pools, pools2
+from whoosh.filedb import pools
 from whoosh.util import now
 
 
@@ -80,6 +81,7 @@ def do_index(cachename, chunk=1000, skip=1, upto=600000, **kwargs):
     for d in get_cached_messages(cachename):
         skipc -= 1
         if not skipc:
+            d["_stored_body"] = compress(d["body"])
             w.add_document(**d)
             skipc = skip
             c += 1
@@ -96,16 +98,14 @@ def do_index(cachename, chunk=1000, skip=1, upto=600000, **kwargs):
     committime = now()
     print "Commit", (committime - spooltime)
     print "Total", (committime - starttime), "for", c
-    
-
-
 
 
 if __name__=="__main__":
     #t = now()
     #cache_messages("c:/Documents and Settings/matt/Desktop/Search/enron_mail_030204.tar", "messages.bin")
     #print now() - t
-    #do_index("messages.bin", limitmb=128, procs=5)#, upto=10000)
+    
+    do_index("messages.bin", limitmb=128, procs=0, upto=10000)
     
     #import cProfile
     #cProfile.run('do_index("messages.bin", limitmb=128, upto=10000)', "index.profile")
@@ -113,48 +113,20 @@ if __name__=="__main__":
     #p = Stats("index.profile")
     #p.sort_stats("time").print_stats()
     
-    from whoosh.filedb.filetables import StructHashReader, FileListReader
-    from whoosh.filedb.filestore import FileStorage
-    from whoosh.filedb import misc
-    fs = FileStorage("testindex")
+    from whoosh.query import Term
+    from whoosh.support.bitvector import BitSet, BitVector
+    from sys import getsizeof
     
-    from whoosh import query
-    ix = fs.open_index()
-    s = ix.searcher()
-    print s.search(query.And([query.Term("body", u"enron"), query.Term("body", u"zimbra")]))
-
-    r = s.reader()
     t = now()
-    fn = schema.name_to_number("body")
-    pr = r.postings(fn, u"enron")
-    dc = pr.format.decoder("weight")
-    bc = 0
-    minw = 0
-    skipped = 0
-    total = 0
-    nextoffset = pr.baseoffset
-    from heapq import heappush, heapreplace
-    hp = []
-    while bc < pr.blockcount:
-        #maxid, nextoffset, postcount, offset = pr._read_block_header(nextoffset)
-        weights = [dc(v) for v in pr.values]
-        bases = [w/r.doc_field_length(id, fn) for id, w in zip(pr.ids, weights)]
-        mb = max(bases)
-        if hp and mb <= hp[0]:
-            skipped += 1
-        else:
-            for b in bases:
-                if len(hp) < 10:
-                    print "Adding", b
-                    heappush(hp, b)
-                elif b > hp[0]:
-                    print "Replacing", b
-                    heapreplace(hp, b)
-        pr._next_block()
-        bc += 1
-    print ":", now() - t
-    print hp
-    print "Skipped", skipped, "blocks of", bc, ":", skipped/bc
+    ix = index.open_dir("testindex")
+    s = ix.searcher()
+    print now() - t
     
+    q = Term("body", u"enron")
+    t = now()
+    r = s.search(q)
+    print now() - t
     
+    for doc in r:
+        print doc["subject"]
     
