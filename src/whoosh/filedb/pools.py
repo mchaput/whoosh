@@ -20,11 +20,9 @@ from array import array
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
 from marshal import load, dump
-from multiprocessing import Process, Queue
 from struct import Struct
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
-from whoosh.filedb.structfile import StructFile
 from whoosh.util import length_to_byte, now
 
 
@@ -299,133 +297,7 @@ class TempfilePool(PoolBase):
         self.cleanup()
         
 
-# Multiprocessing
 
-class PoolWritingTask(Process):
-    def __init__(self, schema, dir, postingqueue, resultqueue, limitmb):
-        Process.__init__(self)
-        self.schema = schema
-        self.dir = dir
-        self.postingqueue = postingqueue
-        self.resultqueue = resultqueue
-        self.limitmb = limitmb
-        
-    def run(self):
-        pqueue = self.postingqueue
-        rqueue = self.resultqueue
-        
-        subpool = TempfilePool(self.schema, limitmb=self.limitmb, dir=self.dir,
-                               basename=self.name)
-        
-        while True:
-            code, args = pqueue.get()
-            
-            if code == -1:
-                doccount = args
-                break
-            if code == 0:
-                subpool.add_content(*args)
-            elif code == 1:
-                subpool.add_posting(*args)
-            elif code == 2:
-                subpool.add_field_length(*args)
-        
-        lenfilename = subpool._filename(self.name + "_lengths")
-        subpool._write_lengths(StructFile(open(lenfilename, "wb")), doccount)
-        subpool.dump_run()
-        rqueue.put((subpool.runs, subpool.fieldlength_totals(),
-                    subpool.fieldlength_maxes(), lenfilename))
-
-
-class MultiPool(PoolBase):
-    def __init__(self, schema, procs=2, limitmb=32, **kw):
-        dir = tempfile.mkdtemp(".whoosh")
-        PoolBase.__init__(self, schema, dir)
-        
-        self.procs = procs
-        self.limitmb = limitmb
-        
-        self.postingqueue = Queue()
-        self.resultsqueue = Queue()
-        self.tasks = [PoolWritingTask(self.schema, self.dir, self.postingqueue,
-                                      self.resultsqueue, self.limitmb)
-                      for _ in xrange(procs)]
-        for task in self.tasks:
-            task.start()
-    
-    def add_content(self, *args):
-        self.postingqueue.put((0, args))
-        
-    def add_posting(self, *args):
-        self.postingqueue.put((1, args))
-    
-    def add_field_length(self, *args):
-        self.postingqueue.put((2, args))
-    
-    def cancel(self):
-        for task in self.tasks:
-            task.terminate()
-        self.cleanup()
-    
-    def cleanup(self):
-        shutil.rmtree(self.dir)
-    
-    def finish(self, doccount, lengthfile, termtable, postingwriter):
-        _fieldlength_totals = self._fieldlength_totals
-        if not self.tasks:
-            return
-        
-        pqueue = self.postingqueue
-        rqueue = self.resultsqueue
-        
-        for _ in xrange(self.procs):
-            pqueue.put((-1, doccount))
-        
-        print "Joining..."
-        t = now()
-        for task in self.tasks:
-            task.join()
-        print "Join:", now() - t
-        
-        print "Getting results..."
-        t = now()
-        runs = []
-        lenfilenames = []
-        for task in self.tasks:
-            taskruns, flentotals, flenmaxes, lenfilename = rqueue.get()
-            runs.extend(taskruns)
-            lenfilenames.append(lenfilename)
-            for fieldnum, total in flentotals.iteritems():
-                _fieldlength_totals[fieldnum] += total
-            for fieldnum, length in flenmaxes.iteritems():
-                if length > self._fieldlength_maxes.get(fieldnum, 0):
-                    self._fieldlength_maxes[fieldnum] = length
-        print "Results:", now() - t
-        
-        print "Writing lengths..."
-        t = now()
-        scorables = self.schema.scorable_field_names()
-        lw = LengthWriter(lengthfile, doccount, scorables)
-        for lenfilename in lenfilenames:
-            sublengths = LengthReader(StructFile(open(lenfilename, "rb")), doccount)
-            lw.add_all(sublengths)
-        lw.close()
-        lengths = lw.reader()
-        print "Lengths:", now() - t
-        
-        t = now()
-        iterator = dividemerge([read_run(runname, count)
-                                for runname, count in runs])
-        total = sum(count for runname, count in runs)
-        write_postings(self.schema, termtable, lengths, postingwriter, iterator)
-        print "Merge:", now() - t
-        
-        self.cleanup()
-        
-
-
-if __name__ == "__main__":
-    pass
     
 
 
