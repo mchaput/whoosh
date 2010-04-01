@@ -36,26 +36,26 @@ class Weighting(object):
 
     use_final = False
 
-    def idf(self, searcher, fieldnum, text):
+    def idf(self, searcher, fieldid, text):
         """Calculates the Inverse Document Frequency of the
         current term. Subclasses may want to override this.
         """
 
         cache = searcher._idf_cache
-        term = (fieldnum, text)
+        term = (fieldid, text)
         if term in cache: return cache[term]
 
-        n = searcher.ixreader.doc_frequency(fieldnum, text)
+        n = searcher.ixreader.doc_frequency(fieldid, text)
         idf = log((searcher.doccount) / (n+1)) + 1
         
         cache[term] = idf
         return idf
 
-    def score(self, searcher, fieldnum, text, docnum, weight):
+    def score(self, searcher, fieldid, text, docnum, weight):
         """Returns the score for a given term in the given document.
         
         :param searcher: :class:`whoosh.searching.Searcher` for the index.
-        :param fieldnum: the field number of the term being scored.
+        :param fieldid: the field name of the term being scored.
         :param text: the text of the term being scored.
         :param docnum: the doc number of the document being scored.
         :param weight: the frequency * boost of the term in this document.
@@ -78,15 +78,15 @@ class Weighting(object):
 
         return score
     
-    def score_fn(self, searcher, fieldnum, text):
+    def score_fn(self, searcher, fieldid, text):
         """Returns a function which takes a :class:`whoosh.matching.Matcher`
         and returns a score.
         """
         def fn(m):
-            return self.score(searcher, fieldnum, text, m.id(), m.weight())
+            return self.score(searcher, fieldid, text, m.id(), m.weight())
         return fn
     
-    def quality_fn(self, searcher, fieldnum, text):
+    def quality_fn(self, searcher, fieldid, text):
         """Returns a function which takes a :class:`whoosh.matching.Matcher`
         and returns an appoximate quality rating for the matcher's current
         posting. If the weighting class does not support approximate quality
@@ -94,7 +94,7 @@ class Weighting(object):
         """
         return None
     
-    def block_quality_fn(self, searcher, fieldnum, text):
+    def block_quality_fn(self, searcher, fieldid, text):
         """Returns a function which takes a :class:`whoosh.matching.Matcher`
         and returns an appoximate quality rating for the matcher's current
         block (whatever concept of block the matcher might use). If the
@@ -109,13 +109,13 @@ class WOLWeighting(Weighting):
     "weight-over-length" (WOL) as an approximate quality rating.
     """
     
-    def quality_fn(self, searcher, fieldnum, text):
+    def quality_fn(self, searcher, fieldid, text):
         dfl = searcher.doc_field_length
         def fn(m):
-            return m.weight() / dfl(m.id(), fieldnum, 1)
+            return m.weight() / dfl(m.id(), fieldid, 1)
         return fn
     
-    def block_quality_fn(self, searcher, fieldnum, text):
+    def block_quality_fn(self, searcher, fieldid, text):
         def fn(m):
             return m.blockinfo.maxwol
         return fn
@@ -149,25 +149,25 @@ class BM25F(WOLWeighting):
         w = weight / ((1 - B) + B * (length / avglength))
         return idf * (w / (K1 + w))
 
-    def score(self, searcher, fieldnum, text, docnum, weight):
-        if not searcher.scorable(fieldnum): return weight
+    def score(self, searcher, fieldid, text, docnum, weight):
+        if not searcher.scorable(fieldid): return weight
 
-        B = self._field_B.get(fieldnum, self.B)
-        avl = searcher.avg_field_length[fieldnum]
-        idf = self.idf(searcher, fieldnum, text)
-        l = searcher.doc_field_length(docnum, fieldnum)
+        B = self._field_B.get(fieldid, self.B)
+        avl = searcher.avg_field_length[fieldid]
+        idf = self.idf(searcher, fieldid, text)
+        l = searcher.doc_field_length(docnum, fieldid)
 
         return BM25F._score(B, self.K1, weight, l, avl, idf)
     
-    def score_fn(self, searcher, fieldnum, text):
-        avl = searcher.avg_field_length.get(fieldnum, 1)
-        B = self._field_B.get(fieldnum, self.B)
-        idf = self.idf(searcher, fieldnum, text)
+    def score_fn(self, searcher, fieldid, text):
+        avl = searcher.avg_field_length.get(fieldid, 1)
+        B = self._field_B.get(fieldid, self.B)
+        idf = self.idf(searcher, fieldid, text)
         dfl = searcher.doc_field_length
         bm25f = BM25F._score
         
         def f(m):
-            l = dfl(m.id(), fieldnum)
+            l = dfl(m.id(), fieldid)
             return bm25f(B, self.K1, m.weight(), l, avl, idf)
         return f
     
@@ -176,21 +176,21 @@ class TF_IDF(Weighting):
     """Instead of doing any fancy scoring, simply returns weight * idf.
     """
 
-    def score(self, searcher, fieldnum, text, docnum, weight):
-        return weight * searcher.idf(fieldnum, text)
+    def score(self, searcher, fieldid, text, docnum, weight):
+        return weight * searcher.idf(fieldid, text)
     
-    def score_fn(self, searcher, fieldnum, text):
-        idf = searcher.idf(fieldnum, text)
+    def score_fn(self, searcher, fieldid, text):
+        idf = searcher.idf(fieldid, text)
         def fn(m):
             return idf * m.weight()
         return fn
     
-    def quality_fn(self, searcher, fieldnum, text):
+    def quality_fn(self, searcher, fieldid, text):
         def fn(m):
             return m.weight()
         return fn
     
-    def block_quality_fn(self, searcher, fieldnum, text):
+    def block_quality_fn(self, searcher, fieldid, text):
         def fn(m):
             return m.blockinfo.maxweight
         return fn
@@ -201,20 +201,20 @@ class Frequency(Weighting):
     This may be useful when you don't care about normalization and weighting.
     """
 
-    def score(self, searcher, fieldnum, text, docnum, weight):
+    def score(self, searcher, fieldid, text, docnum, weight):
         return weight
     
-    def score_fn(self, searcher, fieldnum, text):
+    def score_fn(self, searcher, fieldid, text):
         def fn(m):
             return m.weight()
         return fn
     
-    def quality_fn(self, searcher, fieldnum, text):
+    def quality_fn(self, searcher, fieldid, text):
         def fn(m):
             return m.weight()
         return fn
     
-    def block_quality_fn(self, searcher, fieldnum, text):
+    def block_quality_fn(self, searcher, fieldid, text):
         def fn(m):
             return m.blockinfo.maxweight
         return fn
@@ -268,19 +268,19 @@ class ReverseWeighting(Weighting):
     def __init__(self, weighting):
         self.weighting = weighting
         
-    def score(self, searcher, fieldnum, text, docnum, weight):
-        return 0-self.weighting.score(searcher, fieldnum, text, docnum, weight)
+    def score(self, searcher, fieldid, text, docnum, weight):
+        return 0-self.weighting.score(searcher, fieldid, text, docnum, weight)
     
-    def score_fn(self, searcher, fieldnum, text):
-        sfn = self.weighting.score_fn(searcher, fieldnum, text)
+    def score_fn(self, searcher, fieldid, text):
+        sfn = self.weighting.score_fn(searcher, fieldid, text)
         return lambda m: 0 - sfn(m)
     
-    def quality_fn(self, searcher, fieldnum, text):
-        qfn = self.weighting.quality_fn(searcher, fieldnum, text)
+    def quality_fn(self, searcher, fieldid, text):
+        qfn = self.weighting.quality_fn(searcher, fieldid, text)
         return lambda m: 0 - qfn(m)
     
-    def block_quality_fn(self, searcher, fieldnum, text):
-        qqfn = self.weighting.block_quality_fn(searcher, fieldnum, text)
+    def block_quality_fn(self, searcher, fieldid, text):
+        qqfn = self.weighting.block_quality_fn(searcher, fieldid, text)
         return lambda m: 0 - qqfn(m)
 
 

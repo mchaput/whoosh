@@ -98,16 +98,16 @@ class Searcher(object):
         return self.ixreader.postings(fieldname, text, scorefns=scorefns,
                                       exclude_docs=exclude_docs)
 
-    def idf(self, fieldnum, text):
+    def idf(self, fieldid, text):
         """Calculates the Inverse Document Frequency of the current term (calls
         idf() on the searcher's Weighting object).
         """
 
         cache = self._idf_cache
-        term = (fieldnum, text)
+        term = (fieldid, text)
         if term in cache: return cache[term]
 
-        idf = self.weighting.idf(self, fieldnum, text)
+        idf = self.weighting.idf(self, fieldid, text)
         cache[term] = idf
         return idf
 

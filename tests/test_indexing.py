@@ -1,5 +1,5 @@
 import unittest
-import os.path
+import os.path, random
 from shutil import rmtree
 
 from whoosh import analysis, fields, formats, query
@@ -13,7 +13,7 @@ class TestIndexing(unittest.TestCase):
         if not os.path.exists(dirname):
             os.mkdir(dirname)
         st = FileStorage(dirname)
-        ix = st.create_index(schema, indexname = ixname)
+        ix = st.create_index(schema, indexname=ixname)
         return ix
     
     def destroy_index(self, dirname):
@@ -24,10 +24,10 @@ class TestIndexing(unittest.TestCase):
                 raise
     
     def test_creation(self):
-        s = fields.Schema(content=fields.TEXT(phrase = True),
-                          title=fields.TEXT(stored = True),
-                          path=fields.ID(stored = True),
-                          tags=fields.KEYWORD(stored = True),
+        s = fields.Schema(content=fields.TEXT(phrase=True),
+                          title=fields.TEXT(stored=True),
+                          path=fields.ID(stored=True),
+                          tags=fields.KEYWORD(stored=True),
                           quick=fields.NGRAM,
                           note=fields.STORED)
         st = RamStorage()
@@ -39,19 +39,35 @@ class TestIndexing(unittest.TestCase):
         w.add_document(content=u"Let's try this again", title=u"Second", path=u"/b",
                        tags=u"Uno Dos Tres", quick=u"Second document", note=u"This is the second document")
         w.commit()
+    
+    def test_multipool(self):
+        domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf",
+                  u"hotel", u"india", u"juliet", u"kilo", u"lima", u"mike", u"november")
         
+        s = fields.Schema(content=fields.TEXT, id=fields.ID)
+        ix = self.make_index("testindex", s, "multipool")
+        
+        w = ix.writer(procs=4)
+        for _ in xrange(1000):
+            w.add_document(content=u" ".join(random.sample(domain, 5)),
+                           id=random.choice(domain))
+        w.commit()
+        
+        ix.close()
+        self.destroy_index("testindex")
+    
     def test_integrity(self):
-        s = fields.Schema(name = fields.TEXT, value = fields.TEXT)
+        s = fields.Schema(name=fields.TEXT, value=fields.TEXT)
         st = RamStorage()
         ix = st.create_index(s)
         
         w = ix.writer()
-        w.add_document(name = u"Yellow brown", value = u"Blue red green purple?")
-        w.add_document(name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
+        w.add_document(name=u"Yellow brown", value=u"Blue red green purple?")
+        w.add_document(name=u"Alpha beta", value=u"Gamma delta epsilon omega.")
         w.commit()
         
         w = ix.writer()
-        w.add_document(name = u"One two", value = u"Three four five.")
+        w.add_document(name=u"One two", value=u"Three four five.")
         w.commit()
         
         tr = ix.reader()
@@ -59,8 +75,8 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one", "two", "yellow"])
     
     def test_lengths(self):
-        s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
-                          f2 = fields.KEYWORD(stored = True, scorable = True))
+        s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
+                          f2=fields.KEYWORD(stored=True, scorable=True))
         ix = self.make_index("testindex", s, "test_lengths")
         
         try:
@@ -70,7 +86,7 @@ class TestIndexing(unittest.TestCase):
                 from itertools import cycle, islice
                 lengths = [10, 20, 2, 102, 45, 3, 420, 2]
                 for length in lengths:
-                    w.add_document(f2 = u" ".join(islice(cycle(tokens), length)))
+                    w.add_document(f2=u" ".join(islice(cycle(tokens), length)))
                 w.commit()
             except Exception:
                 w.cancel()
@@ -79,7 +95,7 @@ class TestIndexing(unittest.TestCase):
             dr = ix.reader()
             try:
                 ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
-                self.assertEqual(ls1, [0]*len(lengths))
+                self.assertEqual(ls1, [0] * len(lengths))
                 ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
                 self.assertEqual(ls2, [byte_to_length(length_to_byte(l))
                                        for l in lengths])
@@ -91,14 +107,14 @@ class TestIndexing(unittest.TestCase):
             self.destroy_index("testindex")
     
     def test_lengths_ram(self):
-        s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
-                          f2 = fields.KEYWORD(stored = True, scorable = True))
+        s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
+                          f2=fields.KEYWORD(stored=True, scorable=True))
         st = RamStorage()
         ix = st.create_index(s)
         w = ix.writer()
-        w.add_document(f1 = u"A B C D E", f2 = u"X Y Z")
-        w.add_document(f1 = u"B B B B C D D Q", f2 = u"Q R S T")
-        w.add_document(f1 = u"D E F", f2 = u"U V A B C D E")
+        w.add_document(f1=u"A B C D E", f2=u"X Y Z")
+        w.add_document(f1=u"B B B B C D D Q", f2=u"Q R S T")
+        w.add_document(f1=u"D E F", f2=u"U V A B C D E")
         w.commit()
         
         dr = ix.reader()
@@ -116,23 +132,23 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(dr.max_field_length("f2"), 7)
         
     def test_merged_lengths(self):
-        s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
-                          f2 = fields.KEYWORD(stored = True, scorable = True))
+        s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
+                          f2=fields.KEYWORD(stored=True, scorable=True))
         st = RamStorage()
         ix = st.create_index(s)
         w = ix.writer()
-        w.add_document(f1 = u"A B C", f2 = u"X")
-        w.add_document(f1 = u"B C D E", f2 = u"Y Z")
+        w.add_document(f1=u"A B C", f2=u"X")
+        w.add_document(f1=u"B C D E", f2=u"Y Z")
         w.commit()
         
         w = ix.writer()
-        w.add_document(f1 = u"A", f2 = u"B C D E X Y")
-        w.add_document(f1 = u"B C", f2 = u"X")
+        w.add_document(f1=u"A", f2=u"B C D E X Y")
+        w.add_document(f1=u"B C", f2=u"X")
         w.commit(NO_MERGE)
         
         w = ix.writer()
-        w.add_document(f1 = u"A B X Y Z", f2 = u"B C")
-        w.add_document(f1 = u"Y X", f2 = u"A B")
+        w.add_document(f1=u"A B X Y Z", f2=u"B C")
+        w.add_document(f1=u"Y X", f2=u"A B")
         w.commit(NO_MERGE)
         
         dr = ix.reader()
@@ -143,14 +159,14 @@ class TestIndexing(unittest.TestCase):
         dr.close()
         
     def test_frequency_keyword(self):
-        s = fields.Schema(content = fields.KEYWORD)
+        s = fields.Schema(content=fields.KEYWORD)
         st = RamStorage()
         ix = st.create_index(s)
         
         w = ix.writer()
-        w.add_document(content = u"A B C D E")
-        w.add_document(content = u"B B B B C D D")
-        w.add_document(content = u"D E F")
+        w.add_document(content=u"A B C D E")
+        w.add_document(content=u"B B B B C D D")
+        w.add_document(content=u"D E F")
         w.commit()
         
         tr = ix.reader()
@@ -175,14 +191,14 @@ class TestIndexing(unittest.TestCase):
         tr.close()
         
     def test_frequency_text(self):
-        s = fields.Schema(content = fields.KEYWORD)
+        s = fields.Schema(content=fields.KEYWORD)
         st = RamStorage()
         ix = st.create_index(s)
         
         w = ix.writer()
-        w.add_document(content = u"alfa bravo charlie delta echo")
-        w.add_document(content = u"bravo bravo bravo bravo charlie delta delta")
-        w.add_document(content = u"delta echo foxtrot")
+        w.add_document(content=u"alfa bravo charlie delta echo")
+        w.add_document(content=u"bravo bravo bravo bravo charlie delta delta")
+        w.add_document(content=u"delta echo foxtrot")
         w.commit()
         
         tr = ix.reader()
@@ -207,14 +223,14 @@ class TestIndexing(unittest.TestCase):
         tr.close()
     
     def test_deletion(self):
-        s = fields.Schema(key = fields.ID, name = fields.TEXT, value = fields.TEXT)
+        s = fields.Schema(key=fields.ID, name=fields.TEXT, value=fields.TEXT)
         st = RamStorage()
         ix = st.create_index(s)
         
         w = ix.writer()
-        w.add_document(key = u"A", name = u"Yellow brown", value = u"Blue red green purple?")
-        w.add_document(key = u"B", name = u"Alpha beta", value = u"Gamma delta epsilon omega.")
-        w.add_document(key = u"C", name = u"One two", value = u"Three four five.")
+        w.add_document(key=u"A", name=u"Yellow brown", value=u"Blue red green purple?")
+        w.add_document(key=u"B", name=u"Alpha beta", value=u"Gamma delta epsilon omega.")
+        w.add_document(key=u"C", name=u"One two", value=u"Three four five.")
         w.commit()
         
         count = ix.delete_by_term("key", u"B")
@@ -312,7 +328,7 @@ class TestIndexing(unittest.TestCase):
         writer.commit()
         ix.close()
         self.destroy_index("testindex")
-        
+    
 #    def test_remove_field(self):
 #        a = analysis.StandardAnalyzer()
 #        f1 = fields.ID(stored=True)

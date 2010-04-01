@@ -596,7 +596,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         class CommentWeighting(Weighting):
-            def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
+            def score(self, searcher, fieldid, text, docnum, weight, QTF=1):
                 ncomments = searcher.stored_fields(docnum).get("n_comments", 0)
                 return ncomments
         

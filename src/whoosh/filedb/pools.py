@@ -409,8 +409,8 @@ class MultiPool(PoolBase):
         for lenfilename in lenfilenames:
             sublengths = LengthReader(StructFile(open(lenfilename, "rb")), doccount)
             lw.add_all(sublengths)
-        lengthfile.close()
-        lengths = lengthfile.reader()
+        lw.close()
+        lengths = lw.reader()
         print "Lengths:", now() - t
         
         t = now()

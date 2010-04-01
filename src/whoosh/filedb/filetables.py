@@ -654,7 +654,7 @@ class LengthReader(object):
     
     def __iter__(self):
         for fieldname in self.lengths.keys():
-            for docnum, byte in self.lengths[fieldname]:
+            for docnum, byte in enumerate(self.lengths[fieldname]):
                 yield docnum, fieldname, byte
     
     def get(self, docnum, fieldid, default=0):

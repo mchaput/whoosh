@@ -258,6 +258,10 @@ class FilePostingReader(Matcher):
     def value(self):
         return self.values[self.i]
 
+    def value_as(self, astype):
+        decoder = self.format.decoder(astype)
+        return decoder(self.value())
+
     def weight(self):
         return self.weights[self.i]
     

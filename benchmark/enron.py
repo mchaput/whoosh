@@ -105,7 +105,7 @@ if __name__=="__main__":
     #cache_messages("c:/Documents and Settings/matt/Desktop/Search/enron_mail_030204.tar", "messages.bin")
     #print now() - t
     
-    do_index("messages.bin", limitmb=128, procs=0, upto=10000)
+    do_index("messages.bin", limitmb=128, procs=4)#, upto=5000)
     
     #import cProfile
     #cProfile.run('do_index("messages.bin", limitmb=128, upto=10000)', "index.profile")
