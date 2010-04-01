@@ -162,27 +162,32 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                     docmap[docnum] = self.docnum
                 
                 for fieldname in scorable_fieldnames:
-                    self.pool.add_field_length(self.docnum, fieldname,
-                                               reader.doc_field_length(docnum, fieldname))
+                    l = reader.doc_field_length(docnum, fieldname)
+                    if l:
+                        self.pool.add_field_length(self.docnum, fieldname)
+                
                 for fieldname in vectored_fieldnames:
                     if reader.has_vector(docnum, fieldname):
                         vpostreader = reader.vector(docnum, fieldname)
                         self.add_vector_reader(self.docnum, fieldname, vpostreader)
+                
                 self.docnum += 1
         
+        fieldnames = set(schema.names())
         for fieldname, text, _, _ in reader:
-            postreader = reader.postings(fieldname, text)
-            while postreader.is_active():
-                docnum = postreader.id()
-                valuestring = postreader.value()
-                if has_deletions:
-                    newdoc = docmap[docnum]
-                else:
-                    newdoc = startdoc + docnum
-                
-                self.pool.add_posting(fieldname, text, newdoc,
-                                      postreader.weight(), valuestring)
-                postreader.next()
+            if fieldname in fieldnames:
+                postreader = reader.postings(fieldname, text)
+                while postreader.is_active():
+                    docnum = postreader.id()
+                    valuestring = postreader.value()
+                    if has_deletions:
+                        newdoc = docmap[docnum]
+                    else:
+                        newdoc = startdoc + docnum
+                    
+                    self.pool.add_posting(fieldname, text, newdoc,
+                                          postreader.weight(), valuestring)
+                    postreader.next()
     
     def add_document(self, **fields):
         schema = self.schema

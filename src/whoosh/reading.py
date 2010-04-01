@@ -109,7 +109,7 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def max_field_length(self, fieldnum, default=0):
+    def max_field_length(self, fieldid, default=0):
         """Returns the maximum length of the field across all documents.
         """
         raise NotImplementedError
@@ -195,7 +195,7 @@ class IndexReader(ClosableMixin):
         raise NotImplementedError
 
     def __iter__(self):
-        """Yields (fieldnum, text, docfreq, indexfreq) tuples for each term in
+        """Yields (fieldid, text, docfreq, indexfreq) tuples for each term in
         the reader, in lexical order.
         """
         raise NotImplementedError
@@ -211,7 +211,7 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def iter_from(self, fieldnum, text):
+    def iter_from(self, fieldid, text):
         """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
         in the reader, starting at the given term.
         """
@@ -229,9 +229,6 @@ class IndexReader(ClosableMixin):
     def all_terms(self):
         """Yields (fieldname, text) tuples for every term in the index.
         """
-
-        current_fieldnum = None
-        current_fieldname = None
 
         for fn, t, _, _ in self:
             yield (fn, t)
@@ -362,8 +359,8 @@ class MultiReader(IndexReader):
     def doc_count(self):
         return sum(dr.doc_count() for dr in self.readers)
 
-    def field_length(self, fieldnum):
-        return sum(dr.field_length(fieldnum) for dr in self.readers)
+    def field_length(self, fieldid):
+        return sum(dr.field_length(fieldid) for dr in self.readers)
 
     def doc_field_length(self, docnum, fieldid, default=0):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -410,15 +407,15 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldid)
 
-    def iter_from(self, fieldnum, text):
-        return self._merge_iters([r.iter_from(fieldnum, text)
+    def iter_from(self, fieldid, text):
+        return self._merge_iters([r.iter_from(fieldid, text)
                                   for r in self.readers])
 
-    def doc_frequency(self, fieldnum, text):
-        return sum(r.doc_frequency(fieldnum, text) for r in self.readers)
+    def doc_frequency(self, fieldid, text):
+        return sum(r.doc_frequency(fieldid, text) for r in self.readers)
 
-    def frequency(self, fieldnum, text):
-        return sum(r.frequency(fieldnum, text) for r in self.readers)
+    def frequency(self, fieldid, text):
+        return sum(r.frequency(fieldid, text) for r in self.readers)
 
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of

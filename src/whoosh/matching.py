@@ -883,25 +883,26 @@ class PostingPhraseMatcher(BasePhraseMatcher):
 
 
 class VectorPhraseMatcher(BasePhraseMatcher):
-    def __init__(self, searcher, fieldnum, words, isect, slop=1, boost=1.0):
+    def __init__(self, searcher, fieldid, words, isect, slop=1, boost=1.0):
         """
         :param reader: an IndexReader.
+        :param fieldid: the field in which to search.
         :param words: a sequence of token texts representing the words in the
             phrase.
         :param isect: an intersection matcher for the words in the phrase.
         :param slop: 
         """
         
-        decodefn = searcher.field(fieldnum).vector.decoder("positions")
+        decodefn = searcher.field(fieldid).vector.decoder("positions")
         self.reader = searcher.reader()
-        self.fieldnum = fieldnum
+        self.fieldid = fieldid
         self.words = words
         self.sortedwords = sorted(self.words)
         super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
                                                   boost=boost)
     
     def _poses(self):
-        vreader = self.reader.vector(self.child.id(), self.fieldnum)
+        vreader = self.reader.vector(self.child.id(), self.fieldid)
         poses = {}
         decode_positions = self.decode_positions
         for word in self.sortedwords:
