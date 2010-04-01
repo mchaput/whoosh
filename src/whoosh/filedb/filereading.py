@@ -15,11 +15,9 @@
 #===============================================================================
 
 from threading import Lock
-from marshal import loads
 
-from whoosh.fields import FieldConfigurationError
 from whoosh.filedb.filepostings import FilePostingReader
-from whoosh.filedb.filetables import (FileTableReader, FileListReader,
+from whoosh.filedb.filetables import (FileTableReader, StoredFieldReader,
                                       StructHashReader, LengthReader)
 from whoosh.filedb import misc
 from whoosh.matching import ExcludeMatcher
@@ -33,11 +31,14 @@ class SegmentReader(IndexReader):
     def __init__(self, storage, segment):
         self.storage = storage
         self.segment = segment
-        self.schema = segment.schema
+        self.schema = self.segment.schema
         
-        self.storedfieldnums = self.schema.stored_field_nums()
-        self.storedfieldnames = self.schema.stored_field_names()
-
+        # Field names to code numbers
+        self._name_to_num = self.segment.fieldmap
+        # Code numbers to field names
+        self._num_to_name = dict((num, name) for name, num
+                                 in self.segment.fieldmap.iteritems())
+        
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
         self.termsindex = FileTableReader(tf,
@@ -52,15 +53,14 @@ class SegmentReader(IndexReader):
         
         # Stored fields file
         sf = storage.open_file(segment.storedfields_filename, mapped=False)
-        self.storedfields = FileListReader(sf, valuedecoder=loads)
+        self.storedfields = StoredFieldReader(sf)
         
         # Field length file
         self.fieldlengths = None
-        scorables = self.schema.scorable_fields()
+        scorables = self.schema.scorable_field_names()
         if scorables:
             flf = storage.open_file(segment.fieldlengths_filename)
-            self.fieldlengths = LengthReader.load(flf, segment.doc_count_all(),
-                                                  scorables)
+            self.fieldlengths = LengthReader(flf, segment.doc_count_all())
         
         # Copy methods from underlying segment
         self.has_deletions = segment.has_deletions
@@ -94,7 +94,10 @@ class SegmentReader(IndexReader):
 
     @protected
     def __contains__(self, term):
-        return (self.schema.to_number(term[0]), term[1]) in self.termsindex
+        # Change the first item from a field name to a number using the
+        # segment's field map
+        term = (self._name_to_num[term[0]], term[1])
+        return term in self.termsindex
 
     def close(self):
         self.storedfields.close()
@@ -103,90 +106,104 @@ class SegmentReader(IndexReader):
             self.postfile.close()
         if self.vectorindex:
             self.vectorindex.close()
-        if self.fieldlengths:
-            self.fieldlengths.close()
+        #if self.fieldlengths:
+        #    self.fieldlengths.close()
         self.is_closed = True
 
     def doc_count_all(self):
         return self.dc
 
-    @protected
-    def stored_fields(self, docnum, numerickeys=False):
-        if numerickeys:
-            keys = self.storedfieldnums
-        else:
-            keys = self.storedfieldnames
-        
-        return dict(zip(keys, self.storedfields[docnum]))
+    def field(self, fieldid):
+        return self.schema[fieldid]
+
+    def scorable(self, fieldid):
+        return self.schema[fieldid].scorable
+    
+    def scorable_field_names(self):
+        return self.schema.scorable_field_names()
+    
+    def format(self, fieldid):
+        return self.schema[fieldid].format
+    
+    def vector_format(self, fieldid):
+        return self.schema[fieldid].vector
 
     @protected
-    def all_stored_fields(self, numerickeys=False):
+    def stored_fields(self, docnum):
+        return self.storedfields[docnum]
+
+    @protected
+    def all_stored_fields(self):
         is_deleted = self.segment.is_deleted
         sf = self.stored_fields
         for docnum in xrange(self.segment.doc_count_all()):
             if not is_deleted(docnum):
-                yield sf(docnum, numerickeys=numerickeys)
+                yield sf(docnum)
 
-    def field_length(self, fieldnum):
-        return self.segment.field_length(fieldnum)
+    def field_length(self, fieldid):
+        return self.segment.field_length(fieldid)
 
     @protected
-    def doc_field_length(self, docnum, fieldnum, default=0):
+    def doc_field_length(self, docnum, fieldid, default=0):
         if self.fieldlengths is None: return default
-        return self.fieldlengths.get(docnum, fieldnum, default=default)
+        return self.fieldlengths.get(docnum, fieldid, default=default)
 
-    def max_field_length(self, fieldnum):
-        return self.segment.max_field_length(fieldnum)
+    def max_field_length(self, fieldid):
+        return self.segment.max_field_length(fieldid)
 
     @protected
-    def has_vector(self, docnum, fieldnum):
+    def has_vector(self, docnum, fieldid):
         self._open_vectors()
-        return (docnum, fieldnum) in self.vectorindex
+        fnum = self._name_to_num[fieldid]
+        return (docnum, fnum) in self.vectorindex
 
     @protected
     def __iter__(self):
-        for (fn, t), (totalfreq, _, postcount) in self.termsindex:
-            yield (fn, t, postcount, totalfreq)
+        current_fnum = None
+        fieldname = None
+        for (fnum, t), (totalfreq, _, postcount) in self.termsindex:
+            if fnum != current_fnum:
+                fieldname = self._num_to_name[fnum]
+                current_fnum = fnum
+            yield (fieldname, t, postcount, totalfreq)
 
     @protected
-    def iter_from(self, fieldnum, text):
-        tt = self.termsindex
-        for (fn, t), (totalfreq, _, postcount) in tt.items_from((fieldnum, text)):
-            yield (fn, t, postcount, totalfreq)
+    def iter_from(self, fieldid, text):
+        current_fnum = None
+        fieldname = None
+        fieldnum = self._name_to_num[fieldid]
+        for (fnum, t), (totalfreq, _, postcount) in self.termsindex.items_from((fieldnum, text)):
+            if fnum != current_fnum:
+                fieldname = self._num_to_name[fnum]
+                current_fnum = fnum
+            yield (fieldname, t, postcount, totalfreq)
 
     @protected
-    def _term_info(self, fieldnum, text):
+    def _term_info(self, fieldid, text):
         try:
-            return self.termsindex[(fieldnum, text)]
+            fnum = self._name_to_num[fieldid]
+            return self.termsindex[(fnum, text)]
         except KeyError:
-            raise TermNotFound("%s:%r" % (fieldnum, text))
+            raise TermNotFound("%s:%r" % (fieldid, text))
 
     def doc_frequency(self, fieldid, text):
         try:
-            fieldnum = self.schema.to_number(fieldid)
-            return self._term_info(fieldnum, text)[2]
+            return self._term_info(fieldid, text)[2]
         except TermNotFound:
             return 0
 
     def frequency(self, fieldid, text):
         try:
-            fieldnum = self.schema.to_number(fieldid)
-            return self._term_info(fieldnum, text)[0]
+            return self._term_info(fieldid, text)[0]
         except TermNotFound:
             return 0
 
-    @protected
     def lexicon(self, fieldid):
         # The base class has a lexicon() implementation that uses iter_from()
         # and throws away the value, but overriding to use
         # FileTableReader.keys_from() is much, much faster.
 
-        tt = self.termsindex
-        fieldid = self.schema.to_number(fieldid)
-        for fn, t in tt.keys_from((fieldid, '')):
-            if fn != fieldid:
-                return
-            yield t
+        return self.expand_prefix(fieldid, '')
 
     @protected
     def expand_prefix(self, fieldid, prefix):
@@ -194,20 +211,18 @@ class SegmentReader(IndexReader):
         # iter_from() and throws away the value, but overriding to use
         # FileTableReader.keys_from() is much, much faster.
 
-        tt = self.termsindex
-        fieldid = self.schema.to_number(fieldid)
-        for fn, t in tt.keys_from((fieldid, prefix)):
-            if fn != fieldid or not t.startswith(prefix):
+        fnum = self._name_to_num[fieldid]
+        for fn, t in self.termsindex.keys_from((fnum, prefix)):
+            if fn != fnum or not t.startswith(prefix):
                 return
             yield t
 
     def postings(self, fieldid, text, exclude_docs=frozenset(), scorefns=None):
-        schema = self.schema
-        fieldnum = schema.to_number(fieldid)
-        format = schema[fieldnum].format
+        format = self.format(fieldid)
 
         try:
-            offset = self.termsindex[(fieldnum, text)][1]
+            fnum = self._name_to_num[fieldid]
+            offset = self.termsindex[(fnum, text)][1]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldid, text))
 
@@ -224,19 +239,18 @@ class SegmentReader(IndexReader):
         return postreader
     
     def vector(self, docnum, fieldid):
-        schema = self.schema
-        fieldnum = schema.to_number(fieldid)
-        vformat = schema[fieldnum].vector
+        vformat = self.vector_format(fieldid)
         if not vformat:
             raise Exception("No vectors are stored for field %r" % fieldid)
         
         self._open_vectors()
-        offset = self.vectorindex.get((docnum, fieldnum))
+        fnum = self._name_to_num[fieldid]
+        offset = self.vectorindex.get((docnum, fnum))
         if offset is None:
-            raise Exception("No vector found for document %s field %r" % (docnum, fieldid))
+            raise Exception("No vector found"
+                            " for document %s field %r" % (docnum, fieldid))
         
-        return FilePostingReader(self.vpostfile, offset, vformat,
-                                 stringids=True)
+        return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
 
 

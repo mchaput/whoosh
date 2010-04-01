@@ -108,7 +108,7 @@ class Expander(object):
         """Adds forward-index information about one of the "top N" documents.
         
         :param vector: A series of (text, weight) tuples, such as is
-            returned by Reader.vector_as("weight", docnum, fieldnum).
+            returned by Reader.vector_as("weight", docnum, fieldid).
         """
         
         total_weight = 0

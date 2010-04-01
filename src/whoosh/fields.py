@@ -399,82 +399,61 @@ class Schema(object):
                        tags = KEYWORD(stored = True))
         """
         
-        self._by_number = []
+        self._fields = {}
         self._names = []
-        self._by_name = {}
-        self._numbers = {}
-        self._removed = set()
         
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
     
     def __eq__(self, other):
         if not isinstance(other, Schema): return False
-        return self._by_name == other._by_name
+        return self._fields == other._fields
     
     def __repr__(self):
-        return "<Schema: %s>" % repr(self._names)
+        return "<Schema: %s>" % repr(self._fields.keys())
     
     def __iter__(self):
-        """Yields the sequence of fields in this schema.
+        """Returns the field objects in this schema.
         """
         
-        return iter(self._by_number)
+        return (self._fields[name] for name in self._names)
     
-    def __getitem__(self, id):
-        """Returns the field associated with the given field name or number.
-        
-        :param id: A field name or field number.
+    def __getitem__(self, name):
+        """Returns the field associated with the given field name.
         """
         
-        if isinstance(id, basestring):
-            return self._by_name[id]
-        return self._by_number[id]
+        return self._fields[name]
     
     def __len__(self):
         """Returns the number of fields in this schema.
         """
-        return len(self._by_number)
+        return len(self._fields)
     
     def __contains__(self, fieldname):
         """Returns True if a field by the given name is in this schema.
-        
-        :param fieldname: The name of the field.
         """
-        return fieldname in self._by_name
+        
+        return fieldname in self._fields
+    
+    def items(self):
+        """Returns a list of ("fieldname", field_object) pairs for the fields
+        in this schema.
+        """
+        
+        return [(name, self._fields[name]) for name in self._names]
+    
+    def names(self):
+        """Returns a list of the names of the fields in this schema.
+        """
+        return self._names
     
     def copy(self):
         import copy
         return copy.deepcopy(self)
     
     def clean(self):
-        for field in self._by_number:
+        for field in self._fields.itervalues():
             field.clean()
-    
-    def field_by_name(self, name):
-        """Returns the field object associated with the given name.
-        
-        :param name: The name of the field to retrieve.
-        """
-        return self._by_name[name]
-    
-    def field_by_number(self, number):
-        """Returns the field object associated with the given number.
-        
-        :param number: The number of the field to retrieve.
-        """
-        return self._by_number[number]
-    
-    def fields(self):
-        """Yields ("fieldname", field_object) pairs for the fields in this
-        schema.
-        """
-        return self._by_name.iteritems()
-    
-    def field_names(self):
-        """Returns a list of the names of the fields in this schema.
-        """
-        return self._names
     
     def add(self, name, fieldtype):
         """Adds a field to this schema. This is a low-level method; use keyword
@@ -490,7 +469,7 @@ class Schema(object):
         
         if name.startswith("_"):
             raise FieldConfigurationError("Field names cannot start with an underscore")
-        elif name in self._by_name:
+        elif name in self._fields:
             raise FieldConfigurationError("Schema already has a field named %s" % name)
         
         if type(fieldtype) is type:
@@ -501,94 +480,39 @@ class Schema(object):
         if not isinstance(fieldtype, FieldType):
             raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
         
-        fnum = len(self._by_number)
-        self._numbers[name] = fnum
-        self._by_number.append(fieldtype)
         self._names.append(name)
-        self._by_name[name] = fieldtype
+        self._fields[name] = fieldtype
     
     def remove(self, fieldid):
-        self._removed.add(self.to_number(fieldid))
-    
-    def to_number(self, id):
-        """Given a field name or number, returns the field's number.
-        """
-        if isinstance(id, int):
-            return id
-        else:
-            return self.name_to_number(id)
-    
-    def to_name(self, id):
-        """Given a field name or number, returns the field's name.
-        """
-        if isinstance(id, int):
-            return self.number_to_name(id)
-        else:
-            return id
-    
-    def name_to_number(self, name):
-        """Given a field name, returns the field's number.
-        """
-        try:
-            return self._numbers[name]
-        except KeyError:
-            raise KeyError("No field named %r in %r" % (name, self._numbers.keys()))
-    
-    def number_to_name(self, number):
-        """Given a field number, returns the field's name.
-        """
-        return self._names[number]
+        del self._fields[fieldid]
+        self._names.remove(fieldid)
     
     def has_vectored_fields(self):
         """Returns True if any of the fields in this schema store term vectors.
         """
-        return any(ftype.vector for ftype in self._by_number)
+        
+        return any(ftype.vector for ftype in self)
     
-    def vectored_fields(self):
-        """Returns a list of field numbers corresponding to the fields that are
+    def vectored_field_names(self):
+        """Returns a list of field names corresponding to the fields that are
         vectored.
         """
-        return [i for i, ftype in enumerate(self._by_number) if ftype.vector]
+        
+        return [name for name, field in self.items() if field.vector]
     
-    def scorable_fields(self):
-        """Returns a list of field numbers corresponding to the fields that
+    def scorable_field_names(self):
+        """Returns a list of field names corresponding to the fields that
         store length information.
         """
-        return [i for i, field in enumerate(self) if field.scorable]
-
-    def stored_field_nums(self):
-        """Returns a list of field numbers corresponding to the fields that are stored.
-        """
-        return [i for i, field in enumerate(self) if field.stored]
+        
+        return [name for name, field in self.items() if field.scorable]
 
     def stored_field_names(self):
-        """Returns the names, in order, of fields that are stored."""
-        
-        bn = self._by_name
-        return [name for name in self._names if bn[name].stored]
-
-    def removed_fields(self):
-        """Returns the list of fields that have been marked for removal.
-        """
-        return sorted(self._removed)
-    
-    def fieldnum_map(self):
-        """If this schema has fields marked for removal, returns a dictionary
-        mapping old field numbers to new field numbers. If no fields are marked
-        for removal, returns None.
+        """Returns a list of field names corresponding to the fields that are
+        stored.
         """
         
-        removed = self._removed
-        if removed:
-            fnum = 0
-            fmap = {}
-            for i in xrange(len(self)):
-                if i in removed: continue
-                fmap[fnum] = i
-                fnum += 1
-            return fmap
-        else:
-            return None
+        return [name for name, field in self.items() if field.stored]
 
     def analyzer(self, fieldname):
         """Returns the content analyzer for the given fieldname, or None if

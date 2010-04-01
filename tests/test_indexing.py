@@ -76,13 +76,11 @@ class TestIndexing(unittest.TestCase):
                 w.cancel()
                 raise
             
-            f1 = s.name_to_number("f1")
-            f2 = s.name_to_number("f2")
             dr = ix.reader()
             try:
-                ls1 = [dr.doc_field_length(i, f1) for i in xrange(0, len(lengths))]
+                ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
                 self.assertEqual(ls1, [0]*len(lengths))
-                ls2 = [dr.doc_field_length(i, f2) for i in xrange(0, len(lengths))]
+                ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
                 self.assertEqual(ls2, [byte_to_length(length_to_byte(l))
                                        for l in lengths])
             finally:
@@ -103,21 +101,19 @@ class TestIndexing(unittest.TestCase):
         w.add_document(f1 = u"D E F", f2 = u"U V A B C D E")
         w.commit()
         
-        f1 = s.name_to_number("f1")
-        f2 = s.name_to_number("f2")
         dr = ix.reader()
         self.assertEqual(dr.stored_fields(0)["f1"], "A B C D E")
-        self.assertEqual(dr.doc_field_length(0, f1), 5)
-        self.assertEqual(dr.doc_field_length(1, f1), 8)
-        self.assertEqual(dr.doc_field_length(2, f1), 3)
-        self.assertEqual(dr.doc_field_length(0, f2), 3)
-        self.assertEqual(dr.doc_field_length(1, f2), 4)
-        self.assertEqual(dr.doc_field_length(2, f2), 7)
+        self.assertEqual(dr.doc_field_length(0, "f1"), 5)
+        self.assertEqual(dr.doc_field_length(1, "f1"), 8)
+        self.assertEqual(dr.doc_field_length(2, "f1"), 3)
+        self.assertEqual(dr.doc_field_length(0, "f2"), 3)
+        self.assertEqual(dr.doc_field_length(1, "f2"), 4)
+        self.assertEqual(dr.doc_field_length(2, "f2"), 7)
         
-        self.assertEqual(dr.field_length(f1), 16)
-        self.assertEqual(dr.field_length(f2), 14)
-        self.assertEqual(dr.max_field_length(f1), 8)
-        self.assertEqual(dr.max_field_length(f2), 7)
+        self.assertEqual(dr.field_length("f1"), 16)
+        self.assertEqual(dr.field_length("f2"), 14)
+        self.assertEqual(dr.max_field_length("f1"), 8)
+        self.assertEqual(dr.max_field_length("f2"), 7)
         
     def test_merged_lengths(self):
         s = fields.Schema(f1 = fields.KEYWORD(stored = True, scorable = True),
@@ -170,9 +166,12 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(tr.frequency("content", u"F"), 1)
         self.assertEqual(tr.doc_frequency("content", u"Z"), 0)
         self.assertEqual(tr.frequency("content", u"Z"), 0)
-        self.assertEqual(list(tr), [(0, u"A", 1, 1), (0, u"B", 2, 5),
-                                    (0, u"C", 2, 2), (0, u"D", 3, 4),
-                                    (0, u"E", 2, 2), (0, u"F", 1, 1)])
+        self.assertEqual(list(tr), [("content", u"A", 1, 1),
+                                    ("content", u"B", 2, 5),
+                                    ("content", u"C", 2, 2),
+                                    ("content", u"D", 3, 4),
+                                    ("content", u"E", 2, 2),
+                                    ("content", u"F", 1, 1)])
         tr.close()
         
     def test_frequency_text(self):
@@ -199,9 +198,12 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(tr.frequency("content", u"foxtrot"), 1)
         self.assertEqual(tr.doc_frequency("content", u"zulu"), 0)
         self.assertEqual(tr.frequency("content", u"zulu"), 0)
-        self.assertEqual(list(tr), [(0, u"alfa", 1, 1), (0, u"bravo", 2, 5),
-                                    (0, u"charlie", 2, 2), (0, u"delta", 3, 4),
-                                    (0, u"echo", 2, 2), (0, u"foxtrot", 1, 1)])
+        self.assertEqual(list(tr), [("content", u"alfa", 1, 1),
+                                    ("content", u"bravo", 2, 5),
+                                    ("content", u"charlie", 2, 2),
+                                    ("content", u"delta", 3, 4),
+                                    ("content", u"echo", 2, 2),
+                                    ("content", u"foxtrot", 1, 1)])
         tr.close()
     
     def test_deletion(self):

@@ -39,7 +39,7 @@ class TestSpelling(unittest.TestCase):
         
         from whoosh.scoring import Frequency
         sugs = sp.suggestions_and_scores(u"alpha", weighting=Frequency())
-        self.assertEqual([(u"alfa", 10, 3.0), (u"charlie", 8, 1.0)], sugs)
+        self.assertEqual(sugs, [(u"alfa", 10, 3.0), (u"charlie", 8, 1.0)])
 
 
 

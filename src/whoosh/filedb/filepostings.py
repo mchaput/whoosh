@@ -114,6 +114,8 @@ class FilePostingWriter(PostingWriter):
         self.posttotal = 0
         self.startoffset = self.postfile.tell()
         
+        # Magic number
+        self.postfile.write_int(-48626)
         # Placeholder for block count
         self.postfile.write_uint(0)
         
@@ -143,7 +145,7 @@ class FilePostingWriter(PostingWriter):
         pf = self.postfile
         pf.flush()
         offset = pf.tell()
-        pf.seek(self.startoffset)
+        pf.seek(self.startoffset + _INT_SIZE)
         pf.write_uint(self.blockcount)
         pf.seek(offset)
         
@@ -193,7 +195,7 @@ class FilePostingWriter(PostingWriter):
         # (represented by a number less than zero), write an array of value
         # lengths
         if posting_size < 0:
-            lengths = array("I")
+            lengths = array("i")
             for valuestring in values:
                 lengths.append(len(valuestring))
             pf.write_array(lengths)
@@ -233,8 +235,9 @@ class FilePostingReader(Matcher):
         
         self.stringids = stringids
         
-        self.blockcount = postfile.get_uint(offset)
-        self.baseoffset = offset + _INT_SIZE
+        assert postfile.get_int(offset) == -48626
+        self.blockcount = postfile.get_uint(offset + _INT_SIZE)
+        self.baseoffset = offset + _INT_SIZE * 2
         self._active = True
         self.currentblock = -1
         self._next_block()
@@ -327,7 +330,7 @@ class FilePostingReader(Matcher):
             valueoffset = startoffset
             if posting_size < 0:
                 # Read the array of lengths for the values
-                lengths = pf.get_array(startoffset, "I", postcount)
+                lengths = pf.get_array(startoffset, "i", postcount)
                 valueoffset += _INT_SIZE * postcount
 
             allvalues = pf.map[valueoffset:endoffset]
