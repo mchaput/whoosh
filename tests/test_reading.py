@@ -45,12 +45,12 @@ class TestReading(unittest.TestCase):
         return ix
     
     def test_readers(self):
-        target = [(0, u'A', 4, 6), (0, u'B', 2, 2), (0, u'C', 2, 2),
-                  (0, u'D', 1, 1), (0, u'E', 2, 2), (0, u'F', 1, 1),
-                  (1, u'1', 3, 3), (1, u'2', 3, 3), (1, u'3', 2, 2),
-                  (1, u'4', 2, 2), (1, u'5', 2, 2), (1, u'6', 2, 2),
-                  (2, u'Q', 2, 2), (2, u'R', 2, 2), (2, u'S', 2, 2),
-                  (2, u'X', 3, 3), (2, u'Y', 3, 3), (2, u'Z', 2, 2)]
+        target = [("f1", u'A', 4, 6), ("f1", u'B', 2, 2), ("f1", u'C', 2, 2),
+                  ("f1", u'D', 1, 1), ("f1", u'E', 2, 2), ("f1", u'F', 1, 1),
+                  ("f2", u'1', 3, 3), ("f2", u'2', 3, 3), ("f2", u'3', 2, 2),
+                  ("f2", u'4', 2, 2), ("f2", u'5', 2, 2), ("f2", u'6', 2, 2),
+                  ("f3", u'Q', 2, 2), ("f3", u'R', 2, 2), ("f3", u'S', 2, 2),
+                  ("f3", u'X', 3, 3), ("f3", u'Y', 3, 3), ("f3", u'Z', 2, 2)]
         
         stored = [{"f1": "A B C"}, {"f1": "D E F"}, {"f1": "A E C"},
                   {"f1": "A A A"}, {"f1": "A B"}]
@@ -113,7 +113,7 @@ class TestReading(unittest.TestCase):
         writer.commit()
         r = ix.reader()
         
-        terms = list(r.vector_as("weight", 0, 0))
+        terms = list(r.vector_as("weight", 0, "content"))
         self.assertEqual(terms, [(u'brown', 1.0),
                                  (u'dogs', 1.0),
                                  (u'fox', 1.0),
@@ -137,7 +137,6 @@ class TestReading(unittest.TestCase):
         
         r = ix.reader()
         self.assertEqual(r.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
-        self.assertEqual(r.stored_fields(1, numerickeys=True), {0: u"2", 1: "b", 3: u"Bravo"})
         self.assertEqual(r.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
         
         sr = Searcher(r)

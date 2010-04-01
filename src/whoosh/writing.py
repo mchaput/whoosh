@@ -97,8 +97,7 @@ class IndexWriter(DeletionMixin):
         """
         
         # Check which of the supplied fields are unique
-        unique_fields = [name for name, field
-                         in self.schema.fields()
+        unique_fields = [name for name, field in self.schema.items()
                          if name in fields and field.unique]
         if not unique_fields:
             raise IndexingError("None of the fields in %r"

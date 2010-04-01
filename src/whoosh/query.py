@@ -369,8 +369,7 @@ class MultiTerm(Query):
                 termset.add(t)
 
     def estimate_size(self, ixreader):
-        fieldnum = ixreader.fieldname_to_num(self.fieldname)
-        return sum(ixreader.doc_frequency(fieldnum, text)
+        return sum(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._words(ixreader))
 
     def matcher(self, searcher, exclude_docs=None):
@@ -423,8 +422,7 @@ class Term(Query):
 
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
         fieldname, text = self.fieldname, self.text
-        fieldnum = ixreader.fieldname_to_num(fieldname)
-        contains = (fieldnum, text) in ixreader
+        contains = (fieldname, text) in ixreader
         if reverse: contains = not contains
         if contains:
             termset.add((fieldname, text))
@@ -436,17 +434,12 @@ class Term(Query):
             return self
 
     def estimate_size(self, ixreader):
-        fieldnum = ixreader.fieldname_to_num(self.fieldname)
-        return ixreader.doc_frequency(fieldnum, self.text)
+        return ixreader.doc_frequency(self.fieldname, self.text)
 
     def matcher(self, searcher, exclude_docs=None):
         try:
-            fieldnum = searcher.fieldname_to_num(self.fieldname)
-        except KeyError:
-            return NullMatcher()
-        
-        try:
-            m = searcher.postings(fieldnum, self.text, exclude_docs=exclude_docs)
+            m = searcher.postings(self.fieldname, self.text,
+                                  exclude_docs=exclude_docs)
             if self.boost != 1:
                 m = WrappingMatcher(m, boost=self.boost)
                 
@@ -866,14 +859,14 @@ class TermRange(MultiTerm):
             return self
 
     def _words(self, ixreader):
-        fieldnum = ixreader.fieldname_to_num(self.fieldname)
+        fieldname = self.fieldname
         start = self.start
         end = self.end
         startexcl = self.startexcl
         endexcl = self.endexcl
 
-        for fnum, t, _, _ in ixreader.iter_from(fieldnum, self.start):
-            if fnum != fieldnum:
+        for fname, t, _, _ in ixreader.iter_from(fieldname, self.start):
+            if fname != fieldname:
                 break
             if t == start and startexcl:
                 continue
@@ -964,9 +957,8 @@ class Phrase(MultiTerm):
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
         if phrases:
             fieldname = self.fieldname
-            fieldnum = ixreader.fieldname_to_num(fieldname)
             for word in self.words:
-                contains = (fieldnum, word) in ixreader
+                contains = (fieldname, word) in ixreader
                 if reverse: contains = not contains
                 if contains:
                     termset.add((fieldname, word))
@@ -999,25 +991,25 @@ class Phrase(MultiTerm):
         return self._and_query().estimate_size(ixreader)
 
     def matcher(self, searcher, exclude_docs=None):
-        fieldnum = searcher.fieldname_to_num(self.fieldname)
+        fieldname = self.fieldname
         reader = searcher.reader()
 
         # Shortcut the query if one of the words doesn't exist.
         for word in self.words:
-            if (fieldnum, word) not in reader: return NullMatcher()
+            if (fieldname, word) not in reader: return NullMatcher()
         
-        wordmatchers = [searcher.postings(fieldnum, word, exclude_docs=exclude_docs)
+        wordmatchers = [searcher.postings(fieldname, word, exclude_docs=exclude_docs)
                         for word in self.words]
         isect = make_tree(IntersectionMatcher, wordmatchers)
         
-        field = searcher.field(fieldnum)
+        field = searcher.field(fieldname)
         if field.format and field.format.supports("positions"):
             decodefn = field.format.decoder("positions")
             return PostingPhraseMatcher(wordmatchers, isect, decodefn,
                                         slop=self.slop, boost=self.boost)
         
         elif field.vector and field.vector.supports("positions"):
-            return VectorPhraseMatcher(searcher, fieldnum, self.words, isect,
+            return VectorPhraseMatcher(searcher, fieldname, self.words, isect,
                                        slop=self.slop, boost=self.boost)
             
         else:

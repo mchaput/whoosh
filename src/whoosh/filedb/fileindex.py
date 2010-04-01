@@ -290,8 +290,8 @@ class FileIndex(SegmentDeletionMixin, Index):
     def doc_count(self):
         return self.segments.doc_count()
 
-    def field_length(self, fieldnum):
-        return sum(s.field_length(fieldnum) for s in self.segments)
+    def field_length(self, fieldname):
+        return sum(s.field_length(fieldname) for s in self.segments)
 
     def reader(self):
         return self.segments.reader(self.storage)
@@ -431,11 +431,7 @@ class SegmentSet(object):
         else:
             from whoosh.reading import MultiReader
             readers = [SegmentReader(storage, segment) for segment in segments]
-            if readers:
-                schema = readers[0].schema
-            else:
-                schema = Schema()
-            return MultiReader(readers, schema)
+            return MultiReader(readers)
 
 
 class Segment(object):
@@ -476,6 +472,7 @@ class Segment(object):
         
         self.name = name
         self.schema = schema
+        self.fieldmap = dict((name, i) for i, name in enumerate(schema.names()))
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
         self.fieldlength_maxes = fieldlength_maxes
@@ -528,21 +525,21 @@ class Segment(object):
         if self.deleted is None: return 0
         return len(self.deleted)
 
-    def field_length(self, fieldnum, default=0):
+    def field_length(self, fieldname, default=0):
         """Returns the total number of terms in the given field across all
         documents in this segment.
         
-        :param fieldnum: the internal number of the field.
+        :param fieldname: the internal number of the field.
         """
-        return self.fieldlength_totals.get(fieldnum, default)
+        return self.fieldlength_totals.get(fieldname, default)
 
-    def max_field_length(self, fieldnum, default=0):
+    def max_field_length(self, fieldname, default=0):
         """Returns the maximum length of the given field in any of the
         documents in the segment.
         
-        :param fieldnum: the internal number of the field.
+        :param fieldname: the internal number of the field.
         """
-        return self.fieldlength_maxes.get(fieldnum, default)
+        return self.fieldlength_maxes.get(fieldname, default)
 
     def delete_document(self, docnum, delete=True):
         """Deletes the given document number. The document is not actually

@@ -84,7 +84,7 @@ class TestVectors(unittest.TestCase):
             writer.commit()
             
             reader = ix.reader()
-            vec = list(reader.vector_as("frequency", 0, 0))
+            vec = list(reader.vector_as("frequency", 0, "content"))
             self.assertEqual(vec, [(u'\u3456\u4567', 1), (u'\u789a\u789b\u789c', 1)])
         finally:
             pass

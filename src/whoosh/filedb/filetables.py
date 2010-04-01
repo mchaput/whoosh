@@ -22,6 +22,7 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 from sys import byteorder
 from array import array
 from collections import defaultdict
+from marshal import loads, dumps
 from struct import Struct
 
 from whoosh.filedb.misc import enpickle, depickle
@@ -611,104 +612,79 @@ class LengthWriter(object):
     def __init__(self, dbfile, doccount, scorables, lengths=None):
         self.dbfile = dbfile
         self.doccount = doccount
-        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
-        
         if lengths is None:
-            lengths = array("B", (0 for _ in xrange(doccount)))
+            lengths = dict((fieldname, array("B",  (0 for _ in xrange(doccount))))
+                            for fieldname in scorables)
         self.lengths = lengths
     
     def add_all(self, items):
         lengths = self.lengths
-        doccount = self.doccount
-        indices = self.indices
-        for docnum, fieldnum, byte in items:
-            index = indices[fieldnum]
-            pos = (index * doccount) + docnum
-            lengths[pos] = byte
+        for docnum, fieldname, byte in items:
+            if byte:
+                lengths[fieldname][docnum] = byte
     
-    def add(self, docnum, fieldnum, byte):
-        index = self.indices[fieldnum]
-        pos = (index * self.doccount) + docnum
-        self.lengths[pos] = byte
-        
+    def add(self, docnum, fieldid, byte):
+        if byte:
+            self.lengths[fieldid][docnum] = byte
+    
+    def reader(self):
+        return LengthReader(None, self.doccount, lengths=self.lengths)
+    
     def close(self):
-        self.dbfile.write_array(self.lengths)
+        self.dbfile.write_ushort(len(self.lengths))
+        for fieldname, arry in self.lengths.iteritems():
+            self.dbfile.write_string(fieldname)
+            self.dbfile.write_array(arry)
         self.dbfile.close()
         
 
 class LengthReader(object):
-    def __init__(self, dbfile, doccount, scorables):
-        self.dbfile = dbfile
+    def __init__(self, dbfile, doccount, lengths=None):
         self.doccount = doccount
-        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
         
-    @staticmethod
-    def load(dbfile, doccount, scorables, inmemory=True):
-        if inmemory:
-            lengthcount = doccount * len(scorables)
-            lengths = dbfile.read_array("B", lengthcount)
-            dbfile.close()
-            return MemoryLengthReader(lengths, doccount, scorables)
+        if lengths is not None:
+            self.lengths = lengths
         else:
-            return LengthReader(dbfile, doccount, scorables)
+            self.lengths = {}
+            count = dbfile.read_ushort()
+            for _ in xrange(count):
+                fieldname = dbfile.read_string()
+                self.lengths[fieldname] = dbfile.read_array("B", self.doccount)
+            dbfile.close()
     
-    def get(self, docnum, fieldnum, default=0):
-        try:
-            index = self.indices[fieldnum]
-        except KeyError:
+    def __iter__(self):
+        for fieldname in self.lengths.keys():
+            for docnum, byte in self.lengths[fieldname]:
+                yield docnum, fieldname, byte
+    
+    def get(self, docnum, fieldid, default=0):
+        lengths = self.lengths
+        if fieldid not in lengths:
             return default
-        
-        pos = (index * self.doccount) + docnum
-        return byte_to_length(self.dbfile.get_byte(pos))
-    
-    def close(self):
-        if not self.inmemory:
-            self.dbfile.close()
-            
-
-class MemoryLengthReader(object):
-    def __init__(self, lengths, doccount, scorables):
-        assert len(lengths) == doccount * len(scorables)
-        self.lengths = lengths
-        self.doccount = doccount
-        self.indices = dict((fieldnum, i) for i, fieldnum in enumerate(scorables))
-        
-    def get(self, docnum, fieldnum, default=0):
-        if not self.lengths: return default
-        try:
-            index = self.indices[fieldnum]
-        except KeyError:
-            return default
-        
-        pos = (index * self.doccount) + docnum
-        try:
-            return byte_to_length(self.lengths[pos])
-        except IndexError, e:
-            raise IndexError("lens=%r pos=%r" % (self.lengths, pos))
-    
-    def close(self):
-        pass
+        byte = lengths[fieldid][docnum]
+        return byte_to_length(byte)
         
 
-class FileListWriter(object):
-    def __init__(self, dbfile, valuecoder=str):
+class StoredFieldWriter(object):
+    def __init__(self, dbfile, fieldnames):
         self.dbfile = dbfile
+        self.fieldnames = fieldnames
         self.directory = array("I")
         dbfile.write_uint(0)
         dbfile.write_uint(0)
-        self.valuecoder = valuecoder
 
-    def append(self, value):
+    def append(self, valuelist):
         f = self.dbfile
+        v = dumps(valuelist)
         self.directory.append(f.tell())
-        v = self.valuecoder(value)
         self.directory.append(len(v))
         f.write(v)
-        
+    
     def close(self):
         f = self.dbfile
         directory_pos = f.tell()
         f.write_array(self.directory)
+        f.write_pickle(self.fieldnames)
         f.flush()
         f.seek(0)
         f.write_uint(directory_pos)
@@ -716,13 +692,15 @@ class FileListWriter(object):
         f.close()
 
 
-class FileListReader(object):
-    def __init__(self, dbfile, valuedecoder=str):
+class StoredFieldReader(object):
+    def __init__(self, dbfile):
         self.dbfile = dbfile
-        self.valuedecoder = valuedecoder
 
         self.offset = dbfile.get_uint(0)
         self.length = dbfile.get_uint(_INT_SIZE)
+        
+        dbfile.seek(self.offset + self.length * _2INTS_SIZE)
+        self.fieldnames = dbfile.read_pickle()
 
     def close(self):
         self.dbfile.close()
@@ -730,9 +708,10 @@ class FileListReader(object):
     def __getitem__(self, num):
         dbfile = self.dbfile
         dir_offset = self.offset + num * _2INTS_SIZE
-        position, length = unpack_2ints(dbfile.map[dir_offset:dir_offset + _2INTS_SIZE])
-        v = dbfile.map[position:position + length]
-        return self.valuedecoder(v)
+        position, length = unpack_2ints(self.dbfile.map[dir_offset:dir_offset + _2INTS_SIZE])
+        dbfile.seek(position)
+        values = loads(dbfile.read(length))
+        return dict(zip(self.fieldnames, values))
 
 
 # Utility functions
