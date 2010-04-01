@@ -457,8 +457,8 @@ class TestSearching(unittest.TestCase):
         writer.add_document(name=u'Frank', hobbies=u'baseball, basketball')
         writer.commit()
         r = idx.reader()
-        self.assertEqual(r.field_length(0), 2) # hobbies
-        self.assertEqual(r.field_length(1), 1) # name
+        self.assertEqual(r.field_length("hobbies"), 2)
+        self.assertEqual(r.field_length("name"), 1)
         r.close()
         
         writer = idx.writer()
@@ -466,8 +466,8 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         r = idx.reader()
         self.assertEqual(len(idx.segments), 1)
-        self.assertEqual(r.field_length(0), 2) # hobbies
-        self.assertEqual(r.field_length(1), 2) # name
+        self.assertEqual(r.field_length("hobbies"), 2)
+        self.assertEqual(r.field_length("name"), 2)
         
         searcher = Searcher(r)
         parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
