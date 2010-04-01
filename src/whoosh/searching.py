@@ -49,20 +49,14 @@ class Searcher(object):
         self.doccount = ixreader.doc_count_all()
 
         self.avg_field_length = {}
-        for fieldnum in ixreader.schema.scorable_fields():
-            self.avg_field_length[fieldnum] = (ixreader.field_length(fieldnum)
-                                               / (self.doccount or 1))
+        for fieldname in ixreader.scorable_field_names():
+            self.avg_field_length[fieldname] = (ixreader.field_length(fieldname)
+                                                / (self.doccount or 1))
 
         # Copy attributes/methods from wrapped reader
-        for name in ("stored_fields", "vector", "vector_as",
-                     "schema", "scorable", "frequency", "doc_field_length",
-                     "max_field_length"):
+        for name in ("stored_fields", "vector", "vector_as", "scorable",
+                     "frequency", "doc_field_length", "max_field_length"):
             setattr(self, name, getattr(ixreader, name))
-        # Copy attributes/methods from schema
-        self.fieldname_to_num = self.schema.name_to_number
-        self.fieldnum_to_name = self.schema.number_to_name
-        self.fieldid_to_num = self.schema.to_number
-        self.field = self.schema.__getitem__
 
         if type(weighting) is type:
             self.weighting = weighting()
@@ -77,6 +71,9 @@ class Searcher(object):
         self.ixreader.close()
         self.is_closed = True
 
+    def field(self, fieldname):
+        return self.ixreader.field(fieldname)
+
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
         return self.ixreader
@@ -88,18 +85,17 @@ class Searcher(object):
         matcher from the searcher's weighting object.
         """
         
-        fieldnum = self.fieldid_to_num(fieldname)
         if self.doccount:
-            sfn = self.weighting.score_fn(self, fieldnum, text)
-            qfn = self.weighting.quality_fn(self, fieldnum, text)
-            bqfn = self.weighting.block_quality_fn(self, fieldnum, text)
+            sfn = self.weighting.score_fn(self, fieldname, text)
+            qfn = self.weighting.quality_fn(self, fieldname, text)
+            bqfn = self.weighting.block_quality_fn(self, fieldname, text)
             scorefns = (sfn, qfn, bqfn)
         else:
             # Scoring functions tend to cache information that isn't available
             # on an empty index.
             scorefns = None
         
-        return self.ixreader.postings(fieldnum, text, scorefns=scorefns,
+        return self.ixreader.postings(fieldname, text, scorefns=scorefns,
                                       exclude_docs=exclude_docs)
 
     def idf(self, fieldnum, text):
@@ -208,11 +204,10 @@ class Searcher(object):
         """
 
         ixreader = self.ixreader
-        fieldnum = self.fieldname_to_num(fieldname)
 
         expander = classify.Expander(self.reader(), fieldname, model=model)
         for docnum in docnums:
-            expander.add(ixreader.vector_as("weight", docnum, fieldnum))
+            expander.add(ixreader.vector_as("weight", docnum, fieldname))
         return expander.expanded_terms(numterms, normalize=normalize)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
@@ -509,11 +504,10 @@ class Results(object):
         docs = min(docs, len(self))
 
         reader = self.searcher.reader()
-        fieldnum = self.searcher.fieldname_to_num(fieldname)
 
         expander = classify.Expander(reader, fieldname, model=model)
         for docnum in self.top_n[:docs]:
-            expander.add(reader.vector_as("weight", docnum, fieldnum))
+            expander.add(reader.vector_as("weight", docnum, fieldname))
 
         return expander.expanded_terms(numterms, normalize=normalize)
 

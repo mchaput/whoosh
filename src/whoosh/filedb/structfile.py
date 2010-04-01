@@ -18,6 +18,9 @@ import mmap, os, sys
 from array import array
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
+from marshal import dump as dump_marshal
+from marshal import dumps as dumps_marshal
+from marshal import load as load_marshal
 from struct import calcsize, Struct, pack, unpack
 
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,

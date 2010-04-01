@@ -773,7 +773,6 @@ class RequireMatcher(WrappingMatcher):
         return self.a.weight()
     
     def score(self):
-        print "score:", self.a.score()
         return self.a.score()
 
 

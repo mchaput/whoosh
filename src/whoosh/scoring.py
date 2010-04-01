@@ -243,25 +243,21 @@ class MultiWeighting(Weighting):
         # Store weighting functions by field name
         self.weights = weights
 
-    def _weighting(self, searcher, fieldnum):
-        fieldname = searcher.fieldnum_to_name(fieldnum)
-        return self.weights.get(fieldname, self.default)
-
-    def score(self, searcher, fieldnum, text, docnum, weight):
-        w = self._weighting(searcher, fieldnum)
-        return w.score(searcher, fieldnum, text, docnum, weight)
+    def score(self, searcher, fieldname, text, docnum, weight):
+        w = self.weights.get(fieldname, self.default)
+        return w.score(searcher, fieldname, text, docnum, weight)
     
-    def score_fn(self, searcher, fieldnum, text):
-        w = self._weighting(searcher, fieldnum)
-        return w.score_fn(searcher, fieldnum, text)
+    def score_fn(self, searcher, fieldname, text):
+        w = self.weights.get(fieldname, self.default)
+        return w.score_fn(searcher, fieldname, text)
     
-    def quality_fn(self, searcher, fieldnum, text):
-        w = self._weighting(searcher, fieldnum)
-        return w.quality_fn(searcher, fieldnum, text)
+    def quality_fn(self, searcher, fieldname, text):
+        w = self.weights.get(fieldname, self.default)
+        return w.quality_fn(searcher, fieldname, text)
     
-    def block_quality_fn(self, searcher, fieldnum, text):
-        w = self._weighting(searcher, fieldnum)
-        return w.block_quality_fn(searcher, fieldnum, text)
+    def block_quality_fn(self, searcher, fieldname, text):
+        w = self.weights.get(fieldname, self.default)
+        return w.block_quality_fn(searcher, fieldname, text)
 
 
 class ReverseWeighting(Weighting):
@@ -354,7 +350,7 @@ class FieldSorter(Sorter):
             return self._fieldcache
 
         ixreader = searcher.reader()
-        fieldnum = ixreader.fieldname_to_num(self.fieldname)
+        fieldname = self.fieldname
 
         # Create an array of an int for every document in the index.
         N = ixreader.doc_count_all()
@@ -367,12 +363,12 @@ class FieldSorter(Sorter):
         # For every document containing every term in the field, set
         # its array value to the term's sorted position.
         i = -1
-        source = ixreader.lexicon(fieldnum)
+        source = ixreader.lexicon(fieldname)
         if self.key:
             source = sorted(source, key=self.key)
 
         for i, word in enumerate(source):
-            for docnum in ixreader.postings(fieldnum, word).all_ids():
+            for docnum in ixreader.postings(fieldname, word).all_ids():
                 cache[docnum] = i
 
         self.limit = i

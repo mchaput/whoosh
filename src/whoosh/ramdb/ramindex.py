@@ -148,8 +148,8 @@ class RamIndex(Index):
         fieldlength_totals = self.fieldlength_totals
         maxdoc = self.maxdoc
         
-        fieldnames = [name for name in fields.keys() if not name.startswith("_")]
-        fieldnames.sort(key = schema.name_to_number)
+        fieldnames = [name for name in sorted(fields.keys())
+                      if not name.startswith("_")]
         
         stored_to_pos = dict((fnum, i) for i, fnum
                              in enumerate(schema.stored_field_nums()))

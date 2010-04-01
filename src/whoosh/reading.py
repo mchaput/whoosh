@@ -82,13 +82,20 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
+    def field(self, fieldid):
+        """Returns the Field object corresponding to the given field name.
+        """
+        raise NotImplementedError
+
     def scorable(self, fieldid):
         """Returns true if the given field stores field lengths.
         """
-        return self.schema[fieldid].scorable
+        raise NotImplementedError
 
-    def fieldname_to_num(self, fieldname):
-        return self.schema.name_to_number(fieldname)
+    def scorable_field_names(self):
+        """Returns a list of scorable fields.
+        """
+        raise NotImplementedError
 
     def field_length(self, fieldid):
         """Returns the total number of terms in the given field. This is used
@@ -172,8 +179,7 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), vec.weight())
                 vec.next()
         else:
-            format = self.schema[fieldid].format
-            decoder = format.decoder(astype)
+            decoder = vec.format.decoder(astype)
             while vec.is_active():
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
@@ -181,10 +187,12 @@ class IndexReader(ClosableMixin):
     def format(self, fieldid):
         """Returns the Format object corresponding to the given field name.
         """
-        if fieldid in self.schema:
-            return self.schema[fieldid].format
-        else:
-            raise UnknownFieldError(fieldid)
+        raise NotImplementedError
+
+    def vector_format(self, fieldid):
+        """Returns the Format object corresponding to the given field's vector.
+        """
+        raise NotImplementedError
 
     def __iter__(self):
         """Yields (fieldnum, text, docfreq, indexfreq) tuples for each term in
@@ -213,7 +221,6 @@ class IndexReader(ClosableMixin):
         """Yields terms in the given field that start with the given prefix.
         """
 
-        fieldid = self.schema.to_number(fieldid)
         for fn, t, _, _ in self.iter_from(fieldid, prefix):
             if fn != fieldid or not t.startswith(prefix):
                 return
@@ -223,24 +230,17 @@ class IndexReader(ClosableMixin):
         """Yields (fieldname, text) tuples for every term in the index.
         """
 
-        num2name = self.schema.number_to_name
         current_fieldnum = None
         current_fieldname = None
 
         for fn, t, _, _ in self:
-            # Only call self.schema.number_to_name when the
-            # field number changes.
-            if fn != current_fieldnum:
-                current_fieldnum = fn
-                current_fieldname = num2name(fn)
-            yield (current_fieldname, t)
+            yield (fn, t)
 
     def iter_field(self, fieldid, prefix=''):
         """Yields (text, doc_freq, index_freq) tuples for all terms in the
         given field.
         """
 
-        fieldid = self.schema.to_number(fieldid)
         for fn, t, docfreq, freq in self.iter_from(fieldid, prefix):
             if fn != fieldid:
                 return
@@ -251,7 +251,6 @@ class IndexReader(ClosableMixin):
         in the given field with a certain prefix.
         """
 
-        fieldid = self.schema.to_number(fieldid)
         for fn, t, docfreq, colfreq in self.iter_from(fieldid, prefix):
             if fn != fieldid or not t.startswith(prefix):
                 return
@@ -289,9 +288,8 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def __init__(self, readers, schema):
+    def __init__(self, readers):
         self.readers = readers
-        self.schema = schema
         
         self.doc_offsets = []
         base = 0
@@ -307,6 +305,11 @@ class MultiReader(IndexReader):
     def __iter__(self):
         return self._merge_iters([iter(r) for r in self.readers])
 
+    def close(self):
+        for d in self.readers:
+            d.close()
+        self.is_closed = True
+
     def has_deletions(self):
         return any(r.has_deletions() for r in self.readers)
 
@@ -314,20 +317,44 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].is_deleted(segmentdoc)
 
-    def stored_fields(self, docnum, numerickeys=False):
+    def stored_fields(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].stored_fields(segmentdoc,
-                                                      numerickeys=numerickeys)
+        return self.readers[segmentnum].stored_fields(segmentdoc)
 
     def all_stored_fields(self):
         for reader in self.readers:
             for result in reader.all_stored_fields():
                 yield result
 
-    def close(self):
-        for d in self.readers:
-            d.close()
-        self.is_closed = True
+    def field(self, fieldid):
+        for r in self.readers:
+            try:
+                field = r.field(fieldid)
+                return field
+            except KeyError:
+                pass
+        raise KeyError("No field named %r" % fieldid)
+
+    def scorable(self, fieldid):
+        return any(r.scorable(fieldid) for r in self.readers)
+
+    def scorable_field_names(self):
+        s = set()
+        for r in self.readers:
+            s.union(r.scorable_field_names())
+        return sorted(s)
+
+    def format(self, fieldid):
+        for r in self.readers:
+            fmt = r.format(fieldid)
+            if fmt is not None:
+                return fmt
+
+    def vector_format(self, fieldid):
+        for r in self.readers:
+            vfmt = r.vector_format(fieldid)
+            if vfmt is not None:
+                return vfmt
 
     def doc_count_all(self):
         return sum(dr.doc_count_all() for dr in self.readers)
@@ -341,8 +368,7 @@ class MultiReader(IndexReader):
     def doc_field_length(self, docnum, fieldid, default=0):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         reader = self.readers[segmentnum]
-        fieldnum = reader.schema.to_number(fieldid)
-        return reader.doc_field_length(segmentdoc, fieldnum, default=default)
+        return reader.doc_field_length(segmentdoc, fieldid, default=default)
 
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)

@@ -20,7 +20,7 @@ from marshal import dumps
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
-from whoosh.filedb.filetables import (FileListWriter, FileTableWriter,
+from whoosh.filedb.filetables import (StoredFieldWriter, FileTableWriter,
                                       StructHashWriter)
 from whoosh.filedb import misc
 from whoosh.filedb.pools import TempfilePool, MultiPool
@@ -84,6 +84,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         self.index = ix
         self.schema = schema or ix.schema
+        self._name_to_num = dict((name, i) for i, name
+                                 in enumerate(self.schema.names()))
         self.segments = ix.segments.copy()
         self.blocklimit = 128
         
@@ -94,10 +96,6 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         self.docnum = 0
         self.fieldlength_totals = defaultdict(int)
-        
-        storedfieldnames = ix.schema.stored_field_names()
-        def encode_storedfields(fielddict):
-            return dumps([fielddict.get(k) for k in storedfieldnames])
         
         storage = ix.storage
         
@@ -125,7 +123,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Stored fields file
         sf = storage.create_file(segment.storedfields_filename)
-        self.storedfields = FileListWriter(sf, valuecoder=encode_storedfields)
+        self.storedfields = StoredFieldWriter(sf, self.schema.stored_field_names())
         
         # Field lengths file
         self.lengthfile = storage.create_file(segment.fieldlengths_filename)
@@ -141,9 +139,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
     def searcher(self):
         return self.index.searcher()
     
-    def add_reader(self, reader, fieldnum_map=None):
-        mapped = bool(fieldnum_map)
-        
+    def add_reader(self, reader):
         startdoc = self.docnum
         
         has_deletions = reader.has_deletions()
@@ -151,50 +147,31 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             docmap = {}
         
         schema = self.schema
-        vectored_fieldnums = [fieldnum for fieldnum in schema.vectored_fields()
-                              if not mapped or fieldnum in fieldnum_map]
-        scorable_fieldnums = [fieldnum for fieldnum in schema.scorable_fields()
-                              if not mapped or fieldnum in fieldnum_map]
+        vectored_fieldnames = schema.vectored_field_names()
+        scorable_fieldnames = schema.scorable_field_names()
+        stored_fieldnames = schema.stored_field_names()
         
         # Add stored documents, vectors, and field lengths
         for docnum in xrange(reader.doc_count_all()):
             if (not has_deletions) or (not reader.is_deleted(docnum)):
-                if mapped:
-                    # Get a dictionary mapping field numbers to stored values
-                    stored = reader.stored_fields(docnum, numerickeys=True)
-                    # Alias the schema's number_to_name method
-                    num2name = schema.number_to_name
-                    # Construct a new dictionary using the remapped field names
-                    stored = dict((num2name(fieldnum_map[fnum]), v)
-                                  for fnum, v in stored
-                                  if fnum in fieldnum_map)
-                else:
-                    stored = reader.stored_fields(docnum)
-                
-                self._add_stored_fields(stored)
+                storeddict = reader.stored_fields(docnum)
+                valuelist = [storeddict.get(name) for name in stored_fieldnames]
+                self.storedfields.append(valuelist)
                 
                 if has_deletions:
                     docmap[docnum] = self.docnum
                 
-                for fieldnum in scorable_fieldnums:
-                    self.pool.add_field_length(self.docnum, fieldnum,
-                                               reader.doc_field_length(docnum, fieldnum))
-                for fieldnum in vectored_fieldnums:
-                    if reader.has_vector(docnum, fieldnum):
-                        vpostreader = reader.vector(docnum, fieldnum)
-                        self.add_vector_reader(self.docnum, fieldnum, vpostreader)
+                for fieldname in scorable_fieldnames:
+                    self.pool.add_field_length(self.docnum, fieldname,
+                                               reader.doc_field_length(docnum, fieldname))
+                for fieldname in vectored_fieldnames:
+                    if reader.has_vector(docnum, fieldname):
+                        vpostreader = reader.vector(docnum, fieldname)
+                        self.add_vector_reader(self.docnum, fieldname, vpostreader)
                 self.docnum += 1
         
-        for fieldnum, text, _, _ in reader:
-            if mapped and fieldnum not in fieldnum_map:
-                continue
-            
-            if mapped:
-                newfieldnum = fieldnum_map[fieldnum]
-            else:
-                newfieldnum = fieldnum
-            
-            postreader = reader.postings(fieldnum, text)
+        for fieldname, text, _, _ in reader:
+            postreader = reader.postings(fieldname, text)
             while postreader.is_active():
                 docnum = postreader.id()
                 valuestring = postreader.value()
@@ -203,81 +180,81 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 else:
                     newdoc = startdoc + docnum
                 
-                self.pool.add_posting(newfieldnum, text, newdoc,
+                self.pool.add_posting(fieldname, text, newdoc,
                                       postreader.weight(), valuestring)
                 postreader.next()
     
     def add_document(self, **fields):
         schema = self.schema
-        name2num = schema.name_to_number
         
-        # Sort the keys by their order in the schema
-        fieldnames = [name for name in fields.keys() if not name.startswith("_")]
-        fieldnames.sort(key=name2num)
+        # Sort the keys
+        fieldnames = sorted([name for name in fields.keys()
+                             if not name.startswith("_")])
         
         # Check if the caller gave us a bogus field
         for name in fieldnames:
             if name not in schema:
-                raise UnknownFieldError("There is no field named %r" % name)
-            
-        storedvalues = {}
+                raise UnknownFieldError("No field named %r in %s" % (name, schema))
+        
+        storedvalues = []
         
         docnum = self.docnum
-        for name in fieldnames:
-            value = fields.get(name)
+        for fieldname in fieldnames:
+            value = fields.get(fieldname)
             if value is not None:
-                fieldnum = name2num(name)
-                field = schema.field_by_number(fieldnum)
+                field = schema[fieldname]
                 
                 if field.indexed:
-                    self.pool.add_content(docnum, fieldnum, field, value)
+                    self.pool.add_content(docnum, fieldname, field, value)
                 
                 vformat = field.vector
                 if vformat:
                     vlist = sorted((w, weight, valuestring)
                                    for w, freq, weight, valuestring
                                    in vformat.word_values(value, mode="index"))
-                    self.add_vector(docnum, fieldnum, vlist)
+                    self.add_vector(docnum, fieldname, vlist)
                 
                 if field.stored:
                     # Caller can override the stored value by including a key
                     # _stored_<fieldname>
                     storedname = "_stored_" + name
                     if storedname in fields:
-                        storedvalues[name] = fields[storedname]
+                        storedvalues.append(fields[storedname])
                     else:
-                        storedvalues[name] = value
-                        
-        self._add_stored_fields(storedvalues)
+                        storedvalues.append(value)
+        
+        self.storedfields.append(storedvalues)
         self.docnum += 1
     
-    def _add_stored_fields(self, storeddict):
-        self.storedfields.append(storeddict)
-        
-    def add_vector(self, docnum, fieldnum, vlist):
+    def add_vector(self, docnum, fieldid, vlist):
         vpostwriter = self.vpostwriter
-        offset = vpostwriter.start(self.schema[fieldnum].vector)
+        offset = vpostwriter.start(self.schema[fieldid].vector)
         for text, weight, valuestring in vlist:
             assert isinstance(text, unicode), "%r is not unicode" % text
             vpostwriter.write(text, weight, valuestring, 0)
         vpostwriter.finish()
-        self.vectorindex.add((docnum, fieldnum), offset)
+        
+        fnum = self._name_to_num[fieldid]
+        self.vectorindex.add((docnum, fnum), offset)
     
-    def add_vector_reader(self, docnum, fieldnum, vreader):
+    def add_vector_reader(self, docnum, fieldid, vreader):
         vpostwriter = self.vpostwriter
-        offset = vpostwriter.start(self.schema[fieldnum].vector)
+        offset = vpostwriter.start(self.schema[fieldid].vector)
         while vreader.is_active():
             # text, weight, valuestring, fieldlen
             vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(), 0)
             vreader.next()
         vpostwriter.finish()
-        self.vectorindex.add((docnum, fieldnum), offset)
+        
+        fnum = self._name_to_num[fieldid]
+        self.vectorindex.add((docnum, fnum), offset)
     
     def _close_all(self):
         self.termsindex.close()
         self.postwriter.close()
         self.storedfields.close()
-        self.lengthfile.close()
+        if not self.lengthfile.is_closed:
+            self.lengthfile.close()
         if self.vectorindex:
             self.vectorindex.close()
         if self.vpostwriter:
