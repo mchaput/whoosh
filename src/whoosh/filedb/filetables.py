@@ -666,9 +666,8 @@ class LengthReader(object):
         
 
 class StoredFieldWriter(object):
-    def __init__(self, dbfile, fieldnames):
+    def __init__(self, dbfile):
         self.dbfile = dbfile
-        self.fieldnames = fieldnames
         self.directory = array("I")
         dbfile.write_uint(0)
         dbfile.write_uint(0)
@@ -684,7 +683,6 @@ class StoredFieldWriter(object):
         f = self.dbfile
         directory_pos = f.tell()
         f.write_array(self.directory)
-        f.write_pickle(self.fieldnames)
         f.flush()
         f.seek(0)
         f.write_uint(directory_pos)
@@ -693,15 +691,13 @@ class StoredFieldWriter(object):
 
 
 class StoredFieldReader(object):
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, fieldnames):
         self.dbfile = dbfile
+        self.fieldnames = fieldnames
 
         self.offset = dbfile.get_uint(0)
         self.length = dbfile.get_uint(_INT_SIZE)
         
-        dbfile.seek(self.offset + self.length * _2INTS_SIZE)
-        self.fieldnames = dbfile.read_pickle()
-
     def close(self):
         self.dbfile.close()
 

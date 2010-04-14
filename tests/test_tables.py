@@ -151,15 +151,14 @@ class TestTables(unittest.TestCase):
     def test_stored_fields(self):
         st = self.make_storage("testindex")
         sf = st.create_file("test.sf")
-        sfw = StoredFieldWriter(sf, ["a", "b"])
+        sfw = StoredFieldWriter(sf)
         sfw.append(["hello", "there"])
         sfw.append(["one", "two"])
         sfw.append(["alfa", "bravo"])
         sfw.close()
         
         sf = st.open_file("test.sf")
-        sfr = StoredFieldReader(sf)
-        self.assertEqual(sfr.fieldnames, ["a", "b"])
+        sfr = StoredFieldReader(sf, ["a", "b"])
         self.assertEqual(sfr[0], {"a": "hello", "b": "there"})
         self.assertEqual(sfr[2], {"a": "alfa", "b": "bravo"})
         self.assertEqual(sfr[1], {"a": "one", "b": "two"})

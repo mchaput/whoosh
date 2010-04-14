@@ -124,8 +124,10 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             self.vpostwriter = None
         
         # Stored fields file
+        self.storedfieldindices = dict((name, i) for i, name
+                                       in enumerate(self.schema.stored_field_names()))
         sf = storage.create_file(segment.storedfields_filename)
-        self.storedfields = StoredFieldWriter(sf, self.schema.stored_field_names())
+        self.storedfields = StoredFieldWriter(sf)
         
         # Field lengths file
         self.lengthfile = storage.create_file(segment.fieldlengths_filename)
@@ -167,7 +169,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 for fieldname in scorable_fieldnames:
                     l = reader.doc_field_length(docnum, fieldname)
                     if l:
-                        self.pool.add_field_length(self.docnum, fieldname)
+                        self.pool.add_field_length(self.docnum, fieldname, l)
                 
                 for fieldname in vectored_fieldnames:
                     if reader.has_vector(docnum, fieldname):
@@ -204,7 +206,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             if name not in schema:
                 raise UnknownFieldError("No field named %r in %s" % (name, schema))
         
-        storedvalues = []
+        self.storedfields
+        storedvalues = [None] * len(self.storedfieldindices)
         
         docnum = self.docnum
         for fieldname in fieldnames:
@@ -225,11 +228,12 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 if field.stored:
                     # Caller can override the stored value by including a key
                     # _stored_<fieldname>
+                    storedvalue = value
                     storedname = "_stored_" + name
                     if storedname in fields:
-                        storedvalues.append(fields[storedname])
-                    else:
-                        storedvalues.append(value)
+                        storedvalue = fields[storedname]
+                    i = self.storedfieldindices[fieldname]
+                    storedvalues[i] = storedvalue
         
         self.storedfields.append(storedvalues)
         self.docnum += 1

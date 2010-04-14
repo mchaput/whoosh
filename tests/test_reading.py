@@ -143,9 +143,54 @@ class TestReading(unittest.TestCase):
         self.assertEqual(sr.document(a=u"1"), {"a": u"1", "b": "a", "d": u"Alfa"})
         self.assertEqual(sr.document(a=u"2"), {"a": u"2", "b": "b", "d": u"Bravo"})
 
-
-
-
+    def test_stored_fields2(self):
+        schema = fields.Schema(content=fields.TEXT(stored=True),
+                               title=fields.TEXT(stored=True),
+                               summary=fields.STORED,
+                               path=fields.ID(stored=True),
+                               helpid=fields.KEYWORD,
+                               parent=fields.KEYWORD,
+                               context=fields.KEYWORD(stored=True),
+                               type=fields.KEYWORD(stored=True),
+                               status=fields.KEYWORD(stored=True),
+                               superclass=fields.KEYWORD(stored=True),
+                               exampleFor=fields.KEYWORD(stored=True),
+                               chapter=fields.KEYWORD(stored=True),
+                               replaces=fields.KEYWORD,
+                               time=fields.STORED,
+                               methods=fields.STORED,
+                               exampleFile=fields.STORED,
+                               )
+        
+        storedkeys = ["chapter", "content", "context", "exampleFile",
+                      "exampleFor", "methods", "path", "status", "summary",
+                      "superclass", "time", "title", "type"]
+        self.assertEqual(schema.stored_field_names(), storedkeys)
+        
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        writer = ix.writer()
+        writer.add_document(content=u"Content of this document.",
+                            title=u"This is the title",
+                            summary=u"This is the summary", path=u"/main")
+        writer.add_document(content=u"Second document.", title=u"Second title",
+                            summary=u"Summary numero due", path=u"/second")
+        writer.add_document(content=u"Third document.", title=u"Title 3",
+                            summary=u"Summary treo", path=u"/san")
+        writer.commit()
+        ix.close()
+        
+        ix = st.open_index()
+        searcher = ix.searcher()
+        doc = searcher.document(path="/main")
+        self.assertEqual(sorted(doc.keys()), storedkeys)
+        self.assertEqual([doc[k] for k in sorted(doc.keys()) if doc[k] is not None],
+                         ["Content of this document.", "/main",
+                          "This is the summary", "This is the title"])
+        
+        searcher.close()
+        ix.close()
 
 
 
