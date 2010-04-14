@@ -53,7 +53,7 @@ class SegmentReader(IndexReader):
         
         # Stored fields file
         sf = storage.open_file(segment.storedfields_filename, mapped=False)
-        self.storedfields = StoredFieldReader(sf)
+        self.storedfields = StoredFieldReader(sf, self.schema.stored_field_names())
         
         # Field length file
         self.fieldlengths = None
