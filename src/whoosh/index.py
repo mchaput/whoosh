@@ -74,7 +74,7 @@ def create_in(dirname, schema, indexname=None):
     storage = FileStorage(dirname)
     return storage.create_index(schema, indexname)
 
-def open_dir(dirname, indexname = None, mapped=True):
+def open_dir(dirname, indexname=None, mapped=True):
     """Convenience function for opening an index in a directory. Takes care of
     creating a FileStorage object for you. dirname is the filename of the
     directory in containing the index. indexname is the name of the index to
@@ -96,7 +96,7 @@ def open_dir(dirname, indexname = None, mapped=True):
     storage = FileStorage(dirname, mapped=mapped)
     return storage.open_index(indexname)
 
-def exists_in(dirname, indexname = None):
+def exists_in(dirname, indexname=None):
     """Returns True if dirname contains a Whoosh index.
     
     :param dirname: the file path of a directory.
@@ -114,7 +114,7 @@ def exists_in(dirname, indexname = None):
 
     return False
 
-def exists(storage, indexname = None):
+def exists(storage, indexname=None):
     """Returns True if the given Storage object contains a Whoosh index.
     
     :param storage: a store.Storage object.
@@ -128,13 +128,15 @@ def exists(storage, indexname = None):
         
     try:
         ix = storage.open_index(indexname)
-        return ix.latest_generation() > -1
+        gen = ix.latest_generation()
+        ix.close()
+        return gen > -1
     except EmptyIndexError:
         pass
     
     return False
 
-def version_in(dirname, indexname = None):
+def version_in(dirname, indexname=None):
     """Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
@@ -159,7 +161,7 @@ def version_in(dirname, indexname = None):
     return version(storage, indexname=indexname)
     
 
-def version(storage, indexname = None):
+def version(storage, indexname=None):
     """Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
@@ -204,18 +206,22 @@ class DeletionMixin(object):
         q = Term(fieldname, text)
         return self.delete_by_query(q)
     
-    def delete_by_query(self, q):
+    def delete_by_query(self, q, searcher=None):
         """Deletes any documents matching a query object.
         
         :returns: the number of documents deleted.
         """
         
         count = 0
-        s = self.searcher()
+        if searcher:
+            s = searcher
+        else:
+            s = self.searcher()
         for docnum in q.docs(s):
             self.delete_document(docnum)
             count += 1
-        s.close()
+        if not searcher:
+            s.close()
         return count
 
 # Index class
@@ -224,7 +230,7 @@ class Index(DeletionMixin):
     """Represents an indexed collection of documents.
     """
     
-    def __init__(self, storage, schema = None, indexname = _DEF_INDEX_NAME):
+    def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
         """
         :param storage: The :class:`whoosh.store.Storage` object in which this
             index resides. See the store module for more details.
@@ -257,7 +263,7 @@ class Index(DeletionMixin):
         """Returns the generation number of the latest generation of this
         index, or -1 if the backend doesn't support versioning.
         """
-        return -1
+        return - 1
     
     def refresh(self):
         """Returns a new Index object representing the latest generation
@@ -282,7 +288,7 @@ class Index(DeletionMixin):
         """Returns the last modified time of the index, or -1 if the backend
         doesn't support last-modified times.
         """
-        return -1
+        return - 1
     
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never had any
