@@ -493,6 +493,3 @@ class CharacterBoosts(Characters):
 
 
 
-
-
-

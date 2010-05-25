@@ -216,8 +216,15 @@ class BitSet(object):
             self.remove = self._vec_remove
             
         self.__contains__ = self._back.__contains__
-        self.__len__ = self._back.__len__
-        self.__iter__ = self._back.__iter__
+
+    def __repr__(self):
+        return "<%s %s/%s>" % (self.__class__.__name__, len(self._back), self.size)
+
+    def __len__(self):
+        return len(self._back)
+
+    def __iter__(self):
+        return self._back.__iter__()
 
     def as_set(self):
         return frozenset(self._back)
@@ -228,11 +235,23 @@ class BitSet(object):
     def intersection(self, other):
         return self.__and__(other)
 
+    def invert(self):
+        return BitSet(self.size, (x for x in xrange(self.size) if x not in self))
+
     def __and__(self, other):
-        self._back = self._back.intersection(other)
+        return BitSet(self.size, self._back.intersection(other))
         
     def __or__(self, other):
-        self._back = self._back.union(other)
+        return BitSet(self.size, self._back.union(other))
+
+    def __rand__(self, other):
+        return self.__and__(other)
+        
+    def __ror__(self, other):
+        return self.__or__(other)
+
+    def __invert__(self):
+        return self.invert()
 
     def _set_add(self, num):
         self._back.add(num)

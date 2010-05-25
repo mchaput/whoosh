@@ -73,7 +73,10 @@ def do_index(cachename, chunk=1000, skip=1, upto=600000, **kwargs):
     if not os.path.exists("testindex"):
         os.mkdir("testindex")
     ix = index.create_in("testindex", schema)
-    w = ix.writer(**kwargs)
+    
+    #w = ix.writer(**kwargs)
+    from whoosh.filedb.multiproc import MultiSegmentWriter
+    w = MultiSegmentWriter(ix, **kwargs)
     
     starttime = chunkstarttime = now()
     c = 0
@@ -105,7 +108,7 @@ if __name__=="__main__":
     #cache_messages("c:/Documents and Settings/matt/Desktop/Search/enron_mail_030204.tar", "messages.bin")
     #print now() - t
     
-    do_index("messages.bin", limitmb=128, procs=4)#, upto=5000)
+    do_index("messages.bin", limitmb=128, procs=2, upto=1000)
     
     #import cProfile
     #cProfile.run('do_index("messages.bin", limitmb=128, upto=10000)', "index.profile")

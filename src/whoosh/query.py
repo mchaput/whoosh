@@ -219,6 +219,22 @@ class Query(object):
     def accept(self, visitor):
         """Accepts a "visitor" function, applies it to any sub-queries and then
         to this object itself, and returns the result.
+        
+        For example, to find any Term objects in a query tree that have
+        fieldname == 'title', and replace them with Prefix objects, you can
+        write a visitor function like this::
+        
+            def visitor(q):
+                if isinstance(q, query.Term) and q.fieldname == "title":
+                    return query.Prefix("title", q.text)
+                else:
+                    return q
+        
+        ...and then pass the visitor function to the accept method of a query
+        to transform it::
+        
+            newquery = myquery.accept(visitor)
+            # Probably a good idea to re-normalize after transforming
         """
 
         return visitor(copy.deepcopy(self))
@@ -423,7 +439,8 @@ class Term(Query):
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
         fieldname, text = self.fieldname, self.text
         contains = (fieldname, text) in ixreader
-        if reverse: contains = not contains
+        if reverse:
+            contains = not contains
         if contains:
             termset.add((fieldname, text))
 
@@ -1124,6 +1141,9 @@ class AndMaybe(CompoundQuery):
         if optional is NullQuery:
             return required
         return AndMaybe(required, optional, boost=self.boost)
+
+    def estimate_size(self, ixreader):
+        return sum(q.estimate_size(ixreader) for q in self.subqueries)
 
     def docs(self, searcher, exclude_docs=None):
         return self.subqueries[0].docs(searcher, exclude_docs=exclude_docs)

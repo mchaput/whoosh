@@ -468,12 +468,12 @@ class NgramTokenizer(Tokenizer):
     
     def __call__(self, value, positions=False, chars=False,
                  keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0,
+                 start_pos=0, start_char=0, mode='',
                  **kwargs):
         assert isinstance(value, unicode), "%r is not unicode" % value
         
         inlen = len(value)
-        t = Token(positions, chars, removestops=removestops)
+        t = Token(positions, chars, removestops=removestops, mode=mode)
         pos = start_pos
         for start in xrange(0, inlen - self.min + 1):
             for size in xrange(self.min, self.max + 1):
@@ -795,7 +795,7 @@ class NgramFilter(Filter):
     
     __inittypes__ = dict(minsize=int, maxsize=int)
     
-    def __init__(self, minsize, maxsize=None):
+    def __init__(self, minsize, maxsize=None, at=None):
         """
         :param minsize: The minimum size of the N-grams.
         :param maxsize: The maximum size of the N-grams. If you omit this
@@ -804,6 +804,11 @@ class NgramFilter(Filter):
         
         self.min = minsize
         self.max = maxsize or minsize
+        self.at = 0
+        if at == "start":
+            self.at = -1
+        elif at == "end":
+            self.at = 1
     
     def __eq__(self, other):
         return other and self.__class__ is other.__class__\
@@ -811,26 +816,67 @@ class NgramFilter(Filter):
     
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
+        at = self.at
         for t in tokens:
-            text, chars = t.text, t.chars
+            text = t.text
+            if len(text) < self.min:
+                continue
+            
+            chars = t.chars
             if chars:
                 startchar = t.startchar
             # Token positions don't mean much for N-grams,
             # so we'll leave the token's original position
             # untouched.
             
-            for start in xrange(0, len(text) - self.min):
-                for size in xrange(self.min, self.max + 1):
-                    end = start + size
-                    if end > len(text): continue
-                    
-                    t.text = text[start:end]
-                    
+            if t.mode == "query":
+                size = min(self.max, len(t.text))
+                if at == -1:
+                    t.text = text[:size]
                     if chars:
-                        t.startchar = startchar + start
-                        t.endchar = startchar + end
-                        
+                        t.endchar = startchar + size
                     yield t
+                elif at == 1:
+                    t.text = text[0-size:]
+                    if chars:
+                        t.startchar = t.endchar - size
+                    yield t
+                else:
+                    for start in xrange(0, len(text) - size + 1):
+                        t.text = text[start:start+size]
+                        if chars:
+                            t.startchar = startchar + start
+                            t.endchar = startchar + start + size
+                        yield t
+            else:
+                if at == -1:
+                    limit = min(self.max, len(text))
+                    for size in xrange(self.min, limit + 1):
+                        t.text = text[:size]
+                        if chars:
+                            t.endchar = startchar + size
+                        yield t
+                        
+                elif at == 1:
+                    start = max(0, len(text)-self.max)
+                    for i in xrange(start, len(text) - self.min + 1):
+                        t.text = text[i:]
+                        if chars:
+                            t.startchar = t.endchar - size
+                        yield t
+                else:
+                    for start in xrange(0, len(text) - self.min + 1):
+                        for size in xrange(self.min, self.max + 1):
+                            end = start + size
+                            if end > len(text): continue
+                            
+                            t.text = text[start:end]
+                            
+                            if chars:
+                                t.startchar = startchar + start
+                                t.endchar = startchar + end
+                                
+                            yield t
 
 
 class IntraWordFilter(Filter):
@@ -1416,7 +1462,10 @@ def NgramAnalyzer(minsize, maxsize=None):
 NgramAnalyzer.__inittypes__ = dict(minsize=int, maxsize=int)
 
 
-    
+def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
+    if not tokenizer:
+        tokenizer = RegexTokenizer()
+    return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
 
 
 

@@ -229,7 +229,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                     # Caller can override the stored value by including a key
                     # _stored_<fieldname>
                     storedvalue = value
-                    storedname = "_stored_" + name
+                    storedname = "_stored_" + fieldname
                     if storedname in fields:
                         storedvalue = fields[storedname]
                     i = self.storedfieldindices[fieldname]

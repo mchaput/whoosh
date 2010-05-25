@@ -223,7 +223,8 @@ class QueryParser(object):
                 if not texts:
                     return NullQuery
                 if len(texts) > 1:
-                    return Phrase(fieldname, texts)
+                    return And([self.termclass(fieldname, text)
+                                for text in texts])
                 else:
                     text = texts[0]
 
@@ -353,6 +354,9 @@ class MultifieldParser(QueryParser):
         super(MultifieldParser, self).__init__(None, schema=schema,
                                                conjunction=conjunction,
                                                termclass=termclass)
+        if not isinstance(fieldnames, (tuple, list)):
+            raise Exception("The fieldnames argument to MultifieldParser (%r)"
+                            "is not a tuple or list" % fieldnames)
         self.fieldnames = fieldnames
 
     def _make(self, methodname, fieldname, *args):

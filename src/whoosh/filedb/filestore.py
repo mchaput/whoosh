@@ -15,7 +15,6 @@
 #===============================================================================
 
 import os
-from collections import defaultdict
 from cStringIO import StringIO
 from threading import Lock
 

@@ -214,18 +214,18 @@ class PoolBase(object):
                           lengths=self.length_arrays)
         lw.close()
     
-    def add_content(self, docnum, fieldnum, field, value):
+    def add_content(self, docnum, fieldname, field, value):
         add_posting = self.add_posting
         termcount = 0
         # TODO: Method for adding progressive field values, ie
         # setting start_pos/start_char?
         for w, freq, weight, valuestring in field.index(value):
             #assert w != ""
-            add_posting(fieldnum, w, docnum, weight, valuestring)
+            add_posting(fieldname, w, docnum, weight, valuestring)
             termcount += freq
         
         if field.scorable and termcount:
-            self.add_field_length(docnum, fieldnum, termcount)
+            self.add_field_length(docnum, fieldname, termcount)
             
         return termcount
 

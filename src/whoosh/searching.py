@@ -19,6 +19,8 @@
 
 
 from __future__ import division
+from array import array
+from collections import defaultdict
 from heapq import heappush, heapreplace
 from math import log
 import sys, time
@@ -26,7 +28,7 @@ import sys, time
 from whoosh import classify, query, scoring
 from whoosh.matching import NullMatcher
 from whoosh.scoring import Sorter, FieldSorter
-from whoosh.support.bitvector import BitVector
+from whoosh.support.bitvector import BitSet
 from whoosh.util import now
 
 
@@ -55,7 +57,8 @@ class Searcher(object):
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "vector", "vector_as", "scorable",
-                     "frequency", "doc_field_length", "max_field_length"):
+                     "lexicon", "frequency", "doc_field_length",
+                     "max_field_length"):
             setattr(self, name, getattr(ixreader, name))
 
         if type(weighting) is type:
@@ -148,7 +151,8 @@ class Searcher(object):
         """
 
         ixreader = self.ixreader
-        return (ixreader.stored_fields(docnum) for docnum in self.document_numbers(**kw))
+        return (ixreader.stored_fields(docnum)
+                for docnum in self.document_numbers(**kw))
 
     def document_number(self, **kw):
         """Returns the document number of the document matching the given
@@ -180,6 +184,16 @@ class Searcher(object):
         q = q.normalize()
         if q:
             return q.docs(self)
+
+    def docset(self, q, exclude_docs=None):
+        """Returns a set-like object containing the document numbers matching
+        the given query.
+        
+        >>> docset = searcher.docset(query.Term("chapter", u"1"))
+        """
+        
+        return BitSet(self.doccount, q.docs(self, exclude_docs=exclude_docs))
+        
 
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -297,8 +311,6 @@ class Searcher(object):
         :rtype: :class:`Results`
         """
 
-        ixreader = self.ixreader
-
         if sortedby is not None:
             return self.sort_query(query, sortedby, reverse=reverse)
         
@@ -307,14 +319,19 @@ class Searcher(object):
         if isinstance(matcher, NullMatcher):
             scores = []
             docnums = []
+            bitset = None
         else:
-            scores, docnums = collect(self, matcher, limit)
+            scores, docnums, bitset = collect(self, matcher, limit)
         runtime = now() - t
 
-        return Results(self, query, docnums, scores, runtime)
+        return Results(self, query, docnums, scores, runtime, docs=bitset)
 
     def docnums(self, query):
-        return query.docs(self)
+        """Returns a set-like object containing the document numbers that
+        match the given query.
+        """
+        
+        return BitSet(self.doccount, query.docs(self))
 
 
 def collect(searcher, matcher, limit=10, usequality=True, replace=True):
@@ -329,75 +346,81 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
         up results. This should usually be left on.
     """
     
-    # No limit? We have to score everything? Short circuit here and do it very
-    # simply
+    docs = None
     if limit is None:
+        # No limit? We have to score everything? Short circuit here and do it
+        # very simply
+        
         h = []
+        docs = BitSet(searcher.doccount)
         while matcher.is_active():
-            h.append(matcher.score(), matcher.id())
+            id = matcher.id()
+            h.append((matcher.score(), id))
+            docs.add(id)
             if replace: matcher = matcher.replace()
-        h.sort()
+            matcher.next()
+    else:
+        # Heap of (score, docnum, postingquality) tuples
+        h = []
         
-    
-    # Heap of (score, docnum, postingquality) tuples
-    h = []
-    
-    use_final = searcher.weighting.use_final
-    if use_final:
-        final = searcher.weighting.final
-    
-    # Can't use quality optimizations if the matcher doesn't support them
-    usequality = usequality and matcher.supports_quality() and not use_final
-    
-    # This flag indicates for each iteration of the loop whether to check
-    # block quality.
-    checkquality = True
-    postingquality = 0
-    
-    while matcher.is_active():
-        # The lowest scoring document in the heap
-        if h: lowest = h[0]
+        use_final = searcher.weighting.use_final
+        if use_final:
+            final = searcher.weighting.final
         
-        # If this is the first iteration OR the last matcher.next() returned
-        # True (indicating a possible quality change), and if the heap is full,
-        # try skipping to a higher quality block
-        if usequality and checkquality and len(h) == limit:
-            matcher.skip_to_quality(lowest[2])
+        # Can't use quality optimizations if the matcher doesn't support them
+        usequality = usequality and matcher.supports_quality() and not use_final
         
-        # Document number and quality of the current document
-        id = matcher.id()
-        if usequality:
-            postingquality = matcher.quality()
+        # This flag indicates for each iteration of the loop whether to check
+        # block quality.
+        checkquality = True
+        postingquality = 0
         
-        if len(h) < limit:
-            # The heap isn't full, so just add this document
-            s = matcher.score()
-            if use_final:
-                s = final(searcher, id, s)
-            heappush(h, (s, id, postingquality))
+        while matcher.is_active():
+            # The lowest scoring document in the heap
+            if h: lowest = h[0]
             
-        elif not usequality or postingquality > lowest[2]:
-            # The heap is full, but the posting quality indicates this document
-            # is good enough to make the top N, so calculate its true score and
-            # add it to the heap
-            s = matcher.score()
-            if use_final:
-                s = final(searcher, id, s)
-            if s > lowest[0]:
-                heapreplace(h, (s, id, postingquality))
-        
-        # Move to the next document
-        checkquality = matcher.next()
-        
-        # Ask the matcher to replace itself with a more efficient version if
-        # possible
-        if replace: matcher = matcher.replace()
+            # If this is the first iteration OR the last matcher.next()
+            # returned True (indicating a possible quality change), and if the
+            # heap is full, try skipping to a higher quality block
+            if usequality and checkquality and len(h) == limit:
+                matcher.skip_to_quality(lowest[2])
+            
+            # Document number and quality of the current document
+            id = matcher.id()
+            if usequality:
+                postingquality = matcher.quality()
+                if not matcher.is_active(): break
+            
+            if len(h) < limit:
+                # The heap isn't full, so just add this document
+                s = matcher.score()
+                if use_final:
+                    s = final(searcher, id, s)
+                heappush(h, (s, id, postingquality))
+                
+            elif not usequality or postingquality > lowest[2]:
+                # The heap is full, but the posting quality indicates this
+                # document is good enough to make the top N, so calculate its
+                # true score and add it to the heap
+                s = matcher.score()
+                if use_final:
+                    s = final(searcher, id, s)
+                if s > lowest[0]:
+                    heapreplace(h, (s, id, postingquality))
+            
+            # Move to the next document
+            checkquality = matcher.next()
+            
+            # Ask the matcher to replace itself with a more efficient version
+            # if possible
+            if replace: matcher = matcher.replace()
     
     # Turn the heap into a reverse-sorted list (highest scores first), and
     # unzip it into separate lists
     h.sort(reverse=True)
     return ([i[0] for i in h], # Scores
-            [i[1] for i in h]) # Document numbers
+            [i[1] for i in h], # Document numbers
+            docs)
 
 
 class Results(object):
@@ -407,7 +430,7 @@ class Results(object):
     that position in the results.
     """
 
-    def __init__(self, searcher, query, top_n, scores, runtime=-1):
+    def __init__(self, searcher, query, top_n, scores, runtime=-1, docs=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -420,11 +443,14 @@ class Results(object):
         """
 
         self.searcher = searcher
+        self.doccount = self.searcher.doccount
         self.query = query
+        self._docs = docs
         if scores:
             assert len(top_n) == len(scores)
         self.top_n = top_n
         self.scores = scores
+        self.scored = len(top_n)
         self.runtime = runtime
 
     def __repr__(self):
@@ -433,9 +459,21 @@ class Results(object):
                                                        self.runtime)
 
     def __len__(self):
-        return len(self.top_n)
+        """Returns the total number of documents that matched the query. Note
+        this may be more than the number of scored documents, given the value
+        of the ``limit`` keyword argument to :method:`Searcher.search`.
+        """
+        
+        if self._docs is None:
+            self._load_docs()
+        return len(self._docs)
 
     def __getitem__(self, n):
+        """Returns the stored fields for the document at the ``n``th position
+        in the results. Use :method:`Results.docnum` if you want the raw
+        document number instead of the stored fields.
+        """
+        
         stored_fields = self.searcher.stored_fields
         if isinstance(n, slice):
             return [stored_fields(i) for i in self.top_n.__getitem__(n)]
@@ -448,6 +486,29 @@ class Results(object):
         stored_fields = self.searcher.stored_fields
         for docnum in self.top_n:
             yield stored_fields(docnum)
+
+    def __contains__(self, docnum):
+        """Returns True if the given document number matched the query.
+        """
+        
+        if self._docs is None:
+            self._load_docs()
+        return docnum in self._docs
+
+    def _load_docs(self):
+        self._docs = BitSet(self.doccount, self.query.docs(self.searcher))
+
+    def docs(self):
+        """Returns a set-like object containing the document numbers that
+        matched the query.
+        """
+        
+        if self._docs is None:
+            self._load_docs()
+        return self._docs
+
+    def limit(self):
+        return len(self.top_n)
 
     def iterslice(self, start, stop, step=1):
         stored_fields = self.searcher.stored_fields
@@ -483,6 +544,19 @@ class Results(object):
         """
         return self.top_n[n]
 
+    def items(self):
+        """Returns a list of (docnum, score) pairs for the ranked documents.
+        """
+        
+        if self.scores:
+            return zip(self.top_n, self.scores)
+        else:
+            return [(docnum, 0) for docnum in self.top_n]
+        
+    def _setitems(self, items):
+        self.top_n = [docnum for docnum, score in items]
+        self.scores = [score for docnum, score in items]
+
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
         """Returns the 'numterms' most important terms from the top 'numdocs'
@@ -510,6 +584,84 @@ class Results(object):
             expander.add(reader.vector_as("weight", docnum, fieldname))
 
         return expander.expanded_terms(numterms, normalize=normalize)
+    
+    def extend(self, results):
+        """Appends hits from 'results' (that are not already in this
+        results object) to the end of these results.
+        
+        :param results: another results object.
+        """
+        
+        docs = self.docs()
+        for docnum, score in results.items():
+            if docnum not in docs:
+                self.top_n.append(docnum)
+                self.scores.append(score)
+        self._docs = docs | results.docs()
+        
+    def filter(self, results):
+        """Removes any hits that are not also in the other results object.
+        """
+
+        if not len(results): return
+
+        docs = self.docs() & results.docs()
+        items = [(docnum, score) for docnum, score in self.items()
+                 if docnum in docs]
+        self._setitems(items)
+        self._docs = docs
+        
+    def upgrade(self, results, reverse=False):
+        """Re-sorts the results so any hits that are also in 'results' appear
+        before hits not in 'results', otherwise keeping their current relative
+        positions. This does not add the documents in the other results object
+        to this one.
+        
+        :param results: another results object.
+        :param reverse: if True, lower the position of hits in the other
+            results object instead of raising them.
+        """
+
+        if not len(results): return
+
+        items = self.items()
+        otherdocs = results.docs()
+        arein = [(docnum, score) for docnum, score in items
+                 if docnum in otherdocs]
+        notin = [(docnum, score) for docnum, score in items
+                 if docnum not in otherdocs]
+
+        if reverse:
+            items = notin + arein
+        else:
+            items = arein + notin
+        
+        self._setitems(items)
+        
+    def upgrade_and_extend(self, results):
+        """Combines the effects of extend() and increase(): hits that are also
+        in 'results' are raised. Then any hits from 'results' that are not in
+        this results object are appended to the end of these results.
+        
+        :param results: another results object.
+        """
+
+        if not len(results): return
+
+        items = self.items()
+        docs = self.docs()
+        otherdocs = results.docs()
+
+        arein = [(docnum, score) for docnum, score in items
+                 if docnum in otherdocs]
+        notin = [(docnum, score) for docnum, score in items
+                 if docnum not in otherdocs]
+        other = [(docnum, score) for docnum, score in results.items()
+                 if docnum not in docs]
+
+        self._docs = docs | otherdocs
+        items = arein + notin + other
+        self._setitems(items)
 
 
 class ResultsPage(object):
@@ -544,7 +696,8 @@ class ResultsPage(object):
     >>> pagenum = 2
     >>> page = mysearcher.find_page(pagenum, myquery)
     >>> print("Page %s of %s, results %s to %s of %s" %
-    ...       (pagenum, page.pagecount, page.offset+1, page.offset+page.pagelen, page.total))
+    ...       (pagenum, page.pagecount, page.offset+1,
+    ...        page.offset+page.pagelen, page.total))
     >>> for i, fields in enumerate(page):
     ...   print("%s. %r" % (page.offset + i + 1, fields))
     >>> mysearcher.close()
@@ -593,6 +746,201 @@ class ResultsPage(object):
         page.
         """
         return self.results.scored_list[n + self.offset]
+
+
+class Facets(object):
+    """This object lets you categorize a Results object based on a set of
+    non-overlapping "facets" defined by queries.
+    
+    The initializer takes keyword arguments in the form ``facetname=query``,
+    for example::
+    
+        from whoosh import query
+        
+        facets = Facets(small=query.Term("size", u"small"),
+                        medium=query.Term("size", u"medium"),
+                        large=query.Or([query.Term("size", u"large"),
+                                        query.Term("size", u"xlarge")]))
+    
+    ...or you can use the ``add_facet()`` method::
+    
+        facets = Facets()
+        facets.add_facet("small", query.Term("size", u"small"))
+    
+    Note that the fields used in the queries must of course be indexed. Also
+    note that the queries can be complex (for example, you might use range
+    queries to create price categories on a numeric field). If you want to show
+    multiple facet lists in your results (for exmaple, "price" and "size"),
+    you must instantiate multiple Facets objects.
+    
+    Before you can start categorizing results, you must call the ``study()``
+    method with a searcher to can associate the facets with actual documents in
+    an index::
+    
+        searcher = myindex.searcher()
+        facets.study(searcher)
+    
+    (It is not an error if the facets overlap; each document will simply be
+    sorted into one category arbitrarily.)
+    
+    For the common case of using the terms in a certain field as the facets,
+    you can create a Facets object and set the facets with the ``from_field``
+    method and skip having to call ``study()``::
+    
+        # Automatically gets the values of the field, sets them up as the
+        # facets, and calls study() for you
+        facets = Facets().from_field(searcher, "size")
+    
+    Once you have set up the Facets object, you can use its ``categorize()``
+    method to sort search results based on the facets::
+    
+        # Normally, the searcher uses a bunch of optimizations to avoid working
+        # having to look at every search result. However, since we want to know
+        # how many documents appeared in each facet, we have to look at every
+        # matching document, so use limit=None 
+        myresults = searcher.search(myquery, limit=None)
+        cats = facets.categorize(myresults)
+        
+    The ``categorize()`` method returns a dictionary mapping facet names to
+    lists of (docnum, score) pairs. The scores are included in case you want
+    to, for example, calculate which facet has the highest aggregate score.
+    
+    For example, if you have a content management system where the documents
+    have a "chapter" field, and you want to display results to the user sorted
+    by chapter::
+    
+        searcher = myindex.searcher()
+        facets = Facets.from_field(searcher, "chapter")
+        
+        results = searcher.search(myquery, limit=None)
+        print "Query matched %s documents" % len(results)
+        
+        cats = facets.categorize(results)
+        for facetname, facetlist in cats:
+            print "%s matching documents in the %s chapter" % (len(facetlist), facetname)
+            for docnum, score in facetlist:
+                print "-", searcher.stored_fields(docnum).get("title")
+            print
+            
+    """
+    
+    def __init__(self, **queries):
+        """You can supply keyword arguments in the form facetname=queryobject.
+        For example::
+    
+            from whoosh import query
+            
+            facets = Facets(small=query.Term("size", u"small"),
+                            medium=query.Term("size", u"medium"),
+                            large=query.Or([query.Term("size", u"large"),
+                                            query.Term("size", u"xlarge")]))
+                                            
+        Note that for the common case where facets correspond to the values of
+        an indexed field, it is easier to use the ``from_field()`` class
+        method::
+        
+            facets = Facets().from_field(searcher, fieldname)
+        """
+        
+        self.queries = queries.items()
+        self.map = None
+    
+    def add_facet(self, name, q):
+        """Adds a facet to the object.
+        
+        :param name: the name of the facet. This is used as a key in the
+            dictionary returned by ``categorize()``.
+        :param q: a :class:`query.Query` object. Documents matching this query
+            will be considered a member of this facet.
+        """
+        
+        self.queries.append((name, q))
+    
+    def from_field(self, searcher, fieldname):
+        """Sets the facets in the object based on the terms in the given field.
+        This method returns self so you can easily use it as part of the
+        object initialization like this::
+        
+            searcher = myindex.searcher()
+            facets = Facets().from_field(searcher, "chapter")
+        
+        This method calls ``study()`` automatically using the given searcher.
+        
+        :param searcher: a :class:`Searcher` object.
+        :param fieldname: the name of the field to use to create the facets.
+        """
+        
+        self.queries = [(token, query.Term(fieldname, token))
+                        for token in searcher.lexicon(fieldname)]
+        self.study(searcher)
+        return self
+    
+    def facets(self):
+        """Returns a list of (facetname, queryobject) pairs for the facets in
+        this object.
+        """
+        
+        return self.queries
+    
+    def names(self):
+        """Returns a list of the names of the facets in this object.
+        """
+        
+        return [name for name, q in self.queries]
+    
+    def study(self, searcher):
+        """Sets up the data structures that associate documents in the index
+        with facets. You must call this once before you call ``categorize()``.
+        If the index is updated, you should call ``study()`` again with an
+        updated searcher.
+        
+        :param searcher: a :class:`Searcher` object.
+        """
+        
+        facetmap = array("i", [-1] * searcher.doccount)
+        for i, (name, q) in enumerate(self.queries):
+            for docnum in q.docs(searcher):
+                facetmap[docnum] = i
+        self.map = facetmap
+    
+    def studied(self):
+        """Returns True if you have called ``study()`` on this object.
+        """
+        
+        return self.map is not None
+    
+    def categorize(self, results):
+        """Sorts the results based on the facets. Returns a dictionary mapping
+        facet names to lists of (docnum, score) pairs. The scores are included
+        in case you want to, for example, calculate which facet has the highest
+        aggregate score.
+        
+        Note that if there are documents in the results that don't correspond
+        to any of the facets in this object, the dictionary will list them
+        under the None key.
+        
+        You can use the ``Searcher.stored_fields(docnum)`` method to get the
+        stored fields corresponding to a document number.
+        
+        :param results: a :class:`Results` object.
+        """
+        
+        if self.map is None:
+            raise Exception("You must call study(searcher) before calling categorize()")
+        
+        d = defaultdict(list)
+        names = self.names()
+        facetmap = self.map
+        
+        for docnum, score in results.items():
+            index = facetmap[docnum]
+            if index < 0:
+                name = None
+            else:
+                name = names[index]
+            d[name].append((docnum, score))
+        
+        return dict(d)
 
 
 if __name__ == '__main__':
