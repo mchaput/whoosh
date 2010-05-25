@@ -622,6 +622,26 @@ class TestSearching(unittest.TestCase):
         r = s.search(DisjunctionMax(qs))
         self.assertEqual(r.score(0), 3.0)
     
+    def test_resultslength(self):
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               value=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", value=u"alfa alfa alfa alfa alfa")
+        w.add_document(id=u"2", value=u"alfa alfa alfa alfa")
+        w.add_document(id=u"3", value=u"alfa alfa alfa")
+        w.add_document(id=u"4", value=u"alfa alfa")
+        w.add_document(id=u"5", value=u"alfa")
+        w.add_document(id=u"6", value=u"bravo")
+        w.commit()
+        
+        s = ix.searcher()
+        r = s.search(Term("value", u"alfa"), limit=3)
+        self.assertEqual(len(r), 5)
+        self.assertEqual(r.scored, 3)
+    
     def test_finalweighting(self):
         from whoosh.scoring import Weighting
         

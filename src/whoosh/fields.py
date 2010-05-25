@@ -20,7 +20,8 @@
 import datetime, re, struct
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
-                             StandardAnalyzer, NgramAnalyzer)
+                             StandardAnalyzer, NgramAnalyzer, Tokenizer,
+                             NgramWordAnalyzer)
 from whoosh.formats import Format, Existence, Frequency, Positions
 
 # Exceptions
@@ -354,24 +355,51 @@ class TEXT(FieldType):
 class NGRAM(FieldType):
     """Configured field that indexes text as N-grams. For example, with a field
     type NGRAM(3,4), the value "hello" will be indexed as tokens
-    "hel", "hell", "ell", "ello", "llo".
+    "hel", "hell", "ell", "ello", "llo". This field chops the entire 
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool, field_boost=float)
+    scorable = True
     
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0):
         """
+        :param minsize: The minimum length of the N-grams.
+        :param maxsize: The maximum length of the N-grams.
         :param stored: Whether to store the value of this field with the
             document. Since this field type generally contains a lot of text,
             you should avoid storing it with the document unless you need to,
             for example to allow fast excerpts in the search results.
-        :param minsize: The minimum length of the N-grams.
-        :param maxsize: The maximum length of the N-grams.
         """
         
         self.format = Frequency(analyzer=NgramAnalyzer(minsize, maxsize),
                                 field_boost=field_boost)
-        self.scorable = True
+        self.stored = stored
+
+
+class NGRAMWORDS(FieldType):
+    """Configured field that breaks text into words, lowercases, and then chops
+    the words into N-grams.
+    """
+    
+    __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
+                         field_boost=float, tokenizer=Tokenizer)
+    scorable = True
+    
+    def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
+                 tokenizer=None, at=None):
+        """
+        :param minsize: The minimum length of the N-grams.
+        :param maxsize: The maximum length of the N-grams.
+        :param stored: Whether to store the value of this field with the
+            document. Since this field type generally contains a lot of text,
+            you should avoid storing it with the document unless you need to,
+            for example to allow fast excerpts in the search results.
+        :param tokenizer: an instance of :class:`whoosh.analysis.Tokenizer`
+            used to break the text into words.
+        """
+        
+        analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
+        self.format = Frequency(analyzer=analyzer, field_boost=field_boost)
         self.stored = stored
 
 
@@ -422,7 +450,10 @@ class Schema(object):
         """Returns the field associated with the given field name.
         """
         
-        return self._fields[name]
+        try:
+            return self._fields[name]
+        except KeyError:
+            raise KeyError("No field named %r" % name)
     
     def __len__(self):
         """Returns the number of fields in this schema.

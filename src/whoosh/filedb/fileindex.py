@@ -63,8 +63,7 @@ class SegmentDeletionMixin(object):
 
 
 class FileIndex(SegmentDeletionMixin, Index):
-    def __init__(self, storage, schema, create=False,
-                 indexname=_DEF_INDEX_NAME):
+    def __init__(self, storage, schema, create=False, indexname=_DEF_INDEX_NAME):
         self.storage = storage
         self.indexname = indexname
 
@@ -94,9 +93,8 @@ class FileIndex(SegmentDeletionMixin, Index):
         else:
             raise EmptyIndexError("No index named %r in storage %r" % (indexname, storage))
 
-        # Open a reader for this index. This is used by the
-        # deletion methods, but mostly it's to keep the underlying
-        # files open so they don't get deleted from underneath us.
+        # Open the files underlying this index so they don't get deleted out
+        # from under us.
         self._acquire_readlocks()
 
         self.segment_num_lock = None

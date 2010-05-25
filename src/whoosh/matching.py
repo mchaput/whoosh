@@ -389,6 +389,14 @@ class UnionMatcher(AdditiveBiMatcher):
     def is_active(self):
         return self.a.is_active() or self.b.is_active()
     
+    def skip_to(self, id):
+        ra = rb = False
+        if self.a.is_active():
+            ra = self.a.skip_to(id)
+        if self.b.is_active():
+            rb = self.b.skip_to(id)
+        return ra or rb
+    
     def id(self):
         a = self.a
         b = self.b
@@ -792,9 +800,18 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         
         ar = self.a.next()
         br = False
-        if self.b.is_active():
+        if self.a.is_active() and self.b.is_active():
             br = self.b.skip_to(self.a.id())
         return ar or br
+    
+    def skip_to(self, id):
+        if not self.a.is_active(): raise ReadTooFar
+        
+        ra = self.a.skip_to(id)
+        rb = False
+        if self.a.is_active() and self.b.is_active():
+            rb = self.b.skip_to(id)
+        return ra or rb
     
     def replace(self):
         ar = self.a.replace()
@@ -804,6 +821,28 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         if ar is not self.a or br is not self.b:
             return self.__class__(ar, br)
         return self
+    
+    def skip_to_quality(self, minquality):
+        a = self.a
+        b = self.b
+        minquality = minquality
+        
+        if not a.is_active(): raise ReadTooFar
+        if not b.is_active():
+            return a.skip_to_quality(minquality)
+        
+        skipped = 0
+        aq = a.block_quality()
+        bq = b.block_quality()
+        while a.is_active() and b.is_active() and aq + bq <= minquality:
+            if aq < bq:
+                skipped += a.skip_to_quality(minquality - bq)
+                aq = a.block_quality()
+            else:
+                skipped += b.skip_to_quality(minquality - aq)
+                bq = b.block_quality()
+        
+        return skipped
     
     def weight(self):
         if self.a.id() == self.b.id():
@@ -816,7 +855,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             return self.a.score() + self.b.score()
         else:
             return self.a.score()
-
+    
 
 class BasePhraseMatcher(WrappingMatcher):
     def __init__(self, isect, decodefn, slop=1, boost=1.0):
