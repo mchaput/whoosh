@@ -277,6 +277,12 @@ class IndexReader(ClosableMixin):
 
         for t, _, _ in self.iter_field(fieldid):
             yield t
+            
+    def last_modified(self):
+        """Returns the last-modified timestamp of the underlying index.
+        """
+        
+        return 0
 
 
 # Multisegment reader class

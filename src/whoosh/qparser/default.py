@@ -58,8 +58,9 @@ from whoosh.support.pyparsing import (printables, alphanums, OneOrMore,
                                       Group, Combine, Suppress, Optional,
                                       FollowedBy, Literal, CharsNotIn, Word,
                                       Keyword, Empty, White, Forward,
-                                      QuotedString, StringEnd)
+                                      QuotedString, StringEnd, ParseException)
 from whoosh.query import *
+
 
 
 def _make_default_parser():
@@ -193,7 +194,11 @@ class QueryParser(object):
         :rtype: :class:`whoosh.query.Query`
         """
 
-        ast = self.parser(input)[0]
+        try:
+            ast = self.parser(input)[0]
+        except ParseException, pe:
+            from whoosh.qparser import QueryParserError
+            raise QueryParserError(pe)
         q = self._eval(ast, self.default_field)
         if q and normalize:
             q = q.normalize()

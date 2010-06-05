@@ -707,7 +707,8 @@ class StoredFieldReader(object):
         position, length = unpack_2ints(self.dbfile.map[dir_offset:dir_offset + _2INTS_SIZE])
         dbfile.seek(position)
         values = loads(dbfile.read(length))
-        return dict(zip(self.fieldnames, values))
+        return dict((fieldname, value) for fieldname, value
+                    in zip(self.fieldnames, values) if value)
 
 
 # Utility functions

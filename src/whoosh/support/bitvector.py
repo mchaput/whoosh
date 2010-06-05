@@ -78,7 +78,7 @@ class BitVector(object):
         return False
     
     def __repr__(self):
-        return "<BitVector %s>" % self.__str__()
+        return "<BitVector %s/%s>" % (len(self), self.size)
     
     def __len__(self):
         # This returns the count of "on" bits instead of the size to
