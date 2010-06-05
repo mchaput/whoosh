@@ -19,3 +19,5 @@ from whoosh.qparser.simple import SimpleParser, DisMaxParser
 from whoosh.qparser.ngram import SimpleNgramParser
 
 
+class QueryParserError(Exception): pass
+

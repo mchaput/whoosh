@@ -22,13 +22,10 @@ from __future__ import division
 from array import array
 from collections import defaultdict
 from heapq import heappush, heapreplace
-from math import log
-import sys, time
 
 from whoosh import classify, query, scoring
 from whoosh.matching import NullMatcher
-from whoosh.scoring import Sorter, FieldSorter
-from whoosh.support.bitvector import BitSet
+from whoosh.scoring import Sorter
 from whoosh.util import now
 
 
@@ -58,7 +55,7 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "vector", "vector_as", "scorable",
                      "lexicon", "frequency", "doc_field_length",
-                     "max_field_length"):
+                     "max_field_length", "last_modified"):
             setattr(self, name, getattr(ixreader, name))
 
         if type(weighting) is type:
@@ -192,7 +189,7 @@ class Searcher(object):
         >>> docset = searcher.docset(query.Term("chapter", u"1"))
         """
         
-        return BitSet(self.doccount, q.docs(self, exclude_docs=exclude_docs))
+        return set(q.docs(self, exclude_docs=exclude_docs))
         
 
     def key_terms(self, docnums, fieldname, numterms=5,
@@ -331,7 +328,7 @@ class Searcher(object):
         match the given query.
         """
         
-        return BitSet(self.doccount, query.docs(self))
+        return set(query.docs(self))
 
 
 def collect(searcher, matcher, limit=10, usequality=True, replace=True):
@@ -352,7 +349,7 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
         # very simply
         
         h = []
-        docs = BitSet(searcher.doccount)
+        docs = set()
         while matcher.is_active():
             id = matcher.id()
             h.append((matcher.score(), id))
@@ -496,7 +493,7 @@ class Results(object):
         return docnum in self._docs
 
     def _load_docs(self):
-        self._docs = BitSet(self.doccount, self.query.docs(self.searcher))
+        self._docs = set(self.query.docs(self.searcher))
 
     def docs(self):
         """Returns a set-like object containing the document numbers that
@@ -593,7 +590,8 @@ class Results(object):
         """
         
         docs = self.docs()
-        for docnum, score in results.items():
+        items = results.items()
+        for docnum, score in items:
             if docnum not in docs:
                 self.top_n.append(docnum)
                 self.scores.append(score)
