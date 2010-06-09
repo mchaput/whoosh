@@ -47,6 +47,25 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.fieldname, "title")
         self.assertEqual(q.text, "test")
     
+    def test_colonspace(self):
+        s = fields.Schema(content=fields.TEXT, url=fields.ID)
+        
+        qp = qparser.QueryParser("content", s)
+        q = qp.parse(u"url:test")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "url")
+        self.assertEqual(q.text, "test")
+        
+        qp = qparser.QueryParser("content", s)
+        q = qp.parse(u"url: test")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[0].fieldname, "content")
+        self.assertEqual(q[1].fieldname, "content")
+        self.assertEqual(q[0].text, "url")
+        self.assertEqual(q[1].text, "test")
+    
     def test_andnot(self):
         qp = qparser.QueryParser("content")
         q = qp.parse(u"this ANDNOT that")
