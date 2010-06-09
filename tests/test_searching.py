@@ -685,6 +685,30 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(r.pagenum, 2)
         self.assertEqual(r.pagelen, 2)
         
+    def test_keyterms(self):
+        ana = analysis.StandardAnalyzer()
+        vectorformat = formats.Frequency(ana)
+        schema = fields.Schema(path=fields.ID,
+                               content=fields.TEXT(analyzer=ana,
+                                                   vector=vectorformat))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        w = ix.writer()
+        w.add_document(path=u"a",content=u"This is some generic content")
+        w.add_document(path=u"b",content=u"This is some distinctive content")
+        w.commit()
+        
+        s = ix.searcher()
+        docnum = s.document_number(path=u"b")
+        keyterms = list(s.key_terms([docnum], "content"))
+        self.assertTrue(len(keyterms) > 0)
+        self.assertEqual(keyterms[0][0], "distinctive")
+        
+        r = s.search(query.Term("path", u"b"))
+        keyterms2 = list(r.key_terms("content"))
+        self.assertTrue(len(keyterms2) > 0)
+        self.assertEqual(keyterms2[0][0], "distinctive")
+        
 
 
 if __name__ == '__main__':
