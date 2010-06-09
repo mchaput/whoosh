@@ -71,7 +71,7 @@ def _make_default_parser():
     #    wordchars = wordchars.replace(specialchar, "")
     #wordtext = Word(wordchars)
 
-    wordtext = CharsNotIn('\\*?^():"{}[] ')
+    wordtext = CharsNotIn('\\*?^()"{}[] ')
     escape = Suppress(escapechar) + (Word(printables, exact=1) | White(exact=1))
     wordtoken = Combine(OneOrMore(wordtext | escape))
 
