@@ -228,7 +228,9 @@ class FileIndex(SegmentDeletionMixin, Index):
         return len(self.segments)
 
     def optimize(self):
-        if len(self.segments) < 2 and not self.segments.has_deletions():
+        if (len(self.segments) < 2
+            and not self.segments.has_deletions()
+            and all(self.schema == seg.schema for seg in self.segments)):
             return
 
         from whoosh.filedb.filewriting import OPTIMIZE
@@ -292,7 +294,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         return sum(s.field_length(fieldname) for s in self.segments)
 
     def reader(self):
-        return self.segments.reader(self.storage)
+        return self.segments.reader(self.storage, self.schema)
 
     def writer(self, **kwargs):
         from whoosh.filedb.filewriting import SegmentWriter
@@ -421,14 +423,15 @@ class SegmentSet(object):
         segment, segdocnum = self._segment_and_docnum(docnum)
         return segment.is_deleted(segdocnum)
 
-    def reader(self, storage):
+    def reader(self, storage, schema):
         from whoosh.filedb.filereading import SegmentReader
         segments = self.segments
         if len(segments) == 1:
-            return SegmentReader(storage, segments[0])
+            return SegmentReader(storage, schema, segments[0])
         else:
             from whoosh.reading import MultiReader
-            readers = [SegmentReader(storage, segment) for segment in segments]
+            readers = [SegmentReader(storage, schema, segment)
+                       for segment in segments]
             return MultiReader(readers)
 
 
@@ -469,7 +472,7 @@ class Segment(object):
         assert isinstance(doccount, (int, long))
         
         self.name = name
-        self.schema = schema
+        self.schema = schema.copy()
         self.fieldmap = dict((name, i) for i, name in enumerate(schema.names()))
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals

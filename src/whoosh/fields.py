@@ -479,8 +479,14 @@ class Schema(object):
         return self._names
     
     def copy(self):
-        import copy
-        return copy.deepcopy(self)
+        """Returns a shallow copy of the schema. The field instances are not
+        deep copied, so they are shared between schema copies.
+        """
+        
+        s = self.__class__()
+        for name in self._names:
+            s.add(name, self._fields[name])
+        return s
     
     def clean(self):
         for field in self._fields.itervalues():

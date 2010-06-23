@@ -691,9 +691,10 @@ class StoredFieldWriter(object):
 
 
 class StoredFieldReader(object):
-    def __init__(self, dbfile, fieldnames):
+    def __init__(self, dbfile, currentfieldnames, storedfieldnames):
         self.dbfile = dbfile
-        self.fieldnames = fieldnames
+        self.currentfieldnames = set(currentfieldnames)
+        self.storedfieldnames = storedfieldnames
 
         self.offset = dbfile.get_uint(0)
         self.length = dbfile.get_uint(_INT_SIZE)
@@ -707,8 +708,11 @@ class StoredFieldReader(object):
         position, length = unpack_2ints(self.dbfile.map[dir_offset:dir_offset + _2INTS_SIZE])
         dbfile.seek(position)
         values = loads(dbfile.read(length))
+        
+        currentfieldnames = self.currentfieldnames
         return dict((fieldname, value) for fieldname, value
-                    in zip(self.fieldnames, values) if value)
+                    in zip(self.storedfieldnames, values)
+                    if value and fieldname in currentfieldnames)
 
 
 # Utility functions

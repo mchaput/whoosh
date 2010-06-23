@@ -25,14 +25,17 @@ __all__ = ("QueryError", "Term", "And", "Or", "Not", "DisjunctionMax",
            "Phrase", "NullQuery", "Require", "AndMaybe", "AndNot")
 
 import copy
-from bisect import bisect_left, bisect_right
 import fnmatch, re
 
 from whoosh.lang.morph_en import variations
-from whoosh.matching import *
+from whoosh.matching import (make_tree, AndMaybeMatcher, DisjunctionMaxMatcher,
+                             EveryMatcher, IntersectionMatcher, InverseMatcher,
+                             NullMatcher, PostingPhraseMatcher, RequireMatcher,
+                             UnionMatcher, VectorPhraseMatcher, WrappingMatcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
+
 
 # Utilities
 
