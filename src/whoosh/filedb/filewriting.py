@@ -55,7 +55,7 @@ def MERGE_SMALL(ix, writer, segments):
         if count > 0:
             total_docs += count
             if total_docs < fib(i + 5):
-                reader = SegmentReader(ix.storage, seg)
+                reader = SegmentReader(ix.storage, ix.schema, seg)
                 writer.add_reader(reader)
                 reader.close()
             else:
@@ -69,7 +69,7 @@ def OPTIMIZE(ix, writer, segments):
 
     from whoosh.filedb.filereading import SegmentReader
     for seg in segments:
-        reader = SegmentReader(ix.storage, seg)
+        reader = SegmentReader(ix.storage, ix.schema, seg)
         writer.add_reader(reader)
         reader.close()
     return SegmentSet()
@@ -85,7 +85,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 raise LockError
         
         self.index = index
-        self.schema = schema or self.index.schema
+        self.schema = schema or self.index.schema.copy()
         self._name_to_num = dict((name, i) for i, name
                                  in enumerate(self.schema.names()))
         self.segments = self.index.segments.copy()
@@ -277,14 +277,51 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                        self.pool.fieldlength_totals(),
                        self.pool.fieldlength_maxes())
     
-    def commit(self, mergetype=MERGE_SMALL):
+    def commit(self, mergetype=None, optimize=False, merge=True):
+        """Finishes writing and saves all additions and changes to disk.
+        
+        There are four possible ways to use this method::
+        
+            # Merge small segments but leave large segments, trying to
+            # balance fast commits with fast searching:
+            writer.commit()
+        
+            # Merge all segments into a single segment:
+            writer.commit(optimize=True)
+            
+            # Don't merge any existing segments:
+            writer.commit(merge=False)
+            
+            # Use a custom merge function
+            writer.commit(mergetype=my_merge_function)
+        
+        :param mergetype: a custom merge function taking an Index object,
+            Writer object, and SegmentSet object as arguments, and returning a
+            new SegmentSet object. If you supply a ``mergetype`` function,
+            the values of the ``optimize`` and ``merge`` arguments are ignored.
+        :param optimize: if True, all existing segments are merged with the
+            documents you've added to this writer (and the value of the
+            ``merge`` argument is ignored).
+        :param merge: if False, do not merge small segments.
+        """
+        
+        if mergetype:
+            pass
+        elif optimize:
+            mergetype = OPTIMIZE
+        elif not merge:
+            mergetype = NO_MERGE
+        else:
+            mergetype = MERGE_SMALL
+        
         # Call the merge policy function. The policy may choose to merge other
         # segments into this writer's pool
         new_segments = mergetype(self.index, self, self.segments)
         
         # Tell the pool we're finished adding information, it should add its
         # accumulated data to the lengths, terms index, and posting files.
-        self.pool.finish(self.docnum, self.lengthfile, self.termsindex, self.postwriter)
+        self.pool.finish(self.docnum, self.lengthfile, self.termsindex,
+                         self.postwriter)
         
         # Create a Segment object for the segment created by this writer and
         # add it to the list of remaining segments returned by the merge policy
@@ -295,6 +332,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         # segment list, and release the lock.
         self._close_all()
         self.index.commit(new_segments)
+        self.index.schema = self.schema
         self.lock.release()
         
     def cancel(self):

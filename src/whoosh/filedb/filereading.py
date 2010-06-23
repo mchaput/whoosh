@@ -28,10 +28,10 @@ from whoosh.util import protected
 # Reader class
 
 class SegmentReader(IndexReader):
-    def __init__(self, storage, segment):
+    def __init__(self, storage, schema, segment):
         self.storage = storage
+        self.schema = schema
         self.segment = segment
-        self.schema = self.segment.schema
         
         # Field names to code numbers
         self._name_to_num = self.segment.fieldmap
@@ -53,11 +53,13 @@ class SegmentReader(IndexReader):
         
         # Stored fields file
         sf = storage.open_file(segment.storedfields_filename, mapped=False)
-        self.storedfields = StoredFieldReader(sf, self.schema.stored_field_names())
+        self.storedfields = StoredFieldReader(sf,
+                                              self.schema.stored_field_names(),
+                                              self.segment.schema.stored_field_names())
         
         # Field length file
         self.fieldlengths = None
-        scorables = self.schema.scorable_field_names()
+        scorables = self.segment.schema.scorable_field_names()
         if scorables:
             flf = storage.open_file(segment.fieldlengths_filename)
             self.fieldlengths = LengthReader(flf, segment.doc_count_all())
@@ -96,7 +98,10 @@ class SegmentReader(IndexReader):
     def __contains__(self, term):
         # Change the first item from a field name to a number using the
         # segment's field map
-        term = (self._name_to_num[term[0]], term[1])
+        try:
+            term = (self._name_to_num[term[0]], term[1])
+        except KeyError:
+            return False
         return term in self.termsindex
 
     def close(self):
@@ -114,19 +119,19 @@ class SegmentReader(IndexReader):
         return self.dc
 
     def field(self, fieldid):
-        return self.schema[fieldid]
+        return self.segment.schema[fieldid]
 
     def scorable(self, fieldid):
-        return self.schema[fieldid].scorable
+        return self.segment.schema[fieldid].scorable
     
     def scorable_field_names(self):
-        return self.schema.scorable_field_names()
+        return self.segment.schema.scorable_field_names()
     
     def format(self, fieldid):
-        return self.schema[fieldid].format
+        return self.segment.schema[fieldid].format
     
     def vector_format(self, fieldid):
-        return self.schema[fieldid].vector
+        return self.segment.schema[fieldid].vector
 
     @protected
     def stored_fields(self, docnum):
