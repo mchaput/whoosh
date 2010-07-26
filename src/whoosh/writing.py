@@ -16,7 +16,7 @@
 
 import threading, time
 
-from whoosh.index import DeletionMixin
+from whoosh.index import DeletionMixin, FieldMixin
 from whoosh.store import LockError
 
 # Exceptions
@@ -27,7 +27,7 @@ class IndexingError(Exception):
 
 # Base class
 
-class IndexWriter(DeletionMixin):
+class IndexWriter(DeletionMixin, FieldMixin):
     """High-level object for writing to an index.
     
     To get a writer for a particular index, call

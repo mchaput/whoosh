@@ -20,7 +20,6 @@ The field format essentially determines what information is stored about each
 occurance of a term.
 """
 
-from array import array
 from collections import defaultdict
 from struct import Struct
 from cStringIO import StringIO

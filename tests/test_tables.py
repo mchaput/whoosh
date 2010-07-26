@@ -66,7 +66,7 @@ class TestTables(unittest.TestCase):
         
         hrf = st.open_file("test.hsh")
         hr = HashReader(hrf)
-        self.assertEqual(samp, set(hr.items()))
+        self.assertEqual(set(hr.items()), samp)
         hr.close()
         
         self.destroy_dir("testindex")
@@ -158,7 +158,7 @@ class TestTables(unittest.TestCase):
         sfw.close()
         
         sf = st.open_file("test.sf")
-        sfr = StoredFieldReader(sf, ["a", "b"])
+        sfr = StoredFieldReader(sf, ["a", "b"], ["a", "b"])
         self.assertEqual(sfr[0], {"a": "hello", "b": "there"})
         self.assertEqual(sfr[2], {"a": "alfa", "b": "bravo"})
         self.assertEqual(sfr[1], {"a": "one", "b": "two"})

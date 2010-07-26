@@ -25,9 +25,9 @@ from struct import calcsize, Struct, pack, unpack
 
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_sbyte, pack_ushort, pack_int, pack_uint,
-                           pack_ulong, pack_float,
+                           pack_long, pack_float,
                            unpack_sbyte, unpack_ushort, unpack_int,
-                           unpack_uint, unpack_ulong, unpack_float)
+                           unpack_uint, unpack_long, unpack_float)
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
@@ -38,7 +38,7 @@ _ORDERMAP = {"little": "<", "big": ">"}
 # Struct functions
 
 _types = (("sbyte", "b"), ("ushort", "H"), ("int", "i"),
-          ("ulong", "Q"), ("float", "f"))
+          ("long", "q"), ("float", "f"))
 
 
 # Main function
@@ -46,7 +46,7 @@ _types = (("sbyte", "b"), ("ushort", "H"), ("int", "i"),
 class StructFile(object):
     """Returns a "structured file" object that wraps the given file object and
     provides numerous additional methods for writing structured data, such as
-    "write_varint" and "write_ulong".
+    "write_varint" and "write_long".
     """
 
     def __init__(self, fileobj, name=None, onclose=None, mapped=True):
@@ -194,8 +194,8 @@ class StructFile(object):
         self.file.write(pack_uint(n))
     def write_ushort(self, n):
         self.file.write(pack_ushort(n))
-    def write_ulong(self, n):
-        self.file.write(pack_ulong(n))
+    def write_long(self, n):
+        self.file.write(pack_long(n))
     def write_float(self, n):
         self.file.write(pack_float(n))
     def write_array(self, arry):
@@ -215,8 +215,8 @@ class StructFile(object):
         return unpack_uint(self.file.read(_INT_SIZE))[0]
     def read_ushort(self):
         return unpack_ushort(self.file.read(_SHORT_SIZE))[0]
-    def read_ulong(self):
-        return unpack_ulong(self.file.read(_LONG_SIZE))[0]
+    def read_long(self):
+        return unpack_long(self.file.read(_LONG_SIZE))[0]
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
     def read_array(self, typecode, length):
@@ -236,8 +236,8 @@ class StructFile(object):
         return unpack_uint(self.map[position:position + _INT_SIZE])[0]
     def get_ushort(self, position):
         return unpack_ushort(self.map[position:position + _SHORT_SIZE])[0]
-    def get_ulong(self, position):
-        return unpack_ulong(self.map[position:position + _LONG_SIZE])[0]
+    def get_long(self, position):
+        return unpack_long(self.map[position:position + _LONG_SIZE])[0]
     def get_float(self, position):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
     def get_array(self, position, typecode, length):

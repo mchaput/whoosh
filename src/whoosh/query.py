@@ -122,6 +122,10 @@ class Query(object):
         self._all_terms(termset, phrases=phrases)
         return termset
 
+    def _all_terms(self, *args, **kwargs):
+        # To be implemented in sub-classes
+        return
+
     def existing_terms(self, ixreader, termset=None, reverse=False,
                        phrases=True):
         """Returns a set of all terms in this query tree that exist in the
@@ -624,7 +628,8 @@ class Not(Query):
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
         child = self.query.matcher(searcher)
-        return InverseMatcher(child, searcher.doccount, missing=reader.is_deleted)
+        return InverseMatcher(child, searcher.doccount,
+                              missing=reader.is_deleted)
 
 
 class Prefix(MultiTerm):
@@ -1058,8 +1063,9 @@ class Every(Query):
     def matcher(self, searcher, exclude_docs=None):
         if not exclude_docs:
             exclude_docs = frozenset()
-        return EveryMatcher(searcher.reader().doc_count_all(), exclude_docs,
-                            weight=self.boost)
+        reader = searcher.reader()
+        return EveryMatcher(reader.doc_count_all(), exclude_docs,
+                            missing=reader.is_deleted, weight=self.boost)
 
 
 class NullQuery(Query):

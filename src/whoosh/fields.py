@@ -476,7 +476,7 @@ class Schema(object):
     def names(self):
         """Returns a list of the names of the fields in this schema.
         """
-        return self._names
+        return self._names[:]
     
     def copy(self):
         """Returns a shallow copy of the schema. The field instances are not
@@ -523,6 +523,19 @@ class Schema(object):
     def remove(self, fieldid):
         del self._fields[fieldid]
         self._names.remove(fieldid)
+    
+    def rename(self, oldname, newname):
+        if oldname not in self._names:
+            raise KeyError("No field named %r in schema" % oldname)
+        if newname in self._names:
+            raise KeyError("Schema already has a field named %r" % newname)
+        
+        field = self._fields[oldname]
+        del self._fields[oldname]
+        self._fields[newname] = field
+        
+        i = self._names.index(oldname)
+        self._names[i] = newname
     
     def has_vectored_fields(self):
         """Returns True if any of the fields in this schema store term vectors.

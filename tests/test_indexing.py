@@ -329,43 +329,46 @@ class TestIndexing(unittest.TestCase):
         ix.close()
         self.destroy_index("testindex")
     
-#    def test_remove_field(self):
-#        a = analysis.StandardAnalyzer()
-#        f1 = fields.ID(stored=True)
-#        f2 = fields.TEXT(stored=True, vector=formats.Frequency(analyzer=a))
-#        f3 = fields.ID(stored=True)
-#        
-#        schema = fields.Schema(f1=f1, f2=f2, f3=f3)
-#        
-#        st = RamStorage()
-#        ix = st.create_index(schema)
-#        self.assertEqual(len(ix.schema), 3)
-#        
-#        w = ix.writer()
-#        w.add_document(f1=u"one", f2=u"alfa bravo charlie delta", f3=u"1")
-#        w.add_document(f1=u"two", f2=u"bravo charlie delta echo", f3=u"2")
-#        w.add_document(f1=u"three", f2=u"harlie delta echo foxtrot", f3=u"3")
-#        w.add_document(f1=u"four", f2=u"delta echo foxtrot india", f3=u"4")
-#        w.commit()
-#        
-#        ix.remove_field("f2")
-#        ix.optimize()
-#        
-#        self.assertEqual(len(ix.schema), 2)
-#        r = ix.reader()
-#        self.assertEqual(list(r.all_terms()), [(0, "four"), (0, "one"), (0, "three"), (0, "two"),
-#                                               (1, "1"), (1, "2"), (1, "3"), (1, "4")])
+    def test_multi(self):
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               content=fields.KEYWORD(stored=True))
+        ix =self.make_index("testindex", schema, "multi")
         
+        writer = ix.writer()
+        writer.add_document(id=u"1", content=u"alfa bravo charlie 0") #deleted 1
+        writer.add_document(id=u"2", content=u"bravo charlie delta echo 1") #deleted 1
+        writer.add_document(id=u"3", content=u"charlie delta echo foxtrot 2") #deleted 2
+        writer.commit()
+        
+        writer = ix.writer()
+        writer.delete_by_term("id", "1")
+        writer.delete_by_term("id", "2")
+        writer.add_document(id=u"1", content=u"apple bear cherry donut 3")
+        writer.add_document(id=u"2", content=u"bear cherry donut eggs 4")
+        writer.add_document(id=u"4", content=u"delta echo foxtrot golf 5") #deleted 2
+        writer.add_document(id=u"5", content=u"echo foxtrot golf hotel 6")
+        writer.commit(merge=False)
+        
+        writer = ix.writer()
+        writer.delete_by_term("id", "3")
+        writer.delete_by_term("id", "4")
+        writer.add_document(id=u"3", content=u"cherry donut eggs falafel 7")
+        writer.add_document(id=u"4", content=u"donut eggs falafel grape 8")
+        writer.add_document(id=u"6", content=u" foxtrot golf hotel india 9")
+        writer.commit(merge=False)
 
-
-
-
-
-
-
-
-
-
+        self.assertEqual(ix.doc_count(), 6)
+        
+        s = ix.searcher()
+        
+        r = s.search(query.Prefix("content", u"d"), optimize=False)
+        self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
+        
+        r = s.search(query.Prefix("content", u"d"))
+        self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
+        
+        r = s.search(query.Prefix("content", u"d"), limit=None)
+        self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
 
 
 if __name__ == '__main__':

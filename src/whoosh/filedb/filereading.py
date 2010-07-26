@@ -96,13 +96,16 @@ class SegmentReader(IndexReader):
 
     @protected
     def __contains__(self, term):
-        # Change the first item from a field name to a number using the
-        # segment's field map
+        fieldname, token = term
         try:
-            term = (self._name_to_num[term[0]], term[1])
+            # Change the first item from a field name to a number using the
+            # segment's field map
+            fieldnum = self._name_to_num[fieldname]
         except KeyError:
+            # _name_to_num failed, so the segment does not have a field by this
+            # name
             return False
-        return term in self.termsindex
+        return (fieldnum, token) in self.termsindex
 
     def close(self):
         self.storedfields.close()
@@ -159,8 +162,8 @@ class SegmentReader(IndexReader):
     @protected
     def has_vector(self, docnum, fieldid):
         self._open_vectors()
-        fnum = self._name_to_num[fieldid]
-        return (docnum, fnum) in self.vectorindex
+        fieldnum = self._name_to_num[fieldid]
+        return (docnum, fieldnum) in self.vectorindex
 
     @protected
     def __iter__(self):
@@ -238,9 +241,11 @@ class SegmentReader(IndexReader):
 
         self._open_postfile()
         postreader = FilePostingReader(self.postfile, offset, format,
-                                       scorefns=scorefns)
+                                       scorefns=scorefns,
+                                       fieldid=fieldid, text=text)
         if exclude_docs:
             postreader = ExcludeMatcher(postreader, exclude_docs)
+            
         return postreader
     
     def vector(self, docnum, fieldid):

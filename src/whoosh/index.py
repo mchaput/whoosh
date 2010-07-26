@@ -224,9 +224,48 @@ class DeletionMixin(object):
             s.close()
         return count
 
+
+class FieldMixin(object):
+    def add_field(self, fieldname, fieldspec):
+        """Adds a field to the index's schema.
+        
+        This method adds a field to the copy of the schema in memory. To save
+        the change permanently, you must call ``Index.commit()``.
+        
+        :param fieldname: the name of the field to add.
+        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+            object.
+        """
+        
+        self.schema.add(fieldname, fieldspec)
+    
+    def remove_field(self, fieldname):
+        """Removes the named field from the index's schema. Depending on the
+        backend implementation, this may or may not actually remove existing
+        data for the field from the index. Optimizing the index should always
+        clear out existing data for a removed field.
+        
+        This method removes the field from the copy of the schema in memory.
+        To save the change permanently, you must call ``Index.commit()``.
+        """
+        
+        self.schema.remove(fieldname)
+        
+    def rename_field(self, oldname, newname):
+        """Renames a field in the index's schema.
+        
+        This method renames the field in the copy of the index in memory. To
+        save the change permanently, you must call ``Index.commit()``.
+        """
+        
+        # Note: backend implementations will almost certainly need to do more
+        # than just rename the field in the schema.
+        self.schema.rename(oldname, newname)
+
+
 # Index class
 
-class Index(DeletionMixin):
+class Index(DeletionMixin, FieldMixin):
     """Represents an indexed collection of documents.
     """
     
