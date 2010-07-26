@@ -21,7 +21,7 @@ class TestIndexing(unittest.TestCase):
             try:
                 rmtree(dirname)
             except OSError, e:
-                raise
+                pass
     
     def test_creation(self):
         s = fields.Schema(content=fields.TEXT(phrase=True),

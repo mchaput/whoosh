@@ -735,7 +735,7 @@ class StoredFieldReader(object):
         currentfieldnames = self.currentfieldnames
         return dict((fieldname, value) for fieldname, value
                     in zip(self.storedfieldnames, values)
-                    if value and fieldname in currentfieldnames)
+                    if value is not None and fieldname in currentfieldnames)
 
 
 # Utility functions

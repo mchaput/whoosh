@@ -303,6 +303,9 @@ class TestMatchers(unittest.TestCase):
         testlimits = (2, 5)
         
         searcher = ix.searcher()
+        for i in xrange(searcher.doccount):
+            self.assertNotEqual(searcher.stored_fields(i).get("key"), None)
+        
         for _ in xrange(testcount):
             # Create a random list of words and manually do an intersection of
             # items in "documents" that contain the words ("target").
