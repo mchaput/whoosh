@@ -895,58 +895,6 @@ class InverseMatcher(WrappingMatcher):
         return self._weight
 
 
-class EveryMatcher(Matcher):
-    """Synthetic matcher, matches every document.
-    """
-    
-    def __init__(self, limit, exclude=(), missing=None, weight=1.0):
-        self.limit = limit
-        self.exclude = exclude
-        self.missing = missing or (lambda id: False)
-        self._id = 0
-        self._find_next()
-        self._weight = weight
-    
-    def _find_next(self):
-        limit = self.limit
-        exclude = self.exclude
-        missing = self.missing
-        
-        _id = self._id
-        while _id < limit and (_id in exclude or missing(_id)):
-            _id += 1
-        self._id = _id
-    
-    def is_active(self):
-        return self._id < self.limit
-    
-    def copy(self):
-        c = self.__class__(self.limit, self.exclude)
-        c._id = self._id
-        return c
-    
-    def id(self):
-        return self._id
-    
-    def all_ids(self):
-        exclude = self.exclude
-        return (id for id in xrange(self.limit) if id not in exclude)
-    
-    def skip_to(self, id):
-        self._id = id
-        self._find_next()
-    
-    def next(self):
-        self._id += 1
-        self._find_next()
-    
-    def weight(self):
-        return self._weight
-    
-    def score(self):
-        return self._weight
-
-
 class RequireMatcher(WrappingMatcher):
     """Matches postings that are in both sub-matchers, but only uses scores
     from the first.
