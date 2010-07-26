@@ -184,8 +184,7 @@ class TestReading(unittest.TestCase):
         ix = st.open_index()
         searcher = ix.searcher()
         doc = searcher.document(path="/main")
-        self.assertEqual(sorted(doc.keys()), storedkeys)
-        self.assertEqual([doc[k] for k in sorted(doc.keys()) if doc[k] is not None],
+        self.assertEqual([doc[k] for k in sorted(doc.keys())],
                          ["Content of this document.", "/main",
                           "This is the summary", "This is the title"])
         
