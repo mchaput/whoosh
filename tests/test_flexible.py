@@ -28,7 +28,7 @@ class TestSchema(unittest.TestCase):
             w.add_document(id=u"c", content=u"charlie")
             w.commit()
             
-            ix.schema.add("added", fields.KEYWORD(stored=True))
+            ix.add_field("added", fields.KEYWORD(stored=True))
             
             w = ix.writer()
             w.add_document(id=u"d", content=u"delta", added=u"fourth")
@@ -44,7 +44,39 @@ class TestSchema(unittest.TestCase):
         finally:
             ix.close()
             self.destroy_index()
+    
+    def test_renamefield(self):
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               content=fields.TEXT,
+                               city=fields.KEYWORD(stored=True))
+        ix = self.create_index(schema)
         
+        try:
+            w = ix.writer()
+            w.add_document(id=u"b", content=u"bravo", city=u"baghdad")
+            w.add_document(id=u"c", content=u"charlie", city=u"cairo")
+            w.add_document(id=u"d", content=u"delta", city=u"dakar")
+            w.commit()
+            
+            s = ix.searcher()
+            try:
+                self.assertEqual(s.document(id=u"c"),
+                                 {"id": "c", "city": "cairo"})
+            finally:
+                s.close()
+            
+            ix.rename_field("id", "path")
+            ix.commit()
+            
+            s = ix.searcher()
+            self.assertTrue(("path", u"b") in s.reader())
+            self.assertEqual(s.document(path=u"c"), {"path": u"c",
+                                                     "city": u"cairo"})
+            s.close()
+        finally:
+            ix.close()
+            self.destroy_index()
+    
     def test_removefield(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                content=fields.TEXT,
@@ -65,8 +97,8 @@ class TestSchema(unittest.TestCase):
             finally:
                 s.close()
             
-            ix.schema.remove("content")
-            ix.schema.remove("city")
+            ix.remove_field("content")
+            ix.remove_field("city")
             ix.commit()
             
             s = ix.searcher()
@@ -97,8 +129,8 @@ class TestSchema(unittest.TestCase):
             finally:
                 s.close()
             
-            ix.schema.remove("content")
-            ix.schema.remove("city")
+            ix.remove_field("content")
+            ix.remove_field("city")
             ix.commit()
             ix.optimize()
             

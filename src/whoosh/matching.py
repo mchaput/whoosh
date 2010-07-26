@@ -29,10 +29,23 @@ class NoQualityAvailable(Exception):
 
 
 def make_tree(cls, matchers):
-    if len(matchers) > 1:
-        return cls(matchers[0], make_tree(cls, matchers[1:]))
-    else:
+    """Takes a BiMatcher class and a list of matchers and returns a binary tree
+    of BiMatcher instances.
+    
+    >>> make_tree(UnionMatcher, [matcher1, matcher2, matcher3])
+    UnionMatcher(matcher1, UnionMatcher(matcher2, matcher3))
+    """
+    
+    count = len(matchers)
+    
+    if not count:
+        raise ValueError("Called make_tree with empty list of matchers")
+    elif count == 1:
         return matchers[0]
+    
+    half = count // 2
+    return cls(make_tree(cls, matchers[:half]),
+               make_tree(cls, matchers[half:]))
 
 
 class Matcher(object):
@@ -40,30 +53,72 @@ class Matcher(object):
     """
     
     def is_active(self):
+        """Returns True if this matcher is still "active", that is, it has not
+        yet reached the end of the posting list.
+        """
+        
         raise NotImplementedError
     
     def replace(self):
+        """Returns a possibly-simplified version of this matcher. For example,
+        if one of the children of a UnionMatcher is no longer active, calling
+        this method on the UnionMatcher will return the other child.
+        """
+        
         return self
     
     def copy(self):
+        """Returns a copy of this matcher.
+        """
+        
         raise NotImplementedError
     
     def depth(self):
+        """Returns the depth of the tree under this matcher, or 0 if this
+        matcher does not have any children.
+        """
+        
         return 0
     
     def supports_quality(self):
+        """Returns True if this matcher supports the use of ``quality`` and
+        ``block_quality``.
+        """
+        
         return False
     
     def quality(self):
+        """Returns a quality measurement of the current posting, according to
+        the current weighting algorithm. Raises ``NoQualityAvailable`` if the
+        matcher or weighting do not support quality measurements.
+        """
+        
         raise NoQualityAvailable
     
     def block_quality(self):
+        """Returns a quality measurement of the current block of postings,
+        according to the current weighting algorithm. Raises
+        ``NoQualityAvailable`` if the matcher or weighting do not support
+        quality measurements.
+        """
+        
         raise NoQualityAvailable
     
     def id(self):
+        """Returns the ID of the current posting.
+        """
+        
         raise NotImplementedError
     
     def all_ids(self):
+        """Returns a generator of all IDs in the matcher.
+        
+        What this method returns for a matcher that has already read some
+        postings (whether it only yields the remaining postings or all postings
+        from the beginning) is undefined, so it's best to only use this method
+        on fresh matchers.
+        """
+        
         i = 0
         while self.is_active():
             yield self.id()
@@ -74,6 +129,14 @@ class Matcher(object):
                 i = 0
                 
     def all_items(self):
+        """Returns a generator of all (ID, encoded value) pairs in the matcher.
+        
+        What this method returns for a matcher that has already read some
+        postings (whether it only yields the remaining postings or all postings
+        from the beginning) is undefined, so it's best to only use this method
+        on fresh matchers.
+        """
+        
         i = 0
         while self.is_active():
             yield (self.id(), self.value())
@@ -84,26 +147,63 @@ class Matcher(object):
                 i = 0
     
     def items_as(self, decoder):
+        """Returns a generator of all (ID, decoded value) pairs in the matcher.
+        
+        The ``decoder`` argument is a function to be run on the encoded values
+        of the postings (e.g. ``whoosh.formats.Positions.decode_positions()``).
+        
+        What this method returns for a matcher that has already read some
+        postings (whether it only yields the remaining postings or all postings
+        from the beginning) is undefined, so it's best to only use this method
+        on fresh matchers.
+        """
+        
         return ((id, decoder(v)) for id, v in self.all_items())
     
     def value(self):
+        """Returns the encoded value of the current posting.
+        """
+        
         raise NotImplementedError
     
     def skip_to(self, id):
+        """Moves this matcher to the first posting with an ID equal to or
+        greater than the given ID.
+        """
+        
         while self.is_active() and self.id() < id:
             self.next()
     
+    def skip_to_quality(self, minquality):
+        """Moves this matcher to the next block with greater than the given
+        minimum quality value.
+        """
+        
+        
+    
     def next(self):
+        """Moves this matcher to the next posting.
+        """
+        
         raise NotImplementedError
     
     def weight(self):
+        """Returns the weight of the current posting.
+        """
+        
         raise NotImplementedError
     
     def score(self):
+        """Returns the score of the current posting.
+        """
+        
         raise NotImplementedError
     
 
 class NullMatcher(Matcher):
+    """Matcher with no postings which is never active.
+    """
+    
     def is_active(self):
         return False
     
@@ -112,6 +212,9 @@ class NullMatcher(Matcher):
 
 
 class ListMatcher(Matcher):
+    """Synthetic matcher backed by a list of IDs.
+    """
+    
     def __init__(self, ids, position=0, weight=1.0):
         self._ids = ids
         self._i = position
@@ -149,6 +252,9 @@ class WrappingMatcher(Matcher):
     def __init__(self, child, boost=1.0):
         self.child = child
         self.boost = boost
+    
+    def __repr__(self):
+        return "%s(%r, boost=%s)" % (self.__class__.__name__, self.child, self.boost)
     
     def copy(self):
         kwargs = {}
@@ -200,14 +306,22 @@ class WrappingMatcher(Matcher):
     
     def score(self):
         return self.child.score() * self.boost
-
+    
 
 class MultiMatcher(Matcher):
-    def __init__(self, matchers, idoffsets):
+    """Serializes the results of a list of sub-matchers.
+    """
+    
+    def __init__(self, matchers, idoffsets, current=0):
         self.matchers = matchers
         self.offsets = idoffsets
-        self.current = 0
+        self.current = current
         self._next_matcher()
+    
+    def __repr__(self):
+        return "%s(%r, %r, current=%s)" % (self.__class__.__name__,
+                                           self.matchers, self.offsets,
+                                           self.current)
     
     def is_active(self):
         return self.current < len(self.matchers)
@@ -219,15 +333,20 @@ class MultiMatcher(Matcher):
         
     def copy(self):
         return self.__class__([mr.copy() for mr in self.matchers[self.current:]],
-                              self.offsets[self.current:])
-        
+                              self.offsets[self.current:], current=self.current)
+    
     def depth(self):
-        return 1 + max(mr.depth() for mr in self.matchers[self.current:])
+        if self.is_active():
+            return 1 + max(mr.depth() for mr in self.matchers[self.current:])
+        else:
+            return 0
     
     def replace(self):
-        if not self.is_active(): return NullMatcher()
-        if self.current == len(self.matchers) - 1:
-            return self.matchers[-1]
+        if not self.is_active():
+            return NullMatcher()
+        # TODO: Possible optimization: if the last matcher is current, replace
+        # this with the last matcher, but wrap it with a matcher that adds the
+        # offset. Have to check whether that's actually faster, though.
         return self
     
     def id(self):
@@ -286,11 +405,19 @@ class MultiMatcher(Matcher):
 
 
 class ExcludeMatcher(WrappingMatcher):
+    """Excludes a list of IDs from the postings returned by the wrapped
+    matcher.
+    """
+    
     def __init__(self, child, excluded, boost=1.0):
         super(ExcludeMatcher, self).__init__(child)
         self.excluded = excluded
         self.boost = boost
         self._find_next()
+    
+    def __repr__(self):
+        return "%s(%r, %r, boost=%s)" % (self.__class__.__name__, self.child,
+                                         self.excluded, self.boost)
     
     def copy(self):
         return self.__class__(self.child.copy(), self.excluded, boost=self.boost)
@@ -332,6 +459,9 @@ class BiMatcher(Matcher):
         self.a = a
         self.b = b
 
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self.a, self.b)
+
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
 
@@ -350,14 +480,20 @@ class BiMatcher(Matcher):
 
 class AdditiveBiMatcher(BiMatcher):
     """Base class for binary matchers where the scores of the sub-matchers are
-    added together in some way.
+    added together.
     """
     
     def quality(self):
-        return self.a.quality() + self.b.quality()
+        q = 0.0
+        if self.a.is_active(): q += self.a.quality()
+        if self.b.is_active(): q += self.b.quality()
+        return q
     
     def block_quality(self):
-        return self.a.block_quality() + self.b.block_quality()
+        bq = 0.0
+        if self.a.is_active(): bq += self.a.block_quality()
+        if self.b.is_active(): bq += self.b.block_quality()
+        return bq
     
     def weight(self):
         return (self.a.weight() + self.b.weight())
@@ -443,7 +579,7 @@ class UnionMatcher(AdditiveBiMatcher):
             return b.score()
         else:
             return (a.score() + b.score())
-        
+    
     def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
@@ -471,6 +607,16 @@ class UnionMatcher(AdditiveBiMatcher):
         
 
 class DisjunctionMaxMatcher(UnionMatcher):
+    """Matches the union (OR) of two sub-matchers. Where both sub-matchers
+    match the same posting, returns the weight/score of the higher-scoring
+    posting.
+    """
+    
+    # TODO: this class inherits from AdditiveBiMatcher (through UnionMatcher)
+    # but it does not add the scores of the sub-matchers together (it
+    # overrides all methods that perform addition). Need to clean up the
+    # inheritance. 
+    
     def __init__(self, a, b):
         super(DisjunctionMaxMatcher, self).__init__(a, b)
     
@@ -749,6 +895,58 @@ class InverseMatcher(WrappingMatcher):
         return self._weight
 
 
+class EveryMatcher(Matcher):
+    """Synthetic matcher, matches every document.
+    """
+    
+    def __init__(self, limit, exclude=(), missing=None, weight=1.0):
+        self.limit = limit
+        self.exclude = exclude
+        self.missing = missing or (lambda id: False)
+        self._id = 0
+        self._find_next()
+        self._weight = weight
+    
+    def _find_next(self):
+        limit = self.limit
+        exclude = self.exclude
+        missing = self.missing
+        
+        _id = self._id
+        while _id < limit and (_id in exclude or missing(_id)):
+            _id += 1
+        self._id = _id
+    
+    def is_active(self):
+        return self._id < self.limit
+    
+    def copy(self):
+        c = self.__class__(self.limit, self.exclude)
+        c._id = self._id
+        return c
+    
+    def id(self):
+        return self._id
+    
+    def all_ids(self):
+        exclude = self.exclude
+        return (id for id in xrange(self.limit) if id not in exclude)
+    
+    def skip_to(self, id):
+        self._id = id
+        self._find_next()
+    
+    def next(self):
+        self._id += 1
+        self._find_next()
+    
+    def weight(self):
+        return self._weight
+    
+    def score(self):
+        return self._weight
+
+
 class RequireMatcher(WrappingMatcher):
     """Matches postings that are in both sub-matchers, but only uses scores
     from the first.
@@ -858,12 +1056,20 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     
 
 class BasePhraseMatcher(WrappingMatcher):
+    """Base class for phrase matchers.
+    """
+    
     def __init__(self, isect, decodefn, slop=1, boost=1.0):
         self.child = isect
         self.decode_positions = decodefn
         self.slop = slop
         self.boost = boost
         self._find_next()
+    
+    def replace(self):
+        if not self.is_active():
+            return NullMatcher()
+        return self
     
     def next(self):
         ri = self.child.next()
@@ -911,6 +1117,10 @@ class BasePhraseMatcher(WrappingMatcher):
 
 
 class PostingPhraseMatcher(BasePhraseMatcher):
+    """Phrase matcher for fields with positions encoded in the postings (i.e.
+    Positions or CharacterPositions format).
+    """
+    
     def __init__(self, wordmatchers, isect, decodefn, slop=1, boost=1.0):
         self.wordmatchers = wordmatchers
         super(PostingPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
@@ -922,6 +1132,10 @@ class PostingPhraseMatcher(BasePhraseMatcher):
 
 
 class VectorPhraseMatcher(BasePhraseMatcher):
+    """Phrase matcher for fields with a vector with positions (i.e. Positions
+    or CharacterPositions format).
+    """
+    
     def __init__(self, searcher, fieldid, words, isect, slop=1, boost=1.0):
         """
         :param reader: an IndexReader.
@@ -954,50 +1168,7 @@ class VectorPhraseMatcher(BasePhraseMatcher):
         return [poses[word] for word in self.words]
 
 
-class EveryMatcher(Matcher):
-    def __init__(self, limit, exclude=(), weight=1.0):
-        self.limit = limit
-        self.exclude = exclude
-        self._id = 0
-        self._find_next()
-        self._weight = weight
-    
-    def _find_next(self):
-        limit = self.limit
-        exclude = self.exclude
-        _id = self._id
-        while _id < limit and _id in exclude:
-            _id += 1
-        self._id = _id
-    
-    def is_active(self):
-        return self._id < self.limit
-    
-    def copy(self):
-        c = self.__class__(self.limit, self.exclude)
-        c._id = self._id
-        return c
-    
-    def id(self):
-        return self._id
-    
-    def all_ids(self):
-        exclude = self.exclude
-        return (id for id in xrange(self.limit) if id not in exclude)
-    
-    def skip_to(self, id):
-        self._id = id
-        self._find_next()
-    
-    def next(self):
-        self._id += 1
-        self._find_next()
-    
-    def weight(self):
-        return self._weight
-    
-    def score(self):
-        return self._weight
+
 
 
 

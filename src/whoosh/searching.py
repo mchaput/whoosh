@@ -318,7 +318,8 @@ class Searcher(object):
             docnums = []
             bitset = None
         else:
-            scores, docnums, bitset = collect(self, matcher, limit)
+            scores, docnums, bitset = collect(self, matcher, limit,
+                                              usequality=optimize)
         runtime = now() - t
 
         return Results(self, query, docnums, scores, runtime, docs=bitset)
@@ -381,12 +382,12 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
             # heap is full, try skipping to a higher quality block
             if usequality and checkquality and len(h) == limit:
                 matcher.skip_to_quality(lowest[2])
+            if not matcher.is_active(): break
             
             # Document number and quality of the current document
             id = matcher.id()
             if usequality:
                 postingquality = matcher.quality()
-                if not matcher.is_active(): break
             
             if len(h) < limit:
                 # The heap isn't full, so just add this document
@@ -410,7 +411,7 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
             
             # Ask the matcher to replace itself with a more efficient version
             # if possible
-            if replace: matcher = matcher.replace()
+            if usequality and replace: matcher = matcher.replace()
     
     # Turn the heap into a reverse-sorted list (highest scores first), and
     # unzip it into separate lists
@@ -465,6 +466,16 @@ class Results(object):
             self._load_docs()
         return len(self._docs)
 
+    def _get(self, i, docnum):
+            
+        d = self.searcher.stored_fields(docnum)
+        d.position = i
+        d.docnum = docnum
+        if self.scores:
+            d.score = self.scores[i]
+        else:
+            d.score = None
+
     def __getitem__(self, n):
         """Returns the stored fields for the document at the ``n``th position
         in the results. Use :method:`Results.docnum` if you want the raw
@@ -473,6 +484,8 @@ class Results(object):
         
         stored_fields = self.searcher.stored_fields
         if isinstance(n, slice):
+            
+            
             return [stored_fields(i) for i in self.top_n.__getitem__(n)]
         else:
             return stored_fields(self.top_n[n])
