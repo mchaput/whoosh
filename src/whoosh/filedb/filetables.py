@@ -27,27 +27,34 @@ from struct import Struct
 
 from whoosh.filedb.misc import enpickle, depickle
 from whoosh.system import _INT_SIZE
-from whoosh.util import length_to_byte, byte_to_length
+from whoosh.util import byte_to_length
 
 
-# NOTE: cdb_hash is not used, it's faster to use Python's built-in hash()
-def cdb_hash(key):
-    h = 5381L
-    for c in key:
-        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
-    return h
+#def cdb_hash(key):
+#    h = 5381L
+#    for c in key:
+#        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
+#    return h
 
+_header_entry_struct = Struct("!qI")
+header_entry_size = _header_entry_struct.size
+pack_header_entry = _header_entry_struct.pack
+unpack_header_entry = _header_entry_struct.unpack
 
-# The CDB algorithm involves reading and writing pairs of (unsigned) ints in
-# many different places, so I'll name some convenience functions and variables
+_lengths_struct = Struct("!II")
+lengths_size = _lengths_struct.size
+pack_lengths = _lengths_struct.pack
+unpack_lengths = _lengths_struct.unpack
 
-_2ints_struct = Struct("!II")
-_2INTS_SIZE = _2ints_struct.size
-pack_2ints = _2ints_struct.pack
-unpack_2ints = _2ints_struct.unpack
+_pointer_struct = Struct("!Iq")
+pointer_size = _pointer_struct.size
+pack_pointer = _pointer_struct.pack
+unpack_pointer = _pointer_struct.unpack
 
-HEADER_SIZE = 256 * _2INTS_SIZE
+HEADER_SIZE = 256 * header_entry_size
 
+def _hash(value):
+    return abs(hash(value))
 
 # Table classes
 
@@ -67,12 +74,13 @@ class HashWriter(object):
         write = dbfile.write
 
         for key, value in items:
-            write(pack_2ints(len(key), len(value)))
-            write(key + value)
+            write(pack_lengths(len(key), len(value)))
+            write(key)
+            write(value)
 
-            h = cdb_hash(key)
+            h = _hash(key)
             hashes[h & 255].append((h, pos))
-            pos += len(key) + len(value) + _2INTS_SIZE
+            pos += lengths_size + len(key) + len(value)
 
     def add(self, key, value):
         self.add_all(((key, value),))
@@ -92,14 +100,14 @@ class HashWriter(object):
             hashtable = [null] * numslots
             for hashval, position in entries:
                 n = (hashval >> 8) % numslots
-                while hashtable[n] is not null:
+                while hashtable[n] != null:
                     n = (n + 1) % numslots
                 hashtable[n] = (hashval, position)
 
             write = dbfile.write
             for hashval, position in hashtable:
-                write(pack_2ints(hashval, position))
-                pos += _2INTS_SIZE
+                write(pack_pointer(hashval, position))
+                pos += pointer_size
 
         dbfile.flush()
 
@@ -109,7 +117,7 @@ class HashWriter(object):
 
         dbfile.seek(0)
         for position, numslots in directory:
-            dbfile.write(pack_2ints(position, numslots))
+            dbfile.write(pack_header_entry(position, numslots))
         assert dbfile.tell() == HEADER_SIZE
         dbfile.flush()
 
@@ -123,7 +131,7 @@ class HashReader(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
         self.map = dbfile.map
-        self.end_of_data = dbfile.get_uint(0)
+        self.end_of_data = dbfile.get_long(0)
         self.is_closed = False
 
     def close(self):
@@ -140,9 +148,9 @@ class HashReader(object):
         eod = self.end_of_data
         read = self.read
         while pos < eod:
-            keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
-            keypos = pos + _2INTS_SIZE
-            datapos = pos + _2INTS_SIZE + keylen
+            keylen, datalen = unpack_lengths(read(pos, lengths_size))
+            keypos = pos + lengths_size
+            datapos = pos + lengths_size + keylen
             pos = datapos + datalen
             yield (keypos, keylen, datapos, datalen)
 
@@ -185,44 +193,51 @@ class HashReader(object):
         return False
 
     def _hashtable_info(self, keyhash):
-        return unpack_2ints(self.read(keyhash << 3 & 2047, _2INTS_SIZE))
+        # Return (directory_position, number_of_hash_entries)
+        return unpack_header_entry(self.read((keyhash & 255) * header_entry_size,
+                                             header_entry_size))
 
     def _key_position(self, key):
-        keyhash = cdb_hash(key)
+        keyhash = _hash(key)
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
             raise KeyError(key)
-        slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
+        slotpos = hpos + (((keyhash >> 8) % hslots) * header_entry_size)
         
         return self.dbfile.get_uint(slotpos + _INT_SIZE)
 
     def _key_at(self, pos):
         keylen = self.dbfile.get_uint(pos)
-        return self.read(pos + _2INTS_SIZE, keylen)
+        return self.read(pos + lengths_size, keylen)
 
     def _get_ranges(self, key):
         read = self.read
-        keyhash = cdb_hash(key)
+        keyhash = _hash(key)
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
             return
 
-        slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
+        slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
         for _ in xrange(hslots):
-            slothash, pos = unpack_2ints(read(slotpos, _2INTS_SIZE))
+            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
             if not pos:
                 return
 
-            slotpos += _2INTS_SIZE
+            slotpos += pointer_size
             # If we reach the end of the hashtable, wrap around
-            if slotpos == hpos + (hslots << 3):
+            if slotpos == hpos + (hslots * pointer_size):
                 slotpos = hpos
 
             if slothash == keyhash:
-                keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
+                keylen, datalen = unpack_lengths(read(pos, lengths_size))
                 if keylen == len(key):
-                    if key == read(pos + _2INTS_SIZE, keylen):
-                        yield (pos + _2INTS_SIZE + keylen, datalen)
+                    if key == read(pos + lengths_size, keylen):
+                        yield (pos + lengths_size + keylen, datalen)
+                        
+    def end_of_hashes(self):
+        lastpos, lastnum = unpack_header_entry(self.read(255 * header_entry_size,
+                                                         header_entry_size))
+        return lastpos + lastnum * pointer_size
 
 
 class OrderedHashWriter(HashWriter):
@@ -246,13 +261,14 @@ class OrderedHashWriter(HashWriter):
             lk = key
 
             ix.append(pos)
-            write(pack_2ints(len(key), len(value)))
-            write(key + value)
+            write(pack_lengths(len(key), len(value)))
+            write(key)
+            write(value)
 
-            h = cdb_hash(key)
+            h = _hash(key)
             hashes[h & 255].append((h, pos))
             
-            pos += len(key) + len(value) + _2INTS_SIZE
+            pos += lengths_size + len(key) + len(value)
         
         self.lastkey = lk
 
@@ -271,8 +287,7 @@ class OrderedHashWriter(HashWriter):
 class OrderedHashReader(HashReader):
     def __init__(self, dbfile):
         HashReader.__init__(self, dbfile)
-        lastpos, lastnum = unpack_2ints(self.read(255 * _2INTS_SIZE, _2INTS_SIZE))
-        dbfile.seek(lastpos + lastnum * _2INTS_SIZE)
+        dbfile.seek(self.end_of_hashes())
         self.length = dbfile.read_uint()
         self.indexbase = dbfile.tell()
     
@@ -411,7 +426,7 @@ class FixedHashWriter(HashWriter):
         for key, value in items:
             write(key + value)
 
-            h = cdb_hash(key)
+            h = _hash(key)
             hashes[h & 255].append((h, pos))
             pos += recordsize
 
@@ -490,20 +505,20 @@ class FixedHashReader(HashReader):
     def _get_data_poses(self, key):
         keysize = self.keysize
         read = self.read
-        keyhash = cdb_hash(key)
+        keyhash = _hash(key)
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
             return
 
-        slotpos = hpos + (((keyhash >> 8) % hslots) << 3)
+        slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
         for _ in xrange(hslots):
-            slothash, pos = unpack_2ints(read(slotpos, _2INTS_SIZE))
+            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
             if not pos:
                 return
 
-            slotpos += _2INTS_SIZE
+            slotpos += pointer_size
             # If we reach the end of the hashtable, wrap around
-            if slotpos == hpos + (hslots << 3):
+            if slotpos == hpos + (hslots * pointer_size):
                 slotpos = hpos
 
             if slothash == keyhash:
@@ -665,28 +680,35 @@ class LengthReader(object):
         return byte_to_length(byte)
         
 
+_stored_pointer_struct = Struct("!qI") # offset, length
+stored_pointer_size = _stored_pointer_struct.size
+pack_stored_pointer = _stored_pointer_struct.pack
+unpack_stored_pointer = _stored_pointer_struct.unpack
+
 class StoredFieldWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
-        self.directory = array("I")
-        dbfile.write_uint(0)
-        dbfile.write_uint(0)
-
+        self.count = 0
+        self.directory = ""
+        
+        self.dbfile.write_long(0)
+        self.dbfile.write_uint(0)
+        
     def append(self, valuelist):
         f = self.dbfile
         v = dumps(valuelist)
-        self.directory.append(f.tell())
-        self.directory.append(len(v))
+        self.count += 1
+        self.directory += pack_stored_pointer(f.tell(), len(v))
         f.write(v)
     
     def close(self):
         f = self.dbfile
         directory_pos = f.tell()
-        f.write_array(self.directory)
+        f.write(self.directory)
         f.flush()
         f.seek(0)
-        f.write_uint(directory_pos)
-        f.write_uint(len(self.directory)//2)
+        f.write_long(directory_pos)
+        f.write_uint(self.count)
         f.close()
 
 
@@ -696,18 +718,19 @@ class StoredFieldReader(object):
         self.currentfieldnames = set(currentfieldnames)
         self.storedfieldnames = storedfieldnames
 
-        self.offset = dbfile.get_uint(0)
-        self.length = dbfile.get_uint(_INT_SIZE)
+        dbfile.seek(0)
+        self.offset = dbfile.read_long()
+        self.length = dbfile.read_uint()
         
     def close(self):
         self.dbfile.close()
 
     def __getitem__(self, num):
         dbfile = self.dbfile
-        dir_offset = self.offset + num * _2INTS_SIZE
-        position, length = unpack_2ints(self.dbfile.map[dir_offset:dir_offset + _2INTS_SIZE])
-        dbfile.seek(position)
-        values = loads(dbfile.read(length))
+        start = self.offset + num * stored_pointer_size
+        end = start + stored_pointer_size
+        position, length = unpack_stored_pointer(dbfile.map[start:end])
+        values = loads(dbfile.map[position:position+length])
         
         currentfieldnames = self.currentfieldnames
         return dict((fieldname, value) for fieldname, value
@@ -722,27 +745,29 @@ def dump_hash(hashreader):
     read = hashreader.read
     eod = hashreader.end_of_data
 
+    print "HEADER_SIZE=", HEADER_SIZE, "eod=", eod
+
     # Dump hashtables
     for bucketnum in xrange(0, 256):
-        pos, numslots = unpack_2ints(read(bucketnum * _2INTS_SIZE, _2INTS_SIZE))
+        pos, numslots = unpack_header_entry(read(bucketnum * header_entry_size, header_entry_size))
         if numslots:
             print "Bucket %d: %d slots" % (bucketnum, numslots)
 
             dbfile.seek(pos)
             for j in xrange(0, numslots):
-                print "  %X : %d" % unpack_2ints(read(pos, _2INTS_SIZE))
-                pos += _2INTS_SIZE
+                print "  %X : %d" % unpack_pointer(read(pos, pointer_size))
+                pos += pointer_size
         else:
-            print "Bucket %d empty" % bucketnum
+            print "Bucket %d empty: %s, %s" % (bucketnum, pos, numslots)
 
     # Dump keys and values
     print "-----"
     pos = HEADER_SIZE
     dbfile.seek(pos)
     while pos < eod:
-        keylen, datalen = unpack_2ints(read(pos, _2INTS_SIZE))
-        keypos = pos + _2INTS_SIZE
-        datapos = pos + _2INTS_SIZE + keylen
+        keylen, datalen = unpack_lengths(read(pos, lengths_size))
+        keypos = pos + lengths_size
+        datapos = pos + lengths_size + keylen
         key = read(keypos, keylen)
         data = read(datapos, datalen)
         print "%d +%d,%d:%r->%r" % (pos, keylen, datalen, key, data)
