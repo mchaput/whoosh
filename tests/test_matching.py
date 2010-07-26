@@ -213,36 +213,6 @@ class TestMatchers(unittest.TestCase):
             amm.next()
         self.assertEqual(ls, [10, 20, 90])
     
-    def test_every(self):
-        em = EveryMatcher(5)
-        ls = []
-        while em.is_active():
-            ls.append(em.id())
-            em.next()
-        self.assertEqual(ls, [0, 1, 2, 3, 4])
-        
-        em = EveryMatcher(5)
-        self.assertEqual(list(em.all_ids()), [0, 1, 2, 3, 4])
-        
-        em = EveryMatcher(5, exclude=set([1, 3, 4]))
-        ls = []
-        while em.is_active():
-            ls.append(em.id())
-            em.next()
-        self.assertEqual(ls, [0, 2])
-        
-        em = EveryMatcher(5, exclude=set([1, 3, 4]))
-        self.assertEqual(list(em.all_ids()), [0, 2])
-        
-        em = EveryMatcher(5, exclude=set([1, 3, 4]))
-        em.next()
-        em = em.copy()
-        ls = []
-        while em.is_active():
-            ls.append(em.id())
-            em.next()
-        self.assertEqual(ls, [2])
-    
     def test_intersection(self):
         schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT(stored=True))
         st = RamStorage()

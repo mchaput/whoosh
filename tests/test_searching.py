@@ -642,6 +642,52 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(len(r), 5)
         self.assertEqual(r.scored, 3)
     
+    def test_deleted_wildcard(self):
+        schema = fields.Schema(id=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"alfa")
+        w.add_document(id=u"bravo")
+        w.add_document(id=u"charlie")
+        w.add_document(id=u"delta")
+        w.add_document(id=u"echo")
+        w.add_document(id=u"foxtrot")
+        w.commit()
+        
+        ix.delete_by_term("id", "bravo")
+        ix.delete_by_term("id", "delta")
+        ix.delete_by_term("id", "echo")
+        ix.commit()
+        
+        r = ix.searcher().search(query.Every("id"))
+        self.assertEqual(sorted([d['id'] for d in r]), ["alfa", "charlie", "foxtrot"])
+        
+    def test_missing_wildcard(self):
+        schema = fields.Schema(id=fields.ID(stored=True), f1=fields.TEXT, f2=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", f1=u"alfa", f2=u"apple")
+        w.add_document(id=u"2", f1=u"bravo")
+        w.add_document(id=u"3", f1=u"charlie", f2=u"candy")
+        w.add_document(id=u"4", f2=u"donut")
+        w.add_document(id=u"5")
+        w.commit()
+        
+        s = ix.searcher()
+        
+        r = s.search(query.Every("id"))
+        self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3", "4", "5"])
+        
+        r = s.search(query.Every("f1"))
+        self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3"])
+        
+        r = s.search(query.Every("f2"))
+        self.assertEqual(sorted([d['id'] for d in r]), ["1", "3", "4"])
+    
     def test_finalweighting(self):
         from whoosh.scoring import Weighting
         

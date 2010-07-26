@@ -29,7 +29,7 @@ import fnmatch, re
 
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (make_tree, AndMaybeMatcher, DisjunctionMaxMatcher,
-                             EveryMatcher, IntersectionMatcher, InverseMatcher,
+                             ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, PostingPhraseMatcher, RequireMatcher,
                              UnionMatcher, VectorPhraseMatcher, WrappingMatcher)
 from whoosh.reading import TermNotFound
@@ -735,7 +735,7 @@ class Wildcard(MultiTerm):
         # a simple Term.
         text = self.text
         if text == "*":
-            return Every(boost=self.boost)
+            return Every(self.fieldname, boost=self.boost)
         if "*" not in text and "?" not in text:
             # If no wildcard chars, convert to a normal term.
             return Term(self.fieldname, self.text, boost=self.boost)
@@ -1043,31 +1043,41 @@ class Phrase(MultiTerm):
 
 
 class Every(Query):
-    """A query that matches every document in the index.
+    """A query that matches every document containing any word in a given
+    field. This is intended as a more efficient substitute for a prefix query
+    with an empty prefix or a '*' wildcard.
     """
 
-    def __init__(self, boost=1.0):
+    def __init__(self, fieldname, boost=1.0):
+        self.fieldname = fieldname
         self.boost = boost
 
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
                 and self.boost == other.boost)
 
     def __unicode__(self):
-        return u"*"
+        return u"%s:*" % self.fieldname
 
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
     def matcher(self, searcher, exclude_docs=None):
-        if not exclude_docs:
-            exclude_docs = frozenset()
-        reader = searcher.reader()
-        return EveryMatcher(reader.doc_count_all(), exclude_docs,
-                            missing=reader.is_deleted, weight=self.boost)
+        fieldname = self.fieldname
+        s = set()
+        
+        for text in searcher.lexicon(fieldname):
+            pr = searcher.postings(fieldname, text)
+            s = s.union(pr.all_ids())
+        
+        if exclude_docs:
+            s.difference(exclude_docs)
+        
+        return ListMatcher(sorted(s), weight=self.boost)
 
-
+            
 class NullQuery(Query):
     "Represents a query that won't match anything."
     def __call__(self):

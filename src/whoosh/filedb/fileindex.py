@@ -116,6 +116,12 @@ class FileIndex(SegmentDeletionMixin, Index):
     def close(self):
         self._release_readlocks()
 
+    def rename_field(self, oldname, newname):
+        # Overrides implementation in FieldMixin to tell the segments to
+        # change their fieldname-to-number maps.
+        super(Index, self).rename_field(oldname, newname)
+        self.segments.rename_field(oldname, newname)
+
     def latest_generation(self):
         pattern = _toc_pattern(self.indexname)
 
@@ -331,6 +337,10 @@ class SegmentSet(object):
     def __getitem__(self, n):
         return self.segments.__getitem__(n)
 
+    def rename_field(self, oldname, newname):
+        for seg in self.segments:
+            seg.rename_field(oldname, newname)
+
     def append(self, segment):
         """Adds a segment to this set."""
 
@@ -487,6 +497,17 @@ class Segment(object):
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.name)
+
+    def rename_field(self, oldname, newname):
+        if newname in self.fieldmap:
+            raise KeyError("%r already exists in %r" % (newname, self))
+        
+        self.schema.rename(oldname, newname)
+        
+        # Update the fieldname-to-number map
+        fieldnum = self.fieldmap[oldname]
+        del self.fieldmap[oldname]
+        self.fieldmap[newname] = fieldnum
 
     def copy(self):
         if self.deleted:
