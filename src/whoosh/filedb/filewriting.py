@@ -20,8 +20,8 @@ from marshal import dumps
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
-from whoosh.filedb.filetables import (StoredFieldWriter, FileTableWriter,
-                                      StructHashWriter)
+from whoosh.filedb.filetables import (StoredFieldWriter, CodedOrderedWriter,
+                                      CodedHashWriter)
 from whoosh.filedb import misc
 from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
@@ -94,7 +94,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         self.name = name or self.index._next_segment_name()
         
         # Create a temporary segment to use its .*_filename attributes
-        segment = Segment(self.name, self.schema, 0, 0, None, None)
+        segment = Segment(self.name, 0, None, None)
         
         self.docnum = 0
         self.fieldlength_totals = defaultdict(int)
@@ -103,9 +103,9 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Terms index
         tf = storage.create_file(segment.termsindex_filename)
-        self.termsindex = FileTableWriter(tf,
-                                          keycoder=misc.encode_termkey,
-                                          valuecoder=misc.encode_terminfo)
+        self.termsindex = CodedOrderedWriter(tf,
+                                             keycoder=misc.encode_termkey,
+                                             valuecoder=misc.encode_terminfo)
         
         # Term postings file
         pf = storage.create_file(segment.termposts_filename)
@@ -114,7 +114,9 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         if self.schema.has_vectored_fields():
             # Vector index
             vf = storage.create_file(segment.vectorindex_filename)
-            self.vectorindex = StructHashWriter(vf, "!IH", "!I")
+            self.vectorindex = CodedHashWriter(vf,
+                                               keycoder=misc.encode_vectorkey,
+                                               valuecoder=misc.encode_vectoroffset)
             
             # Vector posting file
             vpf = storage.create_file(segment.vectorposts_filename)
@@ -124,8 +126,6 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             self.vpostwriter = None
         
         # Stored fields file
-        self.storedfieldindices = dict((name, i) for i, name
-                                       in enumerate(self.schema.stored_field_names()))
         sf = storage.create_file(segment.storedfields_filename)
         self.storedfields = StoredFieldWriter(sf)
         
@@ -140,6 +140,18 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             else:
                 poolclass = TempfilePool
         self.pool = poolclass(self.schema, procs=procs, **poolargs)
+        
+        self._added = False
+    
+    def add_field(self, fieldname, fieldspec):
+        if self._added:
+            raise Exception("Can't modify schema after adding data to writer")
+        super(SegmentWriter, self).add_field(fieldname, fieldspec)
+    
+    def remove_field(self, fieldname):
+        if self._added:
+            raise Exception("Can't modify schema after adding data to writer")
+        super(SegmentWriter, self).remove_field(fieldname)
     
     def searcher(self):
         return self.index.searcher()
@@ -152,29 +164,27 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             docmap = {}
         
         schema = self.schema
-        vectored_fieldnames = schema.vectored_field_names()
-        scorable_fieldnames = schema.scorable_field_names()
-        stored_fieldnames = schema.stored_field_names()
         
         # Add stored documents, vectors, and field lengths
         for docnum in xrange(reader.doc_count_all()):
             if (not has_deletions) or (not reader.is_deleted(docnum)):
-                storeddict = reader.stored_fields(docnum)
-                valuelist = [storeddict.get(name) for name in stored_fieldnames]
-                self.storedfields.append(valuelist)
+                d = dict(item for item
+                         in reader.stored_fields(docnum).iteritems()
+                         if item[0] in schema)
+                self.storedfields.append(d)
                 
                 if has_deletions:
                     docmap[docnum] = self.docnum
                 
-                for fieldname in scorable_fieldnames:
-                    l = reader.doc_field_length(docnum, fieldname)
-                    if l:
-                        self.pool.add_field_length(self.docnum, fieldname, l)
+                for fieldname, length in reader.doc_field_lengths(docnum):
+                    if fieldname in schema:
+                        self.pool.add_field_length(self.docnum, fieldname, length)
                 
-                for fieldname in vectored_fieldnames:
-                    if reader.has_vector(docnum, fieldname):
+                for fieldname in reader.vector_names():
+                    if (fieldname in schema
+                        and reader.has_vector(docnum, fieldname)):
                         vpostreader = reader.vector(docnum, fieldname)
-                        self.add_vector_reader(self.docnum, fieldname, vpostreader)
+                        self._add_vector_reader(self.docnum, fieldname, vpostreader)
                 
                 self.docnum += 1
         
@@ -193,6 +203,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                     self.pool.add_posting(fieldname, text, newdoc,
                                           postreader.weight(), valuestring)
                     postreader.next()
+                    
+        self._added = True
     
     def add_document(self, **fields):
         schema = self.schema
@@ -207,7 +219,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 raise UnknownFieldError("No field named %r in %s" % (name, schema))
         
         self.storedfields
-        storedvalues = [None] * len(self.storedfieldindices)
+        storedvalues = {}
         
         docnum = self.docnum
         for fieldname in fieldnames:
@@ -223,7 +235,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                     vlist = sorted((w, weight, valuestring)
                                    for w, freq, weight, valuestring
                                    in vformat.word_values(value, mode="index"))
-                    self.add_vector(docnum, fieldname, vlist)
+                    self._add_vector(docnum, fieldname, vlist)
                 
                 if field.stored:
                     # Caller can override the stored value by including a key
@@ -232,34 +244,32 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                     storedname = "_stored_" + fieldname
                     if storedname in fields:
                         storedvalue = fields[storedname]
-                    i = self.storedfieldindices[fieldname]
-                    storedvalues[i] = storedvalue
+                    storedvalues[fieldname] = storedvalue
         
+        self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
     
-    def add_vector(self, docnum, fieldid, vlist):
+    def _add_vector(self, docnum, fieldname, vlist):
         vpostwriter = self.vpostwriter
-        offset = vpostwriter.start(self.schema[fieldid].vector)
+        offset = vpostwriter.start(self.schema[fieldname].vector)
         for text, weight, valuestring in vlist:
             assert isinstance(text, unicode), "%r is not unicode" % text
             vpostwriter.write(text, weight, valuestring, 0)
         vpostwriter.finish()
         
-        fnum = self._name_to_num[fieldid]
-        self.vectorindex.add((docnum, fnum), offset)
+        self.vectorindex.add((docnum, fieldname), offset)
     
-    def add_vector_reader(self, docnum, fieldid, vreader):
+    def _add_vector_reader(self, docnum, fieldname, vreader):
         vpostwriter = self.vpostwriter
-        offset = vpostwriter.start(self.schema[fieldid].vector)
+        offset = vpostwriter.start(self.schema[fieldname].vector)
         while vreader.is_active():
             # text, weight, valuestring, fieldlen
             vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(), 0)
             vreader.next()
         vpostwriter.finish()
         
-        fnum = self._name_to_num[fieldid]
-        self.vectorindex.add((docnum, fnum), offset)
+        self.vectorindex.add((docnum, fieldname), offset)
     
     def _close_all(self):
         self.termsindex.close()
@@ -273,7 +283,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             self.vpostwriter.close()
     
     def _getsegment(self):
-        return Segment(self.name, self.schema, self.docnum,
+        return Segment(self.name, self.docnum,
                        self.pool.fieldlength_totals(),
                        self.pool.fieldlength_maxes())
     
@@ -320,13 +330,14 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Tell the pool we're finished adding information, it should add its
         # accumulated data to the lengths, terms index, and posting files.
-        self.pool.finish(self.docnum, self.lengthfile, self.termsindex,
-                         self.postwriter)
+        if self._added:
+            self.pool.finish(self.docnum, self.lengthfile, self.termsindex,
+                             self.postwriter)
         
-        # Create a Segment object for the segment created by this writer and
-        # add it to the list of remaining segments returned by the merge policy
-        # function
-        new_segments.append(self._getsegment())
+            # Create a Segment object for the segment created by this writer and
+            # add it to the list of remaining segments returned by the merge policy
+            # function
+            new_segments.append(self._getsegment())
         
         # Close all files, tell the index to write a new TOC with the new
         # segment list, and release the lock.

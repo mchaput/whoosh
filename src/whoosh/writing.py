@@ -16,7 +16,6 @@
 
 import threading, time
 
-from whoosh.index import DeletionMixin, FieldMixin
 from whoosh.store import LockError
 
 # Exceptions
@@ -27,7 +26,7 @@ class IndexingError(Exception):
 
 # Base class
 
-class IndexWriter(DeletionMixin, FieldMixin):
+class IndexWriter(object):
     """High-level object for writing to an index.
     
     To get a writer for a particular index, call
@@ -49,12 +48,64 @@ class IndexWriter(DeletionMixin, FieldMixin):
         else:
             self.commit()
     
+    def add_field(self, fieldname, fieldspec):
+        """Adds a field to the index's schema.
+        
+        :param fieldname: the name of the field to add.
+        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+            object.
+        """
+        
+        self.schema.add(fieldname, fieldspec)
+    
+    def remove_field(self, fieldname):
+        """Removes the named field from the index's schema. Depending on the
+        backend implementation, this may or may not actually remove existing
+        data for the field from the index. Optimizing the index should always
+        clear out existing data for a removed field.
+        """
+        
+        self.schema.remove(fieldname)
+        
     def searcher(self, **kwargs):
         """Returns a searcher for the existing index.
         """
         
         from whoosh.searching import Searcher
         return Searcher(self.reader(), **kwargs)
+    
+    def delete_by_term(self, fieldname, text):
+        """Deletes any documents containing "term" in the "fieldname" field.
+        This is useful when you have an indexed field containing a unique ID
+        (such as "pathname") for each document.
+        
+        :returns: the number of documents deleted.
+        """
+        
+        from whoosh.query import Term
+        q = Term(fieldname, text)
+        return self.delete_by_query(q)
+    
+    def delete_by_query(self, q, searcher=None):
+        """Deletes any documents matching a query object.
+        
+        :returns: the number of documents deleted.
+        """
+        
+        if searcher:
+            s = searcher
+        else:
+            s = self.searcher()
+        
+        count = 0
+        for docnum in q.docs(s):
+            self.delete_document(docnum)
+            count += 1
+        
+        if not searcher:
+            s.close()
+        
+        return count
     
     def delete_document(self, docnum, delete=True):
         """Deletes a document by number.
@@ -151,7 +202,7 @@ class PostingWriter(object):
         pass
 
 
-class AsyncWriter(threading.Thread, DeletionMixin):
+class AsyncWriter(threading.Thread, IndexWriter):
     """Convenience wrapper for a writer object that might fail due to locking
     (i.e. the ``filedb`` writer). This object will attempt once to obtain the
     underlying writer, and if it's successful, will simply pass method calls on

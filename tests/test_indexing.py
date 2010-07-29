@@ -2,7 +2,7 @@ import unittest
 import os.path, random
 from shutil import rmtree
 
-from whoosh import analysis, fields, formats, query
+from whoosh import fields, query
 from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length
@@ -40,21 +40,33 @@ class TestIndexing(unittest.TestCase):
                        tags=u"Uno Dos Tres", quick=u"Second document", note=u"This is the second document")
         w.commit()
     
-    def test_multipool(self):
-        domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf",
-                  u"hotel", u"india", u"juliet", u"kilo", u"lima", u"mike", u"november")
-        
-        s = fields.Schema(content=fields.TEXT, id=fields.ID)
-        ix = self.make_index("testindex", s, "multipool")
-        
-        w = ix.writer(procs=4)
-        for _ in xrange(1000):
-            w.add_document(content=u" ".join(random.sample(domain, 5)),
-                           id=random.choice(domain))
+    def test_empty_commit(self):
+        s = fields.Schema(id=fields.ID(stored=True))
+        ix = self.make_index("testindex", s, "emptycommit")
+        w = ix.writer()
+        w.add_document(id=u"1")
+        w.add_document(id=u"2")
+        w.add_document(id=u"3")
         w.commit()
         
-        ix.close()
-        self.destroy_index("testindex")
+        w = ix.writer()
+        w.commit()
+    
+#    def test_multipool(self):
+#        domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf",
+#                  u"hotel", u"india", u"juliet", u"kilo", u"lima", u"mike", u"november")
+#        
+#        s = fields.Schema(content=fields.TEXT, id=fields.ID)
+#        ix = self.make_index("testindex", s, "multipool")
+#        
+#        w = ix.writer(procs=4)
+#        for _ in xrange(1000):
+#            w.add_document(content=u" ".join(random.sample(domain, 5)),
+#                           id=random.choice(domain))
+#        w.commit()
+#        
+#        ix.close()
+#        self.destroy_index("testindex")
     
     def test_integrity(self):
         s = fields.Schema(name=fields.TEXT, value=fields.TEXT)
@@ -233,9 +245,10 @@ class TestIndexing(unittest.TestCase):
         w.add_document(key=u"C", name=u"One two", value=u"Three four five.")
         w.commit()
         
-        count = ix.delete_by_term("key", u"B")
+        w = ix.writer()
+        count = w.delete_by_term("key", u"B")
         self.assertEqual(count, 1)
-        ix.commit()
+        w.commit(merge=False)
         
         self.assertEqual(ix.doc_count_all(), 3)
         self.assertEqual(ix.doc_count(), 2)

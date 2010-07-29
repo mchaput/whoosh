@@ -19,7 +19,7 @@
 
 from array import array
 from math import log
-import codecs, re, sys, time
+import codecs, random, re, struct, sys, time
 
 from collections import deque, defaultdict
 from functools import wraps
@@ -297,7 +297,7 @@ def protected(func):
     """
 
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def protected_wrapper(self, *args, **kwargs):
         if self.is_closed:
             raise Exception("%r has been closed" % self)
         if self._sync_lock.acquire(False):
@@ -308,8 +308,8 @@ def protected(func):
         else:
             raise Exception("Could not acquire sync lock")
 
-    return wrapper
-
+    return protected_wrapper
+    
 
 def lru_cache(size):
     """Decorator that adds a least-recently-accessed cache to a method.
@@ -321,7 +321,7 @@ def lru_cache(size):
         prefix = "_%s_" % func.__name__
 
         @wraps(func)
-        def wrapper(self, *args):
+        def lru_wrapper(self, *args):
             if not hasattr(self, prefix + "cache"):
                 cache = {}
                 queue = deque()
@@ -365,7 +365,7 @@ def lru_cache(size):
                 #assert len(queue) == len(cache) == len(refcount) == sum(refcount.itervalues())
 
             return result
-        return wrapper
+        return lru_wrapper
     return decorate_function
 
 

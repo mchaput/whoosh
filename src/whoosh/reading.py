@@ -37,7 +37,7 @@ class IndexReader(ClosableMixin):
     """
 
     def __contains__(self, term):
-        """Returns True if the given term tuple (fieldid, text) is
+        """Returns True if the given term tuple (fieldname, text) is
         in this reader.
         """
         raise NotImplementedError
@@ -82,45 +82,68 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def field(self, fieldid):
+    def field(self, fieldname):
         """Returns the Field object corresponding to the given field name.
         """
         raise NotImplementedError
 
-    def scorable(self, fieldid):
+    def scorable(self, fieldname):
         """Returns true if the given field stores field lengths.
         """
         raise NotImplementedError
 
-    def scorable_field_names(self):
-        """Returns a list of scorable fields.
+    def scorable_names(self):
+        """Returns a list of the names of fields that store field lengths.
+        """
+        raise NotImplementedError(self.__class__.__name__)
+
+    def vector_names(self):
+        """Returns a list of the names of fields that store vectors.
         """
         raise NotImplementedError
 
-    def field_length(self, fieldid):
+    def field_length(self, fieldname):
         """Returns the total number of terms in the given field. This is used
         by some scoring algorithms.
         """
         raise NotImplementedError
 
-    def doc_field_length(self, docnum, fieldid, default=0):
+    def doc_field_length(self, docnum, fieldname, default=0):
         """Returns the number of terms in the given field in the given
         document. This is used by some scoring algorithms.
         """
         raise NotImplementedError
 
-    def max_field_length(self, fieldid, default=0):
+    def doc_field_lengths(self, docnum):
+        """Returns an iterator of (fieldname, length) pairs for the given
+        document. This is used internally.
+        """
+        
+        for fieldname in self.scorable_names():
+            length = self.doc_field_length(docnum, fieldname)
+            if length:
+                yield (fieldname, length)
+    
+    def max_field_length(self, fieldname, default=0):
         """Returns the maximum length of the field across all documents.
         """
         raise NotImplementedError
 
-    def has_vector(self, docnum, fieldid):
+    def has_vector(self, docnum, fieldname):
         """Returns True if the given document has a term vector for the given
         field.
         """
         raise NotImplementedError
 
-    def postings(self, fieldid, text, exclude_docs=None):
+    def vector_fields(self, docnum):
+        """Returns the field IDs with vectors for the given document.
+        """
+        
+        for fieldname in self.vector_names():
+            if self.has_vector(docnum, fieldname):
+                yield fieldname
+
+    def postings(self, fieldname, text, exclude_docs=None):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
         
@@ -129,7 +152,7 @@ class IndexReader(ClosableMixin):
         >>> pr.id
         12
         
-        :param fieldid: the field name or field number of the term.
+        :param fieldname: the field name or field number of the term.
         :param text: the text of the term.
         :exclude_docs: an optional BitVector of documents to exclude from the
             results, or None to not exclude any documents.
@@ -138,7 +161,7 @@ class IndexReader(ClosableMixin):
 
         raise NotImplementedError
 
-    def vector(self, docnum, fieldid):
+    def vector(self, docnum, fieldname):
         """Returns a :class:`~whoosh.matching.Matcher` object for the
         given term vector.
         
@@ -149,13 +172,13 @@ class IndexReader(ClosableMixin):
         
         :param docnum: the document number of the document for which you want
             the term vector.
-        :param fieldid: the field name or field number of the field for which
+        :param fieldname: the field name or field number of the field for which
             you want the term vector.
         :rtype: :class:`whoosh.matching.Matcher`
         """
         raise NotImplementedError
 
-    def vector_as(self, astype, docnum, fieldid):
+    def vector_as(self, astype, docnum, fieldname):
         """Returns an iterator of (termtext, value) pairs for the terms in the
         given term vector. This is a convenient shortcut to calling vector()
         and using the Matcher object when all you want are the terms and/or
@@ -167,13 +190,13 @@ class IndexReader(ClosableMixin):
         
         :param docnum: the document number of the document for which you want
             the term vector.
-        :param fieldid: the field name or field number of the field for which
+        :param fieldname: the field name or field number of the field for which
             you want the term vector.
         :param astype: a string containing the name of the format you want the
             term vector's data in, for example "weights".
         """
 
-        vec = self.vector(docnum, fieldid)
+        vec = self.vector(docnum, fieldname)
         if astype == "weight":
             while vec.is_active():
                 yield (vec.id(), vec.weight())
@@ -184,45 +207,45 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
 
-    def format(self, fieldid):
+    def format(self, fieldname):
         """Returns the Format object corresponding to the given field name.
         """
         raise NotImplementedError
 
-    def vector_format(self, fieldid):
+    def vector_format(self, fieldname):
         """Returns the Format object corresponding to the given field's vector.
         """
         raise NotImplementedError
 
     def __iter__(self):
-        """Yields (fieldid, text, docfreq, indexfreq) tuples for each term in
+        """Yields (fieldname, text, docfreq, indexfreq) tuples for each term in
         the reader, in lexical order.
         """
         raise NotImplementedError
 
-    def doc_frequency(self, fieldid, text):
+    def doc_frequency(self, fieldname, text):
         """Returns how many documents the given term appears in.
         """
         raise NotImplementedError
 
-    def frequency(self, fieldid, text):
+    def frequency(self, fieldname, text):
         """Returns the total number of instances of the given term in the
         collection.
         """
         raise NotImplementedError
 
-    def iter_from(self, fieldid, text):
+    def iter_from(self, fieldname, text):
         """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
         in the reader, starting at the given term.
         """
         raise NotImplementedError
 
-    def expand_prefix(self, fieldid, prefix):
+    def expand_prefix(self, fieldname, prefix):
         """Yields terms in the given field that start with the given prefix.
         """
 
-        for fn, t, _, _ in self.iter_from(fieldid, prefix):
-            if fn != fieldid or not t.startswith(prefix):
+        for fn, t, _, _ in self.iter_from(fieldname, prefix):
+            if fn != fieldname or not t.startswith(prefix):
                 return
             yield t
 
@@ -233,49 +256,49 @@ class IndexReader(ClosableMixin):
         for fn, t, _, _ in self:
             yield (fn, t)
 
-    def iter_field(self, fieldid, prefix=''):
+    def iter_field(self, fieldname, prefix=''):
         """Yields (text, doc_freq, index_freq) tuples for all terms in the
         given field.
         """
 
-        for fn, t, docfreq, freq in self.iter_from(fieldid, prefix):
-            if fn != fieldid:
+        for fn, t, docfreq, freq in self.iter_from(fieldname, prefix):
+            if fn != fieldname:
                 return
             yield t, docfreq, freq
 
-    def iter_prefix(self, fieldid, prefix):
+    def iter_prefix(self, fieldname, prefix):
         """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
         in the given field with a certain prefix.
         """
 
-        for fn, t, docfreq, colfreq in self.iter_from(fieldid, prefix):
-            if fn != fieldid or not t.startswith(prefix):
+        for fn, t, docfreq, colfreq in self.iter_from(fieldname, prefix):
+            if fn != fieldname or not t.startswith(prefix):
                 return
             yield (t, docfreq, colfreq)
 
-    def most_frequent_terms(self, fieldid, number=5, prefix=''):
+    def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
         list of (frequency, text) tuples.
         """
 
         return nlargest(number, ((tf, token)
                                  for token, _, tf
-                                 in self.iter_prefix(fieldid, prefix)))
+                                 in self.iter_prefix(fieldname, prefix)))
 
-    def most_distinctive_terms(self, fieldid, number=5, prefix=None):
+    def most_distinctive_terms(self, fieldname, number=5, prefix=None):
         """Returns the top 'number' terms with the highest ``tf*idf`` scores as
         a list of (score, text) tuples.
         """
 
         return nlargest(number, ((tf * (1.0 / df), token)
                                  for token, df, tf
-                                 in self.iter_prefix(fieldid, prefix)))
+                                 in self.iter_prefix(fieldname, prefix)))
 
-    def lexicon(self, fieldid):
+    def lexicon(self, fieldname):
         """Yields all terms in the given field.
         """
 
-        for t, _, _ in self.iter_field(fieldid):
+        for t, _, _ in self.iter_field(fieldname):
             yield t
             
     def last_modified(self):
@@ -329,33 +352,39 @@ class MultiReader(IndexReader):
             for result in reader.all_stored_fields():
                 yield result
 
-    def field(self, fieldid):
+    def field(self, fieldname):
         for r in self.readers:
             try:
-                field = r.field(fieldid)
+                field = r.field(fieldname)
                 return field
             except KeyError:
                 pass
-        raise KeyError("No field named %r" % fieldid)
+        raise KeyError("No field named %r" % fieldname)
 
-    def scorable(self, fieldid):
-        return any(r.scorable(fieldid) for r in self.readers)
+    def scorable(self, fieldname):
+        return any(r.scorable(fieldname) for r in self.readers)
 
-    def scorable_field_names(self):
+    def scorable_names(self):
         s = set()
-        for r in self.readers:
-            s.union(r.scorable_field_names())
+        for reader in self.readers:
+            s = s.union(reader.scorable_names())
         return sorted(s)
 
-    def format(self, fieldid):
+    def vector_names(self):
+        s = set()
+        for reader in self.readers:
+            s = s.union(reader.vector_names())
+        return sorted(s)
+
+    def format(self, fieldname):
         for r in self.readers:
-            fmt = r.format(fieldid)
+            fmt = r.format(fieldname)
             if fmt is not None:
                 return fmt
 
-    def vector_format(self, fieldid):
+    def vector_format(self, fieldname):
         for r in self.readers:
-            vfmt = r.vector_format(fieldid)
+            vfmt = r.vector_format(fieldname)
             if vfmt is not None:
                 return vfmt
 
@@ -365,13 +394,13 @@ class MultiReader(IndexReader):
     def doc_count(self):
         return sum(dr.doc_count() for dr in self.readers)
 
-    def field_length(self, fieldid):
-        return sum(dr.field_length(fieldid) for dr in self.readers)
+    def field_length(self, fieldname):
+        return sum(dr.field_length(fieldname) for dr in self.readers)
 
-    def doc_field_length(self, docnum, fieldid, default=0):
+    def doc_field_length(self, docnum, fieldname, default=0):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         reader = self.readers[segmentnum]
-        return reader.doc_field_length(segmentdoc, fieldid, default=default)
+        return reader.doc_field_length(segmentdoc, fieldname, default=default)
 
     def unique_count(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -385,43 +414,43 @@ class MultiReader(IndexReader):
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
 
-    def has_vector(self, docnum, fieldid):
+    def has_vector(self, docnum, fieldname):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].has_vector(segmentdoc, fieldid)
+        return self.readers[segmentnum].has_vector(segmentdoc, fieldname)
 
-    def postings(self, fieldid, text, scorefns=None, exclude_docs=None):
+    def postings(self, fieldname, text, scorefns=None, exclude_docs=None):
         postreaders = []
         docoffsets = []
         for i, r in enumerate(self.readers):
-            format = r.schema[fieldid].format
-            if (fieldid, text) in r:
-                pr = r.postings(fieldid, text, scorefns=scorefns,
+            format = r.schema[fieldname].format
+            if (fieldname, text) in r:
+                pr = r.postings(fieldname, text, scorefns=scorefns,
                                 exclude_docs=exclude_docs)
                 postreaders.append(pr)
                 docoffsets.append(self.doc_offsets[i])
         
         if not postreaders:
-            raise TermNotFound(fieldid, text)
+            raise TermNotFound(fieldname, text)
         else:
             return MultiMatcher(postreaders, docoffsets)
 
-    def vector(self, docnum, fieldid):
+    def vector(self, docnum, fieldname):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].vector(segmentdoc, fieldid)
+        return self.readers[segmentnum].vector(segmentdoc, fieldname)
 
-    def vector_as(self, astype, docnum, fieldid):
+    def vector_as(self, astype, docnum, fieldname):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldid)
+        return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldname)
 
-    def iter_from(self, fieldid, text):
-        return self._merge_iters([r.iter_from(fieldid, text)
+    def iter_from(self, fieldname, text):
+        return self._merge_iters([r.iter_from(fieldname, text)
                                   for r in self.readers])
 
-    def doc_frequency(self, fieldid, text):
-        return sum(r.doc_frequency(fieldid, text) for r in self.readers)
+    def doc_frequency(self, fieldname, text):
+        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
 
-    def frequency(self, fieldid, text):
-        return sum(r.frequency(fieldid, text) for r in self.readers)
+    def frequency(self, fieldname, text):
+        return sum(r.frequency(fieldname, text) for r in self.readers)
 
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of

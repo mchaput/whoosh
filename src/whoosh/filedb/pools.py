@@ -20,30 +20,30 @@ from array import array
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
 from marshal import load, dump
-from struct import Struct
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte, now
 
 
-_2int_struct = Struct("!II")
-pack2ints = _2int_struct.pack
-unpack2ints = _2int_struct.unpack
-
-_length_struct = Struct("!IHB") # Docnum, fieldnum, lengthbyte
-pack_length = _length_struct.pack
-unpack_length = _length_struct.unpack
-
-
 def imerge(iterators):
+    """Merge-sorts items from a list of iterators.
+    """
+    
+    # The list of "current" head items from the iterators
     current = []
+    
+    # Initialize the current list with the first item from each iterator
     for g in iterators:
         try:
             current.append((g.next(), g))
         except StopIteration:
             pass
+        
+    # Turn the current list into a heap structure
     heapify(current)
     
+    # While there are multiple iterators in the current list, pop the lowest
+    # item and refill from the popped item's iterator
     while len(current) > 1:
         item, gen = heappop(current)
         yield item
@@ -52,33 +52,48 @@ def imerge(iterators):
         except StopIteration:
             pass
     
+    # If there's only one iterator left, shortcut to simply yield all items
+    # from the iterator. This is faster than popping and refilling the heap.
     if current:
         item, gen = current[0]
         yield item
         for item in gen:
             yield item
 
+
 def bimerge(iter1, iter2):
+    """Merge-sorts items from two iterators.
+    """
+    
+    # Get the first item from iter1
     try:
         p1 = iter1.next()
     except StopIteration:
+        # iter1 is empty, so shortcut to simply yield all items from iter2
         for p2 in iter2:
             yield p2
         return
     
+    # Get the first item from iter2
     try:
         p2 = iter2.next()
     except StopIteration:
+        # iter2 is empty, so shortcut to simply yield all items from iter1
+        yield p1
         for p1 in iter1:
             yield p1
         return
-            
+    
     while True:
+        # Yield the lower item and refill from its iterator. If one of the
+        # iterators becomes empty, shortcut to simply yield all items from
+        # the other iterator.
         if p1 < p2:
             yield p1
             try:
                 p1 = iter1.next()
             except StopIteration:
+                yield p2
                 for p2 in iter2:
                     yield p2
                 return
@@ -87,18 +102,23 @@ def bimerge(iter1, iter2):
             try:
                 p2 = iter2.next()
             except StopIteration:
+                yield p1
                 for p1 in iter1:
                     yield p1
                 return
 
+
 def dividemerge(iters):
+    """Divides a list of iterators into bimerge calls.
+    """
+    
     length = len(iters)
     if length == 0:
         return []
     if length == 1:
         return iters[0]
     
-    mid = length >> 1
+    mid = length // 2
     return bimerge(dividemerge(iters[:mid]), dividemerge(iters[mid:]))
     
 
@@ -118,8 +138,7 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
     # count the document frequency and sum the terms by looking at the
     # postings).
 
-    fields = list(schema)
-    current_fieldnum = None # Field number of the current term
+    current_fieldname = None # Field number of the current term
     current_text = None # Text of the current term
     first = True
     current_weight = 0
@@ -129,48 +148,47 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
 
     # Loop through the postings in the pool. Postings always come out of the
     # pool in (field number, lexical) order.
-    for fieldnum, text, docnum, weight, valuestring in postiter:
+    for fieldname, text, docnum, weight, valuestring in postiter:
         # Is this the first time through, or is this a new term?
-        if first or fieldnum > current_fieldnum or text > current_text:
+        if first or fieldname > current_fieldname or text > current_text:
             if first:
                 first = False
             else:
                 # This is a new term, so finish the postings and add the
                 # term to the term table
                 postcount = postwriter.finish()
-                termtable.add((current_fieldnum, current_text),
+                termtable.add((current_fieldname, current_text),
                               (current_weight, offset, postcount))
 
             # Reset the post writer and the term variables
-            if fieldnum != current_fieldnum:
-                format = fields[fieldnum].format
-            current_fieldnum = fieldnum
+            if fieldname != current_fieldname:
+                format = schema[fieldname].format
+                current_fieldname = fieldname
             current_text = text
             current_weight = 0
             offset = postwriter.start(format)
 
-        elif (fieldnum < current_fieldnum
-              or (fieldnum == current_fieldnum and text < current_text)):
+        elif (fieldname < current_fieldname
+              or (fieldname == current_fieldname and text < current_text)):
             # This should never happen!
-            raise Exception("Postings are out of order: %s:%s .. %s:%s" %
-                            (current_fieldnum, current_text, fieldnum, text))
+            raise Exception("Postings are out of order: %r:%s .. %r:%s" %
+                            (current_fieldname, current_text, fieldname, text))
 
         # Write a posting for this occurrence of the current term
         current_weight += weight
-        postwriter.write(docnum, weight, valuestring, getlength(docnum, fieldnum))
+        postwriter.write(docnum, weight, valuestring, getlength(docnum, fieldname))
 
     # If there are still "uncommitted" postings at the end, finish them off
     if not first:
         postcount = postwriter.finish()
-        termtable.add((current_fieldnum, current_text),
+        termtable.add((current_fieldname, current_text),
                       (current_weight, offset, postcount))
 
 
 class PoolBase(object):
     def __init__(self, schema, dir):
         self.schema = schema
-        self.fieldmap = dict((name, i) for i, name
-                             in enumerate(schema.names()))
+        
         self.length_arrays = {}
         self.dir = dir
         self._fieldlength_totals = defaultdict(int)
@@ -188,14 +206,18 @@ class PoolBase(object):
     def fieldlength_maxes(self):
         return self._fieldlength_maxes
     
-    def add_field_length(self, docnum, fieldid, length):
-        self._fieldlength_totals[fieldid] += length
-        if length > self._fieldlength_maxes.get(fieldid, 0):
-            self._fieldlength_maxes[fieldid] = length
+    def add_posting(self, fieldname, text, docnum, weight, valuestring):
+        raise NotImplementedError
+    
+    def add_field_length(self, docnum, fieldname, length):
+        self._fieldlength_totals[fieldname] += length
+        if length > self._fieldlength_maxes.get(fieldname, 0):
+            self._fieldlength_maxes[fieldname] = length
         
-        if fieldid not in self.length_arrays:
-            self.length_arrays[fieldid] = array("B")
-        arry = self.length_arrays[fieldid]
+        if fieldname not in self.length_arrays:
+            self.length_arrays[fieldname] = array("B")
+        arry = self.length_arrays[fieldname]
+        
         if len(arry) <= docnum:
             for _ in xrange(docnum - len(arry) + 1):
                 arry.append(0)
@@ -207,12 +229,6 @@ class PoolBase(object):
             if len(arry) < doccount:
                 for _ in xrange(doccount - len(arry)):
                     arry.append(0)
-        
-    def _write_lengths(self, lengthfile, doccount):
-        self._fill_lengths(doccount)
-        lw = LengthWriter(lengthfile, doccount, self.schema.scorable_field_names(),
-                          lengths=self.length_arrays)
-        lw.close()
     
     def add_content(self, docnum, fieldname, field, value):
         add_posting = self.add_posting
@@ -228,6 +244,11 @@ class PoolBase(object):
             self.add_field_length(docnum, fieldname, termcount)
             
         return termcount
+    
+    def _write_lengths(self, lengthfile, doccount):
+        self._fill_lengths(doccount)
+        lw = LengthWriter(lengthfile, doccount, lengths=self.length_arrays)
+        lw.close()
 
 
 class TempfilePool(PoolBase):
@@ -245,15 +266,15 @@ class TempfilePool(PoolBase):
         
         self.basename = basename
         
-    def add_posting(self, fieldid, text, docnum, weight, valuestring):
+    def add_posting(self, fieldname, text, docnum, weight, valuestring):
         if self.size >= self.limit:
             #print "Flushing..."
             self.dump_run()
 
-        self.size += len(text) + 16
+        self.size += len(text) + 18
         if valuestring: self.size += len(valuestring)
-        fieldnum = self.fieldmap[fieldid]
-        self.postings.append((fieldnum, text, docnum, weight, valuestring))
+        
+        self.postings.append((fieldname, text, docnum, weight, valuestring))
         self.count += 1
     
     def dump_run(self):
@@ -284,16 +305,17 @@ class TempfilePool(PoolBase):
         self._write_lengths(lengthfile, doccount)
         lengths = LengthReader(None, doccount, self.length_arrays)
         
-        if self.postings and len(self.runs) == 0:
-            self.postings.sort()
-            postiter = iter(self.postings)
-        elif not self.postings and not self.runs:
-            postiter = iter([])
-        else:
-            postiter = imerge([read_run(runname, count)
-                               for runname, count in self.runs])
+        if self.postings or self.runs:
+            if self.postings and len(self.runs) == 0:
+                self.postings.sort()
+                postiter = iter(self.postings)
+            elif not self.postings and not self.runs:
+                postiter = iter([])
+            else:
+                postiter = imerge([read_run(runname, count)
+                                   for runname, count in self.runs])
         
-        write_postings(self.schema, termtable, lengths, postingwriter, postiter)
+            write_postings(self.schema, termtable, lengths, postingwriter, postiter)
         self.cleanup()
         
 

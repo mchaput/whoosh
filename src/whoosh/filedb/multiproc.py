@@ -187,13 +187,13 @@ class MultiPool(PoolBase):
         for _ in xrange(self.procs):
             pqueue.put((-1, doccount))
         
-        print "Joining..."
+        #print "Joining..."
         t = now()
         for task in self.tasks:
             task.join()
-        print "Join:", now() - t
+        #print "Join:", now() - t
         
-        print "Getting results..."
+        #print "Getting results..."
         t = now()
         runs = []
         lenfilenames = []
@@ -206,25 +206,24 @@ class MultiPool(PoolBase):
             for fieldnum, length in flenmaxes.iteritems():
                 if length > self._fieldlength_maxes.get(fieldnum, 0):
                     self._fieldlength_maxes[fieldnum] = length
-        print "Results:", now() - t
+        #print "Results:", now() - t
         
-        print "Writing lengths..."
+        #print "Writing lengths..."
         t = now()
-        scorables = self.schema.scorable_field_names()
-        lw = LengthWriter(lengthfile, doccount, scorables)
+        lw = LengthWriter(lengthfile, doccount)
         for lenfilename in lenfilenames:
             sublengths = LengthReader(StructFile(open(lenfilename, "rb")), doccount)
             lw.add_all(sublengths)
         lw.close()
         lengths = lw.reader()
-        print "Lengths:", now() - t
+        #print "Lengths:", now() - t
         
         t = now()
         iterator = dividemerge([read_run(runname, count)
                                 for runname, count in runs])
         total = sum(count for runname, count in runs)
         write_postings(self.schema, termtable, lengths, postingwriter, iterator)
-        print "Merge:", now() - t
+        #print "Merge:", now() - t
         
         self.cleanup()
  

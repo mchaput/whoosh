@@ -18,6 +18,7 @@ import types
 from array import array
 from struct import Struct
 
+from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
@@ -218,7 +219,11 @@ class FilePostingWriter(PostingWriter):
 
 class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorefns=None,
-                 fieldid=None, text=None, stringids=False):
+                 fieldname=None, text=None, stringids=False):
+        
+        assert isinstance(offset, (int, long)), "offset is %r" % offset
+        assert isinstance(format, Format), "format is %r" % format
+        
         self.postfile = postfile
         self.startoffset = offset
         self.format = format
@@ -234,7 +239,7 @@ class FilePostingReader(Matcher):
             if bqfn:
                 self.block_quality = types.MethodType(bqfn, self, self.__class__)
         
-        self.fieldid = fieldid
+        self.fieldname = fieldname
         self.text = text
         
         self.stringids = stringids
@@ -248,7 +253,7 @@ class FilePostingReader(Matcher):
 
     def __repr__(self):
         return "%s(%r, %s, %r, %r)" % (self.__class__.__name__, self.postfile,
-                                       self.startoffset, self.fieldid, self.text)
+                                       self.startoffset, self.fieldname, self.text)
 
     def close(self):
         pass

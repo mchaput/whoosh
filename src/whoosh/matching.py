@@ -1084,26 +1084,26 @@ class VectorPhraseMatcher(BasePhraseMatcher):
     or CharacterPositions format).
     """
     
-    def __init__(self, searcher, fieldid, words, isect, slop=1, boost=1.0):
+    def __init__(self, searcher, fieldname, words, isect, slop=1, boost=1.0):
         """
         :param reader: an IndexReader.
-        :param fieldid: the field in which to search.
+        :param fieldname: the field in which to search.
         :param words: a sequence of token texts representing the words in the
             phrase.
         :param isect: an intersection matcher for the words in the phrase.
         :param slop: 
         """
         
-        decodefn = searcher.field(fieldid).vector.decoder("positions")
+        decodefn = searcher.field(fieldname).vector.decoder("positions")
         self.reader = searcher.reader()
-        self.fieldid = fieldid
+        self.fieldname = fieldname
         self.words = words
         self.sortedwords = sorted(self.words)
         super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
                                                   boost=boost)
     
     def _poses(self):
-        vreader = self.reader.vector(self.child.id(), self.fieldid)
+        vreader = self.reader.vector(self.child.id(), self.fieldname)
         poses = {}
         decode_positions = self.decode_positions
         for word in self.sortedwords:

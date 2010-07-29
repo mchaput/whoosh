@@ -2,7 +2,6 @@ import unittest
 
 from whoosh import analysis, fields
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.searching import Searcher
 
 class TestReading(unittest.TestCase):
@@ -36,11 +35,11 @@ class TestReading(unittest.TestCase):
         w = ix.writer()
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
         w.add_document(f1 = u"A A A", f2 = u"2 3 5", f3 = u"Y R Z")
-        w.commit(NO_MERGE)
+        w.commit(merge=False)
         
         w = ix.writer()
         w.add_document(f1 = u"A B", f2 = u"1 2", f3 = u"X Y")
-        w.commit(NO_MERGE)
+        w.commit(merge=False)
         
         return ix
     
@@ -51,6 +50,7 @@ class TestReading(unittest.TestCase):
                   ("f2", u'4', 2, 2), ("f2", u'5', 2, 2), ("f2", u'6', 2, 2),
                   ("f3", u'Q', 2, 2), ("f3", u'R', 2, 2), ("f3", u'S', 2, 2),
                   ("f3", u'X', 3, 3), ("f3", u'Y', 3, 3), ("f3", u'Z', 2, 2)]
+        target = sorted(target)
         
         stored = [{"f1": "A B C"}, {"f1": "D E F"}, {"f1": "A E C"},
                   {"f1": "A A A"}, {"f1": "A B"}]
@@ -58,7 +58,7 @@ class TestReading(unittest.TestCase):
         def t(ix):
             r = ix.reader()
             self.assertEqual(list(r.all_stored_fields()), stored)
-            self.assertEqual(list(r), target)
+            self.assertEqual(sorted(r), target)
         
         ix = self._one_segment_index()
         self.assertEqual(len(ix.segments), 1)
@@ -85,11 +85,11 @@ class TestReading(unittest.TestCase):
                          [u'aa', u'ab', u'ax', u'bb', u'cc', u'dd', u'ee'])
         self.assertEqual(list(reader.expand_prefix("content", "a")),
                          [u'aa', u'ab', u'ax'])
-        self.assertEqual(list(reader.all_terms()),
-                         [('content', u'aa'), ('content', u'ab'), ('content', u'ax'),
-                          ('content', u'bb'), ('content', u'cc'), ('content', u'dd'),
-                          ('content', u'ee'), ('title', u'document'), ('title', u'my'),
-                          ('title', u'other')])
+        self.assertEqual(set(reader.all_terms()),
+                         set([('content', u'aa'), ('content', u'ab'), ('content', u'ax'),
+                              ('content', u'bb'), ('content', u'cc'), ('content', u'dd'),
+                              ('content', u'ee'), ('title', u'document'), ('title', u'my'),
+                              ('title', u'other')]))
         # (text, doc_freq, index_freq)
         self.assertEqual(list(reader.iter_field("content")),
                          [(u'aa', 2, 6), (u'ab', 1, 1), (u'ax', 1, 2),
@@ -165,7 +165,7 @@ class TestReading(unittest.TestCase):
         storedkeys = ["chapter", "content", "context", "exampleFile",
                       "exampleFor", "methods", "path", "status", "summary",
                       "superclass", "time", "title", "type"]
-        self.assertEqual(schema.stored_field_names(), storedkeys)
+        self.assertEqual(storedkeys, schema.stored_names())
         
         st = RamStorage()
         ix = st.create_index(schema)

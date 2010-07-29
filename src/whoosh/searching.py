@@ -22,6 +22,7 @@ from __future__ import division
 from array import array
 from collections import defaultdict
 from heapq import heappush, heapreplace
+from math import ceil
 
 from whoosh import classify, query, scoring
 from whoosh.matching import NullMatcher
@@ -47,11 +48,6 @@ class Searcher(object):
         self.ixreader = ixreader
         self.doccount = ixreader.doc_count_all()
 
-        self.avg_field_length = {}
-        for fieldname in ixreader.scorable_field_names():
-            self.avg_field_length[fieldname] = (ixreader.field_length(fieldname)
-                                                / (self.doccount or 1))
-
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "vector", "vector_as", "scorable",
                      "lexicon", "frequency", "doc_field_length",
@@ -66,6 +62,11 @@ class Searcher(object):
         self.is_closed = False
         self._idf_cache = {}
         self._sorter_cache = {}
+
+    def avg_field_length(self, fieldname, default=None):
+        if not self.ixreader.scorable(fieldname):
+            return default
+        return self.ixreader.field_length(fieldname) / (self.doccount or 1)
 
     def close(self):
         self.ixreader.close()
@@ -98,16 +99,16 @@ class Searcher(object):
         return self.ixreader.postings(fieldname, text, scorefns=scorefns,
                                       exclude_docs=exclude_docs)
 
-    def idf(self, fieldid, text):
+    def idf(self, fieldname, text):
         """Calculates the Inverse Document Frequency of the current term (calls
         idf() on the searcher's Weighting object).
         """
 
         cache = self._idf_cache
-        term = (fieldid, text)
+        term = (fieldname, text)
         if term in cache: return cache[term]
 
-        idf = self.weighting.idf(self, fieldid, text)
+        idf = self.weighting.idf(self, fieldname, text)
         cache[term] = idf
         return idf
 
@@ -222,6 +223,8 @@ class Searcher(object):
         return expander.expanded_terms(numterms, normalize=normalize)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
+        if pagenum < 1:
+            raise ValueError("pagenum must be >= 1")
         results = self.search(query, limit=pagenum * pagelen, **kwargs)
         return ResultsPage(results, pagenum, pagelen)
 
@@ -307,6 +310,9 @@ class Searcher(object):
         :param optimize: use optimizations to get faster results when possible.
         :rtype: :class:`Results`
         """
+
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be >= 1")
 
         if sortedby is not None:
             return self.sort_query(query, sortedby, reverse=reverse)
@@ -720,13 +726,17 @@ class ResultsPage(object):
         :param pagenum: which page of the results to use, numbered from ``1``.
         :param pagelen: the number of hits per page.
         """
+        
         self.results = results
-        self.pagenum = pagenum
         self.total = len(results)
-
-        self.pagecount = self.total // pagelen + 1
+        
+        if pagenum < 1:
+            raise ValueError("pagenum must be >= 1")
+        
+        self.pagecount = int(ceil(self.total / pagelen))
         if pagenum > self.pagecount:
             pagenum = self.pagecount
+        
         self.pagenum = pagenum
 
         offset = (pagenum - 1) * pagelen
@@ -746,6 +756,9 @@ class ResultsPage(object):
     def __iter__(self):
         offset, pagelen = self.offset, self.pagelen
         return self.results.iterslice(offset, offset + pagelen)
+
+    def __len__(self):
+        return self.total
 
     def score(self, n):
         """Returns the score of the hit at the nth position on this page.

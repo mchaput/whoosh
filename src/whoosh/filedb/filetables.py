@@ -338,9 +338,60 @@ class OrderedHashReader(HashReader):
             yield read(datapos, datalen)
 
 
-class FileTableWriter(OrderedHashWriter):
+class CodedHashWriter(HashWriter):
     def __init__(self, dbfile, keycoder=None, valuecoder=None):
-        sup = super(FileTableWriter, self)
+        sup = super(CodedHashWriter, self)
+        sup.__init__(dbfile)
+        self.keycoder = keycoder or str
+        self.valuecoder = valuecoder or enpickle
+
+        self._add = sup.add
+        
+    def add(self, key, data):
+        self._add(self.keycoder(key), self.valuecoder(data))
+        
+
+class CodedHashReader(HashReader):
+    def __init__(self, dbfile, keycoder=None, keydecoder=None,
+                 valuedecoder=None):
+        sup = super(CodedHashReader, self)
+        sup.__init__(dbfile)
+        self.keycoder = keycoder or str
+        self.keydecoder = keydecoder or int
+        self.valuedecoder = valuedecoder or depickle
+
+        self._items = sup.items
+        self._keys = sup.keys
+        self._get = sup.get
+        self._getitem = sup.__getitem__
+        self._contains = sup.__contains__
+        
+    def __getitem__(self, key):
+        k = self.keycoder(key)
+        return self.valuedecoder(self._getitem(k))
+
+    def __contains__(self, key):
+        return self._contains(self.keycoder(key))
+
+    def get(self, key, default=None):
+        k = self.keycoder(key)
+        return self.valuedecoder(self._get(k, default))
+
+    def items(self):
+        kd = self.keydecoder
+        vd = self.valuedecoder
+        for key, value in self._items():
+            yield (kd(key), vd(value))
+
+    def keys(self):
+        kd = self.keydecoder
+        for k in self._keys():
+            yield kd(k)
+
+
+class CodedOrderedWriter(OrderedHashWriter):
+    def __init__(self, dbfile, keycoder=None, valuecoder=None):
+        sup = super(CodedOrderedWriter, self)
         sup.__init__(dbfile)
         self.keycoder = keycoder or str
         self.valuecoder = valuecoder or enpickle
@@ -348,15 +399,13 @@ class FileTableWriter(OrderedHashWriter):
         self._add = sup.add
 
     def add(self, key, data):
-        key = self.keycoder(key)
-        data = self.valuecoder(data)
-        self._add(key, data)
+        self._add(self.keycoder(key), self.valuecoder(data))
 
 
-class FileTableReader(OrderedHashReader):
+class CodedOrderedReader(OrderedHashReader):
     def __init__(self, dbfile, keycoder=None, keydecoder=None,
                  valuedecoder=None):
-        sup = super(FileTableReader, self)
+        sup = super(CodedOrderedReader, self)
         sup.__init__(dbfile)
         self.keycoder = keycoder or str
         self.keydecoder = keydecoder or int
@@ -379,7 +428,7 @@ class FileTableReader(OrderedHashReader):
 
     def get(self, key, default=None):
         k = self.keycoder(key)
-        return self._get(k, default)
+        return self.valuedecoder(self._get(k, default))
 
     def items(self):
         kd = self.keydecoder
@@ -405,242 +454,29 @@ class FileTableReader(OrderedHashReader):
             yield kd(k)
 
 
-#
-
-class FixedHashWriter(HashWriter):
-    def __init__(self, dbfile, keysize, datasize):
-        self.dbfile = dbfile
-        dbfile.seek(HEADER_SIZE)
-        self.hashes = defaultdict(list)
-        self.keysize = keysize
-        self.datasize = datasize
-        self.recordsize = keysize + datasize
-
-    def add_all(self, items):
-        dbfile = self.dbfile
-        hashes = self.hashes
-        recordsize = self.recordsize
-        pos = dbfile.tell()
-        write = dbfile.write
-
-        for key, value in items:
-            write(key + value)
-
-            h = _hash(key)
-            hashes[h & 255].append((h, pos))
-            pos += recordsize
-
-
-class FixedHashReader(HashReader):
-    def __init__(self, dbfile, keysize, datasize):
-        self.dbfile = dbfile
-        self.keysize = keysize
-        self.datasize = datasize
-        self.recordsize = keysize + datasize
-        
-        self.map = dbfile.map
-        self.end_of_data = dbfile.get_uint(0)
-        self.is_closed = False
-
-    def read(self, position, length):
-        return self.map[position:position + length]
-
-    def _ranges(self, pos=HEADER_SIZE):
-        keysize = self.keysize
-        recordsize = self.recordsize
-        eod = self.end_of_data
-        while pos < eod:
-            yield (pos, pos + keysize)
-            pos += recordsize
-
-    def __iter__(self):
-        return self.items()
-
-    def __contains__(self, key):
-        for _ in self._get_data_poses(key):
-            return True
-        return False
-
-    def items(self):
-        keysize = self.keysize
-        datasize = self.datasize
-        read = self.read
-        for keypos, datapos in self._ranges():
-            yield (read(keypos, keysize), read(datapos, datasize))
-
-    def keys(self):
-        keysize = self.keysize
-        read = self.read
-        for keypos, _ in self._ranges():
-            yield read(keypos, keysize)
-
-    def values(self):
-        datasize = self.datasize
-        read = self.read
-        for _, datapos in self._ranges():
-            yield read(datapos, datasize)
-
-    def __getitem__(self, key):
-        for data in self.all(key):
-            return data
-        raise KeyError(key)
-
-    def get(self, key, default=None):
-        for data in self.all(key):
-            return data
-        return default
-
-    def all(self, key):
-        datasize = self.datasize
-        read = self.read
-        for datapos in self._get_data_poses(key):
-            yield read(datapos, datasize)
-
-    def _key_at(self, pos):
-        return self.read(pos, self.keysize)
-
-    def _get_ranges(self, key):
-        raise NotImplementedError
-
-    def _get_data_poses(self, key):
-        keysize = self.keysize
-        read = self.read
-        keyhash = _hash(key)
-        hpos, hslots = self._hashtable_info(keyhash)
-        if not hslots:
-            return
-
-        slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
-        for _ in xrange(hslots):
-            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
-            if not pos:
-                return
-
-            slotpos += pointer_size
-            # If we reach the end of the hashtable, wrap around
-            if slotpos == hpos + (hslots * pointer_size):
-                slotpos = hpos
-
-            if slothash == keyhash:
-                if key == read(pos, keysize):
-                    yield pos + keysize
-
-
-class StructHashWriter(FixedHashWriter):
-    def __init__(self, dbfile, keyspec, dataspec):
-        keystruct = Struct(keyspec)
-        datastruct = Struct(dataspec)
-        FixedHashWriter.__init__(self, dbfile, keystruct.size, datastruct.size)
-        
-        _packkey = keystruct.pack
-        _packdata = datastruct.pack
-        
-        if keyspec[0] in "@=!<>":
-            multikey = len(keyspec)-1 > 1
-        else:
-            multikey = len(keyspec) > 1
-        if dataspec[0] in "@=!<>":
-            multidata = len(dataspec)-1 > 1
-        else:
-            multidata = len(dataspec) > 1
-            
-        if multikey:
-            packkey = lambda x: _packkey(*x)
-        else:
-            packkey = _packkey
-            
-        if multidata:
-            packdata = lambda x: _packdata(*x)
-        else:
-            packdata = _packdata
-        
-        self.packkey = packkey
-        self.packdata = packdata
-        
-    def add_all(self, items):
-        packkey = self.packkey
-        packdata = self.packdata
-        FixedHashWriter.add_all(self, ((packkey(key), packdata(data))
-                                       for key, data in items))
-        
-
-class StructHashReader(FixedHashReader):
-    def __init__(self, dbfile, keyspec, dataspec):
-        keystruct = Struct(keyspec)
-        datastruct = Struct(dataspec)
-        FixedHashReader.__init__(self, dbfile, keystruct.size, datastruct.size)
-        
-        _packkey = keystruct.pack
-        _unpackkey = keystruct.unpack
-        _unpackdata = datastruct.unpack
-        
-        if keyspec[0] in "@=!<>":
-            multikey = len(keyspec)-1 > 1
-        else:
-            multikey = len(keyspec) > 1
-        if dataspec[0] in "@=!<>":
-            multidata = len(dataspec)-1 > 1
-        else:
-            multidata = len(dataspec) > 1
-        
-        if multikey:
-            packkey = lambda x: _packkey(*x)
-            unpackkey = _unpackkey
-        else:
-            packkey = _packkey
-            unpackkey = lambda x: _unpackkey(x)[0]
-            
-        if multidata:
-            unpackdata = _unpackdata
-        else:
-            unpackdata = lambda x: _unpackdata(x)[0]
-        
-        self.packkey = packkey
-        self.unpackkey = unpackkey
-        self.unpackdata = unpackdata
-        
-    def items(self):
-        unpackkey = self.unpackkey
-        unpackdata = self.unpackdata
-        return ((unpackkey(key), unpackdata(data))
-                 for key, data in FixedHashReader.items(self))
-        
-    def keys(self):
-        unpackkey = self.unpackkey
-        return (unpackkey(key) for key in FixedHashReader.keys(self))
-    
-    def values(self):
-        unpackdata = self.unpackdata
-        return (unpackdata(data) for data in FixedHashReader.values(self))
-    
-    def all(self, key):
-        k = self.packkey(key)
-        unpackdata = self.unpackdata
-        for data in FixedHashReader.all(self, k):
-            yield unpackdata(data)
-
-    def __contains__(self, key):
-        return FixedHashReader.__contains__(self, self.packkey(key))
-
-
 class LengthWriter(object):
-    def __init__(self, dbfile, doccount, scorables, lengths=None):
+    def __init__(self, dbfile, doccount, lengths=None):
         self.dbfile = dbfile
         self.doccount = doccount
-        if lengths is None:
-            lengths = dict((fieldname, array("B",  (0 for _ in xrange(doccount))))
-                            for fieldname in scorables)
-        self.lengths = lengths
+        if lengths is not None:
+            self.lengths = lengths
+        else:
+            self.lengths = {}
     
     def add_all(self, items):
         lengths = self.lengths
         for docnum, fieldname, byte in items:
             if byte:
+                if fieldname not in lengths:
+                    lengths[fieldname] = array("B",  (0 for _ in xrange(self.doccount)))
                 lengths[fieldname][docnum] = byte
     
-    def add(self, docnum, fieldid, byte):
+    def add(self, docnum, fieldname, byte):
+        lengths = self.lengths
         if byte:
-            self.lengths[fieldid][docnum] = byte
+            if fieldname not in lengths:
+                lengths[fieldname] = array("B",  (0 for _ in xrange(self.doccount)))
+            lengths[fieldname][docnum] = byte
     
     def reader(self):
         return LengthReader(None, self.doccount, lengths=self.lengths)
@@ -672,11 +508,11 @@ class LengthReader(object):
             for docnum, byte in enumerate(self.lengths[fieldname]):
                 yield docnum, fieldname, byte
     
-    def get(self, docnum, fieldid, default=0):
+    def get(self, docnum, fieldname, default=0):
         lengths = self.lengths
-        if fieldid not in lengths:
+        if fieldname not in lengths:
             return default
-        byte = lengths[fieldid][docnum]
+        byte = lengths[fieldname][docnum]
         return byte_to_length(byte)
         
 
@@ -688,7 +524,7 @@ unpack_stored_pointer = _stored_pointer_struct.unpack
 class StoredFieldWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
-        self.count = 0
+        self.length = 0
         self.directory = ""
         
         self.dbfile.write_long(0)
@@ -697,7 +533,7 @@ class StoredFieldWriter(object):
     def append(self, valuelist):
         f = self.dbfile
         v = dumps(valuelist)
-        self.count += 1
+        self.length += 1
         self.directory += pack_stored_pointer(f.tell(), len(v))
         f.write(v)
     
@@ -708,34 +544,34 @@ class StoredFieldWriter(object):
         f.flush()
         f.seek(0)
         f.write_long(directory_pos)
-        f.write_uint(self.count)
+        f.write_uint(self.length)
         f.close()
 
 
 class StoredFieldReader(object):
-    def __init__(self, dbfile, currentfieldnames, storedfieldnames):
+    def __init__(self, dbfile):
         self.dbfile = dbfile
-        self.currentfieldnames = set(currentfieldnames)
-        self.storedfieldnames = storedfieldnames
 
         dbfile.seek(0)
-        self.offset = dbfile.read_long()
+        self.directory_offset = dbfile.read_long()
         self.length = dbfile.read_uint()
         
     def close(self):
         self.dbfile.close()
 
     def __getitem__(self, num):
-        dbfile = self.dbfile
-        start = self.offset + num * stored_pointer_size
-        end = start + stored_pointer_size
-        position, length = unpack_stored_pointer(dbfile.map[start:end])
-        values = loads(dbfile.map[position:position+length])
+        if num > self.length-1:
+            raise IndexError("Tried to get document %s, file has %s" % (num, self.length))
         
-        currentfieldnames = self.currentfieldnames
-        return dict((fieldname, value) for fieldname, value
-                    in zip(self.storedfieldnames, values)
-                    if value is not None and fieldname in currentfieldnames)
+        dbfile = self.dbfile
+        start = self.directory_offset + num * stored_pointer_size
+        dbfile.seek(start)
+        ptr = dbfile.read(stored_pointer_size)
+        if len(ptr) != stored_pointer_size:
+            raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
+        position, length = unpack_stored_pointer(ptr)
+        values = loads(dbfile.map[position:position+length])
+        return values
 
 
 # Utility functions
@@ -754,7 +590,7 @@ def dump_hash(hashreader):
             print "Bucket %d: %d slots" % (bucketnum, numslots)
 
             dbfile.seek(pos)
-            for j in xrange(0, numslots):
+            for _ in xrange(0, numslots):
                 print "  %X : %d" % unpack_pointer(read(pos, pointer_size))
                 pos += pointer_size
         else:
@@ -774,5 +610,124 @@ def dump_hash(hashreader):
         pos = datapos + datalen
 
 
+##
+#
+#class FixedHashWriter(HashWriter):
+#    def __init__(self, dbfile, keysize, datasize):
+#        self.dbfile = dbfile
+#        dbfile.seek(HEADER_SIZE)
+#        self.hashes = defaultdict(list)
+#        self.keysize = keysize
+#        self.datasize = datasize
+#        self.recordsize = keysize + datasize
+#
+#    def add_all(self, items):
+#        dbfile = self.dbfile
+#        hashes = self.hashes
+#        recordsize = self.recordsize
+#        pos = dbfile.tell()
+#        write = dbfile.write
+#
+#        for key, value in items:
+#            write(key + value)
+#
+#            h = _hash(key)
+#            hashes[h & 255].append((h, pos))
+#            pos += recordsize
+#
+#
+#class FixedHashReader(HashReader):
+#    def __init__(self, dbfile, keysize, datasize):
+#        self.dbfile = dbfile
+#        self.keysize = keysize
+#        self.datasize = datasize
+#        self.recordsize = keysize + datasize
+#        
+#        self.map = dbfile.map
+#        self.end_of_data = dbfile.get_uint(0)
+#        self.is_closed = False
+#
+#    def read(self, position, length):
+#        return self.map[position:position + length]
+#
+#    def _ranges(self, pos=HEADER_SIZE):
+#        keysize = self.keysize
+#        recordsize = self.recordsize
+#        eod = self.end_of_data
+#        while pos < eod:
+#            yield (pos, pos + keysize)
+#            pos += recordsize
+#
+#    def __iter__(self):
+#        return self.items()
+#
+#    def __contains__(self, key):
+#        for _ in self._get_data_poses(key):
+#            return True
+#        return False
+#
+#    def items(self):
+#        keysize = self.keysize
+#        datasize = self.datasize
+#        read = self.read
+#        for keypos, datapos in self._ranges():
+#            yield (read(keypos, keysize), read(datapos, datasize))
+#
+#    def keys(self):
+#        keysize = self.keysize
+#        read = self.read
+#        for keypos, _ in self._ranges():
+#            yield read(keypos, keysize)
+#
+#    def values(self):
+#        datasize = self.datasize
+#        read = self.read
+#        for _, datapos in self._ranges():
+#            yield read(datapos, datasize)
+#
+#    def __getitem__(self, key):
+#        for data in self.all(key):
+#            return data
+#        raise KeyError(key)
+#
+#    def get(self, key, default=None):
+#        for data in self.all(key):
+#            return data
+#        return default
+#
+#    def all(self, key):
+#        datasize = self.datasize
+#        read = self.read
+#        for datapos in self._get_data_poses(key):
+#            yield read(datapos, datasize)
+#
+#    def _key_at(self, pos):
+#        return self.read(pos, self.keysize)
+#
+#    def _get_ranges(self, key):
+#        raise NotImplementedError
+#
+#    def _get_data_poses(self, key):
+#        keysize = self.keysize
+#        read = self.read
+#        keyhash = _hash(key)
+#        hpos, hslots = self._hashtable_info(keyhash)
+#        if not hslots:
+#            return
+#
+#        slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
+#        for _ in xrange(hslots):
+#            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
+#            if not pos:
+#                return
+#
+#            slotpos += pointer_size
+#            # If we reach the end of the hashtable, wrap around
+#            if slotpos == hpos + (hslots * pointer_size):
+#                slotpos = hpos
+#
+#            if slothash == keyhash:
+#                if key == read(pos, keysize):
+#                    yield pos + keysize
 
 
