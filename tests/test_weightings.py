@@ -45,7 +45,8 @@ class TestWeightings(unittest.TestCase):
                 for word in domain:
                     searcher.search(query.Term("text", word))
             except Exception, e:
-                raise Exception("Error searching with %r: %s" % (wclass, e))
+                e.msg = "Error searching with %r: %s" % (wclass, e)
+                raise
     
         
         

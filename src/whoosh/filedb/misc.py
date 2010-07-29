@@ -14,28 +14,38 @@
 # limitations under the License.
 #===============================================================================
 
+import struct
 from cPickle import loads, dumps
 from marshal import dumps as mdumps
 from marshal import loads as mloads
-from struct import Struct
 
-from whoosh.system import (pack_uint, pack_ushort,
-                           unpack_uint, unpack_ushort,
-                           _SHORT_SIZE)
+from whoosh.system import pack_uint, unpack_uint, pack_long, unpack_long, _INT_SIZE
 from whoosh.util import utf8encode, utf8decode
 
 
 def encode_termkey(term):
-    fieldnum, text = term
-    return pack_ushort(fieldnum) + utf8encode(text)[0]
+    fieldname, text = term
+    return "%s %s" % (fieldname, utf8encode(text)[0])
 def decode_termkey(key):
-    return (unpack_ushort(key[:_SHORT_SIZE])[0],
-            utf8decode(key[_SHORT_SIZE:])[0])
+    fieldname, text = key.split(" ", 1)
+    return (fieldname, utf8decode(text)[0])
 
-_terminfo_struct = Struct("!fII") # weight, offset, postcount
+_terminfo_struct = struct.Struct("!fqI") # weight, offset, postcount
 _pack_terminfo = _terminfo_struct.pack
 encode_terminfo = lambda cf_offset_df: _pack_terminfo(*cf_offset_df)
 decode_terminfo = _terminfo_struct.unpack
+
+
+def encode_vectorkey(docnum_and_fieldname):
+    docnum, fieldname = docnum_and_fieldname
+    return pack_uint(docnum) + fieldname
+
+def decode_vectorkey(key):
+    return unpack_uint(key[:_INT_SIZE]), key[_INT_SIZE:]
+
+encode_vectoroffset = pack_long
+decode_vectoroffset = lambda x: unpack_long(x)[0]
+
 
 encode_docnum = pack_uint
 decode_docnum = lambda x: unpack_uint(x)[0]

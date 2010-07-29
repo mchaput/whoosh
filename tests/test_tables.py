@@ -26,15 +26,22 @@ class TestTables(unittest.TestCase):
                 pass
     
     def test_termkey(self):
-        term = (2, "bravo")
+        term = ("alfa", u"bravo")
+        self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        
+        term = ("text", u"hello there")
         self.assertEqual(term, decode_termkey(encode_termkey(term)))
         
     def test_random_termkeys(self):
-        for _ in xrange(100):
-            term = (random.randint(0, 15000),
-                    "".join(unichr(random.randint(0, 62000))
-                            for _ in xrange(1, 20)))
-            self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        def random_fieldname():
+            return "".join(chr(random.randint(65, 90)) for _ in xrange(1, 20))
+        
+        def random_token():
+            return "".join(unichr(random.randint(0, 62000)) for _ in xrange(1, 20))
+        
+        for _ in xrange(1000):
+            term = (random_fieldname(), random_token())
+            self.assertEqual(term, decode_termkey(encode_termkey(term)), term)
     
     def test_hash(self):
         st = self.make_storage("testindex")
@@ -152,13 +159,13 @@ class TestTables(unittest.TestCase):
         st = self.make_storage("testindex")
         sf = st.create_file("test.sf")
         sfw = StoredFieldWriter(sf)
-        sfw.append(["hello", "there"])
-        sfw.append(["one", "two"])
-        sfw.append(["alfa", "bravo"])
+        sfw.append({"a": "hello", "b": "there"})
+        sfw.append({"a": "one", "b": "two"})
+        sfw.append({"a": "alfa", "b": "bravo"})
         sfw.close()
         
         sf = st.open_file("test.sf")
-        sfr = StoredFieldReader(sf, ["a", "b"], ["a", "b"])
+        sfr = StoredFieldReader(sf)
         self.assertEqual(sfr[0], {"a": "hello", "b": "there"})
         self.assertEqual(sfr[2], {"a": "alfa", "b": "bravo"})
         self.assertEqual(sfr[1], {"a": "one", "b": "two"})

@@ -191,81 +191,9 @@ def version(storage, indexname=None):
         return (None, e.version)
 
 
-# 
-
-class DeletionMixin(object):
-    def delete_by_term(self, fieldname, text):
-        """Deletes any documents containing "term" in the "fieldname" field.
-        This is useful when you have an indexed field containing a unique ID
-        (such as "pathname") for each document.
-        
-        :returns: the number of documents deleted.
-        """
-        
-        from whoosh.query import Term
-        q = Term(fieldname, text)
-        return self.delete_by_query(q)
-    
-    def delete_by_query(self, q, searcher=None):
-        """Deletes any documents matching a query object.
-        
-        :returns: the number of documents deleted.
-        """
-        
-        count = 0
-        if searcher:
-            s = searcher
-        else:
-            s = self.searcher()
-        for docnum in q.docs(s):
-            self.delete_document(docnum)
-            count += 1
-        if not searcher:
-            s.close()
-        return count
-
-
-class FieldMixin(object):
-    def add_field(self, fieldname, fieldspec):
-        """Adds a field to the index's schema.
-        
-        This method adds a field to the copy of the schema in memory. To save
-        the change permanently, you must call ``Index.commit()``.
-        
-        :param fieldname: the name of the field to add.
-        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
-            object.
-        """
-        
-        self.schema.add(fieldname, fieldspec)
-    
-    def remove_field(self, fieldname):
-        """Removes the named field from the index's schema. Depending on the
-        backend implementation, this may or may not actually remove existing
-        data for the field from the index. Optimizing the index should always
-        clear out existing data for a removed field.
-        
-        This method removes the field from the copy of the schema in memory.
-        To save the change permanently, you must call ``Index.commit()``.
-        """
-        
-        self.schema.remove(fieldname)
-        
-    def rename_field(self, oldname, newname):
-        """Renames a field in the index's schema.
-        
-        This method renames the field in the copy of the index in memory. To
-        save the change permanently, you must call ``Index.commit()``.
-        """
-        
-        # Note: backend implementations will almost certainly need to do more
-        # than just rename the field in the schema.
-        self.schema.rename(oldname, newname)
-
-
 # Index class
 
-class Index(DeletionMixin, FieldMixin):
+class Index(object):
     """Represents an indexed collection of documents.
     """
     
@@ -294,9 +222,70 @@ class Index(DeletionMixin, FieldMixin):
         """
         pass
     
+    def add_field(self, fieldname, fieldspec):
+        """Adds a field to the index's schema.
+        
+        :param fieldname: the name of the field to add.
+        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+            object.
+        """
+        
+        w = self.writer()
+        w.add_field(fieldname, fieldspec)
+        w.commit()
+        
+    def remove_field(self, fieldname):
+        """Removes the named field from the index's schema. Depending on the
+        backend implementation, this may or may not actually remove existing
+        data for the field from the index. Optimizing the index should always
+        clear out existing data for a removed field.
+        """
+        
+        w = self.writer()
+        w.remove_field(fieldname)
+        w.commit()
+        
     def delete_document(self, docnum, delete=True):
         """Deletes a document by number."""
-        raise NotImplementedError
+        
+        w = self.writer()
+        w.delete_document(docnum, delete=delete)
+        w.commit()
+    
+    def delete_by_term(self, fieldname, text):
+        """Deletes any documents containing "term" in the "fieldname" field.
+        This is useful when you have an indexed field containing a unique ID
+        (such as "pathname") for each document.
+        
+        :returns: the number of documents deleted.
+        """
+        
+        from whoosh.query import Term
+        q = Term(fieldname, text)
+        return self.delete_by_query(q)
+    
+    def delete_by_query(self, q, searcher=None):
+        """Deletes any documents matching a query object.
+        
+        :returns: the number of documents deleted.
+        """
+        
+        w = self.writer()
+        if searcher:
+            s = searcher
+        else:
+            s = self.searcher()
+        
+        count = 0
+        for docnum in q.docs(s):
+            w.delete_document(docnum)
+            count += 1
+        
+        if not searcher:
+            s.close()
+        w.commit()
+        
+        return count
     
     def latest_generation(self):
         """Returns the generation number of the latest generation of this
@@ -339,11 +328,6 @@ class Index(DeletionMixin, FieldMixin):
     
     def optimize(self):
         """Optimizes this index, if necessary.
-        """
-        pass
-    
-    def commit(self):
-        """Commits pending edits (such as deletions) to this index object.
         """
         pass
     

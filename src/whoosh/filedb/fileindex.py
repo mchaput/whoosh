@@ -25,7 +25,6 @@ from whoosh.index import Index
 from whoosh.index import EmptyIndexError, OutOfDateError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import LockError
-from whoosh.support.bitvector import BitVector
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 
 
@@ -95,7 +94,7 @@ class FileIndex(SegmentDeletionMixin, Index):
 
         # Open the files underlying this index so they don't get deleted out
         # from under us.
-        self._acquire_readlocks()
+        # self._acquire_readlocks()
 
         self.segment_num_lock = None
 
@@ -103,24 +102,19 @@ class FileIndex(SegmentDeletionMixin, Index):
         return "%s(%r, %r)" % (self.__class__.__name__,
                                self.storage, self.indexname)
 
-    def _acquire_readlocks(self):
-        self._readlocks = [self.storage.open_file(name, mapped=False)
-                           for name in self.segments.filenames()
-                           if self.storage.file_exists(name)]
+#    def _acquire_readlocks(self):
+#        self._readlocks = [self.storage.open_file(name, mapped=False)
+#                           for name in self.segments.filenames()
+#                           if self.storage.file_exists(name)]
 
-    def _release_readlocks(self):
-        for f in self._readlocks:
-            f.close()
-        self._readlocks = []
+#    def _release_readlocks(self):
+#        for f in self._readlocks:
+#            f.close()
+#        self._readlocks = []
 
     def close(self):
-        self._release_readlocks()
-
-    def rename_field(self, oldname, newname):
-        # Overrides implementation in FieldMixin to tell the segments to
-        # change their fieldname-to-number maps.
-        super(Index, self).rename_field(oldname, newname)
-        self.segments.rename_field(oldname, newname)
+        #self._release_readlocks()
+        pass
 
     def latest_generation(self):
         pattern = _toc_pattern(self.indexname)
@@ -243,7 +237,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         self.writer().commit(OPTIMIZE)
 
     def commit(self, new_segments=None):
-        self._release_readlocks()
+        #self._release_readlocks()
 
         if not self.up_to_date():
             raise OutOfDateError
@@ -257,7 +251,7 @@ class FileIndex(SegmentDeletionMixin, Index):
         self._write()
         self._clean_files()
 
-        self._acquire_readlocks()
+        #self._acquire_readlocks()
 
     def _clean_files(self):
         # Attempts to remove unused index files (called when a new generation
@@ -336,10 +330,6 @@ class SegmentSet(object):
 
     def __getitem__(self, n):
         return self.segments.__getitem__(n)
-
-    def rename_field(self, oldname, newname):
-        for seg in self.segments:
-            seg.rename_field(oldname, newname)
 
     def append(self, segment):
         """Adds a segment to this set."""
@@ -460,10 +450,10 @@ class Segment(object):
     """
 
     EXTENSIONS = {"fieldlengths": "dci", "storedfields": "dcz",
-                  "termsindex":"tiz", "termposts": "pst",
+                  "termsindex": "tiz", "termposts": "pst",
                   "vectorindex": "fvz", "vectorposts": "vps"}
     
-    def __init__(self, name, schema, doccount, fieldlength_totals, fieldlength_maxes,
+    def __init__(self, name, doccount, fieldlength_totals, fieldlength_maxes,
                  deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
@@ -478,17 +468,16 @@ class Segment(object):
         """
 
         assert isinstance(name, basestring)
-        assert isinstance(schema, Schema)
         assert isinstance(doccount, (int, long))
+        assert fieldlength_totals is None or isinstance(fieldlength_totals, dict), "fl_totals=%r" % fieldlength_totals
+        assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
         
         self.name = name
-        self.schema = schema.copy()
-        self.fieldmap = dict((name, i) for i, name in enumerate(schema.names()))
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
         self.fieldlength_maxes = fieldlength_maxes
         self.deleted = deleted
-
+        
         self._filenames = set()
         for attr, ext in self.EXTENSIONS.iteritems():
             fname = "%s.%s" % (self.name, ext)
@@ -498,25 +487,13 @@ class Segment(object):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.name)
 
-    def rename_field(self, oldname, newname):
-        if newname in self.fieldmap:
-            raise KeyError("%r already exists in %r" % (newname, self))
-        
-        self.schema.rename(oldname, newname)
-        
-        # Update the fieldname-to-number map
-        fieldnum = self.fieldmap[oldname]
-        del self.fieldmap[oldname]
-        self.fieldmap[newname] = fieldnum
-
     def copy(self):
         if self.deleted:
             deleted = set(self.deleted)
         else:
             deleted = None
-        return Segment(self.name, self.schema, self.doccount,
-                       self.fieldlength_totals, self.fieldlength_maxes,
-                       deleted)
+        return Segment(self.name, self.doccount, self.fieldlength_totals,
+                       self.fieldlength_maxes, deleted)
 
     def filenames(self):
         return self._filenames
@@ -550,16 +527,12 @@ class Segment(object):
     def field_length(self, fieldname, default=0):
         """Returns the total number of terms in the given field across all
         documents in this segment.
-        
-        :param fieldname: the internal number of the field.
         """
         return self.fieldlength_totals.get(fieldname, default)
 
     def max_field_length(self, fieldname, default=0):
         """Returns the maximum length of the given field in any of the
         documents in the segment.
-        
-        :param fieldname: the internal number of the field.
         """
         return self.fieldlength_maxes.get(fieldname, default)
 

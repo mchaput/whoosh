@@ -17,12 +17,13 @@
 """ Contains functions and classes related to fields.
 """
 
-import datetime, re, struct
+import datetime, random, re, struct
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,
                              NgramWordAnalyzer)
 from whoosh.formats import Format, Existence, Frequency, Positions
+
 
 # Exceptions
 
@@ -428,14 +429,22 @@ class Schema(object):
         """
         
         self._fields = {}
-        self._names = []
         
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
     
+    def copy(self):
+        """Returns a shallow copy of the schema. The field instances are not
+        deep copied, so they are shared between schema copies.
+        """
+        
+        s = self.__class__()
+        s._fields = self._fields.copy()
+        return s
+    
     def __eq__(self, other):
-        if not isinstance(other, Schema): return False
-        return self._fields == other._fields
+        return (isinstance(other, Schema)
+                and self._fields == other._fields)
     
     def __repr__(self):
         return "<Schema: %s>" % repr(self._fields.keys())
@@ -444,20 +453,18 @@ class Schema(object):
         """Returns the field objects in this schema.
         """
         
-        return (self._fields[name] for name in self._names)
+        return self._fields.itervalues()
     
     def __getitem__(self, name):
         """Returns the field associated with the given field name.
         """
         
-        try:
-            return self._fields[name]
-        except KeyError:
-            raise KeyError("No field named %r" % name)
-    
+        return self._fields[name]
+        
     def __len__(self):
         """Returns the number of fields in this schema.
         """
+        
         return len(self._fields)
     
     def __contains__(self, fieldname):
@@ -471,25 +478,15 @@ class Schema(object):
         in this schema.
         """
         
-        return [(name, self._fields[name]) for name in self._names]
-    
+        return sorted(self._fields.items())
+        
     def names(self):
         """Returns a list of the names of the fields in this schema.
         """
-        return self._names[:]
-    
-    def copy(self):
-        """Returns a shallow copy of the schema. The field instances are not
-        deep copied, so they are shared between schema copies.
-        """
-        
-        s = self.__class__()
-        for name in self._names:
-            s.add(name, self._fields[name])
-        return s
+        return sorted(self._fields.keys())
     
     def clean(self):
-        for field in self._fields.itervalues():
+        for field in self:
             field.clean()
     
     def add(self, name, fieldtype):
@@ -506,6 +503,8 @@ class Schema(object):
         
         if name.startswith("_"):
             raise FieldConfigurationError("Field names cannot start with an underscore")
+        if " " in name:
+            raise FieldConfigurationError("Field names cannot contain spaces")
         elif name in self._fields:
             raise FieldConfigurationError("Schema already has a field named %s" % name)
         
@@ -514,55 +513,42 @@ class Schema(object):
                 fieldtype = fieldtype()
             except Exception, e:
                 raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
+        
         if not isinstance(fieldtype, FieldType):
             raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
         
-        self._names.append(name)
         self._fields[name] = fieldtype
-    
-    def remove(self, fieldid):
-        del self._fields[fieldid]
-        self._names.remove(fieldid)
-    
-    def rename(self, oldname, newname):
-        if oldname not in self._names:
-            raise KeyError("No field named %r in schema" % oldname)
-        if newname in self._names:
-            raise KeyError("Schema already has a field named %r" % newname)
         
-        field = self._fields[oldname]
-        del self._fields[oldname]
-        self._fields[newname] = field
+    def remove(self, fieldname):
+        del self._fields[fieldname]
         
-        i = self._names.index(oldname)
-        self._names[i] = newname
-    
     def has_vectored_fields(self):
         """Returns True if any of the fields in this schema store term vectors.
         """
         
         return any(ftype.vector for ftype in self)
     
-    def vectored_field_names(self):
-        """Returns a list of field names corresponding to the fields that are
-        vectored.
+    def has_scorable_fields(self):
+        return any(ftype.scorable for ftype in self)
+    
+    def stored_names(self):
+        """Returns a list of the names of fields that are stored.
         """
         
-        return [name for name, field in self.items() if field.vector]
-    
-    def scorable_field_names(self):
-        """Returns a list of field names corresponding to the fields that
-        store length information.
+        return [name for name, field in self.items() if field.stored]
+
+    def scorable_names(self):
+        """Returns a list of the names of fields that store field
+        lengths.
         """
         
         return [name for name, field in self.items() if field.scorable]
 
-    def stored_field_names(self):
-        """Returns a list of field names corresponding to the fields that are
-        stored.
+    def vector_names(self):
+        """Returns a list of the names of fields that store vectors.
         """
         
-        return [name for name, field in self.items() if field.stored]
+        return [name for name, field in self.items() if field.vector]
 
     def analyzer(self, fieldname):
         """Returns the content analyzer for the given fieldname, or None if

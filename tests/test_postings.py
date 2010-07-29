@@ -190,5 +190,9 @@ class TestPostings(unittest.TestCase):
         as_freq = [(docnum, len(posns)) for docnum, posns in as_posns]
         self.assertEqual(as_freq, self.roundtrip(postings, CharacterBoosts(None), "frequency"))
 
+
+
 if __name__ == '__main__':
     unittest.main()
+
+
