@@ -281,6 +281,12 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(u"Indexed!")
         self.assertEqual(q.__class__.__name__, "Term")
         self.assertEqual(q.text, "index")
+        
+    def test_simple(self):
+        schema = fields.Schema(content=fields.TEXT())
+        parser = qparser.SimpleParser("content", schema=schema)
+        parser.parse(u"sound the trumpets")
+        
 
 
 if __name__ == '__main__':

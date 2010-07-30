@@ -98,7 +98,9 @@ class SimpleParser(object):
                 return field.parse_query(fieldname, text, boost=boost)
         
         parts = self.get_term_text(fieldname, text)
-        if len(parts) > 1:
+        if not parts:
+            return None
+        elif len(parts) > 1:
             return self.phraseclass(fieldname, parts, boost=boost)
         else:
             return self.termclass(fieldname, parts[0], boost=boost)
@@ -111,19 +113,17 @@ class SimpleParser(object):
     
     def parse(self, input, normalize=True):
         reqs, opts, nots, phrase = self._sort(self._split(input))
-        make_clause = self.make_clause
-        make_filter_clause = self.make_filter_clause
         
-        reqs = [make_clause(text) for text in reqs]
-        opts = [make_clause(text) for text in opts]
-        nots = [make_filter_clause(text) for text in nots]
+        reqs = [self.make_clause(text) for text in reqs]
+        opts = [self.make_clause(text) for text in opts]
+        nots = [self.make_filter_clause(text) for text in nots]
         
         pctmatch = int((len(reqs) + len(opts)) * self.minpercent) - len(reqs)
         minmatch = max(pctmatch, self.minmatch - len(reqs), 0)
         
-        q = Or(opts, minmatch=minmatch)
-        if reqs: q = AndMaybe(And(reqs), q)
-        if nots: q = AndNot(q, Or(nots))
+        q = Or([oq for oq in opts if oq], minmatch=minmatch)
+        if reqs: q = AndMaybe(And([rq for rq in reqs if rq]), q)
+        if nots: q = AndNot(q, Or([nq for nq in nots if nq]))
         
         if normalize:
             q = q.normalize()
