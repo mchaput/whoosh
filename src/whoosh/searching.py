@@ -75,6 +75,12 @@ class Searcher(object):
         return self.ix.latest_generation() == self.ixreader.generation()
 
     def refresh(self):
+        """Returns a fresh searcher for the latest version of the index::
+        
+            if not my_searcher.up_to_date():
+                my_searcher = my_searcher.refresh()
+        """
+        
         self.close()
         return self.__class__(self.ix, weighting=self.weighting)
 
