@@ -74,6 +74,10 @@ class Searcher(object):
         
         return self.ix.latest_generation() == self.ixreader.generation()
 
+    def refresh(self):
+        self.close()
+        return self.__class__(self.ix, weighting=self.weighting)
+
     def close(self):
         self.ixreader.close()
         self.is_closed = True

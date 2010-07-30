@@ -686,6 +686,37 @@ class TestSearching(unittest.TestCase):
         do(u"view_count:{202 TO]", "cdefghijklmno")
         do(u"view_count:[TO 505}", "abcd")
         do(u"view_count:{202 TO 404}", "c")
+        
+    def test_outofdate(self):
+        schema = fields.Schema(id=fields.ID(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1")
+        w.add_document(id=u"2")
+        w.commit()
+        
+        s = ix.searcher()
+        self.assertTrue(s.up_to_date())
+        
+        w = ix.writer()
+        w.add_document(id=u"3")
+        w.add_document(id=u"4")
+        
+        self.assertTrue(s.up_to_date())
+        w.commit()
+        self.assertFalse(s.up_to_date())
+
+        s = s.refresh()
+        self.assertTrue(s.up_to_date())
+
+
+
+
+
+        
+        
 
 
 if __name__ == '__main__':
