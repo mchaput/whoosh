@@ -928,6 +928,14 @@ class Variations(MultiTerm):
     def _all_terms(self, termset, phrases=True):
         termset.add(self.text)
 
+    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
+        for word in self.words:
+            t = (self.fieldname, word)
+            contains = t in ixreader
+            if reverse: contains = not contains
+            if contains:
+                termset.add(t)
+
     def _words(self, ixreader):
         fieldname = self.fieldname
         return [word for word in self.words if (fieldname, word) in ixreader]
