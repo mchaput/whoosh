@@ -29,43 +29,43 @@ from whoosh.util import now
 # Multiprocessing writer
 
 class SegmentWritingTask(Process):
-        def __init__(self, storage, indexname, segmentname, kwargs, postingqueue):
-            Process.__init__(self)
-            self.storage = storage
-            self.indexname = indexname
-            self.segmentname = segmentname
-            self.kwargs = kwargs
-            self.postingqueue = postingqueue
-            
-            self.segment = None
-            self.running = True
+    def __init__(self, storage, indexname, segmentname, kwargs, postingqueue):
+        Process.__init__(self)
+        self.storage = storage
+        self.indexname = indexname
+        self.segmentname = segmentname
+        self.kwargs = kwargs
+        self.postingqueue = postingqueue
         
-        def run(self):
-            pqueue = self.postingqueue
-            
-            index = self.storage.open_index(self.indexname)
-            writer = SegmentWriter(index, name=self.segmentname, lock=False, **self.kwargs)
-            
-            while self.running:
-                args = pqueue.get()
-                if args is None:
-                    break
-                
-                writer.add_document(**args)
-            
-            if not self.running:
-                writer.cancel()
-                self.terminate()
-            else:
-                writer.pool.finish(writer.docnum, writer.lengthfile,
-                                   writer.termsindex, writer.postwriter)
-                self._segment = writer._getsegment()
+        self.segment = None
+        self.running = True
+    
+    def run(self):
+        pqueue = self.postingqueue
         
-        def get_segment(self):
-            return self._segment
+        index = self.storage.open_index(self.indexname)
+        writer = SegmentWriter(index, name=self.segmentname, lock=False, **self.kwargs)
         
-        def cancel(self):
-            self.running = False
+        while self.running:
+            args = pqueue.get()
+            if args is None:
+                break
+            
+            writer.add_document(**args)
+        
+        if not self.running:
+            writer.cancel()
+            self.terminate()
+        else:
+            writer.pool.finish(writer.docnum, writer.lengthfile,
+                               writer.termsindex, writer.postwriter)
+            self._segment = writer._getsegment()
+    
+    def get_segment(self):
+        return self._segment
+    
+    def cancel(self):
+        self.running = False
 
 
 class MultiSegmentWriter(IndexWriter):

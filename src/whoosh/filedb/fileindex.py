@@ -261,9 +261,9 @@ class FileIndex(Index):
         finally:
             lock.release()
 
-    def writer(self):
+    def writer(self, **kwargs):
         from whoosh.filedb.filewriting import SegmentWriter
-        return SegmentWriter(self)
+        return SegmentWriter(self, **kwargs)
 
     def lock(self, name):
         """Returns a lock object that you can try to call acquire() on to
