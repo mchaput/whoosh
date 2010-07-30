@@ -52,21 +52,21 @@ class TestIndexing(unittest.TestCase):
         w = ix.writer()
         w.commit()
     
-#    def test_multipool(self):
-#        domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf",
-#                  u"hotel", u"india", u"juliet", u"kilo", u"lima", u"mike", u"november")
-#        
-#        s = fields.Schema(content=fields.TEXT, id=fields.ID)
-#        ix = self.make_index("testindex", s, "multipool")
-#        
-#        w = ix.writer(procs=4)
-#        for _ in xrange(1000):
-#            w.add_document(content=u" ".join(random.sample(domain, 5)),
-#                           id=random.choice(domain))
-#        w.commit()
-#        
-#        ix.close()
-#        self.destroy_index("testindex")
+    def test_multipool(self):
+        domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf",
+                  u"hotel", u"india", u"juliet", u"kilo", u"lima", u"mike", u"november")
+        
+        s = fields.Schema(content=fields.TEXT, id=fields.ID)
+        ix = self.make_index("testindex", s, "multipool")
+        
+        w = ix.writer(procs=4)
+        for _ in xrange(1000):
+            w.add_document(content=u" ".join(random.sample(domain, 5)),
+                           id=random.choice(domain))
+        w.commit()
+        
+        ix.close()
+        self.destroy_index("testindex")
     
     def test_integrity(self):
         s = fields.Schema(name=fields.TEXT, value=fields.TEXT)
