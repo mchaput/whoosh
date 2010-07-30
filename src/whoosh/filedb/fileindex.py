@@ -409,7 +409,7 @@ class SegmentSet(object):
             r = SegmentReader(storage, schema, segments[0], generation)
         else:
             from whoosh.reading import MultiReader
-            readers = [SegmentReader(storage, schema, segment)
+            readers = [SegmentReader(storage, schema, segment, -2)
                        for segment in segments]
             r = MultiReader(readers, generation)
             

@@ -28,7 +28,7 @@ from whoosh.util import protected
 # Reader class
 
 class SegmentReader(IndexReader):
-    def __init__(self, storage, schema, segment, generation=-1):
+    def __init__(self, storage, schema, segment, generation=None):
         self.storage = storage
         self.schema = schema
         self.segment = segment
@@ -92,6 +92,9 @@ class SegmentReader(IndexReader):
     @protected
     def __contains__(self, term):
         return term in self.termsindex
+
+    def generation(self):
+        return self._generation
 
     def close(self):
         self.storedfields.close()
