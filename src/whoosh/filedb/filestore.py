@@ -40,8 +40,9 @@ class FileStorage(Storage):
         return iter(self.list())
 
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
-        from whoosh.filedb.fileindex import FileIndex
-        return FileIndex(self, schema=schema, create=True, indexname=indexname)
+        from whoosh.filedb.fileindex import _create_index, FileIndex
+        _create_index(self, schema, indexname)
+        return FileIndex(self, schema, indexname)
 
     def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
         from whoosh.filedb.fileindex import FileIndex
@@ -53,7 +54,11 @@ class FileStorage(Storage):
         return f
 
     def open_file(self, name, *args, **kwargs):
-        f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
+        try:
+            f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
+        except IOError:
+            print "Tried to open %r, files=%r" % (name, self.list())
+            raise
         return f
 
     def _fpath(self, fname):
@@ -153,7 +158,7 @@ class RamStorage(FileStorage):
 
     def open_file(self, name, *args, **kwargs):
         if name not in self.files:
-            raise NameError
+            raise NameError("No such file %r" % name)
         return StructFile(StringIO(self.files[name]), name=name, *args, **kwargs)
 
     def lock(self, name):

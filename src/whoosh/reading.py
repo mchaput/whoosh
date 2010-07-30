@@ -42,10 +42,72 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
+    def __iter__(self):
+        """Yields (fieldname, text, docfreq, indexfreq) tuples for each term in
+        the reader, in lexical order.
+        """
+        raise NotImplementedError
+
     def close(self):
         """Closes the open files associated with this reader.
         """
         raise NotImplementedError
+
+    def generation(self):
+        """Returns the generation of the index being read, or -1 if the backend
+        is not versioned.
+        """
+        
+        return -1
+
+    def iter_from(self, fieldname, text):
+        """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
+        in the reader, starting at the given term.
+        """
+        raise NotImplementedError
+
+    def expand_prefix(self, fieldname, prefix):
+        """Yields terms in the given field that start with the given prefix.
+        """
+
+        for fn, t, _, _ in self.iter_from(fieldname, prefix):
+            if fn != fieldname or not t.startswith(prefix):
+                return
+            yield t
+
+    def all_terms(self):
+        """Yields (fieldname, text) tuples for every term in the index.
+        """
+
+        for fn, t, _, _ in self:
+            yield (fn, t)
+
+    def iter_field(self, fieldname, prefix=''):
+        """Yields (text, doc_freq, index_freq) tuples for all terms in the
+        given field.
+        """
+
+        for fn, t, docfreq, freq in self.iter_from(fieldname, prefix):
+            if fn != fieldname:
+                return
+            yield t, docfreq, freq
+
+    def iter_prefix(self, fieldname, prefix):
+        """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
+        in the given field with a certain prefix.
+        """
+
+        for fn, t, docfreq, colfreq in self.iter_from(fieldname, prefix):
+            if fn != fieldname or not t.startswith(prefix):
+                return
+            yield (t, docfreq, colfreq)
+
+    def lexicon(self, fieldname):
+        """Yields all terms in the given field.
+        """
+
+        for t, _, _ in self.iter_field(fieldname):
+            yield t
 
     def has_deletions(self):
         """Returns True if the underlying index/segment has deleted
@@ -129,20 +191,6 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def has_vector(self, docnum, fieldname):
-        """Returns True if the given document has a term vector for the given
-        field.
-        """
-        raise NotImplementedError
-
-    def vector_fields(self, docnum):
-        """Returns the field IDs with vectors for the given document.
-        """
-        
-        for fieldname in self.vector_names():
-            if self.has_vector(docnum, fieldname):
-                yield fieldname
-
     def postings(self, fieldname, text, exclude_docs=None):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
@@ -159,6 +207,12 @@ class IndexReader(ClosableMixin):
         :rtype: :class:`whoosh.matching.Matcher`
         """
 
+        raise NotImplementedError
+
+    def has_vector(self, docnum, fieldname):
+        """Returns True if the given document has a term vector for the given
+        field.
+        """
         raise NotImplementedError
 
     def vector(self, docnum, fieldname):
@@ -217,12 +271,6 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def __iter__(self):
-        """Yields (fieldname, text, docfreq, indexfreq) tuples for each term in
-        the reader, in lexical order.
-        """
-        raise NotImplementedError
-
     def doc_frequency(self, fieldname, text):
         """Returns how many documents the given term appears in.
         """
@@ -233,48 +281,6 @@ class IndexReader(ClosableMixin):
         collection.
         """
         raise NotImplementedError
-
-    def iter_from(self, fieldname, text):
-        """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
-        in the reader, starting at the given term.
-        """
-        raise NotImplementedError
-
-    def expand_prefix(self, fieldname, prefix):
-        """Yields terms in the given field that start with the given prefix.
-        """
-
-        for fn, t, _, _ in self.iter_from(fieldname, prefix):
-            if fn != fieldname or not t.startswith(prefix):
-                return
-            yield t
-
-    def all_terms(self):
-        """Yields (fieldname, text) tuples for every term in the index.
-        """
-
-        for fn, t, _, _ in self:
-            yield (fn, t)
-
-    def iter_field(self, fieldname, prefix=''):
-        """Yields (text, doc_freq, index_freq) tuples for all terms in the
-        given field.
-        """
-
-        for fn, t, docfreq, freq in self.iter_from(fieldname, prefix):
-            if fn != fieldname:
-                return
-            yield t, docfreq, freq
-
-    def iter_prefix(self, fieldname, prefix):
-        """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
-        in the given field with a certain prefix.
-        """
-
-        for fn, t, docfreq, colfreq in self.iter_from(fieldname, prefix):
-            if fn != fieldname or not t.startswith(prefix):
-                return
-            yield (t, docfreq, colfreq)
 
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
@@ -294,19 +300,6 @@ class IndexReader(ClosableMixin):
                                  for token, df, tf
                                  in self.iter_prefix(fieldname, prefix)))
 
-    def lexicon(self, fieldname):
-        """Yields all terms in the given field.
-        """
-
-        for t, _, _ in self.iter_field(fieldname):
-            yield t
-            
-    def last_modified(self):
-        """Returns the last-modified timestamp of the underlying index.
-        """
-        
-        return 0
-
 
 # Multisegment reader class
 
@@ -314,8 +307,9 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def __init__(self, readers):
+    def __init__(self, readers, generation=-1):
         self.readers = readers
+        self._generation = generation
         
         self.doc_offsets = []
         base = 0
@@ -331,81 +325,6 @@ class MultiReader(IndexReader):
     def __iter__(self):
         return self._merge_iters([iter(r) for r in self.readers])
 
-    def close(self):
-        for d in self.readers:
-            d.close()
-        self.is_closed = True
-
-    def has_deletions(self):
-        return any(r.has_deletions() for r in self.readers)
-
-    def is_deleted(self, docnum):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].is_deleted(segmentdoc)
-
-    def stored_fields(self, docnum):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].stored_fields(segmentdoc)
-
-    def all_stored_fields(self):
-        for reader in self.readers:
-            for result in reader.all_stored_fields():
-                yield result
-
-    def field(self, fieldname):
-        for r in self.readers:
-            try:
-                field = r.field(fieldname)
-                return field
-            except KeyError:
-                pass
-        raise KeyError("No field named %r" % fieldname)
-
-    def scorable(self, fieldname):
-        return any(r.scorable(fieldname) for r in self.readers)
-
-    def scorable_names(self):
-        s = set()
-        for reader in self.readers:
-            s = s.union(reader.scorable_names())
-        return sorted(s)
-
-    def vector_names(self):
-        s = set()
-        for reader in self.readers:
-            s = s.union(reader.vector_names())
-        return sorted(s)
-
-    def format(self, fieldname):
-        for r in self.readers:
-            fmt = r.format(fieldname)
-            if fmt is not None:
-                return fmt
-
-    def vector_format(self, fieldname):
-        for r in self.readers:
-            vfmt = r.vector_format(fieldname)
-            if vfmt is not None:
-                return vfmt
-
-    def doc_count_all(self):
-        return sum(dr.doc_count_all() for dr in self.readers)
-
-    def doc_count(self):
-        return sum(dr.doc_count() for dr in self.readers)
-
-    def field_length(self, fieldname):
-        return sum(dr.field_length(fieldname) for dr in self.readers)
-
-    def doc_field_length(self, docnum, fieldname, default=0):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        reader = self.readers[segmentnum]
-        return reader.doc_field_length(segmentdoc, fieldname, default=default)
-
-    def unique_count(self, docnum):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].unique_count(segmentdoc)
-
     def _document_segment(self, docnum):
         return max(0, bisect_right(self.doc_offsets, docnum) - 1)
 
@@ -414,51 +333,12 @@ class MultiReader(IndexReader):
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
 
-    def has_vector(self, docnum, fieldname):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].has_vector(segmentdoc, fieldname)
-
-    def postings(self, fieldname, text, scorefns=None, exclude_docs=None):
-        postreaders = []
-        docoffsets = []
-        for i, r in enumerate(self.readers):
-            format = r.schema[fieldname].format
-            if (fieldname, text) in r:
-                pr = r.postings(fieldname, text, scorefns=scorefns,
-                                exclude_docs=exclude_docs)
-                postreaders.append(pr)
-                docoffsets.append(self.doc_offsets[i])
-        
-        if not postreaders:
-            raise TermNotFound(fieldname, text)
-        else:
-            return MultiMatcher(postreaders, docoffsets)
-
-    def vector(self, docnum, fieldname):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].vector(segmentdoc, fieldname)
-
-    def vector_as(self, astype, docnum, fieldname):
-        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldname)
-
-    def iter_from(self, fieldname, text):
-        return self._merge_iters([r.iter_from(fieldname, text)
-                                  for r in self.readers])
-
-    def doc_frequency(self, fieldname, text):
-        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
-
-    def frequency(self, fieldname, text):
-        return sum(r.frequency(fieldname, text) for r in self.readers)
-
     def _merge_iters(self, iterlist):
         # Merge-sorts terms coming from a list of
         # term iterators (IndexReader.__iter__() or
         # IndexReader.iter_from()).
 
         # Fill in the list with the head term from each iterator.
-        # infos is a list of [headterm, iterator] lists.
 
         current = []
         for it in iterlist:
@@ -488,6 +368,129 @@ class MultiReader(IndexReader):
 
             # Yield the term with the summed doc frequency and term count.
             yield (fnum, text, docfreq, termcount)
+
+    def close(self):
+        for d in self.readers:
+            d.close()
+        self.is_closed = True
+
+    def generation(self):
+        return self._generation
+
+    def iter_from(self, fieldname, text):
+        return self._merge_iters([r.iter_from(fieldname, text)
+                                  for r in self.readers])
+
+    # expand_prefix
+    # all_terms
+    # iter_field
+    # iter_prefix
+    # lexicon
+
+    def has_deletions(self):
+        return any(r.has_deletions() for r in self.readers)
+
+    def is_deleted(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].is_deleted(segmentdoc)
+
+    def stored_fields(self, docnum):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].stored_fields(segmentdoc)
+
+    def all_stored_fields(self):
+        for reader in self.readers:
+            for result in reader.all_stored_fields():
+                yield result
+
+    def doc_count_all(self):
+        return sum(dr.doc_count_all() for dr in self.readers)
+
+    def doc_count(self):
+        return sum(dr.doc_count() for dr in self.readers)
+
+    def field(self, fieldname):
+        for r in self.readers:
+            try:
+                field = r.field(fieldname)
+                return field
+            except KeyError:
+                pass
+        raise KeyError("No field named %r" % fieldname)
+
+    def scorable(self, fieldname):
+        return any(r.scorable(fieldname) for r in self.readers)
+
+    def scorable_names(self):
+        s = set()
+        for reader in self.readers:
+            s = s.union(reader.scorable_names())
+        return sorted(s)
+
+    def vector_names(self):
+        s = set()
+        for reader in self.readers:
+            s = s.union(reader.vector_names())
+        return sorted(s)
+
+    def field_length(self, fieldname):
+        return sum(dr.field_length(fieldname) for dr in self.readers)
+
+    def doc_field_length(self, docnum, fieldname, default=0):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        reader = self.readers[segmentnum]
+        return reader.doc_field_length(segmentdoc, fieldname, default=default)
+    
+    # max_field_length
+
+    def postings(self, fieldname, text, scorefns=None, exclude_docs=None):
+        postreaders = []
+        docoffsets = []
+        for i, r in enumerate(self.readers):
+            format = r.schema[fieldname].format
+            if (fieldname, text) in r:
+                pr = r.postings(fieldname, text, scorefns=scorefns,
+                                exclude_docs=exclude_docs)
+                postreaders.append(pr)
+                docoffsets.append(self.doc_offsets[i])
+        
+        if not postreaders:
+            raise TermNotFound(fieldname, text)
+        else:
+            return MultiMatcher(postreaders, docoffsets)
+
+    def has_vector(self, docnum, fieldname):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].has_vector(segmentdoc, fieldname)
+
+    def vector(self, docnum, fieldname):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].vector(segmentdoc, fieldname)
+
+    def vector_as(self, astype, docnum, fieldname):
+        segmentnum, segmentdoc = self._segment_and_docnum(docnum)
+        return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldname)
+
+    def format(self, fieldname):
+        for r in self.readers:
+            fmt = r.format(fieldname)
+            if fmt is not None:
+                return fmt
+
+    def vector_format(self, fieldname):
+        for r in self.readers:
+            vfmt = r.vector_format(fieldname)
+            if vfmt is not None:
+                return vfmt
+
+    def doc_frequency(self, fieldname, text):
+        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
+
+    def frequency(self, fieldname, text):
+        return sum(r.frequency(fieldname, text) for r in self.readers)
+
+    # most_frequent_terms
+    # most_distinctive_terms
 
 
 

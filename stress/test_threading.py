@@ -25,7 +25,7 @@ class TestThreading(unittest.TestCase):
                 ix = index.create_in(dirname, schema, indexname=ixname)
                 num = 0
                 
-                for i in xrange(500):
+                for i in xrange(50):
                     print i
                     w = ix.writer()
                     for j in xrange(random.randint(1, 100)):
@@ -34,27 +34,27 @@ class TestThreading(unittest.TestCase):
                         num += 1
                     w.commit()
                     
-                    time.sleep(0.01)
+                    time.sleep(0.1)
         
         class SearcherThread(threading.Thread):
             def run(self):
                 print self.name + " starting"
-                for i in xrange(100):
+                for i in xrange(10):
                     ix = index.open_dir(dirname, indexname=ixname)
                     s = ix.searcher()
                     q = query.Term("content", random.choice(domain))
                     r = s.search(q, limit=10)
                     s.close()
                     ix.close()
-                    time.sleep(0.01)
+                    time.sleep(0.1)
                 print self.name + " done"
         
         wt = WriterThread()
         wt.start()
         time.sleep(0.5)
-        for i in xrange(50):
+        for i in xrange(20):
             SearcherThread().start()
-            time.sleep(3)
+            time.sleep(0.5)
         wt.join()
 
 if __name__ == '__main__':

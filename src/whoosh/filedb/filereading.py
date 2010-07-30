@@ -28,10 +28,11 @@ from whoosh.util import protected
 # Reader class
 
 class SegmentReader(IndexReader):
-    def __init__(self, storage, schema, segment):
+    def __init__(self, storage, schema, segment, generation=-1):
         self.storage = storage
         self.schema = schema
         self.segment = segment
+        self._generation = generation
         
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
@@ -250,7 +251,7 @@ class SegmentReader(IndexReader):
         
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
-
+        
 
 
 

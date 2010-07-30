@@ -39,7 +39,7 @@ class TestSearching(unittest.TestCase):
     def test_empty_index(self):
         schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT)
         st = RamStorage()
-        self.assertRaises(index.EmptyIndexError, st.open_index, schema)
+        self.assertRaises(index.EmptyIndexError, st.open_index, schema=schema)
     
     def test_docs_method(self):
         ix = self.make_index()
@@ -106,7 +106,6 @@ class TestSearching(unittest.TestCase):
         searcher.close()
         
         ix.delete_by_term("value", u"bravo")
-        ix.commit()
         
         searcher = ix.searcher()
         results = searcher.search(p.parse("echo NOT charlie"))
@@ -260,7 +259,7 @@ class TestSearching(unittest.TestCase):
         w = ix.writer()
         w.add_document(id=u"echo", content=u"echo")
         w.commit()
-        self.assertEqual(len(ix.segments), 1)
+        self.assertEqual(len(ix._segments()), 1)
         
         s = ix.searcher()
         r = s.search(query.Term("content", u"bravo"))
@@ -299,7 +298,7 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"quebec", content=u"quebec")
         w.add_document(id=u"romeo", content=u"romeo")
         w.commit()
-        self.assertEqual(len(ix.segments), 2)
+        self.assertEqual(len(ix._segments()), 2)
         
         r = ix.reader()
         self.assertEqual(r.__class__.__name__, "MultiReader")
@@ -431,24 +430,25 @@ class TestSearching(unittest.TestCase):
         schema = fields.Schema(name=fields.TEXT(stored=True),
                                hobbies=fields.TEXT(stored=True))
         storage = RamStorage()
-        idx = storage.create_index(schema)
-        writer = idx.writer() 
+        ix = storage.create_index(schema)
+        writer = ix.writer() 
         writer.add_document(name=u'Frank', hobbies=u'baseball, basketball')
         writer.commit()
-        r = idx.reader()
+        r = ix.reader()
         self.assertEqual(r.field_length("hobbies"), 2)
         self.assertEqual(r.field_length("name"), 1)
         r.close()
         
-        writer = idx.writer()
+        writer = ix.writer()
         writer.add_document(name=u'Jonny') 
         writer.commit()
-        r = idx.reader()
-        self.assertEqual(len(idx.segments), 1)
+        
+        searcher = ix.searcher()
+        r = searcher.reader()
+        self.assertEqual(len(ix._segments()), 1)
         self.assertEqual(r.field_length("hobbies"), 2)
         self.assertEqual(r.field_length("name"), 2)
         
-        searcher = Searcher(r)
         parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
         q = parser.parse(u"baseball")
         result = searcher.search(q)
@@ -596,10 +596,11 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"foxtrot")
         w.commit()
         
-        ix.delete_by_term("id", "bravo")
-        ix.delete_by_term("id", "delta")
-        ix.delete_by_term("id", "echo")
-        ix.commit()
+        w = ix.writer()
+        w.delete_by_term("id", "bravo")
+        w.delete_by_term("id", "delta")
+        w.delete_by_term("id", "echo")
+        w.commit()
         
         r = ix.searcher().search(query.Every("id"))
         self.assertEqual(sorted([d['id'] for d in r]), ["alfa", "charlie", "foxtrot"])
@@ -659,6 +660,32 @@ class TestSearching(unittest.TestCase):
         ids = [fs["id"] for fs in r]
         self.assertEqual(["2", "4", "1", "3"], ids)
         
+    def test_open_numeric_ranges(self):
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               view_count=fields.NUMERIC(stored=True))
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        w = ix.writer()
+        for i, letter in enumerate(u"abcdefghijklmno"):
+            w.add_document(id=letter, view_count=(i + 1) * 101)
+        w.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("id", schema=schema)
+        
+        def do(qstring, target):
+            q = qp.parse(qstring)
+            results = "".join(sorted([d['id'] for d in s.search(q, limit=None)]))
+            self.assertEqual(results, target)
+            
+        do(u"view_count:[0 TO]", "abcdefghijklmno")
+        do(u"view_count:[1000 TO]", "jklmno")
+        do(u"view_count:[TO 300]", "ab")
+        do(u"view_count:[200 TO 500]", "bcd")
+        do(u"view_count:{202 TO]", "cdefghijklmno")
+        do(u"view_count:[TO 505}", "abcd")
+        do(u"view_count:{202 TO 404}", "c")
 
 
 if __name__ == '__main__':

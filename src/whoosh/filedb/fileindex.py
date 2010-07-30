@@ -24,180 +24,129 @@ from whoosh.fields import Schema
 from whoosh.index import Index
 from whoosh.index import EmptyIndexError, OutOfDateError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
-from whoosh.store import LockError
+from whoosh.store import Storage, LockError
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 
 
-_INDEX_VERSION = -105
+_INDEX_VERSION = -106
 
 
-# A mix-in that adds methods for deleting
-# documents from self.segments. These methods are on IndexWriter as
-# well as Index for convenience, so they're broken out here.
+# TOC read/write functions
 
-class SegmentDeletionMixin(object):
-    """Mix-in for classes that support deleting documents from self.segments.
+def _toc_filename(indexname, gen):
+    return "_%s_%s.toc" % (indexname, gen)
+
+def _toc_pattern(indexname):
+    """Returns a regular expression object that matches TOC filenames.
+    name is the name of the index.
     """
 
-    def delete_document(self, docnum, delete=True):
-        """Deletes a document by number."""
-        self.segments.delete_document(docnum, delete=delete)
+    return re.compile("^_%s_([0-9]+).toc$" % indexname)
 
-    def deleted_count(self):
-        """Returns the total number of deleted documents in this index.
-        """
-        return self.segments.deleted_count()
+def _segment_pattern(indexname):
+    """Returns a regular expression object that matches segment filenames.
+    name is the name of the index.
+    """
 
-    def is_deleted(self, docnum):
-        """Returns True if a given document number is deleted but
-        not yet optimized out of the index.
-        """
-        return self.segments.is_deleted(docnum)
-
-    def has_deletions(self):
-        """Returns True if this index has documents that are marked
-        deleted but haven't been optimized out of the index yet.
-        """
-        return self.segments.has_deletions()
+    return re.compile("(_%s_[0-9]+).(%s)" % (indexname,
+                                             Segment.EXTENSIONS.values()))
 
 
-class FileIndex(SegmentDeletionMixin, Index):
-    def __init__(self, storage, schema, create=False, indexname=_DEF_INDEX_NAME):
-        self.storage = storage
-        self.indexname = indexname
+def _latest_generation(storage, indexname):
+    pattern = _toc_pattern(indexname)
 
-        if schema is not None and not isinstance(schema, Schema):
-            raise ValueError("%r is not a Schema object" % schema)
+    max = -1
+    for filename in storage:
+        m = pattern.match(filename)
+        if m:
+            num = int(m.group(1))
+            if num > max: max = num
+    return max
 
-        self.generation = self.latest_generation()
 
-        if create:
-            if schema is None:
-                raise IndexError("To create an index you must specify a schema")
+def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
+    # Clear existing files
+    prefix = "_%s_" % indexname
+    for filename in storage:
+        if filename.startswith(prefix):
+            storage.delete_file(filename)
+    
+    _write_toc(storage, schema, indexname, 0, 0, SegmentSet())
 
-            self.schema = schema
-            self.generation = 0
-            self.segment_counter = 0
-            self.segments = SegmentSet()
 
-            # Clear existing files
-            prefix = "_%s_" % self.indexname
-            for filename in self.storage:
-                if filename.startswith(prefix):
-                    storage.delete_file(filename)
+def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
+    schema.clean()
 
-            self._write()
-        elif self.generation >= 0:
-            self._read(schema)
-        else:
-            raise EmptyIndexError("No index named %r in storage %r" % (indexname, storage))
+    # Use a temporary file for atomic write.
+    tocfilename = _toc_filename(indexname, gen)
+    tempfilename = '%s.%s' % (tocfilename, time())
+    stream = storage.create_file(tempfilename)
 
-        # Open the files underlying this index so they don't get deleted out
-        # from under us.
-        # self._acquire_readlocks()
+    stream.write_varint(_INT_SIZE)
+    stream.write_varint(_FLOAT_SIZE)
+    stream.write_int(-12345)
 
-        self.segment_num_lock = None
+    stream.write_int(_INDEX_VERSION)
+    for num in __version__[:3]:
+        stream.write_varint(num)
 
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.storage, self.indexname)
+    stream.write_string(cPickle.dumps(schema, -1))
+    stream.write_int(gen)
+    stream.write_int(segment_counter)
+    stream.write_pickle(segments)
+    stream.close()
 
-#    def _acquire_readlocks(self):
-#        self._readlocks = [self.storage.open_file(name, mapped=False)
-#                           for name in self.segments.filenames()
-#                           if self.storage.file_exists(name)]
+    # Rename temporary file to the proper filename
+    storage.rename_file(tempfilename, tocfilename, safe=True)
 
-#    def _release_readlocks(self):
-#        for f in self._readlocks:
-#            f.close()
-#        self._readlocks = []
 
-    def close(self):
-        #self._release_readlocks()
-        pass
+class Toc(object):
+    def __init__(self, **kwargs):
+        for name, value in kwargs.iteritems():
+            setattr(self, name, value)
+        
 
-    def latest_generation(self):
-        pattern = _toc_pattern(self.indexname)
+def _read_toc(storage, schema, indexname):
+    gen = _latest_generation(storage, indexname)
+    if gen < 0:
+        raise EmptyIndexError("Index %r does not exist in %r" % (indexname, storage))
+    
+    # Read the content of this index from the .toc file.
+    tocfilename = _toc_filename(indexname, gen)
+    stream = storage.open_file(tocfilename)
 
-        max = -1
-        for filename in self.storage:
-            m = pattern.match(filename)
-            if m:
-                num = int(m.group(1))
-                if num > max: max = num
-        return max
+    if stream.read_varint() != _INT_SIZE or \
+       stream.read_varint() != _FLOAT_SIZE:
+        raise IndexError("Index was created on an architecture with different data sizes")
 
-    def refresh(self):
-        if not self.up_to_date():
-            return self.__class__(self.storage, self.schema,
-                                  indexname=self.indexname)
-        else:
-            return self
+    if not stream.read_int() == -12345:
+        raise IndexError("Number misread: byte order problem")
 
-    def up_to_date(self):
-        return self.generation == self.latest_generation()
+    version = stream.read_int()
+    if version != _INDEX_VERSION:
+        raise IndexVersionError("Can't read format %s" % version, version)
+    release = (stream.read_varint(), stream.read_varint(), stream.read_varint())
+    
+    # If the user supplied a schema object with the constructor, don't load
+    # the pickled schema from the saved index.
+    if schema:
+        stream.skip_string()
+    else:
+        schema = cPickle.loads(stream.read_string())
+    
+    # Generation
+    assert gen == stream.read_int()
+    
+    segment_counter = stream.read_int()
+    segments = stream.read_pickle()
+    
+    stream.close()
+    return Toc(version=version, release=release, schema=schema,
+               segment_counter=segment_counter, segments=segments,
+               generation=gen)
 
-    def _write(self):
-        # Writes the content of this index to the .toc file.
-        self.schema.clean()
-        #stream = self.storage.create_file(self._toc_filename())
 
-        # Use a temporary file for atomic write.
-        tocfilename = self._toc_filename()
-        tempfilename = '%s.%s' % (tocfilename, time())
-        stream = self.storage.create_file(tempfilename)
-
-        stream.write_varint(_INT_SIZE)
-        stream.write_varint(_FLOAT_SIZE)
-        stream.write_int(-12345)
-
-        stream.write_int(_INDEX_VERSION)
-        for num in __version__[:3]:
-            stream.write_varint(num)
-
-        stream.write_string(cPickle.dumps(self.schema, -1))
-        stream.write_int(self.generation)
-        stream.write_int(self.segment_counter)
-        stream.write_pickle(self.segments)
-        stream.close()
-
-        # Rename temporary file to the proper filename
-        self.storage.rename_file(tempfilename, self._toc_filename(), safe=True)
-
-    def _read(self, schema):
-        # Reads the content of this index from the .toc file.
-        stream = self.storage.open_file(self._toc_filename())
-
-        if stream.read_varint() != _INT_SIZE or \
-           stream.read_varint() != _FLOAT_SIZE:
-            raise IndexError("Index was created on an architecture with different data sizes")
-
-        if not stream.read_int() == -12345:
-            raise IndexError("Number misread: byte order problem")
-
-        version = stream.read_int()
-        if version != _INDEX_VERSION:
-            raise IndexVersionError("Can't read format %s" % version, version)
-        self.version = version
-        self.release = (stream.read_varint(),
-                        stream.read_varint(),
-                        stream.read_varint())
-
-        # If the user supplied a schema object with the constructor, don't load
-        # the pickled schema from the saved index.
-        if schema:
-            self.schema = schema
-            stream.skip_string()
-        else:
-            self.schema = cPickle.loads(stream.read_string())
-
-        generation = stream.read_int()
-        assert generation == self.generation
-        self.segment_counter = stream.read_int()
-        self.segments = stream.read_pickle()
-        stream.close()
-
-    def _next_segment_name(self):
+def _next_segment_name(self):
         #Returns the name of the next segment in sequence.
         if self.segment_num_lock is None:
             self.segment_num_lock = Lock()
@@ -205,72 +154,30 @@ class FileIndex(SegmentDeletionMixin, Index):
         if self.segment_num_lock.acquire():
             try:
                 self.segment_counter += 1
-                return "_%s_%s" % (self.indexname, self.segment_counter)
+                return 
             finally:
                 self.segment_num_lock.release()
         else:
             raise LockError
 
-    def _toc_filename(self):
-        # Returns the computed filename of the TOC for this index name and
-        # generation.
-        return "_%s_%s.toc" % (self.indexname, self.generation)
 
-    def last_modified(self):
-        return self.storage.file_modified(self._toc_filename())
-
-    def is_empty(self):
-        """Low-level: Returns the number of segments in this index.
-        """
-        return len(self.segments) == 0
-
-    def segment_count(self):
-        return len(self.segments)
-
-    def optimize(self):
-        if (len(self.segments) < 2
-            and not self.segments.has_deletions()
-            and all(self.schema == seg.schema for seg in self.segments)):
-            return
-
-        from whoosh.filedb.filewriting import OPTIMIZE
-        self.writer().commit(OPTIMIZE)
-
-    def commit(self, new_segments=None):
-        #self._release_readlocks()
-
-        if not self.up_to_date():
-            raise OutOfDateError
-
-        if new_segments:
-            if not isinstance(new_segments, SegmentSet):
-                raise ValueError("FileIndex.commit() called with something other than a SegmentSet: %r" % new_segments)
-            self.segments = new_segments
-
-        self.generation += 1
-        self._write()
-        self._clean_files()
-
-        #self._acquire_readlocks()
-
-    def _clean_files(self):
+def _clean_files(storage, indexname, gen, segments):
         # Attempts to remove unused index files (called when a new generation
         # is created). If existing Index and/or reader objects have the files
         # open, they may not be deleted immediately (i.e. on Windows) but will
         # probably be deleted eventually by a later call to clean_files.
 
-        storage = self.storage
-        current_segment_names = set(s.name for s in self.segments)
+        current_segment_names = set(s.name for s in segments)
 
-        tocpattern = _toc_pattern(self.indexname)
-        segpattern = _segment_pattern(self.indexname)
+        tocpattern = _toc_pattern(indexname)
+        segpattern = _segment_pattern(indexname)
 
         todelete = set()
         for filename in storage:
             tocm = tocpattern.match(filename)
             segm = segpattern.match(filename)
             if tocm:
-                if int(tocm.group(1)) != self.generation:
+                if int(tocm.group(1)) != gen:
                     todelete.add(filename)
             elif segm:
                 name = segm.group(1)
@@ -284,21 +191,95 @@ class FileIndex(SegmentDeletionMixin, Index):
                 # Another process still has this file open
                 pass
 
+
+# Index placeholder object
+
+class FileIndex(Index):
+    def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
+        if not isinstance(storage, Storage):
+            raise ValueError("%r is not a Storage object" % storage)
+        if schema is not None and not isinstance(schema, Schema):
+            raise ValueError("%r is not a Schema object" % schema)
+        if not isinstance(indexname, (str, unicode)):
+            raise ValueError("indexname %r is not a string" % indexname)
+        
+        self.storage = storage
+        self._schema = schema
+        self.indexname = indexname
+        
+        # Try reading the TOC to see if it's possible
+        _read_toc(self.storage, self._schema, self.indexname)
+
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.storage, self.indexname)
+
+    def close(self):
+        pass
+
+    # add_field
+    # remove_field
+    
+    def latest_generation(self):
+        return _latest_generation(self.storage, self.indexname)
+    
+    # refresh
+    # up_to_date
+    
+    def last_modified(self):
+        gen = self.latest_generation()
+        filename = _toc_filename(self.indexname, gen)
+        return self.storage.file_modified(filename)
+
+    def is_empty(self):
+        info = _read_toc(self.storage, self.schema, self.indexname)
+        return len(info.segments) == 0
+    
+    def optimize(self):
+        w = self.writer()
+        if len(w.segments) > 1 or w.segments.has_deletions():
+            w.commit(optimize=True)
+        else:
+            w.cancel()
+
     def doc_count_all(self):
-        return self.segments.doc_count_all()
+        info = self._read_toc()
+        return info.segments.doc_count_all()
 
     def doc_count(self):
-        return self.segments.doc_count()
+        info = self._read_toc()
+        return info.segments.doc_count()
 
-    def field_length(self, fieldname):
-        return sum(s.field_length(fieldname) for s in self.segments)
-
+    # searcher
+    
     def reader(self):
-        return self.segments.reader(self.storage, self.schema)
+        lock = self.lock("READLOCK")
+        lock.acquire(True)
+        try:
+            info = self._read_toc()
+            return info.segments.reader(self.storage, info.schema, info.generation)
+        finally:
+            lock.release()
 
-    def writer(self, **kwargs):
+    def writer(self):
         from whoosh.filedb.filewriting import SegmentWriter
-        return SegmentWriter(self, **kwargs)
+        return SegmentWriter(self)
+
+    def lock(self, name):
+        """Returns a lock object that you can try to call acquire() on to
+        lock the index.
+        """
+        
+        return self.storage.lock(self.indexname + "_" + name)
+
+    def _read_toc(self):
+        return _read_toc(self.storage, self._schema, self.indexname)
+
+    def _segments(self):
+        return self._read_toc().segments
+    
+    def _current_schema(self):
+        return self._read_toc().schema
 
 
 # SegmentSet object
@@ -393,16 +374,13 @@ class SegmentSet(object):
     def has_deletions(self):
         """
         :returns: True if this index has documents that are marked deleted but
-            haven't been optimized out of the index yet. This includes
-            deletions that haven't been written to disk with Index.commit()
-            yet.
+            haven't been optimized out of the index yet.
         """
+        
         return any(s.has_deletions() for s in self.segments)
 
     def delete_document(self, docnum, delete=True):
         """Deletes a document by number.
-
-        You must call Index.commit() for the deletion to be written to disk.
         """
 
         segment, segdocnum = self._segment_and_docnum(docnum)
@@ -423,16 +401,19 @@ class SegmentSet(object):
         segment, segdocnum = self._segment_and_docnum(docnum)
         return segment.is_deleted(segdocnum)
 
-    def reader(self, storage, schema):
+    def reader(self, storage, schema, generation):
         from whoosh.filedb.filereading import SegmentReader
+        
         segments = self.segments
         if len(segments) == 1:
-            return SegmentReader(storage, schema, segments[0])
+            r = SegmentReader(storage, schema, segments[0], generation)
         else:
             from whoosh.reading import MultiReader
             readers = [SegmentReader(storage, schema, segment)
                        for segment in segments]
-            return MultiReader(readers)
+            r = MultiReader(readers, generation)
+            
+        return r
 
 
 class Segment(object):
@@ -449,9 +430,9 @@ class Segment(object):
     along the way).
     """
 
-    EXTENSIONS = {"fieldlengths": "dci", "storedfields": "dcz",
-                  "termsindex": "tiz", "termposts": "pst",
-                  "vectorindex": "fvz", "vectorposts": "vps"}
+    EXTENSIONS = {"fieldlengths": "fln", "storedfields": "sto",
+                  "termsindex": "trm", "termposts": "pst",
+                  "vectorindex": "vec", "vectorposts": "vps"}
     
     def __init__(self, name, doccount, fieldlength_totals, fieldlength_maxes,
                  deleted=None):
@@ -565,22 +546,7 @@ class Segment(object):
         return docnum in self.deleted
 
 
-# Utility functions
 
-def _toc_pattern(indexname):
-    """Returns a regular expression object that matches TOC filenames.
-    name is the name of the index.
-    """
-
-    return re.compile("_%s_([0-9]+).toc" % indexname)
-
-def _segment_pattern(indexname):
-    """Returns a regular expression object that matches segment filenames.
-    name is the name of the index.
-    """
-
-    return re.compile("(_%s_[0-9]+).(%s)" % (indexname,
-                                             Segment.EXTENSIONS.values()))
 
 
 

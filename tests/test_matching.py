@@ -267,7 +267,7 @@ class TestMatchers(unittest.TestCase):
                 # Add a (docnum, string) tuple to the documents list
                 documents.append((docnum, doc))
             w.commit()
-        self.assertNotEqual(len(ix.segments), 1)
+        self.assertNotEqual(len(ix._segments()), 1)
         
         testcount = 20
         testlimits = (2, 5)

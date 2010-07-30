@@ -15,10 +15,9 @@
 #===============================================================================
 
 from collections import defaultdict
-from marshal import dumps
 
 from whoosh.fields import UnknownFieldError
-from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
+from whoosh.filedb.fileindex import Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (StoredFieldWriter, CodedOrderedWriter,
                                       CodedHashWriter)
@@ -36,13 +35,13 @@ from whoosh.writing import IndexWriter
 # object, and the current SegmentSet (not including the segment being written),
 # and returns an updated SegmentSet (not including the segment being written).
 
-def NO_MERGE(ix, writer, segments):
+def NO_MERGE(writer, segments):
     """This policy does not merge any existing segments.
     """
     return segments
 
 
-def MERGE_SMALL(ix, writer, segments):
+def MERGE_SMALL(writer, segments):
     """This policy merges small segments, where "small" is defined using a
     heuristic based on the fibonacci sequence.
     """
@@ -55,7 +54,7 @@ def MERGE_SMALL(ix, writer, segments):
         if count > 0:
             total_docs += count
             if total_docs < fib(i + 5):
-                reader = SegmentReader(ix.storage, ix.schema, seg)
+                reader = SegmentReader(writer.storage, writer.schema, seg)
                 writer.add_reader(reader)
                 reader.close()
             else:
@@ -63,74 +62,76 @@ def MERGE_SMALL(ix, writer, segments):
     return newsegments
 
 
-def OPTIMIZE(ix, writer, segments):
+def OPTIMIZE(writer, segments):
     """This policy merges all existing segments.
     """
 
     from whoosh.filedb.filereading import SegmentReader
     for seg in segments:
-        reader = SegmentReader(ix.storage, ix.schema, seg)
+        reader = SegmentReader(writer.storage, writer.schema, seg)
         writer.add_reader(reader)
         reader.close()
     return SegmentSet()
 
 
-class SegmentWriter(SegmentDeletionMixin, IndexWriter):
-    def __init__(self, index, schema=None, poolclass=None, procs=0, blocklimit=128,
-                 timeout=0.0, delay=0.1, lock=True, name=None, **poolargs):
+# Writer object
+
+class SegmentWriter(IndexWriter):
+    def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
+                 timeout=0.0, delay=0.1, name=None, **poolargs):
+        self.writelock = ix.lock("WRITELOCK")
+        if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
+            raise LockError
         
-        if lock:
-            self.lock = index.storage.lock(index.indexname + "_LOCK")
-            if not try_for(self.lock.acquire, timeout=timeout, delay=delay):
-                raise LockError
+        self.ix = ix
+        self.storage = ix.storage
+        self.indexname = ix.indexname
         
-        self.index = index
-        self.schema = schema or self.index.schema.copy()
-        self._name_to_num = dict((name, i) for i, name
-                                 in enumerate(self.schema.names()))
-        self.segments = self.index.segments.copy()
-        self.blocklimit = 128
+        info = ix._read_toc()
+        self.schema = info.schema
+        self.segments = info.segments
+        self.blocklimit = blocklimit
+        self.segment_number = info.segment_counter + 1
+        self.generation = info.generation + 1
         
-        self.name = name or self.index._next_segment_name()
-        
+        self.name = name or "_%s_%s" % (self.indexname, self.segment_number)
+        self.docnum = 0
+        self.fieldlength_totals = defaultdict(int)
+        self._added = False
+    
         # Create a temporary segment to use its .*_filename attributes
         segment = Segment(self.name, 0, None, None)
         
-        self.docnum = 0
-        self.fieldlength_totals = defaultdict(int)
-        
-        storage = self.index.storage
-        
         # Terms index
-        tf = storage.create_file(segment.termsindex_filename)
+        tf = self.storage.create_file(segment.termsindex_filename)
         self.termsindex = CodedOrderedWriter(tf,
                                              keycoder=misc.encode_termkey,
                                              valuecoder=misc.encode_terminfo)
         
         # Term postings file
-        pf = storage.create_file(segment.termposts_filename)
+        pf = self.storage.create_file(segment.termposts_filename)
         self.postwriter = FilePostingWriter(pf, blocklimit=blocklimit)
         
         if self.schema.has_vectored_fields():
             # Vector index
-            vf = storage.create_file(segment.vectorindex_filename)
+            vf = self.storage.create_file(segment.vectorindex_filename)
             self.vectorindex = CodedHashWriter(vf,
                                                keycoder=misc.encode_vectorkey,
                                                valuecoder=misc.encode_vectoroffset)
             
             # Vector posting file
-            vpf = storage.create_file(segment.vectorposts_filename)
+            vpf = self.storage.create_file(segment.vectorposts_filename)
             self.vpostwriter = FilePostingWriter(vpf, stringids=True)
         else:
             self.vectorindex = None
             self.vpostwriter = None
         
         # Stored fields file
-        sf = storage.create_file(segment.storedfields_filename)
+        sf = self.storage.create_file(segment.storedfields_filename)
         self.storedfields = StoredFieldWriter(sf)
         
         # Field lengths file
-        self.lengthfile = storage.create_file(segment.fieldlengths_filename)
+        self.lengthfile = self.storage.create_file(segment.fieldlengths_filename)
         
         # Create the pool
         if poolclass is None:
@@ -141,8 +142,6 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 poolclass = TempfilePool
         self.pool = poolclass(self.schema, procs=procs, **poolargs)
         
-        self._added = False
-    
     def add_field(self, fieldname, fieldspec):
         if self._added:
             raise Exception("Can't modify schema after adding data to writer")
@@ -153,8 +152,31 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             raise Exception("Can't modify schema after adding data to writer")
         super(SegmentWriter, self).remove_field(fieldname)
     
+    def delete_document(self, docnum, delete=True):
+        """Deletes a document by number.
+        """
+        self.segments.delete_document(docnum, delete=delete)
+
+    def deleted_count(self):
+        """Returns the total number of deleted documents in this index.
+        """
+        return self.segments.deleted_count()
+
+    def is_deleted(self, docnum):
+        """Returns True if a given document number is deleted but
+        not yet optimized out of the index.
+        """
+        return self.segments.is_deleted(docnum)
+
+    def has_deletions(self):
+        """Returns True if this index has documents that are marked
+        deleted but haven't been optimized out of the index yet.
+        """
+        return self.segments.has_deletions()
+    
     def searcher(self):
-        return self.index.searcher()
+        from whoosh.filedb.fileindex import FileIndex
+        return FileIndex(self.storage, indexname=self.indexname).searcher()
     
     def add_reader(self, reader):
         startdoc = self.docnum
@@ -171,6 +193,8 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
                 d = dict(item for item
                          in reader.stored_fields(docnum).iteritems()
                          if item[0] in schema)
+                # We have to append a dictionary for every document, even if
+                # it's empty.
                 self.storedfields.append(d)
                 
                 if has_deletions:
@@ -326,7 +350,7 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
         
         # Call the merge policy function. The policy may choose to merge other
         # segments into this writer's pool
-        new_segments = mergetype(self.index, self, self.segments)
+        new_segments = mergetype(self, self.segments)
         
         # Tell the pool we're finished adding information, it should add its
         # accumulated data to the lengths, terms index, and posting files.
@@ -339,17 +363,27 @@ class SegmentWriter(SegmentDeletionMixin, IndexWriter):
             # function
             new_segments.append(self._getsegment())
         
-        # Close all files, tell the index to write a new TOC with the new
-        # segment list, and release the lock.
+        # Close all files, write a new TOC with the new segment list, and
+        # release the lock.
         self._close_all()
-        self.index.commit(new_segments)
-        self.index.schema = self.schema
-        self.lock.release()
+        
+        from whoosh.filedb.fileindex import _write_toc, _clean_files
+        _write_toc(self.storage, self.schema, self.indexname, self.generation,
+                   self.segment_number, new_segments)
+        
+        readlock = self.ix.lock("READLOCK")
+        readlock.acquire(True)
+        try:
+            _clean_files(self.storage, self.indexname, self.generation, new_segments)
+        finally:
+            readlock.release()
+        
+        self.writelock.release()
         
     def cancel(self):
         self.pool.cancel()
         self._close_all()
-        self.lock.release()
+        self.writelock.release()
 
 
 

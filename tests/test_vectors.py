@@ -54,8 +54,8 @@ class TestVectors(unittest.TestCase):
                                 content=u"You can read along in your book")
             writer.commit()
             
-            reader = ix.reader()
-            searcher = Searcher(reader)
+            searcher = Searcher(ix)
+            reader = searcher.reader()
             
             docnum = searcher.document_number(title=u"one")
             vec = list(reader.vector_as("frequency", docnum, "content"))

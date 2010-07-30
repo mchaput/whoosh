@@ -115,7 +115,7 @@ class TestWriting(unittest.TestCase):
         time.sleep(0.5)
         w.commit(restart=False)
         
-        self.assertEqual(len(ix.segments), 10)
+        self.assertEqual(len(ix._segments()), 10)
         rmtree("testindex")
         
 

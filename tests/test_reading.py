@@ -61,11 +61,11 @@ class TestReading(unittest.TestCase):
             self.assertEqual(sorted(r), target)
         
         ix = self._one_segment_index()
-        self.assertEqual(len(ix.segments), 1)
+        self.assertEqual(len(ix._segments()), 1)
         t(ix)
         
         ix = self._multi_segment_index()
-        self.assertEqual(len(ix.segments), 3)
+        self.assertEqual(len(ix._segments()), 3)
         t(ix)
     
     def test_term_inspection(self):
@@ -135,11 +135,10 @@ class TestReading(unittest.TestCase):
         writer.add_document(a=u"3", b="c", c=u"xray", d=u"Charlie")
         writer.commit()
         
-        r = ix.reader()
-        self.assertEqual(r.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
-        self.assertEqual(r.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
+        sr = ix.searcher()
+        self.assertEqual(sr.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
+        self.assertEqual(sr.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
         
-        sr = Searcher(r)
         self.assertEqual(sr.document(a=u"1"), {"a": u"1", "b": "a", "d": u"Alfa"})
         self.assertEqual(sr.document(a=u"2"), {"a": u"2", "b": "b", "d": u"Bravo"})
 

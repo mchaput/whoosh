@@ -65,11 +65,14 @@ class TestSchema(unittest.TestCase):
             finally:
                 s.close()
             
-            ix.remove_field("content")
-            ix.remove_field("city")
+            w = ix.writer()
+            w.remove_field("content")
+            w.remove_field("city")
+            w.commit()
 
-            self.assertEqual(ix.schema.names(), ["id"])
-            self.assertEqual(ix.schema.stored_names(), ["id"])
+            ixschema = ix._current_schema()
+            self.assertEqual(ixschema.names(), ["id"])
+            self.assertEqual(ixschema.stored_names(), ["id"])
             
             s = ix.searcher()
             self.assertFalse(("content", u"charlie") in s.reader())

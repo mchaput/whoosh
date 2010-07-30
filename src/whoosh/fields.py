@@ -169,7 +169,8 @@ class NUMERIC(FieldType):
     
     def index(self, num):
         method = getattr(self, self.type.__name__ + "_to_text")
-        return [(method(num), 1, '')]
+        # word, freq, weight, valuestring
+        return [(method(num), 1, 1.0, '')]
     
     def to_text(self, x):
         ntype = self.type
@@ -239,7 +240,8 @@ class DATETIME(FieldType):
         
         text = dt.isoformat() # 2010-02-02T17:06:19.109000
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
-        return [(text, 1, '')]
+        # word, freq, weight, valuestring
+        return [(text, 1, 1.0, '')]
     
     def process_text(self, text, **kwargs):
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
@@ -264,7 +266,8 @@ class BOOLEAN(FieldType):
     
     def index(self, bit):
         bit = bool(bit)
-        return [(self.strings[int(bit)], 1, '')]
+        # word, freq, weight, valuestring
+        return [(self.strings[int(bit)], 1, 1.0, '')]
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
