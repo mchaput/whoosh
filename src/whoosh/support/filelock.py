@@ -119,6 +119,9 @@ class MsvcrtLock(LockBase):
             return False
         
     def release(self):
+        if self.fd is None:
+            raise Exception("Lock was not acquired")
+        
         import msvcrt
         msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
         os.close(self.fd)

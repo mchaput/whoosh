@@ -29,7 +29,6 @@ class TestWeightings(unittest.TestCase):
         init_args = {"MultiWeighting": ([scoring.BM25F()], {"text": scoring.Frequency()}),
                      "ReverseWeighting": ([scoring.BM25F()], {})}
         
-        reader = ix.reader()
         for wclass in self._weighting_classes(abcs):
             try:
                 if wclass.__name__ in init_args:
@@ -39,7 +38,7 @@ class TestWeightings(unittest.TestCase):
                     weighting = wclass()
             except TypeError, e:
                 raise TypeError("Error instantiating %r: %s" % (wclass, e))
-            searcher = Searcher(reader, weighting)
+            searcher = ix.searcher(weighting=weighting)
             
             try:
                 for word in domain:

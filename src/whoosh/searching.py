@@ -37,7 +37,7 @@ class Searcher(object):
     methods for searching the index.
     """
 
-    def __init__(self, ixreader, weighting=scoring.BM25F):
+    def __init__(self, ix, weighting=scoring.BM25F):
         """
         :param ixreader: An :class:`~whoosh.reading.IndexReader` object for
             the index to search.
@@ -45,14 +45,15 @@ class Searcher(object):
             score found documents.
         """
 
-        self.ixreader = ixreader
-        self.doccount = ixreader.doc_count_all()
+        self.ix = ix
+        self.ixreader = ix.reader()
+        self.doccount = self.ixreader.doc_count_all()
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "vector", "vector_as", "scorable",
                      "lexicon", "frequency", "doc_field_length",
-                     "max_field_length", "last_modified"):
-            setattr(self, name, getattr(ixreader, name))
+                     "max_field_length"):
+            setattr(self, name, getattr(self.ixreader, name))
 
         if type(weighting) is type:
             self.weighting = weighting()
@@ -63,14 +64,24 @@ class Searcher(object):
         self._idf_cache = {}
         self._sorter_cache = {}
 
-    def avg_field_length(self, fieldname, default=None):
-        if not self.ixreader.scorable(fieldname):
-            return default
-        return self.ixreader.field_length(fieldname) / (self.doccount or 1)
+    def last_modified(self):
+        return self.ix.last_modified()
+
+    def up_to_date(self):
+        """Returns True if this Searcher represents the latest version of the
+        index, for backends that support versioning.
+        """
+        
+        return self.ix.latest_generation() == self.ixreader.generation()
 
     def close(self):
         self.ixreader.close()
         self.is_closed = True
+
+    def avg_field_length(self, fieldname, default=None):
+        if not self.ixreader.scorable(fieldname):
+            return default
+        return self.ixreader.field_length(fieldname) / (self.doccount or 1)
 
     def field(self, fieldname):
         return self.ixreader.field(fieldname)

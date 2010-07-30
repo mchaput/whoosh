@@ -961,10 +961,10 @@ class Phrase(MultiTerm):
         self.boost = boost
 
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.fieldname == other.fieldname and self.words == other.word and\
-        self.slop == other.slop and self.boost == other.boost
-
+        return (other and self.__class__ is other.__class__ and
+                self.fieldname == other.fieldname and self.words == other.words
+                and self.slop == other.slop and self.boost == other.boost)
+        
     def __repr__(self):
         return "%s(%r, %r, slop=%s, boost=%f)" % (self.__class__.__name__,
                                                   self.fieldname, self.words,

@@ -245,53 +245,11 @@ class Index(object):
         w.remove_field(fieldname)
         w.commit()
         
-    def delete_document(self, docnum, delete=True):
-        """Deletes a document by number."""
-        
-        w = self.writer()
-        w.delete_document(docnum, delete=delete)
-        w.commit()
-    
-    def delete_by_term(self, fieldname, text):
-        """Deletes any documents containing "term" in the "fieldname" field.
-        This is useful when you have an indexed field containing a unique ID
-        (such as "pathname") for each document.
-        
-        :returns: the number of documents deleted.
-        """
-        
-        from whoosh.query import Term
-        q = Term(fieldname, text)
-        return self.delete_by_query(q)
-    
-    def delete_by_query(self, q, searcher=None):
-        """Deletes any documents matching a query object.
-        
-        :returns: the number of documents deleted.
-        """
-        
-        w = self.writer()
-        if searcher:
-            s = searcher
-        else:
-            s = self.searcher()
-        
-        count = 0
-        for docnum in q.docs(s):
-            w.delete_document(docnum)
-            count += 1
-        
-        if not searcher:
-            s.close()
-        w.commit()
-        
-        return count
-    
     def latest_generation(self):
         """Returns the generation number of the latest generation of this
         index, or -1 if the backend doesn't support versioning.
         """
-        return - 1
+        return -1
     
     def refresh(self):
         """Returns a new Index object representing the latest generation
@@ -350,7 +308,7 @@ class Index(object):
         """
         
         from whoosh.searching import Searcher
-        return Searcher(self.reader(), **kwargs)
+        return Searcher(self, **kwargs)
     
     def reader(self):
         """Returns an IndexReader object for this index.
@@ -365,6 +323,16 @@ class Index(object):
         :rtype: :class:`whoosh.writing.IndexWriter`
         """
         raise NotImplementedError
+    
+    def delete_by_term(self, fieldname, text, searcher=None):
+        w = self.writer()
+        w.delete_by_term(fieldname, text, searcher=searcher)
+        w.commit()
+        
+    def delete_by_query(self, q, searcher=None):
+        w = self.writer()
+        w.delete_by_query(q, searcher=searcher)
+        w.commit()
     
 
 # Debugging functions

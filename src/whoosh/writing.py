@@ -71,10 +71,9 @@ class IndexWriter(object):
         """Returns a searcher for the existing index.
         """
         
-        from whoosh.searching import Searcher
-        return Searcher(self.reader(), **kwargs)
+        raise NotImplementedError
     
-    def delete_by_term(self, fieldname, text):
+    def delete_by_term(self, fieldname, text, searcher=None):
         """Deletes any documents containing "term" in the "fieldname" field.
         This is useful when you have an indexed field containing a unique ID
         (such as "pathname") for each document.
@@ -84,7 +83,7 @@ class IndexWriter(object):
         
         from whoosh.query import Term
         q = Term(fieldname, text)
-        return self.delete_by_query(q)
+        return self.delete_by_query(q, searcher=searcher)
     
     def delete_by_query(self, q, searcher=None):
         """Deletes any documents matching a query object.
