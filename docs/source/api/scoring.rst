@@ -12,19 +12,17 @@ Scoring algorithm classes
 
 .. autoclass:: BM25F
 
-.. autoclass:: Cosine
-
-.. autoclass:: DFree
-
-.. autoclass:: DLH13
-
-.. autoclass:: Hiemstra_LM
-
-.. autoclass:: InL2
-
 .. autoclass:: TF_IDF
 
 .. autoclass:: Frequency
+
+
+Scoring utility classes
+=======================
+
+.. autoclass:: MultiWeighting
+
+.. autoclass:: ReverseWeighting
 
 
 Sorting classes

@@ -51,7 +51,7 @@ class Searcher(object):
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "vector", "vector_as", "scorable",
-                     "lexicon", "frequency", "doc_field_length",
+                     "lexicon", "frequency", "field_length", "doc_field_length",
                      "max_field_length"):
             setattr(self, name, getattr(self.ixreader, name))
 
@@ -236,11 +236,22 @@ class Searcher(object):
             module.
         """
 
-        ixreader = self.ixreader
-
-        expander = classify.Expander(self.reader(), fieldname, model=model)
+        expander = classify.Expander(self.ixreader, fieldname, model=model)
         for docnum in docnums:
-            expander.add(ixreader.vector_as("weight", docnum, fieldname))
+            expander.add_document(docnum)
+        return expander.expanded_terms(numterms, normalize=normalize)
+
+    def key_terms_from_text(self, fieldname, text, numterms=5,
+                            model=classify.Bo1Model, normalize=True):
+        """Return the 'numterms' most important terms from the given text.
+        
+        :param numterms: Return this number of important terms.
+        :param model: The classify.ExpansionModel to use. See the classify
+            module.
+        """
+        
+        expander = classify.Expander(self.ixreader, fieldname, model=model)
+        expander.add_text(text)
         return expander.expanded_terms(numterms, normalize=normalize)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
@@ -618,7 +629,7 @@ class Results(object):
 
         expander = classify.Expander(reader, fieldname, model=model)
         for docnum in self.top_n[:docs]:
-            expander.add(reader.vector_as("weight", docnum, fieldname))
+            expander.add_document(docnum)
 
         return expander.expanded_terms(numterms, normalize=normalize)
     

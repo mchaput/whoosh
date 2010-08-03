@@ -26,9 +26,9 @@ from math import log
 # Expansion models
 
 class ExpansionModel(object):
-    def __init__(self, ixreader, fieldname):
-        self.N = ixreader.doc_count_all()
-        self.collection_total = ixreader.field_length(fieldname)
+    def __init__(self, doc_count, field_length):
+        self.N = doc_count
+        self.collection_total = field_length
         self.mean_length = self.collection_total / self.N
     
     def normalizer(self, maxweight, top_total):
@@ -86,24 +86,26 @@ class Expander(object):
             scoring.Bo1Model by default.
         """
         
+        self.ixreader = ixreader
         self.fieldname = fieldname
         
         if type(model) is type:
-            model = model(ixreader, fieldname)
+            model = model(self.ixreader.doc_count_all(),
+                          self.ixreader.field_length(fieldname))
         self.model = model
         
         # Cache the collection frequency of every term in this field. This
-        # turns out to be much faster than reading each individual weight from
-        # the term index as we add words.
+        # turns out to be much faster than reading each individual weight
+        # from the term index as we add words.
         self.collection_freq = dict((word, freq) for word, _, freq
-                                      in ixreader.iter_field(fieldname))
+                                      in self.ixreader.iter_field(self.fieldname))
         
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)
         
         # Total weight of all terms in the top N documents.
         self.top_total = 0
-        
+    
     def add(self, vector):
         """Adds forward-index information about one of the "top N" documents.
         
@@ -119,6 +121,19 @@ class Expander(object):
             topN_weight[word] += weight
             
         self.top_total += total_weight
+    
+    def add_document(self, docnum):
+        if self.ixreader.has_vector(docnum, self.fieldname):
+            self.add(self.ixreader.vector_as("weight", docnum, self.fieldname))
+        elif self.ixreader.field(self.fieldname).stored:
+            self.add_text(self.ixreader.stored_fields(docnum).get(self.fieldname))
+        else:
+            raise Exception("Field %r in document %s is not vectored or stored" % (self.fieldname, docnum))
+    
+    def add_text(self, string):
+        field = self.ixreader.field(self.fieldname)
+        self.add((text, weight) for text, freq, weight, value
+                 in field.index(string))
     
     def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.

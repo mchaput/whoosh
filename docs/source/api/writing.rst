@@ -21,14 +21,28 @@ Globals
     DOCLENGTH_TYPE.
 
 
-Writers
+Writer
 ======
 
 .. autoclass:: IndexWriter
     :members:
-    
+
+
+Utility writers
+===============
+
 .. autoclass:: AsyncWriter
     :members:
+    
+.. autoclass:: BatchWriter
+    :members:
+    
+    
+Posting writer
+==============
+
+.. autoclass:: PostingWriter
+
 
 Exceptions
 ==========

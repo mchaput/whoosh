@@ -103,7 +103,8 @@ class FieldType(object):
             self.vector.clean()
             
     def index(self, value, **kwargs):
-        """Returns an iterator of (termtext, frequency, encoded_value) tuples.
+        """Returns an iterator of (termtext, frequency, weight, encoded_value)
+        tuples.
         """
         
         if not self.format:
@@ -113,6 +114,10 @@ class FieldType(object):
         return self.format.word_values(value, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
+        """Returns an iterator of token strings corresponding to the given
+        string.
+        """
+        
         if not self.format:
             raise Exception("%s field has no format" % self)
         return (t.text for t

@@ -22,7 +22,7 @@ from threading import Lock
 from whoosh import __version__
 from whoosh.fields import Schema
 from whoosh.index import Index
-from whoosh.index import EmptyIndexError, OutOfDateError, IndexVersionError
+from whoosh.index import EmptyIndexError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import Storage, LockError
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
@@ -243,12 +243,13 @@ class FileIndex(Index):
             w.cancel()
 
     def doc_count_all(self):
-        info = self._read_toc()
-        return info.segments.doc_count_all()
+        return self._segments().doc_count_all()
 
     def doc_count(self):
-        info = self._read_toc()
-        return info.segments.doc_count()
+        return self._segments().doc_count()
+
+    def field_length(self, fieldname):
+        return self._segments().field_length(fieldname)
 
     # searcher
     
@@ -370,6 +371,8 @@ class SegmentSet(object):
         """
         return sum(s.doc_count() for s in self.segments)
 
+    def field_length(self, fieldname):
+        return sum(s.field_length(fieldname) for s in self.segments)
 
     def has_deletions(self):
         """

@@ -26,9 +26,16 @@ matchers, or modifying the results of a matcher.
 
 You do not need to deal with the classes in this module unless you need to
 write your own Matcher implementation to provide some new functionality. These
-classes are not instantiated by the user.
+classes are not instantiated by the user. They are usually created by a
+:class:`~whoosh.query.Query` object's ``matcher()`` method, which returns the
+appropriate matcher to implement the query (for example, the ``Or`` query's
+``matcher()`` method returns a ``UnionMatcher`` object).
 
-Certain backends 
+Certain backends support "quality" optimizations. These backends have the
+ability to skip ahead if it knows the current block of postings can't
+contribute to the top N documents. If the matcher tree and backend support
+these optimizations, the matcher's ``supports_quality()`` method will return
+``True``.
 """
 
 

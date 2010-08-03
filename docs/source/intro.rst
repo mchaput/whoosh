@@ -52,8 +52,6 @@ Whoosh lets you index free-form or structured text and then quickly find matchin
 documents based on simple or complex search criteria.
 
 
-
-
 Getting help with Whoosh
 ------------------------
 
