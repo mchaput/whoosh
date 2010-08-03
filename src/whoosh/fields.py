@@ -17,7 +17,7 @@
 """ Contains functions and classes related to fields.
 """
 
-import datetime, random, re, struct
+import datetime, re, struct
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,

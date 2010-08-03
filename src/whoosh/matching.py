@@ -16,6 +16,21 @@
 
 from bisect import bisect_left, bisect_right
 
+"""
+This module contains "matcher" classes. Matchers deal with posting lists. The
+most basic matcher, which reads the list of postings for a term, will be
+provided by the backend implementation (for example,
+``whoosh.filedb.filepostings.FilePostingReader``). The classes in this module
+provide additional functionality, such as combining the results of two
+matchers, or modifying the results of a matcher.
+
+You do not need to deal with the classes in this module unless you need to
+write your own Matcher implementation to provide some new functionality. These
+classes are not instantiated by the user.
+
+Certain backends 
+"""
+
 
 class ReadTooFar(Exception):
     """Raised when next() or skip_to() is called on an inactive matchers.
