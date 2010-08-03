@@ -197,24 +197,6 @@ class Index(object):
     """Represents an indexed collection of documents.
     """
     
-    def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
-        """
-        :param storage: The :class:`whoosh.store.Storage` object in which this
-            index resides. See the store module for more details.
-        :param schema: A :class:`whoosh.fields.Schema` object defining the
-            fields of this index.
-        :param indexname: An optional name to use for the index. Use this if
-            you need to keep multiple indexes in the same storage object.
-        """
-        
-        self.storage = storage
-        self.indexname = indexname
-        
-        if schema is not None and not isinstance(schema, fields.Schema):
-            raise ValueError("%r is not a Schema object" % schema)
-        
-        self.schema = schema
-    
     def close(self):
         """Closes any open resources held by the Index object itself. This may
         not close all resources being used everywhere, for example by a
@@ -300,6 +282,12 @@ class Index(object):
         """
         raise NotImplementedError
     
+    def field_length(self, fieldname):
+        """Returns the total length of the given field across all documents.
+        """
+        
+        raise NotImplementedError
+    
     def searcher(self, **kwargs):
         """Returns a Searcher object for this index. Keyword arguments are
         passed to the Searcher object's constructor.
@@ -333,6 +321,7 @@ class Index(object):
         w = self.writer()
         w.delete_by_query(q, searcher=searcher)
         w.commit()
+        
     
 
 # Debugging functions

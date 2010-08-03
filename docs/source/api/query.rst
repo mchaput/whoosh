@@ -44,12 +44,11 @@ Query classes
 
 .. autoclass:: TermRange
 
+.. autoclass:: Every
+
 
 Binary operations
 =================
-
-These binary operators are not generally created by the query parser in :mod:`whoosh.qparser`.
-Unless you specifically need these operations, you should use the normal query classes instead.
 
 .. autoclass:: Require
 

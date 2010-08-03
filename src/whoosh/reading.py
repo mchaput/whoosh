@@ -447,7 +447,7 @@ class MultiReader(IndexReader):
         postreaders = []
         docoffsets = []
         for i, r in enumerate(self.readers):
-            format = r.schema[fieldname].format
+            format = r.field(fieldname).format
             if (fieldname, text) in r:
                 pr = r.postings(fieldname, text, scorefns=scorefns,
                                 exclude_docs=exclude_docs)
