@@ -20,3 +20,9 @@ Results class
 .. autoclass:: ResultsPage
 	:members:
 
+
+Facets
+======
+
+.. autoclass:: Facets
+

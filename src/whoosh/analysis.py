@@ -57,14 +57,16 @@ from itertools import chain
 
 from whoosh.lang.porter import stem
 
+
 # Default list of stop words (words so common it's usually wasteful to index
 # them). This list is used by the StopFilter class, which allows you to supply
 # an optional list to override this one.
 
-STOP_WORDS = frozenset(("the", "to", "of", "a", "and", "is", "in", "this",
-                        "you", "for", "be", "on", "or", "will", "if", "can",
-                        "are", "that", "by", "with", "it", "as", "from", "an",
-                        "when", "not", "may", "tbd", "us", "we", "yet"))
+STOP_WORDS = frozenset(('a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can',
+                        'for', 'from', 'have', 'if', 'in', 'is', 'it', 'may',
+                        'not', 'of', 'on', 'or', 'tbd', 'that', 'the', 'this',
+                        'to', 'us', 'we', 'when', 'will', 'with', 'yet',
+                        'you', 'your'))
 
 
 # Utility functions
@@ -466,12 +468,12 @@ class NgramTokenizer(Tokenizer):
     
     def __call__(self, value, positions=False, chars=False,
                  keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0,
+                 start_pos=0, start_char=0, mode='',
                  **kwargs):
         assert isinstance(value, unicode), "%r is not unicode" % value
         
         inlen = len(value)
-        t = Token(positions, chars, removestops=removestops)
+        t = Token(positions, chars, removestops=removestops, mode=mode)
         pos = start_pos
         for start in xrange(0, inlen - self.min + 1):
             for size in xrange(self.min, self.max + 1):
@@ -514,19 +516,26 @@ class PassFilter(Filter):
             yield t
 
 
-class RecordFilter(Filter):
-    """A debug filter that remembers the tokens that pass through it, and
-    stores them in the 'tokens' attribute.
+class LoggingFilter(Filter):
+    """Prints the contents of every filter that passes through as a debug
+    log entry.
     """
     
-    def __init__(self):
-        self.tokens = None
+    def __init__(self, logger=None):
+        """
+        :param target: the logger to use. If omitted, the "whoosh.analysis"
+            logger is used.
+        """
+        
+        if logger is None:
+            import logging
+            logger = logging.getLogger("whoosh.analysis")
+        self.logger = logger
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
-        self.tokens = []
+        logger = self.logger
         for t in tokens:
-            self.tokens.append(t.copy())
+            logger.debug(repr(t))
             yield t
 
 
@@ -590,6 +599,7 @@ class StripFilter(Filter):
             yield t
 
 
+
 class StopFilter(Filter):
     """Marks "stop" words (words too common to index) in the stream (and by
     default removes them).
@@ -602,9 +612,9 @@ class StopFilter(Filter):
     
     """
 
-    __inittypes__ = dict(stoplist=list, minsize=int, renumber=bool)
+    __inittypes__ = dict(stoplist=list, minsize=int, maxsize=int, renumber=bool)
 
-    def __init__(self, stoplist=STOP_WORDS, minsize=2,
+    def __init__(self, stoplist=STOP_WORDS, minsize=2, maxsize=None,
                  renumber=True):
         """
         :param stoplist: A collection of words to remove from the stream.
@@ -612,6 +622,8 @@ class StopFilter(Filter):
             common stop words.
         :param minsize: The minimum length of token texts. Tokens with
             text smaller than this will be stopped.
+        :param maxsize: The maximum length of token texts. Tokens with text
+            larger than this will be stopped. Use None to allow any length.
         :param renumber: Change the 'pos' attribute of unstopped tokens
             to reflect their position with the stopped words removed.
         :param remove: Whether to remove the stopped words from the stream
@@ -624,6 +636,7 @@ class StopFilter(Filter):
         else:
             self.stops = frozenset(stoplist)
         self.min = minsize
+        self.max = maxsize
         self.renumber = renumber
     
     def __eq__(self, other):
@@ -637,19 +650,22 @@ class StopFilter(Filter):
         assert hasattr(tokens, "__iter__")
         stoplist = self.stops
         minsize = self.min
+        maxsize = self.max
         renumber = self.renumber
         
         pos = None
         for t in tokens:
             text = t.text
-            if len(text) >= minsize and text not in stoplist:
+            if (len(text) >= minsize
+                and (maxsize is None or len(text) <= maxsize)
+                and text not in stoplist):
                 # This is not a stop word
                 if renumber and t.positions:
                     if pos is None:
                         pos = t.pos
                     else:
                         pos += 1
-                    t.pos = pos
+                        t.pos = pos
                 t.stopped = False
                 yield t
             else:
@@ -779,7 +795,7 @@ class NgramFilter(Filter):
     
     __inittypes__ = dict(minsize=int, maxsize=int)
     
-    def __init__(self, minsize, maxsize=None):
+    def __init__(self, minsize, maxsize=None, at=None):
         """
         :param minsize: The minimum size of the N-grams.
         :param maxsize: The maximum size of the N-grams. If you omit this
@@ -788,6 +804,11 @@ class NgramFilter(Filter):
         
         self.min = minsize
         self.max = maxsize or minsize
+        self.at = 0
+        if at == "start":
+            self.at = -1
+        elif at == "end":
+            self.at = 1
     
     def __eq__(self, other):
         return other and self.__class__ is other.__class__\
@@ -795,26 +816,67 @@ class NgramFilter(Filter):
     
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
+        at = self.at
         for t in tokens:
-            text, chars = t.text, t.chars
+            text = t.text
+            if len(text) < self.min:
+                continue
+            
+            chars = t.chars
             if chars:
                 startchar = t.startchar
             # Token positions don't mean much for N-grams,
             # so we'll leave the token's original position
             # untouched.
             
-            for start in xrange(0, len(text) - self.min):
-                for size in xrange(self.min, self.max + 1):
-                    end = start + size
-                    if end > len(text): continue
-                    
-                    t.text = text[start:end]
-                    
+            if t.mode == "query":
+                size = min(self.max, len(t.text))
+                if at == -1:
+                    t.text = text[:size]
                     if chars:
-                        t.startchar = startchar + start
-                        t.endchar = startchar + end
-                        
+                        t.endchar = startchar + size
                     yield t
+                elif at == 1:
+                    t.text = text[0-size:]
+                    if chars:
+                        t.startchar = t.endchar - size
+                    yield t
+                else:
+                    for start in xrange(0, len(text) - size + 1):
+                        t.text = text[start:start+size]
+                        if chars:
+                            t.startchar = startchar + start
+                            t.endchar = startchar + start + size
+                        yield t
+            else:
+                if at == -1:
+                    limit = min(self.max, len(text))
+                    for size in xrange(self.min, limit + 1):
+                        t.text = text[:size]
+                        if chars:
+                            t.endchar = startchar + size
+                        yield t
+                        
+                elif at == 1:
+                    start = max(0, len(text)-self.max)
+                    for i in xrange(start, len(text) - self.min + 1):
+                        t.text = text[i:]
+                        if chars:
+                            t.startchar = t.endchar - size
+                        yield t
+                else:
+                    for start in xrange(0, len(text) - self.min + 1):
+                        for size in xrange(self.min, self.max + 1):
+                            end = start + size
+                            if end > len(text): continue
+                            
+                            t.text = text[start:end]
+                            
+                            if chars:
+                                t.startchar = startchar + start
+                                t.endchar = startchar + end
+                                
+                            yield t
 
 
 class IntraWordFilter(Filter):
@@ -1061,81 +1123,64 @@ class IntraWordFilter(Filter):
                     newpos += 1
 
 
-class CamelFilter(Filter):
-    """Splits CamelCased words into multiple words. This filter is deprecated,
-    use IntraWordFilter instead.
+class BiWordFilter(Filter):
+    """Merges adjacent tokens into "bi-word" tokens, so that for example::
     
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"call getProcessedToken")
-    >>> [token.text for token in CamelFilter(stream)]
-    [u"call", u"getProcessedToken", u"get", u"Processed", u"Token"]
+        "the", "sign", "of", "four"
+        
+    becomes::
     
-    Obviously this filter needs to precede LowercaseFilter if they are both in
-    a filter chain.
+        "the-sign", "sign-of", "of-four"
+        
+    This can be used in fields dedicated to phrase searching. In the example
+    above,  the three "bi-word" tokens will be faster to find than the four
+    original words since there are fewer of them and they will be much less
+    frequent (especially compared to words like "the" and "of").
     """
     
-    camel_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-    
+    def __init__(self, sep="-"):
+        self.sep = sep
+        
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
-        camel_exp = self.camel_exp
-        for t in tokens:
-            yield t
-            text = t.text
+        sep = self.sep
+        prev_text = None
+        prev_startchar = None
+        prev_pos = None
+        atleastone = False
+        
+        for token in tokens:
+            # Save the original text of this token
+            text = token.text
             
-            if (text
-                and not text.islower()
-                and not text.isupper()
-                and not text.isdigit()):
-                chars = t.chars
-                if chars:
-                    oldstart = t.startchar
-                
-                for match in camel_exp.finditer(text):
-                    sub = match.group(0)
-                    if sub != text:
-                        t.text = sub
-                        if chars:
-                            t.startchar = oldstart + match.start()
-                            t.endchar = oldstart + match.end()
-                        yield t
-
-
-class UnderscoreFilter(Filter):
-    """Splits words with underscores into multiple words. This filter is
-    deprecated, use IntraWordFilter instead.
-    
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"call get_processed_token")
-    >>> [token.text for token in CamelFilter(stream)]
-    [u"call", u"get_processed_token", u"get", u"processed", u"token"]
-    
-    Obviously you should not split words on underscores in the tokenizer if you
-    want to use this filter.
-    """
-    
-    underscore_exp = re.compile("[A-Z][a-z]*|[a-z]+|[0-9]+")
-    
-    def __call__(self, tokens):
-        underscore_exp = self.underscore_exp
-        for t in tokens:
-            yield t
-            text = t.text
+            # Save the original position
+            positions = token.positions
+            if positions: ps = token.pos
             
-            if text:
-                chars = t.chars
-                if chars:
-                    oldstart = t.startchar
+            # Save the original start char
+            chars = token.chars
+            if chars: sc = token.startchar
+            
+            if prev_text is not None:
+                # Use the pos and startchar from the previous token
+                if positions: token.pos = prev_pos
+                if chars: token.startchar = prev_startchar
                 
-                for match in underscore_exp.finditer(text):
-                    sub = match.group(0)
-                    if sub != text:
-                        t.text = sub
-                        if chars:
-                            t.startchar = oldstart + match.start()
-                            t.endchar = oldstart + match.end()
-                        yield t
-
+                # Join the previous token text and the current token text to
+                # form the biword token
+                token.text = "".join((prev_text, sep, text))
+                yield token
+                atleastone = True
+            
+            # Save the originals and the new "previous" values
+            prev_text = text
+            if chars: prev_startchar = sc
+            if positions: prev_pos = ps
+        
+        # If at no bi-words were emitted, that is, the token stream only had
+        # a single token, then emit that single token.
+        if not atleastone:
+            yield token
+        
 
 class BoostTextFilter(Filter):
     """Advanced filter. Looks for embedded boost markers in the actual text of
@@ -1319,7 +1364,7 @@ def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
 SimpleAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
 
 def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
-                     minsize=2, gaps=False):
+                     minsize=2, maxsize=None, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter and optional
     StopFilter.
     
@@ -1331,6 +1376,7 @@ def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
     :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
@@ -1338,14 +1384,16 @@ def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     chain = ret | LowercaseFilter()
     if stoplist is not None:
-        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize)
+        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize,
+                                   maxsize=maxsize)
     return chain
 StandardAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
-                                      stoplist=list, minsize=int)
+                                      stoplist=list, minsize=int, maxsize=int)
 
 
 def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
-                     minsize=2, gaps=False, stemfn=stem, ignore=None):
+                     minsize=2, maxsize=None, gaps=False, stemfn=stem,
+                     ignore=None):
     """Composes a RegexTokenizer with a lower case filter, an optional stop
     filter, and a stemming filter.
     
@@ -1357,6 +1405,7 @@ def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
     :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
@@ -1364,14 +1413,15 @@ def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     chain = ret | LowercaseFilter()
     if stoplist is not None:
-        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize)
+        chain = chain | StopFilter(stoplist=stoplist, minsize=minsize,
+                                   maxsize=maxsize)
     return chain | StemFilter(stemfn=stemfn, ignore=ignore)
 StemmingAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
-                                      stoplist=list, minsize=int)
+                                      stoplist=list, minsize=int, maxsize=int)
 
 
-def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2, gaps=True,
-                  splitwords=True, splitnums=True,
+def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
+                  maxsize=None, gaps=True, splitwords=True, splitnums=True,
                   mergewords=False, mergenums=False):
     """Composes a RegexTokenizer with a CamelFilter, UnderscoreFilter,
     LowercaseFilter, and StopFilter.
@@ -1384,6 +1434,7 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2, gaps=True,
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
     :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
@@ -1396,7 +1447,7 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2, gaps=True,
     
     return ret | iwf | lcf | swf
 FancyAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
-                                   stoplist=list, minsize=int)
+                                   stoplist=list, minsize=int, maxsize=int)
 
 
 def NgramAnalyzer(minsize, maxsize=None):
@@ -1411,7 +1462,10 @@ def NgramAnalyzer(minsize, maxsize=None):
 NgramAnalyzer.__inittypes__ = dict(minsize=int, maxsize=int)
 
 
-    
+def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
+    if not tokenizer:
+        tokenizer = RegexTokenizer()
+    return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
 
 
 

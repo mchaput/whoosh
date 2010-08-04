@@ -20,8 +20,10 @@
 import datetime, re, struct
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
-                             StandardAnalyzer, NgramAnalyzer)
+                             StandardAnalyzer, NgramAnalyzer, Tokenizer,
+                             NgramWordAnalyzer)
 from whoosh.formats import Format, Existence, Frequency, Positions
+
 
 # Exceptions
 
@@ -101,7 +103,8 @@ class FieldType(object):
             self.vector.clean()
             
     def index(self, value, **kwargs):
-        """Returns an iterator of (termtext, frequency, encoded_value) tuples.
+        """Returns an iterator of (termtext, frequency, weight, encoded_value)
+        tuples.
         """
         
         if not self.format:
@@ -111,6 +114,10 @@ class FieldType(object):
         return self.format.word_values(value, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
+        """Returns an iterator of token strings corresponding to the given
+        string.
+        """
+        
         if not self.format:
             raise Exception("%s field has no format" % self)
         return (t.text for t
@@ -167,7 +174,8 @@ class NUMERIC(FieldType):
     
     def index(self, num):
         method = getattr(self, self.type.__name__ + "_to_text")
-        return [(method(num), 1, '')]
+        # word, freq, weight, valuestring
+        return [(method(num), 1, 1.0, '')]
     
     def to_text(self, x):
         ntype = self.type
@@ -237,7 +245,8 @@ class DATETIME(FieldType):
         
         text = dt.isoformat() # 2010-02-02T17:06:19.109000
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
-        return [(text, 1, '')]
+        # word, freq, weight, valuestring
+        return [(text, 1, 1.0, '')]
     
     def process_text(self, text, **kwargs):
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
@@ -261,9 +270,9 @@ class BOOLEAN(FieldType):
         self.format = Existence()
     
     def index(self, bit):
-        if not isinstance(bit, bool):
-            raise ValueError("Value of BOOL field must be a bool object: %r" % bit)
-        return [(self.strings[int(bit)], 1, '')]
+        bit = bool(bit)
+        # word, freq, weight, valuestring
+        return [(self.strings[int(bit)], 1, 1.0, '')]
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
@@ -355,24 +364,51 @@ class TEXT(FieldType):
 class NGRAM(FieldType):
     """Configured field that indexes text as N-grams. For example, with a field
     type NGRAM(3,4), the value "hello" will be indexed as tokens
-    "hel", "hell", "ell", "ello", "llo".
+    "hel", "hell", "ell", "ello", "llo". This field chops the entire 
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool, field_boost=float)
+    scorable = True
     
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0):
         """
+        :param minsize: The minimum length of the N-grams.
+        :param maxsize: The maximum length of the N-grams.
         :param stored: Whether to store the value of this field with the
             document. Since this field type generally contains a lot of text,
             you should avoid storing it with the document unless you need to,
             for example to allow fast excerpts in the search results.
-        :param minsize: The minimum length of the N-grams.
-        :param maxsize: The maximum length of the N-grams.
         """
         
         self.format = Frequency(analyzer=NgramAnalyzer(minsize, maxsize),
                                 field_boost=field_boost)
-        self.scorable = True
+        self.stored = stored
+
+
+class NGRAMWORDS(FieldType):
+    """Configured field that breaks text into words, lowercases, and then chops
+    the words into N-grams.
+    """
+    
+    __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
+                         field_boost=float, tokenizer=Tokenizer)
+    scorable = True
+    
+    def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
+                 tokenizer=None, at=None):
+        """
+        :param minsize: The minimum length of the N-grams.
+        :param maxsize: The maximum length of the N-grams.
+        :param stored: Whether to store the value of this field with the
+            document. Since this field type generally contains a lot of text,
+            you should avoid storing it with the document unless you need to,
+            for example to allow fast excerpts in the search results.
+        :param tokenizer: an instance of :class:`whoosh.analysis.Tokenizer`
+            used to break the text into words.
+        """
+        
+        analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
+        self.format = Frequency(analyzer=analyzer, field_boost=field_boost)
         self.stored = stored
 
 
@@ -400,77 +436,66 @@ class Schema(object):
                        tags = KEYWORD(stored = True))
         """
         
-        self._by_number = []
-        self._names = []
-        self._by_name = {}
-        self._numbers = {}
+        self._fields = {}
         
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
     
+    def copy(self):
+        """Returns a shallow copy of the schema. The field instances are not
+        deep copied, so they are shared between schema copies.
+        """
+        
+        s = self.__class__()
+        s._fields = self._fields.copy()
+        return s
+    
     def __eq__(self, other):
-        if not isinstance(other, Schema): return False
-        return self._by_name == other._by_name
+        return (isinstance(other, Schema)
+                and self._fields == other._fields)
     
     def __repr__(self):
-        return "<Schema: %s>" % repr(self._names)
+        return "<Schema: %s>" % repr(self._fields.keys())
     
     def __iter__(self):
-        """Yields the sequence of fields in this schema.
+        """Returns the field objects in this schema.
         """
         
-        return iter(self._by_number)
+        return self._fields.itervalues()
     
-    def __getitem__(self, id):
-        """Returns the field associated with the given field name or number.
-        
-        :param id: A field name or field number.
+    def __getitem__(self, name):
+        """Returns the field associated with the given field name.
         """
         
-        if isinstance(id, basestring):
-            return self._by_name[id]
-        return self._by_number[id]
-    
+        return self._fields[name]
+        
     def __len__(self):
         """Returns the number of fields in this schema.
         """
-        return len(self._by_number)
+        
+        return len(self._fields)
     
     def __contains__(self, fieldname):
         """Returns True if a field by the given name is in this schema.
+        """
         
-        :param fieldname: The name of the field.
+        return fieldname in self._fields
+    
+    def items(self):
+        """Returns a list of ("fieldname", field_object) pairs for the fields
+        in this schema.
         """
-        return fieldname in self._by_name
-    
-    def copy(self):
-        import copy
-        return copy.deepcopy(self)
-    
-    def field_by_name(self, name):
-        """Returns the field object associated with the given name.
         
-        :param name: The name of the field to retrieve.
-        """
-        return self._by_name[name]
-    
-    def field_by_number(self, number):
-        """Returns the field object associated with the given number.
+        return sorted(self._fields.items())
         
-        :param number: The number of the field to retrieve.
-        """
-        return self._by_number[number]
-    
-    def fields(self):
-        """Yields ("fieldname", field_object) pairs for the fields in this
-        schema.
-        """
-        return self._by_name.iteritems()
-    
-    def field_names(self):
+    def names(self):
         """Returns a list of the names of the fields in this schema.
         """
-        return self._names
+        return sorted(self._fields.keys())
+    
+    def clean(self):
+        for field in self:
+            field.clean()
     
     def add(self, name, fieldtype):
         """Adds a field to this schema. This is a low-level method; use keyword
@@ -486,7 +511,9 @@ class Schema(object):
         
         if name.startswith("_"):
             raise FieldConfigurationError("Field names cannot start with an underscore")
-        elif name in self._by_name:
+        if " " in name:
+            raise FieldConfigurationError("Field names cannot contain spaces")
+        elif name in self._fields:
             raise FieldConfigurationError("Schema already has a field named %s" % name)
         
         if type(fieldtype) is type:
@@ -494,71 +521,42 @@ class Schema(object):
                 fieldtype = fieldtype()
             except Exception, e:
                 raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
+        
         if not isinstance(fieldtype, FieldType):
             raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
         
-        fnum = len(self._by_number)
-        self._numbers[name] = fnum
-        self._by_number.append(fieldtype)
-        self._names.append(name)
-        self._by_name[name] = fieldtype
-    
-    def to_number(self, id):
-        """Given a field name or number, returns the field's number.
-        """
-        if isinstance(id, int):
-            return id
-        else:
-            return self.name_to_number(id)
-    
-    def to_name(self, id):
-        """Given a field name or number, returns the field's name.
-        """
-        if isinstance(id, int):
-            return self.number_to_name(id)
-        else:
-            return id
-    
-    def name_to_number(self, name):
-        """Given a field name, returns the field's number.
-        """
-        try:
-            return self._numbers[name]
-        except KeyError:
-            raise KeyError("No field named %r in %r" % (name, self._numbers.keys()))
-    
-    def number_to_name(self, number):
-        """Given a field number, returns the field's name.
-        """
-        return self._names[number]
-    
+        self._fields[name] = fieldtype
+        
+    def remove(self, fieldname):
+        del self._fields[fieldname]
+        
     def has_vectored_fields(self):
         """Returns True if any of the fields in this schema store term vectors.
         """
-        return any(ftype.vector for ftype in self._by_number)
-    
-    def vectored_fields(self):
-        """Returns a list of field numbers corresponding to the fields that are
-        vectored.
-        """
-        return [i for i, ftype in enumerate(self._by_number) if ftype.vector]
-    
-    def scorable_fields(self):
-        """Returns a list of field numbers corresponding to the fields that
-        store length information.
-        """
-        return [i for i, field in enumerate(self) if field.scorable]
-
-    def stored_fields(self):
-        """Returns a list of field numbers corresponding to the fields that are stored.
-        """
-        return [i for i, field in enumerate(self) if field.stored]
-
-    def stored_field_names(self):
-        """Returns the names, in order, of fields that are stored."""
         
-        bn = self._by_name
-        return [name for name in self._names if bn[name].stored]
+        return any(ftype.vector for ftype in self)
+    
+    def has_scorable_fields(self):
+        return any(ftype.scorable for ftype in self)
+    
+    def stored_names(self):
+        """Returns a list of the names of fields that are stored.
+        """
+        
+        return [name for name, field in self.items() if field.stored]
+
+    def scorable_names(self):
+        """Returns a list of the names of fields that store field
+        lengths.
+        """
+        
+        return [name for name, field in self.items() if field.scorable]
+
+    def vector_names(self):
+        """Returns a list of the names of fields that store vectors.
+        """
+        
+        return [name for name, field in self.items() if field.vector]
 
     def analyzer(self, fieldname):
         """Returns the content analyzer for the given fieldname, or None if

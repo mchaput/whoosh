@@ -7,13 +7,12 @@
 Analyzers
 =========
 
-.. autoclass:: Analyzer
 .. autoclass:: IDAnalyzer
 .. autoclass:: KeywordAnalyzer
 .. autoclass:: RegexAnalyzer
 .. autoclass:: SimpleAnalyzer
-.. autoclass:: StemmingAnalyzer
 .. autoclass:: StandardAnalyzer
+.. autoclass:: StemmingAnalyzer
 .. autoclass:: FancyAnalyzer
 .. autoclass:: NgramAnalyzer
 
@@ -33,14 +32,17 @@ Filters
 =======
 
 .. autoclass:: PassFilter
+.. autoclass:: LoggingFilter
+.. autoclass:: MultiFilter
 .. autoclass:: LowercaseFilter
-.. autoclass:: UnderscoreFilter
-.. autoclass:: CharsetFilter
+.. autoclass:: StripFilter
 .. autoclass:: StopFilter
 .. autoclass:: StemFilter
-.. autoclass:: CamelFilter
+.. autoclass:: CharsetFilter
 .. autoclass:: NgramFilter
-
+.. autoclass:: IntraWordFilter
+.. autoclass:: BitWordFilter
+.. autoclass:: BoostTextFilter
 
 Token classes and functions
 ===========================

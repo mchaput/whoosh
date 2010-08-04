@@ -54,16 +54,16 @@ class TestVectors(unittest.TestCase):
                                 content=u"You can read along in your book")
             writer.commit()
             
-            reader = ix.reader()
-            searcher = Searcher(reader)
+            searcher = Searcher(ix)
+            reader = searcher.reader()
             
             docnum = searcher.document_number(title=u"one")
-            vec = list(reader.vector(docnum, "content").items_as("frequency"))
+            vec = list(reader.vector_as("frequency", docnum, "content"))
             self.assertEqual(vec, [(u'black', 1), (u'hole', 1), (u'story', 2)])
             
             docnum = searcher.document_number(title=u"two")
-            vec = list(searcher.vector_as("frequency", docnum, "content"))
-            self.assertEqual(vec, [(u'along', 1), (u'book', 1), (u'read', 1), (u'your', 1)])
+            vec = list(reader.vector_as("frequency", docnum, "content"))
+            self.assertEqual(vec, [(u'along', 1), (u'book', 1), (u'read', 1)])
         finally:
             pass
             #self.destroy_index("testindex")
@@ -84,7 +84,7 @@ class TestVectors(unittest.TestCase):
             writer.commit()
             
             reader = ix.reader()
-            vec = list(reader.vector_as("frequency", 0, 0))
+            vec = list(reader.vector_as("frequency", 0, "content"))
             self.assertEqual(vec, [(u'\u3456\u4567', 1), (u'\u789a\u789b\u789c', 1)])
         finally:
             pass

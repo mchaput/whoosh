@@ -2,7 +2,7 @@ import unittest
 
 from whoosh import analysis, fields
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filewriting import NO_MERGE
+from whoosh.searching import Searcher
 
 class TestReading(unittest.TestCase):
     def _create_index(self):
@@ -35,21 +35,22 @@ class TestReading(unittest.TestCase):
         w = ix.writer()
         w.add_document(f1 = u"A E C", f2 = u"1 4 6", f3 = u"X Q S")
         w.add_document(f1 = u"A A A", f2 = u"2 3 5", f3 = u"Y R Z")
-        w.commit(NO_MERGE)
+        w.commit(merge=False)
         
         w = ix.writer()
         w.add_document(f1 = u"A B", f2 = u"1 2", f3 = u"X Y")
-        w.commit(NO_MERGE)
+        w.commit(merge=False)
         
         return ix
     
     def test_readers(self):
-        target = [(0, u'A', 4, 6), (0, u'B', 2, 2), (0, u'C', 2, 2),
-                  (0, u'D', 1, 1), (0, u'E', 2, 2), (0, u'F', 1, 1),
-                  (1, u'1', 3, 3), (1, u'2', 3, 3), (1, u'3', 2, 2),
-                  (1, u'4', 2, 2), (1, u'5', 2, 2), (1, u'6', 2, 2),
-                  (2, u'Q', 2, 2), (2, u'R', 2, 2), (2, u'S', 2, 2),
-                  (2, u'X', 3, 3), (2, u'Y', 3, 3), (2, u'Z', 2, 2)]
+        target = [("f1", u'A', 4, 6), ("f1", u'B', 2, 2), ("f1", u'C', 2, 2),
+                  ("f1", u'D', 1, 1), ("f1", u'E', 2, 2), ("f1", u'F', 1, 1),
+                  ("f2", u'1', 3, 3), ("f2", u'2', 3, 3), ("f2", u'3', 2, 2),
+                  ("f2", u'4', 2, 2), ("f2", u'5', 2, 2), ("f2", u'6', 2, 2),
+                  ("f3", u'Q', 2, 2), ("f3", u'R', 2, 2), ("f3", u'S', 2, 2),
+                  ("f3", u'X', 3, 3), ("f3", u'Y', 3, 3), ("f3", u'Z', 2, 2)]
+        target = sorted(target)
         
         stored = [{"f1": "A B C"}, {"f1": "D E F"}, {"f1": "A E C"},
                   {"f1": "A A A"}, {"f1": "A B"}]
@@ -57,14 +58,14 @@ class TestReading(unittest.TestCase):
         def t(ix):
             r = ix.reader()
             self.assertEqual(list(r.all_stored_fields()), stored)
-            self.assertEqual(list(r), target)
+            self.assertEqual(sorted(r), target)
         
         ix = self._one_segment_index()
-        self.assertEqual(len(ix.segments), 1)
+        self.assertEqual(len(ix._segments()), 1)
         t(ix)
         
         ix = self._multi_segment_index()
-        self.assertEqual(len(ix.segments), 3)
+        self.assertEqual(len(ix._segments()), 3)
         t(ix)
     
     def test_term_inspection(self):
@@ -84,11 +85,11 @@ class TestReading(unittest.TestCase):
                          [u'aa', u'ab', u'ax', u'bb', u'cc', u'dd', u'ee'])
         self.assertEqual(list(reader.expand_prefix("content", "a")),
                          [u'aa', u'ab', u'ax'])
-        self.assertEqual(list(reader.all_terms()),
-                         [('content', u'aa'), ('content', u'ab'), ('content', u'ax'),
-                          ('content', u'bb'), ('content', u'cc'), ('content', u'dd'),
-                          ('content', u'ee'), ('title', u'document'), ('title', u'my'),
-                          ('title', u'other')])
+        self.assertEqual(set(reader.all_terms()),
+                         set([('content', u'aa'), ('content', u'ab'), ('content', u'ax'),
+                              ('content', u'bb'), ('content', u'cc'), ('content', u'dd'),
+                              ('content', u'ee'), ('title', u'document'), ('title', u'my'),
+                              ('title', u'other')]))
         # (text, doc_freq, index_freq)
         self.assertEqual(list(reader.iter_field("content")),
                          [(u'aa', 2, 6), (u'ab', 1, 1), (u'ax', 1, 2),
@@ -112,7 +113,7 @@ class TestReading(unittest.TestCase):
         writer.commit()
         r = ix.reader()
         
-        terms = list(r.vector_as("weight", 0, 0))
+        terms = list(r.vector_as("weight", 0, "content"))
         self.assertEqual(terms, [(u'brown', 1.0),
                                  (u'dogs', 1.0),
                                  (u'fox', 1.0),
@@ -121,7 +122,75 @@ class TestReading(unittest.TestCase):
                                  (u'over', 1.0),
                                  (u'quick', 1.0),
                                  ])
-
         
+    def test_stored_fields(self):
+        s = fields.Schema(a=fields.ID(stored=True), b=fields.STORED,
+                          c=fields.KEYWORD, d=fields.TEXT(stored=True))
+        st = RamStorage()
+        ix = st.create_index(s)
+        
+        writer = ix.writer()
+        writer.add_document(a=u"1", b="a", c=u"zulu", d=u"Alfa")
+        writer.add_document(a=u"2", b="b", c=u"yankee", d=u"Bravo")
+        writer.add_document(a=u"3", b="c", c=u"xray", d=u"Charlie")
+        writer.commit()
+        
+        sr = ix.searcher()
+        self.assertEqual(sr.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
+        self.assertEqual(sr.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
+        
+        self.assertEqual(sr.document(a=u"1"), {"a": u"1", "b": "a", "d": u"Alfa"})
+        self.assertEqual(sr.document(a=u"2"), {"a": u"2", "b": "b", "d": u"Bravo"})
+
+    def test_stored_fields2(self):
+        schema = fields.Schema(content=fields.TEXT(stored=True),
+                               title=fields.TEXT(stored=True),
+                               summary=fields.STORED,
+                               path=fields.ID(stored=True),
+                               helpid=fields.KEYWORD,
+                               parent=fields.KEYWORD,
+                               context=fields.KEYWORD(stored=True),
+                               type=fields.KEYWORD(stored=True),
+                               status=fields.KEYWORD(stored=True),
+                               superclass=fields.KEYWORD(stored=True),
+                               exampleFor=fields.KEYWORD(stored=True),
+                               chapter=fields.KEYWORD(stored=True),
+                               replaces=fields.KEYWORD,
+                               time=fields.STORED,
+                               methods=fields.STORED,
+                               exampleFile=fields.STORED,
+                               )
+        
+        storedkeys = ["chapter", "content", "context", "exampleFile",
+                      "exampleFor", "methods", "path", "status", "summary",
+                      "superclass", "time", "title", "type"]
+        self.assertEqual(storedkeys, schema.stored_names())
+        
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        writer = ix.writer()
+        writer.add_document(content=u"Content of this document.",
+                            title=u"This is the title",
+                            summary=u"This is the summary", path=u"/main")
+        writer.add_document(content=u"Second document.", title=u"Second title",
+                            summary=u"Summary numero due", path=u"/second")
+        writer.add_document(content=u"Third document.", title=u"Title 3",
+                            summary=u"Summary treo", path=u"/san")
+        writer.commit()
+        ix.close()
+        
+        ix = st.open_index()
+        searcher = ix.searcher()
+        doc = searcher.document(path="/main")
+        self.assertEqual([doc[k] for k in sorted(doc.keys())],
+                         ["Content of this document.", "/main",
+                          "This is the summary", "This is the title"])
+        
+        searcher.close()
+        ix.close()
+
+
+
 if __name__ == '__main__':
     unittest.main()

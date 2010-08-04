@@ -46,7 +46,7 @@ class LockBase(object):
         self.locked = False
     
     def __del__(self):
-        if self.fd:
+        if hasattr(self, "fd") and self.fd:
             try:
                 self.release()
             except:
@@ -71,9 +71,13 @@ class FcntlLock(LockBase):
     
     def acquire(self, blocking=False):
         import fcntl
-        self.fd = os.open(self.filename, os.O_CREAT | os.O_WRONLY)
+        
+        flags = os.O_CREAT | os.O_WRONLY
+        self.fd = os.open(self.filename, flags)
+        
         mode = fcntl.LOCK_EX
         if not blocking: mode |= fcntl.LOCK_NB
+        
         try:
             fcntl.flock(self.fd, mode)
             self.locked = True
@@ -81,6 +85,8 @@ class FcntlLock(LockBase):
         except IOError, e:
             if e.errno not in (errno.EAGAIN, errno.EACCES):
                 raise
+            os.close(self.fd)
+            self.fd = None
             return False
         
     def release(self):
@@ -96,18 +102,26 @@ class MsvcrtLock(LockBase):
     
     def acquire(self, blocking=False):
         import msvcrt
-        self.fd = os.open(self.filename, os.O_CREAT | os.O_WRONLY)
+        
+        flags = os.O_CREAT | os.O_WRONLY
         mode = msvcrt.LK_NBLCK
         if blocking: mode = msvcrt.LK_LOCK
+            
+        self.fd = os.open(self.filename, flags)
         try:
             msvcrt.locking(self.fd, mode, 1)
             return True
         except IOError, e:
             if e.errno not in (errno.EAGAIN, errno.EACCES, errno.EDEADLK):
                 raise
+            os.close(self.fd)
+            self.fd = None
             return False
         
     def release(self):
+        if self.fd is None:
+            raise Exception("Lock was not acquired")
+        
         import msvcrt
         msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
         os.close(self.fd)

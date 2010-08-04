@@ -28,7 +28,6 @@ Index class
 ===========
 
 .. autoclass:: Index
-    :inherited-members:
     :members:
 
 

@@ -26,6 +26,9 @@ Pre-made field types
 .. autoclass:: STORED
 .. autoclass:: KEYWORD
 .. autoclass:: TEXT
+.. autoclass:: NUMERIC
+.. autoclass:: DATETIME
+.. autoclass:: BOOLEAN
 .. autoclass:: NGRAM
 
 

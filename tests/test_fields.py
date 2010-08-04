@@ -9,8 +9,8 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(a, b)
 
         a = fields.Schema(id=fields.ID)
-        b = fields.Schema(id=fields.ID)
-        self.assertEqual(a[0], b[0])
+        b = a.copy()
+        self.assertEqual(a["id"], b["id"])
         self.assertEqual(a, b)
 
         c = fields.Schema(id=fields.TEXT)
@@ -25,24 +25,27 @@ class TestSchema(unittest.TestCase):
         s.add("quick", fields.NGRAM)
         s.add("note", fields.STORED)
         
-        self.assertEqual(s.field_names(), ["content", "title", "path", "tags", "quick", "note"])
+        self.assertEqual(s.names(), ["content", "note", "path", "quick", "tags", "title"])
         self.assert_("content" in s)
         self.assertFalse("buzz" in s)
         self.assert_(isinstance(s["tags"], fields.KEYWORD))
-        self.assert_(isinstance(s[3], fields.KEYWORD))
-        self.assert_(s[0] is s.field_by_number(0))
-        self.assert_(s["title"] is s.field_by_name("title"))
-        self.assert_(s.name_to_number("path") == 2)
-        self.assert_(s.number_to_name(4) == "quick")
-        self.assertEqual(s.scorable_fields(), [0, 1, 4])
         
     def test_creation2(self):
-        s = fields.Schema(content = fields.TEXT(phrase = True, field_boost=2.0),
-                          title = fields.TEXT(stored = True),
-                          path = fields.ID(stored = True),
-                          tags = fields.KEYWORD(stored = True),
-                          quick = fields.NGRAM)
+        s = fields.Schema(a=fields.ID(stored=True),
+                          b=fields.ID,
+                          c=fields.KEYWORD(scorable=True))
         
+        self.assertEqual(s.names(), ["a", "b", "c"])
+        self.assertTrue("a" in s)
+        self.assertTrue("b" in s)
+        self.assertTrue("c" in s)
+        
+    def test_badnames(self):
+        s = fields.Schema()
+        self.assertRaises(fields.FieldConfigurationError, s.add, "_test", fields.ID)
+        self.assertRaises(fields.FieldConfigurationError, s.add, "a f", fields.ID)
+    
+    
 
 if __name__ == '__main__':
     unittest.main()

@@ -18,6 +18,7 @@
 documents.
 """
 
+from __future__ import division
 from collections import defaultdict
 from math import log
 
@@ -25,9 +26,9 @@ from math import log
 # Expansion models
 
 class ExpansionModel(object):
-    def __init__(self, ixreader, fieldname):
-        self.N = float(ixreader.doc_count_all())
-        self.collection_total = ixreader.field_length(fieldname)
+    def __init__(self, doc_count, field_length):
+        self.N = doc_count
+        self.collection_total = field_length
         self.mean_length = self.collection_total / self.N
     
     def normalizer(self, maxweight, top_total):
@@ -85,29 +86,31 @@ class Expander(object):
             scoring.Bo1Model by default.
         """
         
+        self.ixreader = ixreader
         self.fieldname = fieldname
         
         if type(model) is type:
-            model = model(ixreader, fieldname)
+            model = model(self.ixreader.doc_count_all(),
+                          self.ixreader.field_length(fieldname))
         self.model = model
         
         # Cache the collection frequency of every term in this field. This
-        # turns out to be much faster than reading each individual weight from
-        # the term index as we add words.
+        # turns out to be much faster than reading each individual weight
+        # from the term index as we add words.
         self.collection_freq = dict((word, freq) for word, _, freq
-                                      in ixreader.iter_field(fieldname))
+                                      in self.ixreader.iter_field(self.fieldname))
         
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)
         
         # Total weight of all terms in the top N documents.
         self.top_total = 0
-        
+    
     def add(self, vector):
         """Adds forward-index information about one of the "top N" documents.
         
         :param vector: A series of (text, weight) tuples, such as is
-            returned by Reader.vector_as("weight", docnum, fieldnum).
+            returned by Reader.vector_as("weight", docnum, fieldname).
         """
         
         total_weight = 0
@@ -118,6 +121,19 @@ class Expander(object):
             topN_weight[word] += weight
             
         self.top_total += total_weight
+    
+    def add_document(self, docnum):
+        if self.ixreader.has_vector(docnum, self.fieldname):
+            self.add(self.ixreader.vector_as("weight", docnum, self.fieldname))
+        elif self.ixreader.field(self.fieldname).stored:
+            self.add_text(self.ixreader.stored_fields(docnum).get(self.fieldname))
+        else:
+            raise Exception("Field %r in document %s is not vectored or stored" % (self.fieldname, docnum))
+    
+    def add_text(self, string):
+        field = self.ixreader.field(self.fieldname)
+        self.add((text, weight) for text, freq, weight, value
+                 in field.index(string))
     
     def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.
@@ -145,6 +161,64 @@ class Expander(object):
         tlist.sort(reverse=True)
         
         return [(t, weight) for weight, t in tlist[:number]]
+
+
+# Similarity functions
+
+def shingles(input, size=2):
+    d = defaultdict(int)
+    for shingle in (input[i:i+size] for i in xrange(len(input)-(size-1))):
+        d[shingle] += 1
+    return d.iteritems()
+
+
+def simhash(features, hashbits=32):
+    if hashbits == 32:
+        hashfn = hash
+    else:
+        hashfn = lambda s: _hash(s, hashbits)
+    
+    vs = [0] * hashbits
+    for feature, weight in features:
+        h = hashfn(feature)
+        for i in xrange(hashbits):
+            if h & (1 << i):
+                vs[i] += weight
+            else:
+                vs[i] -= weight
+    
+    out = 0
+    for i, v in enumerate(vs):
+        if v > 0:
+            out |= 1 << i
+    return out
+
+
+def _hash(s, hashbits):
+    # A variable-length version of Python's builtin hash
+    if s == "":
+        return 0
+    else:
+        x = ord(s[0])<<7
+        m = 1000003
+        mask = 2 ** hashbits-1
+        for c in s:
+            x = ((x * m) ^ ord(c)) & mask
+        x ^= len(s)
+        if x == -1: 
+            x = -2
+        return x
+
+    
+def hamming_distance(first_hash, other_hash, hashbits=32):
+    x = (first_hash ^ other_hash) & ((1 << hashbits) - 1)
+    tot = 0
+    while x:
+        tot += 1
+        x &= x-1
+    return tot
+
+
 
 
 

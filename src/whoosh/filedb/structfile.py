@@ -14,43 +14,31 @@
 # limitations under the License.
 #===============================================================================
 
-import mmap, os
+import mmap, os, sys
+from array import array
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
-from struct import calcsize, unpack, Struct
+from marshal import dump as dump_marshal
+from marshal import dumps as dumps_marshal
+from marshal import load as load_marshal
+from struct import calcsize, Struct, pack, unpack
 
-from whoosh.system import _INT_SIZE, _USHORT_SIZE, _ULONG_SIZE, _FLOAT_SIZE
+from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
+                           pack_sbyte, pack_ushort, pack_int, pack_uint,
+                           pack_long, pack_float,
+                           unpack_sbyte, unpack_ushort, unpack_int,
+                           unpack_uint, unpack_long, unpack_float)
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
-_SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHlLf")
+IS_LITTLE = sys.byteorder == "little"
+_SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")
 _ORDERMAP = {"little": "<", "big": ">"}
 
 # Struct functions
 
 _types = (("sbyte", "b"), ("ushort", "H"), ("int", "i"),
-          ("ulong", "L"), ("float", "f"))
-
-_sbyte_struct = Struct("!b")
-_ushort_struct = Struct("!H")
-_int_struct = Struct("!i")
-_uint_struct = Struct("!I")
-_ulong_struct = Struct("!L")
-_float_struct = Struct("!f")
-
-pack_sbyte = _sbyte_struct.pack
-pack_ushort = _ushort_struct.pack
-pack_int = _int_struct.pack
-pack_uint = _uint_struct.pack
-pack_ulong = _ulong_struct.pack
-pack_float = _float_struct.pack
-
-unpack_sbyte = _sbyte_struct.unpack
-unpack_ushort = _ushort_struct.unpack
-unpack_int = _int_struct.unpack
-unpack_uint = _uint_struct.unpack
-unpack_ulong = _ulong_struct.unpack
-unpack_float = _float_struct.unpack
+          ("long", "q"), ("float", "f"))
 
 
 # Main function
@@ -58,7 +46,7 @@ unpack_float = _float_struct.unpack
 class StructFile(object):
     """Returns a "structured file" object that wraps the given file object and
     provides numerous additional methods for writing structured data, such as
-    "write_varint" and "write_ulong".
+    "write_varint" and "write_long".
     """
 
     def __init__(self, fileobj, name=None, onclose=None, mapped=True):
@@ -83,6 +71,8 @@ class StructFile(object):
                 self._setup_fake_map()
         else:
             self._setup_fake_map()
+            
+        self.is_real = hasattr(fileobj, "fileno")
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
@@ -99,6 +89,8 @@ class StructFile(object):
         not have a close method.
         """
 
+        if self.is_closed:
+            raise Exception("This file is already closed")
         del self.map
         if self.onclose:
             self.onclose(self)
@@ -202,13 +194,18 @@ class StructFile(object):
         self.file.write(pack_uint(n))
     def write_ushort(self, n):
         self.file.write(pack_ushort(n))
-    def write_ulong(self, n):
-        self.file.write(pack_ulong(n))
+    def write_long(self, n):
+        self.file.write(pack_long(n))
     def write_float(self, n):
         self.file.write(pack_float(n))
     def write_array(self, arry):
-        a = Struct("!" + arry.typecode * len(arry)).pack(*arry)
-        self.file.write(a)
+        if IS_LITTLE:
+            arry = array(arry.typecode, arry)
+            arry.byteswap()
+        if self.is_real:
+            arry.tofile(self.file)
+        else:
+            self.file.write(arry.tostring())
 
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
@@ -217,14 +214,19 @@ class StructFile(object):
     def read_uint(self):
         return unpack_uint(self.file.read(_INT_SIZE))[0]
     def read_ushort(self):
-        return unpack_ushort(self.file.read(_USHORT_SIZE))[0]
-    def read_ulong(self):
-        return unpack_ulong(self.file.read(_ULONG_SIZE))[0]
+        return unpack_ushort(self.file.read(_SHORT_SIZE))[0]
+    def read_long(self):
+        return unpack_long(self.file.read(_LONG_SIZE))[0]
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
     def read_array(self, typecode, length):
-        packed = self.file.read(_SIZEMAP[typecode] * length)
-        return Struct("!" + typecode * length).unpack(packed)
+        a = array(typecode)
+        if self.is_real:
+            a.fromfile(self.file, length)
+        else:
+            a.fromstring(self.file.read(length * _SIZEMAP[typecode]))
+        if IS_LITTLE: a.byteswap()
+        return a
 
     def get_sbyte(self, position):
         return unpack_sbyte(self.map[position:position + 1])[0]
@@ -233,14 +235,17 @@ class StructFile(object):
     def get_uint(self, position):
         return unpack_uint(self.map[position:position + _INT_SIZE])[0]
     def get_ushort(self, position):
-        return unpack_ushort(self.map[position:position + _USHORT_SIZE])[0]
-    def get_ulong(self, position):
-        return unpack_ulong(self.map[position:position + _ULONG_SIZE])[0]
+        return unpack_ushort(self.map[position:position + _SHORT_SIZE])[0]
+    def get_long(self, position):
+        return unpack_long(self.map[position:position + _LONG_SIZE])[0]
     def get_float(self, position):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
     def get_array(self, position, typecode, length):
-        return unpack("!" + typecode * length,
-                      self.map[position:position + _SIZEMAP[typecode] * length])
+        source = self.map[position:position + length * _SIZEMAP[typecode]]
+        a = array(typecode)
+        a.fromstring(source)
+        if IS_LITTLE: a.byteswap()
+        return a
 
 
 

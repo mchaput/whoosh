@@ -8,7 +8,6 @@ Parser classes
 ==============
 
 .. autoclass:: QueryParser
-    :inherited-members:
     :members:
     
 .. autoclass:: MultifieldParser
@@ -16,4 +15,10 @@ Parser classes
 .. autoclass:: SimpleParser
 
 .. autoclass:: SimpleNgramParser
+
+
+Exceptions
+==========
+
+.. autoexception:: QueryParserError
 

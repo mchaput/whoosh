@@ -74,7 +74,7 @@ def create_in(dirname, schema, indexname=None):
     storage = FileStorage(dirname)
     return storage.create_index(schema, indexname)
 
-def open_dir(dirname, indexname = None, mapped=True):
+def open_dir(dirname, indexname=None, mapped=True):
     """Convenience function for opening an index in a directory. Takes care of
     creating a FileStorage object for you. dirname is the filename of the
     directory in containing the index. indexname is the name of the index to
@@ -96,7 +96,7 @@ def open_dir(dirname, indexname = None, mapped=True):
     storage = FileStorage(dirname, mapped=mapped)
     return storage.open_index(indexname)
 
-def exists_in(dirname, indexname = None):
+def exists_in(dirname, indexname=None):
     """Returns True if dirname contains a Whoosh index.
     
     :param dirname: the file path of a directory.
@@ -114,7 +114,7 @@ def exists_in(dirname, indexname = None):
 
     return False
 
-def exists(storage, indexname = None):
+def exists(storage, indexname=None):
     """Returns True if the given Storage object contains a Whoosh index.
     
     :param storage: a store.Storage object.
@@ -128,13 +128,15 @@ def exists(storage, indexname = None):
         
     try:
         ix = storage.open_index(indexname)
-        return ix.latest_generation() > -1
+        gen = ix.latest_generation()
+        ix.close()
+        return gen > -1
     except EmptyIndexError:
         pass
     
     return False
 
-def version_in(dirname, indexname = None):
+def version_in(dirname, indexname=None):
     """Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
@@ -159,7 +161,7 @@ def version_in(dirname, indexname = None):
     return version(storage, indexname=indexname)
     
 
-def version(storage, indexname = None):
+def version(storage, indexname=None):
     """Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
@@ -189,56 +191,11 @@ def version(storage, indexname = None):
         return (None, e.version)
 
 
-# 
-
-class DeletionMixin(object):
-    def delete_by_term(self, fieldname, text):
-        """Deletes any documents containing "term" in the "fieldname" field.
-        This is useful when you have an indexed field containing a unique ID
-        (such as "pathname") for each document.
-        
-        :returns: the number of documents deleted.
-        """
-        
-        from whoosh.query import Term
-        q = Term(fieldname, text)
-        return self.delete_by_query(q)
-    
-    def delete_by_query(self, q):
-        """Deletes any documents matching a query object.
-        
-        :returns: the number of documents deleted.
-        """
-        
-        count = 0
-        for docnum in q.docs(self.searcher()):
-            self.delete_document(docnum)
-            count += 1
-        return count
-
 # Index class
 
-class Index(DeletionMixin):
+class Index(object):
     """Represents an indexed collection of documents.
     """
-    
-    def __init__(self, storage, schema = None, indexname = _DEF_INDEX_NAME):
-        """
-        :param storage: The :class:`whoosh.store.Storage` object in which this
-            index resides. See the store module for more details.
-        :param schema: A :class:`whoosh.fields.Schema` object defining the
-            fields of this index.
-        :param indexname: An optional name to use for the index. Use this if
-            you need to keep multiple indexes in the same storage object.
-        """
-        
-        self.storage = storage
-        self.indexname = indexname
-        
-        if schema is not None and not isinstance(schema, fields.Schema):
-            raise ValueError("%r is not a Schema object" % schema)
-        
-        self.schema = schema
     
     def close(self):
         """Closes any open resources held by the Index object itself. This may
@@ -247,10 +204,29 @@ class Index(DeletionMixin):
         """
         pass
     
-    def delete_document(self, docnum, delete=True):
-        """Deletes a document by number."""
-        raise NotImplementedError
-    
+    def add_field(self, fieldname, fieldspec):
+        """Adds a field to the index's schema.
+        
+        :param fieldname: the name of the field to add.
+        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+            object.
+        """
+        
+        w = self.writer()
+        w.add_field(fieldname, fieldspec)
+        w.commit()
+        
+    def remove_field(self, fieldname):
+        """Removes the named field from the index's schema. Depending on the
+        backend implementation, this may or may not actually remove existing
+        data for the field from the index. Optimizing the index should always
+        clear out existing data for a removed field.
+        """
+        
+        w = self.writer()
+        w.remove_field(fieldname)
+        w.commit()
+        
     def latest_generation(self):
         """Returns the generation number of the latest generation of this
         index, or -1 if the backend doesn't support versioning.
@@ -280,7 +256,7 @@ class Index(DeletionMixin):
         """Returns the last modified time of the index, or -1 if the backend
         doesn't support last-modified times.
         """
-        return -1
+        return - 1
     
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never had any
@@ -295,11 +271,6 @@ class Index(DeletionMixin):
         """
         pass
     
-    def commit(self):
-        """Commits pending edits (such as deletions) to this index object.
-        """
-        pass
-    
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this index.
@@ -311,11 +282,10 @@ class Index(DeletionMixin):
         """
         raise NotImplementedError
     
-    def field_length(self, fieldid):
-        """Returns the total number of terms in a given field. This is used by
-        some scoring algorithms. Note that this necessarily includes terms in
-        deleted documents.
+    def field_length(self, fieldname):
+        """Returns the total length of the given field across all documents.
         """
+        
         raise NotImplementedError
     
     def searcher(self, **kwargs):
@@ -326,7 +296,7 @@ class Index(DeletionMixin):
         """
         
         from whoosh.searching import Searcher
-        return Searcher(self.reader(), **kwargs)
+        return Searcher(self, **kwargs)
     
     def reader(self):
         """Returns an IndexReader object for this index.
@@ -341,6 +311,17 @@ class Index(DeletionMixin):
         :rtype: :class:`whoosh.writing.IndexWriter`
         """
         raise NotImplementedError
+    
+    def delete_by_term(self, fieldname, text, searcher=None):
+        w = self.writer()
+        w.delete_by_term(fieldname, text, searcher=searcher)
+        w.commit()
+        
+    def delete_by_query(self, q, searcher=None):
+        w = self.writer()
+        w.delete_by_query(q, searcher=searcher)
+        w.commit()
+        
     
 
 # Debugging functions
