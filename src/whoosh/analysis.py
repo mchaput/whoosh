@@ -1423,8 +1423,8 @@ StemmingAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
 def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
                   maxsize=None, gaps=True, splitwords=True, splitnums=True,
                   mergewords=False, mergenums=False):
-    """Composes a RegexTokenizer with a CamelFilter, UnderscoreFilter,
-    LowercaseFilter, and StopFilter.
+    """Composes a RegexTokenizer with an IntraWordFilter, LowercaseFilter, and
+    StopFilter.
     
     >>> ana = FancyAnalyzer()
     >>> [token.text for token in ana(u"Should I call getInt or get_real?")]

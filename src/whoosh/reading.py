@@ -149,6 +149,12 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
+    def field_names(self):
+        """Returns a list of the field names in the index's schema.
+        """
+        
+        return self.schema.names()
+
     def scorable(self, fieldname):
         """Returns true if the given field stores field lengths.
         """
@@ -417,6 +423,12 @@ class MultiReader(IndexReader):
             except KeyError:
                 pass
         raise KeyError("No field named %r" % fieldname)
+
+    def field_names(self):
+        s = set()
+        for reader in self.readers:
+            s = s.union(reader.field_names())
+        return sorted(s)
 
     def scorable(self, fieldname):
         return any(r.scorable(fieldname) for r in self.readers)

@@ -1,0 +1,174 @@
+========================
+Whoosh 1.0 release notes
+========================
+
+Whoosh 1.0 is a major milestone release with vastly improved performance and
+several useful new features.
+
+*The index format of this version is not compatibile with indexes created by
+previous versions of Whoosh*. You will need to reindex your data to use this
+version.
+
+
+New features
+============
+
+Orders of magnitude faster searches for common terms. Whoosh now uses
+optimizations similar to those in Xapian to skip reading low-scoring postings.
+
+Faster indexing and ability to use multiple processors (via ``multiprocessing``
+module) to speed up indexing.
+
+Flexible Schema: you can now add and remove fields in an index with the
+:meth:`whoosh.writing.IndexWriter.add_field` and
+:meth:`whoosh.writing.IndexWriter.remove_field` methods.
+
+On-disk formats now use 64-bit disk pointers allowing files larger than 4 GB.
+
+New :class:`whoosh.searching.Facets` class efficiently sorts results into
+facets based on any criteria that can be expressed as queries, for example
+tags or price ranges.
+
+New :class:`whoosh.writing.BatchWriter` class automatically batches up
+individual ``add_document`` and/or ``delete_document`` calls until a certain
+number of calls or a certain amount of time passes, then commits them all at
+once.
+
+New :class:`whoosh.analysis.BiWordFilter` lets you create bi-word indexed
+fields a possible alternative to phrase searching.
+
+Fixed bug where files could be deleted before a reader could open them  in
+threaded situations.
+
+New :class:`whoosh.analysis.NgramFilter` filter,
+:class:`whoosh.analysis.NgramWordAnalyzer` analyzer, and
+:class:`whoosh.fields.NGRAMWORDS` field type allow producing n-grams from
+tokenized text.
+
+Errors in query parsing now raise a specific ``whoosh.qparse.QueryParserError``
+exception instead of a generic exception.
+
+Fixed bug in query parser where words ending in a colon (``:``) were assumed
+to be field prefixes and raised a parsing error.
+
+Previously, the query string ``*`` was optimized to a
+:class:`whoosh.query.Every` query which matched every document. Now the
+``Every`` query only matches documents that actually have an indexed term from
+the given field, to better match the intuitive sense of what a query string like
+``tag:*`` should do.
+
+New :meth:`whoosh.searching.Searcher.key_terms_from_text` method lets you
+extract key words from arbitrary text instead of documents in the index.
+
+Previously the :meth:`whoosh.searching.Searcher.key_terms` and
+:meth:`whoosh.searching.Results.key_terms` methods required that the given
+field store term vectors. They now also work if the given field is stored
+instead. They will analyze the stored string into a term vector on-the-fly.
+The field must still be indexed.
+
+
+User API changes
+================
+
+The "stored" values of fields must now be "marshal"-able (that is, basic types
+such as strings, numbers, lists, or dictionaries) rather than picklable. You
+can still store pickled objects by dumping them to strings first yourself if
+necessary.
+
+The ``Index`` object no longer represents a snapshot of the index at the time
+the object was instantiated. Instead it always represents the index in the
+abstract. ``Searcher`` and ``IndexReader`` objects obtained from the
+``Index`` object still represent the index as it was at the time they were
+created.
+
+Because the ``Index`` object no longer represents the index at a specific
+version, several methods such as ``up_to_date`` and ``refresh`` were removed
+from its interface. The Searcher object now has
+:meth:`~whoosh.searching.Searcher.last_modified`,
+:meth:`~whoosh.searching.Searcher.up_to_date`, and
+:meth:`~whoosh.searching.Searcher.refresh` methods similar to those that used to
+be on ``Index``.
+
+The document deletion and field add/remove methods on the ``Index`` object now
+create a writer behind the scenes to accomplish each call. Therefore, it will
+be much faster if you need to call them multiple times to create your own
+writer instead::
+
+    # Don't do this
+    for id in my_list_of_ids_to_delete:
+        myindex.delete_by_term("id", id)
+        
+    # Instead do this
+    writer = myindex.writer()
+    for id in my_list_of_ids_to_delete:
+        writer.delete_by_term("id", id)
+    writer.commit()
+
+The ``postlimit`` argument to ``Index.writer()`` has been changed to
+``postlimitmb`` and is now expressed in megabytes instead of bytes::
+
+    writer = myindex.writer(postlimitmb=128)
+
+Instead of having to import ``whoosh.filedb.filewriting.NO_MERGE`` or
+``whoosh.filedb.filewriting.OPTIMIZE`` to use as arguments to ``commit()``, you
+can now simply do the following::
+
+    # Do not merge segments
+    writer.commit(merge=False)
+    
+    # or
+    
+    # Merge all segments
+    writer.commit(optimize=True)
+
+The ``whoosh.postings`` module is gone. The ``whoosh.matching`` module contains
+classes for posting list readers.
+
+Whoosh no longer maps field names to numbers for internal use or writing to
+disk. Any low-level method that accepted field numbers now accept field names
+instead.
+
+Custom Weighting implementations that use the ``final()`` method must now
+set the ``use_final`` attribute to ``True``::
+  
+  	from whoosh.scoring import BM25F
+  
+  	class MyWeighting(BM25F):
+  		use_final = True
+  		
+  		def final(searcher, docnum, score):
+  			return score + docnum * 10
+  			
+This disables the new optimizations, forcing Whoosh to score every matching
+document.
+
+:class:`whoosh.writing.AsyncWriter` now takes an :class:`whoosh.index.Index`
+object as its first argument, not a callable. Also, the keyword arguments to
+pass to the index's ``writer()`` method should now be passed as a dictionary
+using the ``writerargs`` keyword argument.
+
+Whoosh now stores per-document field length using an approximation rather than
+exactly. For low numbers the approximation is perfectly accurate, while high
+numbers will be approximated less accurately.
+
+The ``doc_field_length`` method on searchers and readers now takes a second
+argument representing the default to return if the given document and field
+do not have a length (i.e. the field is not scored or the field was not
+provided for the given document).
+
+The :class:`whoosh.analysis.StopFilter` now has a ``maxsize`` argument as well
+as a ``minsize`` argument to its initializer. Analyzers that use the
+``StopFilter`` have the ``maxsize`` argument in their initializers now also.
+
+The interface of :class:`whoosh.writing.AsyncWriter` has changed.
+
+
+Misc
+====
+
+* Because the file backend now writes 64-bit disk pointers and field names
+  instead of numbers, the size of an index on disk will grow compared to
+  previous versions.
+
+* Unit tests should no longer leave directories and files behind.
+

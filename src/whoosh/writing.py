@@ -278,6 +278,12 @@ class AsyncWriter(threading.Thread, IndexWriter):
     def update_document(self, *args, **kwargs):
         self._record("update_document", args, kwargs)
     
+    def add_field(self, *args, **kwargs):
+        self._record("add_field", args, kwargs)
+        
+    def remove_field(self, *args, **kwargs):
+        self._record("remove_field", args, kwargs)
+    
     def commit(self, *args, **kwargs):
         if self.writer:
             self.writer.commit(*args, **kwargs)
@@ -363,7 +369,11 @@ class BatchWriter(object):
     def update_document(self, *args, **kwargs):
         self._record("update_document", args, kwargs)
 
-
+    def add_field(self, *args, **kwargs):
+        self._record("add_field", args, kwargs)
+        
+    def remove_field(self, *args, **kwargs):
+        self._record("remove_field", args, kwargs)
 
 
 

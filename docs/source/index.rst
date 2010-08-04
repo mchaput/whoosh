@@ -14,6 +14,7 @@ Contents
 .. toctree::
     :maxdepth: 2
     
+    releases/index
     quickstart
     intro
     glossary
@@ -29,7 +30,6 @@ Contents
     spelling
     api/api
     tech/index
-    changes
 
 
 Indices and tables
