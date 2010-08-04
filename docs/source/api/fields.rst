@@ -30,6 +30,7 @@ Pre-made field types
 .. autoclass:: DATETIME
 .. autoclass:: BOOLEAN
 .. autoclass:: NGRAM
+.. autoclass:: NGRAMWORDS
 
 
 Exceptions

@@ -18,7 +18,7 @@ Matchers
 .. autoclass:: BiMatcher
 .. autoclass:: AdditiveBiMatcher
 .. autoclass:: UnionMatcher
-.. autoclass:: DisjuctionMaxMatcher
+.. autoclass:: DisjunctionMaxMatcher
 .. autoclass:: IntersectionMatcher
 .. autoclass:: AndNotMatcher
 .. autoclass:: InverseMatcher

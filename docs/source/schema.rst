@@ -152,10 +152,10 @@ The constructors for most of the predefined field types have parameters that let
 you customize these parts. For example:
 
 * Most of the predefined field types take a stored keyword argument that sets
-FieldType.stored.
+  FieldType.stored.
 
 * The ``TEXT()`` constructor takes an ``analyzer`` keyword argument that is
-passed on to the format object.
+  passed on to the format object.
 
 Formats
 -------

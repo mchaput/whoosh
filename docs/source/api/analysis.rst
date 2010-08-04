@@ -15,6 +15,7 @@ Analyzers
 .. autoclass:: StemmingAnalyzer
 .. autoclass:: FancyAnalyzer
 .. autoclass:: NgramAnalyzer
+.. autoclass:: NgramWordAnalyzer
 
 
 Tokenizers
@@ -41,7 +42,7 @@ Filters
 .. autoclass:: CharsetFilter
 .. autoclass:: NgramFilter
 .. autoclass:: IntraWordFilter
-.. autoclass:: BitWordFilter
+.. autoclass:: BiWordFilter
 .. autoclass:: BoostTextFilter
 
 Token classes and functions

@@ -52,7 +52,7 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "vector", "vector_as", "scorable",
                      "lexicon", "frequency", "field_length", "doc_field_length",
-                     "max_field_length"):
+                     "max_field_length", "field", "field_names"):
             setattr(self, name, getattr(self.ixreader, name))
 
         if type(weighting) is type:
@@ -75,7 +75,8 @@ class Searcher(object):
         return self.ix.latest_generation() == self.ixreader.generation()
 
     def refresh(self):
-        """Returns a fresh searcher for the latest version of the index::
+        """
+        Returns a fresh searcher for the latest version of the index::
         
             if not my_searcher.up_to_date():
                 my_searcher = my_searcher.refresh()
@@ -92,9 +93,6 @@ class Searcher(object):
         if not self.ixreader.scorable(fieldname):
             return default
         return self.ixreader.field_length(fieldname) / (self.doccount or 1)
-
-    def field(self, fieldname):
-        return self.ixreader.field(fieldname)
 
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
