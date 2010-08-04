@@ -40,8 +40,9 @@ class FileStorage(Storage):
         return iter(self.list())
 
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
-        from whoosh.filedb.fileindex import FileIndex
-        return FileIndex(self, schema=schema, create=True, indexname=indexname)
+        from whoosh.filedb.fileindex import _create_index, FileIndex
+        _create_index(self, schema, indexname)
+        return FileIndex(self, schema, indexname)
 
     def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
         from whoosh.filedb.fileindex import FileIndex
@@ -53,8 +54,11 @@ class FileStorage(Storage):
         return f
 
     def open_file(self, name, *args, **kwargs):
-        f = StructFile(open(self._fpath(name), "rb"), *args, **kwargs)
-        f._name = name
+        try:
+            f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
+        except IOError:
+            print "Tried to open %r, files=%r" % (name, self.list())
+            raise
         return f
 
     def _fpath(self, fname):
@@ -95,12 +99,9 @@ class FileStorage(Storage):
                 os.remove(self._fpath(to))
         os.rename(self._fpath(frm), self._fpath(to))
 
-    def _getlock(self, name):
-        return FileLock(self._fpath(name))
-
     def lock(self, name):
         return FileLock(self._fpath(name))
-
+    
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
 
@@ -157,14 +158,14 @@ class RamStorage(FileStorage):
 
     def open_file(self, name, *args, **kwargs):
         if name not in self.files:
-            raise NameError
-        return StructFile(StringIO(self.files[name]), *args, **kwargs)
+            raise NameError("No such file %r" % name)
+        return StructFile(StringIO(self.files[name]), name=name, *args, **kwargs)
 
     def lock(self, name):
         if name not in self.locks:
             self.locks[name] = Lock()
         return self.locks[name]
-
+    
 
 def copy_to_ram(storage):
     """Copies the given FileStorage object into a new RamStorage object.

@@ -9,11 +9,17 @@ The schema specifies the fields of documents in an index.
 
 Each document can have multiple fields, such as title, content, url, date, etc.
 
-Some fields can be indexed, and some fields can be stored with the document so the contents of the field so the field value is available in search results. Some fields will be both indexed and stored.
+Some fields can be indexed, and some fields can be stored with the document so
+the contents of the field so the field value is available in search results.
+Some fields will be both indexed and stored.
 
-The schema is the set of all possible fields in a document. Each individual document might only use a subset of the available fields in the schema.
+The schema is the set of all possible fields in a document. Each individual
+document might only use a subset of the available fields in the schema.
 
-For example, a simple schema for indexing emails might have fields like ``from_addr``, ``to_addr``, ``subject``, ``body``, and ``attachments``, where the ``attachments`` field lists the names of attachments to the email. For emails without attachments, you would omit the attachments field.
+For example, a simple schema for indexing emails might have fields like
+``from_addr``, ``to_addr``, ``subject``, ``body``, and ``attachments``, where
+the ``attachments`` field lists the names of attachments to the email. For
+emails without attachments, you would omit the attachments field.
 
 
 Built-in field types
@@ -22,32 +28,58 @@ Built-in field types
 Whoosh provides some useful predefined field types:
 
 :class:`whoosh.fields.TEXT`
-    This type is for body text. It indexes (and optionally stores) the text and stores term positions to allow phrase searching.
+    This type is for body text. It indexes (and optionally stores) the text and
+    stores term positions to allow phrase searching.
 
-    TEXT fields use StandardAnalyzer? by default. To specify a different analyzer, use the analyzer keyword argument to the constructor, e.g. TEXT(analyzer=analysis.StemmingAnalyzer()). See TextAnalysis?.
+    TEXT fields use StandardAnalyzer? by default. To specify a different
+    analyzer, use the analyzer keyword argument to the constructor, e.g.
+    TEXT(analyzer=analysis.StemmingAnalyzer()). See TextAnalysis?.
 
-    By default, TEXT fields store position information for each indexed term, to allow you to search for phrases. If you don't need to be able to search for phrases in a text field, you can turn off storing term positions to save space. Use TEXT(phrase=False).
+    By default, TEXT fields store position information for each indexed term, to
+    allow you to search for phrases. If you don't need to be able to search for
+    phrases in a text field, you can turn off storing term positions to save
+    space. Use TEXT(phrase=False).
 
-    By default, TEXT fields are not stored. Usually you will not want to store the body text in the search index. Usually you have the indexed documents themselves available to read or link to based on the search results, so you don't need to store their text in the search index. However, in some circumstances it can be useful (see HighlightingResults?). Use TEXT(stored=True) to specify that the text should be stored in the index.
+    By default, TEXT fields are not stored. Usually you will not want to store
+    the body text in the search index. Usually you have the indexed documents
+    themselves available to read or link to based on the search results, so you
+    don't need to store their text in the search index. However, in some
+    circumstances it can be useful (see HighlightingResults?). Use
+    TEXT(stored=True) to specify that the text should be stored in the index.
 
 :class:`whoosh.fields.KEYWORD`
-    This field type is designed for space- or comma-separated keywords. This type is indexed and searchable (and optionally stored). To save space, it does not support phrase searching.
+    This field type is designed for space- or comma-separated keywords. This
+    type is indexed and searchable (and optionally stored). To save space, it
+    does not support phrase searching.
 
-    To store the value of the field in the index, use stored=True in the constructor. To automatically lowercase the keywords before indexing them, use lowercase=True.
+    To store the value of the field in the index, use stored=True in the
+    constructor. To automatically lowercase the keywords before indexing them,
+    use lowercase=True.
 
-    By default, the keywords are space separated. To separate the keywords by commas instead (to allow keywords containing spaces), use commas=True.
+    By default, the keywords are space separated. To separate the keywords by
+    commas instead (to allow keywords containing spaces), use commas=True.
 
     If you users will use the keyword field for searching, use scorable=True.
 
 :class:`whoosh.fields.ID`
-    The ID field type simply indexes (and optionally stores) the entire value of the field as a single unit (that is, it doesn't break it up into individual terms). This type of field does not store frequency information, so it's quite compact, but not very useful for scoring.
+    The ID field type simply indexes (and optionally stores) the entire value of
+    the field as a single unit (that is, it doesn't break it up into individual
+    terms). This type of field does not store frequency information, so it's
+    quite compact, but not very useful for scoring.
 
-    Use ID for fields like url or path (the URL or file path of a document), date, category -- fields where the value must be treated as a whole, and each document only has one value for the field.
+    Use ID for fields like url or path (the URL or file path of a document),
+    date, category -- fields where the value must be treated as a whole, and
+    each document only has one value for the field.
 
-    By default, ID fields are not stored. Use ID(stored=True) to specify that the value of the field should be stored with the document for use in the search results. For example, you would want to store the value of a url field so you could provide links to the original in your search results.
+    By default, ID fields are not stored. Use ID(stored=True) to specify that
+    the value of the field should be stored with the document for use in the
+    search results. For example, you would want to store the value of a url
+    field so you could provide links to the original in your search results.
 
 :class:`whoosh.fields.STORED`
-    This field is stored with the document, but not indexed and not searchable. This is useful for document information you want to display to the user in the search results, but don't need to be able to search for.
+    This field is stored with the document, but not indexed and not searchable.
+    This is useful for document information you want to display to the user in
+    the search results, but don't need to be able to search for.
 
 :class:`whoosh.fields.NGRAM`
     TBD.
@@ -69,7 +101,9 @@ To create a schema::
                     body=TEXT(analyzer=StemmingAnalyzer()),
                     tags=KEYWORD)
 
-If you aren't specifying any constructor keyword arguments to one of the predefined fields, you can leave off the brackets (e.g. fieldname=TEXT instead of fieldname=TEXT()). Whoosh will instantiate the class for you.
+If you aren't specifying any constructor keyword arguments to one of the
+predefined fields, you can leave off the brackets (e.g. fieldname=TEXT instead
+of fieldname=TEXT()). Whoosh will instantiate the class for you.
 
 
 Advanced schema setup
@@ -78,7 +112,9 @@ Advanced schema setup
 Field boosts
 ------------
 
-You can specify a field boost for a field. This is a multiplier applied to the score of any term found in the field. For example, to make terms found in the title field score twice as high as terms in the body field::
+You can specify a field boost for a field. This is a multiplier applied to the
+score of any term found in the field. For example, to make terms found in the
+title field score twice as high as terms in the body field::
 
     schema = Schema(title=TEXT(field_boost=2.0), body=TEXT)
 
@@ -86,7 +122,9 @@ You can specify a field boost for a field. This is a multiplier applied to the s
 Field types
 -----------
 
-The predefined field types listed above are subclasses of ``fields.FieldType``. ``FieldType`` is a pretty simple class. Its attributes contain information that define the behavior of a field.
+The predefined field types listed above are subclasses of ``fields.FieldType``.
+``FieldType`` is a pretty simple class. Its attributes contain information that
+define the behavior of a field.
 
 ============ =============== ======================================================
 Attribute     Type             Description
@@ -110,16 +148,20 @@ unique       bool            If True, the value of this field may be used to
                              on an ``IndexWriter``.
 ============ =============== ======================================================
 
-The constructors for most of the predefined field types have parameters that let you customize these parts. For example:
+The constructors for most of the predefined field types have parameters that let
+you customize these parts. For example:
 
-* Most of the predefined field types take a stored keyword argument that sets FieldType.stored.
+* Most of the predefined field types take a stored keyword argument that sets
+FieldType.stored.
 
-* The ``TEXT()`` constructor takes an ``analyzer`` keyword argument that is passed on to the format object.
+* The ``TEXT()`` constructor takes an ``analyzer`` keyword argument that is
+passed on to the format object.
 
 Formats
 -------
 
-A ``Format`` object defines what kind of information a field records about each term, and how the information is stored on disk.
+A ``Format`` object defines what kind of information a field records about each
+term, and how the information is stored on disk.
 
 For example, the Existence format would store postings like this:
 
@@ -141,7 +183,9 @@ Doc   Positions
 30    ``[7,12]``
 ===== =============
 
-The indexing code passes the unicode string for a field to the field's Format object. The Format object calls its analyzer (see text analysis) to break the string into tokens, then encodes information about each token.
+The indexing code passes the unicode string for a field to the field's Format
+object. The Format object calls its analyzer (see text analysis) to break the
+string into tokens, then encodes information about each token.
 
 Whoosh ships with the following pre-defined formats.
 
@@ -158,9 +202,13 @@ Positions       Stores the number of times each term appears in each document,
                 and at what positions.
 =============== ================================================================
 
-The STORED field type uses the Stored format (which does nothing, so STORED fields are not indexed). The ID type uses the Existence format. The KEYWORD type uses the Frequency format. The TEXT type uses the Positions format if it is instantiated with phrase=True (the default), or Frequency if phrase=False.
+The STORED field type uses the Stored format (which does nothing, so STORED
+fields are not indexed). The ID type uses the Existence format. The KEYWORD type
+uses the Frequency format. The TEXT type uses the Positions format if it is
+instantiated with phrase=True (the default), or Frequency if phrase=False.
 
-In addition, the following formats are implemented for the possible convenience of expert users, but are not currently used in Whoosh:
+In addition, the following formats are implemented for the possible convenience
+of expert users, but are not currently used in Whoosh:
 
 ================= ================================================================
 Class name        Description
@@ -176,7 +224,9 @@ CharacterBoosts   Like Positions, but also stores the start and end character
 Vectors
 -------
 
-The main index is an inverted index. It maps terms to the documents they appear in. It is also sometimes useful to store a forward index, also known as a term vector, that maps documents to the terms that appear in them.
+The main index is an inverted index. It maps terms to the documents they appear
+in. It is also sometimes useful to store a forward index, also known as a term
+vector, that maps documents to the terms that appear in them.
 
 For example, imagine an inverted index like this for a field:
 
@@ -197,12 +247,21 @@ Doc        Postings
 3          ``[(text=apple, freq=1)]``
 ========== ======================================================
 
-If you set FieldType.vector to a Format object, the indexing code will use the Format object to store information about the terms in each document. Currently by default Whoosh does not make use of term vectors at all, but they are available to expert users who want to implement their own field types.
+If you set FieldType.vector to a Format object, the indexing code will use the
+Format object to store information about the terms in each document. Currently
+by default Whoosh does not make use of term vectors at all, but they are
+available to expert users who want to implement their own field types.
 
 Implementation notes
 --------------------
 
-The query.Phrase query object can use positions in postings (``FieldType.format=Positions``) or in vectors (``FieldType.vector=Positions``), but storing positions in the postings gives faster phrase searches.
+The query.Phrase query object can use positions in postings
+(``FieldType.format=Positions``) or in vectors (``FieldType.vector=Positions``),
+but storing positions in the postings gives faster phrase searches.
 
-Field names are mapped to numbers inside the Schema, and the numbers are used internally. This means you can add fields to an existing index, and you can rename fields (although there is no API for doing so), but you can't delete fields from an existing index. If you want to make drastic changes to the schema, you should reindex your documents from scratch with the new schema.
+Field names are mapped to numbers inside the Schema, and the numbers are used
+internally. This means you can add fields to an existing index, and you can
+rename fields (although there is no API for doing so), but you can't delete
+fields from an existing index. If you want to make drastic changes to the
+schema, you should reindex your documents from scratch with the new schema.
 

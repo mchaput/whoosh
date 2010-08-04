@@ -16,7 +16,6 @@
 
 import threading, time
 
-from whoosh.index import DeletionMixin
 from whoosh.store import LockError
 
 # Exceptions
@@ -27,7 +26,7 @@ class IndexingError(Exception):
 
 # Base class
 
-class IndexWriter(DeletionMixin):
+class IndexWriter(object):
     """High-level object for writing to an index.
     
     To get a writer for a particular index, call
@@ -49,18 +48,63 @@ class IndexWriter(DeletionMixin):
         else:
             self.commit()
     
+    def add_field(self, fieldname, fieldspec):
+        """Adds a field to the index's schema.
+        
+        :param fieldname: the name of the field to add.
+        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+            object.
+        """
+        
+        self.schema.add(fieldname, fieldspec)
+    
+    def remove_field(self, fieldname):
+        """Removes the named field from the index's schema. Depending on the
+        backend implementation, this may or may not actually remove existing
+        data for the field from the index. Optimizing the index should always
+        clear out existing data for a removed field.
+        """
+        
+        self.schema.remove(fieldname)
+        
     def searcher(self, **kwargs):
         """Returns a searcher for the existing index.
         """
         
-        if not self._searcher:
-            self._searcher = self.index.searcher(**kwargs)
-        return self._searcher
+        raise NotImplementedError
     
-    def _close_reader(self):
-        if self._searcher:
-            self._searcher.close()
-            self._searcher = None
+    def delete_by_term(self, fieldname, text, searcher=None):
+        """Deletes any documents containing "term" in the "fieldname" field.
+        This is useful when you have an indexed field containing a unique ID
+        (such as "pathname") for each document.
+        
+        :returns: the number of documents deleted.
+        """
+        
+        from whoosh.query import Term
+        q = Term(fieldname, text)
+        return self.delete_by_query(q, searcher=searcher)
+    
+    def delete_by_query(self, q, searcher=None):
+        """Deletes any documents matching a query object.
+        
+        :returns: the number of documents deleted.
+        """
+        
+        if searcher:
+            s = searcher
+        else:
+            s = self.searcher()
+        
+        count = 0
+        for docnum in q.docs(s):
+            self.delete_document(docnum)
+            count += 1
+        
+        if not searcher:
+            s.close()
+        
+        return count
     
     def delete_document(self, docnum, delete=True):
         """Deletes a document by number.
@@ -68,10 +112,7 @@ class IndexWriter(DeletionMixin):
         raise NotImplementedError
     
     def add_document(self, **fields):
-        """Adds all the fields of a document at once. This is an alternative to
-        calling start_document(), add_field() [...], end_document().
-        
-        The keyword arguments map field names to the values to index/store.
+        """The keyword arguments map field names to the values to index/store.
         
         For fields that are both indexed and stored, you can specify an
         alternate value to store using a keyword argument in the form
@@ -84,10 +125,7 @@ class IndexWriter(DeletionMixin):
         raise NotImplementedError
     
     def update_document(self, **fields):
-        """Adds or replaces a document. At least one of the fields for which
-        you supply values must be marked as 'unique' in the index's schema.
-        
-        The keyword arguments map field names to the values to index/store.
+        """The keyword arguments map field names to the values to index/store.
         
         Note that this method will only replace a *committed* document;
         currently it cannot replace documents you've added to the IndexWriter
@@ -109,11 +147,11 @@ class IndexWriter(DeletionMixin):
         """
         
         # Check which of the supplied fields are unique
-        unique_fields = [name for name, field
-                         in self.index.schema.fields()
+        unique_fields = [name for name, field in self.schema.items()
                          if name in fields and field.unique]
         if not unique_fields:
-            raise IndexingError("None of the fields in %r are unique" % fields.keys())
+            raise IndexingError("None of the fields in %r"
+                                " are unique" % fields.keys())
         
         # Delete documents in which the supplied unique fields match
         from whoosh import query
@@ -137,7 +175,33 @@ class IndexWriter(DeletionMixin):
         pass
     
 
-class AsyncWriter(threading.Thread, DeletionMixin):
+class PostingWriter(object):
+    def start(self, format):
+        """Start a new set of postings for a new term. Implementations may
+        raise an exception if this is called without a corresponding call to
+        finish().
+        """
+        raise NotImplementedError
+    
+    def write(self, id, weight, valuestring):
+        """Add a posting with the given ID and value.
+        """
+        raise NotImplementedError
+    
+    def finish(self):
+        """Finish writing the postings for the current term. Implementations
+        may raise an exception if this is called without a preceding call to
+        start().
+        """
+        pass
+    
+    def close(self):
+        """Finish writing all postings and close the underlying file.
+        """
+        pass
+
+
+class AsyncWriter(threading.Thread, IndexWriter):
     """Convenience wrapper for a writer object that might fail due to locking
     (i.e. the ``filedb`` writer). This object will attempt once to obtain the
     underlying writer, and if it's successful, will simply pass method calls on
@@ -154,40 +218,40 @@ class AsyncWriter(threading.Thread, DeletionMixin):
     writer, add, and commit, without having to worry about index locks,
     retries, etc.
     
-    The first argument is a callable which returns the actual writer. Usually
-    this will be the ``writer`` method of your Index object. Any additional
-    keyword arguments to the initializer are passed into the callable.
-    
     For example, to get an aynchronous writer, instead of this:
     
-    >>> writer = myindex.writer(postlimit=128 * 1024 * 1024)
+    >>> writer = myindex.writer(postlimitmb=128)
     
     Do this:
     
     >>> from whoosh.writing import AsyncWriter
-    >>> writer = AsyncWriter(myindex.writer, postlimit=128 * 1024 * 1024)
+    >>> writer = AsyncWriter(myindex, )
     """
     
-    def __init__(self, writerfn, delay=0.25, **writerargs):
+    def __init__(self, index, delay=0.25, writerargs=None):
         """
-        :param writerfn: a callable object (function or method) which returns
-            the actual writer.
+        :param index: the :class:`whoosh.index.Index` to write to.
         :param delay: the delay (in seconds) between attempts to instantiate
             the actual writer.
+        :param writerargs: an optional dictionary specifying keyword arguments
+            to to be passed to the index's ``writer()`` method.
         """
         
         threading.Thread.__init__(self)
         self.running = False
-        self.writerfn = writerfn
-        self.writerargs = writerargs
+        self.index = index
+        self.writerargs = writerargs or {}
         self.delay = delay
         self.events = []
         try:
-            self.writer = writerfn(**writerargs)
+            self.writer = self.index.writer(**self.writerargs)
         except LockError:
             self.writer = None
     
-    def _record(self, method, *args, **kwargs):
+    def searcher(self):
+        return self.index.searcher()
+    
+    def _record(self, method, args, kwargs):
         if self.writer:
             getattr(self.writer, method)(*args, **kwargs)
         else:
@@ -209,10 +273,10 @@ class AsyncWriter(threading.Thread, DeletionMixin):
         self._record("delete_document", docnum)
     
     def add_document(self, *args, **kwargs):
-        self._record("add_document", *args, **kwargs)
+        self._record("add_document", args, kwargs)
         
     def update_document(self, *args, **kwargs):
-        self._record("update_document", *args, **kwargs)
+        self._record("update_document", args, kwargs)
     
     def commit(self, *args, **kwargs):
         if self.writer:
@@ -226,6 +290,78 @@ class AsyncWriter(threading.Thread, DeletionMixin):
             self.writer.cancel(*args, **kwargs)
     
     
+class BatchWriter(object):
+    """Convenience wrapper that batches up calls to ``add_document()``,
+    ``update_document()``, and/or ``delete_document()``, and commits them
+    whenever a maximum amount of time passes or a maximum number of batched
+    changes accumulates.
+    
+    In scenarios where you are continuously adding single documents very
+    rapidly (for example a web application where lots of users are adding
+    content simultaneously), and you don't mind a delay between documents being
+    added and becoming searchable, using a BatchWriter is *much* faster than
+    opening and committing a writer for each document you add.
+    
+    >>> from whoosh.writing import BatchWriter
+    >>> writer = BatchWriter(myindex)
+    
+    Calling ``commit()`` on this object opens a writer and commits any batched
+    up changes. You can continue to make changes after calling ``commit()``,
+    and you can call ``commit()`` multiple times.
+    
+    You should explicitly call ``commit()`` on this object before it goes out
+    of scope to make sure any uncommitted changes are saved.
+    """
+
+    def __init__(self, index, period=60, limit=10, writerargs=None,
+                 commitargs=None):
+        """
+        :param index: the :class:`whoosh.index.Index` to write to.
+        :param period: the maximum amount of time (in seconds) between commits.
+        :param limit: the maximum number of changes to accumulate before
+            committing.
+        :param writerargs: dictionary specifying keyword arguments to be passed
+            to the index's ``writer()`` method.
+        :param commitargs: dictionary specifying keyword arguments to be passed
+            to the writer's ``commit()`` method.
+        """
+        self.index = index
+        self.period = period
+        self.limit = limit
+        self.writerargs = writerargs or {}
+        self.commitargs = commitargs or {}
+        
+        self.events = []
+        self.timer = threading.Timer(self.period, self.commit)
+    
+    def __del__(self):
+        self.commit(restart=False)
+    
+    def commit(self, restart=True):
+        self.timer.cancel()
+        if self.events:
+            writer = self.index.writer(**self.writerargs)
+            for method, args, kwargs in self.events:
+                getattr(writer, method)(*args, **kwargs)
+            writer.commit(**self.commitargs)
+            self.events = []
+        
+        if restart:
+            self.timer = threading.Timer(self.period, self.commit)
+    
+    def _record(self, method, args, kwargs):
+        self.events.append((method, args, kwargs))
+        if len(self.events) >= self.limit:
+            self.commit()
+        
+    def delete_document(self, *args, **kwargs):
+        self._record("delete_document", args, kwargs)
+        
+    def add_document(self, *args, **kwargs):
+        self._record("add_document", args, kwargs)
+
+    def update_document(self, *args, **kwargs):
+        self._record("update_document", args, kwargs)
 
 
 

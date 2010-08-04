@@ -34,28 +34,31 @@ class Weighting(object):
     appears.
     """
 
-    def avg_field_length(self, ixreader, fieldnum):
-        """Returns the average length of the field per document.
-        (i.e. total field length / total number of documents)
-        """
-        return ixreader.field_length(fieldnum) / ixreader.doc_count_all()
+    use_final = False
 
-    def fl_over_avfl(self, ixreader, docnum, fieldnum):
-        """Returns the length of the current field in the current
-        document divided by the average length of the field
-        across all documents. This is used by some scoring algorithms.
+    def idf(self, searcher, fieldname, text):
+        """Calculates the Inverse Document Frequency of the
+        current term. Subclasses may want to override this.
         """
-        return ixreader.doc_field_length(docnum, fieldnum) / self.avg_field_length(ixreader, fieldnum)
 
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
+        cache = searcher._idf_cache
+        term = (fieldname, text)
+        if term in cache: return cache[term]
+
+        n = searcher.ixreader.doc_frequency(fieldname, text)
+        idf = log((searcher.doccount) / (n+1)) + 1
+        
+        cache[term] = idf
+        return idf
+
+    def score(self, searcher, fieldname, text, docnum, weight):
         """Returns the score for a given term in the given document.
         
         :param searcher: :class:`whoosh.searching.Searcher` for the index.
-        :param fieldnum: the field number of the term being scored.
+        :param fieldname: the field name of the term being scored.
         :param text: the text of the term being scored.
         :param docnum: the doc number of the document being scored.
         :param weight: the frequency * boost of the term in this document.
-        :param QTF: the frequency of the term in the query.
         :rtype: float
         """
         raise NotImplementedError
@@ -74,150 +77,123 @@ class Weighting(object):
         """
 
         return score
+    
+    def score_fn(self, searcher, fieldname, text):
+        """Returns a function which takes a :class:`whoosh.matching.Matcher`
+        and returns a score.
+        """
+        def fn(m):
+            return self.score(searcher, fieldname, text, m.id(), m.weight())
+        return fn
+    
+    def quality_fn(self, searcher, fieldname, text):
+        """Returns a function which takes a :class:`whoosh.matching.Matcher`
+        and returns an appoximate quality rating for the matcher's current
+        posting. If the weighting class does not support approximate quality
+        ratings, this method should return None instead of a function.
+        """
+        return None
+    
+    def block_quality_fn(self, searcher, fieldname, text):
+        """Returns a function which takes a :class:`whoosh.matching.Matcher`
+        and returns an appoximate quality rating for the matcher's current
+        block (whatever concept of block the matcher might use). If the
+        weighting class does not support approximate quality ratings, this
+        method should return None instead of a function.
+        """
+        return None
 
 
-# Scoring classes
+class WOLWeighting(Weighting):
+    """Abstract middleware class for weightings that can use
+    "weight-over-length" (WOL) as an approximate quality rating.
+    """
+    
+    def quality_fn(self, searcher, fieldname, text):
+        dfl = searcher.doc_field_length
+        def fn(m):
+            return m.weight() / dfl(m.id(), fieldname, 1)
+        return fn
+    
+    def block_quality_fn(self, searcher, fieldname, text):
+        def fn(m):
+            return m.blockinfo.maxwol
+        return fn
 
-class BM25F(Weighting):
+# Weighting classes
+
+class BM25F(WOLWeighting):
     """Generates a BM25F score.
     """
 
-    def __init__(self, B=0.75, K1=1.2, field_B=None):
+    def __init__(self, B=0.75, K1=1.2, **kwargs):
         """
-        :param B: free parameter, see the BM25 literature.
+        :param B: free parameter, see the BM25 literature. Keyword arguments of
+            the form ``fieldname_B`` (for example, ``body_B``) set field-
+            specific values for B.
         :param K1: free parameter, see the BM25 literature.
-        :param field_B: If given, a dictionary mapping fieldnums to
-            field-specific B values.
         """
 
         Weighting.__init__(self)
         self.K1 = K1
         self.B = B
 
-        if field_B is None: field_B = {}
-        self._field_B = field_B
+        self._field_B = {}
+        for k, v in kwargs.iteritems():
+            if k.endswith("_B"):
+                fieldname = k[:-2]
+                self._field_B[fieldname] = v
 
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
+    @staticmethod
+    def _score(B, K1, weight, length, avglength, idf):
+        w = weight / ((1 - B) + B * (length / avglength))
+        return idf * (w / (K1 + w))
 
-        B = self._field_B.get(fieldnum, self.B)
-        avl = self.avg_field_length(ixreader, fieldnum)
-        idf = searcher.idf(fieldnum, text)
-        l = ixreader.doc_field_length(docnum, fieldnum)
+    def score(self, searcher, fieldname, text, docnum, weight):
+        if not searcher.scorable(fieldname): return weight
 
-        w = weight / ((1 - B) + B * (l / avl))
-        return idf * (w / (self.K1 + w))
+        B = self._field_B.get(fieldname, self.B)
+        avl = searcher.avg_field_length(fieldname)
+        idf = self.idf(searcher, fieldname, text)
+        l = searcher.doc_field_length(docnum, fieldname)
 
-
-# The following scoring algorithms are translated from classes in
-# the Terrier search engine's uk.ac.gla.terrier.matching.models package.
-
-class Cosine(Weighting):
-    """A cosine vector-space scoring algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        idf = searcher.idf(fieldnum, text)
-
-        DTW = (1.0 + log(weight)) * idf
-        QMF = 1.0 # TODO: Fix this
-        QTW = ((0.5 + (0.5 * QTF / QMF))) * idf
-        return DTW * QTW
-
-
-class DFree(Weighting):
-    """The DFree probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        fieldlen = ixreader.doc_field_length(docnum, fieldnum)
-        prior = weight / fieldlen
-        post = (weight + 1.0) / fieldlen
-        invprior = ixreader.field_length(fieldnum) / ixreader.frequency(fieldnum, text)
-        norm = weight * log(post / prior, 2)
-
-        return QTF\
-                * norm\
-                * (weight * (-log(prior * invprior, 2))
-                   + (weight + 1.0) * (+log(post * invprior, 2)) + 0.5 * log(post / prior, 2))
-
-
-class DLH13(Weighting):
-    """The DLH13 probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def __init__(self, k=0.5):
-        Weighting.__init__(self)
-        self.k = k
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        k = self.k
-        dl = ixreader.doc_field_length(docnum, fieldnum)
-        f = weight / dl
-        tc = ixreader.frequency(fieldnum, text)
-        dc = ixreader.doc_count_all()
-        avl = self.avg_field_length(ixreader, fieldnum)
-
-        return QTF * (weight * log((weight * avl / dl) * (dc / tc), 2) + 0.5 * log(2.0 * pi * weight * (1.0 - f))) / (weight + k)
-
-
-class Hiemstra_LM(Weighting):
-    """The Hiemstra LM probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def __init__(self, c=0.15):
-        Weighting.__init__(self)
-        self.c = c
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        c = self.c
-        tc = ixreader.frequency(fieldnum, text)
-        dl = ixreader.doc_field_length(docnum, fieldnum)
-        return log(1 + (c * weight * ixreader.field_length(fieldnum)) / ((1 - c) * tc * dl))
-
-
-class InL2(Weighting):
-    """The InL2 LM probabilistic weighting algorithm, translated into Python
-    from Terrier's Java implementation.
-    """
-
-    def __init__(self, c=1.0):
-        Weighting.__init__(self)
-        self.c = c
-
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        ixreader = searcher.reader()
-        if not ixreader.scorable(fieldnum): return weight
-
-        dl = ixreader.doc_field_length(docnum, fieldnum)
-        TF = weight * log(1.0 + (self.c * self.avg_field_length(ixreader, fieldnum)) / dl)
-        norm = 1.0 / (TF + 1.0)
-        df = ixreader.doc_frequency(fieldnum, text)
-        idf_dfr = log((ixreader.doc_count_all() + 1) / (df + 0.5), 2)
-
-        return TF * idf_dfr * QTF * norm
-
+        return BM25F._score(B, self.K1, weight, l, avl, idf)
+    
+    def score_fn(self, searcher, fieldname, text):
+        avl = searcher.avg_field_length(fieldname, 1)
+        B = self._field_B.get(fieldname, self.B)
+        idf = self.idf(searcher, fieldname, text)
+        dfl = searcher.doc_field_length
+        bm25f = BM25F._score
+        
+        def f(m):
+            l = dfl(m.id(), fieldname)
+            return bm25f(B, self.K1, m.weight(), l, avl, idf)
+        return f
+    
 
 class TF_IDF(Weighting):
-    """Instead of doing any real scoring, this simply returns tf * idf.
+    """Instead of doing any fancy scoring, simply returns weight * idf.
     """
 
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        return weight * searcher.idf(fieldnum, text)
+    def score(self, searcher, fieldname, text, docnum, weight):
+        return weight * searcher.idf(fieldname, text)
+    
+    def score_fn(self, searcher, fieldname, text):
+        idf = searcher.idf(fieldname, text)
+        def fn(m):
+            return idf * m.weight()
+        return fn
+    
+    def quality_fn(self, searcher, fieldname, text):
+        def fn(m):
+            return m.weight()
+        return fn
+    
+    def block_quality_fn(self, searcher, fieldname, text):
+        def fn(m):
+            return m.blockinfo.maxweight
+        return fn
 
 
 class Frequency(Weighting):
@@ -225,8 +201,23 @@ class Frequency(Weighting):
     This may be useful when you don't care about normalization and weighting.
     """
 
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
+    def score(self, searcher, fieldname, text, docnum, weight):
         return weight
+    
+    def score_fn(self, searcher, fieldname, text):
+        def fn(m):
+            return m.weight()
+        return fn
+    
+    def quality_fn(self, searcher, fieldname, text):
+        def fn(m):
+            return m.weight()
+        return fn
+    
+    def block_quality_fn(self, searcher, fieldname, text):
+        def fn(m):
+            return m.blockinfo.maxweight
+        return fn
 
 
 class MultiWeighting(Weighting):
@@ -249,13 +240,48 @@ class MultiWeighting(Weighting):
 
         self.default = default
 
-        # Store weighting functions by field number
+        # Store weighting functions by field name
         self.weights = weights
 
-    def score(self, searcher, fieldnum, text, docnum, weight, QTF=1):
-        fieldname = searcher.fieldnum_to_name(fieldnum)
+    def score(self, searcher, fieldname, text, docnum, weight):
         w = self.weights.get(fieldname, self.default)
-        return w.score(searcher, fieldnum, text, docnum, weight, QTF=QTF)
+        return w.score(searcher, fieldname, text, docnum, weight)
+    
+    def score_fn(self, searcher, fieldname, text):
+        w = self.weights.get(fieldname, self.default)
+        return w.score_fn(searcher, fieldname, text)
+    
+    def quality_fn(self, searcher, fieldname, text):
+        w = self.weights.get(fieldname, self.default)
+        return w.quality_fn(searcher, fieldname, text)
+    
+    def block_quality_fn(self, searcher, fieldname, text):
+        w = self.weights.get(fieldname, self.default)
+        return w.block_quality_fn(searcher, fieldname, text)
+
+
+class ReverseWeighting(Weighting):
+    """Wraps a Weighting object and subtracts its scores from 0, essentially
+    reversing the weighting.
+    """
+    
+    def __init__(self, weighting):
+        self.weighting = weighting
+        
+    def score(self, searcher, fieldname, text, docnum, weight):
+        return 0-self.weighting.score(searcher, fieldname, text, docnum, weight)
+    
+    def score_fn(self, searcher, fieldname, text):
+        sfn = self.weighting.score_fn(searcher, fieldname, text)
+        return lambda m: 0 - sfn(m)
+    
+    def quality_fn(self, searcher, fieldname, text):
+        qfn = self.weighting.quality_fn(searcher, fieldname, text)
+        return lambda m: 0 - qfn(m)
+    
+    def block_quality_fn(self, searcher, fieldname, text):
+        qqfn = self.weighting.block_quality_fn(searcher, fieldname, text)
+        return lambda m: 0 - qqfn(m)
 
 
 # Sorting classes
@@ -324,7 +350,7 @@ class FieldSorter(Sorter):
             return self._fieldcache
 
         ixreader = searcher.reader()
-        fieldnum = ixreader.fieldname_to_num(self.fieldname)
+        fieldname = self.fieldname
 
         # Create an array of an int for every document in the index.
         N = ixreader.doc_count_all()
@@ -337,12 +363,12 @@ class FieldSorter(Sorter):
         # For every document containing every term in the field, set
         # its array value to the term's sorted position.
         i = -1
-        source = ixreader.lexicon(fieldnum)
+        source = ixreader.lexicon(fieldname)
         if self.key:
             source = sorted(source, key=self.key)
 
         for i, word in enumerate(source):
-            for docnum in ixreader.postings(fieldnum, word).all_ids():
+            for docnum in ixreader.postings(fieldname, word).all_ids():
                 cache[docnum] = i
 
         self.limit = i

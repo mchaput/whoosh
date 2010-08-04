@@ -1,42 +1,14 @@
-import os, os.path, unittest
+import unittest
 from random import random, randint
 
 from whoosh.formats import *
-from whoosh.postings import FakeReader, IntersectionScorer, UnionScorer, Exclude
+from whoosh.matching import (ListMatcher, IntersectionMatcher, UnionMatcher,
+                             ExcludeMatcher)
 from whoosh.filedb.filestore import FileStorage
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
-from whoosh.util import float_to_byte, byte_to_float
 
 
-class TestMultireaders(unittest.TestCase):
-    def make_readers(self):
-        c1 = FakeReader(10, 12, 20, 30, 40, 50, 60)
-        c2 = FakeReader(2, 12, 20, 25, 30, 45, 50)
-        c3 = FakeReader(15, 19, 20, 21, 28, 30, 31, 50)
-        return (c1, c2, c3)
-    
-    def test_intersect(self):
-        isect = IntersectionScorer(self.make_readers())
-        self.assertEqual(list(isect.all_ids()), [20, 30, 50])
-
-    def test_union(self):
-        c1, c2, c3 = self.make_readers()
-        idset = sorted(set(c1.ids + c2.ids + c3.ids))
-        union = UnionScorer([c1, c2, c3])
-        self.assertEqual(list(union.all_ids()), idset)
-        
-    def test_exclude(self):
-        excluded = set((12, 20, 25, 32, 50))
-        for c in self.make_readers():
-            target = sorted(set(c.ids) - excluded)
-            excl = Exclude(c, excluded)
-            self.assertEqual(list(excl.all_ids()), target)
-
-class TestReadWrite(unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        super(TestReadWrite, self).__init__(*args, **kwargs)
-        self.fs = FileStorage(".")
-    
+class TestPostings(unittest.TestCase):
     def make_postings(self):
         postings = [(1, 23), (3, 45), (12, 2), (34, 21), (43, 7), (67, 103), (68, 1), (102, 31),
                     (145, 4), (212, 9), (283, 30), (291, 6), (412, 39), (900, 50), (905, 28), (1024, 8),
@@ -44,72 +16,67 @@ class TestReadWrite(unittest.TestCase):
         return postings
     
     def make_file(self, name):
-        return self.fs.create_file(name+"_test.pst")
+        return FileStorage(".").create_file(name+"_test.pst")
     
     def open_file(self, name):
-        return self.fs.open_file(name+"_test.pst")
+        return FileStorage(".").open_file(name+"_test.pst")
     
     def delete_file(self, name):
         try:
-            self.fs.delete_file(name+"_test.pst")
+            FileStorage(".").delete_file(name+"_test.pst")
         except OSError:
-            pass
+            raise
     
     def test_readwrite(self):
         format = Frequency(None)
         postings = self.make_postings()
         
         postfile = self.make_file("readwrite")
-        try:
-            fpw = FilePostingWriter(postfile, blocklimit=8)
-            fpw.start(format)
-            for id, freq in postings:
-                fpw.write(id, format.encode(freq))
-            fpw.close()
-            
-            postfile = self.open_file("readwrite")
-            fpr = FilePostingReader(postfile, 0, format)
-            #self.assertEqual(postings, list(fpr.items_as("frequency")))
-            fpr.close()
-        finally:
-            self.delete_file("readwrite")
+        fpw = FilePostingWriter(postfile, blocklimit=8)
+        fpw.start(format)
+        for id, freq in postings:
+            fpw.write(id, float(freq), format.encode(freq), 0)
+        fpw.close()
+        
+        postfile = self.open_file("readwrite")
+        fpr = FilePostingReader(postfile, 0, format)
+        self.assertEqual(postings, list(fpr.items_as(format.decoder("frequency"))))
+        postfile.close()
+        self.delete_file("readwrite")
         
     def test_skip(self):
         format = Frequency(None)
         postings = self.make_postings()
         
         postfile = self.make_file("skip")
-        try:
-            fpw = FilePostingWriter(postfile, blocklimit=8)
-            fpw.start(format)
-            for id, freq in postings:
-                fpw.write(id, format.encode(freq))
-            fpw.close()
-            
-            postfile = self.open_file("skip")
-            fpr = FilePostingReader(postfile, 0, format)
-            #fpr.skip_to(220)
-            #self.assertEqual(postings[10:], list(fpr.items_as("frequency")))
-            fpr.close()
-        finally:
-            self.delete_file("skip")
+        fpw = FilePostingWriter(postfile, blocklimit=8)
+        fpw.start(format)
+        for id, freq in postings:
+            fpw.write(id, float(freq), format.encode(freq), 0)
+        fpw.close()
+        
+        postfile = self.open_file("skip")
+        fpr = FilePostingReader(postfile, 0, format)
+        fpr.skip_to(220)
+        self.assertEqual(postings[10:], list(fpr.items_as(format.decoder("frequency"))))
+        postfile.close()
+        self.delete_file("skip")
     
     def roundtrip(self, postings, format, astype):
         postfile = self.make_file(astype)
-        readback = None
-        try:
-            fpw = FilePostingWriter(postfile, blocklimit=8)
-            fpw.start(format)
-            for id, value in postings:
-                fpw.write(id, format.encode(value))
-            fpw.close()
-            
-            postfile = self.open_file(astype)
-            fpr = FilePostingReader(postfile, 0, format)
-            readback = list(fpr.all_as(astype))
-            fpr.close()
-        finally:
-            self.delete_file(astype)
+        getweight = format.decoder("weight")
+        fpw = FilePostingWriter(postfile, blocklimit=8)
+        fpw.start(format)
+        for id, value in postings:
+            v = format.encode(value)
+            fpw.write(id, getweight(v), v, 0)
+        fpw.close()
+        
+        postfile = self.open_file(astype)
+        fpr = FilePostingReader(postfile, 0, format)
+        readback = list(fpr.items_as(format.decoder(astype)))
+        postfile.close()
+        self.delete_file(astype)
         return readback
     
     def test_existence_postings(self):
@@ -223,5 +190,9 @@ class TestReadWrite(unittest.TestCase):
         as_freq = [(docnum, len(posns)) for docnum, posns in as_posns]
         self.assertEqual(as_freq, self.roundtrip(postings, CharacterBoosts(None), "frequency"))
 
+
+
 if __name__ == '__main__':
     unittest.main()
+
+

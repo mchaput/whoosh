@@ -1,53 +1,55 @@
 import unittest
 
 import os, os.path, threading, time
+from shutil import rmtree
 
 from whoosh.filedb.filestore import FileStorage
 from whoosh.support.filelock import try_for
+from whoosh.util import length_to_byte, byte_to_length
 
 
 class TestMisc(unittest.TestCase):
-    def make_dir(self, name):
+    def make_storage(self, name):
         if not os.path.exists(name):
             os.mkdir(name)
+        st = FileStorage(name)
+        return st
     
     def destroy_dir(self, name):
         try:
-            os.rmdir("testindex")
+            rmtree(name)
         except:
-            pass
+            raise
     
     def clean_file(self, path):
         if os.path.exists(path):
             try:
                 os.remove(path)
             except:
-                pass
+                raise
     
     def test_filelock_simple(self):
-        self.make_dir("testindex")
-        st = FileStorage("testindex")
+        st = self.make_storage("testindex")
         lock1 = st.lock("testlock")
         lock2 = st.lock("testlock")
+        self.assertFalse(lock1 is lock2)
         
         self.assertTrue(lock1.acquire())
+        self.assertTrue(os.path.exists("testindex/testlock"))
         self.assertFalse(lock2.acquire())
         lock1.release()
         self.assertTrue(lock2.acquire())
         self.assertFalse(lock1.acquire())
         lock2.release()
         
-        self.clean_file("testindex/testlock")
         self.destroy_dir("testindex")
     
     def test_threaded_filelock(self):
-        self.make_dir("testindex")
-        st = FileStorage("testindex")
+        st = self.make_storage("testindex")
         lock1 = st.lock("testlock")
         result = []
         
-        # The thread function tries to acquire the lock and
-        # then quits
+        # The thread function tries to acquire the lock and then quits
         def fn():
             lock2 = st.lock("testlock")
             gotit = try_for(lock2.acquire, 1.0, 0.1)
@@ -66,12 +68,17 @@ class TestMisc(unittest.TestCase):
         lock1.release()
         # Wait for the other thread to finish
         t.join()
-        # If the other thread got the lock, it should have
-        # appended something to the "results" list.
-        self.assertEqual(len(result), 1)
+        # If the other thread got the lock, it should have appended True to the
+        # "results" list.
+        self.assertEqual(result, [True])
         
-        self.clean_file("testindex/testlock")
         self.destroy_dir("testindex")
+        
+    def test_length_byte(self):
+        source = range(11)
+        xform = [length_to_byte(n) for n in source]
+        result = [byte_to_length(n) for n in xform]
+        self.assertEqual(source, result)
 
 
 if __name__ == '__main__':

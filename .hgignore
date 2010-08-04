@@ -1,4 +1,9 @@
 syntax: glob
 *.pyc
 *~
+*.DS_Store
+bmark
 *testindex
+
+syntax: regexp
+^build$
