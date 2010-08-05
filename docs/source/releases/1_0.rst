@@ -70,6 +70,10 @@ The field must still be indexed.
 User API changes
 ================
 
+The default for the ``limit`` keyword argument to
+:meth:`whoosh.searching.Searcher.search` is now ``10``. To return all results
+in a single ``Results`` object, use ``limit=None``.
+
 The "stored" values of fields must now be "marshal"-able (that is, basic types
 such as strings, numbers, lists, or dictionaries) rather than picklable. You
 can still store pickled objects by dumping them to strings first yourself if
