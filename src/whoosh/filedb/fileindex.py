@@ -25,10 +25,10 @@ from whoosh.index import Index
 from whoosh.index import EmptyIndexError, IndexVersionError
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import Storage, LockError
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 
 
-_INDEX_VERSION = -106
+_INDEX_VERSION = -107
 
 
 # TOC read/write functions
@@ -84,6 +84,7 @@ def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
 
     stream.write_varint(_INT_SIZE)
     stream.write_varint(_FLOAT_SIZE)
+    stream.write_varint(_LONG_SIZE)
     stream.write_int(-12345)
 
     stream.write_int(_INDEX_VERSION)
@@ -115,8 +116,9 @@ def _read_toc(storage, schema, indexname):
     tocfilename = _toc_filename(indexname, gen)
     stream = storage.open_file(tocfilename)
 
-    if stream.read_varint() != _INT_SIZE or \
-       stream.read_varint() != _FLOAT_SIZE:
+    if (stream.read_varint() != _INT_SIZE
+        or stream.read_varint() != _LONG_SIZE
+        or stream.read_varint() != _FLOAT_SIZE):
         raise IndexError("Index was created on an architecture with different data sizes")
 
     if not stream.read_int() == -12345:

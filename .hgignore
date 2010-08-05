@@ -7,3 +7,5 @@ bmark
 
 syntax: regexp
 ^build$
+syntax: regexp
+^docs/build$
