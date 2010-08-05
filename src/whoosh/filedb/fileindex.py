@@ -116,10 +116,14 @@ def _read_toc(storage, schema, indexname):
     tocfilename = _toc_filename(indexname, gen)
     stream = storage.open_file(tocfilename)
 
-    if (stream.read_varint() != _INT_SIZE
-        or stream.read_varint() != _LONG_SIZE
-        or stream.read_varint() != _FLOAT_SIZE):
-        raise IndexError("Index was created on an architecture with different data sizes")
+    def check_size(name, target):
+        sz = stream.read_varint()
+        if sz != target:
+            raise IndexError("Index was created on different architecture: saved %s = %s, this computer = %s" % (name, sz, target))
+
+    check_size("int", _INT_SIZE)
+    check_size("long", _LONG_SIZE)
+    check_size("float", _FLOAT_SIZE)
 
     if not stream.read_int() == -12345:
         raise IndexError("Number misread: byte order problem")
