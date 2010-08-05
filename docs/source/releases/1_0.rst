@@ -90,13 +90,15 @@ from its interface. The Searcher object now has
 be on ``Index``.
 
 The document deletion and field add/remove methods on the ``Index`` object now
-create a writer behind the scenes to accomplish each call. Therefore, it will
-be much faster if you need to call them multiple times to create your own
-writer instead::
+create a writer behind the scenes to accomplish each call. This means they write
+to the index immediately, so you don't need to call ``commit`` on the ``Index``.
+Also, it will be much faster if you need to call them multiple times to create
+your own writer instead::
 
     # Don't do this
     for id in my_list_of_ids_to_delete:
         myindex.delete_by_term("id", id)
+    myindex.commit()
         
     # Instead do this
     writer = myindex.writer()
