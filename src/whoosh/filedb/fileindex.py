@@ -83,8 +83,8 @@ def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
     stream = storage.create_file(tempfilename)
 
     stream.write_varint(_INT_SIZE)
-    stream.write_varint(_FLOAT_SIZE)
     stream.write_varint(_LONG_SIZE)
+    stream.write_varint(_FLOAT_SIZE)
     stream.write_int(-12345)
 
     stream.write_int(_INDEX_VERSION)

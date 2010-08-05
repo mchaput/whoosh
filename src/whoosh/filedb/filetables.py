@@ -26,7 +26,7 @@ from marshal import loads, dumps
 from struct import Struct
 
 from whoosh.filedb.misc import enpickle, depickle
-from whoosh.system import _INT_SIZE
+from whoosh.system import _INT_SIZE, _LONG_SIZE
 from whoosh.util import byte_to_length
 
 
@@ -36,25 +36,26 @@ from whoosh.util import byte_to_length
 #        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
 #    return h
 
-_header_entry_struct = Struct("!qI")
+_header_entry_struct = Struct("!qI") # Position, number of slots
 header_entry_size = _header_entry_struct.size
 pack_header_entry = _header_entry_struct.pack
 unpack_header_entry = _header_entry_struct.unpack
 
-_lengths_struct = Struct("!II")
+_lengths_struct = Struct("!II") # Length of key, length of data
 lengths_size = _lengths_struct.size
 pack_lengths = _lengths_struct.pack
 unpack_lengths = _lengths_struct.unpack
 
-_pointer_struct = Struct("!Iq")
+_pointer_struct = Struct("!qq") # Hash value, position
 pointer_size = _pointer_struct.size
 pack_pointer = _pointer_struct.pack
 unpack_pointer = _pointer_struct.unpack
 
 HEADER_SIZE = 256 * header_entry_size
 
-def _hash(value):
-    return abs(hash(value))
+#def _hash(value):
+#    return abs(hash(value))
+_hash = hash
 
 # Table classes
 
@@ -204,7 +205,7 @@ class HashReader(object):
             raise KeyError(key)
         slotpos = hpos + (((keyhash >> 8) % hslots) * header_entry_size)
         
-        return self.dbfile.get_uint(slotpos + _INT_SIZE)
+        return self.dbfile.get_long(slotpos + _INT_SIZE)
 
     def _key_at(self, pos):
         keylen = self.dbfile.get_uint(pos)
@@ -243,7 +244,7 @@ class HashReader(object):
 class OrderedHashWriter(HashWriter):
     def __init__(self, dbfile):
         HashWriter.__init__(self, dbfile)
-        self.index = array("I")
+        self.index = []
         self.lastkey = None
 
     def add_all(self, items):
@@ -252,7 +253,7 @@ class OrderedHashWriter(HashWriter):
         pos = dbfile.tell()
         write = dbfile.write
 
-        ix = self.index
+        index = self.index
         lk = self.lastkey
 
         for key, value in items:
@@ -260,7 +261,7 @@ class OrderedHashWriter(HashWriter):
                 raise ValueError("Keys must increase: %r .. %r" % (lk, key))
             lk = key
 
-            ix.append(pos)
+            index.append(pos)
             write(pack_lengths(len(key), len(value)))
             write(key)
             write(value)
@@ -274,11 +275,12 @@ class OrderedHashWriter(HashWriter):
 
     def close(self):
         self._write_hashes()
-        
+        dbfile = self.dbfile
         index = self.index
-        self.dbfile.write_uint(len(index))
-        if byteorder == "little": index.byteswap()
-        self.dbfile.write(index.tostring())
+        
+        dbfile.write_uint(len(index))
+        for pos in index:
+            dbfile.write_long(pos)
         
         self._write_directory()
         self.dbfile.close()
@@ -299,13 +301,13 @@ class OrderedHashReader(HashReader):
         hi = self.length
         while lo < hi:
             mid = (lo+hi)//2
-            midkey = key_at(dbfile.get_uint(indexbase + mid * _INT_SIZE))
+            midkey = key_at(dbfile.get_long(indexbase + mid * _LONG_SIZE))
             if midkey < key: lo = mid+1
             else: hi = mid
         #i = max(0, mid - 1)
         if lo == self.length:
             return None
-        return dbfile.get_uint(indexbase + lo * _INT_SIZE)
+        return dbfile.get_long(indexbase + lo * _LONG_SIZE)
     
     def closest_key(self, key):
         pos = self._closest_key(key)
