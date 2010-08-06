@@ -268,6 +268,11 @@ class FilePostingReader(Matcher):
     def id(self):
         return self.ids[self.i]
 
+    def items_as(self, astype):
+        decoder = self.format.decoder(astype)
+        for id, value in self.all_items():
+            yield (id, decoder(value))
+
     def value(self):
         return self.values[self.i]
 

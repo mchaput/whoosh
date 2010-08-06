@@ -70,6 +70,78 @@ def make_tree(cls, matchers):
                make_tree(cls, matchers[half:]))
 
 
+# Span class
+
+class Span(object):
+    __slots__ = ("start", "end")
+    
+    def __init__(self, start, end=None):
+        if end is None:
+            end = start
+        assert start <= end
+        self.start = start
+        self.end = end
+
+    def __repr__(self):
+        return "<%d-%d>" % (self.start, self.end)
+
+    def to(self, span):
+        return self.__class__(min(self.start, span.start), max(self.end, span.end))
+    
+    def __eq__(self, span):
+        return self.start == span.start and self.end == span.end
+    
+    def __ne__(self, span):
+        return self.start != span.start or self.end != span.end
+    
+    def __lt__(self, span):
+        return self.start < span.start
+    
+    def __gt__(self, span):
+        return self.start > span.start
+    
+    def __hash__(self):
+        return hash((self.start, self.end))
+    
+    def overlaps(self, span):
+        return ((self.start >= span.start and self.start <= span.start)
+                or (self.end >= span.start and self.end <= span.end))
+    
+    def is_around(self, span):
+        return self.start < span.start and self.end > span.end
+    
+    def is_within(self, span):
+        return self.start >= span.start and self.end <= span.end
+    
+    def is_before(self, span):
+        return self.start < span.start and self.end < span.start
+    
+    def is_after(self, span):
+        return self.start > span.end and self.end > span.end
+    
+    def starts_before(self, span):
+        return self.start < span.start
+    
+    def starts_after(self, span):
+        return self.start > span.start
+    
+    def ends_before(self, span):
+        return self.end < span.end
+    
+    def ends_after(self, span):
+        return self.end > span.end
+    
+    def distance_to(self, span):
+        if self.overlaps(span):
+            return 0
+        elif self.is_before(span):
+            return span.start - self.end
+        elif self.is_after(span):
+            return self.start - span.end
+
+
+# Matchers
+
 class Matcher(object):
     """Base class for all matchers.
     """
@@ -168,11 +240,8 @@ class Matcher(object):
                 self = self.replace()
                 i = 0
     
-    def items_as(self, decoder):
+    def items_as(self, astype):
         """Returns a generator of all (ID, decoded value) pairs in the matcher.
-        
-        The ``decoder`` argument is a function to be run on the encoded values
-        of the postings (e.g. ``whoosh.formats.Positions.decode_positions()``).
         
         What this method returns for a matcher that has already read some
         postings (whether it only yields the remaining postings or all postings
@@ -180,13 +249,26 @@ class Matcher(object):
         on fresh matchers.
         """
         
-        return ((id, decoder(v)) for id, v in self.all_items())
+        while self.is_active():
+            yield (self.id(), self.value_as(astype))
     
     def value(self):
         """Returns the encoded value of the current posting.
         """
         
         raise NotImplementedError
+    
+    def value_as(self, astype):
+        """Returns the value(s) of the current posting as the given type.
+        """
+        
+        raise NotImplementedError("value_as not implemented in %s" % self.__class__)
+    
+    def positions(self):
+        return self.value_as("positions")
+    
+    def spans(self):
+        return [Span(pos) for pos in self.positions()]
     
     def skip_to(self, id):
         """Moves this matcher to the first posting with an ID equal to or
@@ -201,7 +283,7 @@ class Matcher(object):
         minimum quality value.
         """
         
-        
+        raise NotImplementedError
     
     def next(self):
         """Moves this matcher to the next posting.
@@ -304,6 +386,12 @@ class WrappingMatcher(Matcher):
     
     def value(self):
         return self.child.value()
+    
+    def value_as(self, astype):
+        return self.child.value_as(astype)
+    
+    def positions(self):
+        return self.child.positions()
     
     def skip_to(self, id):
         return self.child.skip_to(id)
@@ -449,8 +537,7 @@ class ExcludeMatcher(WrappingMatcher):
         excluded = self.excluded
         r = False
         while child.is_active() and child.id() in excluded:
-            nr = child.next()
-            r = r or nr
+            r = child.next() or r
         return r
     
     def next(self):
@@ -585,6 +672,19 @@ class UnionMatcher(AdditiveBiMatcher):
         if a_id <= b_id: ar = a.next()
         if b_id <= a_id: br = b.next()
         return ar or br
+    
+    def positions(self):
+        if not self.a.is_active(): return self.b.positions()
+        if not self.b.is_active(): return self.a.positions()
+        
+        id_a = self.a.id()
+        id_b = self.b.id()
+        if id_a < id_b:
+            return self.a.positions()
+        elif id_b < id_a:
+            return self.b.positions()
+        else:
+            return sorted(set(self.a.positions())  | set(self.b.positions()))
     
     def score(self):
         a = self.a
@@ -771,6 +871,9 @@ class IntersectionMatcher(AdditiveBiMatcher):
         if self.is_active():
             nr = self._find_next()
             return ar or nr
+        
+    def positions(self):
+        return sorted(set(self.a.positions())  | set(self.b.positions()))
 
 
 class AndNotMatcher(BiMatcher):
