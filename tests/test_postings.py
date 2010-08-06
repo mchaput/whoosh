@@ -40,7 +40,7 @@ class TestPostings(unittest.TestCase):
         
         postfile = self.open_file("readwrite")
         fpr = FilePostingReader(postfile, 0, format)
-        self.assertEqual(postings, list(fpr.items_as(format.decoder("frequency"))))
+        self.assertEqual(postings, list(fpr.items_as("frequency")))
         postfile.close()
         self.delete_file("readwrite")
         
@@ -58,7 +58,7 @@ class TestPostings(unittest.TestCase):
         postfile = self.open_file("skip")
         fpr = FilePostingReader(postfile, 0, format)
         fpr.skip_to(220)
-        self.assertEqual(postings[10:], list(fpr.items_as(format.decoder("frequency"))))
+        self.assertEqual(postings[10:], list(fpr.items_as("frequency")))
         postfile.close()
         self.delete_file("skip")
     
@@ -74,7 +74,7 @@ class TestPostings(unittest.TestCase):
         
         postfile = self.open_file(astype)
         fpr = FilePostingReader(postfile, 0, format)
-        readback = list(fpr.items_as(format.decoder(astype)))
+        readback = list(fpr.items_as(astype))
         postfile.close()
         self.delete_file(astype)
         return readback
