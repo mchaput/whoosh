@@ -1,10 +1,11 @@
 import unittest
 
-from whoosh import analysis, fields, formats, index, qparser, query, searching, scoring
+from whoosh import analysis, fields, formats, index, qparser, query, scoring
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
-from whoosh.searching import Searcher
 from whoosh.scoring import FieldSorter
+from whoosh.util import permutations
+
 
 class TestSearching(unittest.TestCase):
     def make_index(self):
@@ -234,7 +235,7 @@ class TestSearching(unittest.TestCase):
         qp = qparser.QueryParser("b", schema=schema)
         searcher = ix.searcher()
         qr = qp.parse(u"b:ccc OR b:eee")
-        self.assertEqual(qr.__class__, query.Or)
+        self.assertEqual(qr.__class__, Or)
         r = searcher.search(qr)
         self.assertEqual(len(r), 2)
         self.assertEqual(r[0]["a"], "Third")
@@ -252,7 +253,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         s = ix.searcher()
-        r = s.search(query.Term("content", u"bravo"))
+        r = s.search(Term("content", u"bravo"))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], "bravo")
         
@@ -262,7 +263,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(len(ix._segments()), 1)
         
         s = ix.searcher()
-        r = s.search(query.Term("content", u"bravo"))
+        r = s.search(Term("content", u"bravo"))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], "bravo")
         
@@ -283,7 +284,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         s = ix.searcher()
-        r = s.search(query.Term("content", u"bravo"))
+        r = s.search(Term("content", u"bravo"))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], "bravo")
         
@@ -304,7 +305,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(r.__class__.__name__, "MultiReader")
         pr = r.postings("content", u"bravo")
         s = ix.searcher()
-        r = s.search(query.Term("content", u"bravo"))
+        r = s.search(Term("content", u"bravo"))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], "bravo")
 
@@ -325,68 +326,68 @@ class TestSearching(unittest.TestCase):
         def names(results):
             return sorted([fields['name'] for fields in results])
         
-        q = query.Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
+        q = Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
         m = q.matcher(searcher)
-        self.assertEqual(m.__class__.__name__, "PostingPhraseMatcher")
+        self.assertEqual(m.__class__.__name__, "PhraseMatcher")
         
         self.assertEqual(names(searcher.search(q)), ["A"])
         
-        q = query.Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
+        q = Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
         self.assertEqual(names(searcher.search(q)), ["A", "D"])
         
-        q = query.Phrase("value", [u"falunk", u"gibberish"])
+        q = Phrase("value", [u"falunk", u"gibberish"])
         self.assertEqual(names(searcher.search(q)), [])
         
-        q = query.Phrase("value", [u"gibberish", u"falunk"], slop=2)
+        q = Phrase("value", [u"gibberish", u"falunk"], slop=2)
         self.assertEqual(names(searcher.search(q)), ["D"])
         
-        #q = query.Phrase("value", [u"blah"] * 4)
+        #q = Phrase("value", [u"blah"] * 4)
         #self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
         
-        q = query.Phrase("value", [u"blah"] * 3)
+        q = Phrase("value", [u"blah"] * 3)
         self.assertEqual(names(searcher.search(q)), ["E"])
     
-    def test_vector_phrase(self):
-        ana = analysis.StandardAnalyzer()
-        ftype = fields.FieldType(format=formats.Frequency(ana),
-                                 vector=formats.Positions(ana),
-                                 scorable=True)
-        schema = fields.Schema(name=fields.ID(stored=True), value=ftype)
-        storage = RamStorage()
-        ix = storage.create_index(schema)
-        writer = ix.writer()
-        writer.add_document(name=u"A", value=u"Little Miss Muffet sat on a tuffet")
-        writer.add_document(name=u"B", value=u"Miss Little Muffet tuffet")
-        writer.add_document(name=u"C", value=u"Miss Little Muffet tuffet sat")
-        writer.add_document(name=u"D", value=u"Gibberish blonk falunk miss muffet sat tuffet garbonzo")
-        writer.add_document(name=u"E", value=u"Blah blah blah pancakes")
-        writer.commit()
-        
-        searcher = ix.searcher()
-        
-        def names(results):
-            return sorted([fields['name'] for fields in results])
-        
-        q = query.Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
-        m = q.matcher(searcher)
-        self.assertEqual(m.__class__.__name__, "VectorPhraseMatcher")
-        
-        self.assertEqual(names(searcher.search(q)), ["A"])
-        
-        q = query.Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
-        self.assertEqual(names(searcher.search(q)), ["A", "D"])
-        
-        q = query.Phrase("value", [u"falunk", u"gibberish"])
-        self.assertEqual(names(searcher.search(q)), [])
-        
-        q = query.Phrase("value", [u"gibberish", u"falunk"], slop=2)
-        self.assertEqual(names(searcher.search(q)), ["D"])
-        
-        #q = query.Phrase("value", [u"blah"] * 4)
-        #self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
-        
-        q = query.Phrase("value", [u"blah"] * 3)
-        self.assertEqual(names(searcher.search(q)), ["E"])
+#    def test_vector_phrase(self):
+#        ana = analysis.StandardAnalyzer()
+#        ftype = fields.FieldType(format=formats.Frequency(ana),
+#                                 vector=formats.Positions(ana),
+#                                 scorable=True)
+#        schema = fields.Schema(name=fields.ID(stored=True), value=ftype)
+#        storage = RamStorage()
+#        ix = storage.create_index(schema)
+#        writer = ix.writer()
+#        writer.add_document(name=u"A", value=u"Little Miss Muffet sat on a tuffet")
+#        writer.add_document(name=u"B", value=u"Miss Little Muffet tuffet")
+#        writer.add_document(name=u"C", value=u"Miss Little Muffet tuffet sat")
+#        writer.add_document(name=u"D", value=u"Gibberish blonk falunk miss muffet sat tuffet garbonzo")
+#        writer.add_document(name=u"E", value=u"Blah blah blah pancakes")
+#        writer.commit()
+#        
+#        searcher = ix.searcher()
+#        
+#        def names(results):
+#            return sorted([fields['name'] for fields in results])
+#        
+#        q = Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
+#        m = q.matcher(searcher)
+#        self.assertEqual(m.__class__.__name__, "VectorPhraseMatcher")
+#        
+#        self.assertEqual(names(searcher.search(q)), ["A"])
+#        
+#        q = Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
+#        self.assertEqual(names(searcher.search(q)), ["A", "D"])
+#        
+#        q = Phrase("value", [u"falunk", u"gibberish"])
+#        self.assertEqual(names(searcher.search(q)), [])
+#        
+#        q = Phrase("value", [u"gibberish", u"falunk"], slop=2)
+#        self.assertEqual(names(searcher.search(q)), ["D"])
+#        
+#        #q = Phrase("value", [u"blah"] * 4)
+#        #self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
+#        
+#        q = Phrase("value", [u"blah"] * 3)
+#        self.assertEqual(names(searcher.search(q)), ["E"])
         
     def test_phrase_score(self):
         schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
@@ -400,7 +401,7 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         
         searcher = ix.searcher()
-        q = query.Phrase("value", [u"little", u"miss", u"muffet"])
+        q = Phrase("value", [u"little", u"miss", u"muffet"])
         m = q.matcher(searcher)
         self.assertEqual(m.id(), 0)
         score1 = m.weight()
@@ -425,7 +426,42 @@ class TestSearching(unittest.TestCase):
         #q = qp.parse(u"lily the pink")
         #self.assertEqual(len(s.search(q)), 1)
         self.assertEqual(len(s.find("title", u"lily the pink")), 1)
+    
+    def test_phrase_order(self):
+        tfield = fields.TEXT(stored=True, analyzer=analysis.SimpleAnalyzer())
+        schema = fields.Schema(text=tfield)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
         
+        writer = ix.writer()
+        for ls in permutations(["ape", "bay", "can", "day"], 4):
+            writer.add_document(text=u" ".join(ls))
+        writer.commit()
+        
+        searcher = ix.searcher()
+        
+        def result(q):
+            r = searcher.search(q, limit=None, sortedby=None)
+            return sorted([d['text'] for d in r])
+        
+        q = Phrase("text", ["bay", "can", "day"])
+        self.assertEqual(result(q), [u'ape bay can day', u'bay can day ape'])
+        
+    def test_phrase_sameword(self):
+        schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+        storage = RamStorage()
+        ix = storage.create_index(schema)
+        
+        writer = ix.writer()
+        writer.add_document(id=1, text=u"The film Linda Linda Linda is good")
+        writer.add_document(id=2, text=u"The model Linda Evangelista is pretty")
+        writer.commit()
+        
+        s = ix.searcher()
+        r = s.search(Phrase("text", ["linda", "linda", "linda"]), limit=None)
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]["id"], 1)
+    
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True),
                                hobbies=fields.TEXT(stored=True))
@@ -493,7 +529,7 @@ class TestSearching(unittest.TestCase):
         qp = qparser.QueryParser("b", schema=schema)
         searcher = ix.searcher()
         qr = qp.parse(u"b:ccc")
-        self.assertEqual(qr.__class__, query.Term)
+        self.assertEqual(qr.__class__, Term)
         r = searcher.search(qr, sortedby='a')
         self.assertEqual(len(r), 2)
         self.assertEqual(r[0]["a"], "First")
@@ -602,7 +638,7 @@ class TestSearching(unittest.TestCase):
         w.delete_by_term("id", "echo")
         w.commit()
         
-        r = ix.searcher().search(query.Every("id"))
+        r = ix.searcher().search(Every("id"))
         self.assertEqual(sorted([d['id'] for d in r]), ["alfa", "charlie", "foxtrot"])
         
     def test_missing_wildcard(self):
@@ -620,13 +656,13 @@ class TestSearching(unittest.TestCase):
         
         s = ix.searcher()
         
-        r = s.search(query.Every("id"))
+        r = s.search(Every("id"))
         self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3", "4", "5"])
         
-        r = s.search(query.Every("f1"))
+        r = s.search(Every("f1"))
         self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3"])
         
-        r = s.search(query.Every("f2"))
+        r = s.search(Every("f2"))
         self.assertEqual(sorted([d['id'] for d in r]), ["1", "3", "4"])
     
     def test_finalweighting(self):

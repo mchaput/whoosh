@@ -50,9 +50,10 @@ class Searcher(object):
         self.doccount = self.ixreader.doc_count_all()
 
         # Copy attributes/methods from wrapped reader
-        for name in ("stored_fields", "vector", "vector_as", "scorable",
-                     "lexicon", "frequency", "field_length", "doc_field_length",
-                     "max_field_length", "field", "field_names"):
+        for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
+                     "scorable", "lexicon", "frequency", "field_length",
+                     "doc_field_length", "max_field_length",
+                     "field", "field_names"):
             setattr(self, name, getattr(self.ixreader, name))
 
         if type(weighting) is type:

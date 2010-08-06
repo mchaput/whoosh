@@ -21,7 +21,7 @@ import datetime, re, struct
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,
-                             NgramWordAnalyzer)
+                             NgramWordAnalyzer, Analyzer)
 from whoosh.formats import Format, Existence, Frequency, Positions
 
 
@@ -331,7 +331,7 @@ class TEXT(FieldType):
     searching. This field type is always scorable.
     """
     
-    __inittypes__ = dict(analyzer=object, phrase=bool, vector=Format,
+    __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=Format,
                          stored=bool, field_boost=float)
     
     def __init__(self, analyzer=None, phrase=True, vector=None,

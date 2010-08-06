@@ -20,9 +20,10 @@ objects are composable to form complex query trees.
 
 from __future__ import division
 
-__all__ = ("QueryError", "Term", "And", "Or", "Not", "DisjunctionMax",
-           "Prefix", "Wildcard", "FuzzyTerm", "TermRange", "Variations",
-           "Phrase", "NullQuery", "Require", "AndMaybe", "AndNot")
+__all__ = ("QueryError", "Query", "CompoundQuery", "MultiTerm", "Term", "And",
+           "Or", "DisjunctionMax", "Not", "Prefix", "Wildcard", "FuzzyTerm",
+           "TermRange", "Variations", "Phrase", "Every", "NullQuery", "Require",
+           "AndMaybe", "AndNot")
 
 import copy
 import fnmatch, re
@@ -30,8 +31,8 @@ import fnmatch, re
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (make_tree, AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
-                             NullMatcher, PostingPhraseMatcher, RequireMatcher,
-                             UnionMatcher, VectorPhraseMatcher, WrappingMatcher)
+                             NullMatcher, PhraseMatcher, RequireMatcher,
+                             UnionMatcher, WrappingMatcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
@@ -1033,18 +1034,10 @@ class Phrase(MultiTerm):
         
         wordmatchers = [searcher.postings(fieldname, word, exclude_docs=exclude_docs)
                         for word in self.words]
-        isect = make_tree(IntersectionMatcher, wordmatchers)
         
         field = searcher.field(fieldname)
         if field.format and field.format.supports("positions"):
-            decodefn = field.format.decoder("positions")
-            return PostingPhraseMatcher(wordmatchers, isect, decodefn,
-                                        slop=self.slop, boost=self.boost)
-        
-        elif field.vector and field.vector.supports("positions"):
-            return VectorPhraseMatcher(searcher, fieldname, self.words, isect,
-                                       slop=self.slop, boost=self.boost)
-            
+            return PhraseMatcher(wordmatchers, slop=self.slop, boost=self.boost)
         else:
             raise QueryError("Phrase search: %r field has no positions"
                              % self.fieldname)
