@@ -1025,16 +1025,19 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             return self.a.score()
     
 
-class BasePhraseMatcher(WrappingMatcher):
+class PhraseMatcher(WrappingMatcher):
     """Base class for phrase matchers.
     """
     
-    def __init__(self, isect, decodefn, slop=1, boost=1.0):
-        self.child = isect
-        self.decode_positions = decodefn
+    def __init__(self, wordmatchers, slop=1, boost=1.0):
+        self.wordmatchers = wordmatchers
+        self.child = make_tree(IntersectionMatcher, wordmatchers)
         self.slop = slop
         self.boost = boost
         self._find_next()
+    
+    def _poses(self):
+        return [(m.value_as("positions")) for m in self.wordmatchers]
     
     def replace(self):
         if not self.is_active():
@@ -1054,27 +1057,38 @@ class BasePhraseMatcher(WrappingMatcher):
     def _find_next(self):
         isect = self.child
         slop = self.slop
+        
+        # List of "active" positions
         current = []
+        
         while not current and isect.is_active():
+            # Returns [[list of positions for word 1],
+            #          [list of positions for word 2], ...]
             poses = self._poses()
+            
+            # Set the "active" position list to the list of positions of the
+            # first word. We well then iteratively update this list with the
+            # positions of subsequent words if they are within the "slop"
+            # distance of the positions in the active list.
             current = poses[0]
+            
+            # For each list of positions for the subsequent words...
             for poslist in poses[1:]:
+                # A list to hold the new list of active positions
                 newposes = []
+                
+                # For each position in the list of positions in this next word
                 for newpos in poslist:
+                    # Use bisect to only check the part of the current list
+                    # that could contain positions within the "slop" distance
+                    # of the new position
                     start = bisect_left(current, newpos - slop)
                     end = bisect_right(current, newpos)
+                    
+                    # 
                     for curpos in current[start:end]:
                         delta = newpos - curpos
-                        # Note that the delta can be less than 1. This is
-                        # useful sometimes where multiple tokens are generated
-                        # with the same position. However it means the query
-                        # phrase "linda linda linda" will match a single
-                        # "linda" because it will match three times with a
-                        # delta of 0.
-                        
-                        # TODO: Fix this somehow?
-
-                        if delta <= slop:
+                        if delta > 0 and delta <= slop:
                             newposes.append(newpos)
                     
                 current = newposes
@@ -1086,56 +1100,41 @@ class BasePhraseMatcher(WrappingMatcher):
         self._count = len(current)
 
 
-class PostingPhraseMatcher(BasePhraseMatcher):
-    """Phrase matcher for fields with positions encoded in the postings (i.e.
-    Positions or CharacterPositions format).
-    """
-    
-    def __init__(self, wordmatchers, isect, decodefn, slop=1, boost=1.0):
-        self.wordmatchers = wordmatchers
-        super(PostingPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
-                                                   boost=boost)
-    
-    def _poses(self):
-        decode_positions = self.decode_positions
-        return [decode_positions(m.value()) for m in self.wordmatchers]
-
-
-class VectorPhraseMatcher(BasePhraseMatcher):
-    """Phrase matcher for fields with a vector with positions (i.e. Positions
-    or CharacterPositions format).
-    """
-    
-    def __init__(self, searcher, fieldname, words, isect, slop=1, boost=1.0):
-        """
-        :param reader: an IndexReader.
-        :param fieldname: the field in which to search.
-        :param words: a sequence of token texts representing the words in the
-            phrase.
-        :param isect: an intersection matcher for the words in the phrase.
-        :param slop: 
-        """
-        
-        decodefn = searcher.field(fieldname).vector.decoder("positions")
-        self.reader = searcher.reader()
-        self.fieldname = fieldname
-        self.words = words
-        self.sortedwords = sorted(self.words)
-        super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
-                                                  boost=boost)
-    
-    def _poses(self):
-        vreader = self.reader.vector(self.child.id(), self.fieldname)
-        poses = {}
-        decode_positions = self.decode_positions
-        for word in self.sortedwords:
-            vreader.skip_to(word)
-            if vreader.id() != word:
-                raise Exception("Phrase query: %r in term index but not in"
-                                " vector (possible analyzer mismatch)" % word)
-            poses[word] = decode_positions(vreader.value())
-        # Now put the position lists in phrase order
-        return [poses[word] for word in self.words]
+#class VectorPhraseMatcher(BasePhraseMatcher):
+#    """Phrase matcher for fields with a vector with positions (i.e. Positions
+#    or CharacterPositions format).
+#    """
+#    
+#    def __init__(self, searcher, fieldname, words, isect, slop=1, boost=1.0):
+#        """
+#        :param searcher: a Searcher object.
+#        :param fieldname: the field in which to search.
+#        :param words: a sequence of token texts representing the words in the
+#            phrase.
+#        :param isect: an intersection matcher for the words in the phrase.
+#        :param slop: 
+#        """
+#        
+#        decodefn = searcher.field(fieldname).vector.decoder("positions")
+#        self.reader = searcher.reader()
+#        self.fieldname = fieldname
+#        self.words = words
+#        self.sortedwords = sorted(self.words)
+#        super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
+#                                                  boost=boost)
+#    
+#    def _poses(self):
+#        vreader = self.reader.vector(self.child.id(), self.fieldname)
+#        poses = {}
+#        decode_positions = self.decode_positions
+#        for word in self.sortedwords:
+#            vreader.skip_to(word)
+#            if vreader.id() != word:
+#                raise Exception("Phrase query: %r in term index but not in"
+#                                " vector (possible analyzer mismatch)" % word)
+#            poses[word] = decode_positions(vreader.value())
+#        # Now put the position lists in phrase order
+#        return [poses[word] for word in self.words]
 
 
 
