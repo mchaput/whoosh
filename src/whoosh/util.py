@@ -69,6 +69,28 @@ utf8decode = codecs.getdecoder("utf_8")
 # Functions
 
 
+def make_binary_tree(cls, matchers, **kwargs):
+    """Takes a class that takes two positional arguments and a list of
+    arguments and returns a binary tree of instances.
+    
+    >>> make_binary_tree(UnionMatcher, [matcher1, matcher2, matcher3])
+    UnionMatcher(matcher1, UnionMatcher(matcher2, matcher3))
+    
+    Any keyword arguments given to this function are passed to the class
+    initializer.
+    """
+    
+    count = len(matchers)
+    if not count:
+        raise ValueError("Called make_binary_tree with empty list")
+    elif count == 1:
+        return matchers[0]
+    
+    half = count // 2
+    return cls(make_binary_tree(cls, matchers[:half], **kwargs),
+               make_binary_tree(cls, matchers[half:], **kwargs), **kwargs)
+
+
 # Varint cache
 
 # Build a cache of the varint byte sequences for the first N integers, so we
