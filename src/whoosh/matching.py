@@ -1151,9 +1151,6 @@ class PhraseMatcher(WrappingMatcher):
         self.boost = boost
         self._find_next()
     
-    def _poses(self):
-        return [(m.value_as("positions")) for m in self.wordmatchers]
-    
     def replace(self):
         if not self.is_active():
             return NullMatcher()
@@ -1177,9 +1174,9 @@ class PhraseMatcher(WrappingMatcher):
         current = []
         
         while not current and isect.is_active():
-            # Returns [[list of positions for word 1],
-            #          [list of positions for word 2], ...]
-            poses = self._poses()
+            # [[list of positions for word 1],
+            #  [list of positions for word 2], ...]
+            poses = [m.positions() for m in self.wordmatchers]
             
             # Set the "active" position list to the list of positions of the
             # first word. We well then iteratively update this list with the
