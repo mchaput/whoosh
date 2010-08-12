@@ -5,6 +5,8 @@ from whoosh import fields
 from whoosh.filedb.filestore import RamStorage
 from whoosh.matching import *
 from whoosh.query import And, Term
+from whoosh.util import make_binary_tree
+
 
 class TestMatchers(unittest.TestCase):
     def _keys(self, searcher, docnums):
@@ -343,7 +345,7 @@ class TestMatchers(unittest.TestCase):
                 target = target.union(nums)
                 matchers.append(ListMatcher(sorted(nums)))
             target = sorted(target)
-            um = make_tree(UnionMatcher, matchers)
+            um = make_binary_tree(UnionMatcher, matchers)
             self.assertEqual(list(um.all_ids()), target)
 
     def test_inverse(self):

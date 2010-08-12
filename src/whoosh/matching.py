@@ -14,7 +14,10 @@
 # limitations under the License.
 #===============================================================================
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left, bisect_right, insort
+
+from whoosh.util import make_binary_tree
+
 
 """
 This module contains "matcher" classes. Matchers deal with posting lists. The
@@ -50,26 +53,6 @@ class NoQualityAvailable(Exception):
     """
 
 
-def make_tree(cls, matchers):
-    """Takes a BiMatcher class and a list of matchers and returns a binary tree
-    of BiMatcher instances.
-    
-    >>> make_tree(UnionMatcher, [matcher1, matcher2, matcher3])
-    UnionMatcher(matcher1, UnionMatcher(matcher2, matcher3))
-    """
-    
-    count = len(matchers)
-    
-    if not count:
-        raise ValueError("Called make_tree with empty list of matchers")
-    elif count == 1:
-        return matchers[0]
-    
-    half = count // 2
-    return cls(make_tree(cls, matchers[:half]),
-               make_tree(cls, matchers[half:]))
-
-
 # Span class
 
 class Span(object):
@@ -85,9 +68,6 @@ class Span(object):
     def __repr__(self):
         return "<%d-%d>" % (self.start, self.end)
 
-    def to(self, span):
-        return self.__class__(min(self.start, span.start), max(self.end, span.end))
-    
     def __eq__(self, span):
         return self.start == span.start and self.end == span.end
     
@@ -103,33 +83,58 @@ class Span(object):
     def __hash__(self):
         return hash((self.start, self.end))
     
-    def overlaps(self, span):
-        return ((self.start >= span.start and self.start <= span.start)
-                or (self.end >= span.start and self.end <= span.end))
+    @classmethod
+    def merge(cls, spans):
+        """Merges overlapping and touches spans in the given list of spans.
+        
+        Note that this modifies the original list.
+        
+        >>> spans = [Span(1,2), Span(3)]
+        >>> Span.merge(spans)
+        >>> spans
+        [<1-3>]
+        """
+        
+        i = 0
+        while i < len(spans)-1:
+            here = spans[i]
+            j = i + 1
+            while j < len(spans):
+                there = spans[j]
+                if there.start > here.end + 1:
+                    break
+                if here.touches(there) or here.overlaps(there):
+                    here = here.to(there)
+                    spans[i] = here
+                    del spans[j]
+                else:
+                    j += 1
+            i += 1
+        return spans
     
-    def is_around(self, span):
+    def to(self, span):
+        return self.__class__(min(self.start, span.start), max(self.end, span.end))
+    
+    def overlaps(self, span):
+        return ((self.start >= span.start and self.start <= span.end)
+                or (self.end >= span.start and self.end <= span.end)
+                or (span.start >= self.start and span.start <= self.end)
+                or (span.end >= self.start and span.end <= self.end))
+    
+    def surrounds(self, span):
         return self.start < span.start and self.end > span.end
     
     def is_within(self, span):
         return self.start >= span.start and self.end <= span.end
     
     def is_before(self, span):
-        return self.start < span.start and self.end < span.start
+        return self.end < span.start
     
     def is_after(self, span):
-        return self.start > span.end and self.end > span.end
+        return self.start > span.end
     
-    def starts_before(self, span):
-        return self.start < span.start
-    
-    def starts_after(self, span):
-        return self.start > span.start
-    
-    def ends_before(self, span):
-        return self.end < span.end
-    
-    def ends_after(self, span):
-        return self.end > span.end
+    def touches(self, span):
+        return self.start == span.end + 1 or self.end == span.start - 1
     
     def distance_to(self, span):
         if self.overlaps(span):
@@ -1060,6 +1065,13 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     in the second sub-matcher, adds their scores.
     """
     
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+        
+        if a.is_active() and b.is_active() and a.id() != b.id():
+            b.skip_to(a.id())
+    
     def is_active(self):
         return self.a.is_active()
     
@@ -1134,7 +1146,7 @@ class PhraseMatcher(WrappingMatcher):
     
     def __init__(self, wordmatchers, slop=1, boost=1.0):
         self.wordmatchers = wordmatchers
-        self.child = make_tree(IntersectionMatcher, wordmatchers)
+        self.child = make_binary_tree(IntersectionMatcher, wordmatchers)
         self.slop = slop
         self.boost = boost
         self._find_next()

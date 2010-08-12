@@ -29,13 +29,14 @@ import copy
 import fnmatch, re
 
 from whoosh.lang.morph_en import variations
-from whoosh.matching import (make_tree, AndMaybeMatcher, DisjunctionMaxMatcher,
+from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, PhraseMatcher, RequireMatcher,
                              UnionMatcher, WrappingMatcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
+from whoosh.util import make_binary_tree
 
 
 # Utilities
@@ -361,7 +362,7 @@ class CompoundQuery(Query):
     def _matcher(self, matchercls, searcher, exclude_docs):
         submatchers = self._submatchers(searcher, exclude_docs)
         
-        tree = make_tree(matchercls, submatchers)
+        tree = make_binary_tree(matchercls, submatchers)
         if self.boost == 1.0:
             return tree
         else:
