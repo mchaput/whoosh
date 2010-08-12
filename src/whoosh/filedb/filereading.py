@@ -60,6 +60,10 @@ class SegmentReader(IndexReader):
         self.is_deleted = segment.is_deleted
         self.doc_count = segment.doc_count
         
+        # Postings file
+        self.postfile = self.storage.open_file(segment.termposts_filename,
+                                               mapped=False)
+        
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
         
@@ -80,11 +84,6 @@ class SegmentReader(IndexReader):
         # Vector postings file
         self.vpostfile = storage.open_file(segment.vectorposts_filename,
                                            mapped=False)
-    
-    def _open_postfile(self):
-        if self.postfile: return
-        self.postfile = self.storage.open_file(self.segment.termposts_filename,
-                                               mapped=False)
     
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
@@ -232,7 +231,6 @@ class SegmentReader(IndexReader):
         elif self.segment.deleted:
             exclude_docs = self.segment.deleted
 
-        self._open_postfile()
         postreader = FilePostingReader(self.postfile, offset, format,
                                        scorefns=scorefns,
                                        fieldname=fieldname, text=text)

@@ -355,7 +355,8 @@ class FilePostingReader(Matcher):
                 lengths = pf.get_array(startoffset, "i", postcount)
                 valueoffset += _INT_SIZE * postcount
 
-            allvalues = pf.map[valueoffset:endoffset]
+            pf.seek(valueoffset)
+            allvalues = pf.read(endoffset - valueoffset)
 
             # Chop up the block string into individual valuestrings
             if posting_size > 0:
