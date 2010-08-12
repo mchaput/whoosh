@@ -1,11 +1,12 @@
 import unittest
+import os.path
 from random import random, randint
 
-from whoosh.formats import *
-from whoosh.matching import (ListMatcher, IntersectionMatcher, UnionMatcher,
-                             ExcludeMatcher)
+from whoosh.formats import (Characters, CharacterBoosts, DocBoosts, Existence,
+                            Frequency, Positions, PositionBoosts)
 from whoosh.filedb.filestore import FileStorage
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
+from whoosh.util import float_to_byte, byte_to_float
 
 
 class TestPostings(unittest.TestCase):
@@ -16,14 +17,16 @@ class TestPostings(unittest.TestCase):
         return postings
     
     def make_file(self, name):
-        return FileStorage(".").create_file(name+"_test.pst")
+        if not os.path.exists("testindex"):
+            os.mkdir("testindex")
+        return FileStorage("testindex").create_file(name+"_test.pst")
     
     def open_file(self, name):
-        return FileStorage(".").open_file(name+"_test.pst")
+        return FileStorage("testindex").open_file(name+"_test.pst")
     
     def delete_file(self, name):
         try:
-            FileStorage(".").delete_file(name+"_test.pst")
+            FileStorage("testindex").delete_file(name+"_test.pst")
         except OSError:
             raise
     
@@ -190,6 +193,9 @@ class TestPostings(unittest.TestCase):
         as_freq = [(docnum, len(posns)) for docnum, posns in as_posns]
         self.assertEqual(as_freq, self.roundtrip(postings, CharacterBoosts(None), "frequency"))
 
+    
+        
+        
 
 
 if __name__ == '__main__':

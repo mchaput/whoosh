@@ -30,7 +30,7 @@ class BlockInfo(object):
                  "maxid", "dataoffset")
     
     # nextblockoffset, unused, postcount, maxweight, maxwol, unused, minlength
-    _struct = Struct("!IiBfffB")
+    _struct = Struct("!qiBfffB")
     
     def __init__(self, nextoffset=None, postcount=None,
                  maxweight=None, maxwol=None, minlength=None,
@@ -209,7 +209,7 @@ class FilePostingWriter(PostingWriter):
         pf.flush()
         nextoffset = pf.tell()
         pf.seek(blockinfo_start)
-        pf.write_uint(nextoffset)
+        pf.write_long(nextoffset)
         pf.seek(nextoffset)
 
         self.posttotal += postcount

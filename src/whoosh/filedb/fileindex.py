@@ -28,7 +28,7 @@ from whoosh.store import Storage, LockError
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 
 
-_INDEX_VERSION = -107
+_INDEX_VERSION = -108
 
 
 # TOC read/write functions

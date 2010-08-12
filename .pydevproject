@@ -5,8 +5,9 @@
 <pydev_property name="org.python.pydev.PYTHON_PROJECT_INTERPRETER">Python 2.6</pydev_property>
 <pydev_property name="org.python.pydev.PYTHON_PROJECT_VERSION">python 2.6</pydev_property>
 <pydev_pathproperty name="org.python.pydev.PROJECT_SOURCE_PATH">
-<path>/whoosh-pre1/src</path>
-<path>/whoosh-pre1/tests</path>
-<path>/whoosh-pre1/benchmark</path>
+<path>/whoosh/src</path>
+<path>/whoosh/tests</path>
+<path>/whoosh/benchmark</path>
+<path>/whoosh/stress</path>
 </pydev_pathproperty>
 </pydev_project>
