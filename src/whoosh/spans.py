@@ -309,10 +309,12 @@ class SpanOr(SpanQuery):
         """
         :param subqs: a list of queries to match.
         """
+        
         self.q = Or(subqs)
+        self.subqs = subqs
         
     def matcher(self, searcher, exclude_docs=None):
-        matchers = [q.matcher(searcher, exlcude_docs=exclude_docs)
+        matchers = [q.matcher(searcher, exclude_docs=exclude_docs)
                     for q in self.subqs]
         return make_binary_tree(SpanOr.SpanOrMatcher, matchers)
     
