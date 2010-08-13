@@ -300,7 +300,7 @@ class Matcher(object):
         """Returns the weight of the current posting.
         """
         
-        raise NotImplementedError
+        return self.value_as("weight")
     
     def score(self):
         """Returns the score of the current posting.

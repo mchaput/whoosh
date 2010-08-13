@@ -275,17 +275,12 @@ class Index(object):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this index.
         """
-        raise NotImplementedError
+        
+        return self.doc_count()
     
     def doc_count(self):
         """Returns the total number of UNDELETED documents in this index.
         """
-        raise NotImplementedError
-    
-    def field_length(self, fieldname):
-        """Returns the total length of the given field across all documents.
-        """
-        
         raise NotImplementedError
     
     def searcher(self, **kwargs):
@@ -297,6 +292,26 @@ class Index(object):
         
         from whoosh.searching import Searcher
         return Searcher(self, **kwargs)
+    
+    def field_length(self, fieldname):
+        """Returns the total length of the field across all documents.
+        """
+        
+        r = self.reader()
+        try:
+            return r.field_length(fieldname)
+        finally:
+            r.close()
+    
+    def max_field_length(self, fieldname):
+        """Returns the maximum length of the field across all documents.
+        """
+        
+        r = self.reader()
+        try:
+            return r.max_field_length(fieldname)
+        finally:
+            r.close()
     
     def reader(self):
         """Returns an IndexReader object for this index.

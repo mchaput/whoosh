@@ -14,14 +14,12 @@
 # limitations under the License.
 #===============================================================================
 
-from bisect import insort
 from collections import defaultdict
 from threading import Lock
 
 from whoosh.fields import UnknownFieldError
 from whoosh.index import Index
 from whoosh.ramdb.ramreading import RamIndexReader
-from whoosh.writing import IndexWriter
 from whoosh.util import protected
 
 
@@ -35,45 +33,35 @@ class RamIndex(Index):
         self.clear()
     
     def clear(self):
-        # Maps fieldnum -> a sorted list of term texts in that field
+        # Maps fieldname -> a sorted list of term texts in that field
         self.termlists = defaultdict(list)
         
-        # Maps field numbers to dictionaries of term -> posting list
+        # Maps fieldnames to dictionaries of term -> posting list
         self.invertedindex = {}
-        for fieldnum in xrange(len(self.schema)):
-            self.invertedindex[fieldnum] = defaultdict(list)
+        for fieldname in self.schema.names():
+            self.invertedindex[fieldname] = defaultdict(list)
         
         # Maps terms -> index frequencies
         self.indexfreqs = defaultdict(int)
         
-        # Maps docnum -> stored field lists
+        # Maps docnum -> stored field dicts
         self.storedfields = {}
         
-        # Maps (docnum, fieldnum) -> field length
+        # Maps (docnum, fieldname) -> field length
         self.fieldlengths = defaultdict(int)
         
-        # Maps fieldnum -> total field length
-        self.fieldlength_totals = defaultdict(int)
-        
-        # Maps fieldnum -> maximum field length in a document
-        self.fieldlength_maxes = {}
-        
-        # Maps (docnum, fieldnum) -> posting list
+        # Maps (docnum, fieldname) -> posting list
         self.vectors = {}
         
         # Contains docnums of deleted documents
         self.deleted = set()
         
-        self._stored_to_pos = dict((fnum, i) for i, fnum
-                                   in enumerate(self.schema.stored_field_nums()))
-    
     def close(self):
         del self.termlists
         del self.invertedindex
         del self.indexfreqs
         del self.storedfields
         del self.fieldlengths
-        del self.fieldlength_totals
         del self.vectors
         del self.deleted
         self.is_closed = True
@@ -83,7 +71,15 @@ class RamIndex(Index):
     
     def doc_count(self):
         return len(self.storedfields) - len(self.deleted)
+    
+    def field_length(self, fieldname):
+        return sum(l for docnum_fieldname, l in self.fieldlengths.iteritems()
+                   if docnum_fieldname[1] == fieldname)
         
+    def max_field_length(self, fieldname):
+        return max(l for docnum_fieldname, l in self.fieldlengths.iteritems()
+                   if docnum_fieldname[1] == fieldname)
+    
     def reader(self):
         return RamIndexReader(self)
     
@@ -91,19 +87,68 @@ class RamIndex(Index):
         return self
     
     @protected
+    def add_field(self, *args, **kwargs):
+        self.schema.add_field(*args, **kwargs)
+    
+    @protected
+    def remove_field(self, fieldname):
+        self.schema.remove_field(fieldname)
+        if fieldname in self.termlists:
+            del self.termlists[fieldname]
+        for fn, text in self.indexfreqs.iterkeys():
+            if fn == fieldname:
+                del self.indexfreqs[(fn, text)]
+        for sfields in self.storedfields.itervalues():
+            if fieldname in sfields:
+                del sfields[fieldname]
+        for docnum, fn in self.fieldlengths.iterkeys():
+            if fn == fieldname:
+                del self.fieldlengths[(docnum, fn)]
+        if fieldname in self.fieldlength_maxes:
+            del self.fieldlength_maxes[fieldname]
+        for docnum, fn in self.vectors.iterkeys():
+            if fn == fieldname:
+                del self.vectors[(docnum, fn)]
+    
+    @protected
+    def delete_document(self, docnum, delete=True):
+        if delete:
+            self.deleted.add(docnum)
+        else:
+            self.deleted.remove(docnum)
+    
+    @protected
+    def delete_by_term(self, fieldname, text):
+        inv = self.invertedindex
+        if fieldname in inv:
+            terms = inv[fieldname]
+            if text in terms:
+                postings = terms[text]
+                for p in postings:
+                    self.deleted.add(p[0])
+    
+    @protected
+    def delete_by_query(self, q, searcher=None):
+        s = self.searcher()
+        for docnum in q.docs(s):
+            self.deleted.add(docnum)
+    
+    def has_deletions(self):
+        return bool(self.deleted)
+    
+    @protected
     def optimize(self):
-        schema = self.schema
         deleted = self.deleted
         
-        # Remove documents from stored fields
+        # Remove deleted documents from stored fields
         storedfields = self.storedfields
         for docnum in deleted:
             del storedfields[docnum]
         
-        # Remove documents from inverted index
+        # Remove deleted documents from inverted index
         removedterms = defaultdict(set)
-        for fieldnum in xrange(len(schema)):
-            inv = self.invertedindex[fieldnum]
+        for fieldname in self.schema.names():
+            inv = self.invertedindex[fieldname]
             for term, postlist in inv.iteritems():
                 inv[term] = [x for x in postlist if x[0] not in deleted]
             
@@ -111,30 +156,29 @@ class RamIndex(Index):
             # documents are deleted
             for term in inv.keys():
                 if not inv[term]:
-                    removedterms[fieldnum].add(term)
+                    removedterms[fieldname].add(term)
                     del inv[term]
         
         # If terms were removed as a result of document deletion,
         # update termlists and indexfreqs
         termlists = self.termlists
-        for fieldnum, removed in removedterms.iteritems():
-            termlists[fieldnum] = [t for t in termlists[fieldnum]
+        for fieldname, removed in removedterms.iteritems():
+            termlists[fieldname] = [t for t in termlists[fieldname]
                                    if t not in removed]
             for text in removed:
-                del self.indexfreqs[(fieldnum, text)]
+                del self.indexfreqs[(fieldname, text)]
         
         # Remove documents from field lengths
         fieldlengths = self.fieldlengths
-        fieldlength_totals = self.fieldlength_totals
-        for docnum_fieldnum in fieldlengths.keys():
-            if docnum_fieldnum[0] in deleted:
-                fieldlength_totals[docnum_fieldnum[1]] -= fieldlengths[docnum_fieldnum]
-                del fieldlengths[docnum_fieldnum]
+        for docnum, fieldname in fieldlengths.keys():
+            if docnum in deleted:
+                del fieldlengths[(docnum, fieldname)]
                 
         # Remove documents from vectors
         vectors = self.vectors
-        for docnum_fieldnum in vectors.keys():
-            if docnum_fieldnum[0] in deleted: del vectors[docnum_fieldnum]
+        for docnum, fieldname in vectors.keys():
+            if docnum in deleted:
+                del vectors[(docnum, fieldname)]
             
         # Reset deleted list
         self.deleted = set()
@@ -145,28 +189,24 @@ class RamIndex(Index):
         invertedindex = self.invertedindex
         indexfreqs = self.indexfreqs
         fieldlengths = self.fieldlengths
-        fieldlength_totals = self.fieldlength_totals
         maxdoc = self.maxdoc
         
         fieldnames = [name for name in sorted(fields.keys())
                       if not name.startswith("_")]
         
-        stored_to_pos = dict((fnum, i) for i, fnum
-                             in enumerate(schema.stored_field_nums()))
-        storedvalues = [None] * len(stored_to_pos)
+        storedvalues = {}
         
         for name in fieldnames:
             if name not in schema:
                 raise UnknownFieldError("There is no field named %r" % name)
-            
+        
         for name in fieldnames:
             value = fields.get(name)
             if value:
-                fieldnum = schema.name_to_number(name)
-                field = schema.field_by_number(fieldnum)
+                field = schema[name]
                 
-                fieldlist = self.termlists[fieldnum]
-                fielddict = invertedindex[fieldnum]
+                newwords = set()
+                fielddict = invertedindex[name]
                 
                 # If the field is indexed, add the words in the value to the
                 # index
@@ -176,25 +216,24 @@ class RamIndex(Index):
                     # Count of UNIQUE terms in the value
                     unique = 0
                     
-                    for w, freq, valuestring in field.index(value):
+                    for w, freq, weight, valuestring in field.index(value):
                         if w not in fielddict:
-                            insort(fieldlist, w)
-                        fielddict[w].append((maxdoc, valuestring))
-                        indexfreqs[(fieldnum, w)] += freq
+                            newwords.add(w)
+                        fielddict[w].append((maxdoc, weight, valuestring))
+                        indexfreqs[(name, w)] += freq
                         count += freq
                         unique += 1
+                        
+                    self.termlists[name] = sorted(set(self.termlists[name]) | newwords)
                 
                     if field.scorable:
-                        fieldlength_totals[fieldnum] += count
-                        fieldlengths[(maxdoc, fieldnum)] = count
-                        if count > self.fieldlength_maxes.get(fieldnum, 0):
-                            self.fieldlength_maxes[fieldnum] = count
+                        fieldlengths[(maxdoc, name)] = count
                     
             vector = field.vector
             if vector:
-                vlist = sorted((w, valuestring) for w, freq, valuestring
+                vlist = sorted((w, weight, valuestring) for w, freq, weight, valuestring
                                in vector.word_values(value))
-                self.vectors[(maxdoc, fieldnum)] = vlist
+                self.vectors[(maxdoc, name)] = vlist
             
             if field.stored:
                 storedname = "_stored_" + name
@@ -203,20 +242,12 @@ class RamIndex(Index):
                 else :
                     stored_value = value
                 
-                storedvalues[stored_to_pos[fieldnum]] = stored_value
+                storedvalues[name] = stored_value
         
         self.storedfields[maxdoc] = storedvalues
         self.maxdoc += 1
     
-    @protected
-    def delete_document(self, docnum, delete=True):
-        if delete:
-            self.deleted.add(docnum)
-        else:
-            self.deleted.remove(docnum)
-
-    def has_deletions(self):
-        return bool(self.deleted)
+    
     
 
 

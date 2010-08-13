@@ -172,7 +172,7 @@ class TestSpans(unittest.TestCase):
         
         nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"), slop=2)
         bq = Term("text", "bravo")
-        q = spans.SpanOr(nq, bq)
+        q = spans.SpanOr([nq, bq])
         m = q.matcher(s)
         while m.is_active():
             orig = s.stored_fields(m.id())["text"]
@@ -199,7 +199,6 @@ class TestSpans(unittest.TestCase):
                               'alfa echo charlie bravo', 'alfa echo charlie delta',
                               'alfa echo delta charlie', 'bravo alfa echo charlie',
                               'bravo alfa echo charlie', 'delta alfa echo charlie'])
-
 
     def test_span_before(self):
         ix = self.get_index()

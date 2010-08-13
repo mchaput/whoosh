@@ -2,26 +2,6 @@
 How to implement a new backend
 ==============================
 
-Storage
-=======
-
-* Subclass :class:`whoosh.store.Storage`.
-
-* Storages must implement the following methods.
-
-  * :meth:`whoosh.store.Storage.create_index` -- create an object implementing the
-    :class:`whoosh.index.Index` interface and returns it.
-    
-  * :meth:`whoosh.store.Storage.open_index` -- returns an object implementing the
-    :class:`whoosh.index.Index` interface.
-
-* Storage *may* implement the following methods (the base class's versions are no-ops).
-
-  * ``close()`` -- closes any resources in use by the Storage object.
-  
-  * ``optimize()`` -- cleans up and/or compacts the data stored in the Storage object.
-  
-
 Index
 =====
 
@@ -29,28 +9,15 @@ Index
 
 * Indexes must implement the following methods.
 
-  * :meth:`whoosh.index.Index.is_empty` -- returns True if the index contains no documents.
+  * :meth:`whoosh.index.Index.is_empty`
   
-  * :meth:`whoosh.index.Index.doc_count_all` -- returns the number of documents, deleted
-    or undeleted, in the index. If the backend does not have delayed deletion, this returns
-    the same number as ``doc_count()``.
+  * :meth:`whoosh.index.Index.doc_count`
     
-  * :meth:`whoosh.index.Index.doc_count` -- returns the number of undeleted documents in
-    the index.
-    
-  * :meth:`whoosh.index.Index.field_length` -- returns the total number of terms in a field
-    across all documents.
+  * :meth:`whoosh.index.Index.reader`
   
-  * :meth:`whoosh.index.Index.term_reader` -- returns a :class:`whoosh.reading.TermReader`
-    object for the index.
-  
-  * :meth:`whoosh.index.Index.doc_reader` -- returns a :class:`whoosh.reading.DocReader`
-    object for the index.
-  
-  * :meth:`whoosh.index.Index.writer` -- returns a :class:`whoosh.writing.IndexWriter`
-    object for the index.
+  * :meth:`whoosh.index.Index.writer`
 
-* Indexes the require/support locking must implement the following methods.
+* Indexes that require/support locking must implement the following methods.
 
   * :meth:`whoosh.index.Index.lock`
   
@@ -58,25 +25,25 @@ Index
 
 * Indexes that support deletion must implement the following methods.
 
-  * :meth:`whoosh.index.Index.delete_document` -- deletes a document by number.
+  * :meth:`whoosh.index.Index.delete_document`
+  
+  * :meth:`whoosh.index.Index.doc_count_all` -- if the backend has delayed
+    deletion.
   
 * Indexes that require/support versioning/transactions *may* implement the following methods.
 
-  * :meth:`whoosh.index.Index.latest_generation` -- returns the generation number of the
-    latest version of the index.
+  * :meth:`whoosh.index.Index.latest_generation`
 
-  * :meth:`whoosh.index.Index.up_to_date` -- returns True if the Index object represents
-    the latest generation of the index.
-    
-  * :meth:`whoosh.index.Index.refresh` -- returns a new Index representing the latest
-    generation of the index.
+  * :meth:`whoosh.index.Index.up_to_date`
   
+  * :meth:`whoosh.index.Index.last_modified`
+    
 * Index *may* implement the following methods (the base class's versions are no-ops).
 
-  * :meth:`whoosh.index.Index.optimize` -- cleans and/or compacts data contained in the index.
+  * :meth:`whoosh.index.Index.optimize`
   
-  * :meth:`whoosh.index.Index.close` -- closes any open resources associated with the index.
-
+  * :meth:`whoosh.index.Index.close`
+  
 
 IndexWriter
 ===========
@@ -85,13 +52,13 @@ IndexWriter
 
 * IndexWriters must implement the following methods.
 
-  * :meth:`whoosh.reading.IndexWriter.add_document` -- 
-
-* IndexWriters that support deletion must implement the following methods.
-
-  * :meth:`whoosh.writing.IndexWriter.delete_document` -- deletes a document by number.
+  * :meth:`whoosh.writing.IndexWriter.add_document`
   
-  * :meth:`whoosh.reading.IndexWriter.update_document` -- 
+  * :meth:`whoosh.writing.IndexWriter.add_reader`
+  
+* Backends that support deletion must implement the following methods.
+
+  * :meth:`whoosh.writing.IndexWriter.delete_document`
   
 * IndexWriters that work as transactions must implement the following methods.
 
@@ -102,63 +69,113 @@ IndexWriter
     with this IndexWriter, and release any resources used by the IndexWriter.
 
 
-DocReader
-=========
+IndexReader
+===========
 
-* Subclass :class:`whoosh.reading.DocReader`.
+* Subclass :class:`whoosh.reading.IndexReader`.
 
-* DocReaders must implement the following methods.
+* IndexReaders must implement the following methods.
 
-  * :meth:`whoosh.reading.DocReader.__getitem__` -- 
+  * :meth:`whoosh.reading.IndexReader.__contains__`
   
-  * :meth:`whoosh.reading.DocReader.__iter__` -- 
+  * :meth:`whoosh.reading.IndexReader.__iter__`
   
-  * :meth:`whoosh.reading.DocReader.doc_count_all` -- 
+  * :meth:`whoosh.reading.IndexReader.iter_from`
   
-  * :meth:`whoosh.reading.DocReader.doc_count` -- 
+  * :meth:`whoosh.reading.IndexReader.stored_fields`
   
-  * :meth:`whoosh.reading.DocReader.field_length` -- 
+  * :meth:`whoosh.reading.IndexReader.doc_count_all`
   
-  * :meth:`whoosh.reading.DocReader.doc_field_length` -- 
+  * :meth:`whoosh.reading.IndexReader.doc_count`
   
-  * :meth:`whoosh.reading.DocReader.doc_field_lengths` -- 
+  * :meth:`whoosh.reading.IndexReader.doc_field_length`
   
-  * :meth:`whoosh.reading.DocReader.vector` -- 
+  * :meth:`whoosh.reading.IndexReader.field_length`
   
-  * :meth:`whoosh.reading.DocReader.vector_as` -- 
+  * :meth:`whoosh.reading.IndexReader.max_field_length`
   
-* DocReaders *may* implement the following methods.
+  * :meth:`whoosh.reading.IndexReader.postings`
+  
+  * :meth:`whoosh.reading.IndexReader.has_vector`
+  
+  * :meth:`whoosh.reading.IndexReader.vector`
+  
+  * :meth:`whoosh.reading.IndexReader.doc_frequency`
+  
+  * :meth:`whoosh.reading.IndexReader.frequency`
+  
+* Backends that support deleting documents should implement the following
+  methods.
+  
+  * :meth:`whoosh.reading.IndexReader.has_deletions`
+  * :meth:`whoosh.reading.IndexReader.is_deleted`
+
+* Backends that support versioning should implement the following methods.
+
+  * :meth:`whoosh.reading.IndexReader.generation`
+
+* If the IndexReader object does not keep the schema in the ``self.schema``
+  attribute, it needs to override the following methods.
+  
+  * :meth:`whoosh.reading.IndexReader.field`
+  
+  * :meth:`whoosh.reading.IndexReader.field_names`
+  
+  * :meth:`whoosh.reading.IndexReader.scorable_names`
+  
+  * :meth:`whoosh.reading.IndexReader.vector_names`
+  
+* IndexReaders *may* implement the following methods.
   
   * :meth:`whoosh.reading.DocReader.close` -- closes any open resources associated with the
     reader.
 
 
-TermReader
-==========
+Matcher
+=======
 
-* Subclass :class:`whoosh.reading.TermReader`.
+The :meth:`whoosh.reading.IndexReader.postings` method returns a
+:class:`whoosh.matching.Matcher` object. You will probably need to implement
+a custom Matcher class for reading from your posting lists.
 
-* Implement the following methods.
+* Subclass :class:`whoosh.matching.Matcher`.
 
-  * :meth:`whoosh.reading.TermReader.__contains__` -- returns True if the given term tuple
-    ``(fieldid, text)`` is in this reader.
+* Implement the following methods at minimum.
+
+  * :meth:`whoosh.matching.Matcher.is_active`
   
-  * :meth:`whoosh.reading.TermReader.__iter__` -- 
+  * :meth:`whoosh.matching.Matcher.copy`
   
-  * :meth:`whoosh.reading.TermReader.iter_from` -- 
+  * :meth:`whoosh.matching.Matcher.id`
   
-  * :meth:`whoosh.reading.TermReader.doc_frequency` -- 
+  * :meth:`whoosh.matching.Matcher.next`
   
-  * :meth:`whoosh.reading.TermReader.frequency` -- 
+  * :meth:`whoosh.matching.Matcher.value`
   
-  * :meth:`whoosh.reading.TermReader.doc_count_all` -- 
+  * :meth:`whoosh.matching.Matcher.value_as`
   
-  * :meth:`whoosh.reading.TermReader.postings` -- 
+  * :meth:`whoosh.matching.Matcher.score`
   
-* TermReaders *may* implement the following methods.
+* Depending on the implementation, you *may* implement the following methods
+  more efficiently.
   
-  * :meth:`whoosh.reading.TermReader.close` -- closes any open resources associated with the
-    reader.
+  * :meth:`whoosh.matching.Matcher.skip_to`
+  
+  * :meth:`whoosh.matching.Matcher.weight`
+  
+* If the implementation supports quality, you should implement the following
+  methods.
+  
+  * :meth:`whoosh.matching.Matcher.supports_quality`
+  
+  * :meth:`whoosh.matching.Matcher.quality`
+  
+  * :meth:`whoosh.matching.Matcher.block_quality`
+  
+  * :meth:`whoosh.matching.Matcher.skip_to_quality`
+  
+  
+  
 
 
 

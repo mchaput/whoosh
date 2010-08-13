@@ -29,6 +29,30 @@ class Storage(object):
     def open_index(self, indexname=None, schema=None):
         raise NotImplementedError
     
+    def create_file(self, name):
+        raise NotImplementedError
+
+    def open_file(self, name, *args, **kwargs):
+        raise NotImplementedError
+
+    def list(self):
+        raise NotImplementedError
+
+    def file_exists(self, name):
+        raise NotImplementedError
+    
+    def file_modified(self, name):
+        raise NotImplementedError
+    
+    def delete_file(self, name):
+        raise NotImplementedError
+
+    def rename_file(self, frm, to, safe=False):
+        raise NotImplementedError
+
+    def lock(self, name):
+        raise NotImplementedError
+    
     def close(self):
         pass
     

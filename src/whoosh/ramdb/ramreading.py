@@ -24,18 +24,17 @@ from whoosh.reading import IndexReader
 class RamIndexReader(IndexReader):
     def __init__(self, ix):
         self.ix = ix
+        self.is_closed = False
         self.schema = ix.schema
-        self._stored_field_names = ix.schema.stored_field_names()
-        self._scorable_fields = ix.schema.scorable_fields()
         
     def __contains__(self, term):
-        fieldid, text = term
-        fieldnum = self.schema.to_number(fieldid)
+        fieldname, text = term
         inv = self.ix.invertedindex
-        return fieldnum in inv and text in inv[fieldnum]
-    
+        return fieldname in inv and text in inv[fieldname]
+        
     def close(self):
-        pass
+        del self.ix
+        self._is_closed = True
     
     def has_deletions(self):
         return len(self.ix.deleted) > 0
@@ -44,12 +43,13 @@ class RamIndexReader(IndexReader):
         return docnum in self.ix.deleted
     
     def stored_fields(self, docnum):
-        return dict(zip(self._stored_field_names, self.ix.storedfields[docnum]))
+        return self.ix.storedfields[docnum]
     
     def all_stored_fields(self):
-        sfn = self._stored_field_names
-        for sfs in self.ix.storedfields.itervalues():
-            yield dict(zip(sfn, sfs))
+        sfs = self.ix.storedfields
+        for docnum in xrange(self.ix.maxdoc):
+            if docnum in sfs:
+                yield sfs[docnum]
             
     def doc_count_all(self):
         return self.ix.doc_count_all()
@@ -57,63 +57,71 @@ class RamIndexReader(IndexReader):
     def doc_count(self):
         return self.ix.doc_count()
     
-    def field_length(self, fieldnum):
-        return self.ix.fieldlength_totals[fieldnum]
+    def field_length(self, fieldname):
+        return self.ix.field_length(fieldname)
     
-    def doc_field_length(self, docnum, fieldid):
-        fieldnum = self.schema.to_number(fieldid)
-        return self.ix.fieldlengths[(docnum, fieldnum)]
+    def max_field_length(self, fieldname):
+        return self.ix.max_field_length(fieldname)
     
-    def max_field_length(self, fieldnum):
-        return self.ix.fieldlength_maxes[fieldnum]
+    def doc_field_length(self, docnum, fieldname):
+        return self.ix.fieldlengths[(docnum, fieldname)]
     
-    def has_vector(self, docnum, fieldid):
-        fieldnum = self.schema.to_number(fieldid)
-        return (docnum, fieldnum) in self.ix.vectors
+    def has_vector(self, docnum, fieldname):
+        return (docnum, fieldname) in self.ix.vectors
     
-    def vector(self, docnum, fieldid):
-        fieldnum = self.schema.to_number(fieldid)
-        vformat = self.schema[fieldnum].vector
-        return RamPostingReader(vformat, self.ix.vectors[(docnum, fieldnum)])
+    def vector(self, docnum, fieldname):
+        vformat = self.schema[fieldname].vector
+        return RamPostingReader(vformat, self.ix.vectors[(docnum, fieldname)])
     
     def __iter__(self):
         tls = self.ix.termlists
         inv = self.ix.invertedindex
         ixf = self.ix.indexfreqs
-        for fieldnum in sorted(tls.keys()):
-            for text in tls[fieldnum]:
-                docfreq = len(inv[fieldnum][text])
-                indexfreq = ixf[(fieldnum, text)]
-                yield (fieldnum, text, docfreq, indexfreq)
+        for fieldname in sorted(tls.iterkeys()):
+            for text in tls[fieldname]:
+                docfreq = len(inv[fieldname][text])
+                indexfreq = ixf[(fieldname, text)]
+                yield (fieldname, text, docfreq, indexfreq)
                 
-    def doc_frequency(self, fieldid, text):
-        fieldnum = self.schema.to_number(fieldid)
-        return len(self.ix.invertedindex[fieldnum][text])
+    def doc_frequency(self, fieldname, text):
+        return len(self.ix.invertedindex[fieldname][text])
     
-    def frequency(self, fieldid, text):
-        fieldnum = self.schema.to_number(fieldid)
-        return self.ix.indexfreqs[(fieldnum, text)]
+    def frequency(self, fieldname, text):
+        return self.ix.indexfreqs[(fieldname, text)]
     
-    def iter_from(self, fieldid, text):
+    def iter_from(self, fieldname, text):
         tls = self.ix.termlists
         inv = self.ix.invertedindex
         ixf = self.ix.indexfreqs
         
-        fieldnum = self.schema.to_number(fieldid)
-        fieldtexts = tls[fieldnum]
-        start = bisect_left(fieldtexts, text)
+        fnms = sorted(fn for fn in tls.iterkeys() if fn >= fieldname)
+        for fn in fnms:
+            texts = tls[fn]
+            start = 0
+            if fn == fieldname:
+                start = bisect_left(texts, text)
+                
+            for text in texts[start:]:
+                docfreq = len(inv[fieldname][text])
+                indexfreq = ixf[(fieldname, text)]
+                yield (fieldname, text, docfreq, indexfreq)
+                
+    def lexicon(self, fieldname):
+        return self.ix.termlists[fieldname]
+    
+    def iter_field(self, fieldname, prefix=''):
+        inv = self.ix.invertedindex
+        ixf = self.ix.indexfreqs
+        
+        fieldtexts = self.ix.termlists[fieldname]
+        start = bisect_left(fieldtexts, prefix)
         for text in fieldtexts[start:]:
-            docfreq = len(inv[fieldnum][text])
-            indexfreq = ixf[(fieldnum, text)]
-            yield (fieldnum, text, docfreq, indexfreq)
+            docfreq = len(inv[fieldname][text])
+            indexfreq = ixf[(fieldname, text)]
+            yield (text, docfreq, indexfreq)
     
-    def lexicon(self, fieldid):
-        fieldnum = self.schema.to_number(fieldid)
-        return self.ix.termlists[fieldnum]
-    
-    def expand_prefix(self, fieldid, prefix):
-        fieldnum = self.schema.to_number(fieldid)
-        fieldtexts = self.ix.termlists[fieldnum]
+    def expand_prefix(self, fieldname, prefix):
+        fieldtexts = self.ix.termlists[fieldname]
         start = bisect_left(fieldtexts, prefix)
         for text in fieldtexts[start:]:
             if text.startswith(prefix):
@@ -121,55 +129,59 @@ class RamIndexReader(IndexReader):
             else:
                 break
             
-    def postings(self, fieldid, text, exclude_docs = None):
-        fieldnum = self.schema.to_number(fieldid)
+    def postings(self, fieldname, text, exclude_docs=None, scorefns=None):
         if not exclude_docs:
             exclude_docs = frozenset()
         excludeset = self.ix.deleted | exclude_docs
         inv = self.ix.invertedindex
-        format = self.schema[fieldnum].format
-        postings = inv[fieldnum][text]
+        format = self.schema[fieldname].format
+        postings = inv[fieldname][text]
         if excludeset:
-            postings = [(docnum, stringvalue) for docnum, stringvalue
+            postings = [(docnum, weight, stringvalue) for docnum, weight, stringvalue
                         in postings if docnum not in excludeset]
-        return RamPostingReader(format, postings)
+        return RamPostingReader(format, postings, scorefns=scorefns)
 
 
 class RamPostingReader(Matcher):
-    def __init__(self, format, postings):
+    def __init__(self, format, postings, scorefns=None, stringids=False):
         self.format = format
         self.postings = postings
-        self.reset()
-    
-    def reset(self):
         self.i = 0
-        self.id = self.postings[0][0]
+        
+        self._scorefns = scorefns
+        if scorefns:
+            import types
+            sfn, qfn, bqfn = scorefns
+            if sfn:
+                self.score = types.MethodType(sfn, self, self.__class__)
+            if qfn:
+                self.quality = types.MethodType(qfn, self, self.__class__)
+            if bqfn:
+                self.block_quality = types.MethodType(bqfn, self, self.__class__)
+    
+    def is_active(self):
+        return self.i < len(self.postings)
+    
+    def id(self):
+        return self.postings[self.i][0]
     
     def all_items(self):
         return self.postings
     
     def all_ids(self):
-        return (id for id, _ in self.postings)
+        return (x[0] for x in self.postings)
     
     def next(self):
-        if self.id is None:
+        if not self.is_active():
             raise ReadTooFar
-        
-        postings = self.postings
-        i = self.i
-        
-        i += 1
-        if i < len(postings):
-            self.id = postings[i][0]
-        else:
-            self.id = None
-        self.i = i
+        self.i += 1
     
     def skip_to(self, target):
+        if not self.is_active():
+            raise ReadTooFar
+        
         if target <= self.id:
             return
-        if self.id is None:
-            raise ReadTooFar
         
         postings = self.postings
         i = self.i
@@ -177,19 +189,25 @@ class RamPostingReader(Matcher):
         while i < len(postings):
             i += 1
             if i == len(postings):
-                self.id = None
                 break
             elif postings[i][0] >= target:
-                self.id = postings[i][0]
                 break
             
         self.i = i
     
-    def value(self):
-        if self.id is None:
+    def weight(self):
+        if not self.is_active():
             raise ReadTooFar
         
         return self.postings[self.i][1]
+    
+    def value(self):
+        if not self.is_active():
+            raise ReadTooFar
+        
+        return self.postings[self.i][2]
+    
+        
     
     
 

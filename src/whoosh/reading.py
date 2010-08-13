@@ -120,7 +120,7 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def stored_fields(self, docnum, numerickeys=False):
+    def stored_fields(self, docnum):
         """Returns the stored fields for the given document number.
         
         :param numerickeys: use field numbers as the dictionary keys instead of
@@ -131,7 +131,10 @@ class IndexReader(ClosableMixin):
     def all_stored_fields(self):
         """Yields the stored fields for all documents.
         """
-        raise NotImplementedError
+        
+        for docnum in xrange(self.doc_count_all()):
+            if not self.is_deleted(docnum):
+                yield self.stored_fields(docnum)
 
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
@@ -144,10 +147,22 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
+    def doc_frequency(self, fieldname, text):
+        """Returns how many documents the given term appears in.
+        """
+        raise NotImplementedError
+
+    def frequency(self, fieldname, text):
+        """Returns the total number of instances of the given term in the
+        collection.
+        """
+        raise NotImplementedError
+
     def field(self, fieldname):
         """Returns the Field object corresponding to the given field name.
         """
-        raise NotImplementedError
+        
+        return self.schema[fieldname]
 
     def field_names(self):
         """Returns a list of the field names in the index's schema.
@@ -158,15 +173,29 @@ class IndexReader(ClosableMixin):
     def scorable(self, fieldname):
         """Returns true if the given field stores field lengths.
         """
-        raise NotImplementedError
+        
+        return self.field(fieldname).scorable
+
+    def format(self, fieldname):
+        """Returns the Format object corresponding to the given field name.
+        """
+        
+        return self.field(fieldname).format
 
     def scorable_names(self):
         """Returns a list of the names of fields that store field lengths.
         """
-        raise NotImplementedError(self.__class__.__name__)
+        
+        return self.schema.scorable_names()
 
     def vector_names(self):
         """Returns a list of the names of fields that store vectors.
+        """
+        
+        return self.schema.vector_names()
+
+    def vector_format(self, fieldname):
+        """Returns the Format object corresponding to the given field's vector.
         """
         raise NotImplementedError
 
@@ -262,31 +291,11 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), vec.weight())
                 vec.next()
         else:
-            decoder = vec.format.decoder(astype)
+            format = self.format(fieldname)
+            decoder = format.decoder(astype)
             while vec.is_active():
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
-
-    def format(self, fieldname):
-        """Returns the Format object corresponding to the given field name.
-        """
-        raise NotImplementedError
-
-    def vector_format(self, fieldname):
-        """Returns the Format object corresponding to the given field's vector.
-        """
-        raise NotImplementedError
-
-    def doc_frequency(self, fieldname, text):
-        """Returns how many documents the given term appears in.
-        """
-        raise NotImplementedError
-
-    def frequency(self, fieldname, text):
-        """Returns the total number of instances of the given term in the
-        collection.
-        """
-        raise NotImplementedError
 
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a

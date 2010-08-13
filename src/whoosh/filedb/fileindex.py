@@ -243,10 +243,7 @@ class FileIndex(Index):
     
     def optimize(self):
         w = self.writer()
-        if len(w.segments) > 1 or w.segments.has_deletions():
-            w.commit(optimize=True)
-        else:
-            w.cancel()
+        w.commit(optimize=True)
 
     def doc_count_all(self):
         return self._segments().doc_count_all()
