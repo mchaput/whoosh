@@ -26,7 +26,7 @@ from whoosh.util import protected
 class RamIndex(Index):
     def __init__(self, schema):
         self.schema = schema
-        self.maxdoc = 0
+        self.docnum = 0
         self._sync_lock = Lock()
         self.is_closed = False
         
@@ -189,7 +189,6 @@ class RamIndex(Index):
         invertedindex = self.invertedindex
         indexfreqs = self.indexfreqs
         fieldlengths = self.fieldlengths
-        maxdoc = self.maxdoc
         
         fieldnames = [name for name in sorted(fields.keys())
                       if not name.startswith("_")]
@@ -219,7 +218,7 @@ class RamIndex(Index):
                     for w, freq, weight, valuestring in field.index(value):
                         if w not in fielddict:
                             newwords.add(w)
-                        fielddict[w].append((maxdoc, weight, valuestring))
+                        fielddict[w].append((self.docnum, weight, valuestring))
                         indexfreqs[(name, w)] += freq
                         count += freq
                         unique += 1
@@ -227,13 +226,13 @@ class RamIndex(Index):
                     self.termlists[name] = sorted(set(self.termlists[name]) | newwords)
                 
                     if field.scorable:
-                        fieldlengths[(maxdoc, name)] = count
+                        fieldlengths[(self.docnum, name)] = count
                     
             vector = field.vector
             if vector:
                 vlist = sorted((w, weight, valuestring) for w, freq, weight, valuestring
                                in vector.word_values(value))
-                self.vectors[(maxdoc, name)] = vlist
+                self.vectors[(self.docnum, name)] = vlist
             
             if field.stored:
                 storedname = "_stored_" + name
@@ -244,8 +243,57 @@ class RamIndex(Index):
                 
                 storedvalues[name] = stored_value
         
-        self.storedfields[maxdoc] = storedvalues
-        self.maxdoc += 1
+        self.storedfields[self.docnum] = storedvalues
+        self.docnum += 1
+        
+    @protected
+    def add_reader(self, reader):
+        startdoc = self.docnum
+        
+        has_deletions = reader.has_deletions()
+        if has_deletions:
+            docmap = {}
+        
+        fieldnames = set(self.schema.names())
+        
+        for docnum in xrange(reader.doc_count_all()):
+            if (not has_deletions) or (not reader.is_deleted(docnum)):
+                d = dict(item for item
+                         in reader.stored_fields(docnum).iteritems()
+                         if item[0] in fieldnames)
+                self.storedfields[self.docnum] = d
+                
+                if has_deletions:
+                    docmap[docnum] = self.docnum
+                
+                for fieldname, length in reader.doc_field_lengths(docnum):
+                    if fieldname in fieldnames:
+                        self.fieldlengths[(self.docnum, fieldname)] = length
+                        
+                for fieldname in reader.vector_names():
+                    if (fieldname in fieldnames
+                        and reader.has_vector(docnum, fieldname)):
+                        vpostreader = reader.vector(docnum, fieldname)
+                        self.vectors[(self.docnum, fieldname)] = list(vpostreader.all_items())
+                        vpostreader.close()
+                
+                self.docnum += 1
+                
+        for fieldname, text, _, _ in reader:
+            if fieldname in fieldnames:
+                postreader = reader.postings(fieldname, text)
+                while postreader.is_active():
+                    docnum = postreader.id()
+                    valuestring = postreader.value()
+                    weight = postreader.weight()
+                    if has_deletions:
+                        newdoc = docmap[docnum]
+                    else:
+                        newdoc = startdoc + docnum
+                    self.invertedindex[fieldname][text].append((newdoc,
+                                                                weight,
+                                                                valuestring))
+                    postreader.next()
     
     
     
