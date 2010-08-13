@@ -47,7 +47,7 @@ class RamIndexReader(IndexReader):
     
     def all_stored_fields(self):
         sfs = self.ix.storedfields
-        for docnum in xrange(self.ix.maxdoc):
+        for docnum in xrange(self.ix.doc_count_all()):
             if docnum in sfs:
                 yield sfs[docnum]
             
