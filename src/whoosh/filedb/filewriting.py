@@ -185,14 +185,14 @@ class SegmentWriter(IndexWriter):
         if has_deletions:
             docmap = {}
         
-        schema = self.schema
+        fieldnames = set(self.schema.names())
         
         # Add stored documents, vectors, and field lengths
         for docnum in xrange(reader.doc_count_all()):
             if (not has_deletions) or (not reader.is_deleted(docnum)):
                 d = dict(item for item
                          in reader.stored_fields(docnum).iteritems()
-                         if item[0] in schema)
+                         if item[0] in fieldnames)
                 # We have to append a dictionary for every document, even if
                 # it's empty.
                 self.storedfields.append(d)
@@ -201,18 +201,17 @@ class SegmentWriter(IndexWriter):
                     docmap[docnum] = self.docnum
                 
                 for fieldname, length in reader.doc_field_lengths(docnum):
-                    if fieldname in schema:
+                    if fieldname in fieldnames:
                         self.pool.add_field_length(self.docnum, fieldname, length)
                 
                 for fieldname in reader.vector_names():
-                    if (fieldname in schema
+                    if (fieldname in fieldnames
                         and reader.has_vector(docnum, fieldname)):
                         vpostreader = reader.vector(docnum, fieldname)
                         self._add_vector_reader(self.docnum, fieldname, vpostreader)
                 
                 self.docnum += 1
         
-        fieldnames = set(schema.names())
         for fieldname, text, _, _ in reader:
             if fieldname in fieldnames:
                 postreader = reader.postings(fieldname, text)
