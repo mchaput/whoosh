@@ -2,10 +2,11 @@ syntax: glob
 *.pyc
 *~
 *.DS_Store
+
+build
+dist
+docs/build
+src/Whoosh.egg-info
+
 bmark
 *testindex
-
-syntax: regexp
-^build$
-syntax: regexp
-^docs/build$

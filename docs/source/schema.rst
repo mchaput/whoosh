@@ -252,16 +252,48 @@ Format object to store information about the terms in each document. Currently
 by default Whoosh does not make use of term vectors at all, but they are
 available to expert users who want to implement their own field types.
 
-Implementation notes
---------------------
 
-The query.Phrase query object can use positions in postings
-(``FieldType.format=Positions``) or in vectors (``FieldType.vector=Positions``),
-but storing positions in the postings gives faster phrase searches.
+Modifying the schema after indexing
+===================================
 
-Field names are mapped to numbers inside the Schema, and the numbers are used
-internally. This means you can add fields to an existing index, and you can
-rename fields (although there is no API for doing so), but you can't delete
-fields from an existing index. If you want to make drastic changes to the
-schema, you should reindex your documents from scratch with the new schema.
+After you have created an index, you can add or remove fields to the schema
+using the ``add_field()`` and ``remove_field()`` methods. These methods are
+on the ``Writer`` object::
+
+    writer = ix.writer()
+    writer.add_field("fieldname", fields.TEXT(stored=True))
+    writer.remove_field("content")
+    writer.commit()
+
+(If you're going to modify the schema _and_ add documents using the same
+writer, you must call ``add_field()`` and/or ``remove_field`` _before_ you
+add any documents.)
+
+These methods are also on the ``Index`` object as a convenience, but when you
+call them on an ``Index``, the Index object simply creates the writer, calls
+the corresponding method on it, and commits, so if you want to add or remove
+more than one field, it's much more efficient to create the writer yourself::
+
+    ix.add_field("fieldname", fields.KEYWORD)
+    
+In the ``filedb`` backend, removing a field simply removes that field from the
+_schema_ -- the index will not get smaller, data about that field will remain
+in the index until you optimize. Optimizing will compact the index, removing
+references to the deleted field as it goes::
+
+    writer = ix.writer()
+    writer.add_field("uuid", fields.ID(stored=True))
+    writer.remove_field("path")
+    writer.commit(optimize=True)
+
+Because data is stored on disk with the field name, *do not* add a new field with
+the same name as a deleted field without optimizing the index in between::
+
+    writer = ix.writer()
+    writer.delete_field("path")
+    # Don't do this!!!
+    writer.add_field("path", fields.KEYWORD)
+    
+(A future version of Whoosh may automatically prevent this error.)
+
 
