@@ -36,4 +36,5 @@ setup(
 	"Topic :: Text Processing :: Indexing",
 	],
 	
+	setup_requires=["setuptools_hg"],
 )
