@@ -41,8 +41,17 @@ class TestSpelling(unittest.TestCase):
         sugs = sp.suggestions_and_scores(u"alpha", weighting=Frequency())
         self.assertEqual(sugs, [(u"alfa", 10, 3.0), (u"charlie", 8, 1.0)])
 
+    def test_minscore(self):
+        st = RamStorage()
+        sp = spelling.SpellChecker(st, mingram=2, minscore=2.0)
+        
+        sp.add_words([u'charm', u'amour'])
+        
+        sugs = sp.suggest(u"armor")
+        self.assertEqual(sugs, [u'charm'])
+
 
 
 if __name__ == '__main__':
     unittest.main()
-    print 10 + 20
+

@@ -71,6 +71,7 @@ class SpellChecker(object):
         self.boostend = boostend
         self.mingram = mingram
         self.maxgram = maxgram
+        self.minscore = minscore
 
     def index(self, create=False):
         """Returns the backend index of this object (instantiating it if it
@@ -175,7 +176,8 @@ class SpellChecker(object):
 
         suggestions = self.suggestions_and_scores(text)
         suggestions.sort(key=keyfn)
-        return [word for word, _, _ in suggestions[:number]]
+        return [word for word, _, weight in suggestions[:number]
+                if weight >= self.minscore]
 
     def add_field(self, ix, fieldname):
         """Adds the terms in a field from another index to the backend
