@@ -256,8 +256,8 @@ class DATETIME(FieldType):
         
         self.stored = stored
         self.unique = unique
-        self.format = Existence()
-        
+        self.format = Existence(None)
+    
     def index(self, dt):
         if not isinstance(dt, datetime.datetime):
             raise ValueError("Value of DATETIME field must be a datetime object: %r" % dt)
@@ -269,13 +269,13 @@ class DATETIME(FieldType):
     
     def process_text(self, text, **kwargs):
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
-        return (text,)
+        return (text, )
     
     def self_parsing(self):
         return True
     
     def parse_query(self, fieldname, qstring, boost=1.0):
-        text = self.process_text(qstring)
+        text = self.process_text(qstring)[0]
         from whoosh import query
         return query.Prefix(fieldname, text, boost=boost)
     
@@ -289,7 +289,7 @@ class BOOLEAN(FieldType):
     
     def __init__(self, stored=False):
         self.stored = stored
-        self.format = Existence()
+        self.format = Existence(None)
     
     def index(self, bit):
         bit = bool(bit)
