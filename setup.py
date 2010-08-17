@@ -35,6 +35,4 @@ setup(
 	"Topic :: Software Development :: Libraries :: Python Modules",
 	"Topic :: Text Processing :: Indexing",
 	],
-	
-	setup_requires=["setuptools_hg"],
 )

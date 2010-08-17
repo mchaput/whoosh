@@ -9,7 +9,7 @@ search engine for back-end storage.
 
 To create a :class:`~whoosh.spelling.SpellChecker` object::
 
-    from whoosh.store import FileStorage
+    from whoosh.filedb.filestore import FileStorage
     from whoosh.spelling import SpellChecker
     
     # FileStorage object based on the directory "spelldict"
@@ -39,6 +39,7 @@ to choose a different index name (for example, if you want to keep multiple
 spelling dictionaries in the same directory)::
 
     speller = SpellChecker(st, indexname="COMMON_WORDS")
+
 
 Creating the spelling dictionary
 --------------------------------
@@ -111,6 +112,7 @@ this::
 once. The ``SpellChecker`` code *does not* currently guard against this
 automatically.
 
+
 Gettings suggestions
 --------------------
 
@@ -130,6 +132,7 @@ The ``number`` keyword argument sets the maximum number of suggestions to return
     
     >>> # Get only the top suggested replacement for this word
     >>> speller.suggest("woosh", number=1)
+
 
 Word scores
 -----------
@@ -170,6 +173,7 @@ that *obscure* words would be suggested before common words, you could do this::
     speller.add_scored_words((termtext, 1 / index_freq)
                              for termtext, doc_freq, index_freq
                              in reader.iter_field("content"))
+
 
 Spell checking Whoosh queries
 -----------------------------
@@ -227,6 +231,7 @@ them against the spelling dictionary::
             suggestions = speller.suggest(termtext)
             if suggestions:
                 print "%s not found. Might I suggest %r?" % (termtext, suggestions)
+
 
 Updating the spelling dictionary
 --------------------------------
