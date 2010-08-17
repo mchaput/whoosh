@@ -744,8 +744,9 @@ class DisjunctionMaxMatcher(UnionMatcher):
     # overrides all methods that perform addition). Need to clean up the
     # inheritance. 
     
-    def __init__(self, a, b):
+    def __init__(self, a, b, tiebreak=0.0):
         super(DisjunctionMaxMatcher, self).__init__(a, b)
+        self.tiebreak = tiebreak
     
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy(),

@@ -97,7 +97,7 @@ Once you have the schema, you can create an index using the ``create_in``
 function::
 
 	import os.path
-	from whoosh.index import create_index_in
+	from whoosh.index import create_in
 	
 	if not os.path.exists("index"):
         os.mkdir("index")

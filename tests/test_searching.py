@@ -208,6 +208,8 @@ class TestSearching(unittest.TestCase):
         w.commit()
         s = ix.searcher()
         
+        #from whoosh.qparser.old import QueryParser
+        #qp = QueryParser("id", schema=schema)
         qp = qparser.QueryParser("id", schema=schema)
         def do(qstring, result):
             q = qp.parse(qstring)
@@ -708,6 +710,8 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         s = ix.searcher()
+        #from whoosh.qparser.old import QueryParser
+        #qp = QueryParser("id", schema=schema)
         qp = qparser.QueryParser("id", schema=schema)
         
         def do(qstring, target):

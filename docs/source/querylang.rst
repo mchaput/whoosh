@@ -38,8 +38,13 @@ Boolean operators
 Find documents containing ``render`` *and* ``shading``::
 
     render AND shading
-    
-Find documents containing ``render``, *and* also either ``shading`` *or* ``modeling``::
+
+Note that AND is the default relation between terms, so this is the same as::
+
+    render shading
+
+Find documents containing ``render``, *and* also either ``shading`` *or*
+``modeling``::
 
     render AND shading OR modeling
 
@@ -51,8 +56,8 @@ Find documents containing ``alpha`` but not either ``beta`` or ``gamma``::
 
     alpha NOT (beta OR gamma)
 
-Note that when no boolean operator is specified between terms, the parser will insert
-one, by default AND. So this query::
+Note that when no boolean operator is specified between terms, the parser will
+insert one, by default AND. So this query::
 
     render shading modeling
     
@@ -60,11 +65,11 @@ is equivalent (by default) to::
 
     render AND shading AND modeling
 
-See :doc:`customizing the default parser <parsing>` for information on how to change
-the default operator to OR.
+See :doc:`customizing the default parser <parsing>` for information on how to
+change the default operator to OR.
 
-Group operators together with parentheses. For example to find documents that contain
-both ``render`` and ``shading``, or contain ``modeling``::
+Group operators together with parentheses. For example to find documents that
+contain both ``render`` and ``shading``, or contain ``modeling``::
 
     (render AND shading) OR modeling
 
@@ -76,11 +81,13 @@ Find the term ``ivan`` in the ``name`` field::
 
     name:ivan
     
-The ``field:`` prefix only sets the field for the term it directly precedes, so the query::
+The ``field:`` prefix only sets the field for the term it directly precedes, so
+the query::
     
     title:open sesame
         
-Will search for ``open`` in the ``title`` field and ``sesame`` in the *default* field.
+Will search for ``open`` in the ``title`` field and ``sesame`` in the *default*
+field.
 
 To apply a field prefix to multiple terms, group them with parentheses::
 
@@ -98,13 +105,13 @@ Of course you can specify a field for phrases too::
 Inexact terms
 =============
 
-Use "globs" (wildcard expressions using ``?`` to represent a single character and ``*``
-to represent any number of characters) to match terms::
+Use "globs" (wildcard expressions using ``?`` to represent a single character
+and ``*`` to represent any number of characters) to match terms::
 
     te?t test* *b?g*``
     
-Note that a wildcard starting with ``?`` or ``*`` is very slow. Note also that these
-wildcards only match *individual terms*. For example, the query::
+Note that a wildcard starting with ``?`` or ``*`` is very slow. Note also that
+these wildcards only match *individual terms*. For example, the query::
 
     my*life
     
@@ -118,9 +125,10 @@ because those are four separate terms.
 Ranges
 ======
 
-You can match a range of terms. For example, the following query will match documents
-containing terms in the lexical range from ``apple`` to ``bear`` *inclusive*. For
-example, it will match documents containing ``azores`` and ``be`` but not ``blur``::
+You can match a range of terms. For example, the following query will match
+documents containing terms in the lexical range from ``apple`` to ``bear``
+*inclusive*. For example, it will match documents containing ``azores`` and
+``be`` but not ``blur``::
 
     [apple TO bear]
 
@@ -129,10 +137,10 @@ format (i.e. YYYYMMDD)::
 
     date:[20050101 TO 20090715]
 
-The range is normally *inclusive* (that is, the range will match all terms between the
-start and end term, *as well as* the start and end terms themselves).
-You can specify that one or both ends of the range are *exclusive* by using the ``{``
-and/or ``}`` characters::
+The range is normally *inclusive* (that is, the range will match all terms
+between the start and end term, *as well as* the start and end terms
+themselves). You can specify that one or both ends of the range are *exclusive*
+by using the ``{`` and/or ``}`` characters::
 
 	[0000 TO 0025}
 	{prefix TO suffix}
@@ -146,9 +154,10 @@ You can also specify *open-ended* ranges by leaving out the start or end term::
 Boosting query elements
 =======================
 
-You can specify that certain parts of a query are more important for calculating the
-score of a matched document than others. For example, to specify that ``ninja`` is
-twice as important as other words, and ``bear`` is half as important::
+You can specify that certain parts of a query are more important for calculating
+the score of a matched document than others. For example, to specify that
+``ninja`` is twice as important as other words, and ``bear`` is half as
+important::
 
     ninja^2 cowboy bear^0.5
     
@@ -157,19 +166,16 @@ You can apply a boost to several terms using grouping parentheses::
     (open sesame)^2.5 roc
 
 
-Escaping special characters
-===========================
+Making a term from literal text
+===============================
 
-Use backslashes to escape special characters that would otherwise be interpreted by
-the query parser::
+If you need to include characters in a term that are normally treated specially
+the by the parser, such as spaces, colons, or brackets, you can enclose the term
+in single quotes::
 
-    MacHD\:Documents
-    term\ with\ spaces
-    function\(\)
-    
-You can also place a single term inside quotes. The parser does not interpret
-special characters inside quotes::
+    path:'MacHD:My Documents'
+    'term with spaces'
+    title:'function()'
 
-    oldmacpath:"MacHD:Documents"
 
 
