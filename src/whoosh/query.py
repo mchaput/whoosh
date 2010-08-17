@@ -256,7 +256,6 @@ class CompoundQuery(Query):
 
     def __init__(self, subqueries, boost=1.0):
         self.subqueries = subqueries
-        self._notqueries = None
         self.boost = boost
 
     def __repr__(self):
@@ -279,6 +278,9 @@ class CompoundQuery(Query):
 
     def __getitem__(self, i):
         return self.subqueries.__getitem__(i)
+
+    def __iter__(self):
+        return iter()
 
     def replace(self, oldtext, newtext):
         return self.__class__([q.replace(oldtext, newtext)
@@ -1204,7 +1206,7 @@ class AndNot(Query):
                                self.positive, self.negative)
 
     def __unicode__(self):
-        return u"%s ANDNOT %s" % (self.postive, self.negative)
+        return u"%s ANDNOT %s" % (self.positive, self.negative)
 
     def normalize(self):
         pos = self.positive.normalize()

@@ -66,6 +66,11 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].text, "url")
         self.assertEqual(q[1].text, "test")
     
+    def test_andor(self):
+        qp  = qparser.QueryParser("a")
+        q = qp.parse("a AND b OR c AND d OR e AND f")
+        self.assertEqual(unicode(q), u"(a:a AND (a:b OR (a:c AND (a:d OR (a:e AND a:f)))))")
+    
     def test_andnot(self):
         qp = qparser.QueryParser("content")
         q = qp.parse(u"this ANDNOT that")
@@ -87,6 +92,15 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].__class__.__name__, "Term")
         self.assertEqual(q[1].__class__.__name__, "AndNot")
         self.assertEqual(q[2].__class__.__name__, "Term")
+        
+        q = qp.parse(u"a AND b ANDNOT c")
+        self.assertEqual(q.__class__.__name__, "And")
+        self.assertEqual(len(q.subqueries), 2)
+        self.assertEqual(q[0].__class__.__name__, "Term")
+        self.assertEqual(q[0].text, "a")
+        self.assertEqual(q[1].__class__.__name__, "AndNot")
+        self.assertEqual(q[1].positive.text, "b")
+        self.assertEqual(q[1].negative.text, "c")
     
     def test_boost(self):
         qp = qparser.QueryParser("content")
@@ -286,6 +300,19 @@ class TestQueryParser(unittest.TestCase):
         schema = fields.Schema(content=fields.TEXT())
         parser = qparser.SimpleParser("content", schema=schema)
         parser.parse(u"sound the trumpets")
+    
+    def test_many_clauses(self):
+        parser = qparser.SimpleParser("content")
+        qs = "1" + (" OR 1" * 200)
+        parser.parse(qs)
+        
+        parser = qparser.QueryParser("content")
+        parser.parse(qs)
+        
+    def test_roundtrip(self):
+        parser = qparser.QueryParser("a")
+        q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
+        self.assertEqual(unicode(q), u"(a:a OR ((a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
         
 
 
