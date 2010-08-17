@@ -514,7 +514,7 @@ class LengthReader(object):
         lengths = self.lengths
         if fieldname not in lengths:
             return default
-        byte = lengths[fieldname][docnum]
+        byte = lengths[fieldname][docnum] or default
         return byte_to_length(byte)
         
 

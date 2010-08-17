@@ -104,6 +104,9 @@ class Query(object):
 
         return And([self, Not(query)]).normalize()
 
+    def copy(self):
+        raise NotImplementedError(self.__class__.__name__)
+
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
         
@@ -279,8 +282,14 @@ class CompoundQuery(Query):
     def __getitem__(self, i):
         return self.subqueries.__getitem__(i)
 
+    def __len__(self):
+        return len(self.subqueries)
+
     def __iter__(self):
-        return iter()
+        return iter(self.subqueries)
+
+    def copy(self):
+        return self.__class__(self.subqueries[:], boost=self.boost)
 
     def replace(self, oldtext, newtext):
         return self.__class__([q.replace(oldtext, newtext)
@@ -328,7 +337,11 @@ class CompoundQuery(Query):
         if not subqs:
             return NullQuery
         if len(subqs) == 1:
-            return subqs[0]
+            sub = subqs[0]
+            if self.boost != 1.0 and sub.boost == 1.0:
+                sub = sub.copy()
+                sub.boost = self.boost
+            return sub
 
         return self.__class__(subqs, boost=self.boost)
 
@@ -361,10 +374,10 @@ class CompoundQuery(Query):
         return [subquery.matcher(searcher, exclude_docs=exclude_docs)
                 for subquery in subs]
 
-    def _matcher(self, matchercls, searcher, exclude_docs):
+    def _matcher(self, matchercls, searcher, exclude_docs, **kwargs):
         submatchers = self._submatchers(searcher, exclude_docs)
         
-        tree = make_binary_tree(matchercls, submatchers)
+        tree = make_binary_tree(matchercls, submatchers, **kwargs)
         if self.boost == 1.0:
             return tree
         else:
@@ -433,7 +446,7 @@ class Term(Query):
 
     def __repr__(self):
         r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
-        if self.boost != 1:
+        if self.boost != 1.0:
             r += ", boost=%s" % self.boost
         r += ")"
         return r
@@ -454,6 +467,9 @@ class Term(Query):
             contains = not contains
         if contains:
             termset.add((fieldname, text))
+
+    def copy(self):
+        return self.__class__(self.fieldname, self.text, boost=self.boost)
 
     def replace(self, oldtext, newtext):
         if self.text == oldtext:
@@ -553,10 +569,12 @@ class DisjunctionMax(CompoundQuery):
         self.tiebreak = tiebreak
 
     def __unicode__(self):
-        s = u"DisMax" + Or.__unicode__(self)
+        r = u"DisMax("
+        r += " ".join([unicode(s) for s in self.subqueries])
+        r += u")"
         if self.tiebreak:
             s += u"~" + unicode(self.tiebreak)
-        return s
+        return r
 
     def estimate_size(self, ixreader):
         return Or.estimate_size(self, ixreader)
@@ -568,7 +586,8 @@ class DisjunctionMax(CompoundQuery):
         return norm
     
     def matcher(self, searcher, exclude_docs=None):
-        return self._matcher(DisjunctionMaxMatcher, searcher, exclude_docs)
+        return self._matcher(DisjunctionMaxMatcher, searcher, exclude_docs,
+                             tiebreak=self.tiebreak)
 
 
 class Not(Query):
@@ -603,6 +622,9 @@ class Not(Query):
 
     def __unicode__(self):
         return u"NOT " + unicode(self.query)
+
+    def copy(self):
+        return self.__class__(self.query)
 
     def normalize(self):
         query = self.query.normalize()
@@ -665,6 +687,9 @@ class Prefix(MultiTerm):
     def __unicode__(self):
         return "%s:%s*" % (self.fieldname, self.text)
 
+    def copy(self):
+        return self.__class__(self.fieldname, self.text, boost=self.boost)
+
     def _words(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
@@ -722,6 +747,9 @@ class Wildcard(MultiTerm):
 
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
+
+    def copy(self):
+        return self.__class__(self.fieldname, self.text, boost=self.boost)
 
     def _words(self, ixreader):
         if self.prefix:
@@ -802,6 +830,11 @@ class FuzzyTerm(MultiTerm):
     def __unicode__(self):
         return u"~" + self.text
 
+    def copy(self):
+        return self.__class__(self.fieldname, self.text, boost=self.boost,
+                              minsimilarity=self.minsimilarity,
+                              prefixlength=self.prefixlength)
+
     def _all_terms(self, termset, phrases=True):
         termset.add((self.fieldname, self.text))
 
@@ -828,7 +861,7 @@ class TermRange(MultiTerm):
                  boost=1.0):
         """
         :param fieldname: The name of the field to search.
-        :param start: Match terms equal to or greather than this.
+        :param start: Match terms equal to or greater than this.
         :param end: Match terms equal to or less than this.
         :param startexcl: If True, the range start is exclusive. If False, the
             range start is inclusive.
@@ -839,7 +872,11 @@ class TermRange(MultiTerm):
         """
 
         self.fieldname = fieldname
+        if start is None:
+            start = u''
         self.start = start
+        if end is None:
+            end = u'\uffff'
         self.end = end
         self.startexcl = startexcl
         self.endexcl = endexcl
@@ -868,6 +905,11 @@ class TermRange(MultiTerm):
         if self.endexcl: endchar = "}"
         return u"%s:%s%s TO %s%s" % (self.fieldname,
                                      startchar, self.start, self.end, endchar)
+
+    def copy(self):
+        return self.__class__(self.fieldname, self.start, self.end,
+                              startexcl=self.startexcl, endexcl=self.endexcl,
+                              boost=self.boost)
 
     def normalize(self):
         if self.start == self.end:
@@ -929,6 +971,9 @@ class Variations(MultiTerm):
         self.fieldname == other.fieldname and self.text == other.text and\
         self.boost == other.boost
 
+    def copy(self):
+        return self.__class__(self.fieldname, self.text, boost=self.boost)
+
     def _all_terms(self, termset, phrases=True):
         termset.add(self.text)
 
@@ -984,6 +1029,9 @@ class Phrase(MultiTerm):
 
     def __unicode__(self):
         return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
+
+    def copy(self):
+        return self.__class__(self.fieldname, self.words[:], boost=self.boost)
 
     def _all_terms(self, termset, phrases=True):
         if phrases:
@@ -1065,6 +1113,9 @@ class Every(Query):
     def __unicode__(self):
         return u"%s:*" % self.fieldname
 
+    def copy(self):
+        return self.__class__(self.fieldname, boost=self.boost)
+
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
@@ -1085,6 +1136,8 @@ class Every(Query):
 class NullQuery(Query):
     "Represents a query that won't match anything."
     def __call__(self):
+        return self
+    def copy(self):
         return self
     def estimate_size(self, ixreader):
         return 0
@@ -1121,6 +1174,9 @@ class Require(CompoundQuery):
         self.subqueries = (scoredquery, requiredquery)
         self.boost = boost
 
+    def copy(self):
+        return self.__class__(*self.subqueries, boost=self.boost)
+
     def normalize(self):
         subqueries = [q.normalize() for q in self.subqueries]
         if NullQuery in subqueries:
@@ -1156,6 +1212,9 @@ class AndMaybe(CompoundQuery):
         # in a sequence in self.subqueries
         self.subqueries = (requiredquery, optionalquery)
         self.boost = boost
+
+    def copy(self):
+        return self.__class__(*self.subqueries, boost=self.boost)
 
     def normalize(self):
         required, optional = (q.normalize() for q in self.subqueries)
@@ -1207,6 +1266,9 @@ class AndNot(Query):
 
     def __unicode__(self):
         return u"%s ANDNOT %s" % (self.positive, self.negative)
+
+    def copy(self):
+        return self.__class__(self.positive, self.negative, boost=self.boost)
 
     def normalize(self):
         pos = self.positive.normalize()

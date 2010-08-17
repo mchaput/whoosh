@@ -14,8 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-from whoosh.qparser.default import (QueryParser, MultifieldParser, SimpleParser,
-                                    DisMaxParser)
+from whoosh.qparser.default import *
 
 class QueryParserError(Exception): pass
 

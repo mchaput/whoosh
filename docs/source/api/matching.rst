@@ -24,15 +24,7 @@ Matchers
 .. autoclass:: InverseMatcher
 .. autoclass:: RequireMatcher
 .. autoclass:: AndMaybeMatcher
-.. autoclass:: BasePhraseMatcher
-.. autoclass:: PostingPhraseMatcher
-.. autoclass:: VectorPhraseMatcher
-
-
-Utility functions
-=================
-
-.. autofunction:: make_tree
+.. autoclass:: PhraseMatcher
 
 
 Exceptions

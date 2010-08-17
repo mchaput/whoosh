@@ -50,8 +50,6 @@ class Group(SyntaxObject):
     to compound query objects such as ``query.And`` and ``query.Or``.
     """
     
-    joint = " "
-    
     def __init__(self, tokens=None, boost=1.0):
         if tokens:
             self.tokens = tokens
@@ -60,7 +58,7 @@ class Group(SyntaxObject):
         self.boost = boost
     
     def __repr__(self):
-        r = "(" + self.joint.join(repr(t) for t in self.tokens) + ")"
+        r = "%s(%r)" % (self.__class__.__name__, self.tokens)
         if self.boost != 1.0:
             r += "^%s" % self.boost
         return r
@@ -104,17 +102,22 @@ class Group(SyntaxObject):
 
 
 class AndGroup(Group):
-    joint = " AND "
+    """Syntax group corresponding to an And query.
+    """
+    
     qclass = query.And
 
 
 class OrGroup(Group):
-    joint = " OR "
+    """Syntax group corresponding to an Or query.
+    """
+    
     qclass = query.Or
 
 
 class AndNotGroup(Group):
-    joint = " ANDNOT "
+    """Syntax group corresponding to an AndNot query.
+    """
     
     def query(self, parser):
         assert len(self.tokens) == 2
@@ -122,7 +125,8 @@ class AndNotGroup(Group):
                             self.tokens[1].query(parser), boost=self.boost)
     
 class AndMaybeGroup(Group):
-    joint = " ANDMAYBE "
+    """Syntax group corresponding to an AndMaybe query.
+    """
     
     def query(self, parser):
         assert len(self.tokens) == 2
@@ -131,6 +135,9 @@ class AndMaybeGroup(Group):
 
 
 class DisMaxGroup(Group):
+    """Syntax group corresponding to a DisjunctionMax query.
+    """
+    
     def __init__(self, tokens=None, tiebreak=0.0, boost=None):
         super(DisMaxGroup, self).__init__(tokens)
         self.tiebreak = tiebreak
@@ -149,6 +156,17 @@ class DisMaxGroup(Group):
     def empty(self):
         return self.__class__(tiebreak=self.tiebreak)
 
+class NotGroup(Group):
+    """Syntax group corresponding to a Not query.
+    """
+    
+    def __repr__(self):
+        return "NOT(%r)" % self.tokens
+    
+    def query(self, parser):
+        assert len(self.tokens) == 1
+        return query.Not(self.tokens[0].query(parser))
+    
 
 # Parse-able tokens
 
@@ -174,6 +192,11 @@ class Token(SyntaxObject):
 
 
 class Singleton(Token):
+    """Base class for tokens that don't carry any information specific to
+    each instance (e.g. "open paranthesis" token), so they can all share the
+    same instance.
+    """
+    
     me = None
     
     def __repr__(self):
@@ -191,8 +214,14 @@ class White(Singleton):
     
 
 class BasicSyntax(Token):
+    """Base class for "basic" (atomic) syntax -- term, prefix, wildcard,
+    phrase, range.
+    """
+    
     expr = None
     qclass = None
+    tokenize = False
+    removestops = False
     
     def __init__(self, text, fieldname=None, boost=1.0):
         self.fieldname = fieldname
@@ -216,25 +245,38 @@ class BasicSyntax(Token):
     
     @classmethod
     def create(cls, parser, match):
-        return parser.basic_syntax(cls(match.group(0)))
+        return cls(match.group(0))
     
     def query(self, parser):
         text = self.text
         fieldname = self.fieldname or parser.fieldname
         if parser.schema and fieldname in parser.schema:
             field = parser.schema[fieldname]
-            if hasattr(field, "parse_query"):
+            if field.self_parsing():
                 return field.parse_query(fieldname, self.text, boost=self.boost)
             else:
-                text = parser.get_single_text(field, text)
+                text = parser.get_single_text(field, text,
+                                              tokenize=self.tokenize,
+                                              removestops=self.removestops)
         
-        cls = self.qclass or parser.termclass
-        return cls(fieldname, self.text, boost=self.boost)
+        if text is not None:
+            cls = self.qclass or parser.termclass
+            return cls(fieldname, text, boost=self.boost)
+        else:
+            return query.NullQuery
 
 
 class Word(BasicSyntax):
-    expr = re.compile("[^ \t\r\n)]+")
+    """Syntax object representing a term.
+    """
     
+    expr = re.compile("[^ \t\r\n)]+")
+    tokenize = True
+    removestops = True
+    
+    def _get_single_text(self, parser, field, text):
+        return parser.get_single_text(field, text)
+
 
 # Parser plugins
 
@@ -248,12 +290,11 @@ class Plugin(object):
     def filters(self):
         return ()
     
-    def basic_syntax_filters(self):
-        return ()
-    
 
 class RangePlugin(Plugin):
     """Adds the ability to specify term ranges.
+    
+    This plugin is included in the default parser configuration.
     """
     
     def tokens(self):
@@ -294,13 +335,31 @@ class RangePlugin(Plugin):
                        endexcl=match.group(6) == "}")
             
         def query(self, parser):
-            return query.TermRange(self.fieldname or parser.fieldname,
-                                   self.start, self.end, self.startexcl,
+            fieldname = self.fieldname or parser.fieldname
+            start, end = self.start, self.end
+            if parser.schema and fieldname in parser.schema:
+                field = parser.schema[fieldname]
+                if start:
+                    start = parser.get_single_text(field, start,
+                                                   tokenize=False,
+                                                   removestops=False)
+                if end:
+                    end = parser.get_single_text(field, end, tokenize=False,
+                                                 removestops=False)
+            
+            if start is None:
+                start = u''
+            if end is None:
+                end = u'\uFFFF'
+            
+            return query.TermRange(fieldname, start, end, self.startexcl,
                                    self.endexcl, boost=self.boost)
 
 
 class PhrasePlugin(Plugin):
     """Adds the ability to specify phrase queries inside double quotes.
+    
+    This plugin is included in the default parser configuration.
     """
     
     def tokens(self):
@@ -334,7 +393,7 @@ class PhrasePlugin(Plugin):
             fieldname = self.fieldname or parser.fieldname
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
-                if hasattr(field, "parse_query"):
+                if field.self_parsing():
                     return field.parse_query(fieldname, self.text, boost=self.boost)
                 else:
                     words = list(field.process_text(self.text, mode="query")) 
@@ -348,6 +407,8 @@ class PhrasePlugin(Plugin):
 class SingleQuotesPlugin(Plugin):
     """Adds the ability to specify single "terms" containing spaces by
     enclosing them in single quotes.
+    
+    This plugin is included in the default parser configuration.
     """
      
     def tokens(self):
@@ -367,8 +428,6 @@ class PrefixPlugin(Plugin):
     prefix but not wildcard queries (for performance reasons). If you are
     including the wildcard plugin, you should not include this plugin as well.
     """
-    
-    qclass = query.Prefix
     
     def tokens(self):
         return ((PrefixPlugin.Prefix, 0), )
@@ -393,15 +452,16 @@ class WildcardPlugin(Plugin):
     question mark characters in terms. Note that these types can be very
     performance and memory intensive. You may consider not including this
     type of query.
-    """
     
-    qclass = query.Wildcard
+    This plugin is included in the default parser configuration.
+    """
     
     def tokens(self):
         return ((WildcardPlugin.Wild, 0), )
     
     class Wild(BasicSyntax):
         expr = re.compile("[^ \t\r\n*?]*(\\*|\\?)\\S*")
+        qclass = query.Wildcard
         
         def __repr__(self):
             r = "%s:wild(%r)" % (self.fieldname, self.text)
@@ -412,11 +472,13 @@ class WildcardPlugin(Plugin):
         @classmethod
         def create(cls, parser, match):
             return cls(match.group(0))
-
+        
 
 class WordPlugin(Plugin):
     """Adds the ability to query for individual terms. You should always
     include this plugin.
+    
+    This plugin is always automatically included by the QueryParser.
     """
     
     def tokens(self):
@@ -426,15 +488,15 @@ class WordPlugin(Plugin):
 class WhitespacePlugin(Plugin):
     """Parses whitespace between words in the query string. You should always
     include this plugin.
-    """
     
-    filter_priority = 1000
+    This plugin is always automatically included by the QueryParser.
+    """
     
     def tokens(self):
         return ((White, 100), )
     
     def filters(self):
-        return ((WhitespacePlugin.do_whitespace, self.filter_priority), )
+        return ((WhitespacePlugin.do_whitespace, 500), )
     
     @staticmethod
     def do_whitespace(parser, stream):
@@ -449,6 +511,8 @@ class WhitespacePlugin(Plugin):
 
 class GroupPlugin(Plugin):
     """Adds the ability to group clauses using parentheses.
+    
+    This plugin is included in the default parser configuration.
     """
     
     def tokens(self):
@@ -474,7 +538,10 @@ class GroupPlugin(Plugin):
         if len(stack) > 1:
             for ls in stack[1:]:
                 top.extend(ls)
-            
+        
+        if len(top) == 1 and isinstance(top[0], Group):
+            top = top[0].set_boost(top.boost)
+        
         return top
     
     class Open(Singleton):
@@ -486,6 +553,8 @@ class GroupPlugin(Plugin):
 
 class FieldsPlugin(Plugin):
     """Adds the ability to specify the field of a clause using a colon.
+    
+    This plugin is included in the default parser configuration.
     """
     
     def tokens(self):
@@ -503,7 +572,7 @@ class FieldsPlugin(Plugin):
                 valid = False
                 if i < len(stream) - 1:
                     next = stream[i+1]
-                    if next is not White and not isinstance(next, FieldsPlugin.Field):
+                    if not isinstance(next, (White, FieldsPlugin.Field)):
                         newname = t.fieldname
                         valid = True
                 if not valid:
@@ -526,6 +595,9 @@ class FieldsPlugin(Plugin):
         def __repr__(self):
             return "<%s:>" % self.fieldname
         
+        def set_fieldname(self, fieldname):
+            return self.__class__(fieldname)
+        
         @classmethod
         def create(cls, parser, match):
             return cls(match.group(1))
@@ -534,6 +606,8 @@ class FieldsPlugin(Plugin):
 class CompoundsPlugin(Plugin):
     """Adds the ability to use AND, OR, ANDMAYBE, and ANDNOT to specify
     query constraints.
+    
+    This plugin is included in the default parser configuration.
     """
     
     def tokens(self):
@@ -541,7 +615,7 @@ class CompoundsPlugin(Plugin):
                 (CompoundsPlugin.Or, 0))
     
     def filters(self):
-        return ((CompoundsPlugin.do_compounds, 200), )
+        return ((CompoundsPlugin.do_compounds, 600), )
 
     @staticmethod
     def do_compounds(parser, stream):
@@ -601,11 +675,26 @@ class CompoundsPlugin(Plugin):
         
 
 class BoostPlugin(Plugin):
+    """Adds the ability to boost clauses of the query using the circumflex.
+    
+    This plugin is included in the default parser configuration.
+    """
+    
     def tokens(self):
         return ((BoostPlugin.Boost, 0), )
     
     def filters(self):
-        return ((BoostPlugin.do_boost, 300), )
+        return ((BoostPlugin.clean_boost, 0), (BoostPlugin.do_boost, 700))
+
+    @staticmethod
+    def clean_boost(parser, stream):
+        newstream = stream.empty()
+        for i, t in enumerate(stream):
+            if isinstance(t, BoostPlugin.Boost):
+                if i == 0 or isinstance(stream[i-1], (BoostPlugin.Boost, White)):
+                    t = Word(t.original)
+            newstream.append(t)
+        return newstream
 
     @staticmethod
     def do_boost(parser, stream):
@@ -617,13 +706,14 @@ class BoostPlugin(Plugin):
                 if newstream:
                     newstream.append(newstream.pop().set_boost(t.boost))
             elif isinstance(t, BasicSyntax) and "^" in t.text:
-                try:
-                    carat = t.text.find("^")
-                    boost = float(t.text[carat+1:])
-                    t = t.set_boost(boost)
-                    t.text = t.text[:carat]
-                except ValueError:
-                    pass
+                carat = t.text.find("^")
+                if carat > 0:
+                    try:
+                        boost = float(t.text[carat+1:])
+                        t = t.set_boost(boost)
+                        t.text = t.text[:carat]
+                    except ValueError:
+                        pass
                 newstream.append(t)
             else:
                 newstream.append(t)
@@ -632,7 +722,8 @@ class BoostPlugin(Plugin):
     class Boost(Token):
         expr = re.compile("\\^([0-9]+(.[0-9]+)?)")
         
-        def __init__(self, boost):
+        def __init__(self, original, boost):
+            self.original = original
             self.boost = boost
         
         def __repr__(self):
@@ -641,17 +732,22 @@ class BoostPlugin(Plugin):
         @classmethod
         def create(cls, parser, match):
             try:
-                return cls(float(match.group(1)))
+                return cls(match.group(0), float(match.group(1)))
             except ValueError:
                 return Word(match.group(0))
     
 
 class NotPlugin(Plugin):
+    """Adds the ability to negate a clause by preceding it with NOT.
+    
+    This plugin is included in the default parser configuration.
+    """
+    
     def tokens(self):
         return ((NotPlugin.Not, 0), )
     
     def filters(self):
-        return ((NotPlugin.do_not, 400), )
+        return ((NotPlugin.do_not, 800), )
     
     @staticmethod
     def do_not(parser, stream):
@@ -663,7 +759,7 @@ class NotPlugin(Plugin):
                 continue
             
             if notnext:
-                t = NotPlugin.NotGroup([t])
+                t = NotGroup([t])
             newstream.append(t)
             notnext = False
             
@@ -672,21 +768,48 @@ class NotPlugin(Plugin):
     class Not(Singleton):
         expr = re.compile("NOT")
     
-    class NotGroup(Group):
-        def __repr__(self):
-            return "(NOT %r)" % self.tokens
-        
-        def query(self, parser):
-            assert len(self.tokens) == 1
-            return query.Not(self.tokens[0].query(parser))
 
+class MinusNotPlugin(Plugin):
+    """Adds the ability to prefix a clause with - to negate it. Users may
+    prefer this to using ``NOT``.
+    """
+    
+    def tokens(self):
+        return ((PlusMinusPlugin.Minus, 0), )
+    
+    def filters(self):
+        return ((MinusNotPlugin.do_minus, 510), )
+    
+    @staticmethod
+    def do_minus(parser, stream):
+        newstream =  stream.empty()
+        notnext = False
+        for t in stream:
+            if isinstance(t, PlusMinusPlugin.Minus):
+                notnext = True
+            else:
+                if isinstance(t, Group):
+                    t = MinusNotPlugin.do_minus(parser, t)
+                if notnext:
+                    t = NotGroup([t])
+                newstream.append(t)
+                notnext = False
+        return newstream
+                
 
 class PlusMinusPlugin(Plugin):
+    """Adds the ability to use + and - in a flat OR query to specify required
+    and prohibited terms.
+    
+    This is the basis for the parser configuration returned by
+    ``SimpleParser()``.
+    """
+    
     def tokens(self):
         return ((PlusMinusPlugin.Plus, 0), (PlusMinusPlugin.Minus, 0))
     
     def filters(self):
-        return ((PlusMinusPlugin.do_plusminus, 500), )
+        return ((PlusMinusPlugin.do_plusminus, 510), )
     
     @staticmethod
     def do_plusminus(parser, stream):
@@ -719,12 +842,22 @@ class PlusMinusPlugin(Plugin):
 
 
 class MultifieldPlugin(Plugin):
+    """Converts any unfielded terms into OR clauses that search for the
+    term in a specified list of fields.
+    """
+    
     def __init__(self, fieldnames, fieldboosts=None):
+        """
+        :param fieldnames: a list of fields to search.
+        :param fieldboosts: an optional dictionary mapping field names to
+            a boost to use for that field.
+        """
+        
         self.fieldnames = fieldnames
-        self.boosts = fieldboosts or None
+        self.boosts = fieldboosts or {}
     
     def filters(self):
-        return ((self.do_multifield, 50), )
+        return ((self.do_multifield, 110), )
     
     def do_multifield(self, parser, stream):
         newstream = stream.empty()
@@ -737,12 +870,21 @@ class MultifieldPlugin(Plugin):
         
 
 class DisMaxPlugin(Plugin):
+    """Converts any unfielded terms into DisjunctionMax clauses that search
+    for the term in a specified list of fields.
+    """
+    
     def __init__(self, fieldboosts, tiebreak=0.0):
+        """
+        :param fieldboosts: a dictionary mapping field names to a boost to use
+            for that in the DisjuctionMax query.
+        """
+        
         self.fieldboosts = fieldboosts.items()
         self.tiebreak = tiebreak
     
     def filters(self):
-        return ((self.do_dismax, 50), )
+        return ((self.do_dismax, 110), )
     
     def do_dismax(self, parser, stream):
         newstream = stream.empty()
@@ -753,20 +895,87 @@ class DisMaxPlugin(Plugin):
                                  tiebreak=self.tiebreak)
             newstream.append(t)
         return newstream
+
+
+class FieldAliasPlugin(Plugin):
+    """Adds the ability to use "aliases" of fields in the query string.
+    
+    >>> # Allow users to use 'body' or 'text' to refer to the 'content' field
+    >>> parser.add_plugin(FieldAliasPlugin({"content": ("body", "text")}))
+    >>> parser.parse("text:hello")
+    Term("content", "hello")
+    """
+    
+    def __init__(self, fieldmap):
+        """
+        :param fieldmap: a dictionary mapping fieldnames to a list of
+            aliases for the field.
+        """
         
+        self.fieldmap = fieldmap
+        self.reverse = {}
+        for key, values in fieldmap.iteritems():
+            for value in values:
+                self.reverse[value] = key
+        
+    def filters(self):
+        return ((self.do_aliases, 90), )
+    
+    def do_aliases(self, parser, stream):
+        newstream = stream.empty()
+        for t in stream:
+            if (not isinstance(t, Group)
+                  and t.fieldname is not None
+                  and t.fieldname in self.reverse):
+                    t = t.set_fieldname(self.reverse[t.fieldname])
+            newstream.append(t)
+        return newstream
+
         
 # Parser object
 
-full_profile = (BoostPlugin(), CompoundsPlugin(), FieldsPlugin(), GroupPlugin(),
-                NotPlugin(), PhrasePlugin(), RangePlugin(), SingleQuotesPlugin(),
-                WildcardPlugin())
-
-simple_profile = (PlusMinusPlugin(), PhrasePlugin())
+full_profile = (BoostPlugin, CompoundsPlugin, FieldsPlugin, GroupPlugin,
+                NotPlugin, PhrasePlugin, RangePlugin, SingleQuotesPlugin,
+                WildcardPlugin)
 
 
 class QueryParser(object):
+    """A hand-written query parser built on modular plug-ins. The default
+    configuration implements a powerful fielded query language similar to
+    Lucene's.
+    
+    You can use the ``plugins`` argument when creating the object to override
+    the default list of plug-ins, and/or use ``add_plugin()`` and/or
+    ``remove_plugin_class()`` to change the plug-ins included in the parser.
+    
+    >>> from whoosh import qparser
+    >>> parser = qparser.QueryParser("content")
+    >>> parser.remove_plugin_class(qparser.WildcardPlugin)
+    >>> parser.parse(u"hello there")
+    And([Term("content", u"hello"), Term("content", u"there")])
+    """
+    
     def __init__(self, fieldname, schema=None, termclass=query.Term,
                  phraseclass=query.Phrase, group=AndGroup, plugins=None):
+        """
+        :param fieldname: the default field -- use this as the field for any
+            terms without an explicit field.
+        :param schema: a :class:`whoosh.fields.Schema` object to use when
+            parsing. If you specify a schema, the appropriate fields in the
+            schema will be used to tokenize terms/phrases before they are
+            turned into query objects.
+        :param termclass: the query class to use for individual search terms.
+            The default is :class:`whoosh.query.Term`.
+        :param phraseclass: the query class to use for phrases. The default
+            is :class:`whoosh.query.Phrase`.
+        :param group: the default grouping. ``AndGroup`` makes terms required
+            by default. ``OrGroup`` makes terms optional by default.
+        :param plugins: a list of plugins to use. WordPlugin and
+            WhitespacePlugin are automatically included, do not put them in
+            this list. This overrides the default list of plugins. Classes
+            in the list will be automatically instantiated.
+        """
+        
         self.fieldname = fieldname
         self.schema = schema
         self.termclass = termclass
@@ -775,13 +984,21 @@ class QueryParser(object):
         
         if not plugins:
             plugins = full_profile
-        plugins = list(plugins + (WhitespacePlugin(), WordPlugin()))
+        plugins = list(plugins) + [WhitespacePlugin, WordPlugin]
+        for i, plugin in enumerate(plugins):
+            if isinstance(plugin, type):
+                try:
+                    plugins[i] = plugin()
+                except TypeError:
+                    raise TypeError("Could not instantiate %r" % plugin)
         self.plugins = plugins
         
     def add_plugin(self, plugin):
         """Adds the given plugin to the list of plugins in this parser.
         """
         
+        if isinstance(plugin, type):
+            plugin = plugin()
         self.plugins.append(plugin)
         
     def remove_plugin(self, plugin):
@@ -789,7 +1006,6 @@ class QueryParser(object):
         """
         
         self.plugins.remove(plugin)
-        self._basic_syntax_filters = self.basic_syntax_filiters()
         
     def remove_plugin_class(self, cls):
         """Removes any plugins of the given class from this parser.
@@ -818,13 +1034,6 @@ class QueryParser(object):
         
         return self._priorized("filters")
     
-    def basic_syntax_filters(self):
-        """Returns a priorized list of basic query filter functions from the
-        included plugins.
-        """
-        
-        return self._priorized("basic_syntax_filters")
-    
     def parse(self, text, normalize=True):
         """Parses the input string and returns a Query object/tree.
         
@@ -838,11 +1047,10 @@ class QueryParser(object):
         :rtype: :class:`whoosh.query.Query`
         """
         
-        self._basic_syntax_filters = self.basic_syntax_filters()
-        
         stream = self._tokenize(text)
-        stream = self.filterize(stream)
+        stream = self._filterize(stream)
         q = stream.query(self)
+        #print "prenorm=", q
         if normalize:
             q = q.normalize()
         return q
@@ -872,17 +1080,14 @@ class QueryParser(object):
         if prev < len(text):
             stack.append((Word, text[prev:]))
         
+        #print "stack=", stack
         return self.group(stack)
     
-    def filterize(self, stream):
+    def _filterize(self, stream):
         for f in self.filters():
             stream = f(self, stream)
+            #print "filter=", f, "stream=", stream
         return stream
-
-    def basic_syntax(self, token):
-        for bqf in self._basic_syntax_filters:
-            token = bqf(self, token)
-        return token
 
     def get_single_text(self, field, text, **kwargs):
         # Just take the first token
@@ -892,54 +1097,49 @@ class QueryParser(object):
 
 # Premade parser configurations
 
-def MultifieldParser(fieldnames, fieldboosts=None, **kwargs):
-    """Instead of assigning unfielded clauses to a default field, this parser
+def MultifieldParser(fieldnames, schema=None, fieldboosts=None, **kwargs):
+    """Returns a QueryParser configured to search in multiple fields.
+    
+    Instead of assigning unfielded clauses to a default field, this parser
     transforms them into an OR clause that searches a list of fields. For
     example, if the list of multi-fields is "f1", "f2" and the query string is
     "hello there", the class will parse "(f1:hello OR f2:hello) (f1:there OR
     f2:there)". This is very useful when you have two textual fields (e.g.
     "title" and "content") you want to search by default.
+    
+    :param fieldnames: a list of field names to search.
+    :param fieldboosts: an optional dictionary mapping field names to boosts.
     """
     
-    p = QueryParser(None, **kwargs)
+    p = QueryParser(None, schema=schema, **kwargs)
     p.add_plugin(MultifieldPlugin(fieldnames, fieldboosts=fieldboosts))
     return p
 
 
-def SimpleParser(fieldname, **kwargs):
-    p = QueryParser(fieldname, plugins=simple_profile)
-    return
+def SimpleParser(fieldname, schema=None, **kwargs):
+    """Returns a QueryParser configured to support only +, -, and phrase
+    syntax.
+    """
+    
+    return QueryParser(fieldname, schema=schema,
+                       plugins=(PlusMinusPlugin, PhrasePlugin), **kwargs)
 
 
-def DisMaxParser(fieldboosts, tiebreak=0.0, **kwargs):
-    p = SimpleParser(None, **kwargs)
-    p.add_plugin(DisMaxPlugin(fieldboosts, tiebreak))
-    return p
+def DisMaxParser(fieldboosts, schema=None, tiebreak=0.0, **kwargs):
+    """Returns a QueryParser configured to support only +, -, and phrase
+    syntax, and which converts individual terms into DisjunctionMax queries
+    across a set of fields.
+    
+    :param fieldboosts: a dictionary mapping field names to boosts.
+    """
+    
+    dmpi = DisMaxPlugin(fieldboosts, tiebreak)
+    return QueryParser(None, schema=schema,
+                       plugins=(PlusMinusPlugin, PhrasePlugin, dmpi), **kwargs)
+    
     
 
 
-if __name__ == "__main__":
-    from time import clock as now
-    #ts = tokenize(None, 'he*llo pre* big:(ahoy^6.2 AND title:there) q:"where to" [apple TO] OR here')
-    p = QueryParser("z")
-    q = 'w:a "hi there"^4.2 AND x:b^2.3 OR c AND (y:d OR e) (apple ANDNOT bear)^2.3'
-    q = "z:a AND b OR \"zorba the greek\"  AND q:d OR e's 'hi there'^4.1"
-    print "string=", q
-    t = now()
-    print "query =", p.parse(q)
-    
-    print
-    q = 'a +b -c d'
-    p = QueryParser("f", plugins=simple_profile)
-    #p.add_plugin(DisMaxPlugin({"x":2.0, "y":1.2}))
-    p.add_plugin(MultifieldPlugin(("content", "title")))
-    print p.parse(q)
-    
-    #xs = p.do_not(p.do_boost(p.do_compounds(p.do_whitespace(p.do_fieldnames(p.do_groups(ts))))))
-    #xs = p.do_compounds(p.do_whitespace(p.do_boost(p.do_fieldnames(p.do_groups(ts)))))
-    #print xs
-    #print unicode(xs.query(p))
-    #print now() - t
 
 
 

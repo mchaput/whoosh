@@ -66,7 +66,6 @@ class FieldType(object):
     """
     
     format = vector = scorable = stored = unique = None
-    parse_query = None
     indexed = True
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
@@ -122,6 +121,23 @@ class FieldType(object):
             raise Exception("%s field has no format" % self)
         return (t.text for t
                 in self.format.analyze(qstring, mode=mode, **kwargs))
+        
+    def self_parsing(self):
+        """Subclasses should override this method to return True if they want
+        the query parser to call the field's ``parse_query()`` method instead
+        of running the analyzer on text in this field. This is useful where
+        the field needs full control over how queries are interpreted, such
+        as in the numeric field type.
+        """
+        
+        return False
+    
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        """When ``self_parsing()`` returns True, the query parser will call
+        this method to parse basic query text.
+        """
+        
+        raise NotImplementedError(self.__class__.__name__)
     
 
 class ID(FieldType):
@@ -184,6 +200,9 @@ class NUMERIC(FieldType):
     
     def process_text(self, text, **kwargs):
         return (self.to_text(text),)
+    
+    def self_parsing(self):
+        return True
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
@@ -252,6 +271,9 @@ class DATETIME(FieldType):
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
         return (text,)
     
+    def self_parsing(self):
+        return True
+    
     def parse_query(self, fieldname, qstring, boost=1.0):
         text = self.process_text(qstring)
         from whoosh import query
@@ -273,6 +295,9 @@ class BOOLEAN(FieldType):
         bit = bool(bit)
         # word, freq, weight, valuestring
         return [(self.strings[int(bit)], 1, 1.0, '')]
+    
+    def self_parsing(self):
+        return True
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
