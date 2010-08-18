@@ -23,6 +23,9 @@ Flexible Schema: you can now add and remove fields in an index with the
 :meth:`whoosh.writing.IndexWriter.add_field` and
 :meth:`whoosh.writing.IndexWriter.remove_field` methods.
 
+New hand-written query parser based on plug-ins. Less brittle, more robust,
+more flexible, and easier to fix/improve than the old pyparsing-based parser.
+
 On-disk formats now use 64-bit disk pointers allowing files larger than 4 GB.
 
 New :class:`whoosh.searching.Facets` class efficiently sorts results into
@@ -48,9 +51,6 @@ tokenized text.
 Errors in query parsing now raise a specific ``whoosh.qparse.QueryParserError``
 exception instead of a generic exception.
 
-Fixed bug in query parser where words ending in a colon (``:``) were assumed
-to be field prefixes and raised a parsing error.
-
 Previously, the query string ``*`` was optimized to a
 :class:`whoosh.query.Every` query which matched every document. Now the
 ``Every`` query only matches documents that actually have an indexed term from
@@ -73,11 +73,6 @@ User API changes
 The default for the ``limit`` keyword argument to
 :meth:`whoosh.searching.Searcher.search` is now ``10``. To return all results
 in a single ``Results`` object, use ``limit=None``.
-
-The "stored" values of fields must now be "marshal"-able (that is, basic types
-such as strings, numbers, lists, or dictionaries) rather than picklable. You
-can still store pickled objects by dumping them to strings first yourself if
-necessary.
 
 The ``Index`` object no longer represents a snapshot of the index at the time
 the object was instantiated. Instead it always represents the index in the

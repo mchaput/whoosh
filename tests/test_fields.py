@@ -85,7 +85,7 @@ class TestSchema(unittest.TestCase):
     
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),
-                               date=fields.DATETIME)
+                               date=fields.DATETIME(stored=True))
         st = RamStorage()
         ix = st.create_index(schema)
         
@@ -102,13 +102,19 @@ class TestSchema(unittest.TestCase):
         r = s.search(qp.parse("date:20100523"))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], "5-23")
+        self.assertEqual(r[0]["date"].__class__, datetime)
+        self.assertEqual(r[0]["date"].month, 5)
+        self.assertEqual(r[0]["date"].day, 23)
         
         r = s.search(qp.parse("date:'2010 02'"))
         self.assertEqual(len(r), 27)
+        
+        q = qp.parse(u"date:[2010-05 TO 2010-08]")
+        print q
     
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),
-                               done=fields.BOOLEAN)
+                               done=fields.BOOLEAN(stored=True))
         st = RamStorage()
         ix = st.create_index(schema)
         
@@ -123,17 +129,26 @@ class TestSchema(unittest.TestCase):
         s = ix.searcher()
         qp = qparser.QueryParser("id", schema=schema)
         
+        def all_false(ls):
+            for item in ls:
+                if item: return False
+            return True
+        
         r = s.search(qp.parse("done:true"))
         self.assertEqual(sorted([d["id"] for d in r]), ["a", "c", "e"])
+        self.assertTrue(all(d["done"] for d in r))
         
         r = s.search(qp.parse("done:yes"))
         self.assertEqual(sorted([d["id"] for d in r]), ["a", "c", "e"])
+        self.assertTrue(all(d["done"] for d in r))
         
         r = s.search(qp.parse("done:false"))
         self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
+        self.assertTrue(all_false(d["done"] for d in r))
         
         r = s.search(qp.parse("done:no"))
         self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
+        self.assertTrue(all_false(d["done"] for d in r))
 
 
 
