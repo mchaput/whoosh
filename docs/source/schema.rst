@@ -81,6 +81,17 @@ Whoosh provides some useful predefined field types:
     This is useful for document information you want to display to the user in
     the search results, but don't need to be able to search for.
 
+:class:`whoosh.fields.NUMERIC`
+    This field stores int, long, or floating point numbers in a compact,
+    sortable format.
+    
+:class:`whoosh.fields.DATETIME`
+    This field stores datetime objects in a compact, sortable format.
+    
+:class:`whoosh.fields.BOOLEAN`
+    This simple filed indexes boolean values and allows users to search for
+    ``yes``, ``no``, ``true``, ``false``, ``1``, ``0``, ``t`` or ``f``.
+
 :class:`whoosh.fields.NGRAM`
     TBD.
 

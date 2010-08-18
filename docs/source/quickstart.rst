@@ -139,7 +139,7 @@ Two important notes:
   leave out a field from a document.
 
 * Indexed text fields must be passed a unicode value. Fields that are stored
-  but not indexed (STORED field type) can be passed any marshal-able object.
+  but not indexed (STORED field type) can be passed any pickle-able object.
 
 If you have a text field that is both indexed and stored, you can index a
 unicode value but store a different object if necessary (it's usually not, but

@@ -182,7 +182,29 @@ class IDLIST(FieldType):
 
 
 class NUMERIC(FieldType):
+    """Special field type that lets you index int, long, or floating point
+    numbers. The field converts the number to sortable text for you before
+    indexing.
+    
+    You can specify the type of the field when you create the NUMERIC object.
+    The default is int.
+    
+    >>> schema = Schema(path=STORED, position=NUMERIC(long))
+    >>> ix = storage.create_index(schema)
+    >>> w = ix.writer()
+    >>> w.add_document(path="/a", position=5820402204)
+    >>> w.commit()
+    """
+    
     def __init__(self, type=int, stored=False, unique=False, field_boost=1.0):
+        """
+        :param type: the type of numbers that can be stored in this field: one
+            of ``int``, ``long``, or ``float``.
+        :param stored: Whether the value of this field is stored with the
+            document.
+        :param unique: Whether the value of this field is unique per-document.
+        """
+        
         self.type = type
         self.stored = stored
         self.unique = unique
@@ -245,6 +267,16 @@ class NUMERIC(FieldType):
     
 
 class DATETIME(FieldType):
+    """Special field type that lets you index datetime objects. The field
+    converts the datetime objects to sortable text for you before indexing.
+    
+    >>> schema = Schema(path=STORED, date=DATETIME)
+    >>> ix = storage.create_index(schema)
+    >>> w = ix.writer()
+    >>> w.add_document(path="/a", date=datetime.now())
+    >>> w.commit()
+    """
+    
     __inittypes__ = dict(stored=bool, unique=bool)
     
     def __init__(self, stored=False, unique=False):
@@ -281,6 +313,16 @@ class DATETIME(FieldType):
     
 
 class BOOLEAN(FieldType):
+    """Special field type that lets you index boolean values (True and False).
+    The field converts the boolean values to text for you before indexing.
+    
+    >>> schema = Schema(path=STORED, done=BOOLEAN)
+    >>> ix = storage.create_index(schema)
+    >>> w = ix.writer()
+    >>> w.add_document(path="/a", done=False)
+    >>> w.commit()
+    """
+    
     strings = (u"t", u"f")
     trues = frozenset((u"t", u"true", u"yes", u"1"))
     falses = frozenset((u"f", u"false", u"no", u"0"))
@@ -288,6 +330,11 @@ class BOOLEAN(FieldType):
     __inittypes__ = dict(stored=bool)
     
     def __init__(self, stored=False):
+        """
+        :param stored: Whether the value of this field is stored with the
+            document.
+        """
+        
         self.stored = stored
         self.format = Existence(None)
     

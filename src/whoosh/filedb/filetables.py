@@ -22,7 +22,7 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 from sys import byteorder
 from array import array
 from collections import defaultdict
-from marshal import loads, dumps
+from cPickle import loads, dumps
 from struct import Struct
 
 from whoosh.filedb.misc import enpickle, depickle
@@ -532,9 +532,9 @@ class StoredFieldWriter(object):
         self.dbfile.write_long(0)
         self.dbfile.write_uint(0)
         
-    def append(self, valuelist):
+    def append(self, values):
         f = self.dbfile
-        v = dumps(valuelist)
+        v = dumps(values)
         self.length += 1
         self.directory += pack_stored_pointer(f.tell(), len(v))
         f.write(v)
