@@ -284,6 +284,10 @@ class FileIndex(Index):
     
     def _current_schema(self):
         return self._read_toc().schema
+    
+    @property
+    def schema(self):
+        return self._current_schema()
 
 
 # SegmentSet object

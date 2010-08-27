@@ -324,6 +324,9 @@ class MultiReader(IndexReader):
 
     def __init__(self, readers, generation=-1):
         self.readers = readers
+        self.schema = None
+        if readers:
+            self.schema = readers[0].schema
         self._generation = generation
         
         self.doc_offsets = []

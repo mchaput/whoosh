@@ -1215,7 +1215,8 @@ class AndMaybe(CompoundQuery):
         self.boost = boost
 
     def copy(self):
-        return self.__class__(*self.subqueries, boost=self.boost)
+        return self.__class__(self.subqueries[0], self.subqueries[1],
+                              boost=self.boost)
 
     def normalize(self):
         required, optional = (q.normalize() for q in self.subqueries)

@@ -42,7 +42,7 @@ class TestSpans(unittest.TestCase):
                 id = m.id()
                 sps = m.spans()
                 ids.add(id)
-                original = s.stored_fields(id)["text"]
+                original = list(s.stored_fields(id)["text"])
                 self.assertTrue(word in original, "%r not in %r" % (word, original))
                 
                 if word != "bravo":
@@ -157,7 +157,7 @@ class TestSpans(unittest.TestCase):
         q = spans.SpanNot(nq, bq)
         m = q.matcher(s)
         while m.is_active():
-            orig = s.stored_fields(m.id())["text"]
+            orig = list(s.stored_fields(m.id())["text"])
             i1 = orig.index("alfa")
             i2 = orig.index("charlie")
             dist = i2 - i1
@@ -207,7 +207,7 @@ class TestSpans(unittest.TestCase):
         bq = spans.SpanBefore(Term("text", "alfa"), Term("text", "charlie"))
         m = bq.matcher(s)
         while m.is_active():
-            orig = s.stored_fields(m.id())["text"]
+            orig = list(s.stored_fields(m.id())["text"])
             self.assertTrue("alfa" in orig)
             self.assertTrue("charlie" in orig)
             self.assertTrue(orig.index("alfa") < orig.index("charlie"))

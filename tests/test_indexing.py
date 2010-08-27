@@ -53,6 +53,11 @@ class TestIndexing(unittest.TestCase):
         w.commit()
     
     def test_multipool(self):
+        try:
+            import multiprocessing
+        except ImportError:
+            return
+        
         domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot", u"golf",
                   u"hotel", u"india", u"juliet", u"kilo", u"lima", u"mike", u"november")
         

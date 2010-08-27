@@ -65,6 +65,10 @@ class Searcher(object):
         self._idf_cache = {}
         self._sorter_cache = {}
 
+    @property
+    def schema(self):
+        return self.ixreader.schema
+
     def last_modified(self):
         return self.ix.last_modified()
 

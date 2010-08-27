@@ -69,8 +69,8 @@ utf8decode = codecs.getdecoder("utf_8")
 # Functions
 
 
-def make_binary_tree(cls, args, **kwargs):
-    """Takes a class that takes two positional arguments and a list of
+def make_binary_tree(fn, args, **kwargs):
+    """Takes a function/class that takes two positional arguments and a list of
     arguments and returns a binary tree of instances.
     
     >>> make_binary_tree(UnionMatcher, [matcher1, matcher2, matcher3])
@@ -87,8 +87,8 @@ def make_binary_tree(cls, args, **kwargs):
         return args[0]
     
     half = count // 2
-    return cls(make_binary_tree(cls, args[:half], **kwargs),
-               make_binary_tree(cls, args[half:], **kwargs), **kwargs)
+    return fn(make_binary_tree(fn, args[:half], **kwargs),
+              make_binary_tree(fn, args[half:], **kwargs), **kwargs)
 
 
 # Varint cache
