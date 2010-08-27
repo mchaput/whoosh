@@ -1142,7 +1142,8 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     
 
 class PhraseMatcher(WrappingMatcher):
-    """Base class for phrase matchers.
+    """Matches postings where a list of sub-matchers occur next to each other
+    in order.
     """
     
     def __init__(self, wordmatchers, slop=1, boost=1.0):
@@ -1150,6 +1151,7 @@ class PhraseMatcher(WrappingMatcher):
         self.child = make_binary_tree(IntersectionMatcher, wordmatchers)
         self.slop = slop
         self.boost = boost
+        self._spans = None
         self._find_next()
     
     def replace(self):
@@ -1167,6 +1169,13 @@ class PhraseMatcher(WrappingMatcher):
         rn = self._find_next()
         return rs or rn
     
+    def positions(self):
+        if not self.is_active():
+            raise ReadTooFar
+        if not self.wordmatchers:
+            return []
+        return self.wordmatchers[0].positions()
+    
     def _find_next(self):
         isect = self.child
         slop = self.slop
@@ -1178,6 +1187,8 @@ class PhraseMatcher(WrappingMatcher):
             # [[list of positions for word 1],
             #  [list of positions for word 2], ...]
             poses = [m.positions() for m in self.wordmatchers]
+            
+            _
             
             # Set the "active" position list to the list of positions of the
             # first word. We well then iteratively update this list with the
