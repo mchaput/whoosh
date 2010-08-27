@@ -332,13 +332,17 @@ class TestSearching(unittest.TestCase):
         m = q.matcher(searcher)
         self.assertEqual(m.__class__.__name__, "PhraseMatcher")
         
-        self.assertEqual(names(searcher.search(q)), ["A"])
+        r = searcher.search(q)
+        self.assertEqual(names(r), ["A"])
+        self.assertEqual(len(r), 1)
         
         q = Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
         self.assertEqual(names(searcher.search(q)), ["A", "D"])
         
         q = Phrase("value", [u"falunk", u"gibberish"])
-        self.assertEqual(names(searcher.search(q)), [])
+        r = searcher.search(q)
+        self.assertEqual(names(r), [])
+        self.assertEqual(len(r), 0)
         
         q = Phrase("value", [u"gibberish", u"falunk"], slop=2)
         self.assertEqual(names(searcher.search(q)), ["D"])

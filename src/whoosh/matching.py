@@ -477,6 +477,9 @@ class MultiMatcher(Matcher):
     def value(self):
         return self.matchers[self.current].value()
     
+    def value_as(self, astype):
+        return self.matchers[self.current].value_as(astype)
+    
     def next(self):
         if not self.is_active(): raise ReadTooFar
         
@@ -1154,10 +1157,21 @@ class PhraseMatcher(WrappingMatcher):
         self._spans = None
         self._find_next()
     
+    def copy(self):
+        return self.__class__(self.wordmatchers[:], slop=self.slop, boost=self.boost)
+    
     def replace(self):
         if not self.is_active():
             return NullMatcher()
         return self
+    
+    def all_ids(self):
+        # Need to redefine this because the WrappingMatcher parent class
+        # forwards to the submatcher, which in this case is just the
+        # IntersectionMatcher.
+        while self.is_active():
+            yield self.id()
+            self.next()
     
     def next(self):
         ri = self.child.next()
@@ -1168,6 +1182,14 @@ class PhraseMatcher(WrappingMatcher):
         rs = self.child.skip_to(id)
         rn = self._find_next()
         return rs or rn
+    
+    def skip_to_quality(self, minquality):
+        skipped = 0
+        while self.is_active() and self.quality() <= minquality:
+            # TODO: doesn't count the documents matching the phrase yet
+            skipped += self.child.skip_to_quality(minquality/self.boost)
+            self._find_next()
+        return skipped
     
     def positions(self):
         if not self.is_active():
@@ -1187,8 +1209,6 @@ class PhraseMatcher(WrappingMatcher):
             # [[list of positions for word 1],
             #  [list of positions for word 2], ...]
             poses = [m.positions() for m in self.wordmatchers]
-            
-            _
             
             # Set the "active" position list to the list of positions of the
             # first word. We well then iteratively update this list with the

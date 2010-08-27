@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime
 
-from whoosh import fields, index, qparser
+from whoosh import fields, qparser, query
 from whoosh.filedb.filestore import RamStorage
 
 
@@ -110,7 +110,9 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(len(r), 27)
         
         q = qp.parse(u"date:[2010-05 TO 2010-08]")
-        print q
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, u"201005")
+        self.assertEqual(q.end, u"201008")
     
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),
