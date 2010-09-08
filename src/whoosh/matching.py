@@ -428,6 +428,12 @@ class MultiMatcher(Matcher):
     """
     
     def __init__(self, matchers, idoffsets, current=0):
+        """
+        :param matchers: a list of Matcher objects.
+        :param idoffsets: a list of offsets corresponding to items in the
+            ``matchers`` list.
+        """
+        
         self.matchers = matchers
         self.offsets = idoffsets
         self.current = current
@@ -502,7 +508,7 @@ class MultiMatcher(Matcher):
             if mr.is_active():
                 break
             
-            self.current += 1
+            self._next_matcher()
             
         return r
     
