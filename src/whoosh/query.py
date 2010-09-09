@@ -654,7 +654,7 @@ class Not(Query):
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
         child = self.query.matcher(searcher)
-        return InverseMatcher(child, searcher.doccount,
+        return InverseMatcher(child, searcher.doc_count_all(),
                               missing=reader.is_deleted)
 
 

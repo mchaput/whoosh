@@ -275,7 +275,7 @@ class TestMatchers(unittest.TestCase):
         testlimits = (2, 5)
         
         searcher = ix.searcher()
-        for i in xrange(searcher.doccount):
+        for i in xrange(searcher.doc_count_all()):
             self.assertNotEqual(searcher.stored_fields(i).get("key"), None)
         
         for _ in xrange(testcount):
