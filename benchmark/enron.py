@@ -161,7 +161,7 @@ if __name__=="__main__":
                       default="index")
     parser.add_option("-m", "--mb", dest="limitmb",
                       help="Memory size, in MB",
-                      default="256")
+                      default="128")
     parser.add_option("-c", "--chunk", dest="chunk",
                       help="Report indexing progress in chunks of this many documents.",
                       default="1000")
@@ -178,6 +178,9 @@ if __name__=="__main__":
                       help="Maximum number of results to display for a search.",
                       default="10")
     parser.add_option("-P", "--pool", dest="pool", action="store_true", default=False)
+    parser.add_option("-t", "--tempdir", dest="tempdir",
+                      help="Directory to use for temp file storage",
+                      default=None)
     options, args = parser.parse_args()
     
     
@@ -194,16 +197,22 @@ if __name__=="__main__":
             cache_messages(archive, cache)
         else:
             print "Cache is OK"
-            
+    
+    procs = int(options.procs)
     if options.index:
         poolclass = None
         if options.pool:
-            from whoosh.filedb.pools2 import AltPool
-            poolclass = AltPool
+            from whoosh.filedb.pools2 import TempfilePool, MultiPool
+            print "procs=", options.procs
+            if options.procs > 1:
+                poolclass = MultiPool
+            else:
+                poolclass = TempfilePool
+            print "Poolclass=", poolclass
         do_index(cache, options.indexname, chunk=int(options.chunk),
                  skip=int(options.skip), upto=int(options.upto),
                  procs=int(options.procs), limitmb=int(options.limitmb),
-                 poolclass=poolclass)
+                 poolclass=poolclass, dir=options.tempdir)
     
     if args:
         qs = args[0].decode("utf8")

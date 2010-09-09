@@ -14,12 +14,12 @@
 # limitations under the License.
 #===============================================================================
 
-import shutil, tempfile
+import os
 from multiprocessing import Process, Queue
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.filedb.filewriting import SegmentWriter
-from whoosh.filedb.pools import (dividemerge, PoolBase, read_run, TempfilePool,
+from whoosh.filedb.pools import (imerge, PoolBase, read_run, TempfilePool,
                                  write_postings)
 from whoosh.filedb.structfile import StructFile
 from whoosh.writing import IndexWriter
@@ -107,45 +107,43 @@ class MultiSegmentWriter(IndexWriter):
 # Multiprocessing pool
 
 class PoolWritingTask(Process):
-        def __init__(self, schema, dir, postingqueue, resultqueue, limitmb):
-            Process.__init__(self)
-            self.schema = schema
-            self.dir = dir
-            self.postingqueue = postingqueue
-            self.resultqueue = resultqueue
-            self.limitmb = limitmb
+    def __init__(self, schema, dir, postingqueue, resultqueue, limitmb):
+        Process.__init__(self)
+        self.schema = schema
+        self.dir = dir
+        self.postingqueue = postingqueue
+        self.resultqueue = resultqueue
+        self.limitmb = limitmb
+        
+    def run(self):
+        pqueue = self.postingqueue
+        rqueue = self.resultqueue
+        
+        subpool = TempfilePool(self.schema, limitmb=self.limitmb, dir=self.dir)
+        
+        while True:
+            code, args = pqueue.get()
             
-        def run(self):
-            pqueue = self.postingqueue
-            rqueue = self.resultqueue
-            
-            subpool = TempfilePool(self.schema, limitmb=self.limitmb, dir=self.dir,
-                                   basename=self.name)
-            
-            while True:
-                code, args = pqueue.get()
-                
-                if code == -1:
-                    doccount = args
-                    break
-                if code == 0:
-                    subpool.add_content(*args)
-                elif code == 1:
-                    subpool.add_posting(*args)
-                elif code == 2:
-                    subpool.add_field_length(*args)
-            
-            lenfilename = subpool._filename(self.name + "_lengths")
-            subpool._write_lengths(StructFile(open(lenfilename, "wb")), doccount)
-            subpool.dump_run()
-            rqueue.put((subpool.runs, subpool.fieldlength_totals(),
-                        subpool.fieldlength_maxes(), lenfilename))
+            if code == -1:
+                doccount = args
+                break
+            if code == 0:
+                subpool.add_content(*args)
+            elif code == 1:
+                subpool.add_posting(*args)
+            elif code == 2:
+                subpool.add_field_length(*args)
+        
+        lenfilename = subpool.unique_name(".lengths")
+        subpool._write_lengths(StructFile(open(lenfilename, "wb")), doccount)
+        subpool.dump_run()
+        rqueue.put((subpool.runs, subpool.fieldlength_totals(),
+                    subpool.fieldlength_maxes(), lenfilename))
 
 
 class MultiPool(PoolBase):
-    def __init__(self, schema, procs=2, limitmb=32, **kw):
-        dir = tempfile.mkdtemp(".whoosh")
-        PoolBase.__init__(self, schema, dir)
+    def __init__(self, schema, dir=None, procs=2, limitmb=32, **kw):
+        PoolBase.__init__(self, schema, dir=dir)
         
         self.procs = procs
         self.limitmb = limitmb
@@ -174,7 +172,7 @@ class MultiPool(PoolBase):
         self.cleanup()
     
     def cleanup(self):
-        shutil.rmtree(self.dir)
+        pass
     
     def finish(self, doccount, lengthfile, termtable, postingwriter):
         _fieldlength_totals = self._fieldlength_totals
@@ -214,15 +212,17 @@ class MultiPool(PoolBase):
         for lenfilename in lenfilenames:
             sublengths = LengthReader(StructFile(open(lenfilename, "rb")), doccount)
             lw.add_all(sublengths)
+            os.remove(lenfilename)
         lw.close()
         lengths = lw.reader()
         #print "Lengths:", now() - t
         
         t = now()
-        iterator = dividemerge([read_run(runname, count)
-                                for runname, count in runs])
+        iterator = imerge([read_run(runname, count) for runname, count in runs])
         total = sum(count for runname, count in runs)
         write_postings(self.schema, termtable, lengths, postingwriter, iterator)
+        for runname, count in runs:
+            os.remove(runname)
         #print "Merge:", now() - t
         
         self.cleanup()

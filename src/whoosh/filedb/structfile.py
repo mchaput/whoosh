@@ -18,10 +18,7 @@ import mmap, os, sys
 from array import array
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
-from marshal import dump as dump_marshal
-from marshal import dumps as dumps_marshal
-from marshal import load as load_marshal
-from struct import calcsize, Struct, pack, unpack
+from struct import calcsize
 
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_sbyte, pack_ushort, pack_int, pack_uint,
@@ -34,8 +31,6 @@ from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 IS_LITTLE = sys.byteorder == "little"
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")
 _ORDERMAP = {"little": "<", "big": ">"}
-
-# Struct functions
 
 _types = (("sbyte", "b"), ("ushort", "H"), ("int", "i"),
           ("long", "q"), ("float", "f"))
