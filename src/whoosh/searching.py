@@ -47,7 +47,8 @@ class Searcher(object):
 
         self.ix = ix
         self.ixreader = ix.reader()
-        self.doccount = self.ixreader.doc_count_all()
+        self.schema = self.ixreader.schema
+        self._doccount = self.ixreader.doc_count_all()
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
@@ -65,9 +66,18 @@ class Searcher(object):
         self._idf_cache = {}
         self._sorter_cache = {}
 
-    @property
-    def schema(self):
-        return self.ixreader.schema
+    def doc_count(self):
+        """Returns the number of UNDELETED documents in the index.
+        """
+        
+        return self.ixreader.doc_count()
+
+    def doc_count_all(self):
+        """Returns the total number of documents, DELETED OR UNDELETED, in
+        the index.
+        """
+        
+        return self._doccount
 
     def last_modified(self):
         return self.ix.last_modified()
@@ -97,7 +107,7 @@ class Searcher(object):
     def avg_field_length(self, fieldname, default=None):
         if not self.ixreader.scorable(fieldname):
             return default
-        return self.ixreader.field_length(fieldname) / (self.doccount or 1)
+        return self.ixreader.field_length(fieldname) / (self._doccount or 1)
 
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
@@ -110,7 +120,7 @@ class Searcher(object):
         matcher from the searcher's weighting object.
         """
         
-        if self.doccount:
+        if self._doccount:
             sfn = self.weighting.score_fn(self, fieldname, text)
             qfn = self.weighting.quality_fn(self, fieldname, text)
             bqfn = self.weighting.block_quality_fn(self, fieldname, text)
@@ -482,7 +492,6 @@ class Results(object):
         """
 
         self.searcher = searcher
-        self.doccount = self.searcher.doccount
         self.query = query
         self._docs = docs
         if scores:
@@ -972,7 +981,7 @@ class Facets(object):
         :param searcher: a :class:`Searcher` object.
         """
         
-        facetmap = array("i", [-1] * searcher.doccount)
+        facetmap = array("i", [-1] * searcher.doc_count_all())
         for i, (name, q) in enumerate(self.queries):
             for docnum in q.docs(searcher):
                 facetmap[docnum] = i

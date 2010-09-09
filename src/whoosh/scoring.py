@@ -46,7 +46,7 @@ class Weighting(object):
         if term in cache: return cache[term]
 
         n = searcher.ixreader.doc_frequency(fieldname, text)
-        idf = log((searcher.doccount) / (n+1)) + 1
+        idf = log((searcher.doc_count_all()) / (n+1)) + 1
         
         cache[term] = idf
         return idf
