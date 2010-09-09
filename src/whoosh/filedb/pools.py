@@ -15,7 +15,7 @@
 # limitations under the License.
 #===============================================================================
 
-import os, shutil, tempfile
+import base64, os, random, tempfile
 from array import array
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
@@ -23,6 +23,11 @@ from marshal import load, dump
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte, now
+
+
+def unique_name():
+    return base64.urlsafe_b64encode("".join(chr(random.randint(0, 255))
+                                            for _ in xrange(18)))
 
 
 def imerge(iterators):
@@ -60,67 +65,6 @@ def imerge(iterators):
         for item in gen:
             yield item
 
-
-def bimerge(iter1, iter2):
-    """Merge-sorts items from two iterators.
-    """
-    
-    # Get the first item from iter1
-    try:
-        p1 = iter1.next()
-    except StopIteration:
-        # iter1 is empty, so shortcut to simply yield all items from iter2
-        for p2 in iter2:
-            yield p2
-        return
-    
-    # Get the first item from iter2
-    try:
-        p2 = iter2.next()
-    except StopIteration:
-        # iter2 is empty, so shortcut to simply yield all items from iter1
-        yield p1
-        for p1 in iter1:
-            yield p1
-        return
-    
-    while True:
-        # Yield the lower item and refill from its iterator. If one of the
-        # iterators becomes empty, shortcut to simply yield all items from
-        # the other iterator.
-        if p1 < p2:
-            yield p1
-            try:
-                p1 = iter1.next()
-            except StopIteration:
-                yield p2
-                for p2 in iter2:
-                    yield p2
-                return
-        else:
-            yield p2
-            try:
-                p2 = iter2.next()
-            except StopIteration:
-                yield p1
-                for p1 in iter1:
-                    yield p1
-                return
-
-
-def dividemerge(iters):
-    """Divides a list of iterators into bimerge calls.
-    """
-    
-    length = len(iters)
-    if length == 0:
-        return []
-    if length == 1:
-        return iters[0]
-    
-    mid = length // 2
-    return bimerge(dividemerge(iters[:mid]), dividemerge(iters[mid:]))
-    
 
 def read_run(filename, count):
     f = open(filename, "rb")
@@ -186,16 +130,22 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
 
 
 class PoolBase(object):
-    def __init__(self, schema, dir):
+    def __init__(self, schema, dir=None, basename=''):
         self.schema = schema
+        if dir is None:
+            dir = tempfile.mkdtemp(".whoosh")
+        self.dir = dir
+        self.basename = basename
         
         self.length_arrays = {}
-        self.dir = dir
         self._fieldlength_totals = defaultdict(int)
         self._fieldlength_maxes = {}
     
     def _filename(self, name):
-        return os.path.join(self.dir, name)
+        return os.path.abspath(os.path.join(self.dir, self.basename + name))
+    
+    def unique_name(self, ext=""):
+        return self._filename(unique_name() + ext)
     
     def cancel(self):
         pass
@@ -253,9 +203,7 @@ class PoolBase(object):
 
 class TempfilePool(PoolBase):
     def __init__(self, schema, limitmb=32, dir=None, basename='', **kw):
-        if dir is None:
-            dir = tempfile.mkdtemp("whoosh")
-        super(TempfilePool, self).__init__(schema, dir)
+        super(TempfilePool, self).__init__(schema, dir=dir, basename=basename)
         
         self.limit = limitmb * 1024 * 1024
         
@@ -264,14 +212,12 @@ class TempfilePool(PoolBase):
         self.postings = []
         self.runs = []
         
-        self.basename = basename
-        
     def add_posting(self, fieldname, text, docnum, weight, valuestring):
         if self.size >= self.limit:
             #print "Flushing..."
             self.dump_run()
 
-        self.size += len(text) + 18
+        self.size += len(fieldname) + len(text) + 18
         if valuestring: self.size += len(valuestring)
         
         self.postings.append((fieldname, text, docnum, weight, valuestring))
@@ -279,17 +225,20 @@ class TempfilePool(PoolBase):
     
     def dump_run(self):
         if self.size > 0:
-            tempname = self._filename(self.basename + str(now()) + ".run")
-            runfile = open(tempname, "w+b")
+            #print "Dumping run..."
+            #t = now()
+            filename = self.unique_name(".run")
+            runfile = open(filename, "w+b")
             self.postings.sort()
             for p in self.postings:
                 dump(p, runfile)
             runfile.close()
-
-            self.runs.append((tempname, self.count))
+            
+            self.runs.append((filename, self.count))
             self.postings = []
             self.size = 0
             self.count = 0
+            #print "Dumping run took", now() - t, "seconds"
     
     def run_filenames(self):
         return [filename for filename, _ in self.runs]
@@ -298,8 +247,12 @@ class TempfilePool(PoolBase):
         self.cleanup()
     
     def cleanup(self):
-        if os.path.exists(self.dir):
-            shutil.rmtree(self.dir)
+        for filename in self.run_filenames():
+            if os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except IOError:
+                    pass
     
     def finish(self, doccount, lengthfile, termtable, postingwriter):
         self._write_lengths(lengthfile, doccount)
