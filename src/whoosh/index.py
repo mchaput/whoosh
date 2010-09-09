@@ -276,12 +276,21 @@ class Index(object):
         in this index.
         """
         
-        return self.doc_count()
+        r = self.reader()
+        try:
+            return r.doc_count_all()
+        finally:
+            r.close()
     
     def doc_count(self):
         """Returns the total number of UNDELETED documents in this index.
         """
-        raise NotImplementedError
+        
+        r = self.reader()
+        try:
+            return r.doc_count()
+        finally:
+            r.close()
     
     def searcher(self, **kwargs):
         """Returns a Searcher object for this index. Keyword arguments are

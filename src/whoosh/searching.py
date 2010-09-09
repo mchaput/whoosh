@@ -549,6 +549,22 @@ class Results(object):
     def _load_docs(self):
         self._docs = set(self.query.docs(self.searcher))
 
+    def scored_length(self):
+        """Returns the number of scored documents in the results, equal to or
+        less than the ``limit`` keyword argument to the search.
+        
+        >>> r = mysearcher.search(myquery, limit=20)
+        >>> len(r)
+        1246
+        >>> r.scored_length()
+        20
+        
+        This may be fewer than the total number of documents that match the
+        query, which is what ``Results.__len__()`` returns.
+        """
+        
+        return len(self.top_n)
+
     def docs(self):
         """Returns a set-like object containing the document numbers that
         matched the query.
