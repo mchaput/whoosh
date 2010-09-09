@@ -71,7 +71,8 @@ def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
         if filename.startswith(prefix):
             storage.delete_file(filename)
     
-    _write_toc(storage, schema, indexname, 0, 0, SegmentSet())
+    # Write a TOC file with an empty list of segments
+    _write_toc(storage, schema, indexname, 0, 0, [])
 
 
 def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
@@ -245,26 +246,8 @@ class FileIndex(Index):
         w = self.writer()
         w.commit(optimize=True)
 
-    def doc_count_all(self):
-        return self._segments().doc_count_all()
-
-    def doc_count(self):
-        return self._segments().doc_count()
-
-    def field_length(self, fieldname):
-        return self._segments().field_length(fieldname)
-
     # searcher
     
-    def reader(self):
-        lock = self.lock("READLOCK")
-        lock.acquire(True)
-        try:
-            info = self._read_toc()
-            return info.segments.reader(self.storage, info.schema, info.generation)
-        finally:
-            lock.release()
-
     def writer(self, **kwargs):
         from whoosh.filedb.filewriting import SegmentWriter
         return SegmentWriter(self, **kwargs)
@@ -289,141 +272,23 @@ class FileIndex(Index):
     def schema(self):
         return self._current_schema()
 
-
-# SegmentSet object
-
-class SegmentSet(object):
-    """This class is never instantiated by the user. It is used by the Index
-    object to keep track of the segments in the index.
-    """
-
-    def __init__(self, segments=None):
-        if segments is None:
-            self.segments = []
-        else:
-            self.segments = segments
-
-        self._doc_offsets = self.doc_offsets()
-
-    def __repr__(self):
-        return repr(self.segments)
-
-    def __len__(self):
-        """
-        :returns: the number of segments in this set.
-        """
-        return len(self.segments)
-
-    def __iter__(self):
-        return iter(self.segments)
-
-    def __getitem__(self, n):
-        return self.segments.__getitem__(n)
-
-    def append(self, segment):
-        """Adds a segment to this set."""
-
-        self.segments.append(segment)
-        self._doc_offsets = self.doc_offsets()
-
-    def _document_segment(self, docnum):
-        """Returns the index.Segment object containing the given document
-        number.
-        """
-
-        offsets = self._doc_offsets
-        if len(offsets) == 1: return 0
-        return bisect_right(offsets, docnum) - 1
-
-    def _segment_and_docnum(self, docnum):
-        """Returns an (index.Segment, segment_docnum) pair for the segment
-        containing the given document number.
-        """
-
-        segmentnum = self._document_segment(docnum)
-        offset = self._doc_offsets[segmentnum]
-        segment = self.segments[segmentnum]
-        return segment, docnum - offset
-
-    def copy(self):
-        """:returns: a deep copy of this set."""
-        return self.__class__([s.copy() for s in self.segments])
-
-    def filenames(self):
-        nameset = set()
-        for segment in self.segments:
-            nameset |= segment.filenames()
-        return nameset
-
-    def doc_offsets(self):
-        # Recomputes the document offset list. This must be called if you
-        # change self.segments.
-        offsets = []
-        base = 0
-        for s in self.segments:
-            offsets.append(base)
-            base += s.doc_count_all()
-        return offsets
-
-    def doc_count_all(self):
-        """
-        :returns: the total number of documents, DELETED or UNDELETED, in this
-            set.
-        """
-        return sum(s.doc_count_all() for s in self.segments)
-
-    def doc_count(self):
-        """
-        :returns: the number of undeleted documents in this set.
-        """
-        return sum(s.doc_count() for s in self.segments)
-
-    def field_length(self, fieldname):
-        return sum(s.field_length(fieldname) for s in self.segments)
-
-    def has_deletions(self):
-        """
-        :returns: True if this index has documents that are marked deleted but
-            haven't been optimized out of the index yet.
-        """
-        
-        return any(s.has_deletions() for s in self.segments)
-
-    def delete_document(self, docnum, delete=True):
-        """Deletes a document by number.
-        """
-
-        segment, segdocnum = self._segment_and_docnum(docnum)
-        segment.delete_document(segdocnum, delete=delete)
-
-    def deleted_count(self):
-        """
-        :returns: the total number of deleted documents in this index.
-        """
-        return sum(s.deleted_count() for s in self.segments)
-
-    def is_deleted(self, docnum):
-        """
-        :returns: True if a given document number is deleted but not yet
-            optimized out of the index.
-        """
-
-        segment, segdocnum = self._segment_and_docnum(docnum)
-        return segment.is_deleted(segdocnum)
-
-    def reader(self, storage, schema, generation):
-        from whoosh.filedb.filereading import SegmentReader
-        
-        segments = self.segments
-        if len(segments) == 1:
-            r = SegmentReader(storage, schema, segments[0], generation)
-        else:
-            from whoosh.reading import MultiReader
-            readers = [SegmentReader(storage, schema, segment, -2)
-                       for segment in segments]
-            r = MultiReader(readers, generation)
+    def reader(self):
+        lock = self.lock("READLOCK")
+        lock.acquire(True)
+        try:
+            info = self._read_toc()
             
-        return r
+            from whoosh.filedb.filereading import SegmentReader
+            if len(info.segments) == 1:
+                return SegmentReader(self.storage, info.schema,
+                                     info.segments[0], info.generation)
+            else:
+                from whoosh.reading import MultiReader
+                readers = [SegmentReader(self.storage, info.schema, segment, -2)
+                           for segment in info.segments]
+                return MultiReader(readers, info.generation)
+        finally:
+            lock.release()
 
 
 class Segment(object):

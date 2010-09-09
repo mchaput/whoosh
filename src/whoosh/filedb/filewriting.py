@@ -14,10 +14,11 @@
 # limitations under the License.
 #===============================================================================
 
+from bisect import bisect_right
 from collections import defaultdict
 
 from whoosh.fields import UnknownFieldError
-from whoosh.filedb.fileindex import Segment, SegmentSet
+from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (StoredFieldWriter, CodedOrderedWriter,
                                       CodedHashWriter)
@@ -32,8 +33,8 @@ from whoosh.writing import IndexWriter
 # Merge policies
 
 # A merge policy is a callable that takes the Index object, the SegmentWriter
-# object, and the current SegmentSet (not including the segment being written),
-# and returns an updated SegmentSet (not including the segment being written).
+# object, and the current segment list (not including the segment being written),
+# and returns an updated segment list (not including the segment being written).
 
 def NO_MERGE(writer, segments):
     """This policy does not merge any existing segments.
@@ -47,7 +48,7 @@ def MERGE_SMALL(writer, segments):
     """
 
     from whoosh.filedb.filereading import SegmentReader
-    newsegments = SegmentSet()
+    newsegments = []
     sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
     total_docs = 0
     for i, (count, seg) in enumerate(sorted_segment_list):
@@ -71,7 +72,7 @@ def OPTIMIZE(writer, segments):
         reader = SegmentReader(writer.storage, writer.schema, seg)
         writer.add_reader(reader)
         reader.close()
-    return SegmentSet()
+    return []
 
 
 # Writer object
@@ -93,6 +94,12 @@ class SegmentWriter(IndexWriter):
         self.blocklimit = blocklimit
         self.segment_number = info.segment_counter + 1
         self.generation = info.generation + 1
+        
+        self._doc_offsets = []
+        base = 0
+        for s in self.segments:
+            self._doc_offsets.append(base)
+            base += s.doc_count_all()
         
         self.name = name or "_%s_%s" % (self.indexname, self.segment_number)
         self.docnum = 0
@@ -141,7 +148,7 @@ class SegmentWriter(IndexWriter):
             else:
                 poolclass = TempfilePool
         self.pool = poolclass(self.schema, procs=procs, **poolargs)
-        
+    
     def add_field(self, fieldname, fieldspec):
         if self._added:
             raise Exception("Can't modify schema after adding data to writer")
@@ -152,28 +159,46 @@ class SegmentWriter(IndexWriter):
             raise Exception("Can't modify schema after adding data to writer")
         super(SegmentWriter, self).remove_field(fieldname)
     
-    def delete_document(self, docnum, delete=True):
-        """Deletes a document by number.
-        """
-        self.segments.delete_document(docnum, delete=delete)
+    def _document_segment(self, docnum):
+        #Returns the index.Segment object containing the given document
+        #number.
 
-    def deleted_count(self):
-        """Returns the total number of deleted documents in this index.
-        """
-        return self.segments.deleted_count()
+        offsets = self._doc_offsets
+        if len(offsets) == 1: return 0
+        return bisect_right(offsets, docnum) - 1
 
-    def is_deleted(self, docnum):
-        """Returns True if a given document number is deleted but
-        not yet optimized out of the index.
-        """
-        return self.segments.is_deleted(docnum)
+    def _segment_and_docnum(self, docnum):
+        #Returns an (index.Segment, segment_docnum) pair for the segment
+        #containing the given document number.
+
+        segmentnum = self._document_segment(docnum)
+        offset = self._doc_offsets[segmentnum]
+        segment = self.segments[segmentnum]
+        return segment, docnum - offset
 
     def has_deletions(self):
-        """Returns True if this index has documents that are marked
-        deleted but haven't been optimized out of the index yet.
         """
-        return self.segments.has_deletions()
-    
+        :returns: True if this index has documents that are marked deleted but
+            haven't been optimized out of the index yet.
+        """
+        
+        return any(s.has_deletions() for s in self.segments)
+
+    def delete_document(self, docnum, delete=True):
+        segment, segdocnum = self._segment_and_docnum(docnum)
+        segment.delete_document(segdocnum, delete=delete)
+
+    def deleted_count(self):
+        """
+        :returns: the total number of deleted documents in the index.
+        """
+        
+        return sum(s.deleted_count() for s in self.segments)
+
+    def is_deleted(self, docnum):
+        segment, segdocnum = self._segment_and_docnum(docnum)
+        return segment.is_deleted(segdocnum)
+
     def searcher(self):
         from whoosh.filedb.fileindex import FileIndex
         return FileIndex(self.storage, indexname=self.indexname).searcher()
@@ -329,8 +354,8 @@ class SegmentWriter(IndexWriter):
             writer.commit(mergetype=my_merge_function)
         
         :param mergetype: a custom merge function taking an Index object,
-            Writer object, and SegmentSet object as arguments, and returning a
-            new SegmentSet object. If you supply a ``mergetype`` function,
+            Writer object, and segment list as arguments, and returning a
+            new segment list. If you supply a ``mergetype`` function,
             the values of the ``optimize`` and ``merge`` arguments are ignored.
         :param optimize: if True, all existing segments are merged with the
             documents you've added to this writer (and the value of the
@@ -338,51 +363,55 @@ class SegmentWriter(IndexWriter):
         :param merge: if False, do not merge small segments.
         """
         
-        if mergetype:
-            pass
-        elif optimize:
-            mergetype = OPTIMIZE
-        elif not merge:
-            mergetype = NO_MERGE
-        else:
-            mergetype = MERGE_SMALL
-        
-        # Call the merge policy function. The policy may choose to merge other
-        # segments into this writer's pool
-        new_segments = mergetype(self, self.segments)
-        
-        # Tell the pool we're finished adding information, it should add its
-        # accumulated data to the lengths, terms index, and posting files.
-        if self._added:
-            self.pool.finish(self.docnum, self.lengthfile, self.termsindex,
-                             self.postwriter)
-        
-            # Create a Segment object for the segment created by this writer and
-            # add it to the list of remaining segments returned by the merge policy
-            # function
-            new_segments.append(self._getsegment())
-        
-        # Close all files, write a new TOC with the new segment list, and
-        # release the lock.
-        self._close_all()
-        
-        from whoosh.filedb.fileindex import _write_toc, _clean_files
-        _write_toc(self.storage, self.schema, self.indexname, self.generation,
-                   self.segment_number, new_segments)
-        
-        readlock = self.ix.lock("READLOCK")
-        readlock.acquire(True)
         try:
-            _clean_files(self.storage, self.indexname, self.generation, new_segments)
-        finally:
-            readlock.release()
+            if mergetype:
+                pass
+            elif optimize:
+                mergetype = OPTIMIZE
+            elif not merge:
+                mergetype = NO_MERGE
+            else:
+                mergetype = MERGE_SMALL
+            
+            # Call the merge policy function. The policy may choose to merge other
+            # segments into this writer's pool
+            new_segments = mergetype(self, self.segments)
+            
+            # Tell the pool we're finished adding information, it should add its
+            # accumulated data to the lengths, terms index, and posting files.
+            if self._added:
+                self.pool.finish(self.docnum, self.lengthfile, self.termsindex,
+                                 self.postwriter)
+            
+                # Create a Segment object for the segment created by this writer and
+                # add it to the list of remaining segments returned by the merge policy
+                # function
+                new_segments.append(self._getsegment())
+            
+            # Close all files, write a new TOC with the new segment list, and
+            # release the lock.
+            self._close_all()
+            
+            from whoosh.filedb.fileindex import _write_toc, _clean_files
+            _write_toc(self.storage, self.schema, self.indexname, self.generation,
+                       self.segment_number, new_segments)
+            
+            readlock = self.ix.lock("READLOCK")
+            readlock.acquire(True)
+            try:
+                _clean_files(self.storage, self.indexname, self.generation, new_segments)
+            finally:
+                readlock.release()
         
-        self.writelock.release()
+        finally:
+            self.writelock.release()
         
     def cancel(self):
-        self.pool.cancel()
-        self._close_all()
-        self.writelock.release()
+        try:
+            self.pool.cancel()
+            self._close_all()
+        finally:
+            self.writelock.release()
 
 
 
