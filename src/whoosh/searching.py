@@ -868,12 +868,12 @@ class Facets(object):
     sorted into one category arbitrarily.)
     
     For the common case of using the terms in a certain field as the facets,
-    you can create a Facets object and set the facets with the ``from_field``
-    method and skip having to call ``study()``::
+    you can create a Facets object and set up the facets with the ``from_field``
+    class method and skip having to call ``study()``::
     
         # Automatically gets the values of the field, sets them up as the
         # facets, and calls study() for you
-        facets = Facets().from_field(searcher, "size")
+        facets = Facets.from_field(searcher, "size")
     
     Once you have set up the Facets object, you can use its ``categorize()``
     method to sort search results based on the facets::
@@ -940,13 +940,15 @@ class Facets(object):
         
         self.queries.append((name, q))
     
-    def from_field(self, searcher, fieldname):
-        """Sets the facets in the object based on the terms in the given field.
-        This method returns self so you can easily use it as part of the
-        object initialization like this::
+    def remove_facet(self, name):
+        self.queries = [(n, q) for n, q in self.queries if n != name]
+    
+    @classmethod
+    def from_field(cls, searcher, fieldname):
+        """Sets the facets in the object based on the terms in the given field::
         
             searcher = myindex.searcher()
-            facets = Facets().from_field(searcher, "chapter")
+            facets = Facets.from_field(searcher, "chapter")
         
         This method calls ``study()`` automatically using the given searcher.
         
@@ -954,10 +956,11 @@ class Facets(object):
         :param fieldname: the name of the field to use to create the facets.
         """
         
-        self.queries = [(token, query.Term(fieldname, token))
+        fs = cls()
+        fs.queries = [(token, query.Term(fieldname, token))
                         for token in searcher.lexicon(fieldname)]
-        self.study(searcher)
-        return self
+        fs.study(searcher)
+        return fs
     
     def facets(self):
         """Returns a list of (facetname, queryobject) pairs for the facets in
