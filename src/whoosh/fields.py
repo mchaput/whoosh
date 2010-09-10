@@ -100,7 +100,15 @@ class FieldType(object):
             self.format.clean()
         if self.vector and hasattr(self.vector, "clean"):
             self.vector.clean()
-            
+    
+    def to_text(self, value):
+        """Returns a textual representation of the value. Non-textual fields
+        (such as NUMERIC and DATETIME) will override this to encode objects
+        as text.
+        """
+        
+        return value
+    
     def index(self, value, **kwargs):
         """Returns an iterator of (termtext, frequency, weight, encoded_value)
         tuples.
@@ -290,14 +298,16 @@ class DATETIME(FieldType):
         self.unique = unique
         self.format = Existence(None)
     
-    def index(self, dt):
+    def to_text(self, dt):
         if not isinstance(dt, datetime.datetime):
-            raise ValueError("Value of DATETIME field must be a datetime object: %r" % dt)
-        
+            raise ValueError("%r is not a datetime object" % dt)
         text = dt.isoformat() # 2010-02-02T17:06:19.109000
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
+        return text
+    
+    def index(self, dt):
         # word, freq, weight, valuestring
-        return [(text, 1, 1.0, '')]
+        return [(self.to_text(dt), 1, 1.0, '')]
     
     def process_text(self, text, **kwargs):
         text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
@@ -337,6 +347,11 @@ class BOOLEAN(FieldType):
         
         self.stored = stored
         self.format = Existence(None)
+    
+    def to_text(self, bit):
+        if not isinstance(bit, bool):
+            raise ValueError("%r is not a boolean")
+        return self.strings[int(bit)]
     
     def index(self, bit):
         bit = bool(bit)

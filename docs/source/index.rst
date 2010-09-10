@@ -25,6 +25,7 @@ Contents
     querylang
     query
     analysis
+    facets
     highlight
     keywords
     spelling
