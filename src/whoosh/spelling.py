@@ -149,7 +149,7 @@ class SpellChecker(object):
         ix = self.index()
         s = ix.searcher(weighting=weighting)
         try:
-            result = s.search(q)
+            result = s.search(q, limit=None)
             return [(fs["word"], fs["score"], result.score(i))
                     for i, fs in enumerate(result)
                     if fs["word"] != text]
