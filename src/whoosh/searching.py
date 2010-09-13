@@ -300,7 +300,7 @@ class Searcher(object):
                              " or Sorter" % sortedby)
 
         t = now()
-        sorted_docs = sorter.order(self, query.docs(self), reverse=reverse)
+        sorted_docs = list(sorter.order(self, query.docs(self), reverse=reverse))
         runtime = now() - t
         
         return Results(self, query, sorted_docs, None, runtime)
@@ -351,7 +351,6 @@ class Searcher(object):
         
         :param reverse: if ``sortedby`` is not None, this reverses the
             direction of the sort.
-        :param minscore: the minimum score to include in the results.
         :param optimize: use optimizations to get faster results when possible.
         :rtype: :class:`Results`
         """

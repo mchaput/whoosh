@@ -25,10 +25,10 @@ from whoosh.util import utf8encode, utf8decode
 
 def encode_termkey(term):
     fieldname, text = term
-    return "%s %s" % (fieldname, utf8encode(text)[0])
+    return "%s %s" % (utf8encode(fieldname)[0], utf8encode(text)[0])
 def decode_termkey(key):
     fieldname, text = key.split(" ", 1)
-    return (fieldname, utf8decode(text)[0])
+    return (utf8decode(fieldname)[0], utf8decode(text)[0])
 
 _terminfo_struct = struct.Struct("!fqI") # weight, offset, postcount
 _pack_terminfo = _terminfo_struct.pack

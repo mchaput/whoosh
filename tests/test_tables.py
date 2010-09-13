@@ -1,3 +1,4 @@
+# encoding: utf8
 import unittest
 import random
 from os import mkdir
@@ -32,12 +33,19 @@ class TestTables(unittest.TestCase):
         term = ("text", u"hello there")
         self.assertEqual(term, decode_termkey(encode_termkey(term)))
         
+    def test_unicode_termkey(self):
+        term = (u"alfa", u"Ã¦Ã¯Å�Ãº")
+        self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        
+        term = (u"text", u"æ—¥æœ¬èªž")
+        self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        
     def test_random_termkeys(self):
         def random_fieldname():
             return "".join(chr(random.randint(65, 90)) for _ in xrange(1, 20))
         
         def random_token():
-            return "".join(unichr(random.randint(0, 62000)) for _ in xrange(1, 20))
+            return "".join(unichr(random.randint(0, 0xd7ff)) for _ in xrange(1, 20))
         
         for _ in xrange(1000):
             term = (random_fieldname(), random_token())
