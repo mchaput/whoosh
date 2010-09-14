@@ -21,6 +21,7 @@ from struct import Struct
 from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
+from whoosh.spans import Span
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 from whoosh.util import utf8encode, utf8decode, length_to_byte, byte_to_length
 
@@ -227,6 +228,8 @@ class FilePostingReader(Matcher):
         self.postfile = postfile
         self.startoffset = offset
         self.format = format
+        self.supports_chars = self.format.supports("characters")
+        self.supports_poses = self.format.supports("positions")
         # Bind the score and quality functions to this object as methods
         
         self._scorefns = scorefns
@@ -273,12 +276,24 @@ class FilePostingReader(Matcher):
         for id, value in self.all_items():
             yield (id, decoder(value))
 
+    def supports(self, astype):
+        return self.format.supports(astype)
+
     def value(self):
         return self.values[self.i]
 
     def value_as(self, astype):
         decoder = self.format.decoder(astype)
         return decoder(self.value())
+
+    def spans(self):
+        if self.supports_chars:
+            return [Span(pos, startchar=startchar, endchar=endchar)
+                    for pos, startchar, endchar in self.value_as("characters")]
+        elif self.supports_poses:
+            return [Span(pos) for pos in self.value_as("positions")]
+        else:
+            raise Exception("Field does not support positions (%r)" % self.fieldname)
 
     def weight(self):
         return self.weights[self.i]

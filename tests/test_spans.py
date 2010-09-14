@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import analysis, fields, spans
+from whoosh import analysis, fields, formats, query, spans
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import And, Or, Term
 from whoosh.util import permutations
@@ -14,7 +14,9 @@ class TestSpans(unittest.TestCase):
             return self._ix
         
         ana = analysis.SimpleAnalyzer()
-        schema = fields.Schema(text=fields.TEXT(analyzer=ana, stored=True))
+        charfield = fields.FieldType(format=formats.Characters(ana),
+                                     scorable=True, stored=True)
+        schema = fields.Schema(text=charfield)
         st = RamStorage()
         ix = st.create_index(schema)
         
@@ -25,7 +27,6 @@ class TestSpans(unittest.TestCase):
         
         self._ix = ix
         return ix
-        
     
     def test_span_term(self):
         ix = self.get_index()
@@ -213,8 +214,17 @@ class TestSpans(unittest.TestCase):
             self.assertTrue(orig.index("alfa") < orig.index("charlie"))
             m.next()
 
-
-
+    def test_span_characters(self):
+        ix = self.get_index()
+        s = ix.searcher()
+        pq = query.Phrase("text", ["bravo", "echo"])
+        m = pq.matcher(s)
+        while m.is_active():
+            orig = " ".join(s.stored_fields(m.id())["text"])
+            for span in m.spans():
+                startchar, endchar = span.startchar, span.endchar
+                self.assertEqual(orig[startchar:endchar], "bravo echo")
+            m.next()
 
 
 

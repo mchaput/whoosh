@@ -53,98 +53,6 @@ class NoQualityAvailable(Exception):
     """
 
 
-# Span class
-
-class Span(object):
-    __slots__ = ("start", "end")
-    
-    def __init__(self, start, end=None):
-        if end is None:
-            end = start
-        assert start <= end
-        self.start = start
-        self.end = end
-
-    def __repr__(self):
-        return "<%d-%d>" % (self.start, self.end)
-
-    def __eq__(self, span):
-        return self.start == span.start and self.end == span.end
-    
-    def __ne__(self, span):
-        return self.start != span.start or self.end != span.end
-    
-    def __lt__(self, span):
-        return self.start < span.start
-    
-    def __gt__(self, span):
-        return self.start > span.start
-    
-    def __hash__(self):
-        return hash((self.start, self.end))
-    
-    @classmethod
-    def merge(cls, spans):
-        """Merges overlapping and touches spans in the given list of spans.
-        
-        Note that this modifies the original list.
-        
-        >>> spans = [Span(1,2), Span(3)]
-        >>> Span.merge(spans)
-        >>> spans
-        [<1-3>]
-        """
-        
-        i = 0
-        while i < len(spans)-1:
-            here = spans[i]
-            j = i + 1
-            while j < len(spans):
-                there = spans[j]
-                if there.start > here.end + 1:
-                    break
-                if here.touches(there) or here.overlaps(there):
-                    here = here.to(there)
-                    spans[i] = here
-                    del spans[j]
-                else:
-                    j += 1
-            i += 1
-        return spans
-    
-    def to(self, span):
-        return self.__class__(min(self.start, span.start), max(self.end, span.end))
-    
-    def overlaps(self, span):
-        return ((self.start >= span.start and self.start <= span.end)
-                or (self.end >= span.start and self.end <= span.end)
-                or (span.start >= self.start and span.start <= self.end)
-                or (span.end >= self.start and span.end <= self.end))
-    
-    def surrounds(self, span):
-        return self.start < span.start and self.end > span.end
-    
-    def is_within(self, span):
-        return self.start >= span.start and self.end <= span.end
-    
-    def is_before(self, span):
-        return self.end < span.start
-    
-    def is_after(self, span):
-        return self.start > span.end
-    
-    def touches(self, span):
-        return self.start == span.end + 1 or self.end == span.start - 1
-    
-    def distance_to(self, span):
-        if self.overlaps(span):
-            return 0
-        elif self.is_before(span):
-            return span.start - self.end
-        elif self.is_after(span):
-            return self.start - span.end
-
-
 # Matchers
 
 class Matcher(object):
@@ -263,18 +171,27 @@ class Matcher(object):
         
         raise NotImplementedError
     
+    def supports(self, astype):
+        """Returns True if the field's format supports the named data type,
+        for example 'frequency' or 'characters'.
+        """
+        
+        raise NotImplementedError("supports not implemented in %s" % self.__class__)
+    
     def value_as(self, astype):
         """Returns the value(s) of the current posting as the given type.
         """
         
         raise NotImplementedError("value_as not implemented in %s" % self.__class__)
     
-    def positions(self):
-        return self.value_as("positions")
-    
     def spans(self):
-        return [Span(pos) for pos in self.positions()]
-    
+        """Returns a list of :class:`whoosh.spans.Span` objects for the matches
+        in this document. Raises an exception if the field being searched does
+        not store positions.
+        """
+        
+        raise NotImplementedError("spans not implemented in %s" % self.__class__)
+        
     def skip_to(self, id):
         """Moves this matcher to the first posting with an ID equal to or
         greater than the given ID.
@@ -389,14 +306,14 @@ class WrappingMatcher(Matcher):
     def is_active(self):
         return self.child.is_active()
     
+    def supports(self, astype):
+        return self.child.supports(astype)
+    
     def value(self):
         return self.child.value()
     
     def value_as(self, astype):
         return self.child.value_as(astype)
-    
-    def positions(self):
-        return self.child.positions()
     
     def skip_to(self, id):
         return self.child.skip_to(id)
@@ -479,6 +396,9 @@ class MultiMatcher(Matcher):
         for i, mr in enumerate(self.matchers):
             for id in mr.all_ids():
                 yield id + offsets[i]
+    
+    def supports(self, astype):
+        return self.matchers[self.current].supports(astype)
     
     def value(self):
         return self.matchers[self.current].value()
@@ -599,7 +519,10 @@ class BiMatcher(Matcher):
         
     def supports_quality(self):
         return self.a.supports_quality() and self.b.supports_quality()
-
+    
+    def supports(self, astype):
+        return self.a.supports(astype) and self.b.supports(astype)
+    
 
 class AdditiveBiMatcher(BiMatcher):
     """Base class for binary matchers where the scores of the sub-matchers are
@@ -687,18 +610,19 @@ class UnionMatcher(AdditiveBiMatcher):
         if b_id <= a_id: br = b.next()
         return ar or br
     
-    def positions(self):
-        if not self.a.is_active(): return self.b.positions()
-        if not self.b.is_active(): return self.a.positions()
-        
+    def spans(self):
+        # Returns the branch that currently matches, or None if both branches
+        # currently match
+        if not self.a.is_active(): return self.b.spans()
+        if not self.b.is_active(): return self.a.spans()
         id_a = self.a.id()
         id_b = self.b.id()
         if id_a < id_b:
-            return self.a.positions()
+            return self.a.spans()
         elif id_b < id_a:
-            return self.b.positions()
+            return self.b.spans()
         else:
-            return sorted(set(self.a.positions())  | set(self.b.positions()))
+            return sorted(set(self.a.spans()) | set(self.b.spans()))
     
     def score(self):
         a = self.a
@@ -886,10 +810,10 @@ class IntersectionMatcher(AdditiveBiMatcher):
         if self.is_active():
             nr = self._find_next()
             return ar or nr
-        
-    def positions(self):
-        return sorted(set(self.a.positions())  | set(self.b.positions()))
-
+    
+    def spans(self):
+        return sorted(set(self.a.spans() | set(self.b.spans())))
+    
 
 class AndNotMatcher(BiMatcher):
     """Matches the postings in the first sub-matcher that are NOT present in
@@ -968,7 +892,16 @@ class AndNotMatcher(BiMatcher):
     
     def score(self):
         return self.a.score()
-
+    
+    def supports(self, astype):
+        return self.a.supports(astype)
+    
+    def value(self):
+        return self.a.value()
+    
+    def value_as(self, astype):
+        return self.a.value_as(astype)
+    
 
 class InverseMatcher(WrappingMatcher):
     """Synthetic matcher, generates postings that are NOT present in the
@@ -1068,7 +1001,16 @@ class RequireMatcher(WrappingMatcher):
     
     def score(self):
         return self.a.score()
-
+    
+    def supports(self, astype):
+        return self.a.supports(astype)
+    
+    def value(self):
+        return self.a.value()
+        
+    def value_as(self, astype):
+        return self.a.value_as(astype)
+    
 
 class AndMaybeMatcher(AdditiveBiMatcher):
     """Matches postings in the first sub-matcher, and if the same posting is
@@ -1148,108 +1090,117 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             return self.a.score() + self.b.score()
         else:
             return self.a.score()
+        
+    def supports(self, astype):
+        return self.a.supports(astype)
+    
+    def value(self):
+        return self.a.value()
+        
+    def value_as(self, astype):
+        return self.a.value_as(astype)
     
 
-class PhraseMatcher(WrappingMatcher):
-    """Matches postings where a list of sub-matchers occur next to each other
-    in order.
-    """
-    
-    def __init__(self, wordmatchers, slop=1, boost=1.0):
-        self.wordmatchers = wordmatchers
-        self.child = make_binary_tree(IntersectionMatcher, wordmatchers)
-        self.slop = slop
-        self.boost = boost
-        self._spans = None
-        self._find_next()
-    
-    def copy(self):
-        return self.__class__(self.wordmatchers[:], slop=self.slop, boost=self.boost)
-    
-    def replace(self):
-        if not self.is_active():
-            return NullMatcher()
-        return self
-    
-    def all_ids(self):
-        # Need to redefine this because the WrappingMatcher parent class
-        # forwards to the submatcher, which in this case is just the
-        # IntersectionMatcher.
-        while self.is_active():
-            yield self.id()
-            self.next()
-    
-    def next(self):
-        ri = self.child.next()
-        rn = self._find_next()
-        return ri or rn
-    
-    def skip_to(self, id):
-        rs = self.child.skip_to(id)
-        rn = self._find_next()
-        return rs or rn
-    
-    def skip_to_quality(self, minquality):
-        skipped = 0
-        while self.is_active() and self.quality() <= minquality:
-            # TODO: doesn't count the documents matching the phrase yet
-            skipped += self.child.skip_to_quality(minquality/self.boost)
-            self._find_next()
-        return skipped
-    
-    def positions(self):
-        if not self.is_active():
-            raise ReadTooFar
-        if not self.wordmatchers:
-            return []
-        return self.wordmatchers[0].positions()
-    
-    def _find_next(self):
-        isect = self.child
-        slop = self.slop
-        
-        # List of "active" positions
-        current = []
-        
-        while not current and isect.is_active():
-            # [[list of positions for word 1],
-            #  [list of positions for word 2], ...]
-            poses = [m.positions() for m in self.wordmatchers]
-            
-            # Set the "active" position list to the list of positions of the
-            # first word. We well then iteratively update this list with the
-            # positions of subsequent words if they are within the "slop"
-            # distance of the positions in the active list.
-            current = poses[0]
-            
-            # For each list of positions for the subsequent words...
-            for poslist in poses[1:]:
-                # A list to hold the new list of active positions
-                newposes = []
-                
-                # For each position in the list of positions in this next word
-                for newpos in poslist:
-                    # Use bisect to only check the part of the current list
-                    # that could contain positions within the "slop" distance
-                    # of the new position
-                    start = bisect_left(current, newpos - slop)
-                    end = bisect_right(current, newpos)
-                    
-                    # 
-                    for curpos in current[start:end]:
-                        delta = newpos - curpos
-                        if delta > 0 and delta <= slop:
-                            newposes.append(newpos)
-                    
-                current = newposes
-                if not current: break
-            
-            if not current:
-                isect.next()
-        
-        self._count = len(current)
-
-
+#class PhraseMatcher(WrappingMatcher):
+#    """Matches postings where a list of sub-matchers occur next to each other
+#    in order.
+#    """
+#    
+#    def __init__(self, wordmatchers, slop=1, boost=1.0):
+#        self.wordmatchers = wordmatchers
+#        self.child = make_binary_tree(IntersectionMatcher, wordmatchers)
+#        self.slop = slop
+#        self.boost = boost
+#        self._spans = None
+#        self._find_next()
+#    
+#    def copy(self):
+#        return self.__class__(self.wordmatchers[:], slop=self.slop, boost=self.boost)
+#    
+#    def replace(self):
+#        if not self.is_active():
+#            return NullMatcher()
+#        return self
+#    
+#    def all_ids(self):
+#        # Need to redefine this because the WrappingMatcher parent class
+#        # forwards to the submatcher, which in this case is just the
+#        # IntersectionMatcher.
+#        while self.is_active():
+#            yield self.id()
+#            self.next()
+#    
+#    def next(self):
+#        ri = self.child.next()
+#        rn = self._find_next()
+#        return ri or rn
+#    
+#    def skip_to(self, id):
+#        rs = self.child.skip_to(id)
+#        rn = self._find_next()
+#        return rs or rn
+#    
+#    def skip_to_quality(self, minquality):
+#        skipped = 0
+#        while self.is_active() and self.quality() <= minquality:
+#            # TODO: doesn't count the documents matching the phrase yet
+#            skipped += self.child.skip_to_quality(minquality/self.boost)
+#            self._find_next()
+#        return skipped
+#    
+#    def positions(self):
+#        if not self.is_active():
+#            raise ReadTooFar
+#        if not self.wordmatchers:
+#            return []
+#        return self.wordmatchers[0].positions()
+#    
+#    def _find_next(self):
+#        isect = self.child
+#        slop = self.slop
+#        
+#        # List of "active" positions
+#        current = []
+#        
+#        while not current and isect.is_active():
+#            # [[list of positions for word 1],
+#            #  [list of positions for word 2], ...]
+#            poses = [m.positions() for m in self.wordmatchers]
+#            
+#            # Set the "active" position list to the list of positions of the
+#            # first word. We well then iteratively update this list with the
+#            # positions of subsequent words if they are within the "slop"
+#            # distance of the positions in the active list.
+#            current = poses[0]
+#            
+#            # For each list of positions for the subsequent words...
+#            for poslist in poses[1:]:
+#                # A list to hold the new list of active positions
+#                newposes = []
+#                
+#                # For each position in the list of positions in this next word
+#                for newpos in poslist:
+#                    # Use bisect to only check the part of the current list
+#                    # that could contain positions within the "slop" distance
+#                    # of the new position
+#                    start = bisect_left(current, newpos - slop)
+#                    end = bisect_right(current, newpos)
+#                    
+#                    # 
+#                    for curpos in current[start:end]:
+#                        delta = newpos - curpos
+#                        if delta > 0 and delta <= slop:
+#                            newposes.append(newpos)
+#                    
+#                current = newposes
+#                if not current: break
+#            
+#            if not current:
+#                isect.next()
+#        
+#        self._count = len(current)
+#
+#
 #class VectorPhraseMatcher(BasePhraseMatcher):
 #    """Phrase matcher for fields with a vector with positions (i.e. Positions
 #    or CharacterPositions format).

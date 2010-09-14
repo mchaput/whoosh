@@ -34,10 +34,113 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
-                             IntersectionMatcher, Span)
+                             IntersectionMatcher)
 from whoosh.query import And, AndMaybe, Or, Query, Term
 from whoosh.util import make_binary_tree
 
+
+# Span class
+
+class Span(object):
+    __slots__ = ("start", "end", "startchar", "endchar")
+    
+    def __init__(self, start, end=None, startchar=None, endchar=None):
+        if end is None:
+            end = start
+        assert start <= end
+        self.start = start
+        self.end = end
+        self.startchar = startchar
+        self.endchar = endchar
+
+    def __repr__(self):
+        if self.startchar or self.endchar:
+            return "<%d-%d %d:%d>" % (self.start, self.end, self.startchar, self.endchar)
+        else:
+            return "<%d-%d>" % (self.start, self.end)
+
+    def __eq__(self, span):
+        return (self.start == span.start
+                and self.end == span.end
+                and self.startchar == span.startchar
+                and self.endchar == span.endchar)
+    
+    def __ne__(self, span):
+        return self.start != span.start or self.end != span.end
+    
+    def __lt__(self, span):
+        return self.start < span.start
+    
+    def __gt__(self, span):
+        return self.start > span.start
+    
+    def __hash__(self):
+        return hash((self.start, self.end))
+    
+    @classmethod
+    def merge(cls, spans):
+        """Merges overlapping and touches spans in the given list of spans.
+        
+        Note that this modifies the original list.
+        
+        >>> spans = [Span(1,2), Span(3)]
+        >>> Span.merge(spans)
+        >>> spans
+        [<1-3>]
+        """
+        
+        i = 0
+        while i < len(spans)-1:
+            here = spans[i]
+            j = i + 1
+            while j < len(spans):
+                there = spans[j]
+                if there.start > here.end + 1:
+                    break
+                if here.touches(there) or here.overlaps(there):
+                    here = here.to(there)
+                    spans[i] = here
+                    del spans[j]
+                else:
+                    j += 1
+            i += 1
+        return spans
+    
+    def to(self, span):
+        return self.__class__(min(self.start, span.start), max(self.end, span.end),
+                              min(self.startchar, span.startchar), max(self.endchar, span.endchar))
+    
+    def overlaps(self, span):
+        return ((self.start >= span.start and self.start <= span.end)
+                or (self.end >= span.start and self.end <= span.end)
+                or (span.start >= self.start and span.start <= self.end)
+                or (span.end >= self.start and span.end <= self.end))
+    
+    def surrounds(self, span):
+        return self.start < span.start and self.end > span.end
+    
+    def is_within(self, span):
+        return self.start >= span.start and self.end <= span.end
+    
+    def is_before(self, span):
+        return self.end < span.start
+    
+    def is_after(self, span):
+        return self.start > span.end
+    
+    def touches(self, span):
+        return self.start == span.end + 1 or self.end == span.start - 1
+    
+    def distance_to(self, span):
+        if self.overlaps(span):
+            return 0
+        elif self.is_before(span):
+            return span.start - self.end
+        elif self.is_after(span):
+            return self.start - span.end
+
+
+# 
 
 class SpanWrappingMatcher(WrappingMatcher):
     """An abstract matcher class that wraps a "regular" matcher. This matcher
@@ -81,6 +184,12 @@ class SpanWrappingMatcher(WrappingMatcher):
     def skip_to(self, id):
         self.child.skip_to(id)
         self._find_next()
+        
+    def all_ids(self):
+        while self.is_active():
+            if self.spans():
+                yield self.id()
+            self.next()
 
 
 # Queries
@@ -104,7 +213,7 @@ class SpanQuery(Query):
     
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.q)
-
+    
 
 class SpanFirst(SpanQuery):
     """Matches spans that end within the first N positions. This lets you
@@ -231,13 +340,18 @@ class SpanNear(SpanQuery):
             bspans = self.b.spans()
             for aspan in self.a.spans():
                 for bspan in bspans:
-                    if ordered and aspan.start > bspan.start:
-                        break
-                    if bspan.start > aspan.end + slop:
-                        break
-                    if bspan.end < aspan.start - slop:
+                    if (bspan.end < aspan.start - slop
+                        or (ordered and aspan.start > bspan.start)):
+                        # B is too far in front of A, or B is in front of A
+                        # *at all* when ordered is True
                         continue
+                    if bspan.start > aspan.end + slop:
+                        # B is too far from A. Since spans are listed in
+                        # start position order, we know that all spans after
+                        # this one will also be too far.
+                        break
                     
+                    # Check the distance between the spans
                     dist = aspan.distance_to(bspan)
                     if dist >= mindist and dist <= slop:
                         spans.add(aspan.to(bspan))

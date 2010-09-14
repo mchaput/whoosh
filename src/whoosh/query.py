@@ -1083,15 +1083,20 @@ class Phrase(MultiTerm):
         for word in self.words:
             if (fieldname, word) not in reader: return NullMatcher()
         
-        wordmatchers = [searcher.postings(fieldname, word, exclude_docs=exclude_docs)
-                        for word in self.words]
-        
         field = searcher.field(fieldname)
-        if field.format and field.format.supports("positions"):
-            return PhraseMatcher(wordmatchers, slop=self.slop, boost=self.boost)
-        else:
+        if not field.format or not field.format.supports("positions"):
             raise QueryError("Phrase search: %r field has no positions"
                              % self.fieldname)
+        
+        #wordmatchers = [searcher.postings(fieldname, word, exclude_docs=exclude_docs)
+        #                for word in self.words]
+        #return PhraseMatcher(wordmatchers, slop=self.slop, boost=self.boost)
+        
+        # Construct a tree of SpanNear queries representing the words in the
+        # phrase and return its matcher
+        from whoosh.spans import SpanNear
+        q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
+        return q.matcher(searcher, exclude_docs=exclude_docs)
 
 
 class Every(Query):

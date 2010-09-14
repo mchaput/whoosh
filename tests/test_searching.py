@@ -330,7 +330,7 @@ class TestSearching(unittest.TestCase):
         
         q = Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
         m = q.matcher(searcher)
-        self.assertEqual(m.__class__.__name__, "PhraseMatcher")
+        self.assertEqual(m.__class__.__name__, "SpanNearMatcher")
         
         r = searcher.search(q)
         self.assertEqual(names(r), ["A"])
@@ -347,10 +347,11 @@ class TestSearching(unittest.TestCase):
         q = Phrase("value", [u"gibberish", u"falunk"], slop=2)
         self.assertEqual(names(searcher.search(q)), ["D"])
         
-        #q = Phrase("value", [u"blah"] * 4)
-        #self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
+        q = Phrase("value", [u"blah"] * 4)
+        self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
         
         q = Phrase("value", [u"blah"] * 3)
+        m = q.matcher(searcher)
         self.assertEqual(names(searcher.search(q)), ["E"])
     
 #    def test_vector_phrase(self):
