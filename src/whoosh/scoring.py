@@ -20,7 +20,7 @@ This module contains classes for scoring (and sorting) search results.
 
 from __future__ import division
 from array import array
-from math import log, pi
+from math import log, pi, log10
 
 
 # Weighting classes
@@ -51,7 +51,7 @@ class Weighting(object):
         cache[term] = idf
         return idf
 
-    def score(self, searcher, fieldname, text, docnum, weight):
+    def score(self, searcher, fieldname, text, docnum, weight, qf=1):
         """Returns the score for a given term in the given document.
         
         :param searcher: :class:`whoosh.searching.Searcher` for the index.
@@ -78,7 +78,7 @@ class Weighting(object):
 
         return score
     
-    def score_fn(self, searcher, fieldname, text):
+    def score_fn(self, searcher, fieldname, text, qf=1):
         """Returns a function which takes a :class:`whoosh.matching.Matcher`
         and returns a score.
         """
@@ -86,7 +86,7 @@ class Weighting(object):
             return self.score(searcher, fieldname, text, m.id(), m.weight())
         return fn
     
-    def quality_fn(self, searcher, fieldname, text):
+    def quality_fn(self, searcher, fieldname, text, qf=1):
         """Returns a function which takes a :class:`whoosh.matching.Matcher`
         and returns an appoximate quality rating for the matcher's current
         posting. If the weighting class does not support approximate quality
@@ -94,7 +94,7 @@ class Weighting(object):
         """
         return None
     
-    def block_quality_fn(self, searcher, fieldname, text):
+    def block_quality_fn(self, searcher, fieldname, text, qf=1):
         """Returns a function which takes a :class:`whoosh.matching.Matcher`
         and returns an appoximate quality rating for the matcher's current
         block (whatever concept of block the matcher might use). If the
@@ -109,16 +109,17 @@ class WOLWeighting(Weighting):
     "weight-over-length" (WOL) as an approximate quality rating.
     """
     
-    def quality_fn(self, searcher, fieldname, text):
+    def quality_fn(self, searcher, fieldname, text, qf=1):
         dfl = searcher.doc_field_length
         def fn(m):
             return m.weight() / dfl(m.id(), fieldname, 1)
         return fn
     
-    def block_quality_fn(self, searcher, fieldname, text):
+    def block_quality_fn(self, searcher, fieldname, text, qf=1):
         def fn(m):
             return m.blockinfo.maxwol
         return fn
+
 
 # Weighting classes
 
@@ -149,7 +150,7 @@ class BM25F(WOLWeighting):
         w = weight / ((1 - B) + B * (length / avglength))
         return idf * (w / (K1 + w))
 
-    def score(self, searcher, fieldname, text, docnum, weight):
+    def score(self, searcher, fieldname, text, docnum, weight, qf=1):
         if not searcher.scorable(fieldname): return weight
 
         B = self._field_B.get(fieldname, self.B)
@@ -157,18 +158,18 @@ class BM25F(WOLWeighting):
         idf = self.idf(searcher, fieldname, text)
         l = searcher.doc_field_length(docnum, fieldname)
 
-        return BM25F._score(B, self.K1, weight, l, avl, idf)
+        return self._score(B, self.K1, weight, l, avl, idf)
     
-    def score_fn(self, searcher, fieldname, text):
+    def score_fn(self, searcher, fieldname, text, qf=1):
         avl = searcher.avg_field_length(fieldname, 1)
         B = self._field_B.get(fieldname, self.B)
         idf = self.idf(searcher, fieldname, text)
         dfl = searcher.doc_field_length
-        bm25f = BM25F._score
+        _score = self._score
         
         def f(m):
             l = dfl(m.id(), fieldname)
-            return bm25f(B, self.K1, m.weight(), l, avl, idf)
+            return _score(B, self.K1, m.weight(), l, avl, idf)
         return f
     
 
@@ -176,21 +177,21 @@ class TF_IDF(Weighting):
     """Instead of doing any fancy scoring, simply returns weight * idf.
     """
 
-    def score(self, searcher, fieldname, text, docnum, weight):
+    def score(self, searcher, fieldname, text, docnum, weight, qf=1):
         return weight * searcher.idf(fieldname, text)
     
-    def score_fn(self, searcher, fieldname, text):
+    def score_fn(self, searcher, fieldname, text, qf=1):
         idf = searcher.idf(fieldname, text)
         def fn(m):
             return idf * m.weight()
         return fn
     
-    def quality_fn(self, searcher, fieldname, text):
+    def quality_fn(self, searcher, fieldname, text, qf=1):
         def fn(m):
             return m.weight()
         return fn
     
-    def block_quality_fn(self, searcher, fieldname, text):
+    def block_quality_fn(self, searcher, fieldname, text, qf=1):
         def fn(m):
             return m.blockinfo.maxweight
         return fn
@@ -201,24 +202,65 @@ class Frequency(Weighting):
     This may be useful when you don't care about normalization and weighting.
     """
 
-    def score(self, searcher, fieldname, text, docnum, weight):
+    def score(self, searcher, fieldname, text, docnum, weight, qf=1):
         return weight
     
-    def score_fn(self, searcher, fieldname, text):
+    def score_fn(self, searcher, fieldname, text, qf=1):
         def fn(m):
             return m.weight()
         return fn
     
-    def quality_fn(self, searcher, fieldname, text):
+    def quality_fn(self, searcher, fieldname, text, qf=1):
         def fn(m):
             return m.weight()
         return fn
     
-    def block_quality_fn(self, searcher, fieldname, text):
+    def block_quality_fn(self, searcher, fieldname, text, qf=1):
         def fn(m):
             return m.blockinfo.maxweight
         return fn
 
+
+class PL2(WOLWeighting):
+    """Implements the PL2 weighting model. This code is translated from the
+    equivalent Terrier class.
+    """
+    
+    def __init__(self, c=1.0):
+        self.c = c
+    
+    def __repr__(self):
+        return "%s(c=%d)" % (self.__class__.__name__, self.c)
+    
+    @staticmethod
+    def _score(searcher, fieldname, docnum, weight, c, afl, cf, dc, qf=1):
+        l = searcher.doc_field_length(docnum, fieldname)
+        rec_log2_of_e = 1.0/log(2)
+        tf = weight * log(1.0 + (c * afl) / l)
+        norm = 1.0 / (weight + 1.0)
+        f = cf / dc
+        return (norm * qf * (tf * log(1.0 / f, 2)
+                             + f * rec_log2_of_e
+                             + 0.5 * log(2 * pi * tf, 2)
+                             + tf * (log(tf, 2) - rec_log2_of_e)))
+    
+    def score(self, searcher, fieldname, text, docnum, weight, qf=1):
+        afl = searcher.avg_field_length(fieldname)
+        cf = searcher.frequency(fieldname, text)
+        return self._score(searcher, fieldname, docnum, weight,
+                           self.c, afl, cf, searcher.doc_count_all(), qf=qf)
+        
+    def score_fn(self, searcher, fieldname, text, qf=1):
+        _score = self._score
+        afl = searcher.avg_field_length(fieldname)
+        c = self.c
+        cf = searcher.frequency(fieldname, text)
+        dc = searcher.doc_count_all()
+        def fn(m):
+            return _score(searcher, fieldname, m.id(), m.weight(),
+                          c, afl, cf, dc, qf=qf)
+        return fn
+        
 
 class MultiWeighting(Weighting):
     """Applies different weighting functions based on the field.
