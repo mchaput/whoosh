@@ -20,10 +20,11 @@ a spell-checking engine.
 
 from collections import defaultdict
 
-from whoosh import analysis, fields, query
-from whoosh.scoring import TF_IDF
+from whoosh import analysis, fields, query, scoring
 from whoosh.support.levenshtein import relative, distance
 
+
+nullsorter = scoring.NullSorter()
 
 class SpellChecker(object):
     """Implements a spell-checking engine using a search index for the backend
@@ -125,7 +126,7 @@ class SpellChecker(object):
         """
 
         if weighting is None:
-            weighting = TF_IDF()
+            weighting = scoring.TF_IDF()
 
         grams = defaultdict(list)
         for size in xrange(self.mingram, self.maxgram + 1):

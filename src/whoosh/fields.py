@@ -421,18 +421,20 @@ class TEXT(FieldType):
     __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=Format,
                          stored=bool, field_boost=float)
     
-    def __init__(self, analyzer=None, phrase=True, vector=None,
-                 stored=False, field_boost=1.0):
+    def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
+                 field_boost=1.0):
         """
+        :param analyzer: The analysis.Analyzer to use to index the field
+            contents. See the analysis module for more information. If you omit
+            this argument, the field uses analysis.StandardAnalyzer.
+        :param phrase: Whether the store positional information to allow phrase
+            searching.
+        :param vector: A :class:`whoosh.formats.Format` object to use to store
+            term vectors. By default, fields do not store term vectors.
         :param stored: Whether to store the value of this field with the
             document. Since this field type generally contains a lot of text,
             you should avoid storing it with the document unless you need to,
             for example to allow fast excerpts in the search results.
-        :param phrase: Whether the store positional information to allow phrase
-            searching.
-        :param analyzer: The analysis.Analyzer to use to index the field
-            contents. See the analysis module for more information. If you omit
-            this argument, the field uses analysis.StandardAnalyzer.
         """
         
         ana = analyzer or StandardAnalyzer()
