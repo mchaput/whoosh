@@ -24,7 +24,6 @@ Matchers
 .. autoclass:: InverseMatcher
 .. autoclass:: RequireMatcher
 .. autoclass:: AndMaybeMatcher
-.. autoclass:: PhraseMatcher
 
 
 Exceptions

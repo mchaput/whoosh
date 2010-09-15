@@ -82,6 +82,7 @@ Example
 -------
 
 .. code-block:: python
+
     # Set up the index
     # ----------------
 
