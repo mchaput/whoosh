@@ -414,9 +414,9 @@ class SpanNot(SpanQuery):
 
 
 class SpanOr(SpanQuery):
-    """Matches documents that match any a list of sub-queries. Unlike
-    query.Or, this class is span-aware, and merges together matching spans
-    from the different sub-queries when they overlap.
+    """Matches documents that match any of a list of sub-queries. Unlike
+    query.Or, this class merges together matching spans from the different
+    sub-queries when they overlap.
     """
     
     def __init__(self, subqs):

@@ -214,6 +214,32 @@ class TestSpans(unittest.TestCase):
             self.assertTrue(orig.index("alfa") < orig.index("charlie"))
             m.next()
 
+    def test_regular_or(self):
+        ix = self.get_index()
+        s = ix.searcher()
+        
+        oq = query.Or([query.Term("text", "bravo"), query.Term("text", "alfa")])
+        m = oq.matcher(s)
+        while m.is_active():
+            orig = s.stored_fields(m.id())["text"]
+            for span in m.spans():
+                v = orig[span.start]
+                self.assertTrue(v == "bravo" or v == "alfa")
+            m.next()
+            
+    def test_regular_and(self):
+        ix = self.get_index()
+        s = ix.searcher()
+        
+        aq = query.And([query.Term("text", "bravo"), query.Term("text", "alfa")])
+        m = aq.matcher(s)
+        while m.is_active():
+            orig = s.stored_fields(m.id())["text"]
+            for span in m.spans():
+                v = orig[span.start]
+                self.assertTrue(v == "bravo" or v == "alfa")
+            m.next()
+
     def test_span_characters(self):
         ix = self.get_index()
         s = ix.searcher()
