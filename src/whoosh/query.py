@@ -31,8 +31,8 @@ import fnmatch, re
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
-                             NullMatcher, PhraseMatcher, RequireMatcher,
-                             UnionMatcher, WrappingMatcher)
+                             NullMatcher, RequireMatcher, UnionMatcher,
+                             WrappingMatcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
