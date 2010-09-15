@@ -255,7 +255,7 @@ class AsyncWriter(threading.Thread, IndexWriter):
         if self.writer:
             getattr(self.writer, method)(*args, **kwargs)
         else:
-            self.events.add(method, args, kwargs)
+            self.events.append((method, args, kwargs))
     
     def run(self):
         self.running = True
