@@ -21,8 +21,10 @@ A quick introduction
 >>> writer.add_document(title=u"Second document", path=u"/b",
 ...                     content=u"The second one is even more interesting!")
 >>> writer.commit()
+>>> from whoosh.qparser import QueryParser
 >>> searcher = ix.searcher()
->>> results = searcher.find("first")
+>>> query = QueryParser("content").parse("first")
+>>> results = searcher.search(query)
 >>> results[0]
 {"title": u"First document", "path": u"/a"}
 
@@ -188,7 +190,7 @@ argument is a schema to use to understand how to parse the fields::
 Once you have a ``Searcher`` and a query object, you can use the ``Searcher``'s
 ``search()`` method to run the query and get a ``Results`` object::
 
-    >>> results = searcher.find("content", u"second")
+    >>> results = searcher.search(myquery)
     >>> print(len(results))
     1
     >>> print(results[0])

@@ -65,6 +65,31 @@ See the :doc:`query language reference <querylang>` for the features and syntax
 of the default parser's query language.
 
 
+Searching for any terms instead of all terms by default
+=======================================================
+
+If the user doesn't explicitly specify ``AND`` or ``OR`` clauses::
+
+    physically based rendering
+    
+...by default, the parser treats the words as if they were connected by ``AND``,
+meaning all the terms must be present for a document to match::
+
+    physically AND based AND rendering
+    
+To change the parser to use ``OR`` instead, so that any of the terms may be
+present for a document to match, i.e.::
+
+    physically OR based OR rendering
+    
+...configure the QueryParser using the ``group`` keyword argument like this::
+
+    from whoosh import qparser
+    
+    parser = qparser.QueryParser(fieldname, schema=myindex.schema,
+                                 group=qparser.OrGroup)
+
+
 Letting the user search multiple fields
 =======================================
 
