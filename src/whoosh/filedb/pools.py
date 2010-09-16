@@ -214,7 +214,6 @@ class TempfilePool(PoolBase):
         
     def add_posting(self, fieldname, text, docnum, weight, valuestring):
         if self.size >= self.limit:
-            #print "Flushing..."
             self.dump_run()
 
         self.size += len(fieldname) + len(text) + 18
@@ -226,7 +225,7 @@ class TempfilePool(PoolBase):
     def dump_run(self):
         if self.size > 0:
             #print "Dumping run..."
-            #t = now()
+            t = now()
             filename = self.unique_name(".run")
             runfile = open(filename, "w+b")
             self.postings.sort()
@@ -265,6 +264,7 @@ class TempfilePool(PoolBase):
             elif not self.postings and not self.runs:
                 postiter = iter([])
             else:
+                self.dump_run()
                 postiter = imerge([read_run(runname, count)
                                    for runname, count in self.runs])
         
