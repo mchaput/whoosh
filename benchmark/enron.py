@@ -10,8 +10,6 @@ from whoosh import analysis, fields, index, qparser
 from whoosh.util import now
 
 
-enron_archive_url = ""
-
 # http://www.cs.cmu.edu/~enron/
 enron_archive_url = "http://www.cs.cmu.edu/~enron/enron_mail_082109.tar.gz"
 enron_archive_filename = "enron_mail_082109.tar.gz"
@@ -177,7 +175,6 @@ if __name__=="__main__":
     parser.add_option("-l", "--limit", dest="limit",
                       help="Maximum number of results to display for a search.",
                       default="10")
-    parser.add_option("-P", "--pool", dest="pool", action="store_true", default=False)
     parser.add_option("-t", "--tempdir", dest="tempdir",
                       help="Directory to use for temp file storage",
                       default=None)
@@ -200,51 +197,13 @@ if __name__=="__main__":
     
     procs = int(options.procs)
     if options.index:
-        poolclass = None
-        if options.pool:
-            from whoosh.filedb.pools2 import TempfilePool, MultiPool
-            print "procs=", options.procs
-            if options.procs > 1:
-                poolclass = MultiPool
-            else:
-                poolclass = TempfilePool
-            print "Poolclass=", poolclass
         do_index(cache, options.indexname, chunk=int(options.chunk),
                  skip=int(options.skip), upto=int(options.upto),
                  procs=int(options.procs), limitmb=int(options.limitmb),
-                 poolclass=poolclass, dir=options.tempdir)
+                 dir=options.tempdir)
     
     if args:
         qs = args[0].decode("utf8")
         print "Query string=", repr(qs)
         do_search(options.indexname, qs, limit=int(options.limit))
-    
-#    #t = now()
-#    #cache_messages("c:/Documents and Settings/matt/Desktop/Search/enron_mail_030204.tar", "messages.bin")
-#    #print now() - t
-#    
-#    do_index("messages.bin", limitmb=128, procs=2, upto=1000)
-#    
-#    #import cProfile
-#    #cProfile.run('do_index("messages.bin", limitmb=128, upto=10000)', "index.profile")
-#    #from pstats import Stats
-#    #p = Stats("index.profile")
-#    #p.sort_stats("time").print_stats()
-#    
-#    from whoosh.query import Term
-#    from whoosh.support.bitvector import BitSet, BitVector
-#    from sys import getsizeof
-#    
-#    t = now()
-#    ix = index.open_dir("testindex")
-#    s = ix.searcher()
-#    print now() - t
-#    
-#    q = Term("body", u"enron")
-#    t = now()
-#    r = s.search(q)
-#    print now() - t
-#    
-#    for doc in r:
-#        print doc["subject"]
     
