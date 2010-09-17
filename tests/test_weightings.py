@@ -24,7 +24,7 @@ class TestWeightings(unittest.TestCase):
         w.commit()
         
         # List ABCs that should not be tested
-        abcs = (scoring.WOLWeighting, )
+        abcs = ()
         # provide initializer arguments for any weighting classes that require them
         init_args = {"MultiWeighting": ([scoring.BM25F()], {"text": scoring.Frequency()}),
                      "ReverseWeighting": ([scoring.BM25F()], {})}

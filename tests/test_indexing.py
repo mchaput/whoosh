@@ -387,6 +387,10 @@ class TestIndexing(unittest.TestCase):
         
         r = s.search(query.Prefix("content", u"d"), limit=None)
         self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
+        
+    def test_flushruns(self):
+        schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
+        
 
 
 if __name__ == '__main__':
