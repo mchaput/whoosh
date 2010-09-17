@@ -219,7 +219,7 @@ class FilePostingWriter(PostingWriter):
 
 
 class FilePostingReader(Matcher):
-    def __init__(self, postfile, offset, format, scorefns=None,
+    def __init__(self, postfile, offset, format, scorer=None,
                  fieldname=None, text=None, stringids=False):
         
         assert isinstance(offset, (int, long)), "offset is %r" % offset
@@ -232,16 +232,7 @@ class FilePostingReader(Matcher):
         self.supports_poses = self.format.supports("positions")
         # Bind the score and quality functions to this object as methods
         
-        self._scorefns = scorefns
-        if scorefns:
-            sfn, qfn, bqfn = scorefns
-            if sfn:
-                self.score = types.MethodType(sfn, self, self.__class__)
-            if qfn:
-                self.quality = types.MethodType(qfn, self, self.__class__)
-            if bqfn:
-                self.block_quality = types.MethodType(bqfn, self, self.__class__)
-        
+        self.scorer = scorer
         self.fieldname = fieldname
         self.text = text
         
@@ -263,7 +254,8 @@ class FilePostingReader(Matcher):
 
     def copy(self):
         return self.__class__(self.postfile, self.startoffset, self.format,
-                              scorefns=self._scorefns, stringids=self.stringids)
+                              scorer=self.scorer, fieldname=self.fieldname,
+                              text=self.text, stringids=self.stringids)
 
     def is_active(self):
         return self._active
@@ -428,21 +420,23 @@ class FilePostingReader(Matcher):
         return skipped
     
     def supports_quality(self):
-        return self._scorefns and self._scorefns[1] and self._scorefns[2]
+        return self.scorer and self.scorer.supports_quality()
     
     def skip_to_quality(self, minquality):
         bq = self.block_quality
         if bq() > minquality: return 0
         return self._skip_to_block(lambda: bq() <= minquality)
     
+    def score(self):
+        return self.scorer.score(self)
+    
     def quality(self):
-        raise Exception("No quality function given")
+        return self.scorer.quality(self)
     
     def block_quality(self):
-        raise Exception("No block_quality function given")
+        return self.scorer.block_quality(self)
     
-    def score(self):
-        raise Exception("No score function given: %s" % repr(self._scorefns))
+    
     
     
         

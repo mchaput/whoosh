@@ -63,8 +63,8 @@ class RamIndexReader(IndexReader):
     def max_field_length(self, fieldname):
         return self.ix.max_field_length(fieldname)
     
-    def doc_field_length(self, docnum, fieldname):
-        return self.ix.fieldlengths[(docnum, fieldname)]
+    def doc_field_length(self, docnum, fieldname, default=0):
+        return self.ix.fieldlengths.get((docnum, fieldname), default)
     
     def has_vector(self, docnum, fieldname):
         return (docnum, fieldname) in self.ix.vectors
@@ -129,7 +129,7 @@ class RamIndexReader(IndexReader):
             else:
                 break
             
-    def postings(self, fieldname, text, exclude_docs=None, scorefns=None):
+    def postings(self, fieldname, text, exclude_docs=None, scorer=None):
         if not exclude_docs:
             exclude_docs = frozenset()
         excludeset = self.ix.deleted | exclude_docs
@@ -139,25 +139,16 @@ class RamIndexReader(IndexReader):
         if excludeset:
             postings = [(docnum, weight, stringvalue) for docnum, weight, stringvalue
                         in postings if docnum not in excludeset]
-        return RamPostingReader(format, postings, scorefns=scorefns)
+        return RamPostingReader(format, postings, scorer=scorer)
 
 
 class RamPostingReader(Matcher):
-    def __init__(self, format, postings, scorefns=None, stringids=False):
+    def __init__(self, format, postings, scorer=None, stringids=False):
         self.format = format
         self.postings = postings
         self.i = 0
         
-        self._scorefns = scorefns
-        if scorefns:
-            import types
-            sfn, qfn, bqfn = scorefns
-            if sfn:
-                self.score = types.MethodType(sfn, self, self.__class__)
-            if qfn:
-                self.quality = types.MethodType(qfn, self, self.__class__)
-            if bqfn:
-                self.block_quality = types.MethodType(bqfn, self, self.__class__)
+        self.scorer = scorer
     
     def is_active(self):
         return self.i < len(self.postings)
@@ -207,7 +198,14 @@ class RamPostingReader(Matcher):
         
         return self.postings[self.i][2]
     
-        
+    def score(self):
+        return self.scorer.score(self)
+    
+    def quality(self):
+        return self.scorer.quality(self)
+    
+    def block_quality(self):
+        return self.scorer.block_quality(self)
     
     
 

@@ -467,13 +467,13 @@ class MultiReader(IndexReader):
     
     # max_field_length
 
-    def postings(self, fieldname, text, scorefns=None, exclude_docs=None):
+    def postings(self, fieldname, text, scorer=None, exclude_docs=None):
         postreaders = []
         docoffsets = []
         for i, r in enumerate(self.readers):
             format = r.field(fieldname).format
             if (fieldname, text) in r:
-                pr = r.postings(fieldname, text, scorefns=scorefns,
+                pr = r.postings(fieldname, text, scorer=scorer,
                                 exclude_docs=exclude_docs)
                 postreaders.append(pr)
                 docoffsets.append(self.doc_offsets[i])

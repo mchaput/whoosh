@@ -584,7 +584,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(r[2]['a'], "b100x")
     
     def test_weighting(self):
-        from whoosh.scoring import Weighting
+        from whoosh.scoring import Weighting, BaseScorer
         
         schema = fields.Schema(id=fields.ID(stored=True),
                                n_comments=fields.STORED)
@@ -598,10 +598,18 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"4", n_comments=7)
         w.commit()
         
+        # Fake Weighting implementation
         class CommentWeighting(Weighting):
-            def score(self, searcher, fieldname, text, docnum, weight, QTF=1):
-                ncomments = searcher.stored_fields(docnum).get("n_comments", 0)
-                return ncomments
+            def scorer(self, searcher, fieldname, text, qf=1):
+                return self.CommentScorer(searcher.stored_fields)
+            
+            class CommentScorer(BaseScorer):
+                def __init__(self, stored_fields):
+                    self.stored_fields = stored_fields
+            
+                def score(self, matcher):
+                    ncomments = self.stored_fields(matcher.id()).get("n_comments", 0)
+                    return ncomments
         
         s = ix.searcher(weighting=CommentWeighting())
         r = s.search(qparser.QueryParser("id").parse("[1 TO 4]"))
@@ -673,7 +681,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(sorted([d['id'] for d in r]), ["1", "3", "4"])
     
     def test_finalweighting(self):
-        from whoosh.scoring import Weighting
+        from whoosh.scoring import Frequency
         
         schema = fields.Schema(id=fields.ID(stored=True),
                                summary=fields.TEXT,
@@ -688,11 +696,8 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"4", summary=u"bravo bravo", n_comments=7)
         w.commit()
         
-        class CommentWeighting(Weighting):
+        class CommentWeighting(Frequency):
             use_final = True
-            
-            def score(self, *args, **kwargs):
-                return 0
             
             def final(self, searcher, docnum, score):
                 ncomments = searcher.stored_fields(docnum).get("n_comments", 0)

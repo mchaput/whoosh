@@ -52,8 +52,8 @@ class Searcher(object):
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
-                     "scorable", "lexicon", "frequency", "field_length",
-                     "doc_field_length", "max_field_length",
+                     "scorable", "lexicon", "frequency", "doc_frequency", 
+                     "field_length", "doc_field_length", "max_field_length",
                      "field", "field_names"):
             setattr(self, name, getattr(self.ixreader, name))
 
@@ -113,7 +113,7 @@ class Searcher(object):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
         return self.ixreader
 
-    def postings(self, fieldname, text, exclude_docs=None):
+    def postings(self, fieldname, text, exclude_docs=None, qf=1):
         """Returns a :class:`whoosh.matching.Matcher` for the postings of the
         given term. Unlike the :func:`whoosh.reading.IndexReader.postings`
         method, this method automatically sets the scoring functions on the
@@ -121,16 +121,13 @@ class Searcher(object):
         """
         
         if self._doccount:
-            sfn = self.weighting.score_fn(self, fieldname, text)
-            qfn = self.weighting.quality_fn(self, fieldname, text)
-            bqfn = self.weighting.block_quality_fn(self, fieldname, text)
-            scorefns = (sfn, qfn, bqfn)
+            scorer = self.weighting.scorer(self, fieldname, text, qf=qf)
         else:
             # Scoring functions tend to cache information that isn't available
             # on an empty index.
-            scorefns = None
+            scorer = None
         
-        return self.ixreader.postings(fieldname, text, scorefns=scorefns,
+        return self.ixreader.postings(fieldname, text, scorer=scorer,
                                       exclude_docs=exclude_docs)
 
     def idf(self, fieldname, text):
@@ -138,6 +135,10 @@ class Searcher(object):
         idf() on the searcher's Weighting object).
         """
 
+        # This method just calls the Weighting object's idf() method, but
+        # caches the result. So Weighting objects should call *this* method
+        # which will then call *their own* idf() methods.
+        
         cache = self._idf_cache
         term = (fieldname, text)
         if term in cache: return cache[term]
@@ -995,11 +996,44 @@ class Facets(object):
         
         return self.map is not None
     
+    def counts(self, results):
+        """Returns a dictionary mapping facet names to the number of hits in
+        'results' in the facet. The results object does NOT need to have been
+        created with the ``limit=None`` keyword argument to ``search()`` for
+        this method to work.
+        """
+        
+        if self.map is None:
+            raise Exception("You must call study(searcher) before calling categorize()")
+        
+        d = defaultdict(int)
+        names = self.names()
+        facetmap = self.map
+        
+        for docnum in results.docs():
+            index = facetmap[docnum]
+            if index < 0:
+                name = None
+            else:
+                name = names[index]
+            
+            d[name] += 1
+        
+        return dict(d)
+    
     def categorize(self, results):
         """Sorts the results based on the facets. Returns a dictionary mapping
         facet names to lists of (docnum, score) pairs. The scores are included
         in case you want to, for example, calculate which facet has the highest
         aggregate score.
+        
+        Because the categorize method needs to "see" all results to categorize
+        them, you should create the results object using the ``limit=None``
+        keyword argument to ``search()``.
+        
+        >>> myfacets = Facets.from_field(mysearcher, "chapter")
+        >>> results = mysearcher.search(myquery, limit=None)
+        >>> print myfacets.categorize(results)
         
         Note that if there are documents in the results that don't correspond
         to any of the facets in this object, the dictionary will list them

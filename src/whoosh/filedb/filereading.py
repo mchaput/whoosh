@@ -218,7 +218,7 @@ class SegmentReader(IndexReader):
                 return
             yield t
 
-    def postings(self, fieldname, text, exclude_docs=frozenset(), scorefns=None):
+    def postings(self, fieldname, text, exclude_docs=frozenset(), scorer=None):
         format = self.format(fieldname)
 
         try:
@@ -232,8 +232,8 @@ class SegmentReader(IndexReader):
             exclude_docs = self.segment.deleted
 
         postreader = FilePostingReader(self.postfile, offset, format,
-                                       scorefns=scorefns,
-                                       fieldname=fieldname, text=text)
+                                       scorer=scorer, fieldname=fieldname,
+                                       text=text)
         if exclude_docs:
             postreader = ExcludeMatcher(postreader, exclude_docs)
             
