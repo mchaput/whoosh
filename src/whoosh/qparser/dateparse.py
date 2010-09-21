@@ -223,11 +223,14 @@ class Choice(MultiBase):
 
 
 class Bag(MultiBase):
-    def __init__(self, elements, sep="\\s+", onceper=True, requireall=False):
+    def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", onceper=True,
+                 requireall=False, allof=None, anyof=None):
         super(Bag, self).__init__(*elements)
         self.sep_expr = rcompile(sep)
         self.onceper = onceper
         self.requireall = requireall
+        self.allof = allof
+        self.anyof = anyof
     
     def __repr__(self):
         return "{%s}" % (", ".join(repr(e) for e in self.elements))
@@ -256,9 +259,14 @@ class Bag(MultiBase):
                     seen[i] = True
                     break
             else:
-                return props
+                break
             
             first = False
+        
+        if self.allof and not all(seen[pos] for pos in self.allof):
+            return None
+        if self.anyof and not any(seen[pos] for pos in self.anyof):
+            return None
         
         if self.requireall and not all(seen):
             return None
@@ -344,6 +352,14 @@ class Month(Regex):
             if m:
                 p.month = i + 1
                 break
+            
+    def props_to_date(self, p, dt):
+        return atime(month=p.month)
+
+
+class Now(Regex):
+    def props_to_date(self, p, dt):
+        return dt
 
 
 class DateParser(object):
@@ -359,6 +375,9 @@ class DateParser(object):
         
 
 class English(DateParser):
+    day = Regex("(?P<day>([123][0-9])|[1-9])(st|nd|rd|th)?(?=(\\W|$))",
+                lambda p, dt: atime(day=p.day))
+    
     def setup(self):
         self.time12 = Regex("(?P<hour>[1-9]|11|12)%s\\s*(?P<ampm>am|pm)(?=(\\W|$))" % _minsec,
                             self.time12_props)
@@ -366,12 +385,13 @@ class English(DateParser):
         rel_hours = "((?P<hours>[0-9]+) *(h|hs|hr|hrs|hour|hours))?"
         rel_mins = "((?P<mins>[0-9]+) *(m|ms|min|mins|minute|minutes))?"
         rel_secs = "((?P<secs>[0-9]+) *(s|sec|secs|second|seconds))?"
-        self.reltime = Regex("(?P<dir>[+-]) *%s *%s *%s(?=(\\W|$))" % (rel_hours, rel_mins, rel_secs),
-                             self.reltime_to_date)
+        self.plustime = Regex("(?P<dir>[+-]) *%s *%s *%s(?=(\\W|$))" % (rel_hours, rel_mins, rel_secs),
+                              self.plustime_to_date)
         
         midnight = Regex("midnight", lambda p, dt: atime(hour=0, minute=0, second=0, microsecond=0))
         noon = Regex("noon", lambda p, dt: atime(hour=12, minute=0, second=0, microsecond=0))
-        self.time = Choice(self.time12, self.time24, midnight, noon)
+        now = Now("now")
+        self.time = Choice(self.time12, self.time24, midnight, noon, now)
         
         tomorrow = Regex("tomorrow", self.tomorrow_to_date)
         yesterday = Regex("yesterday", self.yesterday_to_date)
@@ -393,17 +413,22 @@ class English(DateParser):
         self.dayname = Regex("(?P<dir>last|next) +(?P<day>%s)" % ("|".join(daynames)),
                              self.dayname_to_date)
         
+        self.month = Month("jan|january", "feb|february|febuary", "mar|march",
+                           "apr|april", "may", "june?", "july?", "aug|august",
+                           "sep|sept|september", "oct|october", "nov|november",
+                           "dec|december")
+        
         self.reldate = Choice(self.plusdate, self.dayname, tomorrow, yesterday,
-                              thisyear, thismonth, today)
+                              thisyear, thismonth, today, now)
         
-        self.month = Month("jan(uary)?", "feb(br?uary)?", "mar(ch)?",
-                           "apr(il)?", "may", "june?", "july?", "aug(ust)?",
-                           "sep(tember)?", "oct(tober)?", "nov(ember)?",
-                           "dec(ember)?")
-        self.date = Bag((self.year, self.month, self.day))
-    
+        # If you specify a day number you must also specify a year and/or a
+        # month... this Choice captures that constraint
+        self.date = Choice(Bag((self.year, self.month, self.day), requireall=True),
+                           Bag((self.month, self.day), requireall=True),
+                           Bag((self.year, self.month)))
         
-    
+        self.bundle = Bag((self.time, Choice(self.reldate, self.date)))
+        
     def plusdate_to_date(self, p, dt):
         if p.dir == "-":
             dir = -1
@@ -415,7 +440,7 @@ class English(DateParser):
                               days=(p.get("days") or 0) * dir)
         return dt + delta
     
-    def reltime_to_date(self, p, dt):
+    def plustime_to_date(self, p, dt):
             if p.dir == "-":
                 dir = -1
             else:

@@ -5,9 +5,10 @@ from whoosh.qparser.dateparse import *
 
 
 basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
+english = English()
 
 
-class TestAnalysis(unittest.TestCase):
+class TestDateParser(unittest.TestCase):
     def test_regex(self):
         e = Regex("(?P<num>[0-9]+)")
         props = e.parse("456")
@@ -63,9 +64,7 @@ class TestAnalysis(unittest.TestCase):
             else:
                 self.assertEqual(getattr(at, key), None)
     
-    def test_time(self):
-        t = English().time
-        
+    def test_time(self, t=english.time):
         self.assert_atime(t.date("13:05", basedate), hour=13, minute=5)
         self.assertEqual(t.date("28:91", basedate), None)
         
@@ -80,15 +79,26 @@ class TestAnalysis(unittest.TestCase):
         self.assert_atime(t.date("noon", basedate), hour=12, minute=0, second=0, microsecond=0)
         self.assert_atime(t.date("midnight", basedate), hour=0, minute=0, second=0, microsecond=0)
     
-    def test_date(self):
-        dmy = English().date
-        self.assert_atime(dmy.date("25 may 2011", basedate), year=2011, month=5, day=25)
-        self.assert_atime(dmy.date("may 2 2011", basedate), year=2011, month=5, day=2)
-        self.assert_atime(dmy.date("2011 25 may", basedate), year=2011, month=5, day=25)
-        self.assert_atime(dmy.date("2011 may 5", basedate), year=2011, month=5, day=5)
-    
-    def test_reltime(self):
-        rt = English().reltime
+    def test_date(self, d=english.date):
+        self.assert_atime(d.date("25 may 2011", basedate), year=2011, month=5, day=25)
+        self.assert_atime(d.date("may 2 2011", basedate), year=2011, month=5, day=2)
+        self.assert_atime(d.date("2011 25 may", basedate), year=2011, month=5, day=25)
+        self.assert_atime(d.date("2011 may 5", basedate), year=2011, month=5, day=5)
+        
+        self.assert_atime(d.date("apr", basedate), month=4)
+        self.assert_atime(d.date("september", basedate), month=9)
+        self.assert_atime(d.date("2001", basedate), year=2001)
+        self.assert_atime(d.date("july 2525", basedate), year=2525, month=7)
+        self.assert_atime(d.date("nov 30", basedate), month=11, day=30)
+        self.assertEqual(d.date("25 2525", basedate), None)
+        
+        self.assert_atime(d.date("25 may, 2011", basedate), year=2011, month=5, day=25)
+        self.assert_atime(d.date("may 2nd, 2011", basedate), year=2011, month=5, day=2)
+        self.assert_atime(d.date("2011, 25 may", basedate), year=2011, month=5, day=25)
+        self.assert_atime(d.date("2011, may 5th", basedate), year=2011, month=5, day=5)
+        
+    def test_plustime(self, rt=english.plustime):
+        rt = english.plustime
         
         self.assertEqual(rt.date("+1hr", basedate),
                          basedate + timedelta(hours=1))
@@ -143,16 +153,13 @@ class TestAnalysis(unittest.TestCase):
         # "next wednesday" on tuesday
         self.assertEqual(relative_days(1, 2, 1), 1)
         
-    def test_dayname(self):
-        d = English().dayname
+    def test_dayname(self, d=english.dayname):
         self.assert_atime(d.date("next tuesday", basedate), year=2010, month=9, day=21)
         self.assert_atime(d.date("last tuesday", basedate), year=2010, month=9, day=14)
         self.assert_atime(d.date("next sunday", basedate), year=2010, month=9, day=26)
         self.assert_atime(d.date("last sunday", basedate), year=2010, month=9, day=19)
         
-    def test_reldate(self):
-        rd = English().reldate
-        
+    def test_reldate(self, rd=english.reldate):
         self.assertEqual(rd.date("+1y", basedate),
                          basedate + relativedelta(years=1))
         self.assertEqual(rd.date("+2mo", basedate),
@@ -187,7 +194,16 @@ class TestAnalysis(unittest.TestCase):
         self.assert_atime(rd.date("this month", basedate), year=2010, month=9)
         self.assert_atime(rd.date("this year", basedate), year=2010)
         
-
+        self.assertEqual(rd.date("now", basedate), basedate)
+    
+    def test_bundle(self):
+        b = english.bundle
+        
+        #self.test_time(b)
+        #self.test_date(b)
+        #self.test_plustime(b)
+        #self.test_dayname(b)
+        #self.test_reldate(b)
 
 
 
