@@ -15,7 +15,7 @@
 # limitations under the License.
 #===============================================================================
 
-import base64, os, random, tempfile
+import os, random, string, tempfile
 from array import array
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
@@ -25,10 +25,10 @@ from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte, now
 
 
-def unique_name():
-    return base64.urlsafe_b64encode("".join(chr(random.randint(0, 255))
-                                            for _ in xrange(18)))
-
+_unique_name_chars = string.ascii_letters + string.digits + "_"
+def unique_name(length=16):
+    return "".join(random.sample(_unique_name_chars, length))
+    
 
 def imerge(iterators):
     """Merge-sorts items from a list of iterators.
