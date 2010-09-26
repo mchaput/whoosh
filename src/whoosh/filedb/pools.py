@@ -27,7 +27,7 @@ from whoosh.util import length_to_byte, now
 
 _unique_name_chars = string.ascii_letters + string.digits + "_"
 def unique_name(length=16):
-    return "".join(random.sample(_unique_name_chars, length))
+    return "".join(random.choice(_unique_name_chars) for _ in xrange(length))
     
 
 def imerge(iterators):
