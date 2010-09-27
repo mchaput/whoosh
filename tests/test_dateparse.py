@@ -9,52 +9,36 @@ english = English()
 
 
 class TestDateParser(unittest.TestCase):
-    def test_regex(self):
-        e = Regex("(?P<num>[0-9]+)")
-        props = e.parse("456")
-        self.assertEqual(props.num, 456)
-    
-    def test_sequence(self):
-        s = Sequence(Regex("(?P<name>[a-z]+)"), Regex("(?P<num>[0-9])"))
-        output = s.parse("johnny5")
-        self.assertTrue(output.__class__, Props)
-        self.assertEqual(output.name, "johnny")
-        self.assertEqual(output.num, 5)
-        
-        self.assertEqual(s.parse("5times"), None)
-    
-    def test_optional(self):
-        s = "(?P<name>[a-z]+)" + Optional("(?P<num>[0-9])") + "\\."
-        self.assertNotEqual(s.parse("johnny."), None)
-        self.assertNotEqual(s.parse("johnny5."), None)
-        self.assertEqual(s.parse("johnny5"), None)
-    
-    def test_choice(self):
-        c = Choice("(?P<where>here)", "(?P<where>there)")
-        p = c.parse("here")
-        self.assertEqual(p.__class__, Props)
-        self.assertEqual(p.where, "here")
-        p = c.parse("there")
-        self.assertEqual(p.__class__, Props)
-        self.assertEqual(p.where, "there")
-        p = c.parse("anywhere")
-        self.assertEqual(p, None)
-    
-    def test_add(self):
-        s = Regex("(?P<name>[a-z]+)") + Regex("(?P<num>[0-9])")
-        self.assertEqual(s.__class__, Sequence)
-        self.assertEqual(repr(s), "<'(?P<name>[a-z]+)'>, <'(?P<num>[0-9])'>")
-        
-        s2 = Regex("(?P<name>[a-z]+)") + " +"
-        self.assertEqual(s2.__class__, Sequence)
-        self.assertEqual(repr(s2), "<'(?P<name>[a-z]+)'>, <' +'>")
-        
-        s3 = " +" + Regex("(?P<name>[a-z]+)")
-        self.assertEqual(s2.__class__, Sequence)
-        self.assertEqual(repr(s3), "<' +'>, <'(?P<name>[a-z]+)'>")
-
-        s4 = s + s3
-        self.assertEqual(repr(s4), "<'(?P<name>[a-z]+)'>, <'(?P<num>[0-9])'>, <' +'>, <'(?P<name>[a-z]+)'>")
+#    def test_regex(self):
+#        e = Regex("(?P<num>[0-9]+)")
+#        props = e.parse("456", basedate)
+#        self.assertEqual(props.num, 456)
+#    
+#    def test_sequence(self):
+#        s = Sequence(Regex("(?P<name>[a-z]+)"), Regex("(?P<num>[0-9])"))
+#        output = s.parse("johnny5", basedate)
+#        self.assertTrue(output.__class__, Props)
+#        self.assertEqual(output.name, "johnny")
+#        self.assertEqual(output.num, 5)
+#        
+#        self.assertEqual(s.parse("5times"), None)
+#    
+#    def test_optional(self):
+#        s = "(?P<name>[a-z]+)" + Optional("(?P<num>[0-9])") + "\\."
+#        self.assertNotEqual(s.parse("johnny.", basedate), None)
+#        self.assertNotEqual(s.parse("johnny5.", basedate), None)
+#        self.assertEqual(s.parse("johnny5", basedate), None)
+#    
+#    def test_choice(self):
+#        c = Choice("(?P<where>here)", "(?P<where>there)")
+#        p = c.parse("here")
+#        self.assertEqual(p.__class__, Props)
+#        self.assertEqual(p.where, "here")
+#        p = c.parse("there")
+#        self.assertEqual(p.__class__, Props)
+#        self.assertEqual(p.where, "there")
+#        p = c.parse("anywhere")
+#        self.assertEqual(p, None)
     
     def assert_atime(self, at, **kwargs):
         self.assertEqual(at.__class__, atime)
@@ -96,6 +80,14 @@ class TestDateParser(unittest.TestCase):
         self.assert_atime(d.date("may 2nd, 2011", basedate), year=2011, month=5, day=2)
         self.assert_atime(d.date("2011, 25 may", basedate), year=2011, month=5, day=25)
         self.assert_atime(d.date("2011, may 5th", basedate), year=2011, month=5, day=5)
+        
+        self.assert_atime(d.date("today", basedate), year=2010, month=9, day=20)
+        self.assert_atime(d.date("tomorrow", basedate), year=2010, month=9, day=21)
+        self.assert_atime(d.date("yesterday", basedate), year=2010, month=9, day=19)
+        self.assert_atime(d.date("this month", basedate), year=2010, month=9)
+        self.assert_atime(d.date("this year", basedate), year=2010)
+        
+        self.assertEqual(d.date("now", basedate), basedate)
         
     def test_plustime(self, rt=english.plustime):
         rt = english.plustime
@@ -157,9 +149,10 @@ class TestDateParser(unittest.TestCase):
         self.assert_atime(d.date("next tuesday", basedate), year=2010, month=9, day=21)
         self.assert_atime(d.date("last tuesday", basedate), year=2010, month=9, day=14)
         self.assert_atime(d.date("next sunday", basedate), year=2010, month=9, day=26)
-        self.assert_atime(d.date("last sunday", basedate), year=2010, month=9, day=19)
+        self.assert_atime(d.date("last sun", basedate), year=2010, month=9, day=19)
+        self.assert_atime(d.date("next th", basedate), year=2010, month=9, day=23)
         
-    def test_reldate(self, rd=english.reldate):
+    def test_reldate(self, rd=english.plusdate):
         self.assertEqual(rd.date("+1y", basedate),
                          basedate + relativedelta(years=1))
         self.assertEqual(rd.date("+2mo", basedate),
@@ -167,6 +160,8 @@ class TestDateParser(unittest.TestCase):
         self.assertEqual(rd.date("+3w", basedate),
                          basedate + relativedelta(weeks=3))
         self.assertEqual(rd.date("+5d", basedate),
+                         basedate + relativedelta(days=5))
+        self.assertEqual(rd.date("+5days", basedate),
                          basedate + relativedelta(days=5))
         
         self.assertEqual(rd.date("-6yr", basedate),
@@ -188,22 +183,31 @@ class TestDateParser(unittest.TestCase):
         self.assertEqual(rd.date("-1y 1w", basedate),
                          basedate + relativedelta(years=-1, weeks=-1))
         
-        self.assert_atime(rd.date("today", basedate), year=2010, month=9, day=20)
-        self.assert_atime(rd.date("tomorrow", basedate), year=2010, month=9, day=21)
-        self.assert_atime(rd.date("yesterday", basedate), year=2010, month=9, day=19)
-        self.assert_atime(rd.date("this month", basedate), year=2010, month=9)
-        self.assert_atime(rd.date("this year", basedate), year=2010)
+        self.assertEqual(rd.date("+1y 2d 5h 12s", basedate),
+                         basedate + relativedelta(years=1, days=2, hours=5, seconds=12))
         
-        self.assertEqual(rd.date("now", basedate), basedate)
-    
+    def test_bundle_subs(self):
+        b = english.bundle
+        
+        self.test_time(b)
+        self.test_date(b)
+        self.test_plustime(b)
+        self.test_dayname(b)
+        self.test_reldate(b)
+        
     def test_bundle(self):
         b = english.bundle
         
-        #self.test_time(b)
-        #self.test_date(b)
-        #self.test_plustime(b)
-        #self.test_dayname(b)
-        #self.test_reldate(b)
+        self.assert_atime(b.date("mar 29 1972 2:45am", basedate),
+                          year=1972, month=3, day=29, hour=2, minute=45)
+        self.assert_atime(b.date("16:10:45 14 February 2005", basedate),
+                          year=2005, month=2, day=14, hour=16, minute=10, second=45)
+        self.assert_atime(b.date("1985 sept 12 12:01", basedate),
+                          year=1985, month=9, day=12, hour=12, minute=1)
+        self.assert_atime(b.date("5pm 21st oct 2005", basedate),
+                          year=2005, month=10, day=21, hour=17)
+        self.assert_atime(b.date("5:59:59pm next thur", basedate),
+                          year=2010, month=9, day=23, hour=17, minute=59, second=59)
 
 
 
