@@ -52,27 +52,21 @@ class atime(object):
                 self.second, self.microsecond)
     
     def __repr__(self):
-        return repr(self.tuple())
+        return "%s%r" % (self.__class__.__name__, self.tuple())
     
-    def __add__(self, other):
+    def overlay(self, other):
         args = {}
-        hasnone = False
         for attr in self.units:
             v = getattr(self, attr)
             if v is None:
                 v = getattr(other, attr)
-            if v is None:
-                hasnone = True
             args[attr] = v
-        if hasnone:
-            return atime(**args)
-        else:
-            return datetime(**args)
+        return atime(**args)
     
     def _is_amb(self):
         return any((getattr(self, attr) is None) for attr in self.units)
     
-    def _check(self):
+    def fix(self):
         if self._is_amb():
             return self
         else:
@@ -92,8 +86,19 @@ class atime(object):
                 setattr(newatime, key, value)
             else:
                 raise KeyError("Unknown argument %r" % key)
-        return newatime._check()
-        
+        return newatime.fix()
+
+
+class Props(object):
+    def __init__(self, **args):
+        self.__dict__ = args
+    
+    def __repr__(self):
+        return repr(self.__dict__)
+    
+    def get(self, key, default=None):
+        return self.__dict__.get(key, default)
+
 
 class timespan(object):
     def __init__(self, start, end):
@@ -126,176 +131,161 @@ def end_of_minute(dt):
     return dt.replace(second=59, microsecond=9999999)
 
 
-class Props(object):
-    def __init__(self, **kwargs):
-        self.__dict__ = kwargs
-    
-    def __repr__(self):
-        return repr(self.__dict__)
-    
-    def __add__(self, other):
-        d = self.__dict__.copy()
-        d.update(other.__dict__)
-        return Props(**d)
-    
-    def __contains__(self, key):
-        return key in self.__dict__
-    
-    def get(self, key, default=None):
-        return self.__dict__.get(key, default)
-
-
 class ParserBase(object):
-    def __add__(self, other):
-        return Sequence(self, other)
-    
-    def __radd__(self, other):
-        return Sequence(other, self)
-    
-    def __or__(self, other):
-        return Choice(self, other)
-    
-    def __ror__(self, other):
-        return Choice(other, self)
-    
     def to_parser(self, e):
         if isinstance(e, basestring):
             return Regex(e)
         else:
             return e
     
-    def modify_props(self, p):
-        return
+    def parse(self, text, dt, pos=0, debug=False):
+        raise NotImplementedError
     
-    def props_to_date(self, props, dt):
-        raise NotImplementedError(self.__class__.__name__)
-    
-    def date(self, text, dt, pos=0):
-        props = self.parse(text, pos)
-        if props:
-            return self.props_to_date(props, dt)
-        return None
+    def date(self, text, dt=None, pos=0, debug=False):
+        if dt is None:
+            dt = datetime.now()
+        
+        d, pos = self.parse(text, dt, pos, debug)
+        if isinstance(d, atime):
+            d = d.fix()
+        
+        return d
 
 
 class MultiBase(ParserBase):
-    def __init__(self, *elements):
-        self.elements = []
-        for e in elements:
-            if isinstance(e, Sequence):
-                self.elements.extend(e.elements)
-            else:
-                self.elements.append(self.to_parser(e))
+    def __init__(self, elements, name=None):
+        self.elements = elements
+        self.name = name
+        
+    def __repr__(self):
+        return "%s<%s>%r" % (self.__class__.__name__, self.name or '', self.elements)
+
 
 class Sequence(MultiBase):
-    def __repr__(self):
-        return ", ".join(repr(e) for e in self.elements)
+    def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", name=None):
+        super(Sequence, self).__init__(elements, name)
+        if sep:
+            self.sep_expr = rcompile(sep)
+        else:
+            self.sep_expr = None
     
-    def parse(self, text, pos=0):
-        p = Props()
-        for e in self.elements:
-            props = e.parse(text, pos)
-            if not props:
-                return None
-            p += props
-            pos = props._end
-        self.modify_props(p)
-        return p
+    def parse(self, text, dt, pos=0, debug=False):
+        d = atime()
+        first = True
         
-    
-class Choice(MultiBase):
-    def __repr__(self):
-        return "|".join(repr(e) for e in self.elements)
-    
-    def parse(self, text, pos=0):
+        if debug: print "Seq %s sep=%r text=%r" % (self.name, self.sep_expr, text[pos:])
         for e in self.elements:
-            props = e.parse(text, pos)
-            if props:
-                self.modify_props(props)
-                return props
-        return None
+            if debug: print "Seq %s text=%r" % (self.name, text[pos:])
+            if self.sep_expr and not first:
+                if debug: print "Seq %s looking for sep" % self.name
+                m = self.sep_expr.match(text, pos)
+                if m:
+                    pos = m.end()
+                else:
+                    if debug: print "Seq %s didn't find sep" % self.name
+                    return (None, None)
+            
+            if debug: print "Seq %s trying=%r" % (self.name, e)
+            at, pos = e.parse(text, dt, pos, debug)
+            if debug: print "Seq %s result=%r" % (self.name, at)
+            if not at:
+                return (None, None)
+            d = d.overlay(at)
+            
+            first = False
+        
+        if debug: print "Seq %s final=%r" % (self.name, d)
+        return (d, pos)
+        
 
-    def date(self, text, dt, pos=0):
+class Choice(MultiBase):
+    def parse(self, text, dt, pos=0, debug=False):
+        if debug: print "Choice %s text=%r" % (self.name, text[pos:])
         for e in self.elements:
-            r = e.date(text, dt, pos)
-            if r:
-                return r
-        return None
+            if debug: print "Choice %s trying=%r" % (self.name, e)
+            d, newpos = e.parse(text, dt, pos, debug)
+            if d:
+                if debug: print "Choice %s matched" % self.name
+                return (d, newpos)
+        if debug: print "Choice %s no match" % self.name
+        return (None, None)
 
 
 class Bag(MultiBase):
     def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", onceper=True,
-                 requireall=False, allof=None, anyof=None):
-        super(Bag, self).__init__(*elements)
+                 requireall=False, allof=None, anyof=None, name=None):
+        super(Bag, self).__init__(elements, name)
         self.sep_expr = rcompile(sep)
         self.onceper = onceper
         self.requireall = requireall
         self.allof = allof
         self.anyof = anyof
     
-    def __repr__(self):
-        return "{%s}" % (", ".join(repr(e) for e in self.elements))
-    
-    def parse(self, text, pos=0):
+    def parse(self, text, dt, pos=0, debug=False):
         first = True
-        props = None
+        d = atime()
         seen = [False] * len(self.elements)
+        
         while True:
+            if debug: print "Bag %s text=%r" % (self.name, text[pos:])
             if not first:
+                if debug:
+                    print "Bag %s looking for sep" % self.name
                 m = self.sep_expr.match(text, pos)
                 if m:
                     pos = m.end()
-                    props._end = pos
                 else:
+                    if debug:
+                        print "Bag %s didn't find sep" % self.name
                     break
             
             for i, e in enumerate(self.elements):
-                p = e.parse(text, pos)
-                if p:
+                if debug: print "Bag %s trying=%r" % (self.name, e)
+                at, newpos  = e.parse(text, dt, pos, debug)
+                if debug: print "Bag %s result=%r" % (self.name, at)
+                if at:
                     if self.onceper and seen[i]:
-                        return None
-                    if not props: props = Props()
-                    props += p
-                    pos = p._end
+                        return (None, None)
+                    
+                    d = d.overlay(at)
+                    pos = newpos
                     seen[i] = True
                     break
             else:
                 break
             
+            if self.onceper and all(seen):
+                break
             first = False
         
-        if self.allof and not all(seen[pos] for pos in self.allof):
-            return None
-        if self.anyof and not any(seen[pos] for pos in self.anyof):
-            return None
+        if (not any(seen)
+            or (self.allof and not all(seen[pos] for pos in self.allof))
+            or (self.anyof and not any(seen[pos] for pos in self.anyof))
+            or (self.requireall and not all(seen))):
+            return (None, None)
         
-        if self.requireall and not all(seen):
-            return None
-        return props
+        if debug: print "Bag %s final=%r" % (self.name, d)
+        return (d, pos)
     
-    def props_to_date(self, p, dt):
-        at = atime()
-        for key in at.units:
-            setattr(at, key, p.get(key))
-        return at
-
 
 class Optional(ParserBase):
     def __init__(self, element):
         self.element = self.to_parser(element)
     
     def __repr__(self):
-        return repr(self.element) + "?"
+        return "%s(%r)" % (self.__class__.__name__, self.element)
     
-    def parse(self, text, pos=0):
-        props = self.element.parse(text, pos)
-        if props:
-            self.modify_props(props)
-            return props
+    def parse(self, text, dt, pos=0, debug=False):
+        d, pos = self.element.parse(text, dt, pos, debug)
+        if d:
+            return (d, pos)
         else:
-            return Props(_end=pos)
+            return (atime(), pos)
 
 
 class Regex(ParserBase):
+    fn = None
+    
     def __init__(self, pattern, fn=None, modify=None):
         self.pattern = pattern
         self.expr = rcompile(pattern)
@@ -305,36 +295,43 @@ class Regex(ParserBase):
     def __repr__(self):
         return "<%r>" % (self.pattern, )
     
+    def parse(self, text, dt, pos=0, debug=False):
+        m = self.expr.match(text, pos)
+        if not m:
+            return (None, None)
+        
+        props = self.extract(m)
+        self.modify_props(props)
+        d = self.props_to_date(props, dt)
+        if d:
+            return (d, m.end())
+        else:
+            return (None, None)
+    
     def extract(self, match):
         d = match.groupdict()
-        p = Props()
         for key, value in d.iteritems():
             try:
                 value = int(value)
+                d[key] = value
             except (ValueError, TypeError):
                 pass
-            setattr(p, key, value)
-        return p
+        return Props(**d)
     
-    def parse(self, text, pos=0):
-        m = self.expr.match(text, pos)
-        if not m:
-            return None
-        props = self.extract(m)
-        props._end = m.end()
-        self.modify_props(props)
-        return props
-    
-    def modify_props(self, p):
+    def modify_props(self, props):
         if self.modify:
-            self.modify(p)
-    
-    def props_to_date(self, p, dt):
-        return self.fn(p, dt)
-    
+            self.modify(props)
+            
+    def props_to_date(self, props, dt):
+        if self.fn:
+            return self.fn(props, dt)
+        else:
+            args = {}
+            for key in atime.units:
+                args[key] = props.get(key)
+            return atime(**args)
 
-_minsec = "(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?"
-
+    
 class Month(Regex):
     def __init__(self, *patterns):
         self.patterns = patterns
@@ -344,7 +341,7 @@ class Month(Regex):
                         + "|".join("(%s)" % pat for pat in self.patterns)
                         + ")")
         self.expr = rcompile(self.pattern)
-    
+        
     def modify_props(self, p):
         text = p.month
         for i, expr in enumerate(self.exprs):
@@ -353,21 +350,26 @@ class Month(Regex):
                 p.month = i + 1
                 break
             
-    def props_to_date(self, p, dt):
-        return atime(month=p.month)
 
-
-class Now(Regex):
+class Delta(Regex):
+    def __init__(self, pattern, **args):
+        super(Delta, self).__init__(pattern)
+        self.args = args
+    
     def props_to_date(self, p, dt):
-        return dt
+        args = {}
+        dt = dt.replace(dt.year + p.get("years", self.args.get("years", 0)))
+        for key in ("weeks", "days", "hours", "minutes", "seconds"):
+            args[key] = p.get(key, self.args.get(key, 0))
+        return dt + timedelta(**args)
 
 
 class DateParser(object):
-    day = Regex("(?P<day>([123][0-9])|[1-9])(?=(\\W|$))",
+    day = Regex("(?P<day>([123][0-9])|[1-9])(?=(\\W|$))(?!=:)",
                 lambda p, dt: atime(day=p.day))
     year = Regex("(?P<year>[0-9]{4})(?=(\\W|$))",
                  lambda p, dt: atime(year=p.year))
-    time24 = Regex("(?P<hour>([0-1][0-9])|(2[0-3]))%s(?=(\\W|$))" % _minsec,
+    time24 = Regex("(?P<hour>([0-1][0-9])|(2[0-3])):(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?(?=(\\W|$))",
                    lambda p, dt: atime(hour=p.hour, minute=p.mins, second=p.secs,
                                        microsecond=p.usecs))
     def __init__(self):
@@ -379,19 +381,19 @@ class English(DateParser):
                 lambda p, dt: atime(day=p.day))
     
     def setup(self):
-        self.time12 = Regex("(?P<hour>[1-9]|11|12)%s\\s*(?P<ampm>am|pm)(?=(\\W|$))" % _minsec,
-                            self.time12_props)
+        self.time12 = Regex("(?P<hour>[1-9]|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))",
+                            self.modify_time12_props)
         
-        rel_hours = "((?P<hours>[0-9]+) *(h|hs|hr|hrs|hour|hours))?"
-        rel_mins = "((?P<mins>[0-9]+) *(m|ms|min|mins|minute|minutes))?"
-        rel_secs = "((?P<secs>[0-9]+) *(s|sec|secs|second|seconds))?"
+        rel_hours = "((?P<hours>[0-9]+) *(hours|hour|hrs|hr|hs|h))?"
+        rel_mins = "((?P<mins>[0-9]+) *(minutes|minute|mins|min|ms|m))?"
+        rel_secs = "((?P<secs>[0-9]+) *(seconds|second|secs|sec|s))?"
         self.plustime = Regex("(?P<dir>[+-]) *%s *%s *%s(?=(\\W|$))" % (rel_hours, rel_mins, rel_secs),
                               self.plustime_to_date)
         
         midnight = Regex("midnight", lambda p, dt: atime(hour=0, minute=0, second=0, microsecond=0))
         noon = Regex("noon", lambda p, dt: atime(hour=12, minute=0, second=0, microsecond=0))
-        now = Now("now")
-        self.time = Choice(self.time12, self.time24, midnight, noon, now)
+        now = Delta("now")
+        self.time = Choice((self.time12, self.time24, midnight, noon, now), name="time")
         
         tomorrow = Regex("tomorrow", self.tomorrow_to_date)
         yesterday = Regex("yesterday", self.yesterday_to_date)
@@ -399,35 +401,41 @@ class English(DateParser):
         thismonth = Regex("this month", lambda p, dt: atime(year=dt.year, month=dt.month))
         today = Regex("today", lambda p, dt: atime(year=dt.year, month=dt.month, day=dt.day))
         
-        rel_years = "((?P<years>[0-9]+) *(y|ys|yr|yrs|year|years))?"
-        rel_months = "((?P<months>[0-9]+) *(mo|mos|mon|mons|month|months))?"
-        rel_weeks = "((?P<weeks>[0-9]+) *(w|ws|wk|wks|week|weeks))?"
-        rel_days = "((?P<days>[0-9]+) *(d|ds|dy|dys|day|days))?"
-        self.plusdate = Regex("(?P<dir>[+-]) *%s *%s *%s *%s(?=(\\W|$))" % (rel_years, rel_months, rel_weeks, rel_days),
+        rel_years = "((?P<years>[0-9]+) *(years|year|yrs|yr|ys|y))?"
+        rel_months = "((?P<months>[0-9]+) *(months|month|mons|mon|mos|mo))?"
+        rel_weeks = "((?P<weeks>[0-9]+) *(weeks|week|wks|wk|ws|w))?"
+        rel_days = "((?P<days>[0-9]+) *(days|day|dys|dy|ds|d))?"
+        self.plusdate = Regex("(?P<dir>[+-]) *%s *%s *%s *%s *%s *%s *%s(?=(\\W|$))" % (rel_years, rel_months, rel_weeks, rel_days, rel_hours, rel_mins, rel_secs),
                               self.plusdate_to_date)
         
-        daynames = ("mo|mon|monday", "tu|tue|tues|tuesday", "we|wed|wednesday",
-                    "th|thu|thur|thursday", "fr|fri|friday", "sa|sat|saturday",
-                    "su|sun|sunday")
+        daynames = ("monday|mon|mo", "tuesday|tues|tue|tu", "wednesday|wed|we",
+                    "thursday|thur|thu|th", "friday|fri|fr", "saturday|sat|sa",
+                    "sunday|sun|su")
         self.dayname_exprs = tuple(rcompile(pat) for pat in daynames)
         self.dayname = Regex("(?P<dir>last|next) +(?P<day>%s)" % ("|".join(daynames)),
                              self.dayname_to_date)
         
-        self.month = Month("jan|january", "feb|february|febuary", "mar|march",
-                           "apr|april", "may", "june?", "july?", "aug|august",
-                           "sep|sept|september", "oct|october", "nov|november",
-                           "dec|december")
-        
-        self.reldate = Choice(self.plusdate, self.dayname, tomorrow, yesterday,
-                              thisyear, thismonth, today, now)
+        self.month = Month("january|jan", "february|febuary|feb", "march|mar",
+                           "april|apr", "may", "june|jun", "july|jul", "august|aug",
+                           "september|sept|sep", "october|oct", "november|nov",
+                           "december|dec")
         
         # If you specify a day number you must also specify a year and/or a
         # month... this Choice captures that constraint
-        self.date = Choice(Bag((self.year, self.month, self.day), requireall=True),
-                           Bag((self.month, self.day), requireall=True),
-                           Bag((self.year, self.month)))
         
-        self.bundle = Bag((self.time, Choice(self.reldate, self.date)))
+        self.date = Choice((Sequence((self.day, self.month, self.year), name="dmy"),
+                            Sequence((self.month, self.day, self.year), name="mdy"),
+                            Sequence((self.year, self.month, self.day), name="ymd"),
+                            Sequence((self.year, self.day, self.month), name="ydm"),
+                            Sequence((self.day, self.month), name="dm"),
+                            Sequence((self.month, self.day), name="md"),
+                            Sequence((self.month, self.year), name="my"),
+                            self.month, self.year, self.dayname, tomorrow,
+                            yesterday, thisyear, thismonth, today, now,
+                            ), name="date")
+        
+        self.datetime = Bag((self.time, self.date), name="datetime")
+        self.bundle = Choice((self.plusdate, self.datetime), name="bundle")
         
     def plusdate_to_date(self, p, dt):
         if p.dir == "-":
@@ -437,7 +445,10 @@ class English(DateParser):
         delta = relativedelta(years=(p.get("years") or 0) * dir,
                               months=(p.get("months") or 0) * dir,
                               weeks=(p.get("weeks") or 0) * dir,
-                              days=(p.get("days") or 0) * dir)
+                              days=(p.get("days") or 0) * dir,
+                              hours=(p.get("hours") or 0) * dir,
+                              minutes=(p.get("mins") or 0) * dir,
+                              seconds=(p.get("secs") or 0) * dir)
         return dt + delta
     
     def plustime_to_date(self, p, dt):
@@ -450,7 +461,7 @@ class English(DateParser):
                               seconds=(p.get("secs") or 0) * dir)
             return dt + delta 
     
-    def time12_props(self, p, dt):
+    def modify_time12_props(self, p, dt):
         if p.hour == 12:
             if p.ampm == "am":
                 hr = 0

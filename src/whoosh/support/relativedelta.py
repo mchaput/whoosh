@@ -44,7 +44,7 @@ MO, TU, WE, TH, FR, SA, SU = weekdays = tuple([weekday(x) for x in range(7)])
 
 class relativedelta:
     """
-The relativedelta type is based on the specification of the excelent
+The relativedelta type is based on the specification of the excellent
 work done by M.-A. Lemburg in his mx.DateTime extension. However,
 notice that this type does *NOT* implement the same algorithm as
 his work. Do *NOT* expect it to behave like mx.DateTime's counterpart.

@@ -290,16 +290,16 @@ class TF_IDF(WeightingModel):
 
 # Utility models
 
-class SimpleWeighting(WeightingModel):
-    """ SimpleWeighting provides backwards-compatibility with the old weighting
-    class architecture, so any existing custom scorers only need to change
-    their parent class to SimpleWeighting.
+class Weighting(WeightingModel):
+    """This class provides backwards-compatibility with the old weighting
+    class architecture, so any existing custom scorers don't need to be
+    rewritten.
     
     It may also be useful for quick experimentation since you only need to
     override the ``score()`` method to try a scoring algorithm, without having
     to create an inner Scorer class::
     
-        class MyWeighting(SimpleWeighting):
+        class MyWeighting(Weighting):
             def score(searcher, fieldname, text, docnum, weight):
                 # Return the docnum as the score, for some reason
                 return docnum
