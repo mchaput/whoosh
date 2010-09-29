@@ -47,6 +47,14 @@ class TestDateParser(unittest.TestCase):
                 self.assertEqual(getattr(at, key), kwargs[key])
             else:
                 self.assertEqual(getattr(at, key), None)
+                
+    def assert_timespan(self, ts, sargs, eargs):
+        self.assert_atime(ts.start, **sargs)
+        self.assert_atime(ts.end, **eargs)
+        
+    def assert_datespan(self, ts, startdate, enddate):
+        self.assertEqual(ts.start, startdate)
+        self.assertEqual(ts.end, enddate)
     
     def test_time(self, t=english.time):
         self.assert_atime(t.date("13:05", basedate), hour=13, minute=5)
@@ -145,70 +153,105 @@ class TestDateParser(unittest.TestCase):
         # "next wednesday" on tuesday
         self.assertEqual(relative_days(1, 2, 1), 1)
         
-    def test_dayname(self, d=english.dayname):
-        self.assert_atime(d.date("next tuesday", basedate), year=2010, month=9, day=21)
-        self.assert_atime(d.date("last tuesday", basedate), year=2010, month=9, day=14)
-        self.assert_atime(d.date("next sunday", basedate), year=2010, month=9, day=26)
-        self.assert_atime(d.date("last sun", basedate), year=2010, month=9, day=19)
-        self.assert_atime(d.date("next th", basedate), year=2010, month=9, day=23)
+    def test_dayname(self, p=english.dayname):
+        self.assert_atime(p.date("next tuesday", basedate), year=2010, month=9, day=21)
+        self.assert_atime(p.date("last tuesday", basedate), year=2010, month=9, day=14)
+        self.assert_atime(p.date("next sunday", basedate), year=2010, month=9, day=26)
+        self.assert_atime(p.date("last sun", basedate), year=2010, month=9, day=19)
+        self.assert_atime(p.date("next th", basedate), year=2010, month=9, day=23)
         
-    def test_reldate(self, rd=english.plusdate):
-        self.assertEqual(rd.date("+1y", basedate),
+    def test_reldate(self, p=english.plusdate):
+        self.assertEqual(p.date("+1y", basedate),
                          basedate + relativedelta(years=1))
-        self.assertEqual(rd.date("+2mo", basedate),
+        self.assertEqual(p.date("+2mo", basedate),
                          basedate + relativedelta(months=2))
-        self.assertEqual(rd.date("+3w", basedate),
+        self.assertEqual(p.date("+3w", basedate),
                          basedate + relativedelta(weeks=3))
-        self.assertEqual(rd.date("+5d", basedate),
+        self.assertEqual(p.date("+5d", basedate),
                          basedate + relativedelta(days=5))
-        self.assertEqual(rd.date("+5days", basedate),
+        self.assertEqual(p.date("+5days", basedate),
                          basedate + relativedelta(days=5))
         
-        self.assertEqual(rd.date("-6yr", basedate),
+        self.assertEqual(p.date("-6yr", basedate),
                          basedate + relativedelta(years=-6))
-        self.assertEqual(rd.date("- 7 mons", basedate),
+        self.assertEqual(p.date("- 7 mons", basedate),
                          basedate + relativedelta(months=-7))
-        self.assertEqual(rd.date("-8 wks", basedate),
+        self.assertEqual(p.date("-8 wks", basedate),
                          basedate + relativedelta(weeks=-8))
-        self.assertEqual(rd.date("- 9 dy", basedate),
+        self.assertEqual(p.date("- 9 dy", basedate),
                          basedate + relativedelta(days=-9))
         
         
-        self.assertEqual(rd.date("+1y 12mo 400d", basedate),
+        self.assertEqual(p.date("+1y 12mo 400d", basedate),
                          basedate + relativedelta(years=1, months=12, days=400))
-        self.assertEqual(rd.date("-7mo 8d", basedate),
+        self.assertEqual(p.date("-7mo 8d", basedate),
                          basedate + relativedelta(months=-7, days=-8))
-        self.assertEqual(rd.date("+5wks 2d", basedate),
+        self.assertEqual(p.date("+5wks 2d", basedate),
                          basedate + relativedelta(weeks=5, days=2))
-        self.assertEqual(rd.date("-1y 1w", basedate),
+        self.assertEqual(p.date("-1y 1w", basedate),
                          basedate + relativedelta(years=-1, weeks=-1))
         
-        self.assertEqual(rd.date("+1y 2d 5h 12s", basedate),
+        self.assertEqual(p.date("+1y 2d 5h 12s", basedate),
                          basedate + relativedelta(years=1, days=2, hours=5, seconds=12))
         
     def test_bundle_subs(self):
-        b = english.bundle
+        p = english.bundle
         
-        self.test_time(b)
-        self.test_date(b)
-        self.test_plustime(b)
-        self.test_dayname(b)
-        self.test_reldate(b)
+        self.test_time(p)
+        self.test_date(p)
+        self.test_plustime(p)
+        self.test_dayname(p)
+        self.test_reldate(p)
         
     def test_bundle(self):
-        b = english.bundle
+        p = english.bundle
         
-        self.assert_atime(b.date("mar 29 1972 2:45am", basedate),
+        self.assert_atime(p.date("mar 29 1972 2:45am", basedate),
                           year=1972, month=3, day=29, hour=2, minute=45)
-        self.assert_atime(b.date("16:10:45 14 February 2005", basedate),
+        self.assert_atime(p.date("16:10:45 14 February 2005", basedate),
                           year=2005, month=2, day=14, hour=16, minute=10, second=45)
-        self.assert_atime(b.date("1985 sept 12 12:01", basedate),
+        self.assert_atime(p.date("1985 sept 12 12:01", basedate),
                           year=1985, month=9, day=12, hour=12, minute=1)
-        self.assert_atime(b.date("5pm 21st oct 2005", basedate),
+        self.assert_atime(p.date("5pm 21st oct 2005", basedate),
                           year=2005, month=10, day=21, hour=17)
-        self.assert_atime(b.date("5:59:59pm next thur", basedate),
+        self.assert_atime(p.date("5:59:59pm next thur", basedate),
                           year=2010, month=9, day=23, hour=17, minute=59, second=59)
-
+    
+    def test_ranges(self):
+        p = english.torange
+        
+        self.assert_timespan(p.date("last tuesday to next tuesday", basedate),
+                             dict(year=2010, month=9, day=14),
+                             dict(year=2010, month=9, day=21))
+        self.assert_timespan(p.date("last monday to dec 25", basedate),
+                             dict(year=2010, month=9, day=13),
+                             dict(year=2010, month=12, day=25))
+        self.assert_timespan(p.date("oct 25 to feb 14", basedate),
+                             dict(year=2009, month=10, day=25),
+                             dict(year=2010, month=2, day=14))
+        self.assert_timespan(p.date("oct 25 2009 to feb 14 2008", basedate),
+                             dict(year=2008, month=2, day=14),
+                             dict(year=2009, month=10, day=25))
+        self.assert_timespan(p.date("3am oct 12 to 5pm", basedate),
+                             dict(year=2010, month=10, day=12, hour=3),
+                             dict(year=2010, month=10, day=12, hour=17))
+        self.assert_timespan(p.date("3am feb 12 to 5pm today", basedate),
+                             dict(year=2010, month=2, day=12, hour=3),
+                             dict(year=2010, month=9, day=20, hour=17))
+        self.assert_timespan(p.date("feb to oct", basedate),
+                             dict(year=2010, month=2, day=1),
+                             dict(year=2010, month=10, day=31))
+        self.assert_timespan(p.date("oct 25 2005 11am to 5pm tomorrow", basedate),
+                             dict(year=2005, month=10, day=25, hour=11),
+                             dict(year=2010, month=9, day=21, hour=17))
+        self.assert_timespan(p.date("oct 5 2005 to november 20", basedate),
+                             dict(year=2005, month=10, day=5),
+                             dict(year=2005, month=11, day=20))
+        
+        self.assert_datespan(p.date("-2d to +1w", basedate),
+                             basedate + relativedelta(days=-2),
+                             basedate + relativedelta(weeks=1))
+        
 
 
 if __name__ == '__main__':

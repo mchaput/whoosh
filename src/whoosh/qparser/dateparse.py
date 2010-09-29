@@ -14,7 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-import re, calendar
+import re, calendar, copy
 from datetime import date, time, datetime, timedelta
 
 from whoosh.support.relativedelta import relativedelta
@@ -38,14 +38,23 @@ def relative_days(current_wday, wday, dir):
         return (current_wday + 7 - wday) % 7 * -1
 
 
+def print_debug(level, msg, *args):
+    if level > 0: print ("  " * (level-1)) + (msg % args)
+
+
 class atime(object):
     units = frozenset(("year", "month", "day", "hour", "minute", "second", "microsecond"))
     
     def __init__(self, year=None, month=None, day=None, hour=None, minute=None,
                  second=None, microsecond=None):
-        self.year, self.month, self.day = year, month, day
-        self.hour, self.minute, self.second = hour, minute, second
-        self.microsecond = microsecond
+        if isinstance(year, datetime):
+            self.year, self.month, self.day = year.year, year.month, year.day
+            self.hour, self.minute, self.second = year.hour, year.minute, year.second
+            self.microsecond = year.microsecond
+        else:
+            self.year, self.month, self.day = year, month, day
+            self.hour, self.minute, self.second = hour, minute, second
+            self.microsecond = microsecond
     
     def tuple(self):
         return (self.year, self.month, self.day, self.hour, self.minute,
@@ -54,25 +63,8 @@ class atime(object):
     def __repr__(self):
         return "%s%r" % (self.__class__.__name__, self.tuple())
     
-    def overlay(self, other):
-        args = {}
-        for attr in self.units:
-            v = getattr(self, attr)
-            if v is None:
-                v = getattr(other, attr)
-            args[attr] = v
-        return atime(**args)
-    
-    def _is_amb(self):
-        return any((getattr(self, attr) is None) for attr in self.units)
-    
-    def fix(self):
-        if self._is_amb():
-            return self
-        else:
-            return datetime(year=self.year, month=self.month, day=self.day,
-                            hour=self.hour, minute=self.minute,
-                            second=self.second, microsecond=self.microsecond)
+    def date(self):
+        return date(self.year, self.month, self.day)
     
     def copy(self):
         return atime(year=self.year, month=self.month, day=self.day,
@@ -86,25 +78,46 @@ class atime(object):
                 setattr(newatime, key, value)
             else:
                 raise KeyError("Unknown argument %r" % key)
-        return newatime.fix()
+        return newatime
 
 
-class Props(object):
-    def __init__(self, **args):
-        self.__dict__ = args
+def fill_in(at, basedate, units=atime.units):
+    if isinstance(at, datetime):
+        return at
     
-    def __repr__(self):
-        return repr(self.__dict__)
+    args = {}
+    for unit in units:
+        v = getattr(at, unit)
+        if v is None:
+            v = getattr(basedate, unit)
+        args[unit] = v
+    return fix(atime(**args))
     
-    def get(self, key, default=None):
-        return self.__dict__.get(key, default)
+def has_no_date(at):
+    if isinstance(at, datetime):
+        return False
+    return at.year is None and at.month is None and at.day is None
 
+def has_no_time(at):
+    if isinstance(at, datetime):
+        return False
+    return at.hour is None and at.minute is None and at.second is None and at.microsecond is None
 
-class timespan(object):
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
+def is_ambiguous(at):
+    if isinstance(at, datetime):
+        return False
+    return any((getattr(at, attr) is None) for attr in atime.units)
 
+def is_void(at):
+    if isinstance(at, datetime):
+        return False
+    return all((getattr(at, attr) is None) for attr in atime.units)
+
+def fix(at):
+    if is_ambiguous(at) or isinstance(at, datetime):
+        return at
+    return datetime(year=at.year, month=at.month, day=at.day, hour=at.hour,
+                    minute=at.minute, second=at.second, microsecond=at.microsecond)
 
 def start_of_year(dt):
     return dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -131,6 +144,63 @@ def end_of_minute(dt):
     return dt.replace(second=59, microsecond=9999999)
 
 
+class timespan(object):
+    def __init__(self, start, end, basedate):
+        start = copy.copy(start)
+        end = copy.copy(end)
+        year_was_amb = start.year is None
+        
+        if has_no_date(start) and has_no_date(end):
+            start = start.replace(year=basedate.year, month=basedate.month, day=basedate.day)
+            end = end.replace(year=basedate.year, month=basedate.month, day=basedate.day)
+        else:
+            if start.year is None and end.year is None:
+                start.year = end.year = basedate.year
+            elif start.year is None:
+                start.year = end.year
+            elif end.year is None:
+                end.year = start.year
+            
+            if start.month is None and end.month is None:
+                start.month = 1
+                end.month = 12
+            elif start.month is None:
+                start.month = end.month
+            elif end.month is None:
+                end.month = start.month
+                
+            if start.day is None and end.day is None:
+                start.day = 1
+                end.day = 31
+            elif start.day is None:
+                start.day = end.day
+            elif end.day is None:
+                end.day = start.day
+            
+            if start.date() > end.date():
+                if year_was_amb:
+                    start = start.replace(year=start.year-1)
+                else:
+                    start, end = end, start
+        
+        self.start = start
+        self.end = end
+        
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self.start, self.end)
+
+
+class Props(object):
+    def __init__(self, **args):
+        self.__dict__ = args
+    
+    def __repr__(self):
+        return repr(self.__dict__)
+    
+    def get(self, key, default=None):
+        return self.__dict__.get(key, default)
+
+
 class ParserBase(object):
     def to_parser(self, e):
         if isinstance(e, basestring):
@@ -138,23 +208,23 @@ class ParserBase(object):
         else:
             return e
     
-    def parse(self, text, dt, pos=0, debug=False):
+    def parse(self, text, dt, pos=0, debug=-9999):
         raise NotImplementedError
     
-    def date(self, text, dt=None, pos=0, debug=False):
+    def date(self, text, dt=None, pos=0, debug=-9999):
         if dt is None:
             dt = datetime.now()
         
-        d, pos = self.parse(text, dt, pos, debug)
+        d, pos = self.parse(text, dt, pos, debug + 1)
         if isinstance(d, atime):
-            d = d.fix()
+            d = fix(d)
         
         return d
 
 
 class MultiBase(ParserBase):
     def __init__(self, elements, name=None):
-        self.elements = elements
+        self.elements = [self.to_parser(e) for e in elements]
         self.name = name
         
     def __repr__(self):
@@ -169,45 +239,98 @@ class Sequence(MultiBase):
         else:
             self.sep_expr = None
     
-    def parse(self, text, dt, pos=0, debug=False):
+    def parse(self, text, dt, pos=0, debug=-9999):
         d = atime()
         first = True
         
-        if debug: print "Seq %s sep=%r text=%r" % (self.name, self.sep_expr, text[pos:])
+        print_debug(debug, "Seq %s sep=%r text=%r", self.name, self.sep_expr.pattern, text[pos:])
         for e in self.elements:
-            if debug: print "Seq %s text=%r" % (self.name, text[pos:])
+            print_debug(debug, "Seq %s text=%r", self.name, text[pos:])
             if self.sep_expr and not first:
-                if debug: print "Seq %s looking for sep" % self.name
+                print_debug(debug, "Seq %s looking for sep", self.name)
                 m = self.sep_expr.match(text, pos)
                 if m:
                     pos = m.end()
                 else:
-                    if debug: print "Seq %s didn't find sep" % self.name
+                    print_debug(debug, "Seq %s didn't find sep", self.name)
                     return (None, None)
             
-            if debug: print "Seq %s trying=%r" % (self.name, e)
-            at, pos = e.parse(text, dt, pos, debug)
-            if debug: print "Seq %s result=%r" % (self.name, at)
+            print_debug(debug, "Seq %s trying=%r", self.name, e)
+            at, pos = e.parse(text, dt, pos, debug + 1)
+            print_debug(debug, "Seq %s result=%r", self.name, at)
             if not at:
                 return (None, None)
-            d = d.overlay(at)
+            d = fill_in(d, at)
             
             first = False
         
-        if debug: print "Seq %s final=%r" % (self.name, d)
+        print_debug(debug, "Seq %s final=%r", self.name, d)
         return (d, pos)
+
+
+class Combo(Sequence):
+    def __init__(self, elements, fn=None, sep="(\\s+|\\s*,\\s*)", min=2, max=2,
+                 name=None):
+        super(Combo, self).__init__(elements, sep=sep, name=name)
+        self.fn = fn
+        self.min = min
+        self.max = max
+    
+    def parse(self, text, dt, pos=0, debug=-9999):
+        dates = []
+        first = True
         
+        print_debug(debug, "Combo %s sep=%r text=%r", self.name, self.sep_expr.pattern, text[pos:])
+        for e in self.elements:
+            if self.sep_expr and not first:
+                print_debug(debug, "Combo %s looking for sep at %r", self.name, text[pos:])
+                m = self.sep_expr.match(text, pos)
+                if m:
+                    pos = m.end()
+                else:
+                    print_debug(debug, "Combo %s didn't find sep", self.name)
+                    return (None, None)
+            
+            print_debug(debug, "Combo %s trying=%r", self.name, e)
+            at, pos = e.parse(text, dt, pos, debug + 1)
+            print_debug(debug, "Combo %s result=%r", self.name, at)
+            if at is None:
+                return (None, None)
+            
+            first = False
+            if is_void(at):
+                continue
+            if len(dates) == self.max:
+                print_debug(debug, "Combo %s length > %s", self.name, self.max)
+                return (None, None)
+            dates.append(at)
+        
+        print_debug(debug, "Combo %s dates=%r", self.name, dates)
+        if len(dates) < self.min:
+            print_debug(debug, "Combo %s length < %s", self.name, self.min)
+            return (None, None)
+        
+        return (self.dates_to_timespan(dates, dt), pos)
+    
+    def dates_to_timespan(self, dates, basedate):
+        if self.fn:
+            return self.fn(dates, basedate)
+        elif len(dates) == 2:
+            return timespan(dates[0], dates[1], basedate)
+        else:
+            raise Exception("Don't know what to do with %r" % (dates, ))
+
 
 class Choice(MultiBase):
-    def parse(self, text, dt, pos=0, debug=False):
-        if debug: print "Choice %s text=%r" % (self.name, text[pos:])
+    def parse(self, text, dt, pos=0, debug=-9999):
+        print_debug(debug, "Choice %s text=%r", self.name, text[pos:])
         for e in self.elements:
-            if debug: print "Choice %s trying=%r" % (self.name, e)
-            d, newpos = e.parse(text, dt, pos, debug)
+            print_debug(debug, "Choice %s trying=%r", self.name, e)
+            d, newpos = e.parse(text, dt, pos, debug + 1)
             if d:
-                if debug: print "Choice %s matched" % self.name
+                print_debug(debug, "Choice %s matched", self.name)
                 return (d, newpos)
-        if debug: print "Choice %s no match" % self.name
+        print_debug(debug, "Choice %s no match", self.name)
         return (None, None)
 
 
@@ -221,41 +344,42 @@ class Bag(MultiBase):
         self.allof = allof
         self.anyof = anyof
     
-    def parse(self, text, dt, pos=0, debug=False):
+    def parse(self, text, dt, pos=0, debug=-9999):
         first = True
         d = atime()
         seen = [False] * len(self.elements)
         
         while True:
-            if debug: print "Bag %s text=%r" % (self.name, text[pos:])
+            newpos = pos
+            print_debug(debug, "Bag %s text=%r", self.name, text[pos:])
             if not first:
-                if debug:
-                    print "Bag %s looking for sep" % self.name
+                print_debug(debug, "Bag %s looking for sep", self.name)
                 m = self.sep_expr.match(text, pos)
                 if m:
-                    pos = m.end()
+                    newpos = m.end()
                 else:
-                    if debug:
-                        print "Bag %s didn't find sep" % self.name
+                    print_debug(debug, "Bag %s didn't find sep", self.name)
                     break
             
             for i, e in enumerate(self.elements):
-                if debug: print "Bag %s trying=%r" % (self.name, e)
-                at, newpos  = e.parse(text, dt, pos, debug)
-                if debug: print "Bag %s result=%r" % (self.name, at)
+                print_debug(debug, "Bag %s trying=%r", self.name, e)
+                at, xpos  = e.parse(text, dt, newpos, debug + 1)
+                print_debug(debug, "Bag %s result=%r", self.name, at)
                 if at:
                     if self.onceper and seen[i]:
                         return (None, None)
                     
-                    d = d.overlay(at)
-                    pos = newpos
+                    d = fill_in(d, at)
+                    newpos = xpos
                     seen[i] = True
                     break
             else:
                 break
             
+            pos = newpos
             if self.onceper and all(seen):
                 break
+            
             first = False
         
         if (not any(seen)
@@ -264,7 +388,7 @@ class Bag(MultiBase):
             or (self.requireall and not all(seen))):
             return (None, None)
         
-        if debug: print "Bag %s final=%r" % (self.name, d)
+        print_debug(debug, "Bag %s final=%r", self.name, d)
         return (d, pos)
     
 
@@ -275,8 +399,8 @@ class Optional(ParserBase):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.element)
     
-    def parse(self, text, dt, pos=0, debug=False):
-        d, pos = self.element.parse(text, dt, pos, debug)
+    def parse(self, text, dt, pos=0, debug=-9999):
+        d, pos = self.element.parse(text, dt, pos, debug + 1)
         if d:
             return (d, pos)
         else:
@@ -295,7 +419,7 @@ class Regex(ParserBase):
     def __repr__(self):
         return "<%r>" % (self.pattern, )
     
-    def parse(self, text, dt, pos=0, debug=False):
+    def parse(self, text, dt, pos=0, debug=-9999):
         m = self.expr.match(text, pos)
         if not m:
             return (None, None)
@@ -412,7 +536,7 @@ class English(DateParser):
                     "thursday|thur|thu|th", "friday|fri|fr", "saturday|sat|sa",
                     "sunday|sun|su")
         self.dayname_exprs = tuple(rcompile(pat) for pat in daynames)
-        self.dayname = Regex("(?P<dir>last|next) +(?P<day>%s)" % ("|".join(daynames)),
+        self.dayname = Regex("(?P<dir>last|next) +(?P<day>%s)(?=(\\W|$))" % ("|".join(daynames)),
                              self.dayname_to_date)
         
         self.month = Month("january|jan", "february|febuary|feb", "march|mar",
@@ -437,6 +561,8 @@ class English(DateParser):
         self.datetime = Bag((self.time, self.date), name="datetime")
         self.bundle = Choice((self.plusdate, self.datetime), name="bundle")
         
+        self.torange = Combo((self.bundle, "to", self.bundle), name="torange")
+    
     def plusdate_to_date(self, p, dt):
         if p.dir == "-":
             dir = -1
