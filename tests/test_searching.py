@@ -761,11 +761,29 @@ class TestSearching(unittest.TestCase):
         s = s.refresh()
         self.assertTrue(s.up_to_date())
 
-
-
-
-
+    def test_resultspage(self):
+        schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(schema)
         
+        domain = ("alfa", "bravo", "bravo", "charlie", "delta")
+        w = ix.writer()
+        i = 0
+        for lst in permutations(domain, 3):
+            w.add_document(id=unicode(i), content=u" ".join(lst))
+            i += 1
+        w.commit()
+        
+        s = ix.searcher()
+        q = query.Term("content", u"bravo")
+        r = s.search(q, limit=10)
+        tops = list(r)
+        
+        rp = s.search_page(q, 1, pagelen=5)
+        self.assertEqual(list(rp), tops[0:5])
+        
+        rp = s.search_page(q, 2, pagelen=5)
+        self.assertEqual(list(rp), tops[5:10])
         
 
 
