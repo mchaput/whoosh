@@ -464,9 +464,10 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
             # if possible
             if usequality and replace: matcher = matcher.replace()
     
-    # Turn the heap into a reverse-sorted list (highest scores first), and
-    # unzip it into separate lists
-    h.sort(reverse=True)
+    # Turn the heap into a sorted list by sorting by score first (subtract from
+    # 0 to put highest scores first) and then by document number (to enforce
+    # a consistent ordering of documents with equal score)
+    h.sort(key=lambda x: (0-x[0], x[1]))
     return ([i[0] for i in h], # Scores
             [i[1] for i in h], # Document numbers
             docs)
