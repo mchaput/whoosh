@@ -66,6 +66,12 @@ class Searcher(object):
         self._idf_cache = {}
         self._sorter_cache = {}
 
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *exc_info):
+        self.close()
+
     def doc_count(self):
         """Returns the number of UNDELETED documents in the index.
         """
