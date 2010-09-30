@@ -397,6 +397,9 @@ class MultiMatcher(Matcher):
             for id in mr.all_ids():
                 yield id + offsets[i]
     
+    def spans(self):
+        return self.matchers[self.current].spans()
+    
     def supports(self, astype):
         return self.matchers[self.current].supports(astype)
     

@@ -70,8 +70,7 @@ class FieldType(object):
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
     
-    def __init__(self, format, vector=None,
-                 scorable=False, stored=False,
+    def __init__(self, format, vector=None, scorable=False, stored=False,
                  unique=False):
         self.format = format
         self.vector = vector
