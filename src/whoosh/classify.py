@@ -20,7 +20,7 @@ documents.
 
 from __future__ import division
 from collections import defaultdict
-from math import log
+from math import log, sqrt
 
 
 # Expansion models
@@ -163,6 +163,211 @@ class Expander(object):
         return [(t, weight) for weight, t in tlist[:number]]
 
 
+# Clustering
+
+def median(nums):
+    nums = sorted(nums)
+    l = len(nums)
+    if l % 2: # Odd
+        return nums[l // 2]
+    else:
+        return (nums[l // 2 - 1] + nums[l // 2]) / 2.0
+
+
+def mean(nums):
+    return sum(nums) / len(nums)
+
+
+def minkowski_distance(x, y, p=2):
+    assert(len(y)==len(x))
+    s = sum(abs(x[i] - y[i]) ** p for i in xrange(len(x)))
+    return s ** 1.0/p
+   
+
+def list_to_matrix(ls, f, symmetric=False, diagonal=None):
+    matrix = []
+    for rownum, i1 in enumerate(ls):
+        row = []
+        for colnum, i2 in enumerate(ls):
+            if diagonal is not None and rownum == colnum:
+                # Cell on the diagonal
+                row.append(diagonal)
+            elif symmetric and colnum < rownum:
+                # Matrix is symmetrical and we've already calculated this cell
+                # on the other side of the diagonal.
+                row.append(matrix[colnum][rownum])
+            else:
+                row.append(f(i1, i2))
+        matrix.append(row)
+    return matrix
+
+
+def magnitude(v):
+    return sqrt(sum(v[i] ** 2 for i in xrange(len(v))))
+    
+
+def dot_product(v1, v2):
+    assert len(v1) == len(v2)
+    return sum(v1[i] * v2[i] for i in xrange(len(v1)))
+
+
+def centroid(points, method=median):
+    return tuple(method([point[i] for point in points])
+                 for i in xrange(len(points[0])))
+
+
+class Cluster(object):
+    def __init__(self, *items):
+        self.items = list(items)
+    
+    def __repr__(self):
+        return "<C %r>" % (self.items, )
+    
+    def __len__(self):
+        return len(self.items)
+    
+    def __add__(self, cluster):
+        return Cluster(self.items + cluster.items)
+    
+    def __iter__(self):
+        return iter(self.items)
+    
+    def __getitem__(self, n):
+        return self.items.__getitem__(n)
+    
+    def append(self, item):
+        self.items.append(item)
+        
+    def remove(self, item):
+        self.items.remove(item)
+        
+    def pop(self, i=None):
+        return self.items.pop(i)
+    
+    def flatten(self):
+        for item in self.items:
+            if isinstance(item, Cluster):
+                for i2 in item.flatten():
+                    yield i2
+            else:
+                yield item
+                
+    def dump(self, tab=0):
+        print "%s-" % (" " * tab, )
+        for item in self.items:
+            if isinstance(item, Cluster):
+                item.dump(tab+2)
+            else:
+                print "%s%r" % (" " * tab, item)
+    
+
+class HierarchicalClustering(object):
+    def __init__(self, distance_fn, linkage="uclus"):
+        self.distance = distance_fn
+        if linkage == "uclus":
+            self.linkage = self.uclus_dist
+        if linkage == "average":
+            self.linkage = self.average_linkage_dist
+        if linkage == "complete":
+            self.linkage = self.complete_linkage_dist
+        if linkage == "single":
+            self.linkage = self.single_linkage_dist
+    
+    def uclus_dist(self, x, y):
+        distances = []
+        for xi in x.flatten():
+            for yi in y.flatten():
+                distances.append(self.distance(xi, yi))
+        return median(distances)
+    
+    def average_linkage_dist(self, x, y):
+        distances = []
+        for xi in x.flatten():
+            for yi in y.flatten():
+                distances.append(self.distance(xi, yi))
+        return mean(distances)
+        
+    def complete_linkage_dist(self, x, y):
+        maxdist = self.distance(x[0], y[0])
+        for xi in x.flatten():
+            for yi in y.flatten():
+                maxdist = max(maxdist, self.distance(xi, yi))
+        return maxdist
+   
+    def single_linkage_dist(self, x, y):
+        mindist = self.distance(x[0], y[0])
+        for xi in x.flatten():
+            for yi in y.flatten():
+                mindist = min(mindist, self.distance(xi, yi))
+        return mindist
+
+    def clusters(self, data):
+        data = [Cluster(x) for x in data]
+        linkage = self.linkage
+        matrix = None
+        sequence = 0
+        while matrix is None or len(matrix) > 2:
+            matrix = list_to_matrix(data, linkage, True, 0)
+            lowrow, lowcol = None, None
+            mindist = None
+            for rownum, row in enumerate(matrix):
+                for colnum, cell in enumerate(row):
+                    if rownum != colnum and (cell < mindist or lowrow is None):
+                        lowrow, lowcol = rownum, colnum
+                        mindist = cell
+            
+            sequence += 1
+            cluster = Cluster(data[lowrow], data[lowcol])
+            
+            data.remove(data[max(lowrow, lowcol)])
+            data.remove(data[min(lowrow, lowcol)])
+            data.append(cluster)
+        
+        if isinstance(data, list):
+            data = Cluster(*data)
+        return data
+
+
+class KMeansClustering(object):
+    def __init__(self, distance_fn=None):
+        self.distance = distance_fn or minkowski_distance
+        
+    def clusters(self, data, count):
+        if len(data) > 1 and isinstance(data[0], (list, tuple)):
+            l = len(data[0])
+            if not all(len(item) == l for item in data[1:]):
+                raise ValueError("All items in %r are not of the same dimension" % (data, ))
+        if count <= 1:
+            raise ValueError("You must ask for at least 2 clusters")
+        if not data or len(data) == 1 or count >= len(data):
+            return data
+        
+        
+        clusters = [Cluster() for _ in xrange(count)]
+        for i, item in enumerate(data):
+            clusters[i % count].append(item)
+        
+        def move_item(item, pos, origin):
+            closest = origin
+            for cluster in clusters:
+                if (self.distance(item, centroid(cluster))
+                    < self.distance(item, centroid(closest))):
+                    closest = cluster
+            if closest is not origin:
+                closest.append(origin.pop(pos))
+                return True
+            return False
+        
+        moved = True
+        while moved:
+            moved = False
+            for cluster in clusters:
+                for pos, item in enumerate(cluster):
+                    moved = move_item(item, pos, cluster) or moved
+                    
+        return clusters
+                    
+        
 # Similarity functions
 
 def shingles(input, size=2):
