@@ -318,7 +318,7 @@ class Weighting(WeightingModel):
             self.searcher = searcher
             self.fieldname = fieldname
             self.text = text
-            self.method = scoremethod
+            self.scoremethod = scoremethod
         
         def score(self, matcher):
             return self.scoremethod(self.searcher, self.fieldname, self.text,
