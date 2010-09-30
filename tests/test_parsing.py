@@ -286,6 +286,49 @@ class TestQueryParser(unittest.TestCase):
     def test_range(self):
         schema = fields.Schema(name=fields.ID(stored=True), text = fields.TEXT(stored=True))
         qp = qparser.QueryParser("text", schema=schema)
+        
+        q = qp.parse(u"[alfa to bravo}")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, "alfa")
+        self.assertEqual(q.end, "bravo")
+        self.assertEqual(q.startexcl, False)
+        self.assertEqual(q.endexcl, True)
+        
+        q = qp.parse(u"['hello there' to 'what ever']")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, "hello there")
+        self.assertEqual(q.end, "what ever")
+        self.assertEqual(q.startexcl, False)
+        self.assertEqual(q.endexcl, False)
+        
+        q = qp.parse(u"name:{'to' to 'b'}")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, "to")
+        self.assertEqual(q.end, "b")
+        self.assertEqual(q.startexcl, True)
+        self.assertEqual(q.endexcl, True)
+        
+        q = qp.parse(u"name:{'a' to 'to']")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, "a")
+        self.assertEqual(q.end, "to")
+        self.assertEqual(q.startexcl, True)
+        self.assertEqual(q.endexcl, False)
+        
+        q = qp.parse(u"name:[a to to]")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, "a")
+        self.assertEqual(q.end, "to")
+        
+        q = qp.parse(u"name:[to to b]")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(q.start, "to")
+        self.assertEqual(q.end, "b")
+        
+        q = qp.parse(u"[alfa to alfa]")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.text, "alfa")
+        
         q = qp.parse(u"Ind* AND name:[d TO]")
         self.assertEqual(q.__class__, query.And)
         self.assertEqual(q[0].__class__, query.Prefix)
