@@ -156,6 +156,7 @@ class DisMaxGroup(Group):
     def empty(self):
         return self.__class__(tiebreak=self.tiebreak)
 
+
 class NotGroup(Group):
     """Syntax group corresponding to a Not query.
     """
@@ -185,6 +186,10 @@ class Token(SyntaxObject):
     
     def set_fieldname(self, name):
         return self
+    
+    @classmethod
+    def match(cls, text, pos):
+        return cls.expr.match(text, pos)
     
     @classmethod
     def create(cls, parser, match):
@@ -301,7 +306,29 @@ class RangePlugin(Plugin):
         return ((RangePlugin.Range, 0), )
     
     class Range(Token):
-        expr = re.compile("(\\{|\\[)((\S+) )?TO( (\S+))?(\\}|\\])")
+        expr = re.compile(r"""
+        (?P<open>\{|\[)               # Open paren
+        
+        (                             # Begin optional "start"
+          (                           # Begin choice between start1 and start2
+            ('(?P<start2>[^']+)')     # Quoted start
+            | (?P<start1>[^ ]+)       # ...or regular start
+          )                           # End choice
+        [ ]+)?                        # Space at end of optional "start"
+        
+        [Tt][Oo]                      # "to" between start and end
+        
+        ([ ]+                         # Space at start of optional "end"
+          (                           # Begin choice between end1 and end2
+            ('(?P<end2>[^']+)')       # Quoted end
+            | (?P<end1>[^\]\}]*)      # ...or normal end
+          )                           # End choice
+        )?                            # End of optional "end
+        
+        (?P<close>\}|\])              # Close paren
+        """, re.UNICODE | re.VERBOSE)
+        
+        #expr = re.compile("(\\{|\\[)((?P<start>.*?) )?TO( (?P<end>[^\\]}]))?(\\}|\\])", re.UNICODE)
         
         def __init__(self, start, end, startexcl, endexcl, fieldname=None, boost=1.0):
             self.fieldname = fieldname
@@ -330,9 +357,10 @@ class RangePlugin(Plugin):
         
         @classmethod
         def create(cls, parser, match):
-            return cls(match.group(3), match.group(5),
-                       startexcl=match.group(1) == "{",
-                       endexcl=match.group(6) == "}")
+            start = match.group("start2") or match.group("start1")
+            end = match.group("end2") or match.group("end1")
+            return cls(start, end, startexcl=match.group("open") == "{",
+                       endexcl=match.group("close") == "}")
             
         def query(self, parser):
             fieldname = self.fieldname or parser.fieldname
@@ -1065,7 +1093,7 @@ class QueryParser(object):
             matched = False
             
             for tk in tokens:
-                m = tk.expr.match(text, i)
+                m = tk.match(text, i)
                 if m:
                     item = tk.create(self, m)
                     if item:
