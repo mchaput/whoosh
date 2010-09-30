@@ -6,6 +6,8 @@ from whoosh import query, scoring
 from whoosh.fields import *
 from whoosh.filedb.filestore import RamStorage
 from whoosh.searching import Searcher
+from whoosh.util import permutations
+
 
 class TestWeightings(unittest.TestCase):
     def _weighting_classes(self, ignore):
@@ -47,5 +49,32 @@ class TestWeightings(unittest.TestCase):
                 e.msg = "Error searching with %r: %s" % (wclass, e)
                 raise
     
+    def test_compatibility(self):
+        from whoosh.scoring import Weighting
         
+        # This is the old way of doing a custom weighting model, check that
+        # it's still supported...
+        class LegacyWeighting(Weighting):
+            use_final = True
+            
+            def score(self, searcher, fieldname, text, docnum, weight):
+                return weight + 0.5
+            
+            def final(self, searcher, docnum, score):
+                return score * 1.5
         
+        schema = Schema(text=TEXT)
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        domain = "alfa bravo charlie delta".split()
+        for ls in permutations(domain, 3):
+            w.add_document(text=u" ".join(ls))
+        w.commit()
+        
+        s = ix.searcher(weighting=LegacyWeighting())
+        r = s.search(query.Term("text", u"bravo"))
+        self.assertEqual(r.score(0), 2.25)
+        
+
+
+
