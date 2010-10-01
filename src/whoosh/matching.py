@@ -315,6 +315,9 @@ class WrappingMatcher(Matcher):
     def value_as(self, astype):
         return self.child.value_as(astype)
     
+    def spans(self):
+        return self.child.spans()
+    
     def skip_to(self, id):
         return self.child.skip_to(id)
     
