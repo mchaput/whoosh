@@ -50,6 +50,35 @@ class TestSpans(unittest.TestCase):
                 self.assertEqual(content[span.start], "bravo")
             m.next()
     
+    def test_excludematcher(self):
+        schema = fields.Schema(content=fields.TEXT(stored=True))
+        ix = RamStorage().create_index(schema)
+        
+        domain = ("alfa", "bravo", "charlie", "delta")
+        
+        for _ in xrange(3):
+            w = ix.writer()
+            for ls in permutations(domain):
+                w.add_document(content=u" ".join(ls))
+            w.commit(merge=False)
+        
+        w = ix.writer()
+        w.delete_document(5)
+        w.delete_document(10)
+        w.delete_document(28)
+        w.commit(merge=False)
+        
+        q = Term("content", "bravo")
+        s = ix.searcher()
+        m = q.matcher(s)
+        while m.is_active():
+            content = s.stored_fields(m.id())["content"].split()
+            spans = m.spans()
+            for span in spans:
+                self.assertEqual(content[span.start], "bravo")
+            m.next()
+        
+    
     def test_span_term(self):
         ix = self.get_index()
         s = ix.searcher()
