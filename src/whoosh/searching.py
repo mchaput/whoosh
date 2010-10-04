@@ -843,19 +843,31 @@ class Facets(object):
     """This object lets you categorize a Results object based on a set of
     non-overlapping "facets" defined by queries.
     
+    (It is not an error if the facets overlap; each document will simply be
+    sorted into one category arbitrarily.)
+    
+    For the common case of using the terms in a certain field as the facets,
+    you can create a Facets object and set up the facets with the ``from_field``
+    class method::
+    
+        # Automatically gets the values of the field and sets them up as the
+        # facets
+        facets = Facets.from_field(searcher, "size")
+    
     The initializer takes keyword arguments in the form ``facetname=query``,
     for example::
     
         from whoosh import query
         
-        facets = Facets(small=query.Term("size", u"small"),
+        facets = Facets(searcher,
+                        small=query.Term("size", u"small"),
                         medium=query.Term("size", u"medium"),
                         large=query.Or([query.Term("size", u"large"),
                                         query.Term("size", u"xlarge")]))
     
     ...or you can use the ``add_facet()`` method::
     
-        facets = Facets()
+        facets = Facets(searcher)
         facets.add_facet("small", query.Term("size", u"small"))
     
     Note that the fields used in the queries must of course be indexed. Also
@@ -864,34 +876,23 @@ class Facets(object):
     multiple facet lists in your results (for exmaple, "price" and "size"),
     you must instantiate multiple Facets objects.
     
-    Before you can start categorizing results, you must call the ``study()``
-    method with a searcher to can associate the facets with actual documents in
-    an index::
+    Once you have a Facets object, you can use the
+    :func:`~whoosh.searching.Facets.categorize` and
+    :func:`~whoosh.searching.Facets.counts` methods to apply the facets to a
+    set of search results.
     
-        searcher = myindex.searcher()
-        facets.study(searcher)
-    
-    (It is not an error if the facets overlap; each document will simply be
-    sorted into one category arbitrarily.)
-    
-    For the common case of using the terms in a certain field as the facets,
-    you can create a Facets object and set up the facets with the ``from_field``
-    class method and skip having to call ``study()``::
-    
-        # Automatically gets the values of the field, sets them up as the
-        # facets, and calls study() for you
-        facets = Facets.from_field(searcher, "size")
-    
-    Once you have set up the Facets object, you can use its ``categorize()``
-    method to sort search results based on the facets::
+    If you want the list of documents in the ``categorize`` dictionary to be
+    in scored order, you should create the ``Results`` by calling ``search``
+    with ``limit=None`` to turn off optimizations so all documents are scored::
     
         # Normally, the searcher uses a bunch of optimizations to avoid working
         # having to look at every search result. However, since we want to know
         # how many documents appeared in each facet, we have to look at every
-        # matching document, so use limit=None 
+        # matching document, so use limit=None
+        facets = searcher.facets_from_field("chapter")
         myresults = searcher.search(myquery, limit=None)
         cats = facets.categorize(myresults)
-        
+    
     The ``categorize()`` method returns a dictionary mapping facet names to
     lists of (docnum, score) pairs. The scores are included in case you want
     to, for example, calculate which facet has the highest aggregate score.
@@ -915,7 +916,7 @@ class Facets(object):
             
     """
     
-    def __init__(self, **queries):
+    def __init__(self, searcher, **queries):
         """You can supply keyword arguments in the form facetname=queryobject.
         For example::
     
@@ -933,6 +934,7 @@ class Facets(object):
             facets = Facets().from_field(searcher, fieldname)
         """
         
+        self.searcher = searcher
         self.queries = queries.items()
         self.map = None
     
@@ -946,18 +948,19 @@ class Facets(object):
         """
         
         self.queries.append((name, q))
+        self.map = None
     
     def remove_facet(self, name):
         self.queries = [(n, q) for n, q in self.queries if n != name]
+        self.map = None
     
     @classmethod
     def from_field(cls, searcher, fieldname):
-        """Sets the facets in the object based on the terms in the given field::
+        """Sets the facets in the object based on the terms in the given
+        field::
         
             searcher = myindex.searcher()
             facets = Facets.from_field(searcher, "chapter")
-        
-        This method calls ``study()`` automatically using the given searcher.
         
         :param searcher: a :class:`Searcher` object.
         :param fieldname: the name of the field to use to create the facets.
@@ -966,7 +969,7 @@ class Facets(object):
         fs = cls()
         fs.queries = [(token, query.Term(fieldname, token))
                         for token in searcher.lexicon(fieldname)]
-        fs.study(searcher)
+        fs._study(searcher)
         return fs
     
     def facets(self):
@@ -982,26 +985,16 @@ class Facets(object):
         
         return [name for name, q in self.queries]
     
-    def study(self, searcher):
-        """Sets up the data structures that associate documents in the index
-        with facets. You must call this once before you call ``categorize()``.
-        If the index is updated, you should call ``study()`` again with an
-        updated searcher.
+    def _study(self):
+        # Sets up the data structures that associate documents in the index
+        # with facets.
         
-        :param searcher: a :class:`Searcher` object.
-        """
-        
-        facetmap = array("i", [-1] * searcher.doc_count_all())
+        searcher = self.searcher
+        facetmap = {}
         for i, (name, q) in enumerate(self.queries):
             for docnum in q.docs(searcher):
                 facetmap[docnum] = i
         self.map = facetmap
-    
-    def studied(self):
-        """Returns True if you have called ``study()`` on this object.
-        """
-        
-        return self.map is not None
     
     def counts(self, results):
         """Returns a dictionary mapping facet names to the number of hits in
@@ -1011,7 +1004,7 @@ class Facets(object):
         """
         
         if self.map is None:
-            raise Exception("You must call study(searcher) before calling categorize()")
+            self._study()
         
         d = defaultdict(int)
         names = self.names()
@@ -1034,9 +1027,10 @@ class Facets(object):
         in case you want to, for example, calculate which facet has the highest
         aggregate score.
         
-        Because the categorize method needs to "see" all results to categorize
-        them, you should create the results object using the ``limit=None``
-        keyword argument to ``search()``.
+        If you want the list of documents in the ``categorize`` dictionary to
+        be in scored order, you should create the ``Results`` by calling
+        ``search`` with ``limit=None`` to turn off optimizations so all
+        documents are scored.
         
         >>> myfacets = Facets.from_field(mysearcher, "chapter")
         >>> results = mysearcher.search(myquery, limit=None)
@@ -1046,6 +1040,9 @@ class Facets(object):
         to any of the facets in this object, the dictionary will list them
         under the None key.
         
+        >>> cats = myfacets.categorize(results)
+        >>> print cats[None]
+        
         You can use the ``Searcher.stored_fields(docnum)`` method to get the
         stored fields corresponding to a document number.
         
@@ -1053,13 +1050,21 @@ class Facets(object):
         """
         
         if self.map is None:
-            raise Exception("You must call study(searcher) before calling categorize()")
+            self._study()
         
         d = defaultdict(list)
         names = self.names()
         facetmap = self.map
         
-        for docnum, score in results.items():
+        # If all the results are scored, then we will use the scores to build
+        # the categorized list in scored order. If not all the results are
+        # scored, 
+        if len(results) == len(results.docs()):
+            items = results.items()
+        else:
+            items = ((docnum, None) for docnum in results.docs())
+        
+        for docnum, score in items:
             index = facetmap[docnum]
             if index < 0:
                 name = None
@@ -1070,8 +1075,6 @@ class Facets(object):
         return dict(d)
 
 
-if __name__ == '__main__':
-    pass
 
 
 
