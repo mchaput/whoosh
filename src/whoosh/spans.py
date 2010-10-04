@@ -169,6 +169,8 @@ class SpanWrappingMatcher(WrappingMatcher):
         spans = self._get_spans()
         while child.is_active() and not spans:
             r = child.next() or r
+            if not child.is_active():
+                return True
             spans = self._get_spans()
         self._spans = spans
         
