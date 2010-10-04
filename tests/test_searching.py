@@ -469,6 +469,26 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], 1)
     
+    def test_phrase_multi(self):
+        schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        
+        domain = u"alfa bravo charlie delta echo".split()
+        w = None
+        for i, ls in enumerate(permutations(domain)):
+            if w is None:
+                w = ix.writer()
+            w.add_document(id=i, text=u" ".join(ls))
+            if not i % 30:
+                w.commit()
+                w = None
+        if w is not None:
+            w.commit()
+        
+        s = ix.searcher()
+        q = query.Phrase("text", ["alfa", "bravo"])
+        r = s.search(q)
+    
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True),
                                hobbies=fields.TEXT(stored=True))
