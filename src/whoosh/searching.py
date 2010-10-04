@@ -1011,8 +1011,8 @@ class Facets(object):
         facetmap = self.map
         
         for docnum in results.docs():
-            index = facetmap[docnum]
-            if index < 0:
+            index = facetmap.get(docnum)
+            if index is None:
                 name = None
             else:
                 name = names[index]
@@ -1065,8 +1065,8 @@ class Facets(object):
             items = ((docnum, None) for docnum in results.docs())
         
         for docnum, score in items:
-            index = facetmap[docnum]
-            if index < 0:
+            index = facetmap.get(docnum)
+            if index is None:
                 name = None
             else:
                 name = names[index]
