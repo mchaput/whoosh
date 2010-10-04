@@ -57,7 +57,7 @@ usually an ``ID`` field, such as ``manufacturer``. The ``Facets.from_field()``
 method sets up the facets based on the terms in a field automatically::
 
     manuf_facets = Facets.from_field(searcher, "manufacturer")
-    
+
 Categorizing based on custom queries
 ------------------------------------
 
@@ -69,7 +69,7 @@ queries. For example, you can create price categories using range queries::
     # the field's to_text() method
     tt = searcher.schema["price"].to_text
 
-    price_facets = Facets()
+    price_facets = Facets(searcher)
     price_facets.add_facet("$0 - $100",
                            query.Range("price", tt(0), tt(100)))
     price_facets.add_facet("$101 - $500",
@@ -84,43 +84,26 @@ categories. A document cannot belong to two categories in the same Facets
 object. It is not an error if the facets overlap; each document will simply be
 sorted into one category arbitrarily.
 
-If you set up the ``Facets`` object this way, you need to call the ``study()``
-method on the Facets object with a searcher to set up the categories::
-
-    price_facets.study(searcher)
-
 If it's convenient, you can also instantiate a Facets object with keyword
 arguments mapping names to queries::
 
-    my_facets = Facets(small=Or([Term("size", "s"), Term("size", "xs")]),
+    my_facets = Facets(searcher,
+                       small=Or([Term("size", "s"), Term("size", "xs")]),
                        medium=Term("size", "m"),
                        large=Or([Term("size", "l"), Term("size", "xl")]))
-    my_facets.study(searcher)
-
-
-The ``study()`` method
-======================
-
-A ``Facets`` object stores lists of documents numbers corresponding to
-categories. For performance you can re-use Facet objects between searches, but
-any time the index changes or you add or remove a facet, you need to call
-``study()`` with a searcher to update the Facets object::
-
-    my_facets.study(searcher)
-    
-(If you create a Facets object using the ``Facets.from_field()`` class
-method, you don't need to call ``study()`` on the resulting object, the
-class method takes care of that.)
 
 
 Categorizing search results
 ===========================
 
-First, get the search results. Normally, the searcher uses a bunch of
-optimizations to avoid working having to look at every search result. However,
-since we want to know the order of documents in each category, we have to
-score every matching document, so use ``limit=None`` to tell the searcher not
-to limit the number of results::
+First, get the search results.
+
+(Normally, the searcher uses a bunch of optimizations to avoid working having
+to look at every search result. However, if you want to preserve the scored
+order of documents in each category, Whoosh needs to score every matching
+document, so use ``limit=None``. If you only want to use ``counts()`` or don't
+care about the relative order of documents within categories, you don't need
+to use ``limit=None``)::
 
     results = searcher.search(my_query, limit=None)
 
@@ -129,14 +112,18 @@ Now you can use your Facets object(s) to sort the results into categories::
     categories = my_facets.categorize(results)
 
 The ``categorize()`` method simply returns a dictionary mapping category names to
-lists of **document numbers**. The document numbers will be in their relative order
-from the original results.
+lists of **document numbers** and **scores**. The document numbers will be in
+their relative order from the original results.
 
 >>> print categories
-{"small": [5, 1, 4, 8, 2], "medium": [3, 0, 6], "large": [9, 7]}
+{"small": [(5, 2.0), (1, 1.8), (4, 1.5), (8, 1.3), (2, 0.8)],
+ "medium": [(3, 2.5), (0, 1.32), (6, 0.28)],
+ "large": [(9, 2.3), (7, 1.4)]}
 
 (If there were documents in the results that didn't match any of the categories
-in the ``Facets`` object, they will be grouped under a ``None`` key.)
+in the ``Facets`` object, they will be grouped under a ``None`` key. If you
+didn't score all documents by using ``limit=None``, the score will be None for
+all documents.)
 
 The last thing you need to know is how to translate document numbers into
 something you can display. The ``Searcher`` object's ``stored_fields()``
@@ -146,7 +133,7 @@ dictionary::
     for category_name in categories:
         print "Top 5 documents in the %s category" % category_name
         doclist = categories[category_name]
-        for docnum in doclist[:5]:
+        for docnum, score in doclist[:5]:
             print "  ", searcher.stored_fields(docnum)
         if len(doclist) > 5:
             print "  (%s more)" % (len(doclist) - 5)
