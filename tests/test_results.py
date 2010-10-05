@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import analysis, fields, formats, qparser, query
+from whoosh import analysis, fields, formats, qparser, query, searching
 from whoosh.filedb.filestore import RamStorage
 
 
@@ -153,6 +153,39 @@ class TestResults(unittest.TestCase):
         keyterms2 = list(r.key_terms("content"))
         self.assertTrue(len(keyterms2) > 0)
         self.assertEqual(keyterms2[0][0], "distinctive")
+        
+    def test_facets(self):
+        import random
+        from collections import defaultdict
+        
+        schema = fields.Schema(id=fields.STORED, chapter=fields.ID)
+        ix = RamStorage().create_index(schema)
+        
+        w = ix.writer()
+        domain = u"alfa bravo charlie delta echo".split()
+        targets = dict(zip(domain, (5, 10, 7, 2, 9)))
+        cats = defaultdict(list)
+        i = 0
+        while targets:
+            choice = random.choice(targets.keys())
+            w.add_document(id=i, chapter=choice)
+            cats[choice].append((i, 1.0))
+            i += 1
+            targets[choice] -= 1
+            if targets[choice] == 0:
+                del targets[choice]
+        w.commit()
+        
+        s = ix.searcher()
+        fs = searching.Facets(s)
+        for name in domain:
+            fs.add_facet(name, query.Term("chapter", name))
+        
+        r = s.search(query.Every("chapter"), limit=None)
+        self.assertEqual(fs.counts(r), dict(alfa=5, bravo=10, charlie=7, delta=2, echo=9))
+        self.assertEqual(fs.categorize(r), dict(cats))
+        
+
 
 
 if __name__ == '__main__':
