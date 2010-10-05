@@ -3,6 +3,8 @@ syntax: glob
 *~
 *.DS_Store
 
+.settings
+
 build
 dist
 docs/build
