@@ -27,7 +27,7 @@ from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
-from whoosh.writing import IndexWriter
+from whoosh.writing import IndexWriter, IndexingError
 
 
 # Merge policies
@@ -105,6 +105,7 @@ class SegmentWriter(IndexWriter):
         self.docnum = 0
         self.fieldlength_totals = defaultdict(int)
         self._added = False
+        self._unique_cache = {}
     
         # Create a temporary segment to use its .*_filename attributes
         segment = Segment(self.name, 0, None, None)
@@ -297,6 +298,63 @@ class SegmentWriter(IndexWriter):
         self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
+    
+    def update_document(self, **fields):
+        _unique_cache = self._unique_cache
+        
+        # Check which of the supplied fields are unique
+        unique_fields = [name for name, field in self.schema.items()
+                         if name in fields and field.unique]
+        if not unique_fields:
+            raise IndexingError("None of the fields in %r"
+                                " are unique" % fields.keys())
+        
+        # Delete documents matching the unique terms
+        delset = set()
+        for name in unique_fields:
+            text = fields[name]
+            
+            # If we've seen an update_document with this unique field before...
+            if name in _unique_cache:
+                # Get the cache for this field
+                term2docnum = _unique_cache[name]
+                
+                # If the cache is None, that means we've seen this field once
+                # before but didn't cache it the first time. Cache it now.
+                if term2docnum is None:
+                    # Read the first document number found for every term in
+                    # this field and cache the mapping from term to doc num
+                    term2docnum = {}
+                    reader = self.searcher().reader()
+                    for ttext in reader.lexicon(name):
+                        term2docnum[ttext] = reader.postings(name, ttext).id()
+                    reader.close()
+                    _unique_cache[name] = term2docnum
+                    
+                # Look up the cached document number for this term
+                docnum = term2docnum[text]
+            else:
+                # This is the first time we've seen an update_document with
+                # this field. Mark it by putting None in the cache for this
+                # field, but don't cache it. We'll only build the cache if we
+                # see an update_document on this field again. This is to
+                # prevent caching a field even when the user is only going to
+                # call update_document once.
+                reader = self.searcher().reader()
+                docnum = reader.postings(name, text).id()
+                _unique_cache[name] = None
+                reader.close()
+            
+            # Add the document found for this field to the set of docs to
+            # delete
+            delset.add(docnum)
+            
+        # Delete the old docs
+        for docnum in delset:
+            self.delete_document(docnum)
+        
+        # Add the given fields
+        self.add_document(**fields)
     
     def _add_vector(self, docnum, fieldname, vlist):
         vpostwriter = self.vpostwriter
