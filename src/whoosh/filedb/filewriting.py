@@ -137,7 +137,7 @@ class SegmentWriter(IndexWriter):
         
         # Stored fields file
         sf = self.storage.create_file(segment.storedfields_filename)
-        self.storedfields = StoredFieldWriter(sf)
+        self.storedfields = StoredFieldWriter(sf, self.schema.stored_names())
         
         # Field lengths file
         self.lengthfile = self.storage.create_file(segment.fieldlengths_filename)

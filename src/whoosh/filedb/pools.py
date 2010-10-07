@@ -102,7 +102,7 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
                 # term to the term table
                 postcount = postwriter.finish()
                 termtable.add((current_fieldname, current_text),
-                              (current_weight, offset, postcount))
+                              (int(current_weight), offset, postcount))
 
             # Reset the post writer and the term variables
             if fieldname != current_fieldname:
@@ -126,7 +126,7 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
     if not first:
         postcount = postwriter.finish()
         termtable.add((current_fieldname, current_text),
-                      (current_weight, offset, postcount))
+                      (int(current_weight), offset, postcount))
 
 
 class PoolBase(object):

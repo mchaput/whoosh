@@ -22,8 +22,12 @@ from math import log
 import codecs, re, sys, time
 
 from collections import deque, defaultdict
+from copy import copy
 from functools import wraps
 from struct import pack, unpack
+
+from whoosh.system import IS_LITTLE
+
 
 try:
     from itertools import permutations
@@ -67,6 +71,19 @@ utf8decode = codecs.getdecoder("utf_8")
 
 
 # Functions
+
+def array_to_string(a):
+    if IS_LITTLE:
+        a = copy(a)
+        a.byteswap()
+    return a.tostring()
+
+def string_to_array(typecode, s):
+    a = array(typecode)
+    a.fromstring(s)
+    if IS_LITTLE:
+        a.byteswap()
+    return a
 
 
 def make_binary_tree(fn, args, **kwargs):
