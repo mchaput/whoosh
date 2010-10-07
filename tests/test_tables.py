@@ -166,7 +166,7 @@ class TestTables(unittest.TestCase):
     def test_stored_fields(self):
         st = self.make_storage("testindex")
         sf = st.create_file("test.sf")
-        sfw = StoredFieldWriter(sf)
+        sfw = StoredFieldWriter(sf, ["a", "b"])
         sfw.append({"a": "hello", "b": "there"})
         sfw.append({"a": "one", "b": "two"})
         sfw.append({"a": "alfa", "b": "bravo"})

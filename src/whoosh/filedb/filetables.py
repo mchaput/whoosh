@@ -524,7 +524,7 @@ pack_stored_pointer = _stored_pointer_struct.pack
 unpack_stored_pointer = _stored_pointer_struct.unpack
 
 class StoredFieldWriter(object):
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, fieldnames):
         self.dbfile = dbfile
         self.length = 0
         self.directory = ""
@@ -532,9 +532,19 @@ class StoredFieldWriter(object):
         self.dbfile.write_long(0)
         self.dbfile.write_uint(0)
         
+        self.name_map = {}
+        for i, name in enumerate(fieldnames):
+            self.name_map[name] = i
+    
     def append(self, values):
         f = self.dbfile
-        v = dumps(values)
+        
+        name_map = self.name_map
+        vlist = [None] * len(name_map)
+        for k, v in values.iteritems():
+            vlist[name_map[k]] = v
+        
+        v = dumps(vlist, -1)
         self.length += 1
         self.directory += pack_stored_pointer(f.tell(), len(v))
         f.write(v)
@@ -542,6 +552,7 @@ class StoredFieldWriter(object):
     def close(self):
         f = self.dbfile
         directory_pos = f.tell()
+        f.write_pickle(self.name_map)
         f.write(self.directory)
         f.flush()
         f.seek(0)
@@ -555,8 +566,15 @@ class StoredFieldReader(object):
         self.dbfile = dbfile
 
         dbfile.seek(0)
-        self.directory_offset = dbfile.read_long()
+        pos = dbfile.read_long()
         self.length = dbfile.read_uint()
+        
+        dbfile.seek(pos)
+        name_map = dbfile.read_pickle()
+        self.names = [None] * len(name_map)
+        for name, pos in name_map.iteritems():
+            self.names[pos] = name
+        self.directory_offset = dbfile.tell()
         
     def close(self):
         self.dbfile.close()
@@ -572,8 +590,10 @@ class StoredFieldReader(object):
         if len(ptr) != stored_pointer_size:
             raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
         position, length = unpack_stored_pointer(ptr)
-        values = loads(dbfile.map[position:position+length])
-        return values
+        vlist = loads(dbfile.map[position:position+length])
+        
+        names = self.names
+        return dict((names[i], v) for i, v in enumerate(vlist) if v is not None)
 
 
 # Utility functions

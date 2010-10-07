@@ -157,7 +157,7 @@ if __name__=="__main__":
                       default=False)
     parser.add_option("-n", "--name", dest="indexname",
                       help="Name of the index directory",
-                      default="index")
+                      default="enron_index")
     parser.add_option("-m", "--mb", dest="limitmb",
                       help="Memory size, in MB",
                       default="128")
@@ -180,7 +180,6 @@ if __name__=="__main__":
                       help="Directory to use for temp file storage",
                       default=None)
     options, args = parser.parse_args()
-    
     
     archive = os.path.abspath(os.path.join(options.dir, enron_archive_filename))
     cache = os.path.abspath(os.path.join(options.dir, cache_filename))

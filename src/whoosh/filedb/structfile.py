@@ -16,6 +16,7 @@
 
 import mmap, os, sys
 from array import array
+from copy import copy
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
 from struct import calcsize
@@ -24,11 +25,10 @@ from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_sbyte, pack_ushort, pack_int, pack_uint,
                            pack_long, pack_float,
                            unpack_sbyte, unpack_ushort, unpack_int,
-                           unpack_uint, unpack_long, unpack_float)
+                           unpack_uint, unpack_long, unpack_float, IS_LITTLE)
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
-IS_LITTLE = sys.byteorder == "little"
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")
 _ORDERMAP = {"little": "<", "big": ">"}
 
@@ -195,7 +195,7 @@ class StructFile(object):
         self.file.write(pack_float(n))
     def write_array(self, arry):
         if IS_LITTLE:
-            arry = array(arry.typecode, arry)
+            arry = copy(arry)
             arry.byteswap()
         if self.is_real:
             arry.tofile(self.file)

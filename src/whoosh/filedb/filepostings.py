@@ -20,8 +20,9 @@ from struct import Struct
 
 try:
     from zlib import compress, decompress
+    can_compress = True
 except ImportError:
-    compress = decompress = None
+    can_compress = False
 
 from whoosh.formats import Format
 from whoosh.writing import PostingWriter
@@ -95,7 +96,7 @@ class BlockInfo(object):
 
 class FilePostingWriter(PostingWriter):
     def __init__(self, postfile, stringids=False, blocklimit=128,
-                 compressed=True):
+                 compressed=True, compression=3):
         self.postfile = postfile
         self.stringids = stringids
 
@@ -105,6 +106,7 @@ class FilePostingWriter(PostingWriter):
             raise ValueError("blocklimit argument must be > 0")
         self.blocklimit = blocklimit
         self.compressed = compressed
+        self.compression = compression
         self.inblock = False
 
     def _reset_block(self):
@@ -170,7 +172,6 @@ class FilePostingWriter(PostingWriter):
         self.postfile.close()
 
     def _write_block(self):
-        compressed = self.compressed
         posting_size = self.format.posting_size
         stringids = self.stringids
         pf = self.postfile
@@ -178,15 +179,18 @@ class FilePostingWriter(PostingWriter):
         values = self.blockvalues
         weights = self.blockweights
         postcount = len(ids)
+        # Only compress when there are more than 4 postings in the block
+        compressed = self.compressed and postcount > 4
+        compression = self.compression
 
         if not stringids and compressed:
-            compressed_ids = compress(ids.tostring())
+            compressed_ids = compress(ids.tostring(), compression)
             idslen = len(compressed_ids)
         else:
             idslen = 0
             
         if compressed:
-            compressed_weights = compress(weights.tostring())
+            compressed_weights = compress(weights.tostring(), compression)
             weightslen = len(compressed_weights)
         else:
             weightslen = 0
@@ -238,7 +242,7 @@ class FilePostingWriter(PostingWriter):
             values_string += "".join(values)
             
             if compressed:
-                values_string = compress(values_string)
+                values_string = compress(values_string, compression)
             
             pf.write(values_string)
 
@@ -258,8 +262,8 @@ class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorer=None,
                  fieldname=None, text=None, stringids=False):
         
-        assert isinstance(offset, (int, long)), "offset is %r" % offset
-        assert isinstance(format, Format), "format is %r" % format
+        assert isinstance(offset, (int, long)), "offset is %r/%s" % (offset, type(offset))
+        assert isinstance(format, Format), "format is %r/%s" % (format, type(format))
         
         self.postfile = postfile
         self.startoffset = offset
@@ -308,6 +312,7 @@ class FilePostingReader(Matcher):
         return self.format.supports(astype)
 
     def value(self):
+        if self.values is None: self._read_values()
         return self.values[self.i]
 
     def value_as(self, astype):
@@ -402,7 +407,10 @@ class FilePostingReader(Matcher):
             newoffset = offset + _FLOAT_SIZE * postcount
         return (weights, newoffset)
 
-    def _read_values(self, startoffset, endoffset, postcount):
+    def _read_values(self):
+        startoffset = self.voffset
+        endoffset = self.blockinfo.nextoffset
+        postcount = self.blockinfo.postcount
         posting_size = self.format.posting_size
 
         if posting_size != 0:
@@ -437,13 +445,14 @@ class FilePostingReader(Matcher):
             # values
             values = (None,) * postcount
 
-        return values
+        self.values = values
 
     def _consume_block(self):
         postcount = self.blockinfo.postcount
         self.ids, woffset = self._read_ids(self.blockinfo.dataoffset, postcount)
         self.weights, voffset = self._read_weights(woffset, postcount)
-        self.values = self._read_values(voffset, self.blockinfo.nextoffset, postcount)
+        self.voffset = voffset
+        self.values = None
         self.i = 0
 
     def _next_block(self, consume=True):

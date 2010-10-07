@@ -14,8 +14,10 @@
 # limitations under the License.
 #===============================================================================
 
-
+import sys
 from struct import Struct, calcsize
+
+IS_LITTLE = sys.byteorder == "little"
 
 _INT_SIZE = calcsize("!i")
 _SHORT_SIZE = calcsize("!H")
