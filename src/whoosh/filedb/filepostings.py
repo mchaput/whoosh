@@ -18,6 +18,11 @@ import types
 from array import array
 from struct import Struct
 
+try:
+    from zlib import compress, decompress
+except ImportError:
+    compress = decompress = None
+
 from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
@@ -28,14 +33,14 @@ from whoosh.util import utf8encode, utf8decode, length_to_byte, byte_to_length
 
 class BlockInfo(object):
     __slots__ = ("nextoffset", "postcount", "maxweight", "maxwol", "minlength",
-                 "maxid", "dataoffset")
+                 "maxid", "dataoffset", "idslen", "weightslen")
     
-    # nextblockoffset, unused, postcount, maxweight, maxwol, unused, minlength
-    _struct = Struct("!qiBfffB")
+    # nextblockoffset, id len, weight len, postcount, maxweight, maxwol, unused, minlength
+    _struct = Struct("!qHHBfffB")
     
     def __init__(self, nextoffset=None, postcount=None,
                  maxweight=None, maxwol=None, minlength=None,
-                 maxid=None, dataoffset=None):
+                 maxid=None, dataoffset=None, idslen=0, weightslen=0):
         self.nextoffset = nextoffset
         self.postcount = postcount
         self.maxweight = maxweight
@@ -43,7 +48,9 @@ class BlockInfo(object):
         self.minlength = minlength
         self.maxid = maxid
         self.dataoffset = dataoffset
-    
+        self.idslen = idslen
+        self.weightslen = weightslen
+        
     def __repr__(self):
         return ("<%s nextoffset=%r postcount=%r maxweight=%r"
                 " maxwol=%r minlength=%r"
@@ -54,10 +61,10 @@ class BlockInfo(object):
                                               self.maxid, self.dataoffset))
     
     def to_file(self, file):
-        file.write(self._struct.pack(self.nextoffset, 0, self.postcount,
+        file.write(self._struct.pack(self.nextoffset, self.idslen,
+                                     self.weightslen, self.postcount,
                                      self.maxweight, self.maxwol, 0,
                                      length_to_byte(self.minlength)))
-        
         maxid = self.maxid
         if isinstance(maxid, unicode):
             file.write_string(utf8encode(maxid)[0])
@@ -69,7 +76,7 @@ class BlockInfo(object):
 
     @staticmethod
     def from_file(file, stringids=False):
-        nextoffset, xi1, postcount, maxweight, maxwol, xf1, minlength\
+        nextoffset, idslen, weightslen, postcount, maxweight, maxwol, xf1, minlength\
         = BlockInfo._struct.unpack(file.read(BlockInfo._struct.size))
         assert postcount > 0
         minlength = byte_to_length(minlength)
@@ -82,11 +89,13 @@ class BlockInfo(object):
         dataoffset = file.tell()
         return BlockInfo(nextoffset=nextoffset, postcount=postcount,
                           maxweight=maxweight, maxwol=maxwol, maxid=maxid,
-                          minlength=minlength, dataoffset=dataoffset)
+                          minlength=minlength, dataoffset=dataoffset,
+                          idslen=idslen, weightslen=weightslen)
     
 
 class FilePostingWriter(PostingWriter):
-    def __init__(self, postfile, stringids=False, blocklimit=128):
+    def __init__(self, postfile, stringids=False, blocklimit=128,
+                 compressed=True):
         self.postfile = postfile
         self.stringids = stringids
 
@@ -95,6 +104,7 @@ class FilePostingWriter(PostingWriter):
         elif blocklimit < 1:
             raise ValueError("blocklimit argument must be > 0")
         self.blocklimit = blocklimit
+        self.compressed = compressed
         self.inblock = False
 
     def _reset_block(self):
@@ -160,6 +170,7 @@ class FilePostingWriter(PostingWriter):
         self.postfile.close()
 
     def _write_block(self):
+        compressed = self.compressed
         posting_size = self.format.posting_size
         stringids = self.stringids
         pf = self.postfile
@@ -167,6 +178,21 @@ class FilePostingWriter(PostingWriter):
         values = self.blockvalues
         weights = self.blockweights
         postcount = len(ids)
+
+        if not stringids and compressed:
+            compressed_ids = compress(ids.tostring())
+            idslen = len(compressed_ids)
+        else:
+            idslen = 0
+            
+        if compressed:
+            compressed_weights = compress(weights.tostring())
+            weightslen = len(compressed_weights)
+        else:
+            weightslen = 0
+
+        # TODO: THIS IS NOT CROSS-PLATFORM BECAUSE YOU ARE CONVERTING AN ARRAY
+        # TO/FROM A STRING WITHOUT REGARD TO ENDIAN-NESS!!!
 
         # Write the blockinfo
         maxid = ids[-1]
@@ -179,32 +205,42 @@ class FilePostingWriter(PostingWriter):
 
         blockinfo_start = pf.tell()
         blockinfo = BlockInfo(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
-                            minlength=minlength, postcount=postcount,
-                            maxid=maxid)
+                              minlength=minlength, postcount=postcount,
+                              maxid=maxid, idslen=idslen, weightslen=weightslen)
         blockinfo.to_file(pf)
         
         # Write the IDs
         if stringids:
             for id in ids:
                 pf.write_string(utf8encode(id)[0])
+        elif idslen:
+            pf.write(compressed_ids)
         else:
             pf.write_array(ids)
             
         # Write the weights
-        pf.write_array(weights)
-
-        # If the size of a posting value in this format is not fixed
-        # (represented by a number less than zero), write an array of value
-        # lengths
-        if posting_size < 0:
-            lengths = array("i")
-            for valuestring in values:
-                lengths.append(len(valuestring))
-            pf.write_array(lengths)
+        if compressed:
+            pf.write(compressed_weights)
+        else:
+            pf.write_array(weights)
 
         # Write the values
         if posting_size != 0:
-            pf.write("".join(values))
+            values_string = ""
+            
+            # If the size of a posting value in this format is not fixed
+            # (represented by a number less than zero), write an array of value
+            # lengths
+            if posting_size < 0:
+                lengths = array("i", (len(valuestring) for valuestring in values))
+                values_string += lengths.tostring()
+            
+            values_string += "".join(values)
+            
+            if compressed:
+                values_string = compress(values_string)
+            
+            pf.write(values_string)
 
         # Seek back and write the pointer to the next block
         pf.flush()
@@ -338,38 +374,55 @@ class FilePostingReader(Matcher):
     def _read_ids(self, offset, postcount):
         pf = self.postfile
         pf.seek(offset)
+        idslen = self.blockinfo.idslen
         
         if self.stringids:
             rs = pf.read_string
             ids = [utf8decode(rs())[0] for _ in xrange(postcount)]
+            newoffset = pf.tell()
+        elif idslen:
+            ids = array("I")
+            ids.fromstring(decompress(pf.read(idslen)))
+            newoffset = offset + idslen
         else:
             ids = pf.read_array("I", postcount)
+            newoffset = offset + _INT_SIZE * postcount
 
-        return (ids, pf.tell())
+        return (ids, newoffset)
 
     def _read_weights(self, offset, postcount):
-        weights = self.postfile.get_array(offset, "f", postcount)
-        return (weights, offset + _FLOAT_SIZE * postcount)
+        weightslen = self.blockinfo.weightslen
+        
+        if weightslen:
+            weights = array("f")
+            weights.fromstring(decompress(self.postfile.read(weightslen)))
+            newoffset = offset + weightslen
+        else:
+            weights = self.postfile.get_array(offset, "f", postcount)
+            newoffset = offset + _FLOAT_SIZE * postcount
+        return (weights, newoffset)
 
     def _read_values(self, startoffset, endoffset, postcount):
-        pf = self.postfile
         posting_size = self.format.posting_size
 
         if posting_size != 0:
-            valueoffset = startoffset
+            values_string = self.postfile.map[startoffset:endoffset]
+            
+            if self.blockinfo.weightslen:
+                # Values string is compressed
+                values_string = decompress(values_string)
+            
             if posting_size < 0:
-                # Read the array of lengths for the values
-                lengths = pf.get_array(startoffset, "i", postcount)
-                valueoffset += _INT_SIZE * postcount
-
-            pf.seek(valueoffset)
-            allvalues = pf.read(endoffset - valueoffset)
-
+                # Pull the array of value lengths off the front of the string
+                lengths = array("i")
+                lengths.fromstring(values_string[:_INT_SIZE * postcount])
+                values_string = values_string[_INT_SIZE * postcount:]
+                
             # Chop up the block string into individual valuestrings
             if posting_size > 0:
                 # Format has a fixed posting size, just chop up the values
                 # equally
-                values = [allvalues[i * posting_size: i * posting_size + posting_size]
+                values = [values_string[i * posting_size: i * posting_size + posting_size]
                           for i in xrange(postcount)]
             else:
                 # Format has a variable posting size, use the array of lengths
@@ -377,7 +430,7 @@ class FilePostingReader(Matcher):
                 pos = 0
                 values = []
                 for length in lengths:
-                    values.append(allvalues[pos:pos + length])
+                    values.append(values_string[pos:pos + length])
                     pos += length
         else:
             # Format does not store values (i.e. Existence), just create fake

@@ -24,6 +24,7 @@ from whoosh.filedb.filetables import (StoredFieldWriter, CodedOrderedWriter,
                                       CodedHashWriter)
 from whoosh.filedb import misc
 from whoosh.filedb.pools import TempfilePool
+from whoosh.reading import TermNotFound
 from whoosh.store import LockError
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
@@ -332,7 +333,7 @@ class SegmentWriter(IndexWriter):
                     _unique_cache[name] = term2docnum
                     
                 # Look up the cached document number for this term
-                docnum = term2docnum[text]
+                delset.add(term2docnum[text])
             else:
                 # This is the first time we've seen an update_document with
                 # this field. Mark it by putting None in the cache for this
@@ -341,13 +342,13 @@ class SegmentWriter(IndexWriter):
                 # prevent caching a field even when the user is only going to
                 # call update_document once.
                 reader = self.searcher().reader()
-                docnum = reader.postings(name, text).id()
-                _unique_cache[name] = None
-                reader.close()
-            
-            # Add the document found for this field to the set of docs to
-            # delete
-            delset.add(docnum)
+                try:
+                    delset.add(reader.postings(name, text).id())
+                    _unique_cache[name] = None
+                except TermNotFound:
+                    pass
+                finally:
+                    reader.close()
             
         # Delete the old docs
         for docnum in delset:
