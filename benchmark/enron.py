@@ -119,7 +119,8 @@ def do_index(cache, indexname, chunk=1000, skip=1, upto=600000, **kwargs):
                 break
             if not c % chunk:
                 t = now()
-                print "Indexed %d messages, %f for %d, %f total, %f docs/s" % (c, t - chunkstarttime, chunk, t - starttime, c/t)
+                sofar = t - starttime
+                print "Indexed %d messages, %f for %d, %f total, %f docs/s" % (c, t - chunkstarttime, chunk, sofar, c/sofar)
                 schema.clean()
                 chunkstarttime = t
     spooltime = now()
