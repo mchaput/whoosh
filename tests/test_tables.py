@@ -5,11 +5,11 @@ from os import mkdir
 from os.path import exists
 from shutil import rmtree
 
-from whoosh.filedb.filestore import FileStorage
+from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filetables import (HashReader, HashWriter,
                                       OrderedHashWriter, OrderedHashReader,
-                                      StoredFieldWriter, StoredFieldReader)
-from whoosh.filedb.misc import encode_termkey, decode_termkey
+                                      StoredFieldWriter, StoredFieldReader,
+                                      TermIndexWriter, TermIndexReader)
 
 
 class TestTables(unittest.TestCase):
@@ -27,18 +27,17 @@ class TestTables(unittest.TestCase):
                 pass
     
     def test_termkey(self):
-        term = ("alfa", u"bravo")
-        self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        st = RamStorage()
+        tw = TermIndexWriter(st.create_file("test.trm"))
+        tw.add(("alfa", u"bravo"), (1.0, 2, 3))
+        tw.add((u"alfa", u"Ã¦Ã¯Å�Ãº"), (4.0, 5, 6))
+        tw.add((u"text", u"æ—¥æœ¬èªž"), (7.0, 8, 9))
+        tw.close()
         
-        term = ("text", u"hello there")
-        self.assertEqual(term, decode_termkey(encode_termkey(term)))
-        
-    def test_unicode_termkey(self):
-        term = (u"alfa", u"Ã¦Ã¯Å�Ãº")
-        self.assertEqual(term, decode_termkey(encode_termkey(term)))
-        
-        term = (u"text", u"æ—¥æœ¬èªž")
-        self.assertEqual(term, decode_termkey(encode_termkey(term)))
+        tr = TermIndexReader(st.open_file("test.trm"))
+        self.assertTrue(("alfa", u"bravo") in tr)
+        self.assertTrue((u"alfa", u"Ã¦Ã¯Å�Ãº") in tr)
+        self.assertTrue((u"text", u"æ—¥æœ¬èªž") in tr)
         
     def test_random_termkeys(self):
         def random_fieldname():
@@ -47,10 +46,18 @@ class TestTables(unittest.TestCase):
         def random_token():
             return "".join(unichr(random.randint(0, 0xd7ff)) for _ in xrange(1, 20))
         
-        for _ in xrange(1000):
-            term = (random_fieldname(), random_token())
-            self.assertEqual(term, decode_termkey(encode_termkey(term)), term)
-    
+        domain = sorted([(random_fieldname(), random_token()) for _ in xrange(1000)])
+        
+        st = RamStorage()
+        tw = TermIndexWriter(st.create_file("test.trm"))
+        for term in domain:
+            tw.add(term, (1.0, 0, 1))
+        tw.close()
+        
+        tr = TermIndexReader(st.open_file("test.trm"))
+        for term in domain:
+            self.assertTrue(term in tr)
+        
     def test_hash(self):
         st = self.make_storage("testindex")
         hwf = st.create_file("test.hsh")
@@ -179,6 +186,22 @@ class TestTables(unittest.TestCase):
         self.assertEqual(sfr[1], {"a": "one", "b": "two"})
         
         self.destroy_dir("testindex")
+        
+    def test_termindex(self):
+        terms = [("a", "alfa"), ("a", "bravo"), ("a", "charlie"), ("a", "delta"),
+                 ("b", "able"), ("b", "baker"), ("b", "dog"), ("b", "easy")]
+        st = RamStorage()
+        
+        tw = TermIndexWriter(st.create_file("test.trm"))
+        for i, t in enumerate(terms):
+            tw.add(t, (1.0, i * 1000, 1))
+        tw.close()
+        
+        tr = TermIndexReader(st.open_file("test.trm"))
+        for i, (t1, t2) in enumerate(zip(tr.keys(), terms)):
+            self.assertEqual(t1, t2)
+            self.assertEqual(tr.get(t1), (1.0, i * 1000, 1))
+        
     
 
 if __name__ == '__main__':

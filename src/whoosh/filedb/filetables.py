@@ -25,10 +25,12 @@ from collections import defaultdict
 from cPickle import loads, dumps
 from struct import Struct
 
-from whoosh.filedb.misc import enpickle, depickle
-from whoosh.system import _INT_SIZE, _LONG_SIZE
-from whoosh.util import byte_to_length
+from whoosh.system import (_INT_SIZE, _LONG_SIZE, pack_ushort, pack_uint,
+                           pack_long, unpack_ushort, unpack_uint, unpack_long)
+from whoosh.util import byte_to_length, utf8encode, utf8decode
 
+
+_4GB = 4 * 1024 * 1024 * 1024
 
 #def cdb_hash(key):
 #    h = 5381L
@@ -276,11 +278,10 @@ class OrderedHashWriter(HashWriter):
     def close(self):
         self._write_hashes()
         dbfile = self.dbfile
-        index = self.index
         
-        dbfile.write_uint(len(index))
-        for pos in index:
-            dbfile.write_long(pos)
+        dbfile.write_uint(len(self.index))
+        for n in self.index:
+            dbfile.write_long(n)
         
         self._write_directory()
         self.dbfile.close()
@@ -341,11 +342,11 @@ class OrderedHashReader(HashReader):
 
 
 class CodedHashWriter(HashWriter):
-    def __init__(self, dbfile, keycoder=None, valuecoder=None):
+    # Abstract base class, subclass must implement keycoder and valuecoder
+    
+    def __init__(self, dbfile):
         sup = super(CodedHashWriter, self)
         sup.__init__(dbfile)
-        self.keycoder = keycoder or str
-        self.valuecoder = valuecoder or enpickle
 
         self._add = sup.add
         
@@ -354,13 +355,12 @@ class CodedHashWriter(HashWriter):
         
 
 class CodedHashReader(HashReader):
-    def __init__(self, dbfile, keycoder=None, keydecoder=None,
-                 valuedecoder=None):
+    # Abstract base class, subclass must implement keycoder, keydecoder and
+    # valuecoder
+    
+    def __init__(self, dbfile):
         sup = super(CodedHashReader, self)
         sup.__init__(dbfile)
-        self.keycoder = keycoder or str
-        self.keydecoder = keydecoder or int
-        self.valuedecoder = valuedecoder or depickle
 
         self._items = sup.items
         self._keys = sup.keys
@@ -392,12 +392,11 @@ class CodedHashReader(HashReader):
 
 
 class CodedOrderedWriter(OrderedHashWriter):
-    def __init__(self, dbfile, keycoder=None, valuecoder=None):
+    # Abstract base class, subclasses must implement keycoder and valuecoder
+    
+    def __init__(self, dbfile):
         sup = super(CodedOrderedWriter, self)
         sup.__init__(dbfile)
-        self.keycoder = keycoder or str
-        self.valuecoder = valuecoder or enpickle
-
         self._add = sup.add
 
     def add(self, key, data):
@@ -405,13 +404,12 @@ class CodedOrderedWriter(OrderedHashWriter):
 
 
 class CodedOrderedReader(OrderedHashReader):
-    def __init__(self, dbfile, keycoder=None, keydecoder=None,
-                 valuedecoder=None):
+    # Abstract base class, subclasses must implement keycoder, keydecoder,
+    # and valuedecoder
+    
+    def __init__(self, dbfile):
         sup = super(CodedOrderedReader, self)
         sup.__init__(dbfile)
-        self.keycoder = keycoder or str
-        self.keydecoder = keydecoder or int
-        self.valuedecoder = valuedecoder or depickle
 
         self._items = sup.items
         self._items_from = sup.items_from
@@ -426,7 +424,11 @@ class CodedOrderedReader(OrderedHashReader):
         return self.valuedecoder(self._getitem(k))
 
     def __contains__(self, key):
-        return self._contains(self.keycoder(key))
+        try:
+            codedkey = self.keycoder(key)
+        except KeyError:
+            return False
+        return self._contains(codedkey)
 
     def get(self, key, default=None):
         k = self.keycoder(key)
@@ -455,6 +457,119 @@ class CodedOrderedReader(OrderedHashReader):
         for k in self._keys_from(self.keycoder(key)):
             yield kd(k)
 
+
+# weight, offset, postcount
+_terminfo_struct0 = Struct("!BIB")
+_terminfo_struct1 = Struct("!fII")
+_terminfo_struct2 = Struct("!fqI")
+
+class TermIndexWriter(CodedOrderedWriter):
+    def __init__(self, dbfile):
+        super(TermIndexWriter, self).__init__(dbfile)
+        self.fieldcounter = 0
+        self.fieldmap = {}
+    
+    def keycoder(self, key):
+        # Encode term
+        fieldmap = self.fieldmap
+        fieldname, text = key
+        
+        if fieldname in fieldmap:
+            fieldnum = fieldmap[fieldname]
+        else:
+            fieldnum = self.fieldcounter
+            fieldmap[fieldname] = fieldnum
+            self.fieldcounter += 1
+        
+        key = pack_ushort(fieldnum) + utf8encode(text)[0]
+        return key
+    
+    def valuecoder(self, data):
+        # Encode term info
+        w, offset, df = data
+        if offset < _4GB:
+            iw = int(w)
+            if w == 1 and df == 1 :
+                return pack_uint(offset)
+            elif w == iw and w <= 255 and df <= 255:
+                return _terminfo_struct0.pack(iw, offset, df)
+            else:
+                return _terminfo_struct1.pack(w, offset, df)
+        else:
+            return _terminfo_struct2.pack(w, offset, df)
+    
+    def close(self):
+        self._write_hashes()
+        dbfile = self.dbfile
+        
+        dbfile.write_uint(len(self.index))
+        for n in self.index:
+            dbfile.write_long(n)
+        dbfile.write_pickle(self.fieldmap)
+        
+        self._write_directory()
+        self.dbfile.close()
+
+
+class TermIndexReader(CodedOrderedReader):
+    def __init__(self, dbfile):
+        super(TermIndexReader, self).__init__(dbfile)
+        
+        dbfile.seek(self.indexbase + self.length * _LONG_SIZE)
+        self.fieldmap = dbfile.read_pickle()
+        self.names = [None] * len(self.fieldmap)
+        for name, num in self.fieldmap.iteritems():
+            self.names[num] = name
+    
+    def keycoder(self, key):
+        return pack_ushort(self.fieldmap[key[0]]) + utf8encode(key[1])[0]
+        
+    def keydecoder(self, v):
+        return (self.names[unpack_ushort(v[:2])[0]], utf8decode(v[2:])[0])
+    
+    def valuedecoder(self, v):
+        if len(v) == _INT_SIZE:
+            return (1.0, unpack_uint(v)[0], 1)
+        elif len(v) == _terminfo_struct0.size:
+            return _terminfo_struct0.unpack(v)
+        elif len(v) == _terminfo_struct1.size:
+            return _terminfo_struct1.unpack(v)
+        else:
+            return _terminfo_struct2.unpack(v)
+    
+
+# docnum, fieldnum
+_vectorkey_struct = Struct("!IH")
+
+class TermVectorWriter(TermIndexWriter):
+    def keycoder(self, key):
+        fieldmap = self.fieldmap
+        docnum, fieldname = key
+        
+        if fieldname in fieldmap:
+            fieldnum = fieldmap[fieldname]
+        else:
+            fieldnum = self.fieldcounter
+            fieldmap[fieldname] = fieldnum
+            self.fieldcounter += 1
+        
+        return _vectorkey_struct.pack(docnum, fieldnum)
+    
+    def valuecoder(self, offset):
+        return pack_long(offset)
+        
+
+class TermVectorReader(TermIndexReader):
+    def keycoder(self, key):
+        return _vectorkey_struct.pack(key[0], self.fieldmap[key[1]])
+        
+    def keydecoder(self, v):
+        docnum, fieldnum = _vectorkey_struct.unpack(v)
+        return (docnum, self.names[fieldnum])
+    
+    def valuedecoder(self, v):
+        return unpack_long(v)[0]
+    
 
 class LengthWriter(object):
     def __init__(self, dbfile, doccount, lengths=None):

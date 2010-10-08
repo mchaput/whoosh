@@ -17,9 +17,8 @@
 from threading import Lock
 
 from whoosh.filedb.filepostings import FilePostingReader
-from whoosh.filedb.filetables import (CodedOrderedReader, StoredFieldReader,
-                                      LengthReader, CodedHashReader)
-from whoosh.filedb import misc
+from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
+                                      LengthReader, TermVectorReader)
 from whoosh.matching import ExcludeMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.util import protected
@@ -36,9 +35,7 @@ class SegmentReader(IndexReader):
         
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
-        self.termsindex = CodedOrderedReader(tf, keycoder=misc.encode_termkey,
-                                             keydecoder=misc.decode_termkey,
-                                             valuedecoder=misc.decode_terminfo)
+        self.termsindex = TermIndexReader(tf)
         
         # Term postings file, vector index, and vector postings: lazy load
         self.postfile = None
@@ -77,9 +74,7 @@ class SegmentReader(IndexReader):
         
         # Vector index
         vf = storage.open_file(segment.vectorindex_filename)
-        self.vectorindex = CodedHashReader(vf, keycoder=misc.encode_vectorkey,
-                                           keydecoder=misc.decode_vectorkey,
-                                           valuedecoder=misc.decode_vectoroffset)
+        self.vectorindex = TermVectorReader(vf)
         
         # Vector postings file
         self.vpostfile = storage.open_file(segment.vectorposts_filename,
