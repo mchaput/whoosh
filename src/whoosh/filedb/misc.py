@@ -33,19 +33,20 @@ def decode_termkey(key):
 
 
 _terminfo_struct0 = struct.Struct("!BIB")
-_terminfo_struct1 = struct.Struct("!iqI") # weight, offset, postcount
+_terminfo_struct1 = struct.Struct("!fqI") # weight, offset, postcount
 _4gb = 4 * 1024 * 1024 * 1024
 def encode_terminfo(w_off_df):
     w, offset, df = w_off_df
     if offset < _4gb:
+        iw = int(w)
         if w == 1 and df == 1 :
             return pack_uint(offset)
-        elif w <= 255 and df <= 255:
-            return _terminfo_struct0.pack(w, offset, df)
+        elif w == iw and w <= 255 and df <= 255:
+            return _terminfo_struct0.pack(iw, offset, df)
     return _terminfo_struct1.pack(w, offset, df)
 def decode_terminfo(v):
     if len(v) == _INT_SIZE:
-        return (1, unpack_uint(v)[0], 1)
+        return (1.0, unpack_uint(v)[0], 1)
     elif len(v) == _INT_SIZE + 2:
         return _terminfo_struct0.unpack(v)
     else:
