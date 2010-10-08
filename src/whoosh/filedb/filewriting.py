@@ -20,9 +20,8 @@ from collections import defaultdict
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
-from whoosh.filedb.filetables import (StoredFieldWriter, CodedOrderedWriter,
-                                      CodedHashWriter)
-from whoosh.filedb import misc
+from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
+                                      TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
 from whoosh.reading import TermNotFound
 from whoosh.store import LockError
@@ -113,9 +112,7 @@ class SegmentWriter(IndexWriter):
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
-        self.termsindex = CodedOrderedWriter(tf,
-                                             keycoder=misc.encode_termkey,
-                                             valuecoder=misc.encode_terminfo)
+        self.termsindex = TermIndexWriter(tf)
         
         # Term postings file
         pf = self.storage.create_file(segment.termposts_filename)
@@ -124,9 +121,7 @@ class SegmentWriter(IndexWriter):
         if self.schema.has_vectored_fields():
             # Vector index
             vf = self.storage.create_file(segment.vectorindex_filename)
-            self.vectorindex = CodedHashWriter(vf,
-                                               keycoder=misc.encode_vectorkey,
-                                               valuecoder=misc.encode_vectoroffset)
+            self.vectorindex = TermVectorWriter(vf)
             
             # Vector posting file
             vpf = self.storage.create_file(segment.vectorposts_filename)

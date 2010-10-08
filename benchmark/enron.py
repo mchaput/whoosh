@@ -1,5 +1,5 @@
 from __future__ import division
-from bz2 import compress, decompress
+from zlib import compress, decompress
 from email import message_from_string
 import os.path, tarfile
 from marshal import dump, load
@@ -111,7 +111,7 @@ def do_index(cache, indexname, chunk=1000, skip=1, upto=600000, **kwargs):
     for d in get_cached_messages(cache):
         skipc -= 1
         if not skipc:
-            d["_stored_body"] = compress(d["body"])
+            d["_stored_body"] = compress(d["body"], 9)
             w.add_document(**d)
             skipc = skip
             c += 1

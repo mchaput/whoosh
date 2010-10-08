@@ -755,7 +755,7 @@ class Hit(object):
     
     >>> r = searcher.search(query.Term("content", "render"))
     >>> r[0]
-    Hit{title=u"Rendering the scene"}
+    <Hit {title=u"Rendering the scene"}>
     >>> r[0].docnum
     4592L
     >>> r[0].score
