@@ -533,27 +533,29 @@ class Results(object):
         else:
             d.score = None
 
-    def __getitem__(self, n):
+    def fields(self, n):
         """Returns the stored fields for the document at the ``n``th position
         in the results. Use :method:`Results.docnum` if you want the raw
         document number instead of the stored fields.
         """
         
-        stored_fields = self.searcher.stored_fields
+        return self.searcher.stored_fields(self.top_n[n])
+    
+    def __getitem__(self, n):
         if isinstance(n, slice):
-            
-            
-            return [stored_fields(i) for i in self.top_n.__getitem__(n)]
+            start, stop, step = n.indices(len(self))
+            return [Hit(self.searcher, i, self.top_n[i], self.score(i))
+                    for i in xrange(start, stop, step)]
         else:
-            return stored_fields(self.top_n[n])
+            return Hit(self.searcher, n, self.top_n[n], self.score(n))
 
     def __iter__(self):
         """Yields the stored fields of each result document in ranked order.
         """
-        stored_fields = self.searcher.stored_fields
-        for docnum in self.top_n:
-            yield stored_fields(docnum)
-
+        
+        for i in xrange(len(self.top_n)):
+            yield Hit(self.searcher, i, self.top_n[i], self.score(i))
+        
     def __contains__(self, docnum):
         """Returns True if the given document number matched the query.
         """
@@ -747,6 +749,62 @@ class Results(object):
         items = arein + notin + other
         self._setitems(items)
 
+
+class Hit(object):
+    """Represents a single search result ("hit") in a Results object.
+    
+    >>> r = searcher.search(query.Term("content", "render"))
+    >>> r[0]
+    Hit{title=u"Rendering the scene"}
+    >>> r[0].docnum
+    4592L
+    >>> r[0].score
+    2.52045682 
+    """
+    
+    def __init__(self, searcher, pos, docnum, score):
+        """
+        :param results: the Results object this hit belongs to.
+        :param pos: the position in the results list of this hit, for example
+            pos=0 means this is the first (highest scoring) hit.
+        :param docnum: the document number of this hit.
+        :param score: the score of this hit.
+        """
+        
+        self.searcher = searcher
+        self.pos = pos
+        self.docnum = docnum
+        self.score = score
+        self._fields = None
+    
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.fields())
+    
+    def __eq__(self, other):
+        if isinstance(other, Hit):
+            return self.fields() == other.fields()
+        elif isinstance(other, dict):
+            return self.fields() == other
+        else:
+            return False
+    
+    def __iter__(self):
+        return self.fields().iterkeys()
+    
+    def __getitem__(self, key):
+        return self.fields().__getitem__(key)
+    
+    def __len__(self):
+        return len(self.fields())
+    
+    def fields(self):
+        if self._fields is None:
+            self._fields = self.searcher.stored_fields(self.docnum)
+        return self._fields
+    
+    def get(self, key, default=None):
+        return self.fields().get(key, default)
+    
 
 class ResultsPage(object):
     """Represents a single page out of a longer list of results, as returned

@@ -133,15 +133,19 @@ def do_index(cache, indexname, chunk=1000, skip=1, upto=600000, **kwargs):
 
 # Main function for testing the archive
 
-def do_search(indexname, q, limit=10):
+def do_search(indexname, q, limit=10, showbody=False):
     ix = index.open_dir(indexname)
     s = ix.searcher()
     q = qparser.QueryParser("body", schema=s.schema).parse(q)
     print "query=", q
     r = s.search(q, limit=limit)
     print "result=", r
-    for i, d in enumerate(r):
-        print i, d.get("subject")
+    t = now()
+    for hit in r:
+        print hit.pos, hit.get("subject")
+        if showbody:
+            print decompress(hit["body"])
+    print "Print time:", now() - t
 
 
 if __name__=="__main__":
@@ -176,6 +180,9 @@ if __name__=="__main__":
     parser.add_option("-l", "--limit", dest="limit",
                       help="Maximum number of results to display for a search.",
                       default="10")
+    parser.add_option("-b", "--body", dest="showbody",
+                      help="Show the body of emails found by a search.",
+                      default=False, action="store_true")
     parser.add_option("-t", "--tempdir", dest="tempdir",
                       help="Directory to use for temp file storage",
                       default=None)
@@ -203,7 +210,8 @@ if __name__=="__main__":
                  dir=options.tempdir)
     
     if args:
-        qs = args[0].decode("utf8")
+        qs = " ".join(args).decode("utf8")
         print "Query string=", repr(qs)
-        do_search(options.indexname, qs, limit=int(options.limit))
+        do_search(options.indexname, qs, limit=int(options.limit),
+                  showbody=options.showbody)
     
