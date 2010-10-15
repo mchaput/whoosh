@@ -161,10 +161,16 @@ class SegmentReader(IndexReader):
                 continue
             yield (fieldname, t, postcount, totalfreq)
 
+    def _test_field(self, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No field %r" % fieldname)
+        if self.schema[fieldname].format is None:
+            raise TermNotFound("Field %r is not indexed" % fieldname)
+
     @protected
     def iter_from(self, fieldname, text):
         schema = self.schema
-        
+        self._test_field(fieldname)
         for (fn, t), (totalfreq, _, postcount) in self.termsindex.items_from((fieldname, text)):
             if fn not in schema:
                 continue
@@ -172,18 +178,21 @@ class SegmentReader(IndexReader):
 
     @protected
     def _term_info(self, fieldname, text):
+        self._test_field(fieldname)
         try:
             return self.termsindex[(fieldname, text)]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
     def doc_frequency(self, fieldname, text):
+        self._test_field(fieldname)
         try:
             return self._term_info(fieldname, text)[2]
         except TermNotFound:
             return 0
 
     def frequency(self, fieldname, text):
+        self._test_field(fieldname)
         try:
             return self._term_info(fieldname, text)[0]
         except TermNotFound:
@@ -194,9 +203,7 @@ class SegmentReader(IndexReader):
         # and throws away the value, but overriding to use
         # FileTableReader.keys_from() is much, much faster.
 
-        if fieldname not in self.schema:
-            return []
-
+        self._test_field(fieldname)
         return self.expand_prefix(fieldname, '')
 
     @protected
@@ -205,17 +212,15 @@ class SegmentReader(IndexReader):
         # iter_from() and throws away the value, but overriding to use
         # FileTableReader.keys_from() is much, much faster.
 
-        if fieldname not in self.schema:
-            return
-
+        self._test_field(fieldname)
         for fn, t in self.termsindex.keys_from((fieldname, prefix)):
             if fn != fieldname or not t.startswith(prefix):
                 return
             yield t
 
     def postings(self, fieldname, text, exclude_docs=frozenset(), scorer=None):
+        self._test_field(fieldname)
         format = self.format(fieldname)
-
         try:
             offset = self.termsindex[(fieldname, text)][1]
         except KeyError:
@@ -235,6 +240,8 @@ class SegmentReader(IndexReader):
         return postreader
     
     def vector(self, docnum, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No  field %r" % fieldname)
         vformat = self.vector_format(fieldname)
         if not vformat:
             raise Exception("No vectors are stored for field %r" % fieldname)
