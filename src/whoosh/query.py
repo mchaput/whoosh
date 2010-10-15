@@ -355,9 +355,9 @@ class CompoundQuery(Query):
 
         if subs:
             subs = self.__class__([subq.simplify(ixreader) for subq in subs],
-                                  boost=self.boost)
+                                  boost=self.boost).normalize()
             if nots:
-                nots = Or(nots).normalize().simplify()
+                nots = Or(nots).simplify().normalize()
                 return AndNot(subs, nots)
             else:
                 return subs
@@ -393,8 +393,14 @@ class MultiTerm(Query):
         raise NotImplementedError
 
     def simplify(self, ixreader):
-        return Or([Term(self.fieldname, word, boost=self.boost)
-                   for word in self._words(ixreader)])
+        existing = [Term(self.fieldname, word, boost=self.boost)
+                    for word in self._words(ixreader)]
+        if len(existing) == 1:
+            return existing[0]
+        elif existing:
+            return Or(existing)
+        else:
+            return NullQuery
 
     def _all_terms(self, termset, phrases=True):
         pass
@@ -1142,6 +1148,8 @@ class NullQuery(Query):
     "Represents a query that won't match anything."
     def __call__(self):
         return self
+    def __repr__(self):
+        return "<%s>" % (self.__class__.__name__, )
     def copy(self):
         return self
     def estimate_size(self, ixreader):
