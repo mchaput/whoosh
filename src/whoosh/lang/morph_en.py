@@ -693,7 +693,7 @@ rules = (
          # (e.g., tokenise) // British variant  // ~expertise
          (r"[%s].*[%s](ise)" % (vowels, cons), "ize,izes,izer,izers,ized,izing,izings,ization,izations,ises,iser,isers,ised,ising,isings,isation,isations"),
          # (e.g., tree, agree, rage, horse, hoarse)
-         (r"[%s].*[%s](e)", "es,er,ers,est,ed,ing,ings,eing,eings,ely,eness,enesses,ement,ements,eless,eful"),
+         (r"[%s].*[%s](e)" % (vowels, cons), "es,er,ers,est,ed,ing,ings,eing,eings,ely,eness,enesses,ement,ements,eless,eful"),
          
          # Words ending in -ED
          
