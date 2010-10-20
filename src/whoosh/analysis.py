@@ -1,3 +1,5 @@
+# coding: utf8
+
 #===============================================================================
 # Copyright 2007 Matt Chaput
 # 
@@ -475,8 +477,10 @@ class NgramTokenizer(Tokenizer):
         inlen = len(value)
         t = Token(positions, chars, removestops=removestops, mode=mode)
         pos = start_pos
-        for start in xrange(0, inlen - self.min + 1):
-            for size in xrange(self.min, self.max + 1):
+        
+        if mode == "query":
+            size = min(self.max, inlen)
+            for start in xrange(0, inlen - size + 1):
                 end = start + size
                 if end > inlen: continue
                 
@@ -489,9 +493,26 @@ class NgramTokenizer(Tokenizer):
                 if chars:
                     t.startchar = start_char + start
                     t.endchar = start_char + end
-                
                 yield t
-            pos += 1
+                pos += 1
+        else:
+            for start in xrange(0, inlen - self.min + 1):
+                for size in xrange(self.min, self.max + 1):
+                    end = start + size
+                    if end > inlen: continue
+                    
+                    t.text = value[start:end]
+                    if keeporiginal:
+                        t.original = t.text
+                    t.stopped = False
+                    if positions:
+                        t.pos = pos
+                    if chars:
+                        t.startchar = start_char + start
+                        t.endchar = start_char + end
+                    
+                    yield t
+                pos += 1
                     
 
 # Filters
@@ -746,7 +767,15 @@ class CharsetFilter(Filter):
     supplied character mapping object. This is useful for case and accent
     folding.
     
-    One way to get a character mapping object is to convert a Sphinx charset
+    The ``whoosh.support.charset`` module has a useful map for accent folding.
+    
+    >>> from whoosh.support.charset import accent_map
+    >>> retokenizer = RegexTokenizer()
+    >>> chfilter = CharsetFilter(accent_map)
+    >>> [t.text for t in chfilter(retokenizer(u'café'))]
+    [u'cafe']
+    
+    Another way to get a character mapping object is to convert a Sphinx charset
     table file using :func:`whoosh.support.charset.charset_table_to_dict`.
     
     >>> from whoosh.support.charset import charset_table_to_dict, default_charset
@@ -760,12 +789,12 @@ class CharsetFilter(Filter):
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
     
-    __inittypes__ = dict(charmap=str)
+    __inittypes__ = dict(charmap=dict)
     
     def __init__(self, charmap):
         """
-        :param charmap: a mapping from integer character numbers to unicode
-            characters, as required by the unicode.translate() method.
+        :param charmap: a dictionary mapping from integer character numbers to
+            unicode characters, as required by the unicode.translate() method.
         """
         self.charmap = charmap
     
@@ -800,6 +829,9 @@ class NgramFilter(Filter):
         :param minsize: The minimum size of the N-grams.
         :param maxsize: The maximum size of the N-grams. If you omit this
             parameter, maxsize == minsize.
+        :param at: If 'start', only take N-grams from the start of each word.
+            if 'end', only take N-grams from the end of each word. Otherwise,
+            take all N-grams from the word (the default).
         """
         
         self.min = minsize

@@ -33,13 +33,11 @@ class Test(unittest.TestCase):
         for i in xrange(20000):
             w = ix.writer()
             w.add_document(id=unicode(i),
-                           text = u"".join(random.sample(domain, 5)))
+                           text = u" ".join(random.sample(domain, 5)))
             w.commit()
         
         ix.optimize()
-        ix.close()
-        
-        self.destroy_index("testindex")
+        #self.destroy_index("testindex")
 
     def test_20000_batch(self):
         sc = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
@@ -52,13 +50,11 @@ class Test(unittest.TestCase):
         w = BatchWriter(ix, limit=100)
         for i in xrange(20000):
             w.add_document(id=unicode(i),
-                           text = u"".join(random.sample(domain, 5)))
+                           text = u" ".join(random.sample(domain, 5)))
         w.commit()
         
         ix.optimize()
-        ix.close()
-        
-        self.destroy_index("testindex")
+        #self.destroy_index("testindex")
 
 
 
