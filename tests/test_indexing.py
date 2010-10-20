@@ -5,7 +5,8 @@ from shutil import rmtree
 from whoosh import fields, query
 from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
-from whoosh.util import length_to_byte, byte_to_length
+from whoosh.util import length_to_byte, byte_to_length, permutations
+from whoosh.writing import BatchWriter
 
 
 class TestIndexing(unittest.TestCase):
@@ -388,8 +389,29 @@ class TestIndexing(unittest.TestCase):
         r = s.search(query.Prefix("content", u"d"), limit=None)
         self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
         
-    def test_flushruns(self):
-        schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
+    def test_deleteall(self):
+        schema = fields.Schema(text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        w = BatchWriter(ix, limit=10)
+        domain = u"alfa bravo charlie delta echo".split()
+        for ls in permutations(domain):
+            w.add_document(text=u" ".join(ls))
+        w.commit()
+        
+        # This is just a test, don't use this method to delete all docs IRL!
+        doccount = ix.doc_count_all()
+        w = ix.writer()
+        for docnum in xrange(doccount):
+            w.delete_document(docnum)
+        w.commit()
+        
+        r = ix.searcher().search(query.Or([query.Term("text", u"alfa"), query.Term("text", u"bravo")]))
+        self.assertEqual(len(r), 0)
+        
+        ix.optimize()
+        self.assertEqual(ix.doc_count_all(), 0)
+        self.assertEqual(list(ix.reader()), [])
+        
         
 
 

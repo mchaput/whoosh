@@ -805,6 +805,20 @@ class TestSearching(unittest.TestCase):
         rp = s.search_page(q, 2, pagelen=5)
         self.assertEqual(list(rp), tops[5:10])
         
+        rp = s.search_page(q, 1, pagelen=10)
+        self.assertEqual(len(rp), 54)
+        self.assertEqual(rp.pagecount, 6)
+        rp = s.search_page(q, 6, pagelen=10)
+        self.assertEqual(len(list(rp)), 4)
+        self.assertTrue(rp.is_last_page())
+        
+        self.assertRaises(ValueError, s.search_page, q, 0)
+        self.assertRaises(ValueError, s.search_page, q, 7)
+        
+        rp = s.search_page(query.Term("content", "glonk"), 1)
+        self.assertEqual(len(rp), 0)
+        self.assertTrue(rp.is_last_page())
+        
 
 
 if __name__ == '__main__':
