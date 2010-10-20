@@ -859,8 +859,8 @@ class ResultsPage(object):
             raise ValueError("pagenum must be >= 1")
         
         self.pagecount = int(ceil(self.total / pagelen))
-        if pagenum > self.pagecount:
-            pagenum = self.pagecount
+        if pagenum > 1 and pagenum > self.pagecount:
+            raise ValueError("Asked for page %s of %s" % (pagenum, self.pagecount))
         
         self.pagenum = pagenum
 
@@ -895,6 +895,12 @@ class ResultsPage(object):
         page.
         """
         return self.results.scored_list[n + self.offset]
+    
+    def is_last_page(self):
+        """Returns True if this object represents the last page of results.
+        """
+        
+        return self.pagecount == 0 or self.pagenum == self.pagecount
 
 
 class Facets(object):
