@@ -34,7 +34,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
-                             IntersectionMatcher)
+                             IntersectionMatcher, NullMatcher)
 from whoosh.query import And, AndMaybe, Or, Query, Term
 from whoosh.util import make_binary_tree
 
@@ -181,7 +181,8 @@ class SpanWrappingMatcher(WrappingMatcher):
     
     def next(self):
         self.child.next()
-        self._find_next()
+        if self.is_active():
+            self._find_next()
         
     def skip_to(self, id):
         self.child.skip_to(id)
@@ -359,7 +360,66 @@ class SpanNear(SpanQuery):
                         spans.add(aspan.to(bspan))
             
             return sorted(spans)
+
+
+class SpanProximity(SpanQuery):
+    def __init__(self, subqueries, window=10, minmatch=1):
+        self.subqueries = subqueries
+        self.window = window
+        self.minmatch = minmatch
     
+    def matcher(self, searcher, exclude_docs=None):
+        matchers = [q.matcher(searcher, exclude_docs=exclude_docs)
+                    for q in self.subqueries]
+        matchers = [m for m in matchers if m.is_active()]
+        
+        if not matchers:
+            return NullMatcher()
+        elif len(matchers) == 1:
+            return matchers[0]
+        else:
+            return SpanProximity.ProxMatcher(matchers, self.window, self.minmatch)
+    
+    class ProxMatcher(SpanWrappingMatcher):
+        def __init__(self, matchers, window, minmatch):
+            union = make_binary_tree(UnionMatcher, matchers)
+            self.matchers = matchers
+            self.window = window
+            self.minmatch = minmatch
+            super(SpanProximity.ProxMatcher, self).__init__(union)
+            
+        def _get_spans(self):
+            window = self.window
+            
+            id = self.child.id()
+            matching = [m for m in self.matchers if m.id() == id]
+            if len(matching) < self.minmatch:
+                return []
+            all_spans = [m.spans() for m in matching]
+            
+            mindists = {}
+            for i, alist in enumerate(all_spans):
+                for j in xrange(i+1, len(all_spans)):
+                    for a in alist:
+                        pre = a.start - window
+                        post = a.end + window
+                        
+                        blist = all_spans[j]
+                        for b in blist:
+                            if b.end < pre: continue
+                            if b.start > post: break
+                        
+                            dist = a.distance_to(b)
+                            coords = (i, j)
+                            if coords not in mindists or dist < mindists[coords]:
+                                mindists[coords] = dist
+                                if b.start > a.end:
+                                    break
+            print "mindists=", mindists
+            return []
+            
+                    
+
 
 class SpanNot(SpanQuery):
     """Matches spans from the first query only if they don't overlap with
@@ -543,6 +603,9 @@ class SpanBefore(SpanQuery):
         def _get_spans(self):
             bminstart = min(bspan.start for bspan in self.b.spans())
             return [aspan for aspan in self.a.spans() if aspan.end < bminstart]
+
+
+
 
 
 
