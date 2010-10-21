@@ -26,7 +26,8 @@ from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_long, pack_float,
                            unpack_sbyte, unpack_ushort, unpack_int,
                            unpack_uint, unpack_long, unpack_float, IS_LITTLE)
-from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
+from whoosh.util import (varint, read_varint, signed_varint,
+                         decode_signed_varint, float_to_byte, byte_to_float)
 
 
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")
@@ -130,14 +131,24 @@ class StructFile(object):
         self.seek(l, 1)
 
     def write_varint(self, i):
-        """Writes a variable-length integer to the wrapped file.
+        """Writes a variable-length unsigned integer to the wrapped file.
         """
         self.file.write(varint(i))
 
+    def write_svarint(self, i):
+        """Writes a variable-length signed integer to the wrapped file.
+        """
+        self.file.write(signed_varint(i))
+
     def read_varint(self):
-        """Reads a variable-length encoded integer from the wrapped file.
+        """Reads a variable-length encoded unsigned integer from the wrapped file.
         """
         return read_varint(self.file.read)
+
+    def read_svarint(self):
+        """Reads a variable-length encoded signed integer from the wrapped file.
+        """
+        return decode_signed_varint(read_varint(self.file.read))
 
     def write_byte(self, n):
         """Writes a single byte to the wrapped file, shortcut for

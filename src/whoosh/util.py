@@ -147,6 +147,24 @@ def varint_to_int(vi):
         shift += 7
     return i
 
+
+def signed_varint(i):
+    """Zig-zag encodes a signed integer into a varint.
+    """
+    
+    if i >= 0:
+        return varint(i << 1)
+    return varint((i << 1) ^ (~0))
+
+def decode_signed_varint(i):
+    """Zig-zag decodes an integer value.
+    """
+    
+    if not i & 1:
+        return i >> 1
+    return (i >> 1) ^ (~0)
+
+
 def read_varint(readfn):
     """
     Reads a variable-length encoded integer.

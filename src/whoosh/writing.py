@@ -306,7 +306,7 @@ class BatchWriter(object):
     """Convenience wrapper that batches up calls to ``add_document()``,
     ``update_document()``, and/or ``delete_document()``, and commits them
     whenever a maximum amount of time passes or a maximum number of batched
-    changes accumulates.
+    changes accumulate.
     
     In scenarios where you are continuously adding single documents very
     rapidly (for example a web application where lots of users are adding
