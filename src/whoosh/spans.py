@@ -163,6 +163,9 @@ class SpanWrappingMatcher(WrappingMatcher):
         return m
     
     def _find_next(self):
+        if not self.is_active():
+            return
+        
         child = self.child
         r = False
         
@@ -181,8 +184,7 @@ class SpanWrappingMatcher(WrappingMatcher):
     
     def next(self):
         self.child.next()
-        if self.is_active():
-            self._find_next()
+        self._find_next()
         
     def skip_to(self, id):
         self.child.skip_to(id)
