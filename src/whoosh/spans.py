@@ -276,7 +276,7 @@ class SpanNear(SpanQuery):
     You can use the ``phrase()`` class method to create a tree of SpanNear
     queries to match a list of terms::
     
-        q = spans.SpanNear.phrase("text", ["whoosh", "search", "library"], slop=2)
+        q = spans.SpanNear.phrase("text", [u"whoosh", u"search", u"library"], slop=2)
     """
     
     def __init__(self, a, b, slop=1, ordered=True, mindist=1):
@@ -315,8 +315,14 @@ class SpanNear(SpanQuery):
     def phrase(cls, fieldname, words, slop=1, ordered=True):
         """Returns a tree of SpanNear queries to match a list of terms.
         
+        This class method is a convenience for constructing a phrase query
+        using a binary tree of SpanNear queries.
+        
+        >>> SpanNear.phrase("f", [u"a", u"b", u"c", u"d"])
+        SpanNear(SpanNear(Term("f", u"a"), Term("f", u"b")), SpanNear(Term("f", u"c"), Term("f", u"d")))
+        
         :param fieldname: the name of the field to search in.
-        :param words: a sequence of tokens to search for.
+        :param words: a sequence of token texts to search for.
         :param slop: the number of positions within which the terms must
             occur. Default is 1, meaning the terms must occur right next
             to each other.
