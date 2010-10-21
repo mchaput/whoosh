@@ -22,4 +22,5 @@ Span queries
 .. autoclass:: SpanOr
 .. autoclass:: SpanContains
 .. autoclass:: SpanBefore
-    
+.. autoclass:: SpanCondition
+

@@ -607,7 +607,38 @@ class SpanBefore(SpanQuery):
             return [aspan for aspan in self.a.spans() if aspan.end < bminstart]
 
 
+class SpanCondition(SpanQuery):
+    """Matches documents that satisfy both subqueries, but only uses the spans
+    from the first subquery.
+    
+    This is useful when you want to place conditions on matches but not have
+    those conditions affect the spans returned.
+    
+    For example, to get spans for the term ``alfa`` in documents that also
+    must contain the term ``bravo``::
+    
+        SpanCondition(Term("text", u"alfa"), Term("text", u"bravo"))
+    
+    """
+    
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+        self.q = And([a, b])
+        
+    def matcher(self, searcher, exclude_docs=None):
+        ma = self.a.matcher(searcher, exclude_docs=exclude_docs)
+        mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
+        return SpanCondition.SpanConditionMatcher(ma, mb)
+    
+    class SpanConditionMatcher(SpanWrappingMatcher):
+        def __init__(self, a, b):
+            self.a = a
+            isect = IntersectionMatcher(a, b)
+            super(SpanCondition.SpanConditionMatcher, self).__init__(isect)
 
+        def _get_spans(self):
+            return self.a.spans()
 
 
 
