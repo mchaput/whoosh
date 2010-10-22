@@ -265,6 +265,20 @@ class TestSpans(unittest.TestCase):
             self.assertTrue(orig.index("alfa") < orig.index("charlie"))
             m.next()
 
+    def test_span_condition(self):
+        ix = self.get_index()
+        s = ix.searcher()
+        
+        sc = spans.SpanCondition(Term("text", "alfa"), Term("text", "charlie"))
+        m = sc.matcher(s)
+        while m.is_active():
+            orig = list(s.stored_fields(m.id())["text"])
+            self.assertTrue("alfa" in orig)
+            self.assertTrue("charlie" in orig)
+            for span in m.spans():
+                self.assertEqual(orig[span.start], "alfa")
+            m.next()
+
     def test_regular_or(self):
         ix = self.get_index()
         s = ix.searcher()
@@ -303,6 +317,7 @@ class TestSpans(unittest.TestCase):
                 self.assertEqual(orig[startchar:endchar], "bravo echo")
             m.next()
 
+    
 
 
             
