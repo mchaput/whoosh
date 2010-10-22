@@ -25,6 +25,8 @@ Contents
     querylang
     query
     analysis
+    stemming
+    ngrams
     facets
     highlight
     keywords

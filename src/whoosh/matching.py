@@ -775,8 +775,8 @@ class IntersectionMatcher(AdditiveBiMatcher):
     def id(self):
         return self.a.id()
     
-    def all_ids(self):
-        return iter(sorted(set(self.a.all_ids()) & set(self.b.all_ids())))
+    #def all_ids(self):
+    #    return iter(sorted(set(self.a.all_ids()) & set(self.b.all_ids())))
     
     def skip_to(self, id):
         if not self.is_active(): raise ReadTooFar
