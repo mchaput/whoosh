@@ -88,7 +88,7 @@ class TestResults(unittest.TestCase):
         r = s.search_page(q, 2, pagelen=2)
         self.assertEqual([d["id"] for d in r], ["3", "4"])
         
-        r = s.search_page(q, 10, pagelen=4)
+        r = s.search_page(q, 2, pagelen=4)
         self.assertEqual(r.total, 6)
         self.assertEqual(r.pagenum, 2)
         self.assertEqual(r.pagelen, 2)
@@ -120,7 +120,7 @@ class TestResults(unittest.TestCase):
         self.assertEqual(len(r), 10)
         self.assertEqual(r.pagecount, 2)
         
-        r = s.search_page(q, 3, 5)
+        r = s.search_page(q, 2, 5)
         self.assertEqual(len(r), 10)
         self.assertEqual(r.pagecount, 2)
         self.assertEqual(r.pagenum, 2)

@@ -308,6 +308,13 @@ class BatchWriter(object):
     whenever a maximum amount of time passes or a maximum number of batched
     changes accumulate.
     
+    This is useful when you're adding documents one at a time, in rapid
+    succession (e.g. a web app). The more documents you add per commit, the
+    more efficient Whoosh is. This class batches multiple documents and adds
+    them all at once. If you're adding a bunch of documents at a time, just use
+    a regular writer -- you're already committing a "batch" of documents, so
+    you don't need this class.
+    
     In scenarios where you are continuously adding single documents very
     rapidly (for example a web application where lots of users are adding
     content simultaneously), and you don't mind a delay between documents being
