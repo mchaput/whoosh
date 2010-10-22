@@ -12,3 +12,7 @@ src/Whoosh.egg-info
 
 bmark
 *testindex
+benchmark/enron_index
+benchmark/reuters_index
+benchmark/enron_cache.pickle
+benchmark/enron_mail_082109.tar.gz
