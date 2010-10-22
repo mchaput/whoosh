@@ -28,57 +28,103 @@ from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.spans import Span
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, unpack_long
 from whoosh.util import utf8encode, utf8decode, length_to_byte, byte_to_length
 
 
 class BlockInfo(object):
-    __slots__ = ("nextoffset", "postcount", "maxweight", "maxwol", "minlength",
-                 "maxid", "dataoffset", "idslen", "weightslen")
+    __slots__ = ("flags", "nextoffset", "idslen", "weightslen", "postcount",
+                 "maxweight", "maxwol", "minlength", "maxid", "dataoffset",
+                 "_blockstart", "_pointer_pos")
     
-    # nextblockoffset, id len, weight len, postcount, maxweight, maxwol, unused, minlength
-    _struct = Struct("!qHHBfffB")
+    # On-disk header format
+    # 
+    # Offset  Type  Desc
+    # ------  ----  -------
+    # 0       B     Flags
+    # 1       B     (Unused)
+    # 2       H     (Unused)
+    # 4       i     Delta to start of next block
+    # ------------- If byte 0 == 0, the first 8 bytes are an absolute pointer
+    #               to the next block (backwards compatibility)
+    # 
+    # 8       H     Length of the compressed IDs, or 0 if IDs are not
+    #               compressed
+    # 10      H     Length of the compressed weights, or 0 if the weights are
+    #               not compressed
+    # 12      B     Number of posts in this block
+    # 13      f     Maximum weight in this block (used for quality)
+    # 17      f     Maximum (weight/fieldlength) in this block (for quality)
+    # 21      f     (Unused)
+    # 25      B     Minimum length in this block, encoded as byte (for quality)
+    #
+    # Followed by either an unsigned int or string indicating the last ID in
+    # this block
     
-    def __init__(self, nextoffset=None, postcount=None,
-                 maxweight=None, maxwol=None, minlength=None,
-                 maxid=None, dataoffset=None, idslen=0, weightslen=0):
+    _struct = Struct("!BBHiHHBfffB")
+    
+    def __init__(self, flags=None, nextoffset=None, idslen=0, weightslen=0,
+                 postcount=None, maxweight=None, maxwol=None, minlength=0,
+                 maxid=None, dataoffset=None):
+        self.flags = flags
         self.nextoffset = nextoffset
+        self.idslen = idslen
+        self.weightslen = weightslen
         self.postcount = postcount
         self.maxweight = maxweight
         self.maxwol = maxwol
         self.minlength = minlength
         self.maxid = maxid
+        # Position in the file where the header ends and the data begins,
+        # set in from_file()
         self.dataoffset = dataoffset
-        self.idslen = idslen
-        self.weightslen = weightslen
         
     def __repr__(self):
-        return ("<%s nextoffset=%r postcount=%r maxweight=%r"
-                " maxwol=%r minlength=%r"
-                " maxid=%r dataoffset=%r>" % (self.__class__.__name__,
-                                              self.nextoffset, self.postcount,
-                                              self.maxweight, self.maxwol,
-                                              self.minlength,
-                                              self.maxid, self.dataoffset))
-    
-    def to_file(self, file):
-        file.write(self._struct.pack(self.nextoffset, self.idslen,
-                                     self.weightslen, self.postcount,
+        values = " ".join("%s=%r" % (name, getattr(self, name))
+                          for name in self.__slots__)
+        return "<%s %s>" % (self.__class__.__name, values)
+        
+    def to_file(self, file, stringids=False):
+        flags = 1
+        
+        self._blockstart = file.tell()
+        self._pointer_pos = self._blockstart + 4
+        file.write(self._struct.pack(flags,
+                                     0, 0, # unused B, H
+                                     self.nextoffset,
+                                     self.idslen,
+                                     self.weightslen,
+                                     self.postcount,
                                      self.maxweight, self.maxwol, 0,
                                      length_to_byte(self.minlength)))
-        maxid = self.maxid
-        if isinstance(maxid, unicode):
-            file.write_string(utf8encode(maxid)[0])
+        
+        # Write the maximum ID after the header. We have to do this
+        # separately because it might be a string (in the case of a vector)
+        if stringids:
+            file.write_string(utf8encode(self.maxid)[0])
         else:
-            file.write_uint(maxid)
+            file.write_uint(self.maxid)
     
-    def _read_id(self, file):
-        self.maxid = file.read_uint()
-
+    def write_pointer(self, file):
+        nextoffset = file.tell()
+        file.seek(self._pointer_pos)
+        file.write_int(nextoffset - self._blockstart)
+        file.seek(nextoffset)
+    
     @staticmethod
     def from_file(file, stringids=False):
-        nextoffset, idslen, weightslen, postcount, maxweight, maxwol, xf1, minlength\
-        = BlockInfo._struct.unpack(file.read(BlockInfo._struct.size))
+        here = file.tell()
+        
+        encoded_header = file.read(BlockInfo._struct.size)
+        header = BlockInfo._struct.unpack(encoded_header)
+        (flags, _, _, nextoffset, idslen, weightslen, postcount, maxweight,
+         maxwol, _, minlength) = header
+        
+        if not flags:
+            nextoffset = unpack_long(encoded_header[:8])
+        else:
+            nextoffset = here + nextoffset
+        
         assert postcount > 0
         minlength = byte_to_length(minlength)
         
@@ -88,10 +134,11 @@ class BlockInfo(object):
             maxid = file.read_uint()
         
         dataoffset = file.tell()
-        return BlockInfo(nextoffset=nextoffset, postcount=postcount,
-                          maxweight=maxweight, maxwol=maxwol, maxid=maxid,
-                          minlength=minlength, dataoffset=dataoffset,
-                          idslen=idslen, weightslen=weightslen)
+        return BlockInfo(flags=flags, nextoffset=nextoffset,
+                         postcount=postcount, maxweight=maxweight,
+                         maxwol=maxwol, maxid=maxid, minlength=minlength,
+                         dataoffset=dataoffset, idslen=idslen,
+                         weightslen=weightslen)
     
 
 class FilePostingWriter(PostingWriter):
@@ -207,11 +254,10 @@ class FilePostingWriter(PostingWriter):
             minlength = min(self.blocklengths)
             maxwol = max(w / l for w, l in zip(weights, self.blocklengths))
 
-        blockinfo_start = pf.tell()
         blockinfo = BlockInfo(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
                               minlength=minlength, postcount=postcount,
                               maxid=maxid, idslen=idslen, weightslen=weightslen)
-        blockinfo.to_file(pf)
+        blockinfo.to_file(pf, stringids)
         
         # Write the IDs
         if stringids:
@@ -248,11 +294,8 @@ class FilePostingWriter(PostingWriter):
 
         # Seek back and write the pointer to the next block
         pf.flush()
-        nextoffset = pf.tell()
-        pf.seek(blockinfo_start)
-        pf.write_long(nextoffset)
-        pf.seek(nextoffset)
-
+        blockinfo.write_pointer(pf)
+        
         self.posttotal += postcount
         self._reset_block()
         self.blockcount += 1
