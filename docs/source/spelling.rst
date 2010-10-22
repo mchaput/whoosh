@@ -1,8 +1,10 @@
+==============================
 Using the Whoosh spell checker
 ==============================
 
+
 Overview
---------
+========
 
 Whoosh includes pure-Python spell-checking library functions that use the Whoosh
 search engine for back-end storage.
@@ -42,7 +44,7 @@ spelling dictionaries in the same directory)::
 
 
 Creating the spelling dictionary
---------------------------------
+================================
 
 You need to populate the spell-checking dictionary with (properly spelled) words
 to check against. There are a few strategies for doing this:
@@ -114,7 +116,7 @@ automatically.
 
 
 Gettings suggestions
---------------------
+====================
 
 Once you have words in the spelling dictionary, you can use the ``suggest()``
 method to check words::
@@ -135,7 +137,7 @@ The ``number`` keyword argument sets the maximum number of suggestions to return
 
 
 Word scores
------------
+===========
 
 Each word in the dictionary can have a "score" associated with it. When two or
 more suggestions have the same "edit distance" (number of differences) from the
@@ -176,7 +178,7 @@ that *obscure* words would be suggested before common words, you could do this::
 
 
 Spell checking Whoosh queries
------------------------------
+=============================
 
 If you want to spell check a user query, first parse the user's query into a
 ``whoosh.query.Query`` object tree, using the default parser or your own custom
@@ -234,7 +236,7 @@ them against the spelling dictionary::
 
 
 Updating the spelling dictionary
---------------------------------
+================================
 
 The spell checker is mainly intended to be "write-once, read-many". You can
 continually add words to the dictionary, but it is not possible to remove words
