@@ -2,6 +2,7 @@ import unittest
 
 from whoosh import analysis, fields, formats, qparser, query, searching
 from whoosh.filedb.filestore import RamStorage
+from whoosh.util import permutations
 
 
 class TestResults(unittest.TestCase):
