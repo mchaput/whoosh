@@ -67,7 +67,8 @@ class TestQueries(unittest.TestCase):
         
         r = ix.reader()
         q1 = And([Prefix("v", "b", boost=2.0), Term("v", "juliet")])
-        q2 = And([Or([Term('v', u'bear', boost=2.0), Term('v', u'bee', boost=2.0), Term('v', u'brie', boost=2.0)]), Term('v', 'juliet')])
+        q2 = And([Or([Term('v', u'bear', boost=2.0), Term('v', u'bee', boost=2.0),
+                      Term('v', u'brie', boost=2.0)]), Term('v', 'juliet')])
         self.assertEqual(q1.simplify(r), q2)
 
 

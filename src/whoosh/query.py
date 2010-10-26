@@ -394,7 +394,7 @@ class MultiTerm(Query):
 
     def simplify(self, ixreader):
         existing = [Term(self.fieldname, word, boost=self.boost)
-                    for word in set(self._words(ixreader))]
+                    for word in sorted(set(self._words(ixreader)))]
         if len(existing) == 1:
             return existing[0]
         elif existing:

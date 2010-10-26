@@ -212,7 +212,12 @@ class NUMERIC(FieldType):
     (by truncating, not rounding) and imposes the same maximum value limits as
     ``int``/``long``, but these may be acceptable for certain applications.
     
-    >>> position = NUMERIC(int, decimal_places=4)
+    >>> from decimal import Decimal
+    >>> schema = Schema(path=STORED, position=NUMERIC(int, decimal_places=4))
+    >>> ix = storage.create_index(schema)
+    >>> w = ix.writer()
+    >>> w.add_document(path="/a", position=Decimal("123.45")
+    >>> w.commit()
     """
     
     def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
@@ -223,8 +228,8 @@ class NUMERIC(FieldType):
         :param stored: Whether the value of this field is stored with the
             document.
         :param unique: Whether the value of this field is unique per-document.
-        :param decimal_places: if ``type`` is ``Decimal``, this specifies the
-            number of decimal places to save.
+        :param decimal_places: specifies the number of decimal places to save
+            when storing Decimal instances as ``int`` or ``float``.
         """
         
         self.type = type
@@ -237,6 +242,12 @@ class NUMERIC(FieldType):
         elif self.type is float:
             self._to_text =  float_to_text
             self._from_text = text_to_float
+        elif self.type is Decimal:
+            raise TypeError("To store Decimal instances, set type to int or "
+                            "float and use the decimal_places argument")
+        else:
+            raise TypeError("%s field type can't store %r" % (self.__class__,
+                                                              self.type))
         
         self.stored = stored
         self.unique = unique
