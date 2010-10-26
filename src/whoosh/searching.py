@@ -1033,10 +1033,10 @@ class Facets(object):
         :param fieldname: the name of the field to use to create the facets.
         """
         
-        fs = cls()
+        fs = cls(searcher)
         fs.queries = [(token, query.Term(fieldname, token))
                         for token in searcher.lexicon(fieldname)]
-        fs._study(searcher)
+        fs._study()
         return fs
     
     def facets(self):
