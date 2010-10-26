@@ -259,17 +259,19 @@ class NUMERIC(FieldType):
         # word, freq, weight, valuestring
         return [(to_text(num), 1, 1.0, '')]
     
-    def to_text(self, x):
+    def to_text(self, x, shift=0):
         if self.decimal_places:
             x = Decimal(x)
             x *= 10 ** self.decimal_places
+        if shift:
+            x >>= shift
         return self._to_text(self.type(x))
     
     def from_text(self, t):
         n = self._from_text(t)
         if self.decimal_places:
             s = str(n)
-            n = Decimal(s[:-4] + "." + s[-4:])
+            n = Decimal(s[:-self.decimal_places] + "." + s[-self.decimal_places:])
         return n
     
     def process_text(self, text, **kwargs):
