@@ -891,6 +891,12 @@ class TermRange(MultiTerm):
         self.endexcl = endexcl
         self.boost = boost
 
+    def __repr__(self):
+        return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,
+                                           self.fieldname,
+                                           self.start, self.end,
+                                           self.startexcl, self.endexcl)
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
@@ -900,12 +906,6 @@ class TermRange(MultiTerm):
                 and self.startexcl == other.startexcl
                 and self.endexcl == other.endexcl
                 and self.boost == other.boost)
-
-    def __repr__(self):
-        return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,
-                                           self.fieldname,
-                                           self.start, self.end,
-                                           self.startexcl, self.endexcl)
 
     def __unicode__(self):
         startchar = "["
@@ -956,6 +956,70 @@ class TermRange(MultiTerm):
                 break
             yield t
 
+
+class NumericRange(Query):
+    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
+                 boost=1.0):
+        """
+        :param fieldname: The name of the field to search.
+        :param start: Match terms equal to or greater than this.
+        :param end: Match terms equal to or less than this.
+        :param startexcl: If True, the range start is exclusive. If False, the
+            range start is inclusive.
+        :param endexcl: If True, the range end is exclusive. If False, the
+            range end is inclusive.
+        :param boost: Boost factor that should be applied to the raw score of
+            results matched by this query.
+        """
+
+        self.fieldname = fieldname
+        self.start = start
+        self.end = end
+        self.startexcl = startexcl
+        self.endexcl = endexcl
+        self.boost = boost
+    
+    def __repr__(self):
+        return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,
+                                           self.fieldname,
+                                           self.start, self.end,
+                                           self.startexcl, self.endexcl)
+
+    def __eq__(self, other):
+        return (other
+                and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.start == other.start
+                and self.end == other.end
+                and self.startexcl == other.startexcl
+                and self.endexcl == other.endexcl
+                and self.boost == other.boost)
+        
+    def __unicode__(self):
+        startchar = "["
+        if self.startexcl: startchar = "{"
+        endchar = "]"
+        if self.endexcl: endchar = "}"
+        return u"%s:%s%s TO %s%s" % (self.fieldname,
+                                     startchar, self.start, self.end, endchar)
+        
+    def copy(self):
+        return NumericRange(self.fieldname, self.start, self.end,
+                            self.startexcl, self.endexcl, boost=self.boost)
+    
+    def _query(self, searcher):
+        from whoosh.fields import NUMERIC
+        from whoosh.support.numeric import split_range
+        
+        field = searcher.field(self.fieldname)
+        if not isinstance(field, NUMERIC):
+            raise Exception("NumericRange: field %r is not numeric" % self.fieldname)
+        
+        if field.type is int:
+            valsize = 32
+        else:
+            valsize = 64
+        
 
 class Variations(MultiTerm):
     """Query that automatically searches for morphological variations of the
@@ -1117,6 +1181,10 @@ class Every(Query):
     def __init__(self, fieldname, boost=1.0):
         self.fieldname = fieldname
         self.boost = boost
+
+    def __repr__(self):
+        return "%s(%r, boost=%s)" % (self.__class__.__name__, self.fieldname,
+                                     self.boost)
 
     def __eq__(self, other):
         return (other

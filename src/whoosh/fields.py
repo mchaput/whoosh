@@ -25,7 +25,8 @@ from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              NgramWordAnalyzer, Analyzer)
 from whoosh.formats import Format, Existence, Frequency, Positions
 from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
-                                    text_to_long, float_to_text, text_to_float)
+                                    text_to_long, float_to_text, text_to_float,
+                                    )
 
 
 # Exceptions
@@ -149,6 +150,15 @@ class FieldType(object):
         
         raise NotImplementedError(self.__class__.__name__)
     
+    def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
+        """When ``self_parsing()`` returns True, the query parser will call
+        this method to parse range query text. If this method returns None
+        instead of a query object, the parser will fall back to parsing the
+        start and end terms using process_text().
+        """
+        
+        return None
+    
 
 class ID(FieldType):
     """Configured field type that indexes the entire value of the field as one
@@ -221,7 +231,7 @@ class NUMERIC(FieldType):
     """
     
     def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
-                 decimal_places=0):
+                 decimal_places=0, shift_step=4):
         """
         :param type: the type of numbers that can be stored in this field: one
             of ``int``, ``long``, ``float``, or ``Decimal``.
@@ -252,20 +262,28 @@ class NUMERIC(FieldType):
         self.stored = stored
         self.unique = unique
         self.decimal_places = decimal_places
+        self.shift_step = shift_step
         self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
     
+    def _tiers(self, num):
+        t = self.type
+        if t is int:
+            bitlen = 32
+        else:
+            bitlen = 64
+        
+        for shift in xrange(0, bitlen, self.shift_step):
+            yield self.to_text(num, shift=shift)
+    
     def index(self, num):
-        to_text = self.to_text
         # word, freq, weight, valuestring
-        return [(to_text(num), 1, 1.0, '')]
+        return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
     
     def to_text(self, x, shift=0):
         if self.decimal_places:
             x = Decimal(x)
             x *= 10 ** self.decimal_places
-        if shift:
-            x >>= shift
-        return self._to_text(self.type(x))
+        return self._to_text(self.type(x), shift=shift)
     
     def from_text(self, t):
         n = self._from_text(t)
@@ -282,8 +300,32 @@ class NUMERIC(FieldType):
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
+        from whoosh.qparser import QueryParserError
         
-        return query.Term(fieldname, self.to_text(qstring), boost=boost)
+        if qstring == "*":
+            return query.Every(fieldname, boost=boost)
+        
+        try:
+            text = self.to_text(qstring)
+        except Exception, e:
+            raise QueryParserError(e)
+        
+        return query.Term(fieldname, text, boost=boost)
+    
+    def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
+        from whoosh import query
+        from whoosh.qparser import QueryParserError
+        
+        try:
+            if start is not None:
+                start = self.from_text(self.to_text(start))
+            if end is not None:
+                end = self.from_text(self.to_text(end))
+        except Exception, e:
+            raise QueryParserError(e)
+        
+        return query.NumericRange(fieldname, start, end, startexcl, endexcl,
+                                  boost=boost)
     
 
 class DATETIME(FieldType):
@@ -376,6 +418,10 @@ class BOOLEAN(FieldType):
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
         text = None
+        
+        if qstring == "*":
+            return query.Every(fieldname, boost=boost)
+        
         if qstring in self.falses:
             text = self.strings[0]
         elif qstring in self.trues:
@@ -383,7 +429,8 @@ class BOOLEAN(FieldType):
         
         if text is None:
             return query.NullQuery
-        return query.Term(fieldname, text, boost=boost)
+        else:
+            return query.Term(fieldname, text, boost=boost)
     
 
 class STORED(FieldType):

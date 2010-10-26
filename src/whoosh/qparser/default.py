@@ -24,6 +24,13 @@ import re
 from whoosh import query
 
 
+class QueryParserError(Exception):
+    def __init__(self, cause, msg=None):
+        super(QueryParserError, self).__init__(str(cause))
+        self.cause = cause
+
+
+
 ws = "[ \t\r\n]+"
 wsexpr = re.compile(ws)
 
@@ -257,12 +264,16 @@ class BasicSyntax(Token):
         fieldname = self.fieldname or parser.fieldname
         if parser.schema and fieldname in parser.schema:
             field = parser.schema[fieldname]
+            
             if field.self_parsing():
-                return field.parse_query(fieldname, self.text, boost=self.boost)
-            else:
-                text = parser.get_single_text(field, text,
-                                              tokenize=self.tokenize,
-                                              removestops=self.removestops)
+                try:
+                    return field.parse_query(fieldname, self.text, boost=self.boost)
+                except QueryParserError, e:
+                    return query.NullQuery
+            
+            text = parser.get_single_text(field, text,
+                                          tokenize=self.tokenize,
+                                          removestops=self.removestops)
         
         if text is not None:
             cls = self.qclass or parser.termclass
@@ -367,6 +378,17 @@ class RangePlugin(Plugin):
             start, end = self.start, self.end
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
+                
+                if field.self_parsing():
+                    try:
+                        rangeq = field.parse_range(fieldname, start, end,
+                                                   self.startexcl, self.endexcl,
+                                                   boost=self.boost)
+                        if rangeq is not None:
+                            return rangeq
+                    except QueryParserError, e:
+                        return query.NullQuery
+                    
                 if start:
                     start = parser.get_single_text(field, start,
                                                    tokenize=False,
@@ -382,7 +404,7 @@ class RangePlugin(Plugin):
             
             return query.TermRange(fieldname, start, end, self.startexcl,
                                    self.endexcl, boost=self.boost)
-
+            
 
 class PhrasePlugin(Plugin):
     """Adds the ability to specify phrase queries inside double quotes.
