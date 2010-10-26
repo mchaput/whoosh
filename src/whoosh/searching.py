@@ -412,7 +412,10 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
             id = matcher.id()
             h.append((matcher.score(), id))
             docs.add(id)
-            if replace: matcher = matcher.replace()
+            if replace:
+                matcher = matcher.replace()
+                if not matcher.is_active():
+                    break
             matcher.next()
     else:
         # Heap of (score, docnum, postingquality) tuples
