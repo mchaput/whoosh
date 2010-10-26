@@ -23,6 +23,8 @@ from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,
                              NgramWordAnalyzer, Analyzer)
 from whoosh.formats import Format, Existence, Frequency, Positions
+from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
+                                    text_to_long, float_to_text, text_to_float)
 
 
 # Exceptions
@@ -203,7 +205,8 @@ class NUMERIC(FieldType):
     >>> w.commit()
     """
     
-    def __init__(self, type=int, stored=False, unique=False, field_boost=1.0):
+    def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
+                 small=True):
         """
         :param type: the type of numbers that can be stored in this field: one
             of ``int``, ``long``, or ``float``.
@@ -213,19 +216,28 @@ class NUMERIC(FieldType):
         """
         
         self.type = type
+        if self.type is int:
+            self._to_text = int_to_text
+            self._from_text = text_to_int
+        elif self.type is long:
+            self._to_text = long_to_text
+            self._from_text = text_to_long
+        elif self.type is float:
+            self._to_text =  float_to_text
+            self._from_text = text_to_float
+        
         self.stored = stored
         self.unique = unique
+        self.small = small
         self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
     
     def index(self, num):
-        method = getattr(self, self.type.__name__ + "_to_text")
+        _to_text = self._to_text
         # word, freq, weight, valuestring
-        return [(method(num), 1, 1.0, '')]
+        return [(_to_text(num), 1, 1.0, '')]
     
     def to_text(self, x):
-        ntype = self.type
-        method = getattr(self, ntype.__name__ + "_to_text")
-        return method(ntype(x))
+        return self._to_text(self.type(x))
     
     def process_text(self, text, **kwargs):
         return (self.to_text(text),)
@@ -236,41 +248,6 @@ class NUMERIC(FieldType):
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
         return query.Term(fieldname, self.to_text(qstring), boost=boost)
-    
-    @staticmethod
-    def int_to_text(x):
-        x += (1 << (4 << 2)) - 1 # 4 means 32-bits
-        return u"%08x" % x
-    
-    @staticmethod
-    def text_to_int(text):
-        x = int(text, 16)
-        x -= (1 << (4 << 2)) - 1
-        return x
-    
-    @staticmethod
-    def long_to_text(x):
-        x += (1 << (8 << 2)) - 1
-        return u"%016x" % x
-    
-    @staticmethod
-    def text_to_long(text):
-        x = long(text, 16)
-        x -= (1 << (8 << 2)) - 1
-        return x
-    
-    @staticmethod
-    def float_to_text(x):
-        x = struct.unpack("<q", struct.pack("<d", x))[0]
-        x += (1 << (8 << 2)) - 1
-        return u"%016x" % x
-    
-    @staticmethod
-    def text_to_float(text):
-        x = long(text, 16)
-        x -= (1 << (8 << 2)) - 1
-        x = struct.unpack("<d", struct.pack("<q", x))[0]
-        return x
     
 
 class DATETIME(FieldType):

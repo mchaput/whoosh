@@ -421,11 +421,14 @@ class MultiTerm(Query):
     def matcher(self, searcher, exclude_docs=None):
         fieldname = self.fieldname
         qs = [Term(fieldname, word) for word in self._words(searcher.reader())]
-        if qs:
-            return Or(qs).matcher(searcher, exclude_docs=exclude_docs)
+        if not qs: return NullMatcher()
+        
+        if len(qs) == 1:
+            q = qs[0]
         else:
-            return NullMatcher()
-
+            q = Or(qs)
+        return q.matcher(searcher, exclude_docs=exclude_docs)
+        
 
 # Concrete classes
 
@@ -1134,12 +1137,13 @@ class Every(Query):
         fieldname = self.fieldname
         s = set()
         
+        # This is a hacky hack, but just create an in-memory set of all the
+        # document numbers of every term in the field
         for text in searcher.lexicon(fieldname):
             pr = searcher.postings(fieldname, text)
-            s = s.union(pr.all_ids())
-        
+            s.update(pr.all_ids())
         if exclude_docs:
-            s.difference(exclude_docs)
+            s.difference_update(exclude_docs)
         
         return ListMatcher(sorted(s), weight=self.boost)
 

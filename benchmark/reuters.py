@@ -4,7 +4,8 @@ from optparse import OptionParser
 from whoosh import analysis, fields, index, qparser, query
 from whoosh.util import now
 
-ana = analysis.StemmingAnalyzer()
+#ana = analysis.StemmingAnalyzer()
+ana = analysis.StandardAnalyzer()
 schema = fields.Schema(id=fields.ID(stored=True),
                        headline=fields.STORED,
                        text=fields.TEXT(analyzer=ana, stored=True))

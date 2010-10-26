@@ -130,6 +130,44 @@ class TestResults(unittest.TestCase):
         self.assertEqual(r.pagecount, 1)
         self.assertEqual(r.pagenum, 1)
     
+    def test_resultspage(self):
+        schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
+        st = RamStorage()
+        ix = st.create_index(schema)
+        
+        domain = ("alfa", "bravo", "bravo", "charlie", "delta")
+        w = ix.writer()
+        i = 0
+        for lst in permutations(domain, 3):
+            w.add_document(id=unicode(i), content=u" ".join(lst))
+            i += 1
+        w.commit()
+        
+        s = ix.searcher()
+        q = query.Term("content", u"bravo")
+        r = s.search(q, limit=10)
+        tops = list(r)
+        
+        rp = s.search_page(q, 1, pagelen=5)
+        self.assertEqual(list(rp), tops[0:5])
+        
+        rp = s.search_page(q, 2, pagelen=5)
+        self.assertEqual(list(rp), tops[5:10])
+        
+        rp = s.search_page(q, 1, pagelen=10)
+        self.assertEqual(len(rp), 54)
+        self.assertEqual(rp.pagecount, 6)
+        rp = s.search_page(q, 6, pagelen=10)
+        self.assertEqual(len(list(rp)), 4)
+        self.assertTrue(rp.is_last_page())
+        
+        self.assertRaises(ValueError, s.search_page, q, 0)
+        self.assertRaises(ValueError, s.search_page, q, 7)
+        
+        rp = s.search_page(query.Term("content", "glonk"), 1)
+        self.assertEqual(len(rp), 0)
+        self.assertTrue(rp.is_last_page())
+    
     def test_keyterms(self):
         ana = analysis.StandardAnalyzer()
         vectorformat = formats.Frequency(ana)
