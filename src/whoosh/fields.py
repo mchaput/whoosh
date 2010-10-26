@@ -18,6 +18,7 @@
 """
 
 import datetime, re, struct
+from decimal import Decimal
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,
@@ -192,27 +193,38 @@ class IDLIST(FieldType):
 
 class NUMERIC(FieldType):
     """Special field type that lets you index int, long, or floating point
-    numbers. The field converts the number to sortable text for you before
-    indexing.
+    numbers in relatively short fixed-width terms. The field converts numbers
+    to sortable text for you before indexing.
     
-    You can specify the type of the field when you create the NUMERIC object.
-    The default is int.
+    You specify the numeric type of the field when you create the NUMERIC
+    object. The default is ``int``.
     
     >>> schema = Schema(path=STORED, position=NUMERIC(long))
     >>> ix = storage.create_index(schema)
     >>> w = ix.writer()
     >>> w.add_document(path="/a", position=5820402204)
     >>> w.commit()
+    
+    You can also use the NUMERIC field to store Decimal instances by specifying
+    a type of ``int`` or ``long`` and the ``decimal_places`` keyword argument.
+    This simply multiplies each number by ``(10 ** decimal_places)`` before
+    storing it as an integer. Of course this may throw away decimal prcesision
+    (by truncating, not rounding) and imposes the same maximum value limits as
+    ``int``/``long``, but these may be acceptable for certain applications.
+    
+    >>> position = NUMERIC(int, decimal_places=4)
     """
     
     def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
-                 small=True):
+                 decimal_places=0):
         """
         :param type: the type of numbers that can be stored in this field: one
-            of ``int``, ``long``, or ``float``.
+            of ``int``, ``long``, ``float``, or ``Decimal``.
         :param stored: Whether the value of this field is stored with the
             document.
         :param unique: Whether the value of this field is unique per-document.
+        :param decimal_places: if ``type`` is ``Decimal``, this specifies the
+            number of decimal places to save.
         """
         
         self.type = type
@@ -228,16 +240,26 @@ class NUMERIC(FieldType):
         
         self.stored = stored
         self.unique = unique
-        self.small = small
+        self.decimal_places = decimal_places
         self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
     
     def index(self, num):
-        _to_text = self._to_text
+        to_text = self.to_text
         # word, freq, weight, valuestring
-        return [(_to_text(num), 1, 1.0, '')]
+        return [(to_text(num), 1, 1.0, '')]
     
     def to_text(self, x):
+        if self.decimal_places:
+            x = Decimal(x)
+            x *= 10 ** self.decimal_places
         return self._to_text(self.type(x))
+    
+    def from_text(self, t):
+        n = self._from_text(t)
+        if self.decimal_places:
+            s = str(n)
+            n = Decimal(s[:-4] + "." + s[-4:])
+        return n
     
     def process_text(self, text, **kwargs):
         return (self.to_text(text),)
@@ -247,6 +269,7 @@ class NUMERIC(FieldType):
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
+        
         return query.Term(fieldname, self.to_text(qstring), boost=boost)
     
 
