@@ -51,16 +51,15 @@ class TestSchema(unittest.TestCase):
     def test_numeric(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                integer=fields.NUMERIC(int),
-                               decimal=fields.NUMERIC(float))
-        st = RamStorage()
-        ix = st.create_index(schema)
+                               floating=fields.NUMERIC(float))
+        ix = RamStorage().create_index(schema)
         
         w = ix.writer()
-        w.add_document(id=u"a", integer=5820, decimal=1.2)
-        w.add_document(id=u"b", integer=22, decimal=2.3)
-        w.add_document(id=u"c", integer=78, decimal=3.4)
-        w.add_document(id=u"d", integer=13, decimal=4.5)
-        w.add_document(id=u"e", integer=9, decimal=5.6)
+        w.add_document(id=u"a", integer=5820, floating=1.2)
+        w.add_document(id=u"b", integer=22, floating=2.3)
+        w.add_document(id=u"c", integer=78, floating=3.4)
+        w.add_document(id=u"d", integer=13, floating=4.5)
+        w.add_document(id=u"e", integer=9, floating=5.6)
         w.commit()
         
         s = ix.searcher()
@@ -75,13 +74,42 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(sorted(d["id"] for d in r), ["b", "d"])
         
         s = ix.searcher()
-        r = s.search(qp.parse("decimal:4.5"))
+        r = s.search(qp.parse("floating:4.5"))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["id"], "d")
         
-        r = s.search(qp.parse("decimal:[1.4 TO 4]"))
+        r = s.search(qp.parse("floating:[1.4 TO 4]"))
         self.assertEqual(len(r), 2)
         self.assertEqual(sorted(d["id"] for d in r), ["b", "c"])
+    
+    def test_decimal_numeric(self):
+        from decimal import Decimal
+        f = fields.NUMERIC(int, decimal_places=4)
+        schema = fields.Schema(id=fields.ID(stored=True), deci=f)
+        ix = RamStorage().create_index(schema)
+        
+        self.assertEqual(f.from_text(f.to_text(Decimal("123.56"))),
+                         Decimal("123.56"))
+        
+        w = ix.writer()
+        w.add_document(id=u"a", deci=Decimal("123.56"))
+        w.add_document(id=u"b", deci=Decimal("0.536255"))
+        w.add_document(id=u"c", deci=Decimal("2.5255"))
+        w.add_document(id=u"d", deci=Decimal("58"))
+        w.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("deci", schema=schema)
+        
+        self.assertEqual([f.from_text(t) for t in s.lexicon("deci")],
+                         [Decimal("0.5362"), Decimal("2.5255"),
+                          Decimal("58.0000"), Decimal("123.5600")])
+        
+        r = s.search(qp.parse("123.56"))
+        self.assertEqual(r[0]["id"], "a")
+        
+        r = s.search(qp.parse("0.536255"))
+        self.assertEqual(r[0]["id"], "b")
     
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),
@@ -151,7 +179,6 @@ class TestSchema(unittest.TestCase):
         r = s.search(qp.parse("done:no"))
         self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
         self.assertTrue(all_false(d["done"] for d in r))
-
 
 
 
