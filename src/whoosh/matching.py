@@ -211,7 +211,7 @@ class Matcher(object):
         """Moves this matcher to the next posting.
         """
         
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
     
     def weight(self):
         """Returns the weight of the current posting.

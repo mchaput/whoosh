@@ -781,44 +781,31 @@ class TestSearching(unittest.TestCase):
         s = s.refresh()
         self.assertTrue(s.up_to_date())
 
-    def test_resultspage(self):
-        schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(schema)
+    def test_find_missing(self):
+        schema = fields.Schema(id=fields.ID, text=fields.KEYWORD(stored=True))
+        ix = RamStorage().create_index(schema)
         
-        domain = ("alfa", "bravo", "bravo", "charlie", "delta")
         w = ix.writer()
-        i = 0
-        for lst in permutations(domain, 3):
-            w.add_document(id=unicode(i), content=u" ".join(lst))
-            i += 1
+        w.add_document(id=u"1", text=u"alfa")
+        w.add_document(id=u"2", text=u"bravo")
+        w.add_document(text=u"charlie")
+        w.add_document(id=u"4", text=u"delta")
+        w.add_document(text=u"echo")
+        w.add_document(id=u"6", text=u"foxtrot")
+        w.add_document(text=u"golf")
         w.commit()
         
         s = ix.searcher()
-        q = query.Term("content", u"bravo")
-        r = s.search(q, limit=10)
-        tops = list(r)
-        
-        rp = s.search_page(q, 1, pagelen=5)
-        self.assertEqual(list(rp), tops[0:5])
-        
-        rp = s.search_page(q, 2, pagelen=5)
-        self.assertEqual(list(rp), tops[5:10])
-        
-        rp = s.search_page(q, 1, pagelen=10)
-        self.assertEqual(len(rp), 54)
-        self.assertEqual(rp.pagecount, 6)
-        rp = s.search_page(q, 6, pagelen=10)
-        self.assertEqual(len(list(rp)), 4)
-        self.assertTrue(rp.is_last_page())
-        
-        self.assertRaises(ValueError, s.search_page, q, 0)
-        self.assertRaises(ValueError, s.search_page, q, 7)
-        
-        rp = s.search_page(query.Term("content", "glonk"), 1)
-        self.assertEqual(len(rp), 0)
-        self.assertTrue(rp.is_last_page())
-        
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse(u"NOT id:*")
+        r = s.search(q, limit=None)
+        self.assertEqual(list(h["text"] for h in r), ["charlie", "echo", "golf"])
+
+
+
+
+
+
 
 
 if __name__ == '__main__':
