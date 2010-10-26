@@ -323,10 +323,12 @@ class SegmentWriter(IndexWriter):
                     term2docnum = {}
                     reader = self.searcher().reader()
                     for ttext in reader.lexicon(name):
-                        term2docnum[ttext] = reader.postings(name, ttext).id()
+                        postings = reader.postings(name, ttext)
+                        if postings.is_active():
+                            term2docnum[ttext] = postings.id()
                     reader.close()
                     _unique_cache[name] = term2docnum
-                    
+                
                 # Look up the cached document number for this term
                 delset.add(term2docnum[text])
             else:
