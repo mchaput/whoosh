@@ -747,8 +747,8 @@ class TestSearching(unittest.TestCase):
         def do(qstring, target):
             q = qp.parse(qstring)
             results = "".join(sorted([d['id'] for d in s.search(q, limit=None)]))
-            self.assertEqual(results, target)
-            
+            self.assertEqual(results, target, "%r: %s != %s" % (q, results, target))
+        
         do(u"view_count:[0 TO]", "abcdefghijklmno")
         do(u"view_count:[1000 TO]", "jklmno")
         do(u"view_count:[TO 300]", "ab")

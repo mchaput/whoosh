@@ -55,9 +55,6 @@ def split_range(valsize, step, minbound, maxbound):
         shift += step
 
 
-def index_numbers(nums, ntype, step):
-    pass
-
 # These functions use hexadecimal strings to encode the numbers, rather than
 # converting them to text using a 7-bit encoding, because while the hex
 # representation uses more space (8 bytes as opposed to 5 bytes for a 32 bit
@@ -66,33 +63,58 @@ def index_numbers(nums, ntype, step):
 # The functions for 7 bit encoding are still available (to_7bit and from_7bit)
 # if needed.
 
-def int_to_text(x):
-    x += (1 << (4 << 2)) - 1 # 4 means 32-bits
-    return u"%08x" % x
+def int_to_text(x, shift=0):
+    x += (1 << 16) - 1
+    if shift:
+        x >>= shift
+    return chr(shift) + u"%08x" % x
 
 def text_to_int(text):
+    if len(text) == 9:
+        text = text[1:]
     x = int(text, 16)
-    x -= (1 << (4 << 2)) - 1
+    x -= (1 << 16) - 1
     return x
 
-def long_to_text(x):
-    x += (1 << (8 << 2)) - 1
-    return u"%016x" % x
+def long_to_text(x, shift=0):
+    x += (1 << 32) - 1
+    if shift:
+        x >>= shift
+    return chr(shift) + u"%016x" % x
 
 def text_to_long(text):
+    if len(text) == 17:
+        text = text[1:]
     x = long(text, 16)
-    x -= (1 << (8 << 2)) - 1
+    x -= (1 << 32) - 1
     return x
 
-def float_to_text(x):
-    x = struct.unpack("<q", struct.pack("<d", x))[0]
+_dstruct = struct.Struct("<d")
+_qstruct = struct.Struct("<q")
+_dpack, _dunpack = _dstruct.pack, _dstruct.unpack
+_qpack, _qunpack = _qstruct.pack, _qstruct.unpack
+def float_to_long(x, shift=0):
+    x = _qunpack(_dpack(x))[0]
     x += (1 << (8 << 2)) - 1
+    if shift:
+        x >>= shift
+    return x
+    
+def long_to_float(x):
+    x -= (1 << (8 << 2)) - 1
+    return _dunpack(_qpack(x))[0]
+
+def float_to_text(x, shift=0):
+    x = _qunpack(_dpack(x))[0]
+    x += (1 << (8 << 2)) - 1
+    if shift:
+        x >>= shift
     return u"%016x" % x
 
 def text_to_float(text):
     x = long(text, 16)
     x -= (1 << (8 << 2)) - 1
-    x = struct.unpack("<d", struct.pack("<q", x))[0]
+    x = _dunpack(_qpack(x))[0]
     return x
 
 

@@ -16,5 +16,5 @@
 
 from whoosh.qparser.default import *
 
-class QueryParserError(Exception): pass
+
 

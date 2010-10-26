@@ -105,9 +105,7 @@ class TestRamIndex(unittest.TestCase):
         
         everything = [("id", u'const', 1, 1), ("id", u'fieldtype', 1, 1), ("id", u'format', 1, 1),
                       ("id", u'scorable', 1, 1), ("id", u'stored', 1, 1), ("id", u'unique', 1, 1),
-                      ("id", u'vector', 1, 1), ("subs", u'00010001', 1, 1), ("subs", u'00010016', 1, 1),
-                      ("subs", u'00010021', 1, 1), ("subs", u'00010037', 1, 1), ("subs", u'00010063', 1, 1),
-                      ("subs", u'0001023e', 1, 1), ("subs", u'0001e35b', 1, 1), ("text", u'against', 1, 1),
+                      ("id", u'vector', 1, 1),  ("text", u'against', 1, 1),
                       ("text", u'attributes', 1, 1), ("text", u'base', 1, 1), ("text", u'be', 1, 1),
                       ("text", u'constructor', 1, 1), ("text", u'content', 1, 1), ("text", u'contents', 1, 1),
                       ("text", u'document', 2, 2), ("text", u'each', 2, 2), ("text", u'field', 6, 6),
@@ -119,9 +117,9 @@ class TestRamIndex(unittest.TestCase):
                       ("text", u'supports', 1, 1), ("text", u'the', 5, 9), ("text", u'this', 3, 3),
                       ("text", u'to', 1, 1), ("text", u'type', 1, 1), ("text", u'unique', 1, 1),
                       ("text", u'value', 1, 1), ("text", u'vectors', 1, 1), ("text", u'whether', 3, 3)]
-        self.assertEqual(list(r), everything)
         
-        self.assertEqual(list(r.iter_from("text", u"su")), everything[39:])
+        self.assertEqual([item for item in r if item[0] != 'subs'], everything)
+        self.assertEqual(list(r.iter_from("text", u"su")), everything[32:])
         
     def test_vectors(self):
         ix = self.make_index()
