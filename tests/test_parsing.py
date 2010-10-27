@@ -341,6 +341,17 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.__class__, query.TermRange)
         self.assertEqual(q.start, "d")
         self.assertEqual(q.fieldname, "name")
+    
+    def test_empty_numeric_range(self):
+        schema = fields.Schema(name=fields.TEXT, num=fields.NUMERIC,
+                               date=fields.DATETIME)
+        qp = qparser.QueryParser("text", schema=schema)
+        
+        for fname in ("num", "name", "date"):
+            q = qp.parse("%s:[to]" % fname)
+            self.assertEqual(q.__class__, query.TermRange)
+            self.assertEqual(q.start, '')
+            self.assertEqual(q.end, u'\uffff')
         
     def test_stopped(self):
         schema = fields.Schema(text = fields.TEXT)
@@ -395,6 +406,17 @@ class TestQueryParser(unittest.TestCase):
         parser = qparser.QueryParser("a")
         q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
         self.assertEqual(unicode(q), u"(a:a OR ((a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
+        
+    def test_math(self):
+        tk = analysis.RegexTokenizer(r"([A-Za-z_\\]+)|(-?[0-9.]+)|([^A-Za-z_0-9. \t\r\n]+)")
+        ana = tk | analysis.LowercaseFilter()
+        print [t.text for t in ana(u"x2+6x+7")]
+        
+        schema = fields.Schema(a=fields.TEXT(analyzer=ana))
+        parser = qparser.QueryParser("a", schema=schema)
+        print parser.parse(u"+")
+        print parser.parse(u"5+4")
+
         
 
 

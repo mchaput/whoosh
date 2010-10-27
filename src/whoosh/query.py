@@ -958,12 +958,22 @@ class TermRange(MultiTerm):
 
 
 class NumericRange(Query):
+    """A range query for NUMERIC fields. Takes advantage of tiered indexing
+    to speed up large ranges by matching at a high resolution at the edges of
+    the range and a low resolution in the middle.
+    
+    >>> # Match numbers from 10 to 5925 in the "number" field.
+    >>> nr = NumericRange("number", 10, 5925)
+    """
+    
     def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
                  boost=1.0):
         """
         :param fieldname: The name of the field to search.
-        :param start: Match terms equal to or greater than this.
-        :param end: Match terms equal to or less than this.
+        :param start: Match terms equal to or greater than this number. This
+            should be a number type, not a string.
+        :param end: Match terms equal to or less than this number. This should
+            be a number type, not a string.
         :param startexcl: If True, the range start is exclusive. If False, the
             range start is inclusive.
         :param endexcl: If True, the range end is exclusive. If False, the
@@ -1007,18 +1017,44 @@ class NumericRange(Query):
         return NumericRange(self.fieldname, self.start, self.end,
                             self.startexcl, self.endexcl, boost=self.boost)
     
-    def _query(self, searcher):
+    def simplify(self, ixreader):
+        return self._or_query(ixreader).simplify(ixreader)
+    
+    def estimate_size(self, ixreader):
+        return self._or_query(ixreader).estimate_size(ixreader)
+    
+    def docs(self, searcher, exclude_docs=None):
+        q = self._or_query(searcher.reader())
+        return q.docs(searcher, exclude_docs=exclude_docs)
+    
+    def _or_query(self, ixreader):
         from whoosh.fields import NUMERIC
-        from whoosh.support.numeric import split_range
+        from whoosh.support.numeric import tiered_ranges
         
-        field = searcher.field(self.fieldname)
+        field = ixreader.field(self.fieldname)
         if not isinstance(field, NUMERIC):
             raise Exception("NumericRange: field %r is not numeric" % self.fieldname)
         
-        if field.type is int:
-            valsize = 32
+        subqueries = []
+        # Get the term ranges for the different resolutions
+        for starttext, endtext in tiered_ranges(field.type, self.start,
+                                                self.end, field.shift_step):
+            if starttext == endtext:
+                subq = Term(self.fieldname, starttext)
+            else:
+                subq = TermRange(self.fieldname, starttext, endtext)
+            subqueries.append(subq)
+        
+        if len(subqueries) == 1:
+            return subqueries[0] 
+        elif subqueries:
+            return Or(subqueries, boost=self.boost)
         else:
-            valsize = 64
+            return NullQuery
+        
+    def matcher(self, searcher, exclude_docs=None):
+        q = self._or_query(searcher.reader())
+        return q.matcher(searcher, exclude_docs=exclude_docs)
         
 
 class Variations(MultiTerm):

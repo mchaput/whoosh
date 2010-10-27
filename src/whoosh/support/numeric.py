@@ -63,60 +63,116 @@ def split_range(valsize, step, minbound, maxbound):
 # The functions for 7 bit encoding are still available (to_7bit and from_7bit)
 # if needed.
 
-def int_to_text(x, shift=0):
-    x += (1 << 16) - 1
-    if shift:
-        x >>= shift
-    return chr(shift) + u"%08x" % x
-
-def text_to_int(text):
-    if len(text) == 9:
-        text = text[1:]
-    x = int(text, 16)
-    x -= (1 << 16) - 1
-    return x
-
-def long_to_text(x, shift=0):
-    x += (1 << 32) - 1
-    if shift:
-        x >>= shift
-    return chr(shift) + u"%016x" % x
-
-def text_to_long(text):
-    if len(text) == 17:
-        text = text[1:]
-    x = long(text, 16)
-    x -= (1 << 32) - 1
-    return x
-
 _dstruct = struct.Struct("<d")
 _qstruct = struct.Struct("<q")
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
-def float_to_long(x, shift=0):
-    x = _qunpack(_dpack(x))[0]
-    x += (1 << (8 << 2)) - 1
-    if shift:
-        x >>= shift
+
+# Functions for converting numbers to and from sortable representations
+
+def int_to_sortable_int(x):
+    x += 1 << 31
+    assert x >= 0
     return x
-    
-def long_to_float(x):
-    x -= (1 << (8 << 2)) - 1
-    return _dunpack(_qpack(x))[0]
-
-def float_to_text(x, shift=0):
+def sortable_int_to_int(x):
+    x -= 1 << 31
+    return x
+def long_to_sortable_long(x):
+    x += 1 << 63
+    assert x >= 0
+    return x
+def sortable_long_to_long(x):
+    x -= 1 << 63
+    return x
+def float_to_sortable_long(x):
     x = _qunpack(_dpack(x))[0]
-    x += (1 << (8 << 2)) - 1
-    if shift:
-        x >>= shift
-    return u"%016x" % x
-
-def text_to_float(text):
-    x = long(text, 16)
-    x -= (1 << (8 << 2)) - 1
+    if x<0:
+        x ^= 0x7fffffffffffffff
+    x += 1 << 63
+    assert x >= 0
+    return x
+def sortable_long_to_float(x):
+    x -= 1 << 63
+    if x < 0:
+        x ^= 0x7fffffffffffffff
     x = _dunpack(_qpack(x))[0]
     return x
 
+# Functions for converting numbers to and from text
+
+def int_to_text(x, shift=0):
+    x = int_to_sortable_int(x)
+    return sortable_int_to_text(x, shift)
+
+def text_to_int(text):
+    x = text_to_sortable_int(text)
+    x = sortable_int_to_int(x)
+    return x
+
+def long_to_text(x, shift=0):
+    x = long_to_sortable_long(x)
+    return sortable_long_to_text(x, shift)
+
+def text_to_long(text):
+    x = text_to_sortable_long(text)
+    x = sortable_long_to_long(x)
+    return x
+
+def float_to_text(x, shift=0):
+    x = float_to_sortable_long(x)
+    return sortable_long_to_text(x, shift)
+
+def text_to_float(text):
+    x = text_to_sortable_long(text)
+    x = sortable_long_to_float(x)
+    return x
+
+# Functions for converting sortable representations to and from text
+
+def sortable_int_to_text(x, shift=0):
+    if shift:
+        x >>= shift
+    return chr(shift) + u"%08x" % x #struct.pack(">I", x)#
+def sortable_long_to_text(x, shift=0):
+    if shift:
+        x >>= shift
+    return chr(shift) + u"%016x" % x #struct.pack(">Q", x)#
+def text_to_sortable_int(text):
+    assert len(text) == 9
+    #return struct.unpack(">I", text[1:])[0]
+    return int(text[1:], 16)
+def text_to_sortable_long(text):
+    assert len(text) == 17
+    #return struct.unpack(">Q", text[1:])[0]
+    return long(text[1:], 16)
+
+
+# Functions for generating tiered ranges
+
+def tiered_ranges(numtype, start, end, shift_step):
+    # First, convert the start and end of the range to sortable representations
+    if numtype is int:
+        valsize = 32
+        start = int_to_sortable_int(start)
+        end = int_to_sortable_int(end)
+        to_text = sortable_int_to_text
+    else:
+        valsize = 64
+        if numtype is long:
+            start = long_to_sortable_long(start)
+            end = long_to_sortable_long(end)
+        elif numtype is float:
+            # Convert floats to longs
+            start = float_to_sortable_long(start)
+            end = float_to_sortable_long(end)
+        to_text = sortable_long_to_text
+    
+    # Yield the term ranges for the different resolutions
+    for rstart, rend, shift in split_range(valsize, shift_step, start, end):
+        starttext = to_text(rstart, shift=shift)
+        endtext = to_text(rend, shift=shift)
+        
+        yield (starttext, endtext)
 
 # Functions for encoding numeric values as sequences of 7-bit ascii characters
 
