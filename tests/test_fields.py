@@ -55,7 +55,7 @@ class TestSchema(unittest.TestCase):
         floatf = fields.NUMERIC(float, shift_step=0)
         
         def roundtrip(obj, num):
-            self.assertEqual(obj.from_text(obj.to_text(num)), num)
+            self.assertAlmostEqual(obj.from_text(obj.to_text(num)), num, 4)
         
         roundtrip(intf, 0)
         roundtrip(intf, 12345)
@@ -67,6 +67,11 @@ class TestSchema(unittest.TestCase):
         roundtrip(floatf, 582.592)
         roundtrip(floatf, -582.592)
         roundtrip(floatf, -99.42)
+        
+    def test_numeric_sort(self):
+        intf = fields.NUMERIC(int, shift_step=0)
+        longf = fields.NUMERIC(long, shift_step=0)
+        floatf = fields.NUMERIC(float, shift_step=0)
         
         from random import shuffle
         def roundtrip_sort(obj, start, end, step):
@@ -80,7 +85,8 @@ class TestSchema(unittest.TestCase):
             shuffle(scrabled)
             round = [obj.from_text(t) for t
                      in sorted([obj.to_text(n) for n in scrabled])]
-            self.assertEqual(round, rng)
+            for n1, n2 in zip(round, rng):
+                self.assertAlmostEqual(n1, n2, 2, "n1=%r n2=%r type=%s" % (n1, n2, obj.type))
         
         roundtrip_sort(intf, -100, 100, 1)
         roundtrip_sort(longf, -58902, 58249, 43)
@@ -146,35 +152,55 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(r[0]["id"], "b")
     
     def test_numeric_range(self):
-        schema = fields.Schema(id=fields.ID(stored=True), number=fields.NUMERIC)
-        ix = RamStorage().create_index(schema)
+        from whoosh.util import now
+        def test_type(t, start, end, step, teststart, testend):
+            fld = fields.NUMERIC(t)
+            schema = fields.Schema(id=fields.STORED, number=fld)
+            ix = RamStorage().create_index(schema)
+            
+            w = ix.writer()
+            n = start
+            while n <= end:
+                w.add_document(id=n, number=n)
+                n += step
+            w.commit()
+            
+            qp = qparser.QueryParser("number", schema=schema)
+            
+            q = qp.parse("[%s to *]" % teststart)
+            self.assertEqual(q, query.NullQuery)
+            
+            q = qp.parse("[%s to]" % teststart)
+            self.assertEqual(q.__class__, query.NumericRange)
+            self.assertEqual(q.start, teststart)
+            self.assertEqual(q.end, None)
+            
+            q = qp.parse("[to %s]" % testend)
+            self.assertEqual(q.__class__, query.NumericRange)
+            self.assertEqual(q.start, None)
+            self.assertEqual(q.end, testend)
+            
+            q = qp.parse("[%s to %s]" % (teststart, testend))
+            self.assertEqual(q.__class__, query.NumericRange)
+            self.assertEqual(q.start, teststart)
+            self.assertEqual(q.end, testend)
+            
+            s = ix.searcher()
+            self.assertEqual(q._or_query(s.reader()).__class__, query.Or)
+            rng = []
+            count = teststart
+            while count <= testend:
+                rng.append(count)
+                count += step
+            
+            found = [s.stored_fields(d)["id"] for d in q.docs(s)]
+            self.assertEqual(found, rng)
         
-        w = ix.writer()
-        for n in xrange(-500, 500, 3):
-            w.add_document(id=unicode(n), number=n)
-        w.commit()
-        
-        qp = qparser.QueryParser("number", schema=schema)
-        
-        q = qp.parse("[10 to *]")
-        self.assertEqual(q, query.NullQuery)
-        
-        q = qp.parse("[to 400]")
-        self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, None)
-        self.assertEqual(q.end, 400)
-        
-        q = qp.parse("[10 to]")
-        self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, 10)
-        self.assertEqual(q.end, None)
-        
-        q = qp.parse("[10 to 400]")
-        self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, 10)
-        self.assertEqual(q.end, 400)
-        
-        
+        test_type(float, -50.0, 50.0, 0.5, -45.5, 39.0)
+        test_type(int, -5, 500, 1, 10, 400)
+        test_type(int, -500, 500, 5, -350, 280)
+        test_type(long, -1000, 1000, 5, -900, 90)
+    
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                date=fields.DATETIME(stored=True))
