@@ -55,14 +55,6 @@ def split_range(valsize, step, minbound, maxbound):
         shift += step
 
 
-# These functions use hexadecimal strings to encode the numbers, rather than
-# converting them to text using a 7-bit encoding, because while the hex
-# representation uses more space (8 bytes as opposed to 5 bytes for a 32 bit
-# number), it's 5 times faster to encode/decode.
-#
-# The functions for 7 bit encoding are still available (to_7bit and from_7bit)
-# if needed.
-
 _dstruct = struct.Struct("<d")
 _qstruct = struct.Struct("<q")
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
@@ -127,23 +119,37 @@ def text_to_float(text):
     x = sortable_long_to_float(x)
     return x
 
-# Functions for converting sortable representations to and from text
+# Functions for converting sortable representations to and from text.
+#
+# These functions use hexadecimal strings to encode the numbers, rather than
+# converting them to text using a 7-bit encoding, because while the hex
+# representation uses more space (8 bytes as opposed to 5 bytes for a 32 bit
+# number), it's 5-10 times faster to encode/decode in Python.
+#
+# The functions for 7 bit encoding are still available (to_7bit and from_7bit)
+# if needed.
+
 
 def sortable_int_to_text(x, shift=0):
     if shift:
         x >>= shift
-    return chr(shift) + u"%08x" % x #struct.pack(">I", x)#
+    text = chr(shift) + u"%08x" % x
+    assert len(text) == 9
+    return text
+
 def sortable_long_to_text(x, shift=0):
     if shift:
         x >>= shift
-    return chr(shift) + u"%016x" % x #struct.pack(">Q", x)#
-def text_to_sortable_int(text):
-    assert len(text) == 9
-    #return struct.unpack(">I", text[1:])[0]
-    return int(text[1:], 16)
-def text_to_sortable_long(text):
+    text = chr(shift) + u"%016x" % x
     assert len(text) == 17
-    #return struct.unpack(">Q", text[1:])[0]
+    return text
+
+def text_to_sortable_int(text):
+    #assert len(text) == 9
+    return int(text[1:], 16)
+
+def text_to_sortable_long(text):
+    #assert len(text) == 17
     return long(text[1:], 16)
 
 
@@ -167,12 +173,17 @@ def tiered_ranges(numtype, start, end, shift_step):
             end = float_to_sortable_long(end)
         to_text = sortable_long_to_text
     
+    if not shift_step:
+        yield (to_text(start), to_text(end))
+        return
+    
     # Yield the term ranges for the different resolutions
     for rstart, rend, shift in split_range(valsize, shift_step, start, end):
         starttext = to_text(rstart, shift=shift)
         endtext = to_text(rend, shift=shift)
         
         yield (starttext, endtext)
+
 
 # Functions for encoding numeric values as sequences of 7-bit ascii characters
 
@@ -181,7 +192,7 @@ def to_7bit(x, islong):
         shift = 31
         nchars = 5
     else:
-        shift = 62
+        shift = 63
         nchars = 10
 
     buffer = array("c", "\x00" * nchars)
@@ -196,7 +207,7 @@ def from_7bit(text):
     if len(text) == 5:
         shift = 31
     elif len(text) == 10:
-        shift = 62
+        shift = 63
     else:
         raise ValueError("text is not 5 or 10 bytes")
 

@@ -277,7 +277,10 @@ class NUMERIC(FieldType):
     
     def index(self, num):
         # word, freq, weight, valuestring
-        return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
+        if self.shift_step:
+            return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
+        else:
+            return [(self.to_text(num), 1, 1.0, '')]
     
     def to_text(self, x, shift=0):
         if self.decimal_places:

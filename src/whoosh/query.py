@@ -1018,16 +1018,16 @@ class NumericRange(Query):
                             self.startexcl, self.endexcl, boost=self.boost)
     
     def simplify(self, ixreader):
-        return self._or_query(ixreader).simplify(ixreader)
+        return self._compile_query(ixreader).simplify(ixreader)
     
     def estimate_size(self, ixreader):
-        return self._or_query(ixreader).estimate_size(ixreader)
+        return self._compile_query(ixreader).estimate_size(ixreader)
     
     def docs(self, searcher, exclude_docs=None):
-        q = self._or_query(searcher.reader())
+        q = self._compile_query(searcher.reader())
         return q.docs(searcher, exclude_docs=exclude_docs)
     
-    def _or_query(self, ixreader):
+    def _compile_query(self, ixreader):
         from whoosh.fields import NUMERIC
         from whoosh.support.numeric import tiered_ranges
         
@@ -1053,7 +1053,7 @@ class NumericRange(Query):
             return NullQuery
         
     def matcher(self, searcher, exclude_docs=None):
-        q = self._or_query(searcher.reader())
+        q = self._compile_query(searcher.reader())
         return q.matcher(searcher, exclude_docs=exclude_docs)
         
 

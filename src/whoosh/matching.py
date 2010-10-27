@@ -592,6 +592,8 @@ class UnionMatcher(AdditiveBiMatcher):
         if not b.is_active(): return a.id()
         return min(a.id(), b.id())
     
+    # Using sets is faster in most cases, but could potentially use a lot of
+    # memory
     def all_ids(self):
         return iter(sorted(set(self.a.all_ids()) | set(self.b.all_ids())))
     
@@ -775,8 +777,10 @@ class IntersectionMatcher(AdditiveBiMatcher):
     def id(self):
         return self.a.id()
     
-    #def all_ids(self):
-    #    return iter(sorted(set(self.a.all_ids()) & set(self.b.all_ids())))
+    # Using sets is faster in some cases, but could potentially use a lot of
+    # memory
+    def all_ids(self):
+        return iter(sorted(set(self.a.all_ids()) & set(self.b.all_ids())))
     
     def skip_to(self, id):
         if not self.is_active(): raise ReadTooFar
