@@ -152,7 +152,6 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(r[0]["id"], "b")
     
     def test_numeric_range(self):
-        from whoosh.util import now
         def test_type(t, start, end, step, teststart, testend):
             fld = fields.NUMERIC(t)
             schema = fields.Schema(id=fields.STORED, number=fld)
@@ -166,27 +165,13 @@ class TestSchema(unittest.TestCase):
             w.commit()
             
             qp = qparser.QueryParser("number", schema=schema)
-            
-            q = qp.parse("[%s to *]" % teststart)
-            self.assertEqual(q, query.NullQuery)
-            
-            q = qp.parse("[%s to]" % teststart)
-            self.assertEqual(q.__class__, query.NumericRange)
-            self.assertEqual(q.start, teststart)
-            self.assertEqual(q.end, None)
-            
-            q = qp.parse("[to %s]" % testend)
-            self.assertEqual(q.__class__, query.NumericRange)
-            self.assertEqual(q.start, None)
-            self.assertEqual(q.end, testend)
-            
             q = qp.parse("[%s to %s]" % (teststart, testend))
             self.assertEqual(q.__class__, query.NumericRange)
             self.assertEqual(q.start, teststart)
             self.assertEqual(q.end, testend)
             
             s = ix.searcher()
-            self.assertEqual(q._or_query(s.reader()).__class__, query.Or)
+            self.assertEqual(q._compile_query(s.reader()).__class__, query.Or)
             rng = []
             count = teststart
             while count <= testend:
@@ -201,6 +186,49 @@ class TestSchema(unittest.TestCase):
         test_type(int, -500, 500, 5, -350, 280)
         test_type(long, -1000, 1000, 5, -900, 90)
     
+    def test_open_numeric_ranges(self):
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               view_count=fields.NUMERIC(stored=True))
+        ix = RamStorage().create_index(schema)
+        
+        w = ix.writer()
+        for i, letter in enumerate(u"abcdefghijklmno"):
+            w.add_document(id=letter, view_count=(i + 1) * 101)
+        w.commit()
+        
+        s = ix.searcher()
+        #from whoosh.qparser.old import QueryParser
+        #qp = QueryParser("id", schema=schema)
+        qp = qparser.QueryParser("id", schema=schema)
+        
+        def do(qstring, target):
+            q = qp.parse(qstring)
+            results = "".join(sorted([d['id'] for d in s.search(q, limit=None)]))
+            self.assertEqual(results, target, "%r: %s != %s" % (q, results, target))
+        
+        do(u"view_count:[0 TO]", "abcdefghijklmno")
+        do(u"view_count:[1000 TO]", "jklmno")
+        do(u"view_count:[TO 300]", "ab")
+        do(u"view_count:[200 TO 500]", "bcd")
+        do(u"view_count:{202 TO]", "cdefghijklmno")
+        do(u"view_count:[TO 505}", "abcd")
+        do(u"view_count:{202 TO 404}", "c")
+    
+    def test_numeric_steps(self):
+        for step in range(0, 32):
+            schema = fields.Schema(id = fields.STORED,
+                                   num=fields.NUMERIC(int, shift_step=step))
+            ix = RamStorage().create_index(schema)
+            w = ix.writer()
+            for i in xrange(-10, 10):
+                w.add_document(id=i, num=i)
+            w.commit()
+            
+            s = ix.searcher()
+            q = query.NumericRange("num", -9, 9)
+            r = [s.stored_fields(d)["id"] for d in q.docs(s)]
+            self.assertEqual(r, range(-9, 10))
+            
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                date=fields.DATETIME(stored=True))

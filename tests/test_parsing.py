@@ -342,17 +342,50 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.start, "d")
         self.assertEqual(q.fieldname, "name")
     
-    def test_empty_numeric_range(self):
+    def test_numeric_range(self):
+        schema = fields.Schema(id=fields.STORED, number=fields.NUMERIC)
+        qp = qparser.QueryParser("number", schema=schema)
+        
+        teststart = 40
+        testend = 100
+        
+        q = qp.parse("[%s to *]" % teststart)
+        self.assertEqual(q, query.NullQuery)
+        
+        q = qp.parse("[%s to]" % teststart)
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, teststart)
+        self.assertEqual(q.end, None)
+        
+        q = qp.parse("[to %s]" % testend)
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, None)
+        self.assertEqual(q.end, testend)
+        
+        q = qp.parse("[%s to %s]" % (teststart, testend))
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, teststart)
+        self.assertEqual(q.end, testend)
+    
+    def test_empty_ranges(self):
         schema = fields.Schema(name=fields.TEXT, num=fields.NUMERIC,
                                date=fields.DATETIME)
         qp = qparser.QueryParser("text", schema=schema)
         
-        for fname in ("num", "name", "date"):
+        for fname in ("name", "date"):
             q = qp.parse("%s:[to]" % fname)
             self.assertEqual(q.__class__, query.TermRange)
             self.assertEqual(q.start, '')
             self.assertEqual(q.end, u'\uffff')
-        
+    
+    def test_empty_numeric_range(self):
+        schema = fields.Schema(id=fields.ID, num=fields.NUMERIC)
+        qp = qparser.QueryParser("num", schema=schema)
+        q = qp.parse("num:[to]")
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, None)
+        self.assertEqual(q.end, None)
+    
     def test_stopped(self):
         schema = fields.Schema(text = fields.TEXT)
         qp = qparser.QueryParser("text", schema=schema)

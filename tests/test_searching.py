@@ -728,35 +728,6 @@ class TestSearching(unittest.TestCase):
         ids = [fs["id"] for fs in r]
         self.assertEqual(["2", "4", "1", "3"], ids)
         
-    def test_open_numeric_ranges(self):
-        schema = fields.Schema(id=fields.ID(stored=True),
-                               view_count=fields.NUMERIC(stored=True))
-        st = RamStorage()
-        ix = st.create_index(schema)
-        
-        w = ix.writer()
-        for i, letter in enumerate(u"abcdefghijklmno"):
-            w.add_document(id=letter, view_count=(i + 1) * 101)
-        w.commit()
-        
-        s = ix.searcher()
-        #from whoosh.qparser.old import QueryParser
-        #qp = QueryParser("id", schema=schema)
-        qp = qparser.QueryParser("id", schema=schema)
-        
-        def do(qstring, target):
-            q = qp.parse(qstring)
-            results = "".join(sorted([d['id'] for d in s.search(q, limit=None)]))
-            self.assertEqual(results, target, "%r: %s != %s" % (q, results, target))
-        
-        do(u"view_count:[0 TO]", "abcdefghijklmno")
-        do(u"view_count:[1000 TO]", "jklmno")
-        do(u"view_count:[TO 300]", "ab")
-        do(u"view_count:[200 TO 500]", "bcd")
-        do(u"view_count:{202 TO]", "cdefghijklmno")
-        do(u"view_count:[TO 505}", "abcd")
-        do(u"view_count:{202 TO 404}", "c")
-        
     def test_outofdate(self):
         schema = fields.Schema(id=fields.ID(stored=True))
         st = RamStorage()
