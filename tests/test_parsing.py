@@ -389,9 +389,7 @@ class TestQueryParser(unittest.TestCase):
         
         for fname in ("name", "date"):
             q = qp.parse("%s:[to]" % fname)
-            self.assertEqual(q.__class__, query.TermRange)
-            self.assertEqual(q.start, '')
-            self.assertEqual(q.end, u'\uffff')
+            self.assertEqual(q.__class__, query.Every)
     
     def test_empty_numeric_range(self):
         schema = fields.Schema(id=fields.ID, num=fields.NUMERIC)
