@@ -98,8 +98,9 @@ class IndexWriter(object):
         
         count = 0
         for docnum in q.docs(s):
-            self.delete_document(docnum)
-            count += 1
+            if not self.is_deleted(docnum):
+                self.delete_document(docnum)
+                count += 1
         
         if not searcher:
             s.close()

@@ -367,28 +367,21 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.start, teststart)
         self.assertEqual(q.end, testend)
         
-        # Broken from what I'd expect.
-        # Also yields a ``ValueError: Called make_binary_tree with empty list``
-        # when run against a real data set.
-        q = qp.parse("view_count:[1 TO 10]")
-        self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, 1)
-        self.assertEqual(q.end, 10)
-        self.assertEqual(q.fieldname, "name")
-    
     def test_regressions(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("f")
         
-        # From 0.3.18, these used to require escaping. Mostly good
-        # for regression testing.
-        q = qp.parse(u"re-inker")
-        q = qp.parse(u"0.7 wire")
-        q = qp.parse(u"daler-rowney pearlescent 'bell bronze'")
-        q = qp.parse(u'22" BX')
+        # From 0.3.18, these used to require escaping. Mostly good for
+        # regression testing.
+        self.assertEqual(qp.parse(u"re-inker"), query.Term("f", u"re-inker"))
+        self.assertEqual(qp.parse(u"0.7 wire"),
+                         query.And([query.Term("f", u"0.7"), query.Term("f", u"wire")]))
+        self.assertEqual(qp.parse(u"daler-rowney pearl 'bell bronze'"),
+                         query.And([query.Term("f", u"daler-rowney"),
+                                    query.Term("f", u"pearl"),
+                                    query.Term("f", u"bell bronze")]))
+        self.assertEqual(qp.parse(u'22" BX'),
+                         query.And([query.Term("f", u'22"'), query.Term("f", "BX")]))
         
-        # Sorry, dunno what these should all look like, so fail loudly.
-        self.fail()
-    
     def test_empty_ranges(self):
         schema = fields.Schema(name=fields.TEXT, num=fields.NUMERIC,
                                date=fields.DATETIME)
