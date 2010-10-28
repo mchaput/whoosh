@@ -1,5 +1,5 @@
 ========================
-Whoosh 1.0 release notes
+Whoosh 1.x release notes
 ========================
 
 Whoosh 1.0 is a major milestone release with vastly improved performance and
@@ -8,6 +8,13 @@ several useful new features.
 *The index format of this version is not compatibile with indexes created by
 previous versions of Whoosh*. You will need to reindex your data to use this
 version.
+
+
+Whoosh 1.2
+==========
+
+Whoosh 1.2 adds tiered indexing for NUMERIC fields, resulting in much faster
+range queries on numeric fields.
 
 
 New features
