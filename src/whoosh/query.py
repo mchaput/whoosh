@@ -1332,7 +1332,7 @@ class ConstantScoreQuery(WrappingQuery):
         if isinstance(m, NullMatcher):
             return m
         else:
-            return ConstantScoreMatcher(m, self.score)
+            return ListMatcher(list(m.all_ids()), weight=self.score)
         
     def replace(self, oldtext, newtext):
         return self.__class__(self.child.replace(oldtext, newtext), self.score)
