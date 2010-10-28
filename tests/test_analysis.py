@@ -66,15 +66,15 @@ class TestAnalysis(unittest.TestCase):
         iwf = IntraWordFilter(mergewords=True, mergenums=True)
         ana = RegexTokenizer(r"\S+") | iwf
         
-        def do(text, ls):
+        def check(text, ls):
             self.assertEqual([(t.pos, t.text) for t in ana(text)], ls)
             
-        do(u"PowerShot", [(0, "Power"), (1, "Shot"), (1, "PowerShot")])
-        do(u"A's+B's&C's", [(0, "A"), (1, "B"), (2, "C"), (2, "ABC")])
-        do(u"Super-Duper-XL500-42-AutoCoder!", [(0, "Super"), (1, "Duper"), (2, "XL"),
-                                                (2, "SuperDuperXL"), (3, "500"), (4, "42"),
-                                                (4, "50042"), (5, "Auto"), (6, "Coder"),
-                                                (6, "AutoCoder")])
+        check(u"PowerShot", [(0, "Power"), (1, "Shot"), (1, "PowerShot")])
+        check(u"A's+B's&C's", [(0, "A"), (1, "B"), (2, "C"), (2, "ABC")])
+        check(u"Super-Duper-XL500-42-AutoCoder!", [(0, "Super"), (1, "Duper"), (2, "XL"),
+                                                   (2, "SuperDuperXL"), (3, "500"), (4, "42"),
+                                                   (4, "50042"), (5, "Auto"), (6, "Coder"),
+                                                   (6, "AutoCoder")])
     
     def test_biword(self):
         ana = RegexTokenizer(r"\w+") | BiWordFilter()

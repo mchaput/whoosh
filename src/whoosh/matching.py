@@ -341,7 +341,7 @@ class WrappingMatcher(Matcher):
     
     def score(self):
         return self.child.score() * self.boost
-    
+
 
 class MultiMatcher(Matcher):
     """Serializes the results of a list of sub-matchers.
@@ -1109,7 +1109,24 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         
     def value_as(self, astype):
         return self.a.value_as(astype)
+
+
+class ConstantScoreMatcher(WrappingMatcher):
+    def __init__(self, child, score=1.0):
+        super(ConstantScoreMatcher, self).__init__(child)
+        self._score = score
     
+    def quality(self):
+        return self._score
+    
+    def block_quality(self):
+        return self._score
+    
+    def score(self):
+        return self._score
+    
+
+
 
 #class PhraseMatcher(WrappingMatcher):
 #    """Matches postings where a list of sub-matchers occur next to each other

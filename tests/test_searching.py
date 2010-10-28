@@ -202,15 +202,15 @@ class TestSearching(unittest.TestCase):
         w.commit()
         s = ix.searcher()
         
-        def do(startexcl, endexcl, string):
+        def check(startexcl, endexcl, string):
             q = TermRange("id", "b", "f", startexcl, endexcl)
             r = "".join(sorted(d['id'] for d in s.search(q)))
             self.assertEqual(r, string)
             
-        do(False, False, "bcdef")
-        do(True, False, "cdef")
-        do(True, True, "cde")
-        do(False, True, "bcde")
+        check(False, False, "bcdef")
+        check(True, False, "cdef")
+        check(True, True, "cde")
+        check(False, True, "bcde")
         
     def test_open_ranges(self):
         schema = fields.Schema(id=fields.ID(stored=True))
@@ -225,17 +225,17 @@ class TestSearching(unittest.TestCase):
         #from whoosh.qparser.old import QueryParser
         #qp = QueryParser("id", schema=schema)
         qp = qparser.QueryParser("id", schema=schema)
-        def do(qstring, result):
+        def check(qstring, result):
             q = qp.parse(qstring)
             r = "".join(sorted([d['id'] for d in s.search(q)]))
             self.assertEqual(r, result)
             
-        do(u"[b TO]", "bcdefg")
-        do(u"[TO e]", "abcde")
-        do(u"[b TO d]", "bcd")
-        do(u"{b TO]", "cdefg")
-        do(u"[TO e}", "abcd")
-        do(u"{b TO d}", "c")
+        check(u"[b TO]", "bcdefg")
+        check(u"[TO e]", "abcde")
+        check(u"[b TO d]", "bcd")
+        check(u"{b TO]", "cdefg")
+        check(u"[TO e}", "abcd")
+        check(u"{b TO d}", "c")
     
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)

@@ -55,7 +55,7 @@ class TestSchema(unittest.TestCase):
         floatf = fields.NUMERIC(float, shift_step=0)
         
         def roundtrip(obj, num):
-            self.assertAlmostEqual(obj.from_text(obj.to_text(num)), num, 4)
+            self.assertEqual(obj.from_text(obj.to_text(num)), num)
         
         roundtrip(intf, 0)
         roundtrip(intf, 12345)
@@ -67,11 +67,6 @@ class TestSchema(unittest.TestCase):
         roundtrip(floatf, 582.592)
         roundtrip(floatf, -582.592)
         roundtrip(floatf, -99.42)
-        
-    def test_numeric_sort(self):
-        intf = fields.NUMERIC(int, shift_step=0)
-        longf = fields.NUMERIC(long, shift_step=0)
-        floatf = fields.NUMERIC(float, shift_step=0)
         
         from random import shuffle
         def roundtrip_sort(obj, start, end, step):
@@ -85,8 +80,7 @@ class TestSchema(unittest.TestCase):
             shuffle(scrabled)
             round = [obj.from_text(t) for t
                      in sorted([obj.to_text(n) for n in scrabled])]
-            for n1, n2 in zip(round, rng):
-                self.assertAlmostEqual(n1, n2, 2, "n1=%r n2=%r type=%s" % (n1, n2, obj.type))
+            self.assertEqual(round, rng)
         
         roundtrip_sort(intf, -100, 100, 1)
         roundtrip_sort(longf, -58902, 58249, 43)
@@ -151,84 +145,55 @@ class TestSchema(unittest.TestCase):
         r = s.search(qp.parse("0.536255"))
         self.assertEqual(r[0]["id"], "b")
     
-    def test_numeric_range(self):
-        def test_type(t, start, end, step, teststart, testend):
-            fld = fields.NUMERIC(t)
-            schema = fields.Schema(id=fields.STORED, number=fld)
-            ix = RamStorage().create_index(schema)
-            
-            w = ix.writer()
-            n = start
-            while n <= end:
-                w.add_document(id=n, number=n)
-                n += step
-            w.commit()
-            
-            qp = qparser.QueryParser("number", schema=schema)
-            q = qp.parse("[%s to %s]" % (teststart, testend))
-            self.assertEqual(q.__class__, query.NumericRange)
-            self.assertEqual(q.start, teststart)
-            self.assertEqual(q.end, testend)
-            
-            s = ix.searcher()
-            self.assertEqual(q._compile_query(s.reader()).__class__, query.Or)
-            rng = []
-            count = teststart
-            while count <= testend:
-                rng.append(count)
-                count += step
-            
-            found = [s.stored_fields(d)["id"] for d in q.docs(s)]
-            self.assertEqual(found, rng)
+    def test_numeric_parsing(self):
+        schema = fields.Schema(id=fields.ID(stored=True), number=fields.NUMERIC)
         
-        test_type(float, -50.0, 50.0, 0.5, -45.5, 39.0)
-        test_type(int, -5, 500, 1, 10, 400)
-        test_type(int, -500, 500, 5, -350, 280)
-        test_type(long, -1000, 1000, 5, -900, 90)
-    
-    def test_open_numeric_ranges(self):
-        schema = fields.Schema(id=fields.ID(stored=True),
-                               view_count=fields.NUMERIC(stored=True))
+        qp = qparser.QueryParser("number", schema=schema)
+        q = qp.parse("[10 to *]")
+        self.assertEqual(q, query.NullQuery)
+        
+        q = qp.parse("[to 400]")
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, None)
+        self.assertEqual(q.end, 400)
+        
+        q = qp.parse("[10 to]")
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, 10)
+        self.assertEqual(q.end, None)
+        
+        q = qp.parse("[10 to 400]")
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, 10)
+        self.assertEqual(q.end, 400)
+        
+    def test_numeric_ranges(self):
+        schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC)
         ix = RamStorage().create_index(schema)
-        
         w = ix.writer()
-        for i, letter in enumerate(u"abcdefghijklmno"):
-            w.add_document(id=letter, view_count=(i + 1) * 101)
+        
+        for i in xrange(400):
+            w.add_document(id=i, num=i)
         w.commit()
         
         s = ix.searcher()
-        #from whoosh.qparser.old import QueryParser
-        #qp = QueryParser("id", schema=schema)
-        qp = qparser.QueryParser("id", schema=schema)
+        qp = qparser.QueryParser("num", schema=schema)
         
-        def do(qstring, target):
-            q = qp.parse(qstring)
-            results = "".join(sorted([d['id'] for d in s.search(q, limit=None)]))
-            self.assertEqual(results, target, "%r: %s != %s" % (q, results, target))
+        def check(qs, target):
+            q = qp.parse(qs)
+            result = [s.stored_fields(d)["id"] for d in q.docs(s)]
+            self.assertEqual(result, target)
         
-        do(u"view_count:[0 TO]", "abcdefghijklmno")
-        do(u"view_count:[1000 TO]", "jklmno")
-        do(u"view_count:[TO 300]", "ab")
-        do(u"view_count:[200 TO 500]", "bcd")
-        do(u"view_count:{202 TO]", "cdefghijklmno")
-        do(u"view_count:[TO 505}", "abcd")
-        do(u"view_count:{202 TO 404}", "c")
+        # Note that range() is always inclusive-exclusive
+        check("[10 to 390]", range(10, 390+1))
+        check("[100 to]", range(100, 400))
+        check("[to 350]", range(0, 350+1))
+        check("[16 to 255]", range(16, 255+1))
+        check("{10 to 390]", range(11, 390+1))
+        check("[10 to 390}", range(10, 390))
+        check("{10 to 390}", range(11, 390))
+        check("{16 to 255}", range(17, 255))
     
-    def test_numeric_steps(self):
-        for step in range(0, 32):
-            schema = fields.Schema(id = fields.STORED,
-                                   num=fields.NUMERIC(int, shift_step=step))
-            ix = RamStorage().create_index(schema)
-            w = ix.writer()
-            for i in xrange(-10, 10):
-                w.add_document(id=i, num=i)
-            w.commit()
-            
-            s = ix.searcher()
-            q = query.NumericRange("num", -9, 9)
-            r = [s.stored_fields(d)["id"] for d in q.docs(s)]
-            self.assertEqual(r, range(-9, 10))
-            
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                date=fields.DATETIME(stored=True))

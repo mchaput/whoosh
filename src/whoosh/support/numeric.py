@@ -18,10 +18,10 @@ import struct
 from array import array
 
 
-def split_range(valsize, step, minbound, maxbound):
-    """Splits a range of numbers (from ``minbound`` to ``maxbound``, inclusive)
-    into a sequence of trie ranges of the form ``(start, end, shift)``.
-    The consumer of these tuples is expected to shift the ``start`` and ``end``
+def split_range(valsize, step, start, end):
+    """Splits a range of numbers (from ``start`` to ``end``, inclusive)
+    into a sequence of trie ranges of the form ``(start, end, shift)``. The
+    consumer of these tuples is expected to shift the ``start`` and ``end``
     right by ``shift``.
     
     This is used for generating term ranges for a numeric field. The queries
@@ -33,25 +33,26 @@ def split_range(valsize, step, minbound, maxbound):
     while True:
         diff = 1 << (shift + step)
         mask = ((1 << step) - 1) << shift
+        setbits = lambda x: x | ((1 << shift) - 1)
         
-        haslower = (minbound & mask) != 0
-        hasupper = (maxbound & mask) != mask
+        haslower = (start & mask) != 0
+        hasupper = (end & mask) != mask
         
-        not_mask = ~mask & ((1 << valsize+1) - 1)
-        nextmin = (minbound + diff if haslower else minbound) & not_mask
-        nextmax = (maxbound - diff if hasupper else maxbound) & not_mask
+        not_mask = ~mask & ((1 << valsize + 1) - 1)
+        nextstart = (start + diff if haslower else start) & not_mask
+        nextend = (end - diff if hasupper else end) & not_mask
         
-        if shift + step >= valsize or nextmin > nextmax:
-            yield (minbound, maxbound | ((1 << shift) - 1), shift)
+        if shift + step >= valsize or nextstart > nextend:
+            yield (start, setbits(end), shift)
             break
         
         if haslower:
-            yield (minbound, (minbound | mask) | ((1 << shift) - 1), shift)
+            yield (start, setbits(start | mask), shift)
         if hasupper:
-            yield (maxbound & not_mask, maxbound | ((1 << shift) - 1), shift)
+            yield (end & not_mask, setbits(end), shift)
         
-        minbound = nextmin
-        maxbound = nextmax
+        start = nextstart
+        end = nextend
         shift += step
 
 
@@ -155,22 +156,40 @@ def text_to_sortable_long(text):
 
 # Functions for generating tiered ranges
 
-def tiered_ranges(numtype, start, end, shift_step):
+_max_sortable_int = 4294967295L
+_max_sortable_long = 18446744073709551615L
+
+def tiered_ranges(numtype, start, end, shift_step, startexcl, endexcl):
     # First, convert the start and end of the range to sortable representations
-    if numtype is int:
-        valsize = 32
-        start = int_to_sortable_int(start)
-        end = int_to_sortable_int(end)
-        to_text = sortable_int_to_text
+    
+    valsize = 32 if numtype is int else 64
+    
+    # Convert start and end values to sortable ints
+    if start is None:
+        start = 0
     else:
-        valsize = 64
-        if numtype is long:
+        if numtype is int:
+            start = int_to_sortable_int(start)
+        elif numtype is long:
             start = long_to_sortable_long(start)
+        elif numtype is float:
+            start = float_to_sortable_long(start)
+        if startexcl: start += 1
+    
+    if end is None:
+        end = _max_sortable_int if valsize == 32 else _max_sortable_long
+    else:
+        if numtype is int:
+            end = int_to_sortable_int(end)
+        elif numtype is long:
             end = long_to_sortable_long(end)
         elif numtype is float:
-            # Convert floats to longs
-            start = float_to_sortable_long(start)
             end = float_to_sortable_long(end)
+        if endexcl: end -= 1
+    
+    if numtype is int:
+        to_text = sortable_int_to_text
+    else:
         to_text = sortable_long_to_text
     
     if not shift_step:
@@ -181,7 +200,6 @@ def tiered_ranges(numtype, start, end, shift_step):
     for rstart, rend, shift in split_range(valsize, shift_step, start, end):
         starttext = to_text(rstart, shift=shift)
         endtext = to_text(rend, shift=shift)
-        
         yield (starttext, endtext)
 
 
