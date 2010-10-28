@@ -6,7 +6,7 @@ from whoosh import fields, query
 from whoosh.filedb.filestore import FileStorage, RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length, permutations
-from whoosh.writing import BatchWriter
+from whoosh.writing import BatchWriter, IndexingError
 
 
 class TestIndexing(unittest.TestCase):
@@ -242,8 +242,7 @@ class TestIndexing(unittest.TestCase):
     
     def test_deletion(self):
         s = fields.Schema(key=fields.ID, name=fields.TEXT, value=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(s)
+        ix = RamStorage().create_index(s)
         
         w = ix.writer()
         w.add_document(key=u"A", name=u"Yellow brown", value=u"Blue red green purple?")
@@ -265,17 +264,38 @@ class TestIndexing(unittest.TestCase):
         w.add_document(key=u"C", name=u"One two", value=u"Three four five.")
         w.commit()
         
-        # This blows up with a ``KeyError: "Document 1 in segment '_MAIN_1' is already deleted"``.
+        # This will match both documents with key == B, one of which is already
+        # deleted. This should not raise an error.
+        w = ix.writer()
         count = w.delete_by_term("key", u"B")
         self.assertEqual(count, 1)
         w.commit()
         
         ix.optimize()
-        self.assertEqual(ix.doc_count_all(), 2)
-        self.assertEqual(ix.doc_count(), 2)
+        self.assertEqual(ix.doc_count_all(), 4)
+        self.assertEqual(ix.doc_count(), 4)
         tr = ix.reader()
         self.assertEqual(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
         tr.close()
+
+    def test_writer_reuse(self):
+        s = fields.Schema(key=fields.ID)
+        ix = RamStorage().create_index(s)
+        
+        w = ix.writer()
+        w.add_document(key=u"A")
+        w.add_document(key=u"B")
+        w.add_document(key=u"C")
+        w.commit()
+        
+        # You can't re-use a commited/canceled writer
+        self.assertRaises(IndexingError, w.add_document, key=u"D")
+        self.assertRaises(IndexingError, w.update_document, key=u"B")
+        self.assertRaises(IndexingError, w.delete_document, 0)
+        self.assertRaises(IndexingError, w.add_reader, None)
+        self.assertRaises(IndexingError, w.add_field, "name", fields.ID)
+        self.assertRaises(IndexingError, w.remove_field, "key")
+        self.assertRaises(IndexingError, w.searcher)
 
     def test_update(self):
         # Test update with multiple unique keys

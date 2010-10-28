@@ -61,10 +61,17 @@ class TestSearching(unittest.TestCase):
     def test_and(self):
         self._run_query(And([Term("value", u"red"), Term("name", u"yellow")]),
                         [u"A"])
+        # Missing
+        self._run_query(And([Term("value", u"ochre"), Term("name", u"glonk")]),
+                        [])
         
     def test_or(self):
         self._run_query(Or([Term("value", u"red"), Term("name", u"yellow")]),
                         [u"A", u"D", u"E"])
+        # Missing
+        self._run_query(Or([Term("value", u"ochre"), Term("name", u"glonk")]),
+                        [])
+        self._run_query(Or([]), [])
     
     def test_not(self):
         self._run_query(Or([Term("value", u"red"), Term("name", u"yellow"), Not(Term("name", u"quick"))]),
@@ -84,6 +91,8 @@ class TestSearching(unittest.TestCase):
     def test_wildcard(self):
         self._run_query(Or([Wildcard('value', u'*red*'), Wildcard('name', u'*yellow*')]),
                         [u"A", u"C", u"D", u"E"])
+        # Missing
+        self._run_query(Wildcard('value', 'glonk*'), [])
     
     def test_not2(self):
         schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
@@ -148,9 +157,9 @@ class TestSearching(unittest.TestCase):
         qp = qparser.QueryParser("content", schema=schema)
         
         q = qp.parse(u"charlie [delta TO foxtrot]")
-        self.assertEqual(q.__class__.__name__, "And")
-        self.assertEqual(q[0].__class__.__name__, "Term")
-        self.assertEqual(q[1].__class__.__name__, "TermRange")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[1].__class__, query.TermRange)
         self.assertEqual(q[1].start, "delta")
         self.assertEqual(q[1].end, "foxtrot")
         self.assertEqual(q[1].startexcl, False)
@@ -159,9 +168,9 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(ids, [u'A', u'B', u'C'])
         
         q = qp.parse(u"foxtrot {echo TO hotel]")
-        self.assertEqual(q.__class__.__name__, "And")
-        self.assertEqual(q[0].__class__.__name__, "Term")
-        self.assertEqual(q[1].__class__.__name__, "TermRange")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[1].__class__, query.TermRange)
         self.assertEqual(q[1].start, "echo")
         self.assertEqual(q[1].end, "hotel")
         self.assertEqual(q[1].startexcl, True)
@@ -170,13 +179,18 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(ids, [u'B', u'C', u'D', u'E'])
         
         q = qp.parse(u"{bravo TO delta}")
-        self.assertEqual(q.__class__.__name__, "TermRange")
+        self.assertEqual(q.__class__, query.TermRange)
         self.assertEqual(q.start, "bravo")
         self.assertEqual(q.end, "delta")
         self.assertEqual(q.startexcl, True)
         self.assertEqual(q.endexcl, True)
         ids = sorted([d['id'] for d in s.search(q)])
         self.assertEqual(ids, [u'A', u'B', u'C'])
+        
+        # Shouldn't match anything
+        q = qp.parse(u"[1 to 10]")
+        self.assertEqual(q.__class__, query.TermRange)
+        self.assertEqual(len(s.search(q)), 0)
     
     def test_range_clusiveness(self):
         schema = fields.Schema(id=fields.ID(stored=True))

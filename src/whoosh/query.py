@@ -377,6 +377,11 @@ class CompoundQuery(Query):
     def _matcher(self, matchercls, searcher, exclude_docs, **kwargs):
         submatchers = self._submatchers(searcher, exclude_docs)
         
+        if len(submatchers) == 1:
+            return submatchers[0]
+        if not submatchers:
+            return NullMatcher()
+        
         tree = make_binary_tree(matchercls, submatchers, **kwargs)
         if self.boost == 1.0:
             return tree
