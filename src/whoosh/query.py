@@ -955,7 +955,9 @@ class TermRange(MultiTerm):
                               boost=self.boost)
 
     def normalize(self):
-        if self.start == self.end:
+        if self.start in ('', None) and self.end in (u'\uffff', None):
+            return Every(self.fieldname, boost=self.boost)
+        elif self.start == self.end:
             if self.startexcl or self.endexcl:
                 return NullQuery
             return Term(self.fieldname, self.start, boost=self.boost)

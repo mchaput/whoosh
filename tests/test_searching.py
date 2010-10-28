@@ -237,6 +237,49 @@ class TestSearching(unittest.TestCase):
         check(u"[TO e}", "abcd")
         check(u"{b TO d}", "c")
     
+    def test_negated_unlimited_ranges(self):
+        # Whoosh should treat u"[to]" as if it was "*"
+        from datetime import datetime, timedelta
+        
+        schema = fields.Schema(id=fields.ID(stored=True), num=fields.NUMERIC,
+                               date=fields.DATETIME)
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        domain = u"abcdefghijk"
+        dt = datetime.now()
+        for i, letter in enumerate(domain):
+            w.add_document(id=letter, num=i, date=dt + timedelta(days=i))
+        w.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("id", schema=schema)
+        
+        nq = qp.parse(u"NOT [to]")
+        self.assertEqual(nq.__class__, query.Not)
+        q = nq.query
+        self.assertEqual(q.__class__, query.Every)
+        self.assertEqual("".join(s.stored_fields(d)["id"] for d in q.docs(s)),
+                         domain)
+        self.assertEqual(list(nq.docs(s)), [])
+        
+        nq = qp.parse(u"NOT num:[to]")
+        self.assertEqual(nq.__class__, query.Not)
+        q = nq.query
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, None)
+        self.assertEqual(q.end, None)
+        self.assertEqual("".join(s.stored_fields(d)["id"] for d in q.docs(s)),
+                         domain)
+        self.assertEqual(list(nq.docs(s)), [])
+        
+        nq = qp.parse(u"NOT date:[to]")
+        self.assertEqual(nq.__class__, query.Not)
+        q = nq.query
+        self.assertEqual(q.__class__, query.Every)
+        self.assertEqual("".join(s.stored_fields(d)["id"] for d in q.docs(s)),
+                         domain)
+        self.assertEqual(list(nq.docs(s)), [])
+    
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
         st = RamStorage()
