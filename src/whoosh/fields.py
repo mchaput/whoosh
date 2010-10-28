@@ -282,18 +282,26 @@ class NUMERIC(FieldType):
         else:
             return [(self.to_text(num), 1, 1.0, '')]
     
-    def to_text(self, x, shift=0):
+    def prepare_number(self, x):
+        if x is None: return x
         if self.decimal_places:
             x = Decimal(x)
             x *= 10 ** self.decimal_places
-        return self._to_text(self.type(x), shift=shift)
+        x = self.type(x)
+        return x
+    
+    def unprepare_number(self, x):
+        if self.decimal_places:
+            s = str(x)
+            x = Decimal(s[:-self.decimal_places] + "." + s[-self.decimal_places:])
+        return x
+    
+    def to_text(self, x, shift=0):
+        return self._to_text(self.prepare_number(x), shift=shift)
     
     def from_text(self, t):
-        n = self._from_text(t)
-        if self.decimal_places:
-            s = str(n)
-            n = Decimal(s[:-self.decimal_places] + "." + s[-self.decimal_places:])
-        return n
+        x = self._from_text(t)
+        return self.unprepare_number(x)
     
     def process_text(self, text, **kwargs):
         return (self.to_text(text),)

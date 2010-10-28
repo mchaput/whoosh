@@ -193,6 +193,40 @@ class TestSchema(unittest.TestCase):
         check("[10 to 390}", range(10, 390))
         check("{10 to 390}", range(11, 390))
         check("{16 to 255}", range(17, 255))
+        
+    def test_decimal_ranges(self):
+        from decimal import Decimal
+        
+        schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(int, decimal_places=2))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        count = Decimal("0.0")
+        inc = Decimal("0.2")
+        for _ in xrange(500):
+            w.add_document(id=str(count), num=count)
+            count += inc
+        w.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("num", schema=schema)
+        
+        def check(qs, start, end):
+            q = qp.parse(qs)
+            result = [s.stored_fields(d)["id"] for d in q.docs(s)]
+            
+            target = []
+            count = Decimal(start)
+            limit = Decimal(end)
+            while count <= limit:
+                target.append(str(count))
+                count += inc
+            
+            self.assertEqual(result, target)
+        
+        check("[10.2 to 80.8]", "10.2", "80.8")
+        check("{10.2 to 80.8]", "10.4", "80.8")
+        check("[10.2 to 80.8}", "10.2", "80.6")
+        check("{10.2 to 80.8}", "10.4", "80.6")
     
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),

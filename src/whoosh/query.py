@@ -1079,10 +1079,12 @@ class NumericRange(Query):
         if not isinstance(field, NUMERIC):
             raise Exception("NumericRange: field %r is not numeric" % self.fieldname)
         
+        start = field.prepare_number(self.start)
+        end = field.prepare_number(self.end)
+        
         subqueries = []
         # Get the term ranges for the different resolutions
-        for starttext, endtext in tiered_ranges(field.type, self.start,
-                                                self.end, field.shift_step,
+        for starttext, endtext in tiered_ranges(field.type, start, end, field.shift_step,
                                                 self.startexcl, self.endexcl):
             if starttext == endtext:
                 subq = Term(self.fieldname, starttext)
