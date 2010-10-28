@@ -259,6 +259,17 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(ix.doc_count_all(), 3)
         self.assertEqual(ix.doc_count(), 2)
         
+        w = ix.writer()
+        w.add_document(key=u"A", name=u"Yellow brown", value=u"Blue red green purple?")
+        w.add_document(key=u"B", name=u"Alpha beta", value=u"Gamma delta epsilon omega.")
+        w.add_document(key=u"C", name=u"One two", value=u"Three four five.")
+        w.commit()
+        
+        # This blows up with a ``KeyError: "Document 1 in segment '_MAIN_1' is already deleted"``.
+        count = w.delete_by_term("key", u"B")
+        self.assertEqual(count, 1)
+        w.commit()
+        
         ix.optimize()
         self.assertEqual(ix.doc_count_all(), 2)
         self.assertEqual(ix.doc_count(), 2)
