@@ -361,63 +361,47 @@ def protected(func):
     return protected_wrapper
     
 
-def lru_cache(size):
-    """Decorator that adds a least-recently-accessed cache to a method.
+class LRUCache(object):
+    def __init__(self, size):
+        self.size = size
+        self.clock = []
+        for i in xrange(0, size):
+            self.clock.append([None, False])
+        self.hand = 0
+        self.data = {}
+
+    def __contains__(self, key):
+        return key in self.data
     
-    :param size: the maximum number of items to keep in the cache.
-    """
+    def __getitem__(self, key):
+        pos, val = self.data[key]
+        self.clock[pos][1] = True
+        self.hand = (pos + 1) % self.size
+        return val
+        
+    def __setitem__(self, key, val):
+        size = self.size
+        hand = self.hand
+        clock = self.clock
+        data = self.data
 
-    def decorate_function(func):
-        prefix = "_%s_" % func.__name__
-
-        @wraps(func)
-        def lru_wrapper(self, *args):
-            if not hasattr(self, prefix + "cache"):
-                cache = {}
-                queue = deque()
-                refcount = defaultdict(int)
-                setattr(self, prefix + "cache", cache)
-                setattr(self, prefix + "queue", queue)
-                setattr(self, prefix + "refcount", refcount)
-            else:
-                cache = getattr(self, prefix + "cache")
-                queue = getattr(self, prefix + "queue")
-                refcount = getattr(self, prefix + "refcount")
-            qpend = queue.append
-            qpop = queue.popleft
-
-            # Get cache entry or compute if not found
-            try:
-                result = cache[args]
-            except KeyError:
-                result = cache[args] = func(self, *args)
-
-            # Record that this key was recently accessed
-            qpend(args)
-            refcount[args] += 1
-
-            # Purge least recently accessed cache contents
-            while len(cache) > size:
-                k = qpop()
-                refcount[k] -= 1
-                if not refcount[k]:
-                    del cache[k]
-                    del refcount[k]
-
-            # Periodically compact the queue by removing duplicate keys
-            if len(queue) > size * 4:
-                for _ in xrange(len(queue)):
-                    k = qpop()
-                    if refcount[k] == 1:
-                        qpend(k)
-                    else:
-                        refcount[k] -= 1
-                #assert len(queue) == len(cache) == len(refcount) == sum(refcount.itervalues())
-
-            return result
-        return lru_wrapper
-    return decorate_function
-
+        end = (hand or size) - 1
+        while True:
+            current = clock[hand]
+            ref = current[1]
+            if ref:
+                current[1] = False
+                hand = (hand + 1) % size
+            elif ref is False or hand == end:
+                oldkey = current[0]
+                if oldkey in data:
+                    del data[oldkey]
+                current[0] = key
+                current[1] = True
+                data[key] = (hand, val)
+                hand = (hand + 1) % size
+                self.hand = hand
+                return
 
 
 
