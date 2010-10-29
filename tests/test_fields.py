@@ -235,7 +235,7 @@ class TestSchema(unittest.TestCase):
         
         dt = datetime.now()
         w = ix.writer()
-        for i in xrange(100):
+        for i in xrange(50):
             w.add_document(id=i, num=i, date=dt + timedelta(days=i), even=not(i % 2))
         w.commit()
         
@@ -244,10 +244,30 @@ class TestSchema(unittest.TestCase):
             result = [d['id'] for d in s.documents(**kwargs)]
             self.assertEqual(result, target)
         
-        check({"num": 99}, [99])
+        check({"num": 49}, [49])
         check({"date": dt + timedelta(days=30)}, [30])
-        check({"even": True}, range(0, 100, 2))
+        check({"even": True}, range(0, 50, 2))
     
+    def test_nontext_update(self):
+        schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(unique=True),
+                               date=fields.DATETIME(unique=True))
+        ix = RamStorage().create_index(schema)
+        
+        dt = datetime.now()
+        w = ix.writer()
+        for i in xrange(10):
+            w.add_document(id=i, num=i, date=dt + timedelta(days=i))
+        w.commit()
+        
+        w = ix.writer()
+        w.update_document(num=8, id="a")
+        w.update_document(num=2, id="b")
+        w.update_document(num=4, id="c")
+        w.update_document(date=dt + timedelta(days=5), id="d")
+        w.update_document(date=dt + timedelta(days=1), id="e")
+        w.update_document(date=dt + timedelta(days=7), id="f")
+        w.commit()
+        
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                date=fields.DATETIME(stored=True))

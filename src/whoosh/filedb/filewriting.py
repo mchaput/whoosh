@@ -320,7 +320,8 @@ class SegmentWriter(IndexWriter):
         # Delete documents matching the unique terms
         delset = set()
         for name in unique_fields:
-            text = fields[name]
+            field = self.schema[name]
+            text = field.to_text(fields[name])
             
             # If we've seen an update_document with this unique field before...
             if name in _unique_cache:
