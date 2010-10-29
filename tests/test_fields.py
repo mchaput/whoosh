@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from whoosh import fields, qparser, query
 from whoosh.filedb.filestore import RamStorage
@@ -227,6 +227,26 @@ class TestSchema(unittest.TestCase):
         check("{10.2 to 80.8]", "10.4", "80.8")
         check("[10.2 to 80.8}", "10.2", "80.6")
         check("{10.2 to 80.8}", "10.4", "80.6")
+    
+    def test_nontext_document(self):
+        schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC,
+                               date=fields.DATETIME, even=fields.BOOLEAN)
+        ix = RamStorage().create_index(schema)
+        
+        dt = datetime.now()
+        w = ix.writer()
+        for i in xrange(100):
+            w.add_document(id=i, num=i, date=dt + timedelta(days=i), even=not(i % 2))
+        w.commit()
+        
+        s = ix.searcher()
+        def check(kwargs, target):
+            result = [d['id'] for d in s.documents(**kwargs)]
+            self.assertEqual(result, target)
+        
+        check({"num": 99}, [99])
+        check({"date": dt + timedelta(days=30)}, [30])
+        check({"even": True}, range(0, 100, 2))
     
     def test_datetime(self):
         schema = fields.Schema(id=fields.ID(stored=True),

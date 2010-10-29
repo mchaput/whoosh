@@ -219,10 +219,16 @@ class Searcher(object):
         >>> docnums = list(searcher.document_numbers(emailto=u"matt@whoosh.ca"))
         """
 
-        q = query.And([query.Term(k, v) for k, v in kw.iteritems()])
-        q = q.normalize()
-        if q:
-            return q.docs(self)
+        subqueries = []
+        for key, value in kw.iteritems():
+            field = self.schema[key]
+            text = field.to_text(value)
+            subqueries.append(query.Term(key, text))
+        if not subqueries:
+            return []
+        
+        q = query.And(subqueries).normalize()
+        return q.docs(self)
 
     def docset(self, q, exclude_docs=None):
         """Returns a set-like object containing the document numbers matching
