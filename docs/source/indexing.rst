@@ -11,7 +11,7 @@ To create an index in a directory, use ``index.create_in``::
     from whoosh import index
 
     if not os.path.exists("indexdir"):
-        os.mkdir("index")
+        os.mkdir("indexdir")
 
     ix = index.create_in("indexdir", schema)
 
