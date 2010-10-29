@@ -63,29 +63,34 @@ _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
 
 # Functions for converting numbers to and from sortable representations
 
-def int_to_sortable_int(x):
-    x += 1 << 31
+def int_to_sortable_int(x, signed=True):
+    if signed: x += 1 << 31
     assert x >= 0
     return x
-def sortable_int_to_int(x):
-    x -= 1 << 31
+
+def sortable_int_to_int(x, signed=True):
+    if signed: x -= 1 << 31
     return x
-def long_to_sortable_long(x):
-    x += 1 << 63
+
+def long_to_sortable_long(x, signed=True):
+    if signed: x += 1 << 63
     assert x >= 0
     return x
-def sortable_long_to_long(x):
-    x -= 1 << 63
+
+def sortable_long_to_long(x, signed=True):
+    if signed: x -= 1 << 63
     return x
-def float_to_sortable_long(x):
+
+def float_to_sortable_long(x, signed=True):
     x = _qunpack(_dpack(x))[0]
-    if x<0:
+    if x < 0:
         x ^= 0x7fffffffffffffff
-    x += 1 << 63
+    if signed: x += 1 << 63
     assert x >= 0
     return x
-def sortable_long_to_float(x):
-    x -= 1 << 63
+
+def sortable_long_to_float(x, signed=True):
+    if signed: x -= 1 << 63
     if x < 0:
         x ^= 0x7fffffffffffffff
     x = _dunpack(_qpack(x))[0]
@@ -93,31 +98,31 @@ def sortable_long_to_float(x):
 
 # Functions for converting numbers to and from text
 
-def int_to_text(x, shift=0):
-    x = int_to_sortable_int(x)
+def int_to_text(x, shift=0, signed=True):
+    x = int_to_sortable_int(x, signed)
     return sortable_int_to_text(x, shift)
 
-def text_to_int(text):
+def text_to_int(text, signed=True):
     x = text_to_sortable_int(text)
-    x = sortable_int_to_int(x)
+    x = sortable_int_to_int(x, signed)
     return x
 
-def long_to_text(x, shift=0):
-    x = long_to_sortable_long(x)
+def long_to_text(x, shift=0, signed=True):
+    x = long_to_sortable_long(x, signed)
     return sortable_long_to_text(x, shift)
 
-def text_to_long(text):
+def text_to_long(text, signed=True):
     x = text_to_sortable_long(text)
-    x = sortable_long_to_long(x)
+    x = sortable_long_to_long(x, signed)
     return x
 
-def float_to_text(x, shift=0):
-    x = float_to_sortable_long(x)
+def float_to_text(x, shift=0, signed=True):
+    x = float_to_sortable_long(x, signed)
     return sortable_long_to_text(x, shift)
 
-def text_to_float(text):
+def text_to_float(text, signed=True):
     x = text_to_sortable_long(text)
-    x = sortable_long_to_float(x)
+    x = sortable_long_to_float(x, signed)
     return x
 
 # Functions for converting sortable representations to and from text.
@@ -159,7 +164,7 @@ def text_to_sortable_long(text):
 _max_sortable_int = 4294967295L
 _max_sortable_long = 18446744073709551615L
 
-def tiered_ranges(numtype, start, end, shift_step, startexcl, endexcl):
+def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
     # First, convert the start and end of the range to sortable representations
     
     valsize = 32 if numtype is int else 64
@@ -169,22 +174,22 @@ def tiered_ranges(numtype, start, end, shift_step, startexcl, endexcl):
         start = 0
     else:
         if numtype is int:
-            start = int_to_sortable_int(start)
+            start = int_to_sortable_int(start, signed)
         elif numtype is long:
-            start = long_to_sortable_long(start)
+            start = long_to_sortable_long(start, signed)
         elif numtype is float:
-            start = float_to_sortable_long(start)
+            start = float_to_sortable_long(start, signed)
         if startexcl: start += 1
     
     if end is None:
         end = _max_sortable_int if valsize == 32 else _max_sortable_long
     else:
         if numtype is int:
-            end = int_to_sortable_int(end)
+            end = int_to_sortable_int(end, signed)
         elif numtype is long:
-            end = long_to_sortable_long(end)
+            end = long_to_sortable_long(end, signed)
         elif numtype is float:
-            end = float_to_sortable_long(end)
+            end = float_to_sortable_long(end, signed)
         if endexcl: end -= 1
     
     if numtype is int:
