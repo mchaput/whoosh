@@ -231,7 +231,7 @@ class NUMERIC(FieldType):
     """
     
     def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
-                 decimal_places=0, shift_step=4):
+                 decimal_places=0, shift_step=4, signed=True):
         """
         :param type: the type of numbers that can be stored in this field: one
             of ``int``, ``long``, ``float``, or ``Decimal``.
@@ -240,6 +240,12 @@ class NUMERIC(FieldType):
         :param unique: Whether the value of this field is unique per-document.
         :param decimal_places: specifies the number of decimal places to save
             when storing Decimal instances as ``int`` or ``float``.
+        :param shift_steps: The number of bits of precision to shift away at
+            each tiered indexing level. Values should generally be 1-8. Lower
+            values yield faster searches but take up more space. A value
+            of `0` means no tiered indexing.
+        :param signed: Whether the numbers stored in this field may be
+            negative.
         """
         
         self.type = type
@@ -263,6 +269,7 @@ class NUMERIC(FieldType):
         self.unique = unique
         self.decimal_places = decimal_places
         self.shift_step = shift_step
+        self.signed = signed
         self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
     
     def _tiers(self, num):
@@ -414,7 +421,12 @@ class BOOLEAN(FieldType):
         self.format = Existence(None)
     
     def to_text(self, bit):
-        if not isinstance(bit, bool):
+        if isinstance(bit, basestring):
+            if bit in self.trues:
+                bit = True
+            else:
+                bit = False
+        elif not isinstance(bit, bool):
             raise ValueError("%r is not a boolean")
         return self.strings[int(bit)]
     

@@ -1084,7 +1084,8 @@ class NumericRange(Query):
         
         subqueries = []
         # Get the term ranges for the different resolutions
-        for starttext, endtext in tiered_ranges(field.type, start, end, field.shift_step,
+        for starttext, endtext in tiered_ranges(field.type, field.signed,
+                                                start, end, field.shift_step,
                                                 self.startexcl, self.endexcl):
             if starttext == endtext:
                 subq = Term(self.fieldname, starttext)
