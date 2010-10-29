@@ -158,9 +158,12 @@ class SpanWrappingMatcher(WrappingMatcher):
             self._find_next()
     
     def copy(self):
-        m = self.__class__(self.child.copy(), self.fn)
+        m = self.__class__(self.child.copy())
         m._spans = self._spans
         return m
+    
+    def _replacement(self, newchild):
+        return self.__class__(newchild)
     
     def _find_next(self):
         if not self.is_active():
@@ -244,6 +247,12 @@ class SpanFirst(SpanQuery):
         def __init__(self, child, limit=0):
             self.limit = limit
             super(SpanFirst.SpanFirstMatcher, self).__init__(child)
+        
+        def copy(self):
+            return self.__class__(self.child.copy(), limit=self.limit)
+        
+        def _replacement(self, newchild):
+            return self.__class__(newchild, limit=self.limit)
         
         def _get_spans(self):
             return [span for span in self.child.spans()
@@ -342,6 +351,15 @@ class SpanNear(SpanQuery):
             isect = IntersectionMatcher(a, b)
             super(SpanNear.SpanNearMatcher, self).__init__(isect)
         
+        def copy(self):
+            return self.__class__(self.a.copy(), self.b.copy(), slop=self.slop,
+                                  ordered=self.ordered, mindist=self.mindist)
+        
+        def replace(self):
+            if not self.is_active():
+                return NullMatcher()
+            return self
+        
         def _get_spans(self):
             slop = self.slop
             mindist = self.mindist
@@ -370,63 +388,14 @@ class SpanNear(SpanQuery):
             return sorted(spans)
 
 
-class SpanProximity(SpanQuery):
-    def __init__(self, subqueries, window=10, minmatch=1):
-        self.subqueries = subqueries
-        self.window = window
-        self.minmatch = minmatch
+class SpanBiMatcher(SpanWrappingMatcher):
+    def copy(self):
+        return self.__class__(self.a.copy(), self.b.copy())
     
-    def matcher(self, searcher, exclude_docs=None):
-        matchers = [q.matcher(searcher, exclude_docs=exclude_docs)
-                    for q in self.subqueries]
-        matchers = [m for m in matchers if m.is_active()]
-        
-        if not matchers:
+    def replace(self):
+        if not self.is_active():
             return NullMatcher()
-        elif len(matchers) == 1:
-            return matchers[0]
-        else:
-            return SpanProximity.ProxMatcher(matchers, self.window, self.minmatch)
-    
-    class ProxMatcher(SpanWrappingMatcher):
-        def __init__(self, matchers, window, minmatch):
-            union = make_binary_tree(UnionMatcher, matchers)
-            self.matchers = matchers
-            self.window = window
-            self.minmatch = minmatch
-            super(SpanProximity.ProxMatcher, self).__init__(union)
-            
-        def _get_spans(self):
-            window = self.window
-            
-            id = self.child.id()
-            matching = [m for m in self.matchers if m.id() == id]
-            if len(matching) < self.minmatch:
-                return []
-            all_spans = [m.spans() for m in matching]
-            
-            mindists = {}
-            for i, alist in enumerate(all_spans):
-                for j in xrange(i+1, len(all_spans)):
-                    for a in alist:
-                        pre = a.start - window
-                        post = a.end + window
-                        
-                        blist = all_spans[j]
-                        for b in blist:
-                            if b.end < pre: continue
-                            if b.start > post: break
-                        
-                            dist = a.distance_to(b)
-                            coords = (i, j)
-                            if coords not in mindists or dist < mindists[coords]:
-                                mindists[coords] = dist
-                                if b.start > a.end:
-                                    break
-            print "mindists=", mindists
-            return []
-            
-                    
+        return self
 
 
 class SpanNot(SpanQuery):
@@ -460,7 +429,7 @@ class SpanNot(SpanQuery):
         mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
         return SpanNot.SpanNotMatcher(ma, mb)
     
-    class SpanNotMatcher(SpanWrappingMatcher):
+    class SpanNotMatcher(SpanBiMatcher):
         def __init__(self, a, b):
             self.a = a
             self.b = b
@@ -502,7 +471,7 @@ class SpanOr(SpanQuery):
                     for q in self.subqs]
         return make_binary_tree(SpanOr.SpanOrMatcher, matchers)
     
-    class SpanOrMatcher(SpanWrappingMatcher):
+    class SpanOrMatcher(SpanBiMatcher):
         def __init__(self, a, b):
             self.a = a
             self.b = b
@@ -550,7 +519,7 @@ class SpanContains(SpanQuery):
         mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
         return SpanContains.SpanContainsMatcher(ma, mb)
     
-    class SpanContainsMatcher(SpanWrappingMatcher):
+    class SpanContainsMatcher(SpanBiMatcher):
         def __init__(self, a, b):
             self.a = a
             self.b = b
@@ -601,7 +570,7 @@ class SpanBefore(SpanQuery):
         mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
         return SpanBefore.SpanBeforeMatcher(ma, mb)
         
-    class SpanBeforeMatcher(SpanWrappingMatcher):
+    class SpanBeforeMatcher(SpanBiMatcher):
         def __init__(self, a, b):
             self.a = a
             self.b = b
@@ -637,7 +606,7 @@ class SpanCondition(SpanQuery):
         mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
         return SpanCondition.SpanConditionMatcher(ma, mb)
     
-    class SpanConditionMatcher(SpanWrappingMatcher):
+    class SpanConditionMatcher(SpanBiMatcher):
         def __init__(self, a, b):
             self.a = a
             isect = IntersectionMatcher(a, b)
