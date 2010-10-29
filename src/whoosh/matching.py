@@ -235,7 +235,10 @@ class NullMatcher(Matcher):
     
     def all_ids(self):
         return []
-
+    
+    def copy(self):
+        return self
+    
 
 class ListMatcher(Matcher):
     """Synthetic matcher backed by a list of IDs.
@@ -291,11 +294,21 @@ class WrappingMatcher(Matcher):
     def depth(self):
         return 1 + self.child.depth()
     
+    def _replacement(self, newchild):
+        return self.__class__(newchild, boost=self.boost)
+    
     def replace(self):
         r = self.child.replace()
-        if not r.is_active(): return NullMatcher()
-        if r is not self.child: return self.__class__(r)
-        return self
+        if not r.is_active():
+            return NullMatcher()
+        if r is not self.child:
+            try:
+                return self._replacement(r)
+            except TypeError, e:
+                raise TypeError("Class %s got exception %s trying "
+                                "to replace itself" % (self.__class__, e))
+        else:
+            return self
     
     def id(self):
         return self.child.id()
@@ -471,6 +484,9 @@ class ExcludeMatcher(WrappingMatcher):
     
     def copy(self):
         return self.__class__(self.child.copy(), self.excluded, boost=self.boost)
+    
+    def _replacement(self, newchild):
+        return self.__class__(newchild, self.excluded, boost=self.boost)
     
     def _find_next(self):
         child = self.child
@@ -930,6 +946,10 @@ class InverseMatcher(WrappingMatcher):
         return self.__class__(self.child.copy(), self.limit,
                               weight=self._weight, missing=self.missing)
     
+    def _replacement(self, newchild):
+        return self.__class__(newchild, self.limit, missing=self.missing,
+                              weight=self.weight)
+    
     def is_active(self):
         return self._id < self.limit
     
@@ -1115,6 +1135,12 @@ class ConstantScoreMatcher(WrappingMatcher):
     def __init__(self, child, score=1.0):
         super(ConstantScoreMatcher, self).__init__(child)
         self._score = score
+    
+    def copy(self):
+        return self.__class__(self.child.copy(), score=self._score)
+    
+    def _replacement(self, newchild):
+        return self.__class__(newchild, score=self._score)
     
     def quality(self):
         return self._score

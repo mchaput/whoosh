@@ -245,7 +245,9 @@ class TestSearching(unittest.TestCase):
                                date=fields.DATETIME)
         ix = RamStorage().create_index(schema)
         w = ix.writer()
-        domain = u"abcdefghijk"
+        from string import ascii_letters
+        domain = unicode(ascii_letters)
+        
         dt = datetime.now()
         for i, letter in enumerate(domain):
             w.add_document(id=letter, num=i, date=dt + timedelta(days=i))
@@ -258,7 +260,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(nq.__class__, query.Not)
         q = nq.query
         self.assertEqual(q.__class__, query.Every)
-        self.assertEqual("".join(s.stored_fields(d)["id"] for d in q.docs(s)),
+        self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
                          domain)
         self.assertEqual(list(nq.docs(s)), [])
         
@@ -268,7 +270,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(q.__class__, query.NumericRange)
         self.assertEqual(q.start, None)
         self.assertEqual(q.end, None)
-        self.assertEqual("".join(s.stored_fields(d)["id"] for d in q.docs(s)),
+        self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
                          domain)
         self.assertEqual(list(nq.docs(s)), [])
         
@@ -276,7 +278,7 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(nq.__class__, query.Not)
         q = nq.query
         self.assertEqual(q.__class__, query.Every)
-        self.assertEqual("".join(s.stored_fields(d)["id"] for d in q.docs(s)),
+        self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
                          domain)
         self.assertEqual(list(nq.docs(s)), [])
     
