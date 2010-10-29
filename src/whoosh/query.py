@@ -1326,12 +1326,18 @@ NullQuery = NullQuery()
 
 
 class ConstantScoreQuery(WrappingQuery):
+    """Wraps a query and uses a matcher that always gives a constant score
+    to all matching documents. This is a useful optimization when you don't
+    care about scores from a certain branch of the query tree because it is
+    simply acting as a filter. See also the :class:`AndMaybe` query.
+    """
+    
     def __init__(self, child, score=1.0):
         super(ConstantScoreQuery, self).__init__(child)
         self.score = score
     
     def copy(self):
-        return ConstantScoreQuery(self.child, self.score)
+        return self.__class__(self.child, self.score)
     
     def matcher(self, searcher, exclude_docs=None):
         m = self.child.matcher(searcher, exclude_docs=None)
@@ -1345,6 +1351,54 @@ class ConstantScoreQuery(WrappingQuery):
     
     def accept(self, visitor):
         return self.__class__(self.child.accept(visitor), self.score)
+
+
+class WeightingQuery(WrappingQuery):
+    """Wraps a query and specifies a custom weighting model to apply to the
+    wrapped branch of the query tree. This is useful when you want to score
+    parts of the query using criteria that don't apply to the rest of the
+    query.
+    """
+    
+    def __init__(self, child, model, fieldname=None, text=None):
+        super(WeightingQuery, self).__init__(child)
+        self.model = model
+        self.fieldname = fieldname
+        self.text = text
+        
+    def copy(self):
+        return self.__class__(self.child, self.model)
+    
+    def matcher(self, searcher, exclude_docs=None):
+        m = self.child.matcher(searcher, exclude_docs=exclude_docs)
+        scorer = self.model.scorer(searcher, self.fieldname, self.text)
+        if isinstance(m, NullMatcher):
+            return m
+        else:
+            return WeightingQuery.CustomScorerMatcher(m, scorer)
+    
+    class CustomScorerMatcher(WrappingMatcher):
+        def __init__(self, child, scorer):
+            super(WeightingQuery, self).__init__(child)
+            self.scorer = scorer
+        
+        def copy(self):
+            return self.__class__(self.child.copy(), self.scorer)
+        
+        def _replacement(self, newchild):
+            return self.__class__(newchild, self.scorer)
+        
+        def supports_quality(self):
+            return self.scorer.supports_quality()
+        
+        def quality(self):
+            return self.scorer.quality(self)
+        
+        def block_quality(self):
+            return self.scorer.block_quality(self)
+        
+        def score(self):
+            return self.scorer.score(self)
 
 
 class Require(CompoundQuery):
