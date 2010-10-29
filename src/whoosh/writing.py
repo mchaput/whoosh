@@ -158,7 +158,8 @@ class IndexWriter(object):
         delset = set()
         reader = self.searcher().reader()
         for name in unique_fields:
-            text = fields[name]
+            field = self.schema[name]
+            text = field.to_text(fields[name])
             docnum = reader.postings(name, text).id()
             delset.add(docnum)
         reader.close()
