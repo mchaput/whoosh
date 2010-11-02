@@ -269,8 +269,8 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
     def test_datetime(self):
-        schema = fields.Schema(id=fields.ID(stored=True),
-                               date=fields.DATETIME(stored=True))
+        dtf = fields.DATETIME(stored=True)
+        schema = fields.Schema(id=fields.ID(stored=True), date=dtf)
         st = RamStorage()
         ix = st.create_index(schema)
         
@@ -295,9 +295,11 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(len(r), 27)
         
         q = qp.parse(u"date:[2010-05 TO 2010-08]")
-        self.assertEqual(q.__class__, query.TermRange)
-        self.assertEqual(q.start, u"201005")
-        self.assertEqual(q.end, u"201008")
+        startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
+        enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
+        self.assertEqual(q.__class__, query.NumericRange)
+        self.assertEqual(q.start, dtf.datetime_to_long(startdt))
+        self.assertEqual(q.end, dtf.datetime_to_long(enddt))
     
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),
