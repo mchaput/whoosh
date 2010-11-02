@@ -18,48 +18,14 @@ import struct
 from array import array
 
 
-def split_range(valsize, step, start, end):
-    """Splits a range of numbers (from ``start`` to ``end``, inclusive)
-    into a sequence of trie ranges of the form ``(start, end, shift)``. The
-    consumer of these tuples is expected to shift the ``start`` and ``end``
-    right by ``shift``.
-    
-    This is used for generating term ranges for a numeric field. The queries
-    for the edges of the range are generated at high precision and large blocks
-    in the middle are generated at low precision.
-    """
-    
-    shift = 0
-    while True:
-        diff = 1 << (shift + step)
-        mask = ((1 << step) - 1) << shift
-        setbits = lambda x: x | ((1 << shift) - 1)
-        
-        haslower = (start & mask) != 0
-        hasupper = (end & mask) != mask
-        
-        not_mask = ~mask & ((1 << valsize + 1) - 1)
-        nextstart = (start + diff if haslower else start) & not_mask
-        nextend = (end - diff if hasupper else end) & not_mask
-        
-        if shift + step >= valsize or nextstart > nextend:
-            yield (start, setbits(end), shift)
-            break
-        
-        if haslower:
-            yield (start, setbits(start | mask), shift)
-        if hasupper:
-            yield (end & not_mask, setbits(end), shift)
-        
-        start = nextstart
-        end = nextend
-        shift += step
-
-
 _dstruct = struct.Struct("<d")
 _qstruct = struct.Struct("<q")
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
+
+_max_sortable_int = 4294967295L
+_max_sortable_long = 18446744073709551615L
+
 
 # Functions for converting numbers to and from sortable representations
 
@@ -161,8 +127,43 @@ def text_to_sortable_long(text):
 
 # Functions for generating tiered ranges
 
-_max_sortable_int = 4294967295L
-_max_sortable_long = 18446744073709551615L
+def split_range(valsize, step, start, end):
+    """Splits a range of numbers (from ``start`` to ``end``, inclusive)
+    into a sequence of trie ranges of the form ``(start, end, shift)``. The
+    consumer of these tuples is expected to shift the ``start`` and ``end``
+    right by ``shift``.
+    
+    This is used for generating term ranges for a numeric field. The queries
+    for the edges of the range are generated at high precision and large blocks
+    in the middle are generated at low precision.
+    """
+    
+    shift = 0
+    while True:
+        diff = 1 << (shift + step)
+        mask = ((1 << step) - 1) << shift
+        setbits = lambda x: x | ((1 << shift) - 1)
+        
+        haslower = (start & mask) != 0
+        hasupper = (end & mask) != mask
+        
+        not_mask = ~mask & ((1 << valsize + 1) - 1)
+        nextstart = (start + diff if haslower else start) & not_mask
+        nextend = (end - diff if hasupper else end) & not_mask
+        
+        if shift + step >= valsize or nextstart > nextend:
+            yield (start, setbits(end), shift)
+            break
+        
+        if haslower:
+            yield (start, setbits(start | mask), shift)
+        if hasupper:
+            yield (end & not_mask, setbits(end), shift)
+        
+        start = nextstart
+        end = nextend
+        shift += step
+
 
 def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
     # First, convert the start and end of the range to sortable representations

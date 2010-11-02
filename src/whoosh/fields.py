@@ -346,9 +346,16 @@ class NUMERIC(FieldType):
                                   boost=boost)
     
 
-class DATETIME(FieldType):
+class DATETIME(NUMERIC):
     """Special field type that lets you index datetime objects. The field
     converts the datetime objects to sortable text for you before indexing.
+    
+    Since this field is based on Python's datetime module it shares all the
+    limitations of that module, such as the inability to represent dates before
+    year 1 in the proleptic Gregorian calendar. However, since this field
+    stores datetimes as an integer number of microseconds, it could easily
+    represent a much wider range of dates if the Python datetime implementation
+    ever supports them.
     
     >>> schema = Schema(path=STORED, date=DATETIME)
     >>> ix = storage.create_index(schema)
@@ -366,32 +373,84 @@ class DATETIME(FieldType):
         :param unique: Whether the value of this field is unique per-document.
         """
         
-        self.stored = stored
-        self.unique = unique
-        self.format = Existence(None)
+        super(DATETIME, self).__init__(type=long, stored=stored, unique=unique,
+                                       shift_step=8)
     
-    def to_text(self, dt):
-        if not isinstance(dt, datetime.datetime):
-            raise ValueError("%r is not a datetime object" % dt)
-        text = dt.isoformat() # 2010-02-02T17:06:19.109000
-        text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
-        return text
+    def datetime_to_long(self, dt):
+        """Converts a datetime object to a long integer representing the number
+        of microseconds since ``datetime.min``.
+        """
+        
+        td = dt - dt.min
+        total = td.days * 86400000000 # Microseconds in a day
+        total += td.seconds * 1000000 # Microseconds in a second
+        total += td.microseconds
+        return total
     
-    def index(self, dt):
-        # word, freq, weight, valuestring
-        return [(self.to_text(dt), 1, 1.0, '')]
+    def to_text(self, x, shift=0):
+        if isinstance(x, datetime.datetime):
+            x = self.datetime_to_long(x)
+        elif not isinstance(x, (int, long)):
+            raise ValueError("DATETIME field doesn't know what to do with "
+                             "to_text(%r)" % x)
+        
+        return super(DATETIME, self).to_text(x, shift=shift)
     
-    def process_text(self, text, **kwargs):
-        text = text.replace(" ", "").replace(":", "").replace("-", "").replace(".", "")
-        return (text, )
-    
-    def self_parsing(self):
-        return True
+    def _parse_datestring(self, qstring):
+        # This method does parses a very simple datetime representation of
+        # the form YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
+        from whoosh.support.times import adatetime, fix, is_void
+        
+        qstring = qstring.replace(" ", "").replace("-", "").replace(".", "")
+        year = month = day = hour = minute = second = microsecond = None
+        if len(qstring) >= 4:
+            year = int(qstring[:4])
+        if len(qstring) >= 6:
+            month = int(qstring[4:6])
+        if len(qstring) >= 8:
+            day = int(qstring[6:8])
+        if len(qstring) >= 10:
+            hour = int(qstring[8:10])
+        if len(qstring) >= 12:
+            minute = int(qstring[10:12])
+        if len(qstring) >= 14:
+            second = int(qstring[12:14])
+        if len(qstring) == 20:
+            microsecond = int(qstring[14:])
+        
+        at = fix(adatetime(year, month, day, hour, minute, second, microsecond))
+        if is_void(at):
+            raise Exception("%r is not a parseable date" % qstring)
+        return at
     
     def parse_query(self, fieldname, qstring, boost=1.0):
-        text = self.process_text(qstring)[0]
         from whoosh import query
-        return query.Prefix(fieldname, text, boost=boost)
+        from whoosh.support.times import is_ambiguous
+        
+        at = self._parse_datestring(qstring)
+        if is_ambiguous(at):
+            startnum = self.datetime_to_long(at.floor())
+            endnum = self.datetime_to_long(at.ceil())
+            return query.NumericRange(fieldname, startnum, endnum)
+        else:
+            return query.Term(fieldname, self.to_text(at), boost=boost)
+    
+    def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
+        from whoosh import query
+        
+        if start is None and end is None:
+            return query.Every(fieldname, boost=boost)
+        
+        if start is not None:
+            startdt = self._parse_datestring(start).floor()
+            start = self.datetime_to_long(startdt)
+        
+        if end is not None:
+            enddt = self._parse_datestring(end).ceil()
+            end = self.datetime_to_long(enddt)
+        
+        return query.NumericRange(fieldname, start, end, boost=boost)
+        
     
 
 class BOOLEAN(FieldType):
