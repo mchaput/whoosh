@@ -70,7 +70,7 @@ class ParserBase(object):
     def parse(self, text, dt, pos=0, debug=-9999):
         raise NotImplementedError
     
-    def date(self, text, dt=None, pos=0, debug=-9999):
+    def date_from(self, text, dt=None, pos=0, debug=-9999):
         if dt is None:
             dt = datetime.now()
         
@@ -370,6 +370,29 @@ class Optional(ParserBase):
             return (adatetime(), pos)
 
 
+class ToEnd(ParserBase):
+    """Wraps a sub-element and requires that the end of the sub-element's match
+    be the end of the text.
+    """
+    
+    def __init__(self, element):
+        self.element = element
+        
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.element)
+    
+    def parse(self, text, dt, pos=0, debug=-9999):
+        try:
+            d, pos = self.element.parse(text, dt, pos, debug + 1)
+        except TimeError:
+            d, pos = None, None
+            
+        if d and pos == len(text):
+            return (d, pos)
+        else:
+            return (None, None)
+
+
 class Regex(ParserBase):
     """Matches a regular expression and maps named groups in the pattern to
     datetime attributes using a function or overridden method.
@@ -498,12 +521,19 @@ class DateParser(object):
         
         self.setup()
     
-    def date(self, text, basedate=None, pos=0, debug=-9999):
+    def get_parser(self):
+        return self.all
+    
+    def date_from(self, text, basedate=None, pos=0, debug=-9999, toend=True):
         if basedate is None:
             basedate = datetime.utcnow()
         
+        parser = self.get_parser()
+        if toend:
+            parser = ToEnd(parser)
+        
         try:
-            d = self.all.date(text, basedate, pos=pos, debug=debug)
+            d = parser.date_from(text, basedate, pos=pos, debug=debug)
         except TimeError, e:
             raise DateParseError(str(e))
         except DateParseError:
@@ -512,6 +542,7 @@ class DateParser(object):
         if isinstance(d, (adatetime, timespan)):
             d = d.disambiguated(basedate)
         return d
+    
         
 
 class English(DateParser):
