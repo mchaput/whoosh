@@ -4,6 +4,7 @@ import inspect
 from datetime import datetime
 
 from whoosh import fields, qparser, query
+from whoosh.support.times import adatetime
 
 
 class TestParserPlugins(unittest.TestCase):
@@ -59,23 +60,46 @@ class TestParserPlugins(unittest.TestCase):
         schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
         qp = qparser.QueryParser("text", schema=schema)
         
-        def cb(*args):
-            print "-----", args
+        errs = []
+        def cb(arg):
+            errs.append(arg)
+        
         basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
-        qp.add_plugin(qparser.DateParserPlugin(callback=cb))
+        qp.add_plugin(qparser.DateParserPlugin(basedate, callback=cb))
         
         q = qp.parse(u"hello date:'last tuesday'")
-        print q
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(q[1].__class__, query.DateRange)
+        self.assertEqual(q[1].startdate, adatetime(2010, 9, 14).floor())
+        self.assertEqual(q[1].enddate, adatetime(2010, 9, 14).ceil())
+        
         q = qp.parse(u"date:'3am to 5pm'")
-        print q
-        q = qp.parse(u"hello date:blah")
-        print q
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 9, 20, 3).floor())
+        self.assertEqual(q.enddate, adatetime(2010, 9, 20, 17).ceil())
+        
+        q = qp.parse(u"date:blah")
+        self.assertEqual(q, query.NullQuery)
+        self.assertEqual(errs[0], "blah")
+        
+        q = qp.parse(u"hello date:blarg")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "text")
+        self.assertEqual(q.text, "hello")
+        self.assertEqual(errs[1], "blarg")
+        
         q = qp.parse(u"hello date:20055x10")
-        print q
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "text")
+        self.assertEqual(q.text, "hello")
+        self.assertEqual(errs[2], "20055x10")
         
         q = qp.parse(u"hello date:'2005 19 32'")
-        print "q=", q
-
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "text")
+        self.assertEqual(q.text, "hello")
+        self.assertEqual(errs[3], "2005 19 32")
+        
     
 
 if __name__ == '__main__':

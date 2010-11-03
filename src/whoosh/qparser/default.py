@@ -1070,16 +1070,16 @@ class DateParserPlugin(Plugin):
                 if isinstance(t, Word):
                     text = t.text
                     try:
-                        dt = self.dateparser.date(text, self.basedate)
+                        dt = self.dateparser.date_from(text, self.basedate)
                         if dt is None:
                             if self.callback:
-                                self.callback(text, None)
+                                self.callback(text)
                             t = ErrorToken(t)
                         else:
                             t = DateParserPlugin.Date(t.fieldname, dt, t.boost)
                     except DateParseError, e:
                         if self.callback:
-                            self.callback(text, str(e))
+                            self.callback("%s (%r)" % (str(e), text))
                         t = ErrorToken(t)
                 
                 elif isinstance(t, RangePlugin.Range):
