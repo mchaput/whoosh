@@ -53,6 +53,8 @@ class TestDateParser(unittest.TestCase):
         
         self.assert_adatetime(t.date("3pm", basedate), hour=15)
         self.assert_adatetime(t.date("3 pm", basedate), hour=15)
+        self.assert_adatetime(t.date("10pm", basedate), hour=22)
+        self.assert_adatetime(t.date("10 pm", basedate), hour=22)
         self.assert_adatetime(t.date("3am", basedate), hour=3)
         self.assert_adatetime(t.date("3:15 am", basedate), hour=3, minute=15)
         self.assert_adatetime(t.date("12:45am", basedate), hour=0, minute=45)
@@ -296,6 +298,18 @@ class TestDateParser(unittest.TestCase):
                                dict(year=2010, month=10),
                                dict(year=2011, month=2))
         
+        self.assert_unamb_span(p.date("5pm to 3am", basedate),
+                               dict(year=2010, month=9, day=20, hour=17),
+                               dict(year=2010, month=9, day=21, hour=3))
+        
+        self.assert_unamb_span(p.date("5am to 3 am tomorrow", basedate),
+                               dict(year=2010, month=9, day=20, hour=5),
+                               dict(year=2010, month=9, day=21, hour=3))
+        
+        self.assert_unamb_span(p.date("3am to 5 pm tomorrow", basedate),
+                               dict(year=2010, month=9, day=21, hour=3),
+                               dict(year=2010, month=9, day=21, hour=17))
+        
         # Swap
         self.assert_unamb_span(p.date("oct 25 2009 to feb 14 2008", basedate),
                                dict(year=2008, month=2, day=14),
@@ -304,8 +318,8 @@ class TestDateParser(unittest.TestCase):
         self.assert_unamb_span(p.date("oct 25 5000 to tomorrow", basedate),
                                dict(year=2010, month=9, day=21),
                                dict(year=5000, month=10, day=25))
-
-
+        
+                               
 
         
 

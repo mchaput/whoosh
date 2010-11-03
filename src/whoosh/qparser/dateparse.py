@@ -444,7 +444,7 @@ class DateParser(object):
         simple_year = "(?P<year>[0-9]{4})"
         simple_month = "(?P<month>[0-1][0-9])"
         simple_day = "(?P<day>[0-3][0-9])"
-        simple_hour = "(?P<hour>[0-2][0-9])"
+        simple_hour = "(?P<hour>([0-1][0-9])|(2[0-3]))"
         simple_minute = "(?P<minute>[0-5][0-9])"
         simple_second = "(?P<second>[0-5][0-9])"
         simple_usec = "(?P<microsecond>[0-9]{6})"
@@ -455,7 +455,8 @@ class DateParser(object):
         self.setup()
     
     def date(self, text, basedate=None, pos=0, debug=-9999):
-        if basedate is None: basedate = datetime.now()
+        if basedate is None:
+            basedate = datetime.utcnow()
         
         d = self.all.date(text, basedate, pos=pos, debug=debug)
         if isinstance(d, (adatetime, timespan)):
@@ -468,7 +469,7 @@ class English(DateParser):
                 lambda p, dt: adatetime(day=p.day))
     
     def setup(self):
-        self.time12 = Regex("(?P<hour>[1-9]|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))",
+        self.time12 = Regex("(?P<hour>[1-9]|10|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))",
                             self.modify_time12_props)
         
         rel_hours = "((?P<hours>[0-9]+) *(hours|hour|hrs|hr|hs|h))?"
