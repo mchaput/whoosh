@@ -18,6 +18,8 @@ The following abstract base classes are subclassed to create the the "real" quer
 
 .. autoclass:: MultiTerm
 
+.. autoclass:: WrappingQuery
+
 
 Query classes
 =============
@@ -44,7 +46,11 @@ Query classes
 
 .. autoclass:: TermRange
 
+.. autoclass:: NumericRange
+
 .. autoclass:: Every
+
+.. autoclass:: NullQuery
 
 
 Binary operations
@@ -57,7 +63,17 @@ Binary operations
 .. autoclass:: AndNot
 
 
+Special queries
+===============
+
+.. autoclass:: ConstantScoreQuery
+
+.. autoclass:: WeightingQuery
+
+
 Exceptions
 ==========
 
 .. autoexception:: QueryError
+
+
