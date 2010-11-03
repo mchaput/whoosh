@@ -232,14 +232,15 @@ class timespan(object):
         if has_no_date(start) and has_no_date(end):
             # The start and end points are just times, so use the basedate
             # for the date information.
-            by, bd, bm = basedate.year, basedate.month, basedate.day
+            by, bm, bd = basedate.year, basedate.month, basedate.day
             start = start.replace(year=by, month=bm, day=bd)
             end = end.replace(year=by, month=bm, day=bd)
         else:
             # If one side has a year and the other doesn't, the decision
             # of what year to assign to the ambiguous side is kind of
             # arbitrary. I've used a heuristic here based on how the range
-            # "reads", but it may only be reasonable in English.
+            # "reads", but it may only be reasonable in English. And maybe
+            # even just to me.
             
             if start.year is None and end.year is None:
                 # No year on either side, use the basedate
@@ -250,13 +251,36 @@ class timespan(object):
             elif end.year is None:
                 end.year = max(start.year, basedate.year)
         
-        # If the unambiguated dates are out of order:
-        # - If no start year was given, reduce the start year to put the start
-        #   before the end
-        # - If no end year was given, increase the end year to put the end
-        #   after the start
-        # - If a year was specified for both, just swap the start and end
+        if start.year == end.year:
+            # Once again, if one side has a month and day but the other side
+            # doesn't, the disambiguation is arbitrary. Does "3 am to 5 am
+            # tomorrow" mean 3 AM today to 5 AM tomorrow, or 3am tomorrow to
+            # 5 am tomorrow? What I picked is similar to the year: if the
+            # end has a month+day and the start doesn't, copy the month+day
+            # from the end to the start UNLESS that would make the end come
+            # before the start on that day, in which case use the basedate
+            # instead. If the start has a month+day and the end doesn't, use
+            # the basedate.
+            start_dm = not (start.month is None and start.day is None)
+            end_dm = not (end.month is None and end.day is None)
+            if end_dm and not start_dm:
+                if start.floor().time() > end.ceil().time():
+                    start.month = basedate.month
+                    start.day = basedate.day
+                else:
+                    start.month = end.month
+                    start.day = end.day
+            elif start_dm and not end_dm:
+                end.month = basedate.month
+                end.day = basedate.day
+        
         if start.floor().date() > end.ceil().date():
+            # If the disambiguated dates are out of order:
+            # - If no start year was given, reduce the start year to put the
+            #   start before the end
+            # - If no end year was given, increase the end year to put the end
+            #   after the start
+            # - If a year was specified for both, just swap the start and end
             if start_year_was_amb:
                 start.year = end.year - 1
             elif end_year_was_amb:
@@ -268,6 +292,11 @@ class timespan(object):
             start = start.floor()
         if is_ambiguous(end):
             end = end.ceil()
+            
+        if start.date() == end.date() and start.time() > end.time():
+            # If the start and end are on the same day, but the start time
+            # is after the end time, move the end time to the next day
+            end += timedelta(days=1)
         
         return timespan(start, end)
 
