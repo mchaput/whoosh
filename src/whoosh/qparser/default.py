@@ -201,6 +201,9 @@ class Token(SyntaxObject):
     @classmethod
     def create(cls, parser, match):
         return cls()
+    
+    def query(self, parser):
+        raise NotImplementedError
 
 
 class Singleton(Token):
@@ -224,6 +227,32 @@ class Singleton(Token):
 class White(Singleton):
     expr = re.compile("[ \t\r\n]+")
     
+
+class ErrorToken(Token):
+    """A token representing an unavoidable parsing error. The ``query()``
+    method always returns NullQuery.
+    
+    The default parser usually does not produce "errors" (text that doesn't
+    match the syntax is simply treated as part of the query), so this is mostly
+    for use by plugins that may add more restrictive parsing, for example
+    :class:`DateParserPlugin`.
+    
+    Since the corresponding NullQuery will be filtered out when the query is
+    normalized, this is really only useful for debugging and possibly for
+    plugin filters.
+    
+    The ``token`` attribute may contain the token that produced the error.
+    """
+    
+    def __init__(self, token):
+        self.token = token
+        
+    def __repr__(self):
+        return "<%s (%r)>" % (self.__class__.__name__, self.token)
+    
+    def query(self, parser):
+        return query.NullQuery
+
 
 class BasicSyntax(Token):
     """Base class for "basic" (atomic) syntax -- term, prefix, wildcard,
@@ -301,9 +330,17 @@ class Plugin(object):
     """
             
     def tokens(self):
+        """Returns a list of ``(token_class, priority)`` tuples to add to the
+        syntax the parser understands.
+        """
+        
         return ()
     
     def filters(self):
+        """Returns a list of ``(filter_function, priority)`` tuples to add to
+        parser.
+        """
+        
         return ()
     
 
@@ -465,7 +502,7 @@ class SingleQuotesPlugin(Plugin):
         return ((SingleQuotesPlugin.SingleQuotes, 0), )
     
     class SingleQuotes(Token):
-        expr = re.compile("'([^']*?)('|$)")
+        expr = re.compile(r"'([^']*?)'(?=\s|$)")
         
         @classmethod
         def create(cls, parser, match):
@@ -981,7 +1018,103 @@ class FieldAliasPlugin(Plugin):
             newstream.append(t)
         return newstream
 
+
+class DateParserPlugin(Plugin):
+    """Adds more powerful parsing of DATETIME fields.
+    
+    >>> parser.add_plugin(DateParserPlugin())
+    >>> parser.parse(u"date:'last tuesday'")
+    """
+    
+    def __init__(self, basedate=None, dateparser=None, callback=None):
+        """
+        :param basedate: a datetime object representing the current time
+            against which to measure relative dates. If you do not supply this
+            argument, the plugin uses ``datetime.utcnow()``.
+        :param dateparser: an instance of
+            :class:`whoosh.qparser.dateparse.DateParser`. If you do not supply
+            this argument, the plugin automatically uses
+            :class:`whoosh.qparser.dateparse.English`.
+        :param callback: a callback function for parsing errors. This allows
+            you to provide feedback to the user about problems parsing dates.
+        :param remove: if True, unparseable dates are removed from the token
+            stream instead of being replaced with ErrorToken.
+        """
         
+        self.basedate = basedate
+        if dateparser is None:
+            from whoosh.qparser.dateparse import English
+            dateparser = English()
+        self.dateparser = dateparser
+        self.callback = callback
+    
+    def filters(self):
+        # Run the filter after the FieldsPlugin assigns field names
+        return ((self.do_dates, 110), )
+    
+    def do_dates(self, parser, stream):
+        from whoosh.qparser.dateparse import DateParseError
+        
+        schema = parser.schema
+        if not schema:
+            return stream
+        
+        from whoosh.fields import DATETIME
+        datefields = frozenset(fieldname for fieldname, field
+                               in parser.schema.items()
+                               if isinstance(field, DATETIME))
+        
+        newstream = stream.empty()
+        for t in stream:
+            if t.fieldname in datefields:
+                if isinstance(t, Word):
+                    text = t.text
+                    try:
+                        dt = self.dateparser.date(text, self.basedate)
+                        if dt is None:
+                            if self.callback:
+                                self.callback(text, None)
+                            t = ErrorToken(t)
+                        else:
+                            t = DateParserPlugin.Date(t.fieldname, dt, t.boost)
+                    except DateParseError, e:
+                        if self.callback:
+                            self.callback(text, str(e))
+                        t = ErrorToken(t)
+                
+                elif isinstance(t, RangePlugin.Range):
+                    raise Exception()
+            newstream.append(t)
+        return newstream
+            
+    class Date(Token):
+        def __init__(self, fieldname, timeobj, boost=1.0):
+            self.fieldname = fieldname
+            self.timeobj = timeobj
+            self.boost = boost
+        
+        def set_boost(self, b):
+            return DateParserPlugin.Date(self.fieldname, self.text, boost=b)
+        
+        def set_fieldname(self, name):
+            return DateParserPlugin.Date(name, self.text)
+        
+        def query(self, parser):
+            from datetime import datetime
+            from whoosh.support.times import timespan, datetime_to_long
+            
+            field = parser.schema[self.fieldname]
+            dt = self.timeobj
+            if isinstance(self.timeobj, datetime):
+                return query.Term(self.fieldname, field.to_text(dt),
+                                  boost=self.boost)
+            elif isinstance(self.timeobj, timespan):
+                return query.DateRange(self.fieldname, dt.start, dt.end,
+                                       boost=self.boost)
+            else:
+                raise Exception("Unknown time object: %r" % dt)
+        
+
 # Parser object
 
 full_profile = (BoostPlugin, CompoundsPlugin, FieldsPlugin, GroupPlugin,
@@ -1136,7 +1269,8 @@ class QueryParser(object):
     def _filterize(self, stream):
         for f in self.filters():
             stream = f(self, stream)
-            #print "filter=", f, "stream=", stream
+            if stream is None:
+                raise Exception("Function %s did not return a stream" % f)
         return stream
 
     def get_single_text(self, field, text, **kwargs):

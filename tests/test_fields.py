@@ -294,12 +294,14 @@ class TestSchema(unittest.TestCase):
         r = s.search(qp.parse("date:'2010 02'"))
         self.assertEqual(len(r), 27)
         
-        q = qp.parse(u"date:[2010-05 TO 2010-08]")
+        q = qp.parse(u"date:[2010-05 to 2010-08]")
         startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
         enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
         self.assertEqual(q.__class__, query.NumericRange)
         self.assertEqual(q.start, dtf.datetime_to_long(startdt))
         self.assertEqual(q.end, dtf.datetime_to_long(enddt))
+    
+    
     
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),

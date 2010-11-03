@@ -20,6 +20,10 @@ from datetime import date, time, datetime, timedelta
 from whoosh.support.relativedelta import relativedelta
 
 
+class TimeError(Exception): pass
+
+
+
 def relative_days(current_wday, wday, dir):
     """Returns the number of days (positive or negative) to the "next" or
     "last" of a certain weekday. ``current_wday`` and ``wday`` are numbers,
@@ -44,6 +48,18 @@ def relative_days(current_wday, wday, dir):
         return (current_wday + 7 - wday) % 7 * -1
 
 
+def datetime_to_long(dt):
+        """Converts a datetime object to a long integer representing the number
+        of microseconds since ``datetime.min``.
+        """
+        
+        td = dt - dt.min
+        total = td.days * 86400000000 # Microseconds in a day
+        total += td.seconds * 1000000 # Microseconds in a second
+        total += td.microseconds
+        return total
+
+
 # Ambiguous datetime object
 
 class adatetime(object):
@@ -61,6 +77,24 @@ class adatetime(object):
             self.hour, self.minute, self.second = year.hour, year.minute, year.second
             self.microsecond = year.microsecond
         else:
+            if month is not None and month < 1 or month > 12:
+                raise TimeError("month must be in 1..12")
+            
+            if day is not None and  day < 1:
+                raise TimeError("day must be greater than 1")
+            if (year is not None and month is not None and day is not None
+                and day > calendar.monthrange(year, month)[1]):
+                raise TimeError("day is out of range for month")
+            
+            if hour is not None and hour < 0 or hour > 23:
+                raise TimeError("hour must be in 0..23")
+            if minute is not None and minute < 0 or minute > 59:
+                raise TimeError("minute must be in 0..59")
+            if second is not None and second < 0 or second > 59:
+                raise TimeError("second must be in 0..59")
+            if microsecond is not None and microsecond < 0 or microsecond > 999999:
+                raise TimeError("microsecond must be in 0..999999")
+                
             self.year, self.month, self.day = year, month, day
             self.hour, self.minute, self.second = hour, minute, second
             self.microsecond = microsecond
@@ -197,6 +231,11 @@ class timespan(object):
             end of the time span.
         """
         
+        if not isinstance(start, (datetime, adatetime)):
+            raise TimeError("%r is not a datetime object" % start)
+        if not isinstance(end, (datetime, adatetime)):
+            raise TimeError("%r is not a datetime object" % end)
+        
         self.start = copy.copy(start)
         self.end = copy.copy(end)
         
@@ -297,7 +336,7 @@ class timespan(object):
             # If the start and end are on the same day, but the start time
             # is after the end time, move the end time to the next day
             end += timedelta(days=1)
-        
+            
         return timespan(start, end)
 
 
