@@ -14,11 +14,12 @@
 # limitations under the License.
 #===============================================================================
 
-import re
+import calendar, re
 from datetime import date, time, datetime, timedelta
 
 from whoosh.support.relativedelta import relativedelta
-from whoosh.support.times import *
+from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
+                                  TimeError, relative_days)
 
 
 class DateParseError(Exception):
@@ -112,6 +113,7 @@ class Sequence(MultiBase):
         """
         
         super(Sequence, self).__init__(elements, name)
+        self.sep_pattern = sep
         if sep:
             self.sep_expr = rcompile(sep)
         else:
@@ -122,8 +124,9 @@ class Sequence(MultiBase):
         d = adatetime()
         first = True
         foundall = False
+        failed = False
         
-        print_debug(debug, "Seq %s sep=%r text=%r", self.name, self.sep_expr.pattern, text[pos:])
+        print_debug(debug, "Seq %s sep=%r text=%r", self.name, self.sep_pattern, text[pos:])
         for e in self.elements:
             print_debug(debug, "Seq %s text=%r", self.name, text[pos:])
             if self.sep_expr and not first:
@@ -135,20 +138,37 @@ class Sequence(MultiBase):
                     print_debug(debug, "Seq %s didn't find sep", self.name)
                     break
             
-            print_debug(debug, "Seq %s trying=%r", self.name, e)
-            at, pos = e.parse(text, dt, pos, debug + 1)
+            print_debug(debug, "Seq %s trying=%r at=%s", self.name, e, pos)
+            
+            try:
+                at, newpos = e.parse(text, dt, pos=pos, debug=debug + 1)
+            except TimeError:
+                failed = True
+                break
+            
             print_debug(debug, "Seq %s result=%r", self.name, at)
             if not at:
                 break
-            d = fill_in(d, at)
+            pos = newpos
+            
+            print_debug(debug, "Seq %s adding=%r to=%r", self.name, at, d)
+            try:
+                d = fill_in(d, at)
+            except TimeError:
+                print_debug(debug, "Seq %s Error in fill_in", self.name)
+                failed = True
+                break
+            print_debug(debug, "Seq %s filled date=%r", self.name, d)
+            
             first = False
         else:
             foundall = True
         
-        if foundall or (not first and self.progressive):
+        if not failed and (foundall or (not first and self.progressive)):
             print_debug(debug, "Seq %s final=%r", self.name, d)
             return (d, pos)
         else:
+            print_debug(debug, "Seq %s failed", self.name)
             return (None, None)
 
 
@@ -181,7 +201,7 @@ class Combo(Sequence):
         dates = []
         first = True
         
-        print_debug(debug, "Combo %s sep=%r text=%r", self.name, self.sep_expr.pattern, text[pos:])
+        print_debug(debug, "Combo %s sep=%r text=%r", self.name, self.sep_pattern, text[pos:])
         for e in self.elements:
             if self.sep_expr and not first:
                 print_debug(debug, "Combo %s looking for sep at %r", self.name, text[pos:])
@@ -193,7 +213,11 @@ class Combo(Sequence):
                     return (None, None)
             
             print_debug(debug, "Combo %s trying=%r", self.name, e)
-            at, pos = e.parse(text, dt, pos, debug + 1)
+            try:
+                at, pos = e.parse(text, dt, pos, debug + 1)
+            except TimeError:
+                at, pos = None, None
+            
             print_debug(debug, "Combo %s result=%r", self.name, at)
             if at is None:
                 return (None, None)
@@ -230,7 +254,11 @@ class Choice(MultiBase):
         print_debug(debug, "Choice %s text=%r", self.name, text[pos:])
         for e in self.elements:
             print_debug(debug, "Choice %s trying=%r", self.name, e)
-            d, newpos = e.parse(text, dt, pos, debug + 1)
+            
+            try:
+                d, newpos = e.parse(text, dt, pos, debug + 1)
+            except TimeError:
+                d, newpos = None, None
             if d:
                 print_debug(debug, "Choice %s matched", self.name)
                 return (d, newpos)
@@ -286,7 +314,12 @@ class Bag(MultiBase):
             
             for i, e in enumerate(self.elements):
                 print_debug(debug, "Bag %s trying=%r", self.name, e)
-                at, xpos  = e.parse(text, dt, newpos, debug + 1)
+                
+                try:
+                    at, xpos  = e.parse(text, dt, newpos, debug + 1)
+                except TimeError:
+                    at, xpos = None, None
+                    
                 print_debug(debug, "Bag %s result=%r", self.name, at)
                 if at:
                     if self.onceper and seen[i]:
@@ -326,7 +359,11 @@ class Optional(ParserBase):
         return "%s(%r)" % (self.__class__.__name__, self.element)
     
     def parse(self, text, dt, pos=0, debug=-9999):
-        d, pos = self.element.parse(text, dt, pos, debug + 1)
+        try:
+            d, pos = self.element.parse(text, dt, pos, debug + 1)
+        except TimeError:
+            d, pos = None, None
+            
         if d:
             return (d, pos)
         else:
@@ -364,7 +401,12 @@ class Regex(ParserBase):
         
         props = self.extract(m)
         self.modify_props(props)
-        d = self.props_to_date(props, dt)
+        
+        try:
+            d = self.props_to_date(props, dt)
+        except TimeError:
+            d = None
+        
         if d:
             return (d, m.end())
         else:
@@ -438,7 +480,7 @@ class DateParser(object):
                  lambda p, dt: adatetime(year=p.year))
     time24 = Regex("(?P<hour>([0-1][0-9])|(2[0-3])):(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?(?=(\\W|$))",
                    lambda p, dt: adatetime(hour=p.hour, minute=p.mins, second=p.secs,
-                                       microsecond=p.usecs))
+                                           microsecond=p.usecs))
     
     def __init__(self):
         simple_year = "(?P<year>[0-9]{4})"
@@ -448,9 +490,11 @@ class DateParser(object):
         simple_minute = "(?P<minute>[0-5][0-9])"
         simple_second = "(?P<second>[0-5][0-9])"
         simple_usec = "(?P<microsecond>[0-9]{6})"
-        self.simple = Sequence((simple_year, simple_month, simple_day, simple_hour,
-                                simple_minute, simple_second, simple_usec, "(?=(\\W|$))"),
-                                sep="[- .:/]*", name="simple", progressive=True)
+        
+        simple_seq = Sequence((simple_year, simple_month, simple_day, simple_hour,
+                               simple_minute, simple_second, simple_usec),
+                               sep="[- .:/]*", name="simple", progressive=True)
+        self.simple = Sequence((simple_seq, "(?=(\\s|$))"), sep='')
         
         self.setup()
     
@@ -458,7 +502,13 @@ class DateParser(object):
         if basedate is None:
             basedate = datetime.utcnow()
         
-        d = self.all.date(text, basedate, pos=pos, debug=debug)
+        try:
+            d = self.all.date(text, basedate, pos=pos, debug=debug)
+        except TimeError, e:
+            raise DateParseError(str(e))
+        except DateParseError:
+            raise
+            
         if isinstance(d, (adatetime, timespan)):
             d = d.disambiguated(basedate)
         return d

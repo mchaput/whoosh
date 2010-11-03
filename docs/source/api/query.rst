@@ -48,6 +48,8 @@ Query classes
 
 .. autoclass:: NumericRange
 
+.. autoclass:: DateRange
+
 .. autoclass:: Every
 
 .. autoclass:: NullQuery

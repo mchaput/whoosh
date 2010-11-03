@@ -27,6 +27,7 @@ from whoosh.formats import Format, Existence, Frequency, Positions
 from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
                                     text_to_long, float_to_text, text_to_float,
                                     )
+from whoosh.support.times import datetime_to_long
 
 
 # Exceptions
@@ -376,20 +377,9 @@ class DATETIME(NUMERIC):
         super(DATETIME, self).__init__(type=long, stored=stored, unique=unique,
                                        shift_step=8)
     
-    def datetime_to_long(self, dt):
-        """Converts a datetime object to a long integer representing the number
-        of microseconds since ``datetime.min``.
-        """
-        
-        td = dt - dt.min
-        total = td.days * 86400000000 # Microseconds in a day
-        total += td.seconds * 1000000 # Microseconds in a second
-        total += td.microseconds
-        return total
-    
     def to_text(self, x, shift=0):
         if isinstance(x, datetime.datetime):
-            x = self.datetime_to_long(x)
+            x = datetime_to_long(x)
         elif not isinstance(x, (int, long)):
             raise ValueError("DATETIME field doesn't know what to do with "
                              "to_text(%r)" % x)
@@ -429,8 +419,8 @@ class DATETIME(NUMERIC):
         
         at = self._parse_datestring(qstring)
         if is_ambiguous(at):
-            startnum = self.datetime_to_long(at.floor())
-            endnum = self.datetime_to_long(at.ceil())
+            startnum = datetime_to_long(at.floor())
+            endnum = datetime_to_long(at.ceil())
             return query.NumericRange(fieldname, startnum, endnum)
         else:
             return query.Term(fieldname, self.to_text(at), boost=boost)
@@ -443,11 +433,11 @@ class DATETIME(NUMERIC):
         
         if start is not None:
             startdt = self._parse_datestring(start).floor()
-            start = self.datetime_to_long(startdt)
+            start = datetime_to_long(startdt)
         
         if end is not None:
             enddt = self._parse_datestring(end).ceil()
-            end = self.datetime_to_long(enddt)
+            end = datetime_to_long(enddt)
         
         return query.NumericRange(fieldname, start, end, boost=boost)
         

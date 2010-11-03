@@ -46,7 +46,9 @@ class TestDateParser(unittest.TestCase):
         self.assert_adatetime(t.date("2005.05.10.01", basedate), year=2005, month=5, day=10, hour=1)
         self.assert_adatetime(t.date("2005/05/10 01:08", basedate), year=2005, month=5, day=10, hour=1, minute=8)
         self.assert_adatetime(t.date("2005.05.10  01:08:35", basedate), year=2005, month=5, day=10, hour=1, minute=8, second=35)
-    
+        
+        self.assertEqual(t.date("2005 02 31", basedate), None)
+        
     def test_time(self, t=english.time):
         self.assert_adatetime(t.date("13:05", basedate), hour=13, minute=5)
         self.assertEqual(t.date("28:91", basedate), None)
@@ -63,6 +65,10 @@ class TestDateParser(unittest.TestCase):
         
         self.assert_adatetime(t.date("noon", basedate), hour=12, minute=0, second=0, microsecond=0)
         self.assert_adatetime(t.date("midnight", basedate), hour=0, minute=0, second=0, microsecond=0)
+        
+        self.assertEqual(t.date("15 am", basedate), None)
+        self.assertEqual(t.date("24:00", basedate), None)
+        self.assertEqual(t.date("12:65", basedate), None)
     
     def test_dmy(self, d=english.dmy):
         self.assert_adatetime(d.date("25 may 2011", basedate), year=2011, month=5, day=25)
@@ -319,7 +325,8 @@ class TestDateParser(unittest.TestCase):
                                dict(year=2010, month=9, day=21),
                                dict(year=5000, month=10, day=25))
         
-                               
+        self.assertEqual(p.date("may 32 2005", basedate), None)
+        self.assertEqual(p.date("2005 may 32", basedate), None)            
 
         
 

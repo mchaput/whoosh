@@ -37,6 +37,7 @@ from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
+from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree
 
 
@@ -1034,10 +1035,11 @@ class NumericRange(Query):
         self.constantscore = constantscore
     
     def __repr__(self):
-        return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,
+        return '%s(%r, %r, %r, %s, %s, boost=%s)' % (self.__class__.__name__,
                                            self.fieldname,
                                            self.start, self.end,
-                                           self.startexcl, self.endexcl)
+                                           self.startexcl, self.endexcl,
+                                           self.boost)
 
     def __eq__(self, other):
         return (other
@@ -1107,7 +1109,34 @@ class NumericRange(Query):
     def matcher(self, searcher, exclude_docs=None):
         q = self._compile_query(searcher.reader())
         return q.matcher(searcher, exclude_docs=exclude_docs)
-        
+
+
+class DateRange(NumericRange):
+    """This is a very thin subclass of :class:`NumericRange` that only
+    overrides the initializer and ``__repr__()`` methods to work with datetime
+    objects instead of numbers. Internally this object converts the datetime
+    objects it's created with to numbers and otherwise acts like a
+    ``NumericRange`` query.
+    
+    >>> DateRange("date", datetime(2010, 11, 3, 3, 0), datetime(2010, 11, 3, 17, 59))
+    """
+    
+    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
+                 boost=1.0, constantscore=True):
+        self.startdate = start
+        self.enddate = end
+        super(DateRange, self).__init__(fieldname, datetime_to_long(start),
+                                        datetime_to_long(end),
+                                        startexcl=startexcl, endexcl=endexcl,
+                                        boost=boost, constantscore=constantscore)
+    
+    def __repr__(self):
+        return '%s(%r, %r, %r, %s, %s, boost=%s)' % (self.__class__.__name__,
+                                           self.fieldname,
+                                           self.startdate, self.enddate,
+                                           self.startexcl, self.endexcl,
+                                           self.boost)
+    
 
 class Variations(MultiTerm):
     """Query that automatically searches for morphological variations of the

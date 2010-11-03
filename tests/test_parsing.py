@@ -162,6 +162,24 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual((q[0].fieldname, q[0].text), ("text", "alfa"))
         self.assertEqual((q[1].fieldname, q[1].text), ("zulu", "bravo charlie"))
         self.assertEqual((q[2].fieldname, q[2].text), ("text", "delta"))
+        
+        q = qp.parse("The rest 'is silence")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 4)
+        self.assertEqual([t.text for t in q.subqueries],
+                         ["The", "rest", "'is" ,"silence"])
+        
+        q = qp.parse("I don't like W's stupid face")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 6)
+        self.assertEqual([t.text for t in q.subqueries],
+                         ["I", "don't", "like" ,"W's", "stupid", "face"])
+        
+        q = qp.parse("I forgot the drinkin' in '98")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 6)
+        self.assertEqual([t.text for t in q.subqueries],
+                         ["I", "forgot", "the" ,"drinkin'", "in", "'98"])
     
 #    def test_escaping(self):
 #        qp = qparser.QueryParser("text")
@@ -453,15 +471,15 @@ class TestQueryParser(unittest.TestCase):
         q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
         self.assertEqual(unicode(q), u"(a:a OR ((a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
         
-    def test_math(self):
-        tk = analysis.RegexTokenizer(r"([A-Za-z_\\]+)|(-?[0-9.]+)|([^A-Za-z_0-9. \t\r\n]+)")
-        ana = tk | analysis.LowercaseFilter()
-        print [t.text for t in ana(u"x2+6x+7")]
-        
-        schema = fields.Schema(a=fields.TEXT(analyzer=ana))
-        parser = qparser.QueryParser("a", schema=schema)
-        print parser.parse(u"+")
-        print parser.parse(u"5+4")
+#    def test_math(self):
+#        tk = analysis.RegexTokenizer(r"([A-Za-z_\\]+)|(-?[0-9.]+)|([^A-Za-z_0-9. \t\r\n]+)")
+#        ana = tk | analysis.LowercaseFilter()
+#        print [t.text for t in ana(u"x2+6x+7")]
+#        
+#        schema = fields.Schema(a=fields.TEXT(analyzer=ana))
+#        parser = qparser.QueryParser("a", schema=schema)
+#        print parser.parse(u"+")
+#        print parser.parse(u"5+4")
 
         
 

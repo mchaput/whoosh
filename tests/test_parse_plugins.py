@@ -1,7 +1,9 @@
 import unittest
-import inspect
 
-from whoosh import qparser, query
+import inspect
+from datetime import datetime
+
+from whoosh import fields, qparser, query
 
 
 class TestParserPlugins(unittest.TestCase):
@@ -53,10 +55,26 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[1].query.text, "bravo")
         self.assertEqual(q[2].text, "not")
 
-
-
-
-
+    def test_dateparser(self):
+        schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
+        qp = qparser.QueryParser("text", schema=schema)
+        
+        def cb(*args):
+            print "-----", args
+        basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
+        qp.add_plugin(qparser.DateParserPlugin(callback=cb))
+        
+        q = qp.parse(u"hello date:'last tuesday'")
+        print q
+        q = qp.parse(u"date:'3am to 5pm'")
+        print q
+        q = qp.parse(u"hello date:blah")
+        print q
+        q = qp.parse(u"hello date:20055x10")
+        print q
+        
+        q = qp.parse(u"hello date:'2005 19 32'")
+        print "q=", q
 
     
 
