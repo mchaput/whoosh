@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from whoosh import fields, qparser, query
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support import numeric
+from whoosh.support import numeric, times
 
 
 class TestSchema(unittest.TestCase):
@@ -298,10 +298,8 @@ class TestSchema(unittest.TestCase):
         startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
         enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
         self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, dtf.datetime_to_long(startdt))
-        self.assertEqual(q.end, dtf.datetime_to_long(enddt))
-    
-    
+        self.assertEqual(q.start, times.datetime_to_long(startdt))
+        self.assertEqual(q.end, times.datetime_to_long(enddt))
     
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),
