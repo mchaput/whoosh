@@ -329,14 +329,14 @@ class Plugin(object):
     """Base class for parser plugins.
     """
             
-    def tokens(self):
+    def tokens(self, parser):
         """Returns a list of ``(token_class, priority)`` tuples to add to the
         syntax the parser understands.
         """
         
         return ()
     
-    def filters(self):
+    def filters(self, parser):
         """Returns a list of ``(filter_function, priority)`` tuples to add to
         parser.
         """
@@ -350,7 +350,7 @@ class RangePlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((RangePlugin.Range, 0), )
     
     class Range(Token):
@@ -449,7 +449,7 @@ class PhrasePlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((PhrasePlugin.Quotes, 0), )
     
     class Quotes(BasicSyntax):
@@ -498,7 +498,7 @@ class SingleQuotesPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
      
-    def tokens(self):
+    def tokens(self, parser):
         return ((SingleQuotesPlugin.SingleQuotes, 0), )
     
     class SingleQuotes(Token):
@@ -516,7 +516,7 @@ class PrefixPlugin(Plugin):
     including the wildcard plugin, you should not include this plugin as well.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((PrefixPlugin.Prefix, 0), )
     
     class Prefix(BasicSyntax):
@@ -543,7 +543,7 @@ class WildcardPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((WildcardPlugin.Wild, 0), )
     
     class Wild(BasicSyntax):
@@ -568,7 +568,7 @@ class WordPlugin(Plugin):
     This plugin is always automatically included by the QueryParser.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((Word, 900), )
 
 
@@ -579,10 +579,10 @@ class WhitespacePlugin(Plugin):
     This plugin is always automatically included by the QueryParser.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((White, 100), )
     
-    def filters(self):
+    def filters(self, parser):
         return ((WhitespacePlugin.do_whitespace, 500), )
     
     @staticmethod
@@ -602,10 +602,10 @@ class GroupPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((GroupPlugin.Open, 0), (GroupPlugin.Close, 0))
     
-    def filters(self):
+    def filters(self, parser):
         return ((GroupPlugin.do_groups, 0), )
     
     @staticmethod
@@ -644,10 +644,10 @@ class FieldsPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((FieldsPlugin.Field, 0), )
     
-    def filters(self):
+    def filters(self, parser):
         return ((FieldsPlugin.do_fieldnames, 100), )
 
     @staticmethod
@@ -697,11 +697,11 @@ class CompoundsPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((CompoundsPlugin.AndNot, -10), (CompoundsPlugin.And, 0),
                 (CompoundsPlugin.Or, 0))
     
-    def filters(self):
+    def filters(self, parser):
         return ((CompoundsPlugin.do_compounds, 600), )
 
     @staticmethod
@@ -767,10 +767,10 @@ class BoostPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((BoostPlugin.Boost, 0), )
     
-    def filters(self):
+    def filters(self, parser):
         return ((BoostPlugin.clean_boost, 0), (BoostPlugin.do_boost, 700))
 
     @staticmethod
@@ -830,10 +830,10 @@ class NotPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((NotPlugin.Not, 0), )
     
-    def filters(self):
+    def filters(self, parser):
         return ((NotPlugin.do_not, 800), )
     
     @staticmethod
@@ -861,10 +861,10 @@ class MinusNotPlugin(Plugin):
     prefer this to using ``NOT``.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((PlusMinusPlugin.Minus, 0), )
     
-    def filters(self):
+    def filters(self, parser):
         return ((MinusNotPlugin.do_minus, 510), )
     
     @staticmethod
@@ -892,10 +892,10 @@ class PlusMinusPlugin(Plugin):
     ``SimpleParser()``.
     """
     
-    def tokens(self):
+    def tokens(self, parser):
         return ((PlusMinusPlugin.Plus, 0), (PlusMinusPlugin.Minus, 0))
     
-    def filters(self):
+    def filters(self, parser):
         return ((PlusMinusPlugin.do_plusminus, 510), )
     
     @staticmethod
@@ -943,7 +943,7 @@ class MultifieldPlugin(Plugin):
         self.fieldnames = fieldnames
         self.boosts = fieldboosts or {}
     
-    def filters(self):
+    def filters(self, parser):
         return ((self.do_multifield, 110), )
     
     def do_multifield(self, parser, stream):
@@ -970,7 +970,7 @@ class DisMaxPlugin(Plugin):
         self.fieldboosts = fieldboosts.items()
         self.tiebreak = tiebreak
     
-    def filters(self):
+    def filters(self, parser):
         return ((self.do_dismax, 110), )
     
     def do_dismax(self, parser, stream):
@@ -1005,7 +1005,7 @@ class FieldAliasPlugin(Plugin):
             for value in values:
                 self.reverse[value] = key
         
-    def filters(self):
+    def filters(self, parser):
         return ((self.do_aliases, 90), )
     
     def do_aliases(self, parser, stream):
@@ -1048,7 +1048,10 @@ class DateParserPlugin(Plugin):
         self.dateparser = dateparser
         self.callback = callback
     
-    def filters(self):
+    def tokens(self, parser):
+        return ()
+    
+    def filters(self, parser):
         # Run the filter after the FieldsPlugin assigns field names
         return ((self.do_dates, 110), )
     
@@ -1199,7 +1202,8 @@ class QueryParser(object):
     def _priorized(self, methodname):
         items_and_priorities = []
         for plugin in self.plugins:
-            for item in getattr(plugin, methodname)():
+            method = getattr(plugin, methodname)
+            for item in method(self):
                 items_and_priorities.append(item)
         items_and_priorities.sort(key=lambda x: x[1])
         return [item for item, pri in items_and_priorities]
