@@ -17,6 +17,7 @@
 import calendar, re
 from datetime import date, time, datetime, timedelta
 
+from whoosh.qparser import BasicSyntax, ErrorToken, Plugin, RangePlugin, Group, Word
 from whoosh.support.relativedelta import relativedelta
 from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
                                   TimeError, relative_days)
@@ -407,6 +408,7 @@ class Regex(ParserBase):
     """
     
     fn = None
+    modify = None
     
     def __init__(self, pattern, fn=None, modify=None):
         self.pattern = pattern
@@ -478,17 +480,82 @@ class Month(Regex):
                 break
             
 
-class Delta(Regex):
-    def __init__(self, pattern, **args):
-        super(Delta, self).__init__(pattern)
-        self.args = args
+class PlusMinus(Regex):
+    def __init__(self, years, months, weeks, days, hours, minutes, seconds):
+        rel_years = "((?P<years>[0-9]+) *(%s))?" % years
+        rel_months = "((?P<months>[0-9]+) *(%s))?" % months
+        rel_weeks = "((?P<weeks>[0-9]+) *(%s))?" % weeks
+        rel_days = "((?P<days>[0-9]+) *(%s))?" % days
+        rel_hours = "((?P<hours>[0-9]+) *(%s))?" % hours
+        rel_mins = "((?P<mins>[0-9]+) *(%s))?" % minutes
+        rel_secs = "((?P<secs>[0-9]+) *(%s))?" % seconds
+        
+        self.pattern = ("(?P<dir>[+-]) *%s *%s *%s *%s *%s *%s *%s(?=(\\W|$))"
+                        % (rel_years, rel_months, rel_weeks, rel_days,
+                           rel_hours, rel_mins, rel_secs))
+        self.expr = rcompile(self.pattern)
+        
+    def props_to_date(self, p, dt):
+        if p.dir == "-":
+            dir = -1
+        else:
+            dir = 1
+    
+        delta = relativedelta(years=(p.get("years") or 0) * dir,
+                              months=(p.get("months") or 0) * dir,
+                              weeks=(p.get("weeks") or 0) * dir,
+                              days=(p.get("days") or 0) * dir,
+                              hours=(p.get("hours") or 0) * dir,
+                              minutes=(p.get("mins") or 0) * dir,
+                              seconds=(p.get("secs") or 0) * dir)
+        return dt + delta
+
+
+class Daynames(Regex):
+    def __init__(self, next, last, daynames):
+        self.next_pattern = next
+        self.last_pattern = last
+        self._dayname_exprs = tuple(rcompile(pat) for pat in daynames)
+        dn_pattern = "|".join(daynames)
+        self.pattern = "(?P<dir>%s|%s) +(?P<day>%s)(?=(\\W|$))" % (next, last, dn_pattern)
+        self.expr = rcompile(self.pattern)
     
     def props_to_date(self, p, dt):
-        args = {}
-        dt = dt.replace(dt.year + p.get("years", self.args.get("years", 0)))
-        for key in ("weeks", "days", "hours", "minutes", "seconds"):
-            args[key] = p.get(key, self.args.get(key, 0))
-        return dt + timedelta(**args)
+        if re.match(p.dir, self.last_pattern):
+            dir = -1
+        else:
+            dir = 1
+        
+        for daynum, expr in enumerate(self._dayname_exprs):
+            m = expr.match(p.day)
+            if m:
+                break
+        current_daynum = dt.weekday()
+        days_delta = relative_days(current_daynum, daynum, dir)
+        
+        d = dt.date() + timedelta(days=days_delta)
+        return adatetime(year=d.year, month=d.month, day=d.day)
+
+
+class Time12(Regex):
+    def __init__(self):
+        self.pattern = "(?P<hour>[1-9]|10|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))"
+        self.expr = rcompile(self.pattern)
+
+    def props_to_date(self, p, dt):
+        isam = p.ampm.lower().startswith("a")
+        
+        if p.hour == 12:
+            if isam:
+                hr = 0
+            else:
+                hr = 12
+        else:
+            hr = p.hour
+            if not isam:
+                hr += 12
+        
+        return adatetime(hour=hr, minute=p.mins, second=p.secs, microsecond=p.usecs)
 
 
 # Top-level parser classes
@@ -502,8 +569,8 @@ class DateParser(object):
     year = Regex("(?P<year>[0-9]{4})(?=(\\W|$))",
                  lambda p, dt: adatetime(year=p.year))
     time24 = Regex("(?P<hour>([0-1][0-9])|(2[0-3])):(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?(?=(\\W|$))",
-                   lambda p, dt: adatetime(hour=p.hour, minute=p.mins, second=p.secs,
-                                           microsecond=p.usecs))
+                   lambda p, dt: adatetime(hour=p.hour, minute=p.mins, second=p.secs, microsecond=p.usecs))
+    time12 = Time12()
     
     def __init__(self):
         simple_year = "(?P<year>[0-9]{4})"
@@ -521,8 +588,22 @@ class DateParser(object):
         
         self.setup()
     
+    def setup(self):
+        raise NotImplementedError
+    
+    #
+    
     def get_parser(self):
         return self.all
+    
+    def parse(self, text, dt, pos=0, debug=-9999):
+        parser = self.get_parser()
+        
+        d, newpos = parser.parse(text, dt, pos=pos, debug=debug)
+        if isinstance(d, (adatetime, timespan)):
+            d = d.disambiguated(dt)
+        
+        return (d, newpos)
     
     def date_from(self, text, basedate=None, pos=0, debug=-9999, toend=True):
         if basedate is None:
@@ -532,76 +613,69 @@ class DateParser(object):
         if toend:
             parser = ToEnd(parser)
         
-        try:
-            d = parser.date_from(text, basedate, pos=pos, debug=debug)
-        except TimeError, e:
-            raise DateParseError(str(e))
-        except DateParseError:
-            raise
-            
+        d = parser.date_from(text, basedate, pos=pos, debug=debug)
         if isinstance(d, (adatetime, timespan)):
             d = d.disambiguated(basedate)
         return d
     
-        
+    
 
 class English(DateParser):
     day = Regex("(?P<day>([123][0-9])|[1-9])(st|nd|rd|th)?(?=(\\W|$))",
                 lambda p, dt: adatetime(day=p.day))
     
     def setup(self):
-        self.time12 = Regex("(?P<hour>[1-9]|10|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))",
-                            self.modify_time12_props)
+        self.plusdate = PlusMinus("years|year|yrs|yr|ys|y",
+                                  "months|month|mons|mon|mos|mo",
+                                  "weeks|week|wks|wk|ws|w",
+                                  "days|day|dys|dy|ds|d",
+                                  "hours|hour|hrs|hr|hs|h",
+                                  "minutes|minute|mins|min|ms|m",
+                                  "seconds|second|secs|sec|s")
         
-        rel_hours = "((?P<hours>[0-9]+) *(hours|hour|hrs|hr|hs|h))?"
-        rel_mins = "((?P<mins>[0-9]+) *(minutes|minute|mins|min|ms|m))?"
-        rel_secs = "((?P<secs>[0-9]+) *(seconds|second|secs|sec|s))?"
-        self.plustime = Regex("(?P<dir>[+-]) *%s *%s *%s(?=(\\W|$))" % (rel_hours, rel_mins, rel_secs),
-                              self.plustime_to_date)
+        self.dayname = Daynames("next", "last",
+                                ("monday|mon|mo", "tuesday|tues|tue|tu",
+                                 "wednesday|wed|we", "thursday|thur|thu|th",
+                                 "friday|fri|fr", "saturday|sat|sa",
+                                 "sunday|sun|su"))
         
         midnight = Regex("midnight", lambda p, dt: adatetime(hour=0, minute=0, second=0, microsecond=0))
         noon = Regex("noon", lambda p, dt: adatetime(hour=12, minute=0, second=0, microsecond=0))
-        now = Delta("now")
+        now = Regex("now", lambda p, dt: dt)
         self.time = Choice((self.time12, self.time24, midnight, noon, now), name="time")
         
-        tomorrow = Regex("tomorrow", self.tomorrow_to_date)
-        yesterday = Regex("yesterday", self.yesterday_to_date)
+        def tomorrow_to_date(p, dt):
+            d = dt.date() + timedelta(days=+1)
+            return adatetime(year=d.year, month=d.month, day=d.day)
+        tomorrow = Regex("tomorrow", tomorrow_to_date)
+        
+        def yesterday_to_date(p, dt):
+            d = dt.date() + timedelta(days=-1)
+            return adatetime(year=d.year, month=d.month, day=d.day)
+        yesterday = Regex("yesterday", yesterday_to_date)
+        
         thisyear = Regex("this year", lambda p, dt: adatetime(year=dt.year))
         thismonth = Regex("this month", lambda p, dt: adatetime(year=dt.year, month=dt.month))
         today = Regex("today", lambda p, dt: adatetime(year=dt.year, month=dt.month, day=dt.day))
-        
-        rel_years = "((?P<years>[0-9]+) *(years|year|yrs|yr|ys|y))?"
-        rel_months = "((?P<months>[0-9]+) *(months|month|mons|mon|mos|mo))?"
-        rel_weeks = "((?P<weeks>[0-9]+) *(weeks|week|wks|wk|ws|w))?"
-        rel_days = "((?P<days>[0-9]+) *(days|day|dys|dy|ds|d))?"
-        self.plusdate = Regex("(?P<dir>[+-]) *%s *%s *%s *%s *%s *%s *%s(?=(\\W|$))" % (rel_years, rel_months, rel_weeks, rel_days, rel_hours, rel_mins, rel_secs),
-                              self.plusdate_to_date)
-        
-        daynames = ("monday|mon|mo", "tuesday|tues|tue|tu", "wednesday|wed|we",
-                    "thursday|thur|thu|th", "friday|fri|fr", "saturday|sat|sa",
-                    "sunday|sun|su")
-        self.dayname_exprs = tuple(rcompile(pat) for pat in daynames)
-        self.dayname = Regex("(?P<dir>last|next) +(?P<day>%s)(?=(\\W|$))" % ("|".join(daynames)),
-                             self.dayname_to_date)
         
         self.month = Month("january|jan", "february|febuary|feb", "march|mar",
                            "april|apr", "may", "june|jun", "july|jul", "august|aug",
                            "september|sept|sep", "october|oct", "november|nov",
                            "december|dec")
         
-        # If you specify a day number you must also specify a year and/or a
-        # month... this Choice captures that constraint
+        # If you specify a day number you must also specify a month... this
+        # Choice captures that constraint
         
         self.dmy = Choice((Sequence((self.day, self.month, self.year), name="dmy"),
-                            Sequence((self.month, self.day, self.year), name="mdy"),
-                            Sequence((self.year, self.month, self.day), name="ymd"),
-                            Sequence((self.year, self.day, self.month), name="ydm"),
-                            Sequence((self.day, self.month), name="dm"),
-                            Sequence((self.month, self.day), name="md"),
-                            Sequence((self.month, self.year), name="my"),
-                            self.month, self.year, self.dayname, tomorrow,
-                            yesterday, thisyear, thismonth, today, now,
-                            ), name="date")
+                           Sequence((self.month, self.day, self.year), name="mdy"),
+                           Sequence((self.year, self.month, self.day), name="ymd"),
+                           Sequence((self.year, self.day, self.month), name="ydm"),
+                           Sequence((self.day, self.month), name="dm"),
+                           Sequence((self.month, self.day), name="md"),
+                           Sequence((self.month, self.year), name="my"),
+                           self.month, self.year, self.dayname, tomorrow,
+                           yesterday, thisyear, thismonth, today, now,
+                           ), name="date")
         
         self.datetime = Bag((self.time, self.dmy), name="datetime")
         self.bundle = Choice((self.plusdate, self.datetime, self.simple), name="bundle")
@@ -609,93 +683,167 @@ class English(DateParser):
         
         self.all = Choice((self.torange, self.bundle), name="all")
         
-    def plusdate_to_date(self, p, dt):
-        if p.dir == "-":
-            dir = -1
-        else:
-            dir = 1
-        delta = relativedelta(years=(p.get("years") or 0) * dir,
-                              months=(p.get("months") or 0) * dir,
-                              weeks=(p.get("weeks") or 0) * dir,
-                              days=(p.get("days") or 0) * dir,
-                              hours=(p.get("hours") or 0) * dir,
-                              minutes=(p.get("mins") or 0) * dir,
-                              seconds=(p.get("secs") or 0) * dir)
-        return dt + delta
+
+# QueryParser plugin
+
+class DateParserPlugin(Plugin):
+    """Adds more powerful parsing of DATETIME fields.
     
-    def plustime_to_date(self, p, dt):
-            if p.dir == "-":
-                dir = -1
-            else:
-                dir = 1
-            delta = timedelta(hours=(p.get("hours") or 0) * dir,
-                              minutes=(p.get("mins") or 0) * dir,
-                              seconds=(p.get("secs") or 0) * dir)
-            return dt + delta 
+    >>> parser.add_plugin(DateParserPlugin())
+    >>> parser.parse(u"date:'last tuesday'")
+    """
     
-    def modify_time12_props(self, p, dt):
-        if p.hour == 12:
-            if p.ampm == "am":
-                hr = 0
-            else:
-                hr = 12
-        else:
-            hr = p.hour
-            if p.ampm == "pm":
-                hr += 12
-        return adatetime(hour=hr, minute=p.mins, second=p.secs, microsecond=p.usecs)
-    
-    def tomorrow_to_date(self, p, dt):
-        d = dt.date() + timedelta(days=+1)
-        return adatetime(year=d.year, month=d.month, day=d.day)
-    
-    def yesterday_to_date(self, p, dt):
-        d = dt.date() + timedelta(days=-1)
-        return adatetime(year=d.year, month=d.month, day=d.day)
+    def __init__(self, basedate=None, dateparser=None, callback=None,
+                 free=False):
+        """
+        :param basedate: a datetime object representing the current time
+            against which to measure relative dates. If you do not supply this
+            argument, the plugin uses ``datetime.utcnow()``.
+        :param dateparser: an instance of
+            :class:`whoosh.qparser.dateparse.DateParser`. If you do not supply
+            this argument, the plugin automatically uses
+            :class:`whoosh.qparser.dateparse.English`.
+        :param callback: a callback function for parsing errors. This allows
+            you to provide feedback to the user about problems parsing dates.
+        :param remove: if True, unparseable dates are removed from the token
+            stream instead of being replaced with ErrorToken.
+        :param loose: if True, this plugin will install a filter early in the
+            parsing process and try to find undelimited dates such as
+            ``date:last tuesday``. Note that allowing this could result in
+            normal query words accidentally being parsed as dates sometimes.
+        """
         
-    def dayname_to_date(self, p, dt):
-        if p.dir == "last":
-            dir = -1
-        else:
-            dir = 1
-        
-        for daynum, expr in enumerate(self.dayname_exprs):
-            m = expr.match(p.day)
-            if m:
-                break
-        current_daynum = dt.weekday()
-        days_delta = relative_days(current_daynum, daynum, dir)
-        
-        d = dt.date() + timedelta(days=days_delta)
-        return adatetime(year=d.year, month=d.month, day=d.day)
+        self.basedate = basedate
+        if dateparser is None:
+            dateparser = English()
+        self.dateparser = dateparser
+        self.callback = callback
+        self.free = free
     
+    def tokens(self, parser):
+        if self.free:
+            # If we're tokenizing, we have to go before the FieldsPlugin
+            return ((DateToken, -1), )
+        else:
+            return ()
+    
+    def filters(self, parser):
+        # Run the filter after the FieldsPlugin assigns field names
+        return ((self.do_dates, 110), )
+    
+    def do_dates(self, parser, stream):
+        schema = parser.schema
+        if not schema:
+            return stream
+        
+        from whoosh.fields import DATETIME
+        datefields = frozenset(fieldname for fieldname, field
+                               in parser.schema.items()
+                               if isinstance(field, DATETIME))
+        
+        newstream = stream.empty()
+        for t in stream:
+            if t.fieldname in datefields:
+                if isinstance(t, Group):
+                    t = self.do_dates(parser, t)
+                elif isinstance(t, Word):
+                    text = t.text
+                    try:
+                        dt = self.dateparser.date_from(text, self.basedate)
+                        if dt is None:
+                            if self.callback:
+                                self.callback(text)
+                            t = ErrorToken(t)
+                        else:
+                            t = DateToken(t.fieldname, dt, t.boost)
+                    except DateParseError, e:
+                        if self.callback:
+                            self.callback("%s (%r)" % (str(e), text))
+                        t = ErrorToken(t)
+                
+                elif isinstance(t, RangePlugin.Range):
+                    start = end = None
+                    error = None
+                    
+                    dp = self.dateparser.get_parser()
+                    
+                    if t.start:
+                        start = dp.date_from(t.start, self.basedate)
+                        if start is None:
+                            error = t.start
+                    if t.end:
+                        end = dp.date_from(t.end, self.basedate)
+                        if end is None and error is None:
+                            error = t.end
+                    
+                    if error is not None:
+                        if self.callback:
+                            self.callback(error)
+                        t = ErrorToken(t)
+                    else:
+                        ts = timespan(start, end).disambiguated(self.basedate)
+                        t = DateToken(t.fieldname, ts, boost=t.boost)
+            
+            newstream.append(t)
+        return newstream
 
-###
 
-def start_of_year(dt):
-    return dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-def start_of_month(dt):
-    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-def start_of_day(dt):
-    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-def start_of_hour(dt):
-    return dt.replace(minute=0, second=0, microsecond=0)
-def start_of_minute(dt):
-    return dt.replace(second=0, microsecond=0)
+class DateToken(BasicSyntax):
+    expr = re.compile("([A-Za-z][A-Za-z_0-9]*):([^^]+)")
+    
+    def __init__(self, fieldname, timeobj, boost=1.0, endpos=None):
+        self.fieldname = fieldname
+        self.timeobj = timeobj
+        self.boost = boost
+        self.endpos = endpos
+    
+    def __repr__(self):
+        r = "%s:(%r)" % (self.fieldname, self.timeobj)
+        if self.boost != 1.0:
+            r + "^%s" % self.boost
+        return r
+    
+    def set_boost(self, b):
+        return DateParserPlugin.Date(self.fieldname, self.timeobj, boost=b,
+                                     endpos=self.endpos)
+    
+    def set_fieldname(self, name):
+        if name is None: raise Exception
+        return self.__class__(name, self.timeobj, boost=self.boost,
+                              endpos=self.endpos)
+    
+    def query(self, parser):
+        from whoosh import query
+        
+        field = parser.schema[self.fieldname]
+        dt = self.timeobj
+        if isinstance(self.timeobj, datetime):
+            return query.Term(self.fieldname, field.to_text(dt),
+                              boost=self.boost)
+        elif isinstance(self.timeobj, timespan):
+            return query.DateRange(self.fieldname, dt.start, dt.end,
+                                   boost=self.boost)
+        else:
+            raise Exception("Unknown time object: %r" % dt)
 
-def end_of_year(dt):
-    lastday = calendar.monthrange(dt.year, dt.month)[1]
-    return dt.replace(month=12, day=lastday, hour=12, minute=59, second=59, microsecond=999999)
-def end_of_month(dt):
-    lastday = calendar.monthrange(dt.year, dt.month)[1]
-    return dt.replace(month=12, day=lastday, hour=12, minute=59, second=59, microsecond=999999)
-def end_of_day(dt):
-    return dt.replace(hour=12, minute=59, second=59, microsecond=999999)
-def end_of_hour(dt):
-    return dt.replace(minute=59, second=59, microsecond=999999)
-def end_of_minute(dt):
-    return dt.replace(second=59, microsecond=999999)
-
+    @classmethod
+    def create(cls, parser, match):
+        fieldname = match.group(1)
+        if parser.schema and fieldname in parser.schema:
+            field = parser.schema[fieldname]
+            
+            from whoosh.fields import DATETIME
+            if isinstance(field, DATETIME):
+                text = match.group(2)
+                textstart = match.start(2)
+                
+                plugin = parser.get_plugin(DateParserPlugin)
+                dateparser = plugin.dateparser
+                basedate = plugin.basedate
+                
+                d, newpos = dateparser.parse(text, basedate)
+                if d:
+                    return cls(fieldname, d, endpos=newpos + textstart)
     
     
     

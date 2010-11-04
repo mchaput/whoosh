@@ -3,7 +3,8 @@ import unittest
 import inspect
 from datetime import datetime
 
-from whoosh import fields, qparser, query
+from whoosh import analysis, fields, qparser, query
+from whoosh.qparser import dateparse
 from whoosh.support.times import adatetime
 
 
@@ -63,9 +64,8 @@ class TestParserPlugins(unittest.TestCase):
         errs = []
         def cb(arg):
             errs.append(arg)
-        
         basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
-        qp.add_plugin(qparser.DateParserPlugin(basedate, callback=cb))
+        qp.add_plugin(dateparse.DateParserPlugin(basedate, callback=cb))
         
         q = qp.parse(u"hello date:'last tuesday'")
         self.assertEqual(q.__class__, query.And)
@@ -99,6 +99,92 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q.fieldname, "text")
         self.assertEqual(q.text, "hello")
         self.assertEqual(errs[3], "2005 19 32")
+        
+        q = qp.parse(u"date:'march 24 to dec 12'")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 3, 24).floor())
+        self.assertEqual(q.enddate, adatetime(2010, 12, 12).ceil())
+        
+        #q = qp.parse(u"date:'to dec 12'")
+        #self.assertEqual(q.__class__, query.DateRange)
+        #self.assertEqual(q.startdate, None)
+        #self.assertEqual(q.enddate, adatetime(2010, 12, 12).ceil())
+        
+        #q = qp.parse(u"date:'march 24 to'")
+        #self.assertEqual(q.__class__, query.DateRange)
+        #self.assertEqual(q.startdate, adatetime(2010, 3, 24).floor())
+        #self.assertEqual(q.enddate, None)
+    
+    def test_date_range(self):
+        schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
+        qp = qparser.QueryParser("text", schema=schema)
+        basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
+        qp.add_plugin(dateparse.DateParserPlugin(basedate))
+        
+        q = qp.parse(u"date:['30 march' to 'next wednesday']")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
+        self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
+        
+        #q = qp.parse(u"date:[to 'next wednesday']")
+        #self.assertEqual(q.__class__, query.DateRange)
+        #self.assertEqual(q.startdate, None)
+        #self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
+        
+        #q = qp.parse(u"date:['30 march' to]")
+        #self.assertEqual(q.__class__, query.DateRange)
+        #self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
+        #self.assertEqual(q.enddate, None)
+    
+    def test_free_dates(self):
+        a = analysis.StandardAnalyzer(stoplist=None)
+        schema = fields.Schema(text=fields.TEXT(analyzer=a), date=fields.DATETIME)
+        qp = qparser.QueryParser("text", schema=schema)
+        basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
+        qp.add_plugin(dateparse.DateParserPlugin(basedate, free=True))
+        
+        q = qp.parse(u"hello date:last tuesday")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 2)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[0].text, "hello")
+        self.assertEqual(q[1].__class__, query.DateRange)
+        self.assertEqual(q[1].startdate, adatetime(2010, 9, 14).floor())
+        self.assertEqual(q[1].enddate, adatetime(2010, 9, 14).ceil())
+        
+        q = qp.parse(u"date:mar 29 1972 hello")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 2)
+        self.assertEqual(q[0].__class__, query.DateRange)
+        self.assertEqual(q[0].startdate, adatetime(1972, 3, 29).floor())
+        self.assertEqual(q[0].enddate, adatetime(1972, 3, 29).ceil())
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[1].text, "hello")
+
+        q = qp.parse(u"date:2005 march 2")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2005, 3, 2).floor())
+        self.assertEqual(q.enddate, adatetime(2005, 3, 2).ceil())
+        
+        q = qp.parse(u"date:'2005' march 2")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 3)
+        self.assertEqual(q[0].__class__, query.DateRange)
+        self.assertEqual(q[0].startdate, adatetime(2005).floor())
+        self.assertEqual(q[0].enddate, adatetime(2005).ceil())
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[1].fieldname, "text")
+        self.assertEqual(q[1].text, "march")
+        
+        q = qp.parse(u"date:march 24 to dec 12")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 3, 24).floor())
+        self.assertEqual(q.enddate, adatetime(2010, 12, 12).ceil())
+        
+        q = qp.parse(u"date:5:10pm")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 9, 20, 17, 10).floor())
+        self.assertEqual(q.enddate, adatetime(2010, 9, 20, 17, 10).ceil())
         
     
 

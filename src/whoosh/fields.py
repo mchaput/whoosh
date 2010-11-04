@@ -381,8 +381,8 @@ class DATETIME(NUMERIC):
         if isinstance(x, datetime.datetime):
             x = datetime_to_long(x)
         elif not isinstance(x, (int, long)):
-            raise ValueError("DATETIME field doesn't know what to do with "
-                             "to_text(%r)" % x)
+            raise ValueError("DATETIME.to_text field doesn't know what to do "
+                             "with %r" % x)
         
         return super(DATETIME, self).to_text(x, shift=shift)
     

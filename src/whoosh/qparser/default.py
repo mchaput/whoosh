@@ -187,6 +187,7 @@ class Token(SyntaxObject):
     """
     
     fieldname = None
+    endpos = None
     
     def set_boost(self, b):
         return self
@@ -351,7 +352,7 @@ class RangePlugin(Plugin):
     """
     
     def tokens(self, parser):
-        return ((RangePlugin.Range, 0), )
+        return ((RangePlugin.Range, 1), )
     
     class Range(Token):
         expr = re.compile(r"""
@@ -544,7 +545,7 @@ class WildcardPlugin(Plugin):
     """
     
     def tokens(self, parser):
-        return ((WildcardPlugin.Wild, 0), )
+        return ((WildcardPlugin.Wild, 1), )
     
     class Wild(BasicSyntax):
         expr = re.compile("[^ \t\r\n*?]*(\\*|\\?)\\S*")
@@ -668,13 +669,16 @@ class FieldsPlugin(Plugin):
             
             if isinstance(t, Group):
                 t = FieldsPlugin.do_fieldnames(parser, t)
-            newstream.append(t.set_fieldname(newname))
+                
+            if newname is not None:
+                t = t.set_fieldname(newname)
+            newstream.append(t)
             newname = None
         
         return newstream
     
     class Field(Token):
-        expr = re.compile("([A-Za-z_][A-Za-z_0-9]*):")
+        expr = re.compile("([A-Za-z][A-Za-z_0-9]*):(?!=(\\s|$))")
         
         def __init__(self, fieldname):
             self.fieldname = fieldname
@@ -687,7 +691,9 @@ class FieldsPlugin(Plugin):
         
         @classmethod
         def create(cls, parser, match):
-            return cls(match.group(1))
+            fieldname = match.group(1)
+            if not parser.schema or (fieldname in parser.schema):
+                return cls(fieldname)
     
 
 class CompoundsPlugin(Plugin):
@@ -792,7 +798,7 @@ class BoostPlugin(Plugin):
             elif isinstance(t, BoostPlugin.Boost):
                 if newstream:
                     newstream.append(newstream.pop().set_boost(t.boost))
-            elif isinstance(t, BasicSyntax) and "^" in t.text:
+            elif isinstance(t, BasicSyntax) and hasattr(t, "text") and "^" in t.text:
                 carat = t.text.find("^")
                 if carat > 0:
                     try:
@@ -1019,105 +1025,6 @@ class FieldAliasPlugin(Plugin):
         return newstream
 
 
-class DateParserPlugin(Plugin):
-    """Adds more powerful parsing of DATETIME fields.
-    
-    >>> parser.add_plugin(DateParserPlugin())
-    >>> parser.parse(u"date:'last tuesday'")
-    """
-    
-    def __init__(self, basedate=None, dateparser=None, callback=None):
-        """
-        :param basedate: a datetime object representing the current time
-            against which to measure relative dates. If you do not supply this
-            argument, the plugin uses ``datetime.utcnow()``.
-        :param dateparser: an instance of
-            :class:`whoosh.qparser.dateparse.DateParser`. If you do not supply
-            this argument, the plugin automatically uses
-            :class:`whoosh.qparser.dateparse.English`.
-        :param callback: a callback function for parsing errors. This allows
-            you to provide feedback to the user about problems parsing dates.
-        :param remove: if True, unparseable dates are removed from the token
-            stream instead of being replaced with ErrorToken.
-        """
-        
-        self.basedate = basedate
-        if dateparser is None:
-            from whoosh.qparser.dateparse import English
-            dateparser = English()
-        self.dateparser = dateparser
-        self.callback = callback
-    
-    def tokens(self, parser):
-        return ()
-    
-    def filters(self, parser):
-        # Run the filter after the FieldsPlugin assigns field names
-        return ((self.do_dates, 110), )
-    
-    def do_dates(self, parser, stream):
-        from whoosh.qparser.dateparse import DateParseError
-        
-        schema = parser.schema
-        if not schema:
-            return stream
-        
-        from whoosh.fields import DATETIME
-        datefields = frozenset(fieldname for fieldname, field
-                               in parser.schema.items()
-                               if isinstance(field, DATETIME))
-        
-        newstream = stream.empty()
-        for t in stream:
-            if t.fieldname in datefields:
-                if isinstance(t, Word):
-                    text = t.text
-                    try:
-                        dt = self.dateparser.date_from(text, self.basedate)
-                        if dt is None:
-                            if self.callback:
-                                self.callback(text)
-                            t = ErrorToken(t)
-                        else:
-                            t = DateParserPlugin.Date(t.fieldname, dt, t.boost)
-                    except DateParseError, e:
-                        if self.callback:
-                            self.callback("%s (%r)" % (str(e), text))
-                        t = ErrorToken(t)
-                
-                elif isinstance(t, RangePlugin.Range):
-                    raise Exception()
-            newstream.append(t)
-        return newstream
-            
-    class Date(Token):
-        def __init__(self, fieldname, timeobj, boost=1.0):
-            self.fieldname = fieldname
-            self.timeobj = timeobj
-            self.boost = boost
-        
-        def set_boost(self, b):
-            return DateParserPlugin.Date(self.fieldname, self.text, boost=b)
-        
-        def set_fieldname(self, name):
-            return DateParserPlugin.Date(name, self.text)
-        
-        def query(self, parser):
-            from datetime import datetime
-            from whoosh.support.times import timespan, datetime_to_long
-            
-            field = parser.schema[self.fieldname]
-            dt = self.timeobj
-            if isinstance(self.timeobj, datetime):
-                return query.Term(self.fieldname, field.to_text(dt),
-                                  boost=self.boost)
-            elif isinstance(self.timeobj, timespan):
-                return query.DateRange(self.fieldname, dt.start, dt.end,
-                                       boost=self.boost)
-            else:
-                raise Exception("Unknown time object: %r" % dt)
-        
-
 # Parser object
 
 full_profile = (BoostPlugin, CompoundsPlugin, FieldsPlugin, GroupPlugin,
@@ -1199,6 +1106,12 @@ class QueryParser(object):
         
         self.plugins = [p for p in self.plugins if not isinstance(p, cls)]
     
+    def get_plugin(self, cls, derived=True):
+        for plugin in self.plugins:
+            if (derived and isinstance(plugin, cls)) or plugin.__class__ is cls:
+                return plugin
+        raise KeyError("No plugin with class %r" % cls)
+    
     def _priorized(self, methodname):
         items_and_priorities = []
         for plugin in self.plugins:
@@ -1221,7 +1134,7 @@ class QueryParser(object):
         
         return self._priorized("filters")
     
-    def parse(self, text, normalize=True):
+    def parse(self, text, normalize=True, debug=False):
         """Parses the input string and returns a Query object/tree.
         
         This method may return None if the input string does not result in any
@@ -1235,9 +1148,11 @@ class QueryParser(object):
         """
         
         stream = self._tokenize(text)
-        stream = self._filterize(stream)
+        stream = self._filterize(stream, debug)
+        
         q = stream.query(self)
-        #print "prenorm=", q
+        if debug:
+            print "Pre-normalized query=", q
         if normalize:
             q = q.normalize()
         return q
@@ -1257,9 +1172,14 @@ class QueryParser(object):
                     item = tk.create(self, m)
                     if item:
                         stack.append(item)
-                    prev = i = m.end()
-                    matched = True
-                    break
+                        if item.endpos is not None:
+                            newpos = item.endpos
+                        else:
+                            newpos = m.end()
+                        
+                        prev = i = newpos
+                        matched = True
+                        break
             
             if not matched:
                 i += 1
@@ -1270,9 +1190,18 @@ class QueryParser(object):
         #print "stack=", stack
         return self.group(stack)
     
-    def _filterize(self, stream):
+    def _filterize(self, stream, debug=False):
+        if debug:
+            print "Tokenized stream=", stream
+        
         for f in self.filters():
+            if debug:
+                print "Applying filter", f
+            
             stream = f(self, stream)
+            if debug:
+                print "Stream=", stream
+            
             if stream is None:
                 raise Exception("Function %s did not return a stream" % f)
         return stream

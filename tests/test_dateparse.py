@@ -20,11 +20,14 @@ class TestDateParser(unittest.TestCase):
         self.assert_adatetime(ts.start, **sargs)
         self.assert_adatetime(ts.end, **eargs)
     
+    def assert_unamb(self, ts, **kwargs):
+        self.assert_unamb_span(ts, kwargs, kwargs)
+    
     def assert_unamb_span(self, ts, sargs, eargs):
         startdt = adatetime(**sargs).floor()
         enddt = adatetime(**eargs).ceil()
-        self.assertEqual(ts.start, startdt)
-        self.assertEqual(ts.end, enddt)
+        self.assertEqual(ts.start, startdt, "start %s != %s" % (ts.start, startdt))
+        self.assertEqual(ts.end, enddt, "end %s != %s" % (ts.end, enddt))
     
     def assert_datespan(self, ts, startdate, enddate):
         self.assertEqual(ts.__class__, timespan)
@@ -48,6 +51,7 @@ class TestDateParser(unittest.TestCase):
         self.assert_adatetime(t.date_from("2005.05.10  01:08:35", basedate), year=2005, month=5, day=10, hour=1, minute=8, second=35)
         
         self.assertEqual(t.date_from("2005 02 31", basedate), None)
+        self.assertEqual(t.date_from("2005-13-32", basedate), None)
         
     def test_time(self, t=english.time):
         self.assert_adatetime(t.date_from("13:05", basedate), hour=13, minute=5)
@@ -59,6 +63,7 @@ class TestDateParser(unittest.TestCase):
         self.assert_adatetime(t.date_from("10 pm", basedate), hour=22)
         self.assert_adatetime(t.date_from("3am", basedate), hour=3)
         self.assert_adatetime(t.date_from("3:15 am", basedate), hour=3, minute=15)
+        self.assert_adatetime(t.date_from("5:10pm", basedate), hour=17, minute=10)
         self.assert_adatetime(t.date_from("12:45am", basedate), hour=0, minute=45)
         self.assert_adatetime(t.date_from("12:45pm", basedate), hour=12, minute=45)
         self.assert_adatetime(t.date_from("5:45:05 pm", basedate), hour=17, minute=45, second=5)
@@ -96,9 +101,7 @@ class TestDateParser(unittest.TestCase):
         
         self.assertEqual(d.date_from("now", basedate), basedate)
         
-    def test_plustime(self, rt=english.plustime):
-        rt = english.plustime
-        
+    def test_plustime(self, rt=english.plusdate):
         self.assertEqual(rt.date_from("+1hr", basedate),
                          basedate + timedelta(hours=1))
         self.assertEqual(rt.date_from("+5mins", basedate),
@@ -254,6 +257,14 @@ class TestDateParser(unittest.TestCase):
         self.test_bundle(p)
         self.test_ranges(p)
     
+    def test_final_dates(self, p=english):
+        self.assert_unamb(p.date_from("5:10pm", basedate),
+                          year=2010, month=9, day=20, hour=17, minute=10)
+    
+        self.assertEqual(p.date_from("may 32 2005", basedate), None)
+        self.assertEqual(p.date_from("2005 may 32", basedate), None)            
+        self.assertEqual(p.date_from("2005-13-32", basedate), None)
+    
     def test_final_ranges(self, p=english):
         self.assert_unamb_span(p.date_from("feb to nov", basedate),
                                dict(year=2010, month=2),
@@ -316,6 +327,10 @@ class TestDateParser(unittest.TestCase):
                                dict(year=2010, month=9, day=21, hour=3),
                                dict(year=2010, month=9, day=21, hour=17))
         
+        self.assert_unamb_span(p.date_from("-2hrs to +20min", basedate),
+                               dict(year=2010, month=9, day=20, hour=13, minute=16, second=6, microsecond=454000),
+                               dict(year=2010, month=9, day=20, hour=15, minute=36, second=6, microsecond=454000))
+        
         # Swap
         self.assert_unamb_span(p.date_from("oct 25 2009 to feb 14 2008", basedate),
                                dict(year=2008, month=2, day=14),
@@ -325,8 +340,6 @@ class TestDateParser(unittest.TestCase):
                                dict(year=2010, month=9, day=21),
                                dict(year=5000, month=10, day=25))
         
-        self.assertEqual(p.date_from("may 32 2005", basedate), None)
-        self.assertEqual(p.date_from("2005 may 32", basedate), None)            
         
         
 
