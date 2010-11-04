@@ -210,11 +210,9 @@ class adatetime(object):
         """
         
         dt = self
-        if self.year is None:
-            dt = self.replace(year=basedate.year)
         if not is_ambiguous(dt):
             return fix(dt)
-        return timespan(dt.floor(), dt.ceil())
+        return timespan(dt, dt).disambiguated(basedate)
 
 
 # Time span class
@@ -246,7 +244,7 @@ class timespan(object):
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.start, self.end)
     
-    def disambiguated(self, basedate):
+    def disambiguated(self, basedate, debug=0):
         """Returns an unambiguous version of this object.
         
         >>> start = adatetime(year=2009, month=2)
@@ -313,7 +311,7 @@ class timespan(object):
                 end.month = basedate.month
                 end.day = basedate.day
         
-        if start.floor().date() > end.ceil().date():
+        if floor(start).date() > ceil(end).date():
             # If the disambiguated dates are out of order:
             # - If no start year was given, reduce the start year to put the
             #   start before the end
@@ -327,10 +325,8 @@ class timespan(object):
             else:
                 start, end = end, start
         
-        if is_ambiguous(start):
-            start = start.floor()
-        if is_ambiguous(end):
-            end = end.ceil()
+        start = floor(start)
+        end = ceil(end)
             
         if start.date() == end.date() and start.time() > end.time():
             # If the start and end are on the same day, but the start time
@@ -341,6 +337,16 @@ class timespan(object):
 
 
 # Functions for working with datetime/adatetime objects
+
+def floor(at):
+    if isinstance(at, datetime):
+        return at
+    return at.floor()
+
+def ceil(at):
+    if isinstance(at, datetime):
+        return at
+    return at.ceil()
 
 def fill_in(at, basedate, units=adatetime.units):
     """Returns a copy of ``at`` with any unspecified (None) units filled in

@@ -417,6 +417,21 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.start, None)
         self.assertEqual(q.end, None)
     
+    def test_nonexistant_fieldnames(self):
+        # Need an analyzer that won't mangle a URL
+        a = analysis.SimpleAnalyzer("\\S+")
+        schema = fields.Schema(id=fields.ID, text=fields.TEXT(analyzer=a))
+        
+        qp = qparser.QueryParser("text", schema=schema)
+        q = qp.parse(u"id:/code http://localhost/")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[0].fieldname, "id")
+        self.assertEqual(q[0].text, "/code")
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[1].fieldname, "text")
+        self.assertEqual(q[1].text, "http://localhost/")
+    
     def test_stopped(self):
         schema = fields.Schema(text = fields.TEXT)
         qp = qparser.QueryParser("text", schema=schema)
@@ -465,7 +480,7 @@ class TestQueryParser(unittest.TestCase):
         
         parser = qparser.QueryParser("content")
         parser.parse(qs)
-        
+    
     def test_roundtrip(self):
         parser = qparser.QueryParser("a")
         q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
