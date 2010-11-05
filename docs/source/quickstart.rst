@@ -39,7 +39,7 @@ such as its title or text content. A field can be *indexed* (meaning it can
 be searched) and/or *stored* (meaning the value that gets indexed is returned
 with the results; this is useful for fields such as the title).
 
-This schema has two fields, "title" and "content":
+This schema has two fields, "title" and "content"::
 
 	from whoosh.fields import Schema, TEXT
 	
@@ -80,10 +80,12 @@ types, and you can easily create your own.
     This type is for boolean (true/false) values.
 
 :class:`whoosh.fields.DATETIME`
-    This type is for ``datetime`` objects.
+    This type is for ``datetime`` objects. See :doc:`dates` for more
+    information.
 
-:class:`whoosh.fields.NGRAM`
-    TODO
+:class:`whoosh.fields.NGRAM` and :class:`whoosh.fields.NGRAMWORDS`
+    These types break the field text or individual terms into N-grams.
+    See :doc:`ngrams` for more information.
 
 (As a shortcut, if you don't need to pass any arguments to the field type, you
 can just give the class name and Whoosh will instantiate the object for you.) ::
