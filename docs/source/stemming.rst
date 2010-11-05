@@ -159,7 +159,7 @@ Whoosh includes several mechanisms for adding character folding to an analyzer.
 The :class:`whoosh.analysis.CharsetFilter` applies a character map to token
 text. For example, it will filter the tokens ``u'café', u'resumé', ...`` to
 ``u'cafe', u'resume', ...``. This is the usually the method you'll want to use
-unless you need to use a charset to tokenize terms.
+unless you need to use a charset to tokenize terms::
 
     from whoosh.analysis import CharsetFilter, StemmingAnalyzer
     from whoosh import fields
@@ -181,8 +181,8 @@ regular expressions, it will be much faster to use ``RegexTokenizer`` and
 The :mod:`whoosh.support.charset` module contains an accent folding map useful
 for most Western languages, as well as a much more extensive Sphinx charset
 table and a function to convert Sphinx charset tables into the character maps
-required by ``CharsetTokenizer`` and ``CharsetFilter``::
-    
+required by ``CharsetTokenizer`` and ``CharsetFilter`` ::
+
     # To create a filter using an enourmous character map for most languages
     # generated from a Sphinx charset table
     from whoosh.analysis import CharsetFilter

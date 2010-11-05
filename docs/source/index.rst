@@ -23,6 +23,7 @@ Contents
     searching
     parsing
     querylang
+    dates
     query
     analysis
     stemming
