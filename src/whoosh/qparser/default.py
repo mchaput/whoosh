@@ -503,7 +503,7 @@ class SingleQuotesPlugin(Plugin):
         return ((SingleQuotesPlugin.SingleQuotes, 0), )
     
     class SingleQuotes(Token):
-        expr = re.compile(r"'([^']*?)'(?=\s|$)")
+        expr = re.compile(r"'([^']*?)'(?=\s|\]|[)}]|$)")
         
         @classmethod
         def create(cls, parser, match):

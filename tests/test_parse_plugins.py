@@ -105,6 +105,13 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q.startdate, adatetime(2010, 3, 24).floor())
         self.assertEqual(q.enddate, adatetime(2010, 12, 12).ceil())
         
+        q = qp.parse(u"date:('30 june' OR '10 july') quick")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 2)
+        self.assertEqual(q[0].__class__, query.Or)
+        self.assertEqual(q[0][0].__class__, query.DateRange)
+        self.assertEqual(q[0][1].__class__, query.DateRange)
+        
         #q = qp.parse(u"date:'to dec 12'")
         #self.assertEqual(q.__class__, query.DateRange)
         #self.assertEqual(q.startdate, None)
@@ -185,6 +192,13 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q.__class__, query.DateRange)
         self.assertEqual(q.startdate, adatetime(2010, 9, 20, 17, 10).floor())
         self.assertEqual(q.enddate, adatetime(2010, 9, 20, 17, 10).ceil())
+        
+        q = qp.parse(u"(date:30 june OR date:10 july) quick")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 2)
+        self.assertEqual(q[0].__class__, query.Or)
+        self.assertEqual(q[0][0].__class__, query.DateRange)
+        self.assertEqual(q[0][1].__class__, query.DateRange)
         
     
 

@@ -743,10 +743,10 @@ class DateParserPlugin(Plugin):
         
         newstream = stream.empty()
         for t in stream:
-            if t.fieldname in datefields:
-                if isinstance(t, Group):
-                    t = self.do_dates(parser, t)
-                elif isinstance(t, Word):
+            if isinstance(t, Group):
+                t = self.do_dates(parser, t)
+            elif t.fieldname in datefields:
+                if isinstance(t, Word):
                     text = t.text
                     try:
                         dt = self.dateparser.date_from(text, self.basedate)

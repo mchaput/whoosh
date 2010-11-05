@@ -10,6 +10,13 @@ previous versions of Whoosh*. You will need to reindex your data to use this
 version.
 
 
+Whoosh 1.3
+==========
+
+Whoosh 1.3 adds a more efficient DATETIME field based on the new tiered NUMERIC
+field, and the DateParserPlugin. See :doc:`../dates`. 
+
+
 Whoosh 1.2
 ==========
 
