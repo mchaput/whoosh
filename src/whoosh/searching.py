@@ -525,7 +525,7 @@ class Results(object):
     def __len__(self):
         """Returns the total number of documents that matched the query. Note
         this may be more than the number of scored documents, given the value
-        of the ``limit`` keyword argument to :method:`Searcher.search`.
+        of the ``limit`` keyword argument to :meth:`Searcher.search`.
         """
         
         if self._docs is None:
@@ -543,8 +543,8 @@ class Results(object):
             d.score = None
 
     def fields(self, n):
-        """Returns the stored fields for the document at the ``n``th position
-        in the results. Use :method:`Results.docnum` if you want the raw
+        """Returns the stored fields for the document at the ``n`` th position
+        in the results. Use :meth:`Results.docnum` if you want the raw
         document number instead of the stored fields.
         """
         
