@@ -71,6 +71,7 @@ Normally, as with other types of queries containing spaces, the users needs
 to quote date queries containing spaces using single quotes::
 
     render date:'last tuesday' command
+    date:['last tuesday' to 'next friday']
 
 If you use the ``free`` argument to the DateParserPlugin, the plugin will
 try to parse dates from unquoted text following a date field prefix
