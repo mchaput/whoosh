@@ -51,7 +51,8 @@ class IndexReader(ClosableMixin):
     def close(self):
         """Closes the open files associated with this reader.
         """
-        raise NotImplementedError
+        
+        pass
 
     def generation(self):
         """Returns the generation of the index being read, or -1 if the backend
@@ -314,6 +315,82 @@ class IndexReader(ClosableMixin):
         return nlargest(number, ((tf * (1.0 / df), token)
                                  for token, df, tf
                                  in self.iter_prefix(fieldname, prefix)))
+
+
+# Fake IndexReader class for empty indexes
+
+class EmptyReader(IndexReader):
+    def __init__(self, schema):
+        self.schema = schema
+
+    def __contains__(self, term):
+        return False
+    
+    def __iter__(self):
+        return iter([])
+    
+    def iter_from(self, fieldname, text):
+        return iter([])
+    
+    def iter_field(self, fieldname):
+        return iter([])
+    
+    def iter_prefix(self, fieldname):
+        return iter([])
+    
+    def lexicon(self):
+        return iter([])
+    
+    def has_deletions(self):
+        return False
+    
+    def is_deleted(self, docnum):
+        return False
+    
+    def stored_fields(self, docnum):
+        raise KeyError("No document number %s" % docnum)
+    
+    def all_stored_fields(self):
+        return iter([])
+    
+    def doc_count_all(self):
+        return 0
+    
+    def doc_count(self):
+        return 0
+    
+    def doc_frequency(self, fieldname, text):
+        return 0
+    
+    def frequency(self, fieldname, text):
+        return 0
+    
+    def field_length(self, fieldname):
+        return 0
+
+    def doc_field_length(self, docnum, fieldname, default=0):
+        return default
+
+    def doc_field_lengths(self, docnum):
+        raise ValueError
+
+    def max_field_length(self, fieldname, default=0):
+        return 0
+
+    def postings(self, fieldname, text, exclude_docs=None):
+        raise TermNotFound("%s:%r" % (fieldname, text))
+
+    def has_vector(self, docnum, fieldname):
+        return False
+
+    def vector(self, docnum, fieldname):
+        raise KeyError("No document number %s" % docnum)
+
+    def most_frequent_terms(self, fieldname, number=5, prefix=''):
+        return iter([])
+
+    def most_distinctive_terms(self, fieldname, number=5, prefix=None):
+        return iter([])
 
 
 # Multisegment reader class

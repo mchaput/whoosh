@@ -339,7 +339,12 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
         self.assertTrue(all_false(d["done"] for d in r))
 
-
+    def test_missing_field(self):
+        schema = fields.Schema()
+        ix = RamStorage().create_index(schema)
+        
+        s = ix.searcher()
+        self.assertRaises(KeyError, s.document_numbers, id=u"test")
 
 
 
