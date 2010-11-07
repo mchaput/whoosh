@@ -279,7 +279,10 @@ class FileIndex(Index):
             info = self._read_toc()
             
             from whoosh.filedb.filereading import SegmentReader
-            if len(info.segments) == 1:
+            if len(info.segments) == 0:
+                from whoosh.reading import EmptyReader
+                return EmptyReader(info.schema)
+            elif len(info.segments) == 1:
                 return SegmentReader(self.storage, info.schema,
                                      info.segments[0], info.generation)
             else:
