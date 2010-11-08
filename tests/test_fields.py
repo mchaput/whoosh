@@ -339,6 +339,25 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
         self.assertTrue(all_false(d["done"] for d in r))
 
+    def test_boolean2(self):
+        schema = fields.Schema(t=fields.TEXT(stored=True), b=fields.BOOLEAN(stored=True))
+        ix = RamStorage().create_index(schema)
+        writer = ix.writer()
+        writer.add_document(t=u'some kind of text', b=False)
+        writer.add_document(t=u'some other kind of text', b=False)
+        writer.add_document(t=u'some more text', b=False)
+        writer.add_document(t=u'some again', b=True)
+        writer.commit()
+        
+        s = ix.searcher()
+        qf = qparser.QueryParser('b').parse(u'f')
+        qt = qparser.QueryParser('b').parse(u't')
+        r = s.search(qf)
+        self.assertEqual(len(r), 3)
+        
+        self.assertEqual([d["b"] for d in s.search(qt)], [True])
+        self.assertEqual([d["b"] for d in s.search(qf)], [False] * 3)
+        
     def test_missing_field(self):
         schema = fields.Schema()
         ix = RamStorage().create_index(schema)
