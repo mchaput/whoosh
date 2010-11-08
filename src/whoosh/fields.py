@@ -454,7 +454,7 @@ class BOOLEAN(FieldType):
     >>> w.commit()
     """
     
-    strings = (u"t", u"f")
+    strings = (u"f", u"t")
     trues = frozenset((u"t", u"true", u"yes", u"1"))
     falses = frozenset((u"f", u"false", u"no", u"0"))
     
@@ -491,15 +491,12 @@ class BOOLEAN(FieldType):
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
         
-        if qstring in self.falses:
-            text = self.strings[0]
-        elif qstring in self.trues:
-            text = self.strings[1]
-        
-        if text is None:
+        try:
+            text = self.to_text(qstring)
+        except ValueError:
             return query.NullQuery
-        else:
-            return query.Term(fieldname, text, boost=boost)
+        
+        return query.Term(fieldname, text, boost=boost)
     
 
 class STORED(FieldType):
