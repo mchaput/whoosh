@@ -277,8 +277,8 @@ class AsyncWriter(threading.Thread, IndexWriter):
             getattr(writer, method)(*args, **kwargs)
         writer.commit(*self.commitargs, **self.commitkwargs)
     
-    def delete_document(self, docnum):
-        self._record("delete_document", docnum, {})
+    def delete_document(self, *args, **kwargs):
+        self._record("delete_document", args, kwargs)
     
     def add_document(self, *args, **kwargs):
         self._record("add_document", args, kwargs)
