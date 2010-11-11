@@ -292,6 +292,9 @@ class AsyncWriter(threading.Thread, IndexWriter):
     def remove_field(self, *args, **kwargs):
         self._record("remove_field", args, kwargs)
     
+    def delete_by_term(self, *args, **kwargs):
+        self._record("delete_by_term", args, kwargs)
+    
     def commit(self, *args, **kwargs):
         if self.writer:
             self.writer.commit(*args, **kwargs)
