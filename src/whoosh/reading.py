@@ -227,7 +227,7 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def postings(self, fieldname, text, exclude_docs=None):
+    def postings(self, fieldname, text, scorer=None, exclude_docs=None):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
         
@@ -377,7 +377,7 @@ class EmptyReader(IndexReader):
     def max_field_length(self, fieldname, default=0):
         return 0
 
-    def postings(self, fieldname, text, exclude_docs=None):
+    def postings(self, fieldname, text, scorer=None, exclude_docs=None):
         raise TermNotFound("%s:%r" % (fieldname, text))
 
     def has_vector(self, docnum, fieldname):
