@@ -532,7 +532,7 @@ class PrefixPlugin(Plugin):
         
         @classmethod
         def create(cls, parser, match):
-            return cls(match.group(0))
+            return cls(match.group(0)[:-1])
         
 
 class WildcardPlugin(Plugin):

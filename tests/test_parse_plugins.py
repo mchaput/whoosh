@@ -4,6 +4,7 @@ import inspect
 from datetime import datetime
 
 from whoosh import analysis, fields, qparser, query
+from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import dateparse
 from whoosh.support.times import adatetime
 
@@ -200,6 +201,29 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[0][0].__class__, query.DateRange)
         self.assertEqual(q[0][1].__class__, query.DateRange)
         
+    def test_prefix_plugin(self):
+        schema = fields.Schema(id=fields.ID, text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", text=u"alfa")
+        w.add_document(id=u"2", text=u"bravo")
+        w.add_document(id=u"3", text=u"buono")
+        w.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("text", schema=schema)
+        qp.remove_plugin_class(qparser.WildcardPlugin)
+        qp.add_plugin(qparser.PrefixPlugin)
+        
+        q = qp.parse(u"b*")
+        r = s.search(q, limit=None)
+        self.assertEqual(len(r), 2)
+        
+        q = qp.parse(u"br*")
+        r = s.search(q, limit=None)
+        self.assertEqual(len(r), 1)
+
     
 
 if __name__ == '__main__':
