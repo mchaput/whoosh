@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from whoosh import fields
@@ -62,7 +63,7 @@ class TestPool(unittest.TestCase):
         finally:
             pass
             #p.cleanup()
-        
+        self.assertFalse(os.path.exists(p.dir))
 
 
 
