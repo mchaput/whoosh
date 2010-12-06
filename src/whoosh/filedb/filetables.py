@@ -522,7 +522,9 @@ class TermIndexReader(CodedOrderedReader):
             self.names[num] = name
     
     def keycoder(self, key):
-        return pack_ushort(self.fieldmap[key[0]]) + utf8encode(key[1])[0]
+        fieldname, text = key
+        fnum = self.fieldmap.get(fieldname, 65535)
+        return pack_ushort(fnum) + utf8encode(text)[0]
         
     def keydecoder(self, v):
         return (self.names[unpack_ushort(v[:2])[0]], utf8decode(v[2:])[0])
