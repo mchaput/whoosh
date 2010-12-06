@@ -57,6 +57,17 @@ class TestQueryParser(unittest.TestCase):
         qp  = qparser.QueryParser("a")
         q = qp.parse("a AND b OR c AND d OR e AND f")
         self.assertEqual(unicode(q), u"(a:a AND (a:b OR (a:c AND (a:d OR (a:e AND a:f)))))")
+        
+        q = qp.parse("aORb")
+        self.assertEqual(q, query.Term("a", "aORb"))
+        
+        q = qp.parse("aOR b")
+        self.assertEqual(q, query.And([query.Term("a", "aOR"), query.Term("a", "b")]))
+        
+        q = qp.parse("a ORb")
+        self.assertEqual(q, query.And([query.Term("a", "a"), query.Term("a", "ORb")]))
+        
+        self.assertEqual(qp.parse("OR"), query.Term("a", "OR"))
     
     def test_andnot(self):
         qp = qparser.QueryParser("content")
@@ -397,8 +408,9 @@ class TestQueryParser(unittest.TestCase):
                          query.And([query.Term("f", u"daler-rowney"),
                                     query.Term("f", u"pearl"),
                                     query.Term("f", u"bell bronze")]))
-        self.assertEqual(qp.parse(u'22" BX'),
-                         query.And([query.Term("f", u'22"'), query.Term("f", "BX")]))
+        
+        q = qp.parse(u'22" BX')
+        self.assertEqual(q, query.And([query.Term("f", u'22"'), query.Term("f", "BX")]))
         
     def test_empty_ranges(self):
         schema = fields.Schema(name=fields.TEXT, num=fields.NUMERIC,
