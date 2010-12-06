@@ -343,7 +343,8 @@ class SegmentWriter(IndexWriter):
                     _unique_cache[name] = term2docnum
                 
                 # Look up the cached document number for this term
-                delset.add(term2docnum[text])
+                if text in term2docnum:
+                    delset.add(term2docnum[text])
             else:
                 # This is the first time we've seen an update_document with
                 # this field. Mark it by putting None in the cache for this
