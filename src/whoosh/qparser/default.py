@@ -551,7 +551,10 @@ class WildcardPlugin(Plugin):
         return ((WildcardPlugin.Wild, 1), )
     
     class Wild(BasicSyntax):
-        expr = rcompile("[^ \t\r\n*?]*(\\*|\\?)\\S*")
+        # \u055E = Armenian question mark
+        # \u061F = Arabic question mark
+        # \u1367 = Ethiopic question mark
+        expr = rcompile(u"[^ \t\r\n*?\u055E\u061F\u1367]*[*?\u055E\u061F\u1367]\\S*")
         qclass = query.Wildcard
         
         def __repr__(self):
