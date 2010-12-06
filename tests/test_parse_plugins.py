@@ -144,6 +144,19 @@ class TestParserPlugins(unittest.TestCase):
         #self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
         #self.assertEqual(q.enddate, None)
     
+    def test_daterange_empty_field(self):
+        schema = fields.Schema(test=fields.DATETIME)
+        ix = RamStorage().create_index(schema)
+                        
+        writer = ix.writer()
+        writer.add_document(test=None)
+        writer.commit()
+        
+        searcher = ix.searcher()
+        q = query.DateRange("test", datetime.fromtimestamp(0), datetime.today())
+        r = searcher.search(q)
+        self.assertEqual(len(r), 0)
+    
     def test_free_dates(self):
         a = analysis.StandardAnalyzer(stoplist=None)
         schema = fields.Schema(text=fields.TEXT(analyzer=a), date=fields.DATETIME)
