@@ -160,6 +160,17 @@ class FieldType(object):
         
         return None
     
+    def sortable_values(self, ixreader, fieldname):
+        """Returns an iterator of field values for the given field in the given
+        reader that can be used for sorting. The default implementation simply
+        returns all field values.
+        
+        This can be overridden by field types such as NUMERIC where some values
+        in a field are not useful for sorting.
+        """
+        
+        return ixreader.lexicon(fieldname)
+    
 
 class ID(FieldType):
     """Configured field type that indexes the entire value of the field as one
@@ -345,6 +356,12 @@ class NUMERIC(FieldType):
         
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
                                   boost=boost)
+    
+    def sortable_values(self, ixreader, fieldname):
+        # Only return the full-precision values
+        for value in ixreader.lexicon(fieldname):
+            if value[0] != "\x00": break
+            yield value
     
 
 class DATETIME(NUMERIC):

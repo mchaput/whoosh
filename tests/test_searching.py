@@ -620,7 +620,23 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(len(r), 2)
         self.assertEqual(r[0]["a"], "First")
         self.assertEqual(r[1]["a"], "Third")
+    
+    def test_sort_numeric(self):
+        schema = fields.Schema(n=fields.NUMERIC, id=fields.STORED)
+        ix = RamStorage().create_index(schema)
         
+        import random
+        domain = range(100)
+        random.shuffle(domain)
+        w = ix.writer()
+        for num in domain:
+            w.add_document(id=num, n=num)
+        w.commit()
+        
+        s = ix.searcher()
+        r = s.search(query.Every("n"), sortedby="n")
+        self.assertEqual([d["id"] for d in r], range(100))
+    
     def test_multisort(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD(stored=True))
         st = RamStorage()
