@@ -231,7 +231,7 @@ class Singleton(Token):
 
 
 class White(Singleton):
-    expr = rcompile("[ \t\r\n]+")
+    expr = rcompile("\\s+")
     
 
 class ErrorToken(Token):
