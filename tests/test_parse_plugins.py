@@ -48,16 +48,6 @@ class TestParserPlugins(unittest.TestCase):
         q = qp.parse("alfa title:bravo article:charlie caption:delta")
         self.assertEqual(unicode(q), u"(content:alfa AND title:bravo AND title:charlie AND title:delta)")
 
-    def test_minusnot(self):
-        qp = qparser.QueryParser("content")
-        qp.remove_plugin_class(qparser.NotPlugin)
-        qp.add_plugin(qparser.MinusNotPlugin)
-        q = qp.parse("alfa -bravo not charlie")
-        self.assertEqual(len(q), 4)
-        self.assertEqual(q[1].__class__, query.Not)
-        self.assertEqual(q[1].query.text, "bravo")
-        self.assertEqual(q[2].text, "not")
-
     def test_dateparser(self):
         schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
         qp = qparser.QueryParser("text", schema=schema)
@@ -236,8 +226,46 @@ class TestParserPlugins(unittest.TestCase):
         q = qp.parse(u"br*")
         r = s.search(q, limit=None)
         self.assertEqual(len(r), 1)
+        
+    def test_custom_tokens(self):
+        qp = qparser.QueryParser("text")
+        qp.remove_plugin_class(qparser.CompoundsPlugin)
+        qp.remove_plugin_class(qparser.NotPlugin)
+        
+        cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
+        qp.add_plugin(cp)
+        
+        np = qparser.NotPlugin("-")
+        qp.add_plugin(np)
+        
+        q = qp.parse("this | that")
+        self.assertEqual(q.__class__, query.Or)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[0].text, "this")
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[1].text, "that")
+        
+        q = qp.parse("this&!that")
+        self.assertEqual(q.__class__, query.AndNot)
+        self.assertEqual(q.positive.__class__, query.Term)
+        self.assertEqual(q.positive.text, "this")
+        self.assertEqual(q.negative.__class__, query.Term)
+        self.assertEqual(q.negative.text, "that")
+        
+        q = qp.parse("alfa -bravo NOT charlie")
+        self.assertEqual(len(q), 4)
+        self.assertEqual(q[1].__class__, query.Not)
+        self.assertEqual(q[1].query.text, "bravo")
+        self.assertEqual(q[2].text, "NOT")
 
-    
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
+
+
+
+
+
