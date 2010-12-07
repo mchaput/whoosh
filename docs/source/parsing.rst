@@ -50,10 +50,9 @@ To create a :class:`whoosh.qparser.QueryParser` object, pass it the name of the
 .. tip::
 
     You can instantiate a QueryParser object without specifying a schema,
-    however the parser will not process the text of the user query (see
-    :ref:`querying and indexing <index-query>` below). This is useful for
-    debugging, when you want to see how QueryParser will build a query, but
-    don't want to make up a schema just for testing.
+    however the parser will not process the text of the user query. This is
+    useful for debugging, when you want to see how QueryParser will build a
+    query, but don't want to make up a schema just for testing.
 
 Once you have a QueryParser object, you can call ``parse()`` on it to parse a
 query string into a query object::
@@ -193,14 +192,6 @@ words for the AND, OR, ANDNOT, ANDMAYBE, and NOT functions::
     cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
     parser.replace_plugin(cp)
     parser.replace_plugin(qparser.NotPlugin("!"))
-
-
-.. _index-query:
-
-The relationship between indexing and querying
-==============================================
-
-TBD.
 
 
 Advanced customization
