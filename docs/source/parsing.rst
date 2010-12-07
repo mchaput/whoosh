@@ -8,7 +8,7 @@ Overview
 The job of a query parser is to convert a *query string* submitted by a user
 into *query objects* (objects from the :mod:`whoosh.query` module) which
 
-For example, the user query::
+For example, the user query:
 
 .. code-block:: none
 
@@ -65,8 +65,11 @@ See the :doc:`query language reference <querylang>` for the features and syntax
 of the default parser's query language.
 
 
+Common customizations
+=====================
+
 Searching for any terms instead of all terms by default
-=======================================================
+-------------------------------------------------------
 
 If the user doesn't explicitly specify ``AND`` or ``OR`` clauses::
 
@@ -90,8 +93,8 @@ present for a document to match, i.e.::
                                  group=qparser.OrGroup)
 
 
-Letting the user search multiple fields
-=======================================
+Letting the user search multiple fields by default
+--------------------------------------------------
 
 The default QueryParser configuration takes terms without explicit fields and
 assigns them to the default field you specified when you created the object, so
@@ -131,6 +134,67 @@ as:
     (title:three OR content:three) (title:blind OR content:blind) (title:mice OR content:mice)
 
 
+Simplifying the query language
+------------------------------
+
+Once you have a parser::
+
+    parser = qparser.QueryParser("content", schema=myschema)
+    
+you can remove features from it using the
+:meth:`~whoosh.qparser.QueryParser.remove_plugin_class` method.
+
+For example, to remove the ability of the user to specify fields to search::
+
+    parser.remove_plugin_class(qparser.FieldsPlugin)
+    
+To remove the ability to search for wildcards, which can be harmful to query
+performance::
+
+    parser.remove_plugin_class(qparser.WildcardPlugin)
+    
+See :doc:`/api/qparser` for information about the plugins included with .
+
+
+Changing the AND, OR, ANDNOT, ANDMAYBE, and NOT tokens
+------------------------------------------------------
+
+The default parser uses English keywords for the AND, OR, ANDNOT, ANDMAYBE,
+and NOT functions::
+
+    parser = qparser.QueryParser("content", schema=myschema)
+
+You can replace the default ``CompoundsPlugin`` and ``NotPlugin`` objects to
+replace the default English tokens with your own regular expressions.
+
+The :class:`whoosh.qparser.CompoundsPlugin` implements the ability to use AND,
+OR, ANDNOT, and ANDMAYBE clauses in queries. You can instantiate a new
+``CompoundsPlugin`` and use the ``And``, ``Or``, ``AndNot``, and ``AndMaybe``
+keyword arguments to change the token patterns::
+
+    # Use Spanish equivalents instead of AND and OR
+    cp = qparser.CompoundsPlugin(And=" Y ", Or=" O ")
+    parser.replace_plugin(cp)
+    
+The :class:`whoosh.qparser.NotPlugin` implements the ability to logically NOT
+subqueries. You can instantiate a new ``NotPlugin`` object with a different
+token::
+
+    np = qparser.NotPlugin("NO ")
+    parser.replace_plugin(np)
+
+The arguments can be pattern strings or precompiled regular expression objects.
+
+For example, to change the default parser to use typographic symbols instead of
+words for the AND, OR, ANDNOT, ANDMAYBE, and NOT functions::
+
+    parser = qparser.QueryParser("content", schema=myschema)
+    # These are regular expressions, so we have to escape the vertical bar
+    cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
+    parser.replace_plugin(cp)
+    parser.replace_plugin(qparser.NotPlugin("!"))
+
+
 .. _index-query:
 
 The relationship between indexing and querying
@@ -139,7 +203,7 @@ The relationship between indexing and querying
 TBD.
 
 
-Customizing the parser
+Advanced customization
 ======================
 
 QueryParser arguments
@@ -174,7 +238,16 @@ termclass
 Configuring plugins
 -------------------
 
-TBD.
+The query parser's functionality is provided by a set of plugins. You can
+remove plugins to remove functionality, add plugins to add functionality, or
+replace default plugins with re-configured or rewritten versions.
+
+The :meth:`whoosh.qparser.QueryParser.add_plugin`,
+:meth:`whoosh.qparser.QueryParser.remove_plugin_class`, and
+:meth:`whoosh.qparser.QueryParser.replace_plugin` methods let you manipulate
+the plugins in a QueryParser object.
+
+See :doc:`/api/qparser` for information about the available plugins.
 
 
 

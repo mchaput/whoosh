@@ -36,7 +36,6 @@ Plug-ins
 .. autoclass:: GroupPlugin
 .. autoclass:: BoostPlugin
 .. autoclass:: NotPlugin
-.. autoclass:: MinusNotPlugin
 .. autoclass:: PlusMinusPlugin
 .. autoclass:: MultifieldPlugin
 .. autoclass:: DisMaxPlugin
