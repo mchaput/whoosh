@@ -353,6 +353,8 @@ class Plugin(object):
 class RangePlugin(Plugin):
     """Adds the ability to specify term ranges.
     
+    This plugin has no configuration.
+    
     This plugin is included in the default parser configuration.
     """
     
@@ -450,6 +452,8 @@ class RangePlugin(Plugin):
 class PhrasePlugin(Plugin):
     """Adds the ability to specify phrase queries inside double quotes.
     
+    This plugin has no configuration.
+    
     This plugin is included in the default parser configuration.
     """
     
@@ -499,6 +503,8 @@ class SingleQuotesPlugin(Plugin):
     """Adds the ability to specify single "terms" containing spaces by
     enclosing them in single quotes.
     
+    This plugin has no configuration.
+    
     This plugin is included in the default parser configuration.
     """
      
@@ -506,7 +512,7 @@ class SingleQuotesPlugin(Plugin):
         return ((SingleQuotesPlugin.SingleQuotes, 0), )
     
     class SingleQuotes(Token):
-        expr = rcompile(r"'([^']*?)'(?=\s|\]|[)}]|$)")
+        expr = rcompile(r"'(.*?)'(?=\s|\]|[)}]|$)")
         
         @classmethod
         def create(cls, parser, match):
@@ -699,10 +705,9 @@ class CompoundsPlugin(Plugin):
     ``Or``, ``AndNot``, and/or ``AndMaybe`` keywords to the class initializer::
     
         qp = qparser.QueryParser("content")
-        qp.remove_plugin_class(qparser.CompoundsPlugin)
         
         cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
-        qp.add_plugin(cp)
+        qp.replace_plugin(cp)
     
     This plugin is included in the default parser configuration.
     """
@@ -849,13 +854,12 @@ class NotPlugin(Plugin):
     initializer::
     
         qp = qparser.QueryParser("content")
-        qp.remove_plugin_class(qparser.NotPlugin)
         
-        # Allow a - as a not token
-        qp.add_plugin(qparser.NotPlugin("(^|(?<= ))-"))
+        # Use - as the not token
+        qp.replace_plugin(qparser.NotPlugin("(^|(?<= ))-"))
         
-        # Allow a ! as a not token
-        qp.add_plugin(qparser.NotPlugin("(^|(?<= ))!"))
+        # Use ! as the not token
+        qp.replace_plugin(qparser.NotPlugin("(^|(?<= ))!"))
     
     This plugin is included in the default parser configuration.
     """
@@ -1107,6 +1111,19 @@ class QueryParser(object):
         """
         
         self.plugins = [p for p in self.plugins if not isinstance(p, cls)]
+    
+    def replace_plugin(self, plugin):
+        """Removes any plugins of the class of the given plugin and then adds
+        it. This is a convenience method to keep from having to call
+        ``remove_plugin_class`` followed by ``add_plugin`` each time you want
+        to reconfigure a default plugin.
+        
+        >>> qp = qparser.QueryParser("content")
+        >>> qp.replace_plugin(qparser.NotPlugin("(^| )-"))
+        """
+        
+        self.remove_plugin_class(plugin.__class__)
+        self.add_plugin(plugin)
     
     def get_plugin(self, cls, derived=True):
         for plugin in self.plugins:
