@@ -498,17 +498,32 @@ class TestQueryParser(unittest.TestCase):
         q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
         self.assertEqual(unicode(q), u"(a:a OR ((a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
         
-#    def test_math(self):
-#        tk = analysis.RegexTokenizer(r"([A-Za-z_\\]+)|(-?[0-9.]+)|([^A-Za-z_0-9. \t\r\n]+)")
-#        ana = tk | analysis.LowercaseFilter()
-#        print [t.text for t in ana(u"x2+6x+7")]
-#        
-#        schema = fields.Schema(a=fields.TEXT(analyzer=ana))
-#        parser = qparser.QueryParser("a", schema=schema)
-#        print parser.parse(u"+")
-#        print parser.parse(u"5+4")
-
+    def test_ngrams(self):
+        schema = fields.Schema(grams=fields.NGRAM)
+        parser = qparser.QueryParser('grams', schema=schema)
+        parser.remove_plugin_class(qparser.WhitespacePlugin)
         
+        q = parser.parse(u"Hello There")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 8)
+        self.assertEqual([sq.text for sq in q], ["hell", "ello", "llo ", "lo t", "o th", " the", "ther", "here"])
+        
+    def test_ngramwords(self):
+        schema = fields.Schema(grams=fields.NGRAMWORDS(queryor=True))
+        parser = qparser.QueryParser('grams', schema=schema)
+        
+        q = parser.parse(u"Hello Tom")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(q[0].__class__, query.Or)
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[0][0].text, "hell")
+        self.assertEqual(q[0][1].text, "ello")
+        self.assertEqual(q[1].text, "tom")
+
+
+
+
+
 
 
 if __name__ == '__main__':
