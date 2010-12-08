@@ -598,10 +598,12 @@ class NGRAM(FieldType):
     "hel", "hell", "ell", "ello", "llo". This field chops the entire 
     """
     
-    __inittypes__ = dict(minsize=int, maxsize=int, stored=bool, field_boost=float)
+    __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
+                         field_boost=float, queryor=bool)
     scorable = True
     
-    def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0):
+    def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
+                 queryor=False):
         """
         :param minsize: The minimum length of the N-grams.
         :param maxsize: The maximum length of the N-grams.
@@ -609,24 +611,40 @@ class NGRAM(FieldType):
             document. Since this field type generally contains a lot of text,
             you should avoid storing it with the document unless you need to,
             for example to allow fast excerpts in the search results.
+        :param queryor: if True, combine the N-grams with an Or query. The
+            default is to combine N-grams with an And query.
         """
         
         self.format = Frequency(analyzer=NgramAnalyzer(minsize, maxsize),
                                 field_boost=field_boost)
         self.stored = stored
+        self.queryor = queryor
+        
+    def self_parsing(self):
+        return True
+    
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        from whoosh import query
+        
+        terms = [query.Term(fieldname, g)
+                 for g in self.process_text(qstring, mode='query')]
+        cls = query.Or if self.queryor else query.And
+        
+        return cls(terms, boost=boost)
 
 
-class NGRAMWORDS(FieldType):
+class NGRAMWORDS(NGRAM):
     """Configured field that breaks text into words, lowercases, and then chops
     the words into N-grams.
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
-                         field_boost=float, tokenizer=Tokenizer)
+                         field_boost=float, tokenizer=Tokenizer, at=str,
+                         queryor=bool)
     scorable = True
     
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
-                 tokenizer=None, at=None):
+                 tokenizer=None, at=None, queryor=False):
         """
         :param minsize: The minimum length of the N-grams.
         :param maxsize: The maximum length of the N-grams.
@@ -636,11 +654,17 @@ class NGRAMWORDS(FieldType):
             for example to allow fast excerpts in the search results.
         :param tokenizer: an instance of :class:`whoosh.analysis.Tokenizer`
             used to break the text into words.
+        :param at: if 'start', only takes N-grams from the start of the word.
+            If 'end', only takes N-grams from the end. Otherwise the default
+            is to take all N-grams from each word.
+        :param queryor: if True, combine the N-grams with an Or query. The
+            default is to combine N-grams with an And query.
         """
         
         analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
         self.format = Frequency(analyzer=analyzer, field_boost=field_boost)
         self.stored = stored
+        self.queryor = queryor
 
 
 # Schema class

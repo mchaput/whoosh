@@ -512,11 +512,11 @@ class SingleQuotesPlugin(Plugin):
         return ((SingleQuotesPlugin.SingleQuotes, 0), )
     
     class SingleQuotes(Token):
-        expr = rcompile(r"'(.*?)'(?=\s|\]|[)}]|$)")
+        expr = rcompile(r"(^|(?<=\W))'(.*?)'(?=\s|\]|[)}]|$)")
         
         @classmethod
         def create(cls, parser, match):
-            return Word(match.group(1))
+            return Word(match.group(2))
 
 
 class PrefixPlugin(Plugin):
@@ -581,19 +581,21 @@ class WhitespacePlugin(Plugin):
     This plugin is always automatically included by the QueryParser.
     """
     
+    def __init__(self, tokenclass=White):
+        self.tokenclass = tokenclass
+    
     def tokens(self, parser):
-        return ((White, 100), )
+        return ((self.tokenclass, 100), )
     
     def filters(self, parser):
-        return ((WhitespacePlugin.do_whitespace, 500), )
+        return ((self.do_whitespace, 500), )
     
-    @staticmethod
-    def do_whitespace(parser, stream):
+    def do_whitespace(self, parser, stream):
         newstream = stream.empty()
         for t in stream:
             if isinstance(t, Group):
-                newstream.append(WhitespacePlugin.do_whitespace(parser, t))
-            elif not isinstance(t, White):
+                newstream.append(self.do_whitespace(parser, t))
+            elif not isinstance(t, self.tokenclass):
                 newstream.append(t)
         return newstream
 
