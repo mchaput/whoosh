@@ -116,6 +116,19 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
+    def all_doc_ids(self):
+        """Returns an iterator of all (undeleted) document IDs in the reader.
+        """
+        
+        # This default implementation works for backends like filedb that use
+        # a continuous 0-N range of numbers to address documents, but will need
+        # to be overridden if a backend, e.g., looks up documents using
+        # persistent ID strings.
+        
+        is_deleted = self.is_deleted
+        return (docnum for docnum in xrange(self.doc_count_all())
+                if not is_deleted(docnum))
+        
     def is_deleted(self, docnum):
         """Returns True if the given document number is marked deleted.
         """
