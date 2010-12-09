@@ -117,6 +117,99 @@ predefined fields, you can leave off the brackets (e.g. fieldname=TEXT instead
 of fieldname=TEXT()). Whoosh will instantiate the class for you.
 
 
+Modifying the schema after indexing
+===================================
+
+After you have created an index, you can add or remove fields to the schema
+using the ``add_field()`` and ``remove_field()`` methods. These methods are
+on the ``Writer`` object::
+
+    writer = ix.writer()
+    writer.add_field("fieldname", fields.TEXT(stored=True))
+    writer.remove_field("content")
+    writer.commit()
+
+(If you're going to modify the schema _and_ add documents using the same
+writer, you must call ``add_field()`` and/or ``remove_field`` _before_ you
+add any documents.)
+
+These methods are also on the ``Index`` object as a convenience, but when you
+call them on an ``Index``, the Index object simply creates the writer, calls
+the corresponding method on it, and commits, so if you want to add or remove
+more than one field, it's much more efficient to create the writer yourself::
+
+    ix.add_field("fieldname", fields.KEYWORD)
+    
+In the ``filedb`` backend, removing a field simply removes that field from the
+_schema_ -- the index will not get smaller, data about that field will remain
+in the index until you optimize. Optimizing will compact the index, removing
+references to the deleted field as it goes::
+
+    writer = ix.writer()
+    writer.add_field("uuid", fields.ID(stored=True))
+    writer.remove_field("path")
+    writer.commit(optimize=True)
+
+Because data is stored on disk with the field name, *do not* add a new field with
+the same name as a deleted field without optimizing the index in between::
+
+    writer = ix.writer()
+    writer.delete_field("path")
+    # Don't do this!!!
+    writer.add_field("path", fields.KEYWORD)
+    
+(A future version of Whoosh may automatically prevent this error.)
+
+
+Dynamic fields
+==============
+
+Dynamic fields let you associate a field type with any field name that matches
+a given "glob" (a name pattern containing ``*``, ``?``, and/or ``[abc]``
+wildcards).
+
+You can add dynamic fields to a new schema using the add() method with the
+``glob`` keyword set to True::
+
+    schema = fields.Schema(...)
+    # Any name ending in "_d" will be treated as a stored
+    # DATETIME field
+    schema.add("*_d", fields.DATETIME(stored=True), glob=True)
+
+To set up a dynamic field on an existing index, use the same
+``IndexWriter.add_field`` method as if you were adding a regular field, but
+with the ``glob`` keyword argument set to ``True``::
+
+    writer = ix.writer()
+    writer.add_field("*_d", fields.DATETIME(stored=True), glob=True)
+    writer.commit()
+
+To remove a dynamic field, use the ``IndexWriter.remove_field()`` method with
+the glob as the name::
+
+    writer = ix.writer()
+    writer.remove_field("*_d")
+    writer.commit()
+
+For example, to allow documents to contain any field name that ends in ``_id``
+and associate it with the ID field type::
+
+    schema = fields.Schema(path=fields.ID)
+    schema.add("*_id", fields.ID, glob=True)
+
+    ix = index.create_in("myindex", schema)
+
+    w = ix.writer()
+    w.add_document(path=u"/a", test_id=u"alfa")
+    w.add_document(path=u"/b", class_id=u"MyClass")
+    # ...
+    w.commit()
+
+    s = ix.searcher()
+    p = qparser.QueryParser("path", schema=schema)
+    s.search(p.parse(u"test_id:alfa"))
+
+
 Advanced schema setup
 =====================
 
@@ -264,47 +357,5 @@ by default Whoosh does not make use of term vectors at all, but they are
 available to expert users who want to implement their own field types.
 
 
-Modifying the schema after indexing
-===================================
-
-After you have created an index, you can add or remove fields to the schema
-using the ``add_field()`` and ``remove_field()`` methods. These methods are
-on the ``Writer`` object::
-
-    writer = ix.writer()
-    writer.add_field("fieldname", fields.TEXT(stored=True))
-    writer.remove_field("content")
-    writer.commit()
-
-(If you're going to modify the schema _and_ add documents using the same
-writer, you must call ``add_field()`` and/or ``remove_field`` _before_ you
-add any documents.)
-
-These methods are also on the ``Index`` object as a convenience, but when you
-call them on an ``Index``, the Index object simply creates the writer, calls
-the corresponding method on it, and commits, so if you want to add or remove
-more than one field, it's much more efficient to create the writer yourself::
-
-    ix.add_field("fieldname", fields.KEYWORD)
-    
-In the ``filedb`` backend, removing a field simply removes that field from the
-_schema_ -- the index will not get smaller, data about that field will remain
-in the index until you optimize. Optimizing will compact the index, removing
-references to the deleted field as it goes::
-
-    writer = ix.writer()
-    writer.add_field("uuid", fields.ID(stored=True))
-    writer.remove_field("path")
-    writer.commit(optimize=True)
-
-Because data is stored on disk with the field name, *do not* add a new field with
-the same name as a deleted field without optimizing the index in between::
-
-    writer = ix.writer()
-    writer.delete_field("path")
-    # Don't do this!!!
-    writer.add_field("path", fields.KEYWORD)
-    
-(A future version of Whoosh may automatically prevent this error.)
 
 
