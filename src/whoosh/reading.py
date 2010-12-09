@@ -351,7 +351,7 @@ class EmptyReader(IndexReader):
     def iter_prefix(self, fieldname):
         return iter([])
     
-    def lexicon(self):
+    def lexicon(self, fieldname):
         return iter([])
     
     def has_deletions(self):
