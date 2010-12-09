@@ -657,10 +657,16 @@ class StoredFieldWriter(object):
         f = self.dbfile
         
         name_map = self.name_map
+        
         vlist = [None] * len(name_map)
         for k, v in values.iteritems():
-            vlist[name_map[k]] = v
-        
+            if k in name_map:
+                vlist[name_map[k]] = v
+            else:
+                # For dynamic stored fields, put them at the end of the list
+                # as a tuple of (fieldname, value)
+                vlist.append((k, v))
+                
         v = dumps(vlist, -1)
         self.length += 1
         self.directory += pack_stored_pointer(f.tell(), len(v))
@@ -710,7 +716,17 @@ class StoredFieldReader(object):
         vlist = loads(dbfile.map[position:position+length])
         
         names = self.names
-        return dict((names[i], v) for i, v in enumerate(vlist) if v is not None)
+        # Recreate a dictionary by putting the field names and values back
+        # together by position. We can't just use dict(zip(...)) because we
+        # want to filter out the None values.
+        values = dict((names[i], vlist[i]) for i in xrange(len(names))
+                      if vlist[i] is not None)
+        
+        # Pull out an extra stored dynamic field values off the end of the list
+        if len(vlist) > len(names):
+            values.update(dict(vlist[len(names):]))
+        
+        return values
 
 
 # Utility functions

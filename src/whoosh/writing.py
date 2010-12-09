@@ -48,24 +48,24 @@ class IndexWriter(object):
         else:
             self.commit()
     
-    def add_field(self, fieldname, fieldspec):
+    def add_field(self, fieldname, fieldtype, **kwargs):
         """Adds a field to the index's schema.
         
         :param fieldname: the name of the field to add.
-        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+        :param fieldtype: an instantiated :class:`whoosh.fields.FieldType`
             object.
         """
         
-        self.schema.add(fieldname, fieldspec)
+        self.schema.add(fieldname, fieldtype, **kwargs)
     
-    def remove_field(self, fieldname):
+    def remove_field(self, fieldname, **kwargs):
         """Removes the named field from the index's schema. Depending on the
         backend implementation, this may or may not actually remove existing
         data for the field from the index. Optimizing the index should always
         clear out existing data for a removed field.
         """
         
-        self.schema.remove(fieldname)
+        self.schema.remove(fieldname, **kwargs)
         
     def searcher(self, **kwargs):
         """Returns a searcher for the existing index.

@@ -120,7 +120,8 @@ def _read_toc(storage, schema, indexname):
     def check_size(name, target):
         sz = stream.read_varint()
         if sz != target:
-            raise IndexError("Index was created on different architecture: saved %s = %s, this computer = %s" % (name, sz, target))
+            raise IndexError("Index was created on different architecture:"
+                             " saved %s = %s, this computer = %s" % (name, sz, target))
 
     check_size("int", _INT_SIZE)
     check_size("long", _LONG_SIZE)

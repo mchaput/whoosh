@@ -847,11 +847,24 @@ class TestSearching(unittest.TestCase):
         r = s.search(q, limit=None)
         self.assertEqual(list(h["text"] for h in r), ["charlie", "echo", "golf"])
 
-
-
-
-
-
+    def test_ngram_phrase(self):
+        schema = fields.Schema(text=fields.NGRAM(minsize=2, maxsize=2, phrase=True), path=fields.ID(stored=True)) 
+        ix = RamStorage().create_index(schema)
+        writer = ix.writer()
+        writer.add_document(text=u'\u9AD8\u6821\u307E\u3067\u306F\u6771\u4EAC\u3067\u3001\u5927\u5B66\u304B\u3089\u306F\u4EAC\u5927\u3067\u3059\u3002', path=u'sample') 
+        writer.commit()
+        
+        s = ix.searcher()
+        p = qparser.QueryParser("text", schema=schema)
+        
+        q = p.parse(u'\u6771\u4EAC\u5927\u5B66')
+        self.assertEqual(len(s.search(q)), 1)
+        
+        q = p.parse(u'"\u6771\u4EAC\u5927\u5B66"')
+        self.assertEqual(len(s.search(q)), 0)
+        
+        q = p.parse(u'"\u306F\u6771\u4EAC\u3067"')
+        self.assertEqual(len(s.search(q)), 1)
 
 
 if __name__ == '__main__':
