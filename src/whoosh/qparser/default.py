@@ -488,10 +488,10 @@ class PhrasePlugin(Plugin):
             fieldname = self.fieldname or parser.fieldname
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
-                if field.self_parsing():
-                    return field.parse_query(fieldname, self.text, boost=self.boost)
-                else:
-                    words = list(field.process_text(self.text, mode="query")) 
+                #if field.self_parsing():
+                #    return field.parse_query(fieldname, self.text, boost=self.boost)
+                #else:
+                words = list(field.process_text(self.text, mode="query")) 
             else:
                 words = self.text.split(" ")
             
@@ -681,7 +681,7 @@ class FieldsPlugin(Plugin):
         return newstream
     
     class Field(Token):
-        expr = rcompile(u"(\w[\w\d]*):", re.UNICODE)
+        expr = rcompile(u"(\w[\w\d]*):")
         
         def __init__(self, fieldname):
             self.fieldname = fieldname

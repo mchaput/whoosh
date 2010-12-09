@@ -395,90 +395,160 @@ class Searcher(object):
         return set(query.docs(self))
 
 
-def collect(searcher, matcher, limit=10, usequality=True, replace=True):
+def pull_results(matcher, usequality=True, replace=True):
+    """Returns an enhanced generator that yields (docid, quality) tuples.
+    
+    You can use the send() method to tell the generator a new minimum
+    quality for results. All subsequent yielded documents (if any) will have
+    a higher quality than the send minimum.
+    
+    This is a low-level function. It is meant to be used by a higher-level
+    function that will collect the highest-scoring results into a hit list.
+    
+    >>> searcher = myindex.searcher()
+    >>> matcher = query.Term("text", "new").matcher(searcher)
+    >>> iterator = pull_results(matcher)
+    >>> # In this example we use the quality of each result as the new minimum,
+    >>> # so that we only ever get results of higher quality than the previous
+    >>> pquality = None
+    >>> while True:
+    ...   id, pquality = iter.send(pquality)
+    ...   print "%04d %f %f" % (id, pquality)
+    
+    Note that while the iterator yields values, you can use the methods of the
+    matcher to get the same or additional information at, each step, for
+    example ``matcher.score()``.
+    
+    :param matcher: the :class:`whoosh.matching.Matcher` representing the query.
+    :param usequality: whether to use block quality optimizations to speed up
+        searching.
+    :param replace: whether to use matcher replacement optimizations.
     """
     
-    :param matcher: the :class:`whoosh.matching.Matcher` to use.
+    # Can't use quality optimizations if the matcher doesn't support them
+    usequality = usequality and matcher.supports_quality()
+    minquality = -1
+    
+    # A flag to indicate whether we should check block quality at the start
+    # of the next loop
+    checkquality = True
+    
+    while matcher.is_active():
+        # If we're using quality optimizations, and the checkquality flag is
+        # true, try to skip ahead to the next block with the minimum required
+        # quality
+        if usequality and checkquality and minquality != -1:
+            matcher.skip_to_quality(minquality)
+            # Skipping ahead might have moved the matcher to the end of the
+            # posting list
+            if not matcher.is_active(): break
+        
+        # The current document ID 
+        id = matcher.id()
+        
+        # If we're using quality optimizations, check whether the current
+        # posting has higher quality than the minimum before yielding it.
+        if usequality:
+            postingquality = matcher.quality()
+            if postingquality > minquality:
+                # Yield this result and get the new minimum quality from the
+                # caller. The new minimum might be None (that's what you get
+                # if the caller used next() instead of send()), in which case
+                # ignore it
+                newmin = yield (id, postingquality)
+                if newmin is not None:
+                    minquality = newmin
+        else:
+            yield (id, None)
+        
+        # Move to the next document. This method returns True if the matcher
+        # has entered a new block, so we should check block quality again.
+        checkquality = matcher.next()
+        
+        # Ask the matcher to replace itself with a more efficient version if
+        # possible
+        if replace: matcher = matcher.replace()
+        
+
+def collect(searcher, matcher, limit=10, usequality=True, replace=True): 
+    """
+    
+    Returns a tuple of (sorted_scores, sorted_docids, docset), where docset
+    is None unless the ``limit`` is None.
+    
+    :param searcher: The :class:`Searcher` object.
+    :param matcher: the :class:`whoosh.matching.Matcher` representing the query.
     :param limit: the number of top results to calculate. For example, if
         ``limit=10``, only return the top 10 scoring documents.
     :param usequality: whether to use block quality optimizations to speed up
-        results. This should usually be left on.
-    :param replace: whether to use matcher replacement optimizations to speed
-        up results. This should usually be left on.
+        searching.
+    :param replace: whether to use matcher replacement optimizations.
     """
     
+    # Theoretically, a set of matching document IDs. This is only calculated
+    # if limit is None. Otherwise, it's left as None and will be computed later
+    # if the user asks for it.
     docs = None
+    
+    usefinal = searcher.weighting.use_final
+    if usefinal:
+        final = searcher.weighting.final
+        # Quality optimizations are not compatible with final() scoring
+        usequality = False
+    
+    # Define a utility function to get the current score and apply the final()
+    # method if necessary
+    def getscore():
+        s = matcher.score()
+        if usefinal:
+            s = final(searcher, id, s)
+        return s
+    
     if limit is None:
         # No limit? We have to score everything? Short circuit here and do it
-        # very simply
-        
+        # simply
         h = []
         docs = set()
         while matcher.is_active():
             id = matcher.id()
-            h.append((matcher.score(), id))
+            h.append((getscore(), id))
             docs.add(id)
+            
             if replace:
                 matcher = matcher.replace()
                 if not matcher.is_active():
                     break
+            
             matcher.next()
+    
     else:
         # Heap of (score, docnum, postingquality) tuples
         h = []
         
-        use_final = searcher.weighting.use_final
-        if use_final:
-            final = searcher.weighting.final
+        # Iterator of results
+        iterator = pull_results(matcher, usequality, replace)
+        minquality = None
         
-        # Can't use quality optimizations if the matcher doesn't support them
-        usequality = usequality and matcher.supports_quality() and not use_final
-        
-        # This flag indicates for each iteration of the loop whether to check
-        # block quality.
-        checkquality = True
-        postingquality = 0
-        
-        while matcher.is_active():
-            # The lowest scoring document in the heap
-            if h: lowest = h[0]
-            
-            # If this is the first iteration OR the last matcher.next()
-            # returned True (indicating a possible quality change), and if the
-            # heap is full, try skipping to a higher quality block
-            if usequality and checkquality and len(h) == limit:
-                matcher.skip_to_quality(lowest[2])
-            if not matcher.is_active(): break
-            
-            # Document number and quality of the current document
-            id = matcher.id()
-            if usequality:
-                postingquality = matcher.quality()
-            
-            if len(h) < limit:
-                # The heap isn't full, so just add this document
-                s = matcher.score()
-                if use_final:
-                    s = final(searcher, id, s)
-                heappush(h, (s, id, postingquality))
+        try:
+            while True:
+                id, quality = iterator.send(minquality)
                 
-            elif not usequality or postingquality > lowest[2]:
-                # The heap is full, but the posting quality indicates this
-                # document is good enough to make the top N, so calculate its
-                # true score and add it to the heap
-                s = matcher.score()
-                if use_final:
-                    s = final(searcher, id, s)
-                if s > lowest[0]:
-                    heapreplace(h, (s, id, postingquality))
-            
-            # Move to the next document
-            checkquality = matcher.next()
-            
-            # Ask the matcher to replace itself with a more efficient version
-            # if possible
-            if usequality and replace: matcher = matcher.replace()
-    
+                if len(h) < limit:
+                    # The heap isn't full, so just add this document
+                    heappush(h, (getscore(), id, quality))
+                
+                elif not usequality or quality > minquality:
+                    # The heap is full, but the posting quality indicates this
+                    # document is good enough to make the top N, so calculate
+                    # its true score and add it to the heap
+                    s = getscore()
+                    if s > h[0][0]:
+                        heapreplace(h, (s, id, quality))
+                        minquality = h[0][2]
+        
+        except StopIteration:
+            pass
+
     # Turn the heap into a sorted list by sorting by score first (subtract from
     # 0 to put highest scores first) and then by document number (to enforce
     # a consistent ordering of documents with equal score)

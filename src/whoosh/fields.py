@@ -17,7 +17,7 @@
 """ Contains functions and classes related to fields.
 """
 
-import datetime, re, struct
+import datetime, fnmatch, re, struct
 from decimal import Decimal
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
@@ -599,11 +599,11 @@ class NGRAM(FieldType):
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
-                         field_boost=float, queryor=bool)
+                         field_boost=float, queryor=bool, phrase=bool)
     scorable = True
     
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
-                 queryor=False):
+                 queryor=False, phrase=False):
         """
         :param minsize: The minimum length of the N-grams.
         :param maxsize: The maximum length of the N-grams.
@@ -613,10 +613,16 @@ class NGRAM(FieldType):
             for example to allow fast excerpts in the search results.
         :param queryor: if True, combine the N-grams with an Or query. The
             default is to combine N-grams with an And query.
+        :param phrase: store positions on the N-grams to allow exact phrase
+            searching. The default is off.
         """
         
-        self.format = Frequency(analyzer=NgramAnalyzer(minsize, maxsize),
-                                field_boost=field_boost)
+        formatclass = Frequency
+        if phrase:
+            formatclass = Positions
+        
+        self.format = formatclass(analyzer=NgramAnalyzer(minsize, maxsize),
+                                  field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
         
@@ -692,6 +698,7 @@ class Schema(object):
         """
         
         self._fields = {}
+        self._dyn_fields = {}
         
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
@@ -701,16 +708,14 @@ class Schema(object):
         deep copied, so they are shared between schema copies.
         """
         
-        s = self.__class__()
-        s._fields = self._fields.copy()
-        return s
+        return self.__class__(**self._fields)
     
     def __eq__(self, other):
-        return (isinstance(other, Schema)
-                and self._fields == other._fields)
+        return (other.__class__ is self.__class__
+                and self.items() == other.items())
     
     def __repr__(self):
-        return "<Schema: %s>" % repr(self._fields.keys())
+        return "<%s: %r>" % (self.__class__, self.names())
     
     def __iter__(self):
         """Returns the field objects in this schema.
@@ -722,7 +727,14 @@ class Schema(object):
         """Returns the field associated with the given field name.
         """
         
-        return self._fields[name]
+        if name in self._fields:
+            return self._fields[name]
+        
+        for expr, fieldtype in self._dyn_fields.itervalues():
+            if expr.match(name):
+                return fieldtype
+        
+        raise KeyError("No field named %r" % name)
         
     def __len__(self):
         """Returns the number of fields in this schema.
@@ -734,7 +746,13 @@ class Schema(object):
         """Returns True if a field by the given name is in this schema.
         """
         
-        return fieldname in self._fields
+        # Defined in terms of __getitem__ so that there's only one method to
+        # override to provide dynamic fields
+        try:
+            field = self[fieldname]
+            return field is not None
+        except KeyError:
+            return False
     
     def items(self):
         """Returns a list of ("fieldname", field_object) pairs for the fields
@@ -752,9 +770,8 @@ class Schema(object):
         for field in self:
             field.clean()
     
-    def add(self, name, fieldtype):
-        """Adds a field to this schema. This is a low-level method; use keyword
-        arguments to the Schema constructor to create the fields instead.
+    def add(self, name, fieldtype, glob=False):
+        """Adds a field to this schema.
         
         :param name: The name of the field.
         :param fieldtype: An instantiated fields.FieldType object, or a
@@ -764,13 +781,16 @@ class Schema(object):
             instantiate it with the default constructor.
         """
         
+        # Check field name
         if name.startswith("_"):
             raise FieldConfigurationError("Field names cannot start with an underscore")
         if " " in name:
             raise FieldConfigurationError("Field names cannot contain spaces")
-        elif name in self._fields:
-            raise FieldConfigurationError("Schema already has a field named %s" % name)
+        if name in self._fields or (glob and name in self._dyn_fields):
+            raise FieldConfigurationError("Schema already has a field %r" % name)
         
+        # If the user passed a type rather than an instantiated field object,
+        # instantiate it automatically
         if type(fieldtype) is type:
             try:
                 fieldtype = fieldtype()
@@ -778,12 +798,21 @@ class Schema(object):
                 raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
         
         if not isinstance(fieldtype, FieldType):
-            raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
+                raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
         
-        self._fields[name] = fieldtype
+        if glob:
+            expr = re.compile(fnmatch.translate(name))
+            self._dyn_fields[name] = (expr, fieldtype)
+        else:
+            self._fields[name] = fieldtype
         
     def remove(self, fieldname):
-        del self._fields[fieldname]
+        if fieldname in self._fields:
+            del self._fields[fieldname]
+        elif fieldname in self._dyn_fields:
+            del self._dyn_fields[fieldname]
+        else:
+            raise KeyError("No field named %r" % fieldname)
         
     def has_vectored_fields(self):
         """Returns True if any of the fields in this schema store term vectors.
@@ -823,10 +852,6 @@ class Schema(object):
             return field.format.analyzer
         
 
-    
-    
-    
-    
     
     
     
