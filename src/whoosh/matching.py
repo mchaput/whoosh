@@ -17,8 +17,6 @@
 from bisect import bisect_left, bisect_right, insort
 from itertools import izip, repeat
 
-from whoosh.spans import Span
-
 
 """
 This module contains "matcher" classes. Matchers deal with posting lists. The
@@ -191,6 +189,7 @@ class Matcher(object):
         not store positions.
         """
         
+        from whoosh.spans import Span
         if self.supports("characters"):
             return [Span(pos, startchar=startchar, endchar=endchar)
                     for pos, startchar, endchar in self.value_as("characters")]
@@ -307,6 +306,10 @@ class ListMatcher(Matcher):
             return self._values[self._i]
         else:
             return ''
+    
+    def value_as(self, astype):
+        decoder = self._format.decoder(astype)
+        return decoder(self.value())
     
     def supports(self, astype):
         return self.format.supports(astype)
