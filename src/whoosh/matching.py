@@ -15,8 +15,9 @@
 #===============================================================================
 
 from bisect import bisect_left, bisect_right, insort
+from itertools import izip, repeat
 
-from whoosh.util import make_binary_tree
+from whoosh.spans import Span
 
 
 """
@@ -190,7 +191,13 @@ class Matcher(object):
         not store positions.
         """
         
-        raise NotImplementedError("spans not implemented in %s" % self.__class__)
+        if self.supports("characters"):
+            return [Span(pos, startchar=startchar, endchar=endchar)
+                    for pos, startchar, endchar in self.value_as("characters")]
+        elif self.supports("positions"):
+            return [Span(pos) for pos in self.value_as("positions")]
+        else:
+            raise Exception("Field does not support spans")
         
     def skip_to(self, id):
         """Moves this matcher to the first posting with an ID equal to or
@@ -244,19 +251,43 @@ class ListMatcher(Matcher):
     """Synthetic matcher backed by a list of IDs.
     """
     
-    def __init__(self, ids, position=0, weight=1.0):
+    def __init__(self, ids, weights=None, values=None, format=None,
+                 scorer=None, position=0):
+        """
+        :param ids: a list of doc IDs.
+        :param weights: a list of weights corresponding to the list of IDs.
+            If this argument is not supplied, a list of 1.0 values is used.
+        :param values: a list of encoded values corresponding to the list of
+            IDs.
+        :param format: a :class:`whoosh.formats.Format` object representing the
+            format of the field.
+        :param scorer: a :class:`whoosh.scoring.BaseScorer` object for scoring
+            the postings.
+        """
+        
         self._ids = ids
+        self._weights = None
+        self._values = None
         self._i = position
-        self._weight = weight
+        self._format = format
+        self._scorer = scorer
     
     def __repr__(self):
-        return "%s(%r, %d)" % (self.__class__.__name__, self._ids, self._i)
+        return "%s(%r, %r, %r, %d)" % (self.__class__.__name__, self._ids,
+                                       self._weights, self._values, self._i)
     
     def is_active(self):
         return self._i < len(self._ids)
     
     def copy(self):
-        return self.__class__(self._ids[:], self._i, self._weight)
+        return self.__class__(self._ids, self._weights, self._values,
+                              self._format, self._scorer, self._i)
+    
+    def supports_quality(self):
+        return self._scorer is not None
+    
+    def quality(self):
+        return self._scorer.quality(self)
     
     def id(self):
         return self._ids[self._i]
@@ -264,14 +295,36 @@ class ListMatcher(Matcher):
     def all_ids(self):
         return iter(self._ids)
     
+    def all_items(self):
+        values = self._values
+        if values is None:
+            values = repeat('')
+        
+        return izip(self._ids, values)
+    
+    def value(self):
+        if self._values:
+            return self._values[self._i]
+        else:
+            return ''
+    
+    def supports(self, astype):
+        return self.format.supports(astype)
+    
     def next(self):
         self._i += 1
-        
+    
     def weight(self):
-        return self._weight
+        if self._weights:
+            return self._weights[self._i]
+        else:
+            return 1.0
     
     def score(self):
-        return self._weight
+        if self._scorer:
+            return self._scorer.score(self)
+        else:
+            return self.weight()
 
 
 class WrappingMatcher(Matcher):
