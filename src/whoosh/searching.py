@@ -54,7 +54,7 @@ class Searcher(object):
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "scorable", "lexicon", "frequency", "doc_frequency", 
                      "field_length", "doc_field_length", "max_field_length",
-                     "field", "field_names"):
+                     "field", "field_names", "all_doc_ids"):
             setattr(self, name, getattr(self.ixreader, name))
 
         if type(weighting) is type:
