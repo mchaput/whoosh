@@ -1330,7 +1330,7 @@ class Every(Query):
         if exclude_docs:
             s.difference_update(exclude_docs)
         
-        return ListMatcher(sorted(s), weight=self.boost)
+        return ListMatcher(sorted(s), weights=[self.boost] * len(s))
 
             
 class NullQuery(Query):
@@ -1373,7 +1373,8 @@ class ConstantScoreQuery(WrappingQuery):
         if isinstance(m, NullMatcher):
             return m
         else:
-            return ListMatcher(array("I", m.all_ids()), weight=self.score)
+            ids = array("I", m.all_ids())
+            return ListMatcher(ids, weights=[self.score] * len(ids))
         
     def replace(self, oldtext, newtext):
         return self.__class__(self.child.replace(oldtext, newtext), self.score)
