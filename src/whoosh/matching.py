@@ -265,8 +265,8 @@ class ListMatcher(Matcher):
         """
         
         self._ids = ids
-        self._weights = None
-        self._values = None
+        self._weights = weights
+        self._values = values
         self._i = position
         self._format = format
         self._scorer = scorer
@@ -312,7 +312,7 @@ class ListMatcher(Matcher):
         return decoder(self.value())
     
     def supports(self, astype):
-        return self.format.supports(astype)
+        return self._format.supports(astype)
     
     def next(self):
         self._i += 1
