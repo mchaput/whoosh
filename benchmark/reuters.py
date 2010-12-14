@@ -1,4 +1,4 @@
-import gzip, os.path
+import gzip, os.path, uuid
 from optparse import OptionParser
 
 from whoosh import analysis, fields, index, qparser, query
@@ -20,7 +20,7 @@ def do_index(file, indexname, **kwargs):
     w = ix.writer(**kwargs)
     for line in gzip.GzipFile(file, "rb"):
         id, text = line.decode("latin1").split("\t")
-        w.add_document(id=id, text=text, headline=text[:70])
+        w.add_document(id=unicode(uuid.uuid4()), text=text, headline=text[:70])
     print "Spool:", now() - t
     ct = now()
     w.commit()
