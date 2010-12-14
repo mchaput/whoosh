@@ -74,7 +74,8 @@ def read_run(filename, count):
     f.close()
 
 
-def write_postings(schema, termtable, lengths, postwriter, postiter):
+def write_postings(schema, termtable, lengths, postwriter, postiter,
+                   inlinelimit=1):
     # This method pulls postings out of the posting pool (built up as
     # documents are added) and writes them to the posting file. Each time
     # it encounters a posting for a new term, it writes the previous term
@@ -100,7 +101,18 @@ def write_postings(schema, termtable, lengths, postwriter, postiter):
             else:
                 # This is a new term, so finish the postings and add the
                 # term to the term table
-                postcount = postwriter.finish()
+                
+                postcount = postwriter.posttotal
+                # If the number of posts is below a certain threshold,
+                # inline them in the "offset" argument.
+                if postcount <= inlinelimit and postwriter.blockcount < 1:
+                    offset = (tuple(postwriter.blockids),
+                              tuple(postwriter.blockweights),
+                              tuple(postwriter.blockvalues))
+                    postwriter.cancel()
+                else:
+                    postwriter.finish()
+                
                 termtable.add((current_fieldname, current_text),
                               (current_weight, offset, postcount))
 

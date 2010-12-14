@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import analysis, fields
+from whoosh import analysis, fields, reading
 from whoosh.filedb.filestore import RamStorage
 from whoosh.searching import Searcher
 
@@ -189,6 +189,49 @@ class TestReading(unittest.TestCase):
         
         searcher.close()
         ix.close()
+        
+    def test_first_id(self):
+        schema = fields.Schema(path=fields.ID(stored=True))
+        ix = RamStorage().create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(path=u"/a")
+        w.add_document(path=u"/b")
+        w.add_document(path=u"/c")
+        w.commit()
+        
+        r = ix.reader()
+        docid = r.first_id("path", u"/b")
+        self.assertEqual(r.stored_fields(docid), {"path": "/b"})
+        
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(path=u"/a")
+        w.add_document(path=u"/b")
+        w.add_document(path=u"/c")
+        w.commit(merge=False)
+        
+        w = ix.writer()
+        w.add_document(path=u"/d")
+        w.add_document(path=u"/e")
+        w.add_document(path=u"/f")
+        w.commit(merge=False)
+
+        w = ix.writer()
+        w.add_document(path=u"/g")
+        w.add_document(path=u"/h")
+        w.add_document(path=u"/i")
+        w.commit(merge=False)
+
+        r = ix.reader()
+        self.assertEqual(r.__class__, reading.MultiReader)
+        docid = r.first_id("path", u"/e")
+        self.assertEqual(r.stored_fields(docid), {"path": "/e"})
+
+
+
+
+
 
 
 

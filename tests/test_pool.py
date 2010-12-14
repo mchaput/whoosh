@@ -21,6 +21,8 @@ class FakeTermIndex(object):
 class FakePostWriter(object):
     def __init__(self):
         self.l = []
+        self.blockcount = 0
+        self.blockids = self.blockweights = self.blockvalues = []
     
     def start(self, format):
         self.ps = []
@@ -30,6 +32,13 @@ class FakePostWriter(object):
         self.ps.append(args)
     
     def finish(self):
+        return len(self.ps)
+    
+    def cancel(self):
+        pass
+    
+    @property
+    def posttotal(self):
         return len(self.ps)
     
     def __getattr__(self, name):

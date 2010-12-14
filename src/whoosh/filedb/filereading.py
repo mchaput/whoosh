@@ -19,7 +19,7 @@ from threading import Lock
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
-from whoosh.matching import ExcludeMatcher
+from whoosh.matching import ExcludeMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.util import protected
 
@@ -218,6 +218,33 @@ class SegmentReader(IndexReader):
                 return
             yield t
 
+    def first_ids(self, fieldname):
+        self._test_field(fieldname)
+        format = self.format(fieldname)
+        
+        for (fn, t), (totalfreq, offset, postcount) in self.termsindex.items_from((fieldname, '')):
+            if fn != fieldname:
+                break
+            
+            if isinstance(offset, (int, long)):
+                postreader = FilePostingReader(self.postfile, offset, format)
+                id = postreader.id()
+            else:
+                id = offset[0][0]
+            
+            yield (t, id)
+
+    def first_id(self, fieldname, text):
+        self._test_field(fieldname)
+        format = self.format(fieldname)
+        
+        offset = self.termsindex[(fieldname, text)][1]
+        if isinstance(offset, (int, long)):
+            postreader = FilePostingReader(self.postfile, offset, format)
+            return postreader.id()
+        else:
+            return offset[0][0]
+
     def postings(self, fieldname, text, exclude_docs=frozenset(), scorer=None):
         self._test_field(fieldname)
         format = self.format(fieldname)
@@ -231,9 +258,14 @@ class SegmentReader(IndexReader):
         elif self.segment.deleted:
             exclude_docs = self.segment.deleted
 
-        postreader = FilePostingReader(self.postfile, offset, format,
-                                       scorer=scorer, fieldname=fieldname,
-                                       text=text)
+        if isinstance(offset, (int, long)):
+            postreader = FilePostingReader(self.postfile, offset, format,
+                                           scorer=scorer, fieldname=fieldname,
+                                           text=text)
+        else:
+            docids, weights, values = offset
+            postreader = ListMatcher(docids, weights, values, format, scorer)
+        
         if exclude_docs:
             postreader = ExcludeMatcher(postreader, exclude_docs)
             

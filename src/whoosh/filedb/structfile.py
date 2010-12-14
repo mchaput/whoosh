@@ -186,7 +186,7 @@ class StructFile(object):
         """Writes a pickled representation of obj to the wrapped file.
         """
         dump_pickle(obj, self.file, protocol)
-
+        
     def read_pickle(self):
         """Reads a pickled object from the wrapped file.
         """

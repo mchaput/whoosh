@@ -19,7 +19,7 @@ This module contains classes for scoring (and sorting) search results.
 """
 
 from __future__ import division
-from collections import defaultdict
+from array import array
 from math import log, pi, log10
 
 
@@ -465,7 +465,7 @@ class FieldSorter(Sorter):
 
         doccount = ixreader.doc_count_all()
         default = -1 if self.missingfirst else doccount + 1
-        cache = defaultdict(lambda: default)
+        cache = array("I", [default] * doccount)
 
         # For every document containing every term in the field, set
         # its array value to the term's sorted position.

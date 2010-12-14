@@ -189,6 +189,8 @@ class FilePostingWriter(PostingWriter):
         self.blockids.append(id)
         self.blockvalues.append(valuestring)
         self.blockweights.append(weight)
+        self.posttotal += 1
+        
         if dfl:
             self.blocklengths.append(dfl)
         if len(self.blockids) >= self.blocklimit:
@@ -212,6 +214,9 @@ class FilePostingWriter(PostingWriter):
         
         self.inblock = False
         return self.posttotal
+
+    def cancel(self):
+        self.inblock = False
 
     def close(self):
         if hasattr(self, "blockids") and self.blockids:
@@ -296,7 +301,6 @@ class FilePostingWriter(PostingWriter):
         pf.flush()
         blockinfo.write_pointer(pf)
         
-        self.posttotal += postcount
         self._reset_block()
         self.blockcount += 1
 
