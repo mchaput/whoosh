@@ -28,7 +28,7 @@ from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.spans import Span
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE, unpack_long
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, unpack_long, IS_LITTLE
 from whoosh.util import utf8encode, utf8decode, length_to_byte, byte_to_length
 
 
@@ -51,7 +51,7 @@ class BlockInfo(object):
     # 8       H     Length of the compressed IDs, or 0 if IDs are not
     #               compressed
     # 10      H     Length of the compressed weights, or 0 if the weights are
-    #               not compressed
+    #               not compressed, or 1 if the weights are all 1.0.
     # 12      B     Number of posts in this block
     # 13      f     Maximum weight in this block (used for quality)
     # 17      f     Maximum (weight/fieldlength) in this block (for quality)
@@ -235,22 +235,7 @@ class FilePostingWriter(PostingWriter):
         compressed = self.compressed and postcount > 4
         compression = self.compression
 
-        if not stringids and compressed:
-            compressed_ids = compress(ids.tostring(), compression)
-            idslen = len(compressed_ids)
-        else:
-            idslen = 0
-            
-        if compressed:
-            compressed_weights = compress(weights.tostring(), compression)
-            weightslen = len(compressed_weights)
-        else:
-            weightslen = 0
-
-        # TODO: THIS IS NOT CROSS-PLATFORM BECAUSE YOU ARE CONVERTING AN ARRAY
-        # TO/FROM A STRING WITHOUT REGARD TO ENDIAN-NESS!!!
-
-        # Write the blockinfo
+        # Calculate block statistics
         maxid = ids[-1]
         maxweight = max(weights)
         maxwol = 0.0
@@ -259,6 +244,27 @@ class FilePostingWriter(PostingWriter):
             minlength = min(self.blocklengths)
             maxwol = max(w / l for w, l in zip(weights, self.blocklengths))
 
+        # Compress IDs if necessary
+        if not stringids and compressed:
+            if IS_LITTLE:
+                ids.byteswap()
+            compressed_ids = compress(ids.tostring(), compression)
+            idslen = len(compressed_ids)
+        else:
+            idslen = 0
+        
+        # Compress weights if necessary
+        if all(w == 1.0 for w in weights):
+            weightslen = 1
+        if compressed:
+            if IS_LITTLE:
+                weights.byteswap()
+            compressed_weights = compress(weights.tostring(), compression)
+            weightslen = len(compressed_weights)
+        else:
+            weightslen = 0
+
+        # Write the blockinfo
         blockinfo = BlockInfo(nextoffset=0, maxweight=maxweight, maxwol=maxwol,
                               minlength=minlength, postcount=postcount,
                               maxid=maxid, idslen=idslen, weightslen=weightslen)
@@ -274,6 +280,8 @@ class FilePostingWriter(PostingWriter):
             pf.write_array(ids)
             
         # Write the weights
+        if weightslen == 1:
+            pass
         if compressed:
             pf.write(compressed_weights)
         else:
@@ -376,7 +384,11 @@ class FilePostingReader(Matcher):
             raise Exception("Field does not support positions (%r)" % self.fieldname)
 
     def weight(self):
-        return self.weights[self.i]
+        weights = self.weights
+        if weights is None:
+            return 1.0
+        else:
+            return weights[self.i]
     
     def all_ids(self):
         nextoffset = self.baseoffset
@@ -435,6 +447,8 @@ class FilePostingReader(Matcher):
         elif idslen:
             ids = array("I")
             ids.fromstring(decompress(pf.read(idslen)))
+            if IS_LITTLE:
+                ids.byteswap()
             newoffset = offset + idslen
         else:
             ids = pf.read_array("I", postcount)
@@ -443,9 +457,14 @@ class FilePostingReader(Matcher):
         return (ids, newoffset)
 
     def _read_weights(self, offset, postcount, weightslen):
-        if weightslen:
+        if weightslen == 1:
+            weights = None
+            newoffset = offset
+        elif weightslen:
             weights = array("f")
             weights.fromstring(decompress(self.postfile.read(weightslen)))
+            if IS_LITTLE:
+                weights.byteswap()
             newoffset = offset + weightslen
         else:
             weights = self.postfile.get_array(offset, "f", postcount)
