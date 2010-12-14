@@ -475,8 +475,8 @@ class FieldSorter(Sorter):
             source = sorted(source, key=self.key)
 
         for i, word in enumerate(source):
-            docid = ixreader.first_id(fieldname, word)
-            cache[docid] = i
+            for docid in ixreader.postings(fieldname, word).all_ids():
+                cache[docid] = i
 
         self.limit = i
         self._fieldcache = cache
