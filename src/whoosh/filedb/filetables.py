@@ -458,11 +458,6 @@ class CodedOrderedReader(OrderedHashReader):
             yield kd(k)
 
 
-# weight, offset, postcount
-_terminfo_struct0 = Struct("!BIB")
-_terminfo_struct1 = Struct("!fII")
-_terminfo_struct2 = Struct("!fqI")
-
 class TermIndexWriter(CodedOrderedWriter):
     def __init__(self, dbfile):
         super(TermIndexWriter, self).__init__(dbfile)
@@ -485,19 +480,18 @@ class TermIndexWriter(CodedOrderedWriter):
         return key
     
     def valuecoder(self, data):
-        # Encode term info
         w, offset, df = data
-        if offset < _4GB:
-            iw = int(w)
-            if w == 1 and df == 1 :
-                return pack_uint(offset)
-            elif w == iw and w <= 255 and df <= 255:
-                return _terminfo_struct0.pack(iw, offset, df)
-            else:
-                return _terminfo_struct1.pack(w, offset, df)
+        
+        if w == 1 and df == 1:
+            v = dumps((offset, ), -1)
+        elif w == df:
+            v = dumps((offset, df), -1)
         else:
-            return _terminfo_struct2.pack(w, offset, df)
-    
+            v = dumps((w, offset, df), -1)
+            
+        # Strip off protocol at start and stack return command at end
+        return v[2:-1]
+            
     def close(self):
         self._write_hashes()
         dbfile = self.dbfile
@@ -530,14 +524,13 @@ class TermIndexReader(CodedOrderedReader):
         return (self.names[unpack_ushort(v[:2])[0]], utf8decode(v[2:])[0])
     
     def valuedecoder(self, v):
-        if len(v) == _INT_SIZE:
-            return (1.0, unpack_uint(v)[0], 1)
-        elif len(v) == _terminfo_struct0.size:
-            return _terminfo_struct0.unpack(v)
-        elif len(v) == _terminfo_struct1.size:
-            return _terminfo_struct1.unpack(v)
+        v = loads(v + ".")
+        if len(v) == 1:
+            return (1, v[0], 1)
+        elif len(v) == 2:
+            return (v[1], v[0], v[1])
         else:
-            return _terminfo_struct2.unpack(v)
+            return v
     
 
 # docnum, fieldnum

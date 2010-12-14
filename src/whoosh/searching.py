@@ -54,7 +54,8 @@ class Searcher(object):
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "scorable", "lexicon", "frequency", "doc_frequency", 
                      "field_length", "doc_field_length", "max_field_length",
-                     "field", "field_names", "all_doc_ids"):
+                     "field", "field_names", "all_doc_ids", "first_id",
+                     "first_ids"):
             setattr(self, name, getattr(self.ixreader, name))
 
         if type(weighting) is type:
@@ -208,6 +209,12 @@ class Searcher(object):
         :rtype: int
         """
 
+        # In the common case where only one keyword was given, just use
+        # first_id() instead of building a query.
+        if len(kw) == 1:
+            k, v = kw.items()[0]
+            return self.first_id(k, v)
+
         for docnum in self.document_numbers(**kw):
             return docnum
 
@@ -218,6 +225,9 @@ class Searcher(object):
         
         >>> docnums = list(searcher.document_numbers(emailto=u"matt@whoosh.ca"))
         """
+
+        if len(kw) == 0:
+            return
 
         subqueries = []
         for key, value in kw.iteritems():
