@@ -334,12 +334,9 @@ class SegmentWriter(IndexWriter):
                     # Read the first document number found for every term in
                     # this field and cache the mapping from term to doc num
                     term2docnum = {}
-                    reader = self.searcher().reader()
-                    for ttext in reader.lexicon(name):
-                        postings = reader.postings(name, ttext)
-                        if postings.is_active():
-                            term2docnum[ttext] = postings.id()
-                    reader.close()
+                    s = self.searcher()
+                    term2docnum = dict(s.first_ids(name))
+                    s.close()
                     _unique_cache[name] = term2docnum
                 
                 # Look up the cached document number for this term
