@@ -36,6 +36,13 @@ def rcompile(pattern, flags=0):
         return pattern
     return re.compile(pattern, re.UNICODE | flags)
 
+
+def get_single_text(field, text, **kwargs):
+    # Just take the first token
+    for t in field.process_text(text, mode="query", **kwargs):
+        return t
+
+
 ws = "[ \t\r\n]+"
 wsexpr = rcompile(ws)
 
@@ -295,24 +302,30 @@ class BasicSyntax(Token):
         return cls(match.group(0))
     
     def query(self, parser):
-        text = self.text
+        texts = (self.text, )
         fieldname = self.fieldname or parser.fieldname
+        cls = self.qclass or parser.termclass
+        
         if parser.schema and fieldname in parser.schema:
             field = parser.schema[fieldname]
             
             if field.self_parsing():
                 try:
-                    return field.parse_query(fieldname, self.text, boost=self.boost)
-                except QueryParserError, e:
+                    return field.parse_query(fieldname, self.text,
+                                             boost=self.boost)
+                except QueryParserError:
                     return query.NullQuery
             
-            text = parser.get_single_text(field, text,
-                                          tokenize=self.tokenize,
-                                          removestops=self.removestops)
+            texts = list(field.process_text(self.text, mode="query",
+                                            tokenize=self.tokenize,
+                                            removestops=self.removestops))
         
-        if text is not None:
-            cls = self.qclass or parser.termclass
-            return cls(fieldname, text, boost=self.boost)
+        if len(texts) > 1:
+            compound = parser.group.qclass
+            return compound([cls(fieldname, t, boost=self.boost)
+                             for t in texts])
+        elif texts and texts[0] is not None:
+            return cls(fieldname, texts[0], boost=self.boost)
         else:
             return query.NullQuery
 
@@ -325,9 +338,6 @@ class Word(BasicSyntax):
     tokenize = True
     removestops = True
     
-    def _get_single_text(self, parser, field, text):
-        return parser.get_single_text(field, text)
-
 
 # Parser plugins
 
@@ -431,14 +441,13 @@ class RangePlugin(Plugin):
                             return rangeq
                     except QueryParserError, e:
                         return query.NullQuery
-                    
+                
                 if start:
-                    start = parser.get_single_text(field, start,
-                                                   tokenize=False,
-                                                   removestops=False)
+                    start = get_single_text(field, start, tokenize=False,
+                                            removestops=False)
                 if end:
-                    end = parser.get_single_text(field, end, tokenize=False,
-                                                 removestops=False)
+                    end = get_single_text(field, end, tokenize=False,
+                                          removestops=False)
             
             if start is None:
                 start = u''
@@ -1245,11 +1254,6 @@ class QueryParser(object):
             if stream is None:
                 raise Exception("Function %s did not return a stream" % f)
         return stream
-
-    def get_single_text(self, field, text, **kwargs):
-        # Just take the first token
-        for t in field.process_text(text, mode="query", **kwargs):
-            return t
 
 
 # Premade parser configurations
