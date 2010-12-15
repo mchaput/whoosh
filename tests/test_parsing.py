@@ -520,9 +520,17 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0][1].text, "ello")
         self.assertEqual(q[1].text, "tom")
 
-
-
-
+    def test_multitoken_words(self):
+        schema = fields.Schema(text=fields.TEXT)
+        parser = qparser.QueryParser('text', schema=schema)
+        
+        q = parser.parse(u"chaw-bacon")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 2)
+        self.assertEqual(q[0].__class__, query.Term)
+        self.assertEqual(q[0].text, "chaw")
+        self.assertEqual(q[1].__class__, query.Term)
+        self.assertEqual(q[1].text, "bacon")
 
 
 
