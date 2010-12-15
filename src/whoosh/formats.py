@@ -22,10 +22,12 @@ occurance of a term.
 
 from collections import defaultdict
 from struct import Struct
+from cPickle import dumps, loads
 from cStringIO import StringIO
 
 from whoosh.analysis import unstopped
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint
+from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint,
+                           pack_float, unpack_float)
 from whoosh.util import varint, read_varint, float_to_byte, byte_to_float
 
 
@@ -262,23 +264,19 @@ class Positions(Format):
                 for w, poslist in seen.iteritems())
     
     def encode(self, positions):
-        # positions = [pos1, pos2, ...]
         codes = []
         base = 0
         for pos in positions:
-            codes.append(varint(pos - base))
+            codes.append(pos - base)
             base = pos
-        return pack_uint(len(positions)) + "".join(codes)
-
-        #return pack_uint(len(positions)) + array("I", positions).tostring()
+        return pack_uint(len(codes)) + dumps(codes, -1)[2:-1]
     
     def decode_positions(self, valuestring):
-        read = StringIO(valuestring).read
-        freq = unpack_uint(read(_INT_SIZE))[0]
+        codes = loads(valuestring[_INT_SIZE:] + ".")
         position = 0
         positions = []
-        for _ in xrange(freq):
-            position = read_varint(read) + position
+        for code in codes:
+            position += code
             positions.append(position)
         return positions
     
@@ -319,29 +317,31 @@ class Characters(Positions):
         posbase = 0
         charbase = 0
         for pos, startchar, endchar in posns_chars:
-            codes.append(varint(pos - posbase))
+            codes.append((pos - posbase, startchar - charbase, endchar - startchar))
             posbase = pos
-            codes.extend((varint(startchar - charbase),
-                          varint(endchar - startchar)))
             charbase = endchar
-        return pack_uint(len(posns_chars)) + "".join(codes)
+        return pack_uint(len(posns_chars)) + dumps(codes, -1)[2:-1]
     
     def decode_characters(self, valuestring):
-        read = StringIO(valuestring).read
-        freq = unpack_uint(read(_INT_SIZE))[0]
+        codes = loads(valuestring[_INT_SIZE:] + ".")
         position = 0
         endchar = 0
         posns_chars = []
-        for _ in xrange(freq):
-            position = read_varint(read) + position
-            startchar = endchar + read_varint(read)
-            endchar = startchar + read_varint(read)
+        for code in codes:
+            position = code[0] + position
+            startchar = code[1] + endchar
+            endchar = code[2] + startchar
             posns_chars.append((position, startchar, endchar))
         return posns_chars
     
     def decode_positions(self, valuestring):
-        return [pos for pos, startchar, endchar #@UnusedVariable
-                in self.decode_characters(valuestring)]
+        codes = loads(valuestring[_INT_SIZE:] + ".")
+        position = 0
+        posns = []
+        for code in codes:
+            position = code[0] + position
+            posns.append(position)
+        return posns
     
 
 class PositionBoosts(Positions):
@@ -350,10 +350,6 @@ class PositionBoosts(Positions):
     
     Supports: frequency, weight, positions, position_boosts.
     """
-    
-    _struct = Struct("!If")
-    _pack = _struct.pack
-    _unpack = _struct.unpack
     
     def word_values(self, value, start_pos=0, **kwargs):
         seen = defaultdict(iter)
@@ -374,47 +370,33 @@ class PositionBoosts(Positions):
         summedboost = 0
         for pos, boost in posns_boosts:
             summedboost += boost
-            codes.extend((varint(pos - base), float_to_byte(boost)))
+            codes.append((pos - base, boost))
             base = pos
+            
+        return (pack_uint(len(posns_boosts)) + pack_float(summedboost)
+                + dumps(codes, -1)[2:-1])
         
-        return self._pack(len(posns_boosts), summedboost) + "".join(codes)
-    
     def decode_position_boosts(self, valuestring):
-        f = StringIO(valuestring)
-        read = f.read
-        freq = unpack_uint(read(_INT_SIZE))[0]
-        
-        # Skip summed boost
-        f.seek(_FLOAT_SIZE, 1)
-        
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + ".")
         position = 0
         posns_boosts = []
-        for _ in xrange(freq):
-            position = read_varint(read) + position
-            boost = byte_to_float(read(1))
-            posns_boosts.append((position, boost))
+        for code in codes:
+            position = code[0] + position
+            posns_boosts.append((position, code[1]))
         return posns_boosts
     
     def decode_positions(self, valuestring):
-        f = StringIO(valuestring)
-        read, seek = f.read, f.seek
-        
-        freq = unpack_uint(read(_INT_SIZE))[0]
-        # Skip summed boost
-        seek(_FLOAT_SIZE, 1)
-        
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + ".")
         position = 0
-        positions = []
-        for _ in xrange(freq):
-            position = read_varint(read) + position
-            # Skip boost
-            seek(1, 1)
-            positions.append(position)
-        return positions
+        posns = []
+        for code in codes:
+            position = code[0] + position
+            posns.append(position)
+        return posns
     
     def decode_weight(self, valuestring):
-        freq, summedboost = self._unpack(valuestring[:_INT_SIZE + _FLOAT_SIZE])
-        return freq * summedboost
+        summedboost = unpack_float(valuestring[_INT_SIZE:_INT_SIZE + _FLOAT_SIZE])[0]
+        return summedboost
     
 
 class CharacterBoosts(Characters):
@@ -424,10 +406,6 @@ class CharacterBoosts(Characters):
     Supports: frequency, weight, positions, position_boosts, characters,
     character_boosts.
     """
-    
-    _struct = Struct("!If")
-    _pack = _struct.pack
-    _unpack = _struct.unpack
     
     def word_values(self, value, start_pos=0, start_char=0, **kwargs):
         seen = defaultdict(iter)
@@ -447,47 +425,40 @@ class CharacterBoosts(Characters):
     def encode(self, posns_chars_boosts):
         # posns_chars_boosts = [(pos, startchar, endchar, boost), ...]
         codes = []
-        
         posbase = 0
         charbase = 0
         summedboost = 0
         for pos, startchar, endchar, boost in posns_chars_boosts:
-            summedboost += boost
-            codes.append(varint(pos - posbase))
+            codes.append((pos - posbase, startchar - charbase,
+                          endchar - startchar, boost))
             posbase = pos
-            codes.extend((varint(startchar - charbase),
-                          varint(endchar - startchar),
-                          float_to_byte(boost)))
             charbase = endchar
+            summedboost += boost
         
-        b = self._pack(len(posns_chars_boosts), summedboost)
-        return b + "".join(codes)
-    
+        return (pack_uint(len(posns_chars_boosts)) + pack_float(summedboost)
+                + dumps(codes, -1)[2:-1])
+        
     def decode_character_boosts(self, valuestring):
-        f = StringIO(valuestring)
-        read = f.read
-        
-        freq = unpack_uint(read(_INT_SIZE))[0]
-        # Skip summed boost
-        f.seek(_FLOAT_SIZE, 1)
-        
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + ".")
         position = 0
         endchar = 0
-        posns_chars = []
-        for _ in xrange(freq):
-            position = read_varint(read) + position
-            startchar = endchar + read_varint(read)
-            endchar = startchar + read_varint(read)
-            boost = byte_to_float(read(1))
-            posns_chars.append((position, startchar, endchar, boost))
-        return posns_chars
+        posn_char_boosts = []
+        for code in codes:
+            position = position + code[0]
+            startchar = endchar + code[1]
+            endchar = startchar + code[2]
+            posn_char_boosts.append((position, startchar, endchar, code[3]))
+        return posn_char_boosts
+    
+    def decode_positions(self, valuestring):
+        return [item[0] for item in self.decode_character_boosts(valuestring)]
     
     def decode_characters(self, valuestring):
-        return [(pos, startchar, endchar) for pos, startchar, endchar, boost
+        return [(pos, startchar, endchar) for pos, startchar, endchar, _
                 in self.decode_character_boosts(valuestring)]
     
     def decode_position_boosts(self, valuestring):
-        return [(pos, boost) for pos, startchar, endchar, boost #@UnusedVariable
+        return [(pos, boost) for pos, _, _, boost
                 in self.decode_character_boosts(valuestring)]
 
 
