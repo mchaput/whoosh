@@ -57,6 +57,7 @@ from array import array
 import copy, re
 from itertools import chain
 
+from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 
 
@@ -110,15 +111,13 @@ class Token(object):
     ...or, call token.copy() to get a copy of the token object.
     """
     
-    def __init__(self, positions=False, chars=False, boosts=False,
-                 removestops=True, mode='', **kwargs):
+    def __init__(self, positions=False, chars=False, removestops=True, mode='',
+                 **kwargs):
         """
         :param positions: Whether tokens should have the token position in the
             'pos' attribute.
         :param chars: Whether tokens should have character offsets in the
             'startchar' and 'endchar' attributes.
-        :param boosts: whether the tokens should have per-token boosts in the
-            'boost' attribute.
         :param removestops: whether to remove stop words from the stream (if
             the tokens pass through a stop filter).
         :param mode: contains a string describing the purpose for which the
@@ -127,7 +126,6 @@ class Token(object):
         
         self.positions = positions
         self.chars = chars
-        self.boosts = boosts
         self.stopped = False
         self.boost = 1.0
         self.removestops = removestops
@@ -532,7 +530,6 @@ class PassFilter(Filter):
     """
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
         for t in tokens:
             yield t
 
@@ -590,6 +587,20 @@ class MultiFilter(Filter):
         return filter(chain([t], tokens))
         
 
+class ReverseTextFilter(Filter):
+    """Reverses the text of each token.
+    
+    >>> ana = RegexTokenizer() | ReverseTextFilter()
+    >>> [token.text for token in ana(u"hello there")]
+    [u"olleh", u"ereht"]
+    """
+    
+    def __call__(self, tokens):
+        for t in tokens:
+            t.text = t.text[::-1]
+            yield t
+
+
 class LowercaseFilter(Filter):
     """Uses unicode.lower() to lowercase token text.
     
@@ -600,7 +611,6 @@ class LowercaseFilter(Filter):
     """
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
         for t in tokens:
             t.text = t.text.lower()
             yield t
@@ -608,13 +618,9 @@ class LowercaseFilter(Filter):
 
 class StripFilter(Filter):
     """Calls unicode.strip() on the token text.
-    
-    >>> rext = CommaSeparatedTokenizer()
-    >>> stream = rext(u"This i
     """
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
         for t in tokens:
             t.text = t.text.strip()
             yield t
@@ -668,7 +674,6 @@ class StopFilter(Filter):
                 and self.renumber == other.renumber)
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
         stoplist = self.stops
         minsize = self.min
         maxsize = self.max
@@ -755,8 +760,7 @@ class StemFilter(Filter):
                 yield t
                 
     def clean(self):
-        """
-        This filter memoizes previously stemmed words to greatly speed up
+        """This filter memoizes previously stemmed words to greatly speed up
         stemming. This method clears the cache of previously stemmed words.
         """
         self.cache.clear()
@@ -1215,31 +1219,7 @@ class BiWordFilter(Filter):
         
 
 class BoostTextFilter(Filter):
-    """Advanced filter. Looks for embedded boost markers in the actual text of
-    each token and extracts them to set the token's boost. This might be useful
-    to let users boost individual terms.
-    
-    For example, if you added a filter:
-    
-        BoostTextFilter("\\^([0-9.]+)$")
-    
-    The user could then write keywords with an optional boost encoded in them,
-    like this:
-    
-      image render^2 file^0.5
-    
-    (Of course, you might want to write a better pattern for the number part.)
-    
-     * Note that the pattern is run on EACH TOKEN, not the source text as a
-       whole.
-     
-     * Because this filter runs a regular expression match on every token,
-       for performance reasons it is probably only suitable for short fields.
-       
-     * You may use this filter in a Frequency-formatted field, where the
-       Frequency format object has boost_as_freq = True. Bear in mind that in
-       that case, you can only use integer "boosts".
-    """
+    "This filter is deprecated, use :class:`DelimitedAttributeFilter` instead."
     
     def __init__(self, expression, group=1, default=1.0):
         """
@@ -1257,8 +1237,7 @@ class BoostTextFilter(Filter):
         self.default = default
     
     def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
+        return (other and self.__class__ is other.__class__
                 and self.expression == other.expression
                 and self.default == other.default
                 and self.group == other.group)
@@ -1278,6 +1257,96 @@ class BoostTextFilter(Filter):
                 t.boost = default
                 
             yield t
+
+
+class DeliminatedAttributeFilter(Filter):
+    """Looks for delimiter characters in the text of each token and stores the
+    data after the delimiter in a named attribute on the token.
+    
+    The defaults are set up to use the ``^`` character as a delimiter and store
+    the value after the ``^`` as the boost for the token.
+    
+    >>> daf = DelimitedAttributeFilter(delimiter="^", attribute="boost")
+    >>> ana = RegexTokenizer("\\\\S+") | DelimitedAttributeFilter()
+    >>> for t in ana(u"image render^2 file^0.5")
+    ...    print "%r %f" % (t.text, t.boost)
+    'image' 1.0
+    'render' 2.0
+    'file' 0.5
+    
+    Note that you need to make sure your tokenizer includes the delimiter and
+    data as part of the token!
+    """
+    
+    def __init__(self, delimiter="^", attribute="boost", default=1.0,
+                 type=float):
+        """
+        :param delimiter: a string that, when present in a token's text,
+            separates the actual text from the "data" payload.
+        :param attribute: the name of the attribute in which to store the
+            data on the token.
+        :param default: the value to use for the attribute for tokens that
+            don't have delimited data.
+        :param type: the type of the data, for example ``str`` or ``float``.
+            This is used to convert the string value of the data before
+            storing it in the attribute.
+        """
+        
+        self.delim = delimiter
+        self.attr = attribute
+        self.default = default
+        self.type = type
+        
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.delim == other.delim
+                and self.attr == other.attr
+                and self.default == other.default)
+    
+    def __call__(self, tokens):
+        delim = self.delim
+        attr = self.attr
+        default = self.default
+        typ = self.type
+        
+        for t in tokens:
+            text = t.text
+            pos = text.find(delim)
+            if pos > -1:
+                setattr(t, attr, typ(text[pos+1:]))
+                t.text = text[:pos]
+            else:
+                setattr(t, attr, default)
+            
+            yield t
+
+
+class DoubleMetaphoneFilter(Filter):
+    def __init__(self, primary_boost=3.0):
+        self.primary_boost = primary_boost
+        
+    def __eq__(self, other):
+        return (other
+                and self.__class__ is other.__class__
+                and self.primary_boost == other.primary_boost)
+    
+    def __call__(self, tokens):
+        primary_boost = self.primary_boost
+        
+        for t in tokens:
+            primary, secondary = double_metaphone(t.text)
+            if primary:
+                # Save the original boost
+                b = t.boost
+                # Overwrite the token's text and boost and yield it
+                t.text = primary
+                t.boost = b * primary_boost
+                yield t
+                # Restored the original boost
+                t.boost = b 
+            if secondary:
+                t.text = secondary
+                yield t
 
 # Analyzers
 
