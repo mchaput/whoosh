@@ -1,0 +1,398 @@
+#===============================================================================
+# Copyright 2010 Matt Chaput
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#===============================================================================
+
+from __future__ import division
+import os.path, random, sys
+from optparse import OptionParser
+from zlib import compress, decompress
+
+from whoosh import index, qparser, query
+from whoosh.util import now
+
+try:
+    import xappy
+except ImportError:
+    pass
+try:
+    import xapian
+except ImportError:
+    pass
+try:
+    import pysolr
+except ImportError:
+    pass
+
+
+
+class Bench(object):
+    solr_url = "http://localhost:8983/solr"
+    main_field = "text"
+    headline_field = "title"
+    
+    libs = ("whoosh", "xappy", "xapian", "solr")
+    
+    _name = "unknown"
+    
+    def name(self):
+        return self._name
+    
+    def process_document_whoosh(self, d):
+        pass
+    
+    def process_document_xappy(self, d):
+        pass
+    
+    def process_document_xapian(self, d):
+        pass
+    
+    def process_document_solr(self, d):
+        pass
+    
+    def index(self, lib):
+        print "Indexing with %s..." % lib
+        
+        options = self.options
+        chunk = int(options.chunk)
+        skip = int(options.skip)
+        upto = int(options.upto)
+        count = 0
+        skipc = skip
+        
+        starttime = chunkstarttime = now()
+        ix = getattr(self, "%s_indexer" % lib)()
+        index_document = getattr(self, "index_document_%s" % lib)
+        for d in self.documents():
+            skipc -= 1
+            if not skipc:
+                index_document(ix, d)
+                count += 1
+                skipc = skip
+                if chunk and not count % chunk:
+                    t = now()
+                    sofar = t - starttime
+                    print "Done %d docs, %0.3f secs for %d, %0.3f total, %0.3f docs/s" % (count, t - chunkstarttime, chunk, sofar, count/sofar)
+                    chunkstarttime = t
+                if count > upto:
+                    break
+        
+        spooltime = now()
+        print "Spool time:", spooltime - starttime
+        getattr(self, "finish_%s" % lib)(ix)
+        committime = now()
+        print "Commit time:", committime - spooltime
+        print "Total time to index", count, "documents:",  committime - starttime
+    
+    def whoosh_indexer(self):
+        schema = self.whoosh_schema()
+        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        if not os.path.exists(path):
+            os.mkdir(path)
+        ix = index.create_in(path, schema)
+        w = ix.writer(procs=int(self.options.procs),
+                      limitmb=int(self.options.limitmb))
+        return w
+    
+    def index_document_whoosh(self, writer, d):
+        self.process_document_whoosh(d)
+        writer.add_document(**d)
+        
+    def finish_whoosh(self, writer):
+        writer.commit()
+        
+    def xappy_indexer(self):
+        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        conn = self.xappy_connection(path)
+        return conn
+    
+    def index_document_xappy(self, conn, d):
+        self.process_document_xappy(d)
+        doc = xappy.UnprocessedDocument()
+        for key, values in d:
+            if not isinstance(values, list):
+                values = [values]
+            for value in values:
+                doc.fields.append(xappy.Field(key, value))
+        conn.add(doc)
+        
+    def finish_xappy(self, conn):
+        conn.flush()
+                    
+    def xapian_indexer(self):
+        path = os.path.join(self.options.dir, "%s_xapian" % self.options.indexname)
+        database = xapian.WritableDatabase(path, xapian.DB_CREATE_OR_OPEN)
+        indexer = xapian.TermGenerator()
+        
+        return (database, indexer)
+    
+    def index_document_xapian(self, dix, d):
+        self.process_document_xapian(d)
+        database, indexer = dix
+        doc = xapian.Document()
+        doc.add_value(0, d.get(self.headline_field, "-"))
+        doc.set_data(d[self.main_field])
+        indexer.set_document(doc)
+        indexer.index_text(d[self.main_field])
+        database.add_document(doc)
+        
+    def finish_xapian(self, dix):
+        dix[0].flush()
+        
+    def solr_indexer(self):
+        self.solr_doclist = []
+        conn = pysolr.Solr(self.options.url)
+        conn.delete("*:*")
+        conn.commit()
+        return conn
+    
+    def index_document_solr(self, conn, d):
+        self.solr_doclist.append(d)
+        if len(self.solr_doclist) >= int(self.options.batch):
+            conn.add(self.solr_doclist, commit=False)
+            self.solr_doclist = []
+        
+    def finish_solr(self, conn):
+        if self.solr_doclist:
+            conn.add(self.solr_doclist)
+        del self.solr_doclist
+        conn.optimize(block=True)
+    
+    def whoosh_searcher(self):
+        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        ix = index.open_dir(path)
+        searcher = ix.searcher()
+        parser = qparser.QueryParser(self.main_field, schema=ix.schema)
+        
+        return (searcher, parser)
+    
+    def whoosh_query(self, s):
+        qstring = " ".join(self.args).decode("utf8")
+        return s[1].parse(qstring)
+    
+    def whoosh_find(self, s, q):
+        return s[0].search(q, limit=int(self.options.limit))
+    
+    def whoosh_findterms(self, s, terms):
+        limit = int(self.options.limit)
+        searcher = s[0]
+        q = query.Term(self.main_field, None)
+        for term in terms:
+            q.text = term
+            yield searcher.search(q, limit=limit)
+    
+    def whoosh_results(self, s, r):
+        showbody = self.options.showbody
+        
+        print "Runtime:", r.runtime
+        for hit in r:
+            print hit.get(self.headline_field)
+            if showbody:
+                print decompress(hit[self.main_field])
+    
+    def xappy_searcher(self):
+        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        return xappy.SearchConnection(path)
+        
+    def xappy_query(self, conn):
+        return conn.query_parse(" ".join(self.args))
+    
+    def xappy_find(self, conn, q):
+        return conn.search(q, 0, int(self.options.limit))
+    
+    def xappy_findterms(self, conn, terms):
+        limit = int(self.options.limit)
+        for term in terms:
+            q = conn.query_field(self.main_field, term)
+            yield conn.search(q, 0, limit)
+    
+    def xappy_results(self, conn, r):
+        showbody = self.options.showbody
+        for hit in r:
+            print hit.rank, hit.data[self.headline_field]
+            if showbody:
+                print hit.data[self.main_field]
+    
+    def xapian_searcher(self):
+        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        db = xapian.Database(path)
+        enq = xapian.Enquire(db)
+        qp = xapian.QueryParser()
+        qp.set_database(db)
+        return db, enq, qp
+    
+    def xapian_query(self, s):
+        return s[2].parse_query(" ".join(self.args))
+    
+    def xapian_find(self, s, q):
+        enq = s[1]
+        enq.set_query(q)
+        return enq.get_mset(0, int(self.options.limit))
+    
+    def xapian_findterms(self, s, terms):
+        limit = int(self.options.limit)
+        db, enq, qp = s
+        for term in terms:
+            q = qp.parse_query(term)
+            enq.set_query(q)
+            yield enq.get_mset(0, limit)
+    
+    def xapian_results(self, s, matches):
+        showbody = self.options.showbody
+        for m in matches:
+            print m.rank, repr(m.document.get_value(0))
+            if showbody:
+                print m.document.get_data()
+    
+    def solr_searcher(self):
+        return pysolr.Solr(self.solr_url)
+    
+    def solr_query(self, solr):
+        return " ".join(self.args)
+    
+    def solr_find(self, solr, q):
+        return solr.search(q, limit=int(self.options.limit))
+    
+    def solr_findterms(self, solr, terms):
+        limit = int(self.options.limit)
+        for term in terms:
+            yield solr.search("body:" + term, limit=limit)
+    
+    def solr_results(self, solr, r):
+        showbody = self.options.showbody
+        print len(r), "results"
+        for hit in r:
+            print hit.get(self.headline_field)
+            if showbody:
+                print hit[self.main_field]
+    
+    def search(self, lib):
+        s = getattr(self, "%s_searcher" % lib)()
+        t = now()
+        q = getattr(self, "%s_query" % lib)(s)
+        print "Query:", q
+        r = getattr(self, "%s_find" % lib)(s, q)
+        print "Search time:", now() - t
+        
+        t = now()
+        getattr(self, "%s_results" % lib)(s, r)
+        print "Print time:", now() - t
+    
+    def search_file(self, lib):
+        f = open(self.options.termfile, "rb")
+        terms = [line.strip() for line in f]
+        f.close()
+        
+        print "Searching %d terms with %s" % (len(terms), lib)
+        s = getattr(self, "%s_searcher" % lib)()
+        starttime = now()
+        for r in getattr(self, "%s_findterms" % lib)(s, terms):
+            pass
+        searchtime = now() - starttime
+        print "Search time:", searchtime, "searches/s:", float(len(terms))/searchtime
+    
+    def generate_search_file(self, lib):
+        if self.args:
+            f = open(self.args[0], "wb")
+        else:
+            f = sys.stdout
+        count = int(self.options.generate)
+        
+        t = now()
+        s = self.whoosh_searcher()[0]
+        terms = list(s.lexicon(self.main_field))
+        sample = random.sample(terms, count)
+        for term in sample:
+            if term.isalnum():
+                f.write(term + "\n")
+        print now() - t
+    
+    def _parser(self):
+        p = OptionParser()
+        p.add_option("-x", "--lib", dest="lib",
+                     help="Name of the library to use to index/search.",
+                     default="whoosh")
+        p.add_option("-d", "--dir", dest="dir", metavar="DIRNAME",
+                     help="Directory in which to store index.", default=".")
+        p.add_option("-s", "--setup", dest="setup", action="store_true",
+                     help="Set up any support files or caches.", default=False)
+        p.add_option("-i", "--index", dest="index", action="store_true",
+                     help="Index the documents.", default=False)
+        p.add_option("-n", "--name", dest="indexname", metavar="PREFIX",
+                     help="Index name prefix.", default="%s_index" % self.name())
+        p.add_option("-U", "--url", dest="url", metavar="URL",
+                     help="Solr URL", default="http://localhost:8983/solr")
+        p.add_option("-m", "--mb", dest="limitmb",
+                     help="Max. memory usage, in MB", default="128")
+        p.add_option("-c", "--chunk", dest="chunk",
+                     help="Number of documents to index between progress messages.",
+                     default=1000)
+        p.add_option("-B", "--batch", dest="batch",
+                     help="Batch size for batch adding documents.",
+                     default=100)
+        p.add_option("-k", "--skip", dest="skip", metavar="N",
+                     help="Index every Nth document.", default=1)
+        p.add_option("-u", "--upto", dest="upto", metavar="N",
+                     help="Index up to this document number.", default=600000)
+        p.add_option("-p", "--procs", dest="procs", metavar="NUMBER",
+                     help="Number of processors to use.", default=1)
+        p.add_option("-l", "--limit", dest="limit", metavar="N",
+                     help="Maximum number of search results to retrieve.",
+                     default=10)
+        p.add_option("-b", "--body", dest="showbody", action="store_true",
+                     help="Show the body text in search results.",
+                     default=False)
+        p.add_option("-g", "--gen", dest="generate", metavar="N",
+                     help="Generate a list at most N terms present in all libraries.",
+                     default=None)
+        p.add_option("-f", "--file", dest="termfile", metavar="FILENAME",
+                     help="Search using the list of terms in this file.",
+                     default=None)
+        
+        return p
+    
+    def run(self):
+        parser = self._parser()
+        options, args = parser.parse_args()
+        self.options = options
+        self.args = args
+        
+        lib = options.lib
+        if lib not in self.libs:
+            raise Exception("Unknown library: %r" % lib)
+        
+        if options.setup:
+            self.setup()
+        
+        action = self.search
+        if options.index:
+            action = self.index
+        if options.termfile:
+            action = self.search_file
+        if options.generate:
+            action = self.generate_search_file
+        
+        action(lib)
+        
+
+
+
+
+
+
+
+
+
+
+

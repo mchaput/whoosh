@@ -170,6 +170,13 @@ class Query(object):
         """
         raise NotImplementedError
 
+    def estimate_min_size(self, ixreader):
+        """Returns an estimate of the minimum number of documents this query
+        could potentially match.
+        """
+        
+        return self.estimate_size(ixreader)
+
     def matcher(self, searcher, exclude_docs=None):
         """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
@@ -272,6 +279,9 @@ class WrappingQuery(Query):
     def estimate_size(self, ixreader):
         return self.child.estimate_size(ixreader)
     
+    def estimate_min_size(self, ixreader):
+        return self.child.estimate_min_size(ixreader)
+    
     def matcher(self, searcher, exclude_docs=None):
         return self.child.matcher(searcher, exclude_docs=exclude_docs)
     
@@ -320,6 +330,17 @@ class CompoundQuery(Query):
 
     def copy(self):
         return self.__class__(self.subqueries[:], boost=self.boost)
+
+    def estimate_size(self, ixreader):
+        return sum(q.estimate_size(ixreader) for q in self.subqueries)
+    
+    def estimate_min_size(self, ixreader):
+        subs, nots = self._split_queries()
+        subs_min = min(q.estimate_min_size(ixreader) for q in subs)
+        if nots:
+            nots_sum = sum(q.estimate_size(ixreader) for q in nots)
+            subs_min = max(0, subs_min - nots_sum)
+        return subs_min
 
     def replace(self, oldtext, newtext):
         return self.__class__([q.replace(oldtext, newtext)
@@ -453,6 +474,10 @@ class MultiTerm(Query):
         return sum(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._words(ixreader))
 
+    def estimate_min_size(self, ixreader):
+        return min(ixreader.doc_frequency(self.fieldname, text)
+                   for text in self._words(ixreader))
+
     def matcher(self, searcher, exclude_docs=None):
         fieldname = self.fieldname
         qs = [Term(fieldname, word) for word in self._words(searcher.reader())]
@@ -573,15 +598,6 @@ class Or(CompoundQuery):
         CompoundQuery.__init__(self, subqueries, boost=boost)
         self.minmatch = minmatch
 
-    def __repr__(self):
-        r = "%s(%r" % (self.__class__.__name__, self.subqueries)
-        if self.boost != 1:
-            r += ", boost=%s" % self.boost
-        if self.minmatch:
-            r += ", minmatch=%s" % self.minmatch
-        r += ")"
-        return r
-
     def __unicode__(self):
         r = u"("
         r += (self.JOINT).join([unicode(s) for s in self.subqueries])
@@ -590,9 +606,6 @@ class Or(CompoundQuery):
             r += u">%s" % self.minmatch
         return r
 
-    def estimate_size(self, ixreader):
-        return sum(q.estimate_size(ixreader) for q in self.subqueries)
-    
     def normalize(self):
         norm = CompoundQuery.normalize(self)
         if norm.__class__ is self.__class__:
@@ -619,9 +632,6 @@ class DisjunctionMax(CompoundQuery):
         if self.tiebreak:
             s += u"~" + unicode(self.tiebreak)
         return r
-
-    def estimate_size(self, ixreader):
-        return Or.estimate_size(self, ixreader)
 
     def normalize(self):
         norm = CompoundQuery.normalize(self)
@@ -692,6 +702,9 @@ class Not(Query):
 
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
+    
+    def estimate_min_size(self, ixreader):
+        return 1 if ixreader.doc_count() else 0
 
     def matcher(self, searcher, exclude_docs=None):
         # Usually only called if Not is the root query. Otherwise, queries such
@@ -1069,6 +1082,9 @@ class NumericRange(Query):
     def estimate_size(self, ixreader):
         return self._compile_query(ixreader).estimate_size(ixreader)
     
+    def estimate_min_size(self, ixreader):
+        return self._compile_query(ixreader).estimate_min_size(ixreader)
+    
     def docs(self, searcher, exclude_docs=None):
         q = self._compile_query(searcher.reader())
         return q.docs(searcher, exclude_docs=exclude_docs)
@@ -1265,6 +1281,9 @@ class Phrase(MultiTerm):
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)
 
+    def estimate_min_size(self, ixreader):
+        return self._and_query().estimate_min_size(ixreader)
+
     def matcher(self, searcher, exclude_docs=None):
         fieldname = self.fieldname
         reader = searcher.reader()
@@ -1457,6 +1476,12 @@ class Require(CompoundQuery):
         return self.__class__(self.subqueries[0], self.subqueries[1],
                               boost=self.boost)
 
+    def estimate_size(self, ixreader):
+        return self.subqueries[1].estimate_size(ixreader)
+    
+    def estimate_min_size(self, ixreader):
+        return self.subqueries[1].estimate_min_size(ixreader)
+
     def normalize(self):
         subqueries = [q.normalize() for q in self.subqueries]
         if NullQuery in subqueries:
@@ -1505,8 +1530,8 @@ class AndMaybe(CompoundQuery):
             return required
         return AndMaybe(required, optional, boost=self.boost)
 
-    def estimate_size(self, ixreader):
-        return sum(q.estimate_size(ixreader) for q in self.subqueries)
+    def estimate_min_size(self, ixreader):
+        return self.subqueries[0].estimate_min_size(ixreader)
 
     def docs(self, searcher, exclude_docs=None):
         return self.subqueries[0].docs(searcher, exclude_docs=exclude_docs)
