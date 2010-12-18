@@ -365,7 +365,15 @@ class TestSchema(unittest.TestCase):
         s = ix.searcher()
         self.assertRaises(KeyError, s.document_numbers, id=u"test")
 
-
+    def test_token_boost(self):
+        from whoosh.analysis import RegexTokenizer, DoubleMetaphoneFilter
+        ana = RegexTokenizer() | DoubleMetaphoneFilter()
+        field = fields.TEXT(analyzer=ana, phrase=False)
+        results = list(field.index(u"spruce view"))
+        self.assertEqual(results, [('SPRS', 1, 3.0, '\x00\x00\x00\x01'),
+                                   ('FF', 1, 1.0, '\x00\x00\x00\x01'),
+                                   ('F', 1, 3.0, '\x00\x00\x00\x01')])
+        
 
 
 if __name__ == '__main__':
