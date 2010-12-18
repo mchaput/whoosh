@@ -481,10 +481,8 @@ def pull_results(matcher, usequality=True, replace=True):
         
 
 def collect(searcher, matcher, limit=10, usequality=True, replace=True): 
-    """
-    
-    Returns a tuple of (sorted_scores, sorted_docids, docset), where docset
-    is None unless the ``limit`` is None.
+    """Returns a tuple of (sorted_scores, sorted_docids, docset), where docset
+    is None unless the ``limit`` is None or usequality is False.
     
     :param searcher: The :class:`Searcher` object.
     :param matcher: the :class:`whoosh.matching.Matcher` representing the query.
@@ -495,16 +493,19 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
     :param replace: whether to use matcher replacement optimizations.
     """
     
-    # Theoretically, a set of matching document IDs. This is only calculated
-    # if limit is None. Otherwise, it's left as None and will be computed later
-    # if the user asks for it.
-    docs = None
-    
     usefinal = searcher.weighting.use_final
     if usefinal:
         final = searcher.weighting.final
         # Quality optimizations are not compatible with final() scoring
         usequality = False
+    
+    # Theoretically, a set of matching document IDs. This is only calculated if
+    # limit is None or usequality is False. Otherwise, it's left as None and
+    # will be computed later if the user asks for it.
+    if not limit or limit >= searcher.doc_count() or not usequality:
+        docs = set()
+    else:
+        docs = None
     
     # Define a utility function to get the current score and apply the final()
     # method if necessary
@@ -514,11 +515,10 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
             s = final(searcher, id, s)
         return s
     
-    if limit is None:
+    if not limit or limit >= searcher.doc_count():
         # No limit? We have to score everything? Short circuit here and do it
         # simply
         h = []
-        docs = set()
         while matcher.is_active():
             id = matcher.id()
             h.append((getscore(), id))
@@ -551,6 +551,10 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
                     # The heap is full, but the posting quality indicates this
                     # document is good enough to make the top N, so calculate
                     # its true score and add it to the heap
+                    
+                    if not usequality:
+                        docs.add(id)
+                    
                     s = getscore()
                     if s > h[0][0]:
                         heapreplace(h, (s, id, quality))
@@ -656,6 +660,31 @@ class Results(object):
     def _load_docs(self):
         self._docs = set(self.query.docs(self.searcher))
 
+    def has_exact_length(self):
+        """True if this results object already knows the exact number of
+        matching documents.
+        """
+        
+        return self._docs is not None
+
+    def estimated_length(self):
+        """The estimated maximum number of matching documents, or the
+        exact number of matching documents if it's known.
+        """
+        
+        if self._docs is not None:
+            return len(self._docs)
+        return self.query.estimate_size(self.searcher.reader())
+    
+    def estimated_min_length(self):
+        """The estimated minimum number of matching documents, or the
+        exact number of matching documents if it's known.
+        """
+        
+        if self._docs is not None:
+            return len(self._docs)
+        return self.query.estimate_min_size(self.searcher.reader())
+    
     def scored_length(self):
         """Returns the number of scored documents in the results, equal to or
         less than the ``limit`` keyword argument to the search.
@@ -667,7 +696,7 @@ class Results(object):
         20
         
         This may be fewer than the total number of documents that match the
-        query, which is what ``Results.__len__()`` returns.
+        query, which is what ``len(Results)`` returns.
         """
         
         return len(self.top_n)

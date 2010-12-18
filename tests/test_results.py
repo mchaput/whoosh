@@ -223,6 +223,32 @@ class TestResults(unittest.TestCase):
         r = s.search(query.Every("chapter"), limit=None)
         self.assertEqual(fs.counts(r), dict(alfa=5, bravo=10, charlie=7, delta=2, echo=9))
         self.assertEqual(fs.categorize(r), dict(cats))
+    
+    def test_lengths(self):
+        schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=1, text=u"alfa bravo charlie delta echo")
+        w.add_document(id=2, text=u"bravo charlie delta echo foxtrot")
+        w.add_document(id=3, text=u"charlie needle echo foxtrot golf")
+        w.add_document(id=4, text=u"delta echo foxtrot golf hotel")
+        w.add_document(id=5, text=u"echo needle needle hotel india")
+        w.add_document(id=6, text=u"foxtrot golf hotel india juliet")
+        w.add_document(id=7, text=u"golf needle india juliet kilo")
+        w.add_document(id=8, text=u"hotel india juliet needle lima")
+        w.commit()
+        
+        s = ix.searcher()
+        q = query.Or([query.Term("text", u"needle"), query.Term("text", u"charlie")])
+        r = s.search(q, limit=2)
+        self.assertEqual(r.has_exact_length(), False)
+        self.assertEqual(r.estimated_length(), 7)
+        self.assertEqual(r.estimated_min_length(), 3)
+        self.assertEqual(r.scored_length(), 2)
+        self.assertEqual(len(r), 6)
+        
+        s = ix.searcher()
         
 
 
