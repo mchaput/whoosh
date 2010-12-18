@@ -1,7 +1,7 @@
 import unittest
 
 from whoosh.analysis import *
-from whoosh.support.unicode import blocks, blockname, blocknum
+
 
 class TestAnalysis(unittest.TestCase):
     def test_regextokenizer(self):
@@ -36,14 +36,6 @@ class TestAnalysis(unittest.TestCase):
         sa = RegexTokenizer() | StopFilter()
         self.assertEqual(sa.__class__.__name__, "CompositeAnalyzer")
     
-    def test_filter_composition(self):
-        filtersonly = LowercaseFilter() | StopFilter()
-        generator = filtersonly(u"Hello there")
-        self.assertRaises(AssertionError, list, generator)
-        
-        analyzer = RegexTokenizer() | filtersonly
-        self.assertEqual([t.text for t in analyzer(u"The ABC 123")], ["abc", "123"])
-        
     def test_composing_functions(self):
         def filter(tokens):
             for t in tokens:
@@ -91,6 +83,8 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(result[0].text, "single")
         
     def test_unicode_blocks(self):
+        from whoosh.support.unicode import blocks, blockname, blocknum
+        
         self.assertEqual(blockname(u'a'), 'Basic Latin')
         self.assertEqual(blockname(unichr(0x0b80)), 'Tamil')
         self.assertEqual(blockname(unichr(2048)), None)
@@ -100,6 +94,15 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(blocknum(u'a'), blocks.Basic_Latin)
         self.assertEqual(blocknum(unichr(0x0b80)), blocks.Tamil)
         
+    def test_double_metaphone(self):
+        mf = RegexTokenizer() | DoubleMetaphoneFilter()
+        results = [(t.text, t.boost) for t in mf(u"spruce view")]
+        self.assertEqual(results, [('SPRS', 3.0), ('F', 3.0), ('FF', 1.0)])
+        
+    def test_delimited_attribute(self):
+        ana = RegexTokenizer(r"\S+") | DeliminatedAttributeFilter()
+        results = [(t.text, t.boost) for t in ana(u"image render^2 file^0.5")]
+        self.assertEqual(results, [("image", 1.0), ("render", 2.0), ("file", 0.5)])
         
 
 if __name__ == '__main__':

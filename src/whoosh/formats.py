@@ -174,27 +174,23 @@ class Frequency(Format):
             is None, the field is not indexed/searchable.
         :param field_boost: A constant boost factor to scale to the score of
             all queries matching terms in this field.
-        :param boost_as_freq: if True, take the integer value of each token's
-            boost attribute and use it as the token's frequency.
         """
         
         self.analyzer = analyzer
         self.field_boost = field_boost
-        self.boost_as_freq = boost_as_freq
         self.options = options
         
     def word_values(self, value, **kwargs):
-        seen = defaultdict(int)
-        if self.boost_as_freq:
-            for t in unstopped(self.analyzer(value, boosts=True, **kwargs)):
-                seen[t.text] += int(t.boost)
-        else:
-            for t in unstopped(self.analyzer(value, **kwargs)):
-                seen[t.text] += 1
+        freqs = defaultdict(int)
+        weights = defaultdict(float)
+        
+        for t in unstopped(self.analyzer(value, boosts=True, **kwargs)):
+            freqs[t.text] += 1
+            weights[t.text] += int(t.boost)
         
         encode = self.encode
-        return ((w, freq, float(freq), encode(freq))
-                for w, freq in seen.iteritems())
+        return ((w, freq, weights[w], encode(freq))
+                for w, freq in freqs.iteritems())
 
     def encode(self, freq):
         return pack_uint(freq)
@@ -217,13 +213,15 @@ class DocBoosts(Frequency):
     posting_size = _INT_SIZE + 1
     
     def word_values(self, value, doc_boost=1.0, **kwargs):
-        seen = defaultdict(int)
-        for t in unstopped(self.analyzer(value, **kwargs)):
-            seen[t.text] += 1
+        freqs = defaultdict(int)
+        weights = defaultdict(float)
+        for t in unstopped(self.analyzer(value, boosts=True, **kwargs)):
+            weights[t.text] += t.boost
+            freqs[t.text] += 1
         
         encode = self.encode
-        return ((w, freq, freq * doc_boost, encode((freq, doc_boost)))
-                for w, freq in seen.iteritems())
+        return ((w, freq, weights[w] * doc_boost, encode((freq, doc_boost)))
+                for w, freq in freqs.iteritems())
     
     def encode(self, freq_docboost):
         freq, docboost = freq_docboost
@@ -254,14 +252,16 @@ class Positions(Format):
     """
     
     def word_values(self, value, start_pos=0, **kwargs):
-        seen = defaultdict(list)
+        poses = defaultdict(list)
+        weights = defaultdict(float)
         for t in unstopped(self.analyzer(value, positions=True,
                                          start_pos=start_pos, **kwargs)):
-            seen[t.text].append(start_pos + t.pos)
+            poses[t.text].append(start_pos + t.pos)
+            weights[t.text] += t.boost
         
         encode = self.encode
-        return ((w, len(poslist), float(len(poslist)), encode(poslist))
-                for w, poslist in seen.iteritems())
+        return ((w, len(poslist), weights[w], encode(poslist))
+                for w, poslist in poses.iteritems())
     
     def encode(self, positions):
         codes = []
