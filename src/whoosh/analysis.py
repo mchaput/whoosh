@@ -139,7 +139,8 @@ class Token(object):
         return "%s(%s)" % (self.__class__.__name__, parms)
         
     def copy(self):
-        return copy.copy(self)
+        # This is faster than using the copy module
+        return Token(**self.__dict__.copy())
 
 
 # Composition support
@@ -1253,28 +1254,25 @@ class ShingleFilter(Filter):
         buf = deque()
         atleastone = False
         
-        def emit_buffer():
-            token.text = sep.join([t.text for t in buf])
-            if token.positions:
-                token.pos = buf[0].pos
-            if token.chars:
-                token.startchar = buf[0].startchar
-                token.endchar = buf[-1].endchar
-            token.boost = sum(t.boost for t in buf)
-            return token
+        def make_token():
+            tk = buf[0]
+            tk.text = sep.join([t.text for t in buf])
+            if tk.chars:
+                tk.endchar = buf[-1].endchar
+            return tk
         
         for token in tokens:
             buf.append(token.copy())
             if len(buf) == size:
                 atleastone = True
-                yield emit_buffer()
+                yield make_token()
                 buf.popleft()
         
         # If no shingles were emitted, that is, the token stream had fewer than
         # 'size' tokens, then emit a single token with whatever tokens there
         # were
         if not atleastone:
-            yield emit_buffer()
+            yield make_token()
 
 
 class BoostTextFilter(Filter):
