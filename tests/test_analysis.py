@@ -104,6 +104,24 @@ class TestAnalysis(unittest.TestCase):
         results = [(t.text, t.boost) for t in ana(u"image render^2 file^0.5")]
         self.assertEqual(results, [("image", 1.0), ("render", 2.0), ("file", 0.5)])
         
+    def test_porter2(self):
+        from whoosh.lang.porter2 import stem
+        
+        plurals = ['caresses', 'flies', 'dies', 'mules', 'denied',
+                   'died', 'agreed', 'owned', 'humbled', 'sized',
+                   'meeting', 'stating', 'siezing', 'itemization',
+                   'sensational', 'traditional', 'reference', 'colonizer',
+                   'plotted']
+        singles = [stem(w) for w in plurals]
+        
+        self.assertEqual(singles, ['caress', 'fli', 'die', 'mule', 'deni',
+                                   'die', 'agre', 'own', 'humbl', 'size',
+                                   'meet', 'state', 'siez', 'item', 'sensat',
+                                   'tradit', 'refer', 'colon', 'plot'])
+        
+        self.assertEqual(stem("bill's"), "bill")
+        self.assertEqual(stem("y's"), "y")
+        
 
 if __name__ == '__main__':
     unittest.main()
