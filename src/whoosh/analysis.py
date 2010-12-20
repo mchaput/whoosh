@@ -53,8 +53,9 @@ The first item must be a tokenizer and the rest must be filters (you can't put
 a filter first or a tokenizer after the first item).
 """
 
-from array import array
 import copy, re
+from array import array
+from collections import deque
 from itertools import chain
 
 from whoosh.lang.dmetaphone import double_metaphone
@@ -1168,10 +1169,13 @@ class BiWordFilter(Filter):
     
         "the-sign", "sign-of", "of-four"
         
-    This can be used in fields dedicated to phrase searching. In the example
-    above,  the three "bi-word" tokens will be faster to find than the four
-    original words since there are fewer of them and they will be much less
-    frequent (especially compared to words like "the" and "of").
+    This can be used to create fields for pseudo-phrase searching, where if
+    all the terms match the document probably contains the phrase, but the
+    searching is faster than actually doing a phrase search on individual word
+    terms.
+    
+    The ``BiWordFilter`` is much faster than using the otherwise equivalent
+    ``ShingleFilter(2)``.
     """
     
     def __init__(self, sep="-"):
@@ -1212,11 +1216,66 @@ class BiWordFilter(Filter):
             if chars: prev_startchar = sc
             if positions: prev_pos = ps
         
-        # If at no bi-words were emitted, that is, the token stream only had
+        # If no bi-words were emitted, that is, the token stream only had
         # a single token, then emit that single token.
         if not atleastone:
             yield token
         
+
+class ShingleFilter(Filter):
+    """Merges a certain number of adjacent tokens into multi-word tokens, so
+    that for example::
+    
+        "better", "a", "witty", "fool", "than", "a", "foolish", "wit"
+        
+    with ``ShingleFilter(3, ' ')`` becomes::
+    
+        'better a witty', 'a witty fool', 'witty fool than', 'fool than a',
+        'than a foolish', 'a foolish wit'
+    
+    This can be used to create fields for pseudo-phrase searching, where if
+    all the terms match the document probably contains the phrase, but the
+    searching is faster than actually doing a phrase search on individual word
+    terms.
+    
+    If you're using two-word shingles, you should use the functionally
+    equivalent ``BiWordFilter`` instead because it's faster than
+    ``ShingleFilter``.
+    """
+    
+    def __init__(self, size=2, sep="-"):
+        self.size = size
+        self.sep = sep
+        
+    def __call__(self, tokens):
+        size = self.size
+        sep = self.sep
+        buf = deque()
+        atleastone = False
+        
+        def emit_buffer():
+            token.text = sep.join([t.text for t in buf])
+            if token.positions:
+                token.pos = buf[0].pos
+            if token.chars:
+                token.startchar = buf[0].startchar
+                token.endchar = buf[-1].endchar
+            token.boost = sum(t.boost for t in buf)
+            return token
+        
+        for token in tokens:
+            buf.append(token.copy())
+            if len(buf) == size:
+                atleastone = True
+                yield emit_buffer()
+                buf.popleft()
+        
+        # If no shingles were emitted, that is, the token stream had fewer than
+        # 'size' tokens, then emit a single token with whatever tokens there
+        # were
+        if not atleastone:
+            yield emit_buffer()
+
 
 class BoostTextFilter(Filter):
     "This filter is deprecated, use :class:`DelimitedAttributeFilter` instead."
