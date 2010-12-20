@@ -81,6 +81,18 @@ class TestAnalysis(unittest.TestCase):
         result = [t.copy() for t in ana(u"single")]
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].text, "single")
+    
+    def test_shingles(self):
+        ana = RegexTokenizer(r"\w+") | ShingleFilter(3, " ")
+        source = u"better a witty fool than a foolish wit"
+        results = [t.copy() for t in ana(source, positions=True, chars=True)]
+        self.assertEqual([t.text for t in results],
+                         [u'better a witty', u'a witty fool',
+                          u'witty fool than', u'fool than a', u'than a foolish',
+                          u'a foolish wit'])
+        self.assertEqual([t.pos for t in results], range(len(results)))
+        for t in results:
+            self.assertEqual(t.text, source[t.startchar:t.endchar])
         
     def test_unicode_blocks(self):
         from whoosh.support.unicode import blocks, blockname, blocknum
