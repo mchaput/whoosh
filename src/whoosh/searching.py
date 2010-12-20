@@ -871,13 +871,23 @@ class Results(object):
 class Hit(object):
     """Represents a single search result ("hit") in a Results object.
     
+    This object acts like a dictionary of the matching document's stored
+    fields. If for some reason you need an actual ``dict`` object, use
+    ``Hit.fields()`` to get one.
+    
     >>> r = searcher.search(query.Term("content", "render"))
     >>> r[0]
     <Hit {title=u"Rendering the scene"}>
+    >>> r[0].rank
+    0
     >>> r[0].docnum
     4592L
     >>> r[0].score
-    2.52045682 
+    2.52045682
+    >>> r[0]["title"]
+    "Rendering the scene"
+    >>> r[0].keys()
+    ["title"]
     """
     
     def __init__(self, searcher, pos, docnum, score):
@@ -890,10 +900,19 @@ class Hit(object):
         """
         
         self.searcher = searcher
-        self.pos = pos
+        self.pos = self.rank = pos
         self.docnum = docnum
         self.score = score
         self._fields = None
+    
+    def fields(self):
+        """Returns a dictionary of the stored fields of the document this
+        object represents.
+        """
+        
+        if self._fields is None:
+            self._fields = self.searcher.stored_fields(self.docnum)
+        return self._fields
     
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())
@@ -906,22 +925,26 @@ class Hit(object):
         else:
             return False
     
-    def __iter__(self):
-        return self.fields().iterkeys()
+    def __len__(self): return len(self.fields())
+    def __iter__(self): return self.fields().iterkeys()
+    def __getitem__(self, key): return self.fields().__getitem__(key)
+    def __contains__(self, key): return key in self.fields()
+    def items(self): return self.fields().items()
+    def keys(self): return self.fields().keys()
+    def values(self): return self.fields().values()
+    def iteritems(self): return self.fields().iteritems()
+    def iterkeys(self): return self.fields().iterkeys()
+    def itervalues(self): return self.fields().itervalues()
+    def get(self, key, default=None): return self.fields().get(key, default)
     
-    def __getitem__(self, key):
-        return self.fields().__getitem__(key)
-    
-    def __len__(self):
-        return len(self.fields())
-    
-    def fields(self):
-        if self._fields is None:
-            self._fields = self.searcher.stored_fields(self.docnum)
-        return self._fields
-    
-    def get(self, key, default=None):
-        return self.fields().get(key, default)
+    def __setitem__(self, key, value):
+        raise NotImplementedError("You cannot modify a search result")
+    def __delitem__(self, key, value):
+        raise NotImplementedError("You cannot modify a search result")
+    def clear(self):
+        raise NotImplementedError("You cannot modify a search result")
+    def update(self, dict=None, **kwargs):
+        raise NotImplementedError("You cannot modify a search result")
     
 
 class ResultsPage(object):
