@@ -40,6 +40,7 @@ Plug-ins
 .. autoclass:: MultifieldPlugin
 .. autoclass:: DisMaxPlugin
 .. autoclass:: FieldAliasPlugin
+.. autoclass:: CopyFieldPlugin
 
 
 Syntax objects
