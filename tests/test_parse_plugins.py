@@ -3,7 +3,7 @@ import unittest
 import inspect
 from datetime import datetime
 
-from whoosh import analysis, fields, qparser, query
+from whoosh import analysis, fields, formats, qparser, query
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import dateparse
 from whoosh.support.times import adatetime
@@ -20,7 +20,9 @@ class TestParserPlugins(unittest.TestCase):
         
         init_args = {qparser.DisMaxPlugin: ({"content": 1.0, "title": 1.2}, ),
                      qparser.FieldAliasPlugin: ({"content": ("text", "body")}, ),
-                     qparser.MultifieldPlugin: (["title", "content"], )}
+                     qparser.MultifieldPlugin: (["title", "content"], ),
+                     qparser.CopyFieldPlugin: ("name", "phone"),
+                     }
         
         plugins = self._plugin_classes(())
         for i, plugin in enumerate(plugins):
@@ -257,9 +259,45 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[1].__class__, query.Not)
         self.assertEqual(q[1].query.text, "bravo")
         self.assertEqual(q[2].text, "NOT")
-
-
-
+        
+    def test_copyfield(self):
+        qp = qparser.QueryParser("a")
+        qp.add_plugin(qparser.CopyFieldPlugin("b", "c"))
+        self.assertEqual(unicode(qp.parse("hello b:matt")),
+                         "(a:hello AND (b:matt OR c:matt))")
+        
+        qp = qparser.QueryParser("a")
+        qp.add_plugin(qparser.CopyFieldPlugin("b", "c", qparser.AndMaybeGroup))
+        self.assertEqual(unicode(qp.parse("hello b:matt")),
+                         "(a:hello AND (b:matt ANDMAYBE c:matt))")
+        
+        qp = qparser.QueryParser("a")
+        qp.add_plugin(qparser.CopyFieldPlugin("b", "c", qparser.RequireGroup))
+        self.assertEqual(unicode(qp.parse("hello (there OR b:matt)")),
+                         "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))")
+        
+        qp = qparser.QueryParser("a")
+        qp.add_plugin(qparser.CopyFieldPlugin("a", "c"))
+        self.assertEqual(unicode(qp.parse("hello there")),
+                         "((a:hello OR c:hello) AND (a:there OR c:there))")
+        
+        qp = qparser.QueryParser("a")
+        qp.add_plugin(qparser.CopyFieldPlugin("b", "c", mirror=True))
+        self.assertEqual(unicode(qp.parse("hello c:matt")),
+                         "(a:hello AND (c:matt OR b:matt))")
+        
+        qp = qparser.QueryParser("a")
+        qp.add_plugin(qparser.CopyFieldPlugin("c", "a", mirror=True))
+        self.assertEqual(unicode(qp.parse("hello c:matt")),
+                         "((a:hello OR c:hello) AND (c:matt OR a:matt))")
+        
+        ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
+        fmt = formats.Frequency(ana)
+        schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt))
+        qp = qparser.QueryParser("name", schema=schema)
+        qp.add_plugin(qparser.CopyFieldPlugin("name", "name_phone"))
+        self.assertEqual(unicode(qp.parse(u"spruce view")),
+                         "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")
 
 
 if __name__ == '__main__':

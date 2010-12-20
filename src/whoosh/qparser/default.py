@@ -100,8 +100,9 @@ class Group(SyntaxObject):
     def set_boost(self, b):
         return self.__class__(self.tokens[:], boost=b)
     
-    def set_fieldname(self, name):
-        return self.__class__([t.set_fieldname(name) for t in self.tokens])
+    def set_fieldname(self, name, force=False):
+        return self.__class__([t.set_fieldname(name, force)
+                               for t in self.tokens])
     
     def append(self, item):
         self.tokens.append(item)
@@ -152,6 +153,14 @@ class AndMaybeGroup(Group):
         return query.AndMaybe(self.tokens[0].query(parser),
                               self.tokens[1].query(parser), boost=self.boost)
 
+class RequireGroup(Group):
+    """Syntax group corresponding to a Require query.
+    """
+    
+    def query(self, parser):
+        assert len(self.tokens) == 2
+        return query.Require(self.tokens[0].query(parser),
+                             self.tokens[1].query(parser), boost = self.boost)
 
 class DisMaxGroup(Group):
     """Syntax group corresponding to a DisjunctionMax query.
@@ -204,7 +213,7 @@ class Token(SyntaxObject):
     def set_boost(self, b):
         return self
     
-    def set_fieldname(self, name):
+    def set_fieldname(self, name, force=False):
         return self
     
     @classmethod
@@ -285,8 +294,8 @@ class BasicSyntax(Token):
     def set_boost(self, b):
         return self.__class__(self.text, fieldname=self.fieldname, boost=b)
     
-    def set_fieldname(self, name):
-        if self.fieldname is None:
+    def set_fieldname(self, name, force=False):
+        if force or self.fieldname is None:
             return self.__class__(self.text, fieldname=name, boost=self.boost)
         else:
             return self
@@ -407,10 +416,13 @@ class RangePlugin(Plugin):
                                   self.endexcl, fieldname=self.fieldname,
                                   boost=b)
         
-        def set_fieldname(self, name):
-            return self.__class__(self.start, self.end, self.startexcl,
-                                  self.endexcl, fieldname=name,
-                                  boost=self.boost)
+        def set_fieldname(self, name, force=False):
+            if force or self.fieldname is None:
+                return self.__class__(self.start, self.end, self.startexcl,
+                                      self.endexcl, fieldname=name,
+                                      boost=self.boost)
+            else:
+                return self
         
         def __repr__(self):
             r = "%s:(%r, %r, %s, %s)" % (self.fieldname, self.start, self.end,
@@ -698,7 +710,7 @@ class FieldsPlugin(Plugin):
         def __repr__(self):
             return "<%s:>" % self.fieldname
         
-        def set_fieldname(self, fieldname):
+        def set_fieldname(self, fieldname, force=False):
             return self.__class__(fieldname)
         
         @classmethod
@@ -1038,6 +1050,62 @@ class FieldAliasPlugin(Plugin):
                   and t.fieldname is not None
                   and t.fieldname in self.reverse):
                     t = t.set_fieldname(self.reverse[t.fieldname])
+            newstream.append(t)
+        return newstream
+
+
+class CopyFieldPlugin(Plugin):
+    """Looks for basic syntax tokens (terms, prefixes, wildcards, phrases, etc.)
+    occurring in a certain field and replaces it with a group (by default OR)
+    containing the original token and the token copied to a new field.
+    
+    For example, the query::
+    
+        hello name:matt
+        
+    could be automatically converted by ``CopyFieldPlugin("name", "author")``
+    to::
+    
+        hello (name:matt OR name:author)
+    
+    This is useful where one field was indexed with a differently-analyzed copy
+    of another, and you want the query to search both fields.
+    """
+    
+    def __init__(self, fromname, toname, group=OrGroup, mirror=False):
+        """
+        :param fromname: the name of the field to copy from.
+        :param toname: the name of the field to copy to.
+        :param group: the type of group to create in place of the original
+            token.
+        :param two_way: if True, the plugin copies both ways, so if the user
+            specifies a query in the 'toname' field, it will be copied to
+            the 'fromname' field.
+        """
+        self.fromname = fromname
+        self.toname = toname
+        self.group = group
+        self.mirror = mirror
+        
+    def filters(self, parser):
+        return ((self.do_copyfield, 109), )
+    
+    def do_copyfield(self, parser, stream):
+        fromname = self.fromname
+        toname = self.toname
+        mirror = self.mirror
+        
+        newstream = stream.empty()
+        for t in stream:
+            if isinstance(t, Group):
+                t = self.do_copyfield(parser, t)
+            elif isinstance(t, BasicSyntax):
+                if (t.fieldname == fromname
+                    or (t.fieldname is None and parser.fieldname == fromname)):
+                    t = self.group([t, t.set_fieldname(toname, force=True)])
+                elif (mirror and t.fieldname == toname
+                      or (t.fieldname is None and parser.fieldname == toname)):
+                    t = self.group([t, t.set_fieldname(fromname, force=True)])
             newstream.append(t)
         return newstream
 
