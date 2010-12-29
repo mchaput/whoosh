@@ -531,7 +531,45 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].text, "chaw")
         self.assertEqual(q[1].__class__, query.Term)
         self.assertEqual(q[1].text, "bacon")
-
+        
+    def test_operators(self):
+        left_and = (qparser.InfixOperator("AND", qparser.AndGroup, True), 0)
+        right_and = (qparser.InfixOperator("AND", qparser.AndGroup, False), 0)
+        left_or = (qparser.InfixOperator("OR", qparser.OrGroup, True), 0)
+        right_or = (qparser.InfixOperator("OR", qparser.OrGroup, False), 0)
+        not_ = (qparser.PrefixOperator("NOT", qparser.NotGroup), 0)
+        
+        def make_parser(*ops):
+            parser = qparser.QueryParser("f")
+            parser.replace_plugin(qparser.CompoundsPlugin(ops))
+            return parser
+        
+        p = make_parser(left_and, left_or)
+        q = p.parse("a AND b OR c AND d", normalize=False)
+        self.assertEqual(unicode(q), "((((f:a AND f:b) OR f:c) AND f:d))")
+        
+        p = make_parser(right_and, right_or)
+        q = p.parse("a AND b OR c AND d", normalize=False)
+        self.assertEqual(unicode(q), "((f:a AND (f:b OR (f:c AND f:d))))")
+        
+        p = make_parser(not_)
+        q = p.parse("a NOT b NOT c NOT d", normalize=False)
+        self.assertEqual(unicode(q), "(f:a AND NOT(f:b) AND NOT(f:c) AND NOT(f:d))")
+        
+        p = make_parser(left_and)
+        q = p.parse("(a AND b) AND (c AND d)", normalize=False)
+        self.assertEqual(unicode(q), "(((f:a AND f:b) AND ((f:c AND f:d))))")
+        
+        p = make_parser(left_and, left_or)
+        q = p.parse("a AND b OR c AND d OR e AND f", normalize=False)
+        self.assertEqual(unicode(q), "((((((f:a AND f:b) OR f:c) AND f:d) OR f:e) AND f:f))")
+        
+        p = make_parser(right_or, left_and)
+        q = p.parse("a AND b OR c AND d OR e AND f", normalize=False)
+        self.assertEqual(unicode(q), "((f:a AND (f:b OR (f:c AND (f:d OR (f:e AND f:f))))))")
+        
+        
+        
 
 
 if __name__ == '__main__':

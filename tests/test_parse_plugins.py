@@ -234,7 +234,7 @@ class TestParserPlugins(unittest.TestCase):
         qp.remove_plugin_class(qparser.CompoundsPlugin)
         qp.remove_plugin_class(qparser.NotPlugin)
         
-        cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
+        cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not=None)
         qp.add_plugin(cp)
         
         np = qparser.NotPlugin("-")
