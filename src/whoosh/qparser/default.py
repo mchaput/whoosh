@@ -245,7 +245,7 @@ class Operator(Token):
     :meth:`Operator.make_group` method.
     """
     
-    left_assoc = True
+    left_assoc = False
     
     def __init__(self, expr, grouptype):
         """
@@ -338,7 +338,7 @@ class InfixOperator(Operator):
 
 class Singleton(Token):
     """Base class for tokens that don't carry any information specific to
-    each instance (e.g. "open paranthesis" token), so they can all share the
+    each instance (e.g. "open parenthesis" token), so they can all share the
     same instance.
     """
     
@@ -419,33 +419,13 @@ class BasicSyntax(Token):
         return cls(match.group(0))
     
     def query(self, parser):
-        texts = (self.text, )
         fieldname = self.fieldname or parser.fieldname
-        cls = self.qclass or parser.termclass
+        termclass = self.qclass or parser.termclass
         
-        if parser.schema and fieldname in parser.schema:
-            field = parser.schema[fieldname]
-            
-            if field.self_parsing():
-                try:
-                    return field.parse_query(fieldname, self.text,
-                                             boost=self.boost)
-                except QueryParserError:
-                    return query.NullQuery
-            
-            texts = list(field.process_text(self.text, mode="query",
-                                            tokenize=self.tokenize,
-                                            removestops=self.removestops))
+        return parser.term_query(fieldname, self.text, termclass,
+                                 boost=self.boost, tokenize=self.tokenize,
+                                 removestops=self.removestops)
         
-        if len(texts) > 1:
-            compound = parser.group.qclass
-            return compound([cls(fieldname, t, boost=self.boost)
-                             for t in texts])
-        elif texts and texts[0] is not None:
-            return cls(fieldname, texts[0], boost=self.boost)
-        else:
-            return query.NullQuery
-
 
 class Word(BasicSyntax):
     """Syntax object representing a term.
@@ -854,11 +834,15 @@ class OperatorsPlugin(Plugin):
         cp = qparser.OperatorsPlugin(additional)
     
     Not that the list of operators you specify with the first argument is IN
-    ADDITION TO the defaults, so for example if you want the plugin to have
-    ONLY your operator, you need to do something like this::
+    ADDITION TO the defaults. To turn off one of the default operators, you
+    can pass None to the corresponding keyword argument::
         
-        cp = qparser.OperatorsPlugin([(MyAnd(), 0)], And=None, Or=None,
-                                     AndNot=None, AndMaybe=None, Not=None)
+        cp = qparser.OperatorsPlugin([(MyAnd(), 0)], And=None)
+        
+    If you want ONLY your list operators and none of the default operators, use
+    the ``clean`` keyword argument::
+    
+        cp = qparser.OperatorsPlugin([(MyAnd(), 0)], clean=True)
                                      
     This class replaces the ``CompoundsPlugin``. ``qparser.CompoundsPlugin`` is
     now an alias for this class.
@@ -866,17 +850,19 @@ class OperatorsPlugin(Plugin):
     
     def __init__(self, ops=None, And=r"\sAND\s", Or=r"\sOR\s",
                  AndNot=r"\sANDNOT\s", AndMaybe=r"\sANDMAYBE\s",
-                 Not=r"(^|(?<= ))NOT\s"):
+                 Not=r"(^|(?<= ))NOT\s", clean=False):
+        if isinstance(ops, tuple):
+            ops = list(ops)
         if not ops:
             ops = []
         
-        if And: ops.append((InfixOperator(And, AndGroup), 0))
-        if Or: ops.append((InfixOperator(Or, OrGroup), 0))
-        if AndNot: ops.append((InfixOperator(AndNot, AndNotGroup), -10))
-        if AndMaybe: ops.append((InfixOperator(AndMaybe, AndMaybeGroup), -5))
-        if Not: ops.append((PrefixOperator(Not, NotGroup), 0))
+        if not clean:
+            if And: ops.append((InfixOperator(And, AndGroup), 0))
+            if Or: ops.append((InfixOperator(Or, OrGroup), 0))
+            if AndNot: ops.append((InfixOperator(AndNot, AndNotGroup), -10))
+            if AndMaybe: ops.append((InfixOperator(AndMaybe, AndMaybeGroup), -5))
+            if Not: ops.append((PrefixOperator(Not, NotGroup), 0))
         
-        ops = sorted(ops, key=lambda x: x[1])
         self.ops = ops
     
     def tokens(self, parser):
@@ -886,7 +872,10 @@ class OperatorsPlugin(Plugin):
         return ((self.do_operators, 600), )
     
     def do_operators(self, parser, stream, level=0):
-        for op, pri in self.ops:
+        # Sort the list of operators by their priority
+        ops = [op for op, _ in sorted(self.ops, key=lambda x: x[1])]
+        
+        for op in ops:
             optype = type(op)
             if op.left_assoc:
                 i = 0
@@ -1311,6 +1300,49 @@ class QueryParser(object):
         items_and_priorities.sort(key=lambda x: x[1])
         return [item for item, pri in items_and_priorities]
     
+    def term_query(self, fieldname, text, termclass, boost=1.0, tokenize=True,
+                   removestops=True):
+        """Returns the appropriate query object for a single term in the query
+        string.
+        """
+        
+        if self.schema and fieldname in self.schema:
+            field = self.schema[fieldname]
+            
+            # If this field type wants to parse queries itself, let it do so
+            # and return early
+            if field.self_parsing():
+                try:
+                    return field.parse_query(fieldname, text, boost=boost)
+                except QueryParserError:
+                    return query.NullQuery
+            
+            # Otherwise, ask the field to process the text into a list of
+            # tokenized strings
+            texts = list(field.process_text(text, mode="query",
+                                            tokenize=tokenize,
+                                            removestops=removestops))
+            
+            # If the analyzer returned more than one token, use the field's
+            # multitoken_query attribute to decide what query class to use to
+            # put the tokens together
+            if len(texts) > 1:
+                qclass = field.multitoken_query
+                # field.multitoken_query may be None, which means just use
+                # the first token
+                if qclass:
+                    return qclass([termclass(fieldname, t, boost=boost)
+                                   for t in texts])
+            
+            # It's possible field.process_text() will return an empty list (for
+            # example, on a stop word)
+            if not texts:
+                return query.NullQuery
+            
+            text = texts[0]
+        
+        return termclass(fieldname, text, boost=boost)
+        
     def tokens(self):
         """Returns a priorized list of tokens from the included plugins.
         """
