@@ -1,0 +1,408 @@
+#===============================================================================
+# Copyright 2010 Matt Chaput
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#    http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#===============================================================================
+
+from whoosh import query
+from whoosh.qparser.common import rcompile
+
+
+class SyntaxObject(object):
+    """An object representing parsed text. These objects generally correspond
+    to a query object type, and are intermediate objects used to represent
+    the syntax tree parsed from a query string, and then generate a query
+    tree from the syntax tree. There will be syntax objects that do not have
+    a corresponding query type, such as the object representing whitespace.
+    """
+    
+    def query(self, parser):
+        """Returns a query object tree representing this parser object.
+        """
+        
+        raise NotImplementedError
+
+
+# Grouping objects
+
+class Group(SyntaxObject):
+    """An object representing a group of objects. These generally correspond
+    to compound query objects such as ``query.And`` and ``query.Or``.
+    """
+    
+    def __init__(self, tokens=None, boost=1.0):
+        self.tokens = tokens or []
+        self.boost = boost
+    
+    def __repr__(self):
+        r = "%s(%r)" % (self.__class__.__name__, self.tokens)
+        if self.boost != 1.0:
+            r += "^%s" % self.boost
+        return r
+    
+    def __nonzero__(self):
+        return bool(self.tokens)
+    
+    def __iter__(self):
+        return iter(self.tokens)
+    
+    def __len__(self):
+        return len(self.tokens)
+    
+    def __getitem__(self, n):
+        return self.tokens.__getitem__(n)
+    
+    def __setitem__(self, n, v):
+        self.tokens.__setitem__(n, v)
+    
+    def __delitem__(self, n):
+        self.tokens.__delitem__(n)
+    
+    def insert(self, n, v):
+        self.tokens.insert(n, v)
+    
+    def set_boost(self, b):
+        return self.__class__(self.tokens[:], boost=b)
+    
+    def set_fieldname(self, name, force=False):
+        return self.__class__([t.set_fieldname(name, force)
+                               for t in self.tokens])
+    
+    def append(self, item):
+        self.tokens.append(item)
+        
+    def extend(self, items):
+        self.tokens.extend(items)
+    
+    def pop(self):
+        return self.tokens.pop()
+    
+    def query(self, parser):
+        return self.qclass([t.query(parser) for t in self.tokens],
+                           boost=self.boost)
+        
+    def empty(self):
+        return self.__class__(boost=self.boost)
+
+
+class AndGroup(Group):
+    """Syntax group corresponding to an And query.
+    """
+    
+    qclass = query.And
+    
+
+class OrGroup(Group):
+    """Syntax group corresponding to an Or query.
+    """
+    
+    qclass = query.Or
+
+
+class AndNotGroup(Group):
+    """Syntax group corresponding to an AndNot query.
+    """
+    
+    def query(self, parser):
+        assert len(self.tokens) == 2
+        return query.AndNot(self.tokens[0].query(parser),
+                            self.tokens[1].query(parser), boost=self.boost)
+    
+class AndMaybeGroup(Group):
+    """Syntax group corresponding to an AndMaybe query.
+    """
+    
+    def query(self, parser):
+        assert len(self.tokens) == 2
+        return query.AndMaybe(self.tokens[0].query(parser),
+                              self.tokens[1].query(parser), boost=self.boost)
+
+class RequireGroup(Group):
+    """Syntax group corresponding to a Require query.
+    """
+    
+    def query(self, parser):
+        assert len(self.tokens) == 2
+        return query.Require(self.tokens[0].query(parser),
+                             self.tokens[1].query(parser), boost = self.boost)
+
+class DisMaxGroup(Group):
+    """Syntax group corresponding to a DisjunctionMax query.
+    """
+    
+    def __init__(self, tokens=None, tiebreak=0.0, boost=None):
+        super(DisMaxGroup, self).__init__(tokens)
+        self.tiebreak = tiebreak
+    
+    def __repr__(self):
+        r = "dismax(%r" % self.tokens
+        if self.tiebreak != 0:
+            r += " tb=%s" % self.tiebreak
+        r += ")"
+        return r
+    
+    def query(self, parser):
+        return query.DisjunctionMax([t.query(parser) for t in self.tokens],
+                                    tiebreak=self.tiebreak)
+        
+    def empty(self):
+        return self.__class__(tiebreak=self.tiebreak, boost=self.boost)
+
+
+class NotGroup(Group):
+    """Syntax group corresponding to a Not query.
+    """
+    
+    def __repr__(self):
+        return "NOT(%r)" % self.tokens
+    
+    def query(self, parser):
+        assert len(self.tokens) == 1
+        return query.Not(self.tokens[0].query(parser))
+    
+
+# Parse-able tokens
+
+class Token(SyntaxObject):
+    """A parse-able token object. Each token class has an ``expr`` attribute
+    containing a regular expression that matches the token text. When this
+    expression is found, the class/object's ``create()`` method is called and
+    returns a token object to represent the match in the token stream.
+    
+    Many token classes will do the parsing using class methods and put
+    instances of themselves in the token stream, however parseable objects
+    requiring configuration (such as the :class:`Operator` subclasses may use
+    separate objects for doing the parsing and embodying the token.
+    """
+    
+    fieldname = None
+    endpos = None
+    
+    def set_boost(self, b):
+        return self
+    
+    def set_fieldname(self, name, force=False):
+        return self
+    
+    @classmethod
+    def match(cls, text, pos):
+        return cls.expr.match(text, pos)
+    
+    @classmethod
+    def create(cls, parser, match):
+        return cls()
+    
+    def query(self, parser):
+        raise NotImplementedError
+
+
+class Operator(Token):
+    """Represents a search operator which modifies the token stream by putting
+    certain tokens into a :class:`Group` object. For example, an "and" infix
+    operator would put the two tokens on either side of the operator into
+    an :class:`AndGroup`.
+    
+    This is the base class for operators. Subclasses must implement the
+    :meth:`Operator.make_group` method.
+    """
+    
+    left_assoc = False
+    
+    def __init__(self, expr, grouptype):
+        """
+        :param expr: a pattern string or compiled expression of the token text.
+        :param grouptype: a :class:`Group` subclass that should be created to
+            contain objects affected by the operator.
+        """
+        
+        self.expr = rcompile(expr)
+        self.grouptype = grouptype
+    
+    def __repr__(self):
+        return "%s<%s>" % (self.__class__.__name__, self.expr.pattern)
+    
+    def make_group(self, parser, stream, position):
+        raise NotImplementedError
+    
+    def match(self, text, pos):
+        return self.expr.match(text, pos)
+    
+    def create(self, parser, match):
+        return self
+    
+class PrefixOperator(Operator):
+    """Implements a prefix operator. That is, the token immediately following
+    the operator will be put into the group.
+    """
+    
+    def make_group(self, parser, stream, position):
+        if position < len(stream) - 1:
+            del stream[position]
+            stream[position] = self.grouptype([stream[position]])
+        else:
+            del stream[position]
+        return position
+    
+class PostfixOperator(Operator):
+    """Implements a postfix operator. That is, the token immediately preceding
+    the operator will be put into the group.
+    """
+    
+    def make_group(self, parser, stream, position):
+        if position > 0:
+            del stream[position]
+            stream[position - 1] = self.grouptype([stream[position - 1]])
+        else:
+            del stream[position]
+        return position
+
+class InfixOperator(Operator):
+    """Implements an infix operator. That is, the tokens immediately on either
+    side of the operator will be put into the group.
+    """
+    
+    def __init__(self, expr, grouptype, left_assoc=False):
+        """
+        :param expr: a pattern string or compiled expression of the token text.
+        :param grouptype: a :class:`Group` subclass that should be created to
+            contain objects affected by the operator.
+        :param left_assoc: if True, the operator is left associative. Otherwise
+            it is right associative.
+        """
+        
+        super(InfixOperator, self).__init__(expr, grouptype)
+        self.left_assoc = left_assoc
+    
+    def make_group(self, parser, stream, position):
+        if position > 0 and position < len(stream) - 1:
+            left = stream[position - 1]
+            right = stream[position + 1]
+            
+            # The first two clauses check whether the "strong" side is already
+            # a group of the type we are going to create. If it is, we just
+            # append the "weak" side to the "strong" side instead of creating
+            # a new group inside the existing one. This is necessary because
+            # we can quickly run into Python's recursion limit otherwise.
+            if self.left_assoc and isinstance(left, self.grouptype):
+                left.append(right)
+                del stream[position:position + 2]
+            elif not self.left_assoc and isinstance(right, self.grouptype):
+                right.insert(0, left)
+                del stream[position - 1:position + 1]
+                return position - 1
+            else:
+                stream[position - 1:position + 2] = (self.grouptype([left, right]), )
+        else:
+            del stream[position]
+        return position
+
+
+class Singleton(Token):
+    """Base class for tokens that don't carry any information specific to
+    each instance (e.g. "open parenthesis" token), so they can all share the
+    same instance.
+    """
+    
+    me = None
+    
+    def __repr__(self):
+        return self.__class__.__name__
+    
+    @classmethod
+    def create(cls, parser, match):
+        if not cls.me:
+            cls.me = cls()
+        return cls.me
+
+
+class White(Singleton):
+    expr = rcompile("\\s+")
+    
+
+class ErrorToken(Token):
+    """A token representing an unavoidable parsing error. The ``query()``
+    method always returns NullQuery.
+    
+    The default parser usually does not produce "errors" (text that doesn't
+    match the syntax is simply treated as part of the query), so this is mostly
+    for use by plugins that may add more restrictive parsing, for example
+    :class:`DateParserPlugin`.
+    
+    Since the corresponding NullQuery will be filtered out when the query is
+    normalized, this is really only useful for debugging and possibly for
+    plugin filters.
+    
+    The ``token`` attribute may contain the token that produced the error.
+    """
+    
+    def __init__(self, token):
+        self.token = token
+        
+    def __repr__(self):
+        return "<%s (%r)>" % (self.__class__.__name__, self.token)
+    
+    def query(self, parser):
+        return query.NullQuery
+
+
+class BasicSyntax(Token):
+    """Base class for "basic" (atomic) syntax -- term, prefix, wildcard,
+    phrase, range.
+    """
+    
+    expr = None
+    qclass = None
+    tokenize = False
+    removestops = False
+    
+    def __init__(self, text, fieldname=None, boost=1.0):
+        self.fieldname = fieldname
+        self.text = text
+        self.boost = boost
+    
+    def set_boost(self, b):
+        return self.__class__(self.text, fieldname=self.fieldname, boost=b)
+    
+    def set_fieldname(self, name, force=False):
+        if force or self.fieldname is None:
+            return self.__class__(self.text, fieldname=name, boost=self.boost)
+        else:
+            return self
+    
+    def __repr__(self):
+        r = "%s:%r" % (self.fieldname, self.text)
+        if self.boost != 1.0:
+            r += "^%s" % self.boost
+        return r
+    
+    @classmethod
+    def create(cls, parser, match):
+        return cls(match.group(0))
+    
+    def query(self, parser):
+        fieldname = self.fieldname or parser.fieldname
+        termclass = self.qclass or parser.termclass
+        
+        return parser.term_query(fieldname, self.text, termclass,
+                                 boost=self.boost, tokenize=self.tokenize,
+                                 removestops=self.removestops)
+        
+
+class Word(BasicSyntax):
+    """Syntax object representing a term.
+    """
+    
+    expr = rcompile("[^ \t\r\n)]+")
+    tokenize = True
+    removestops = True
+ 
