@@ -70,10 +70,7 @@ class Group(SyntaxObject):
     """
     
     def __init__(self, tokens=None, boost=1.0):
-        if tokens:
-            self.tokens = tokens
-        else:
-            self.tokens = []
+        self.tokens = tokens or []
         self.boost = boost
     
     def __repr__(self):
@@ -96,6 +93,12 @@ class Group(SyntaxObject):
     
     def __setitem__(self, n, v):
         self.tokens.__setitem__(n, v)
+    
+    def __delitem__(self, n):
+        self.tokens.__delitem__(n)
+    
+    def insert(self, n, v):
+        self.tokens.insert(n, v)
     
     def set_boost(self, b):
         return self.__class__(self.tokens[:], boost=b)
@@ -126,7 +129,7 @@ class AndGroup(Group):
     """
     
     qclass = query.And
-
+    
 
 class OrGroup(Group):
     """Syntax group corresponding to an Or query.
@@ -182,7 +185,7 @@ class DisMaxGroup(Group):
                                     tiebreak=self.tiebreak)
         
     def empty(self):
-        return self.__class__(tiebreak=self.tiebreak)
+        return self.__class__(tiebreak=self.tiebreak, boost=self.boost)
 
 
 class NotGroup(Group):
@@ -202,9 +205,13 @@ class NotGroup(Group):
 class Token(SyntaxObject):
     """A parse-able token object. Each token class has an ``expr`` attribute
     containing a regular expression that matches the token text. When this
-    expression is found, the class's ``create()`` class method is called and
-    returns a token object to represent the match in the syntax tree. When the
-    syntax tree is finished, the
+    expression is found, the class/object's ``create()`` method is called and
+    returns a token object to represent the match in the token stream.
+    
+    Many token classes will do the parsing using class methods and put
+    instances of themselves in the token stream, however parseable objects
+    requiring configuration (such as the :class:`Operator` subclasses may use
+    separate objects for doing the parsing and embodying the token.
     """
     
     fieldname = None
@@ -226,6 +233,107 @@ class Token(SyntaxObject):
     
     def query(self, parser):
         raise NotImplementedError
+
+
+class Operator(Token):
+    """Represents a search operator which modifies the token stream by putting
+    certain tokens into a :class:`Group` object. For example, an "and" infix
+    operator would put the two tokens on either side of the operator into
+    an :class:`AndGroup`.
+    
+    This is the base class for operators. Subclasses must implement the
+    :meth:`Operator.make_group` method.
+    """
+    
+    left_assoc = True
+    
+    def __init__(self, expr, grouptype):
+        """
+        :param expr: a pattern string or compiled expression of the token text.
+        :param grouptype: a :class:`Group` subclass that should be created to
+            contain objects affected by the operator.
+        """
+        
+        self.expr = rcompile(expr)
+        self.grouptype = grouptype
+    
+    def __repr__(self):
+        return "%s<%s>" % (self.__class__.__name__, self.expr.pattern)
+    
+    def make_group(self, parser, stream, position):
+        raise NotImplementedError
+    
+    def match(self, text, pos):
+        return self.expr.match(text, pos)
+    
+    def create(self, parser, match):
+        return self
+    
+class PrefixOperator(Operator):
+    """Implements a prefix operator. That is, the token immediately following
+    the operator will be put into the group.
+    """
+    
+    def make_group(self, parser, stream, position):
+        if position < len(stream) - 1:
+            del stream[position]
+            stream[position] = self.grouptype([stream[position]])
+        else:
+            del stream[position]
+        return position
+    
+class PostfixOperator(Operator):
+    """Implements a postfix operator. That is, the token immediately preceding
+    the operator will be put into the group.
+    """
+    
+    def make_group(self, parser, stream, position):
+        if position > 0:
+            del stream[position]
+            stream[position - 1] = self.grouptype([stream[position - 1]])
+        else:
+            del stream[position]
+        return position
+
+class InfixOperator(Operator):
+    """Implements an infix operator. That is, the tokens immediately on either
+    side of the operator will be put into the group.
+    """
+    
+    def __init__(self, expr, grouptype, left_assoc=False):
+        """
+        :param expr: a pattern string or compiled expression of the token text.
+        :param grouptype: a :class:`Group` subclass that should be created to
+            contain objects affected by the operator.
+        :param left_assoc: if True, the operator is left associative. Otherwise
+            it is right associative.
+        """
+        
+        super(InfixOperator, self).__init__(expr, grouptype)
+        self.left_assoc = left_assoc
+    
+    def make_group(self, parser, stream, position):
+        if position > 0 and position < len(stream) - 1:
+            left = stream[position - 1]
+            right = stream[position + 1]
+            
+            # The first two clauses check whether the "strong" side is already
+            # a group of the type we are going to create. If it is, we just
+            # append the "weak" side to the "strong" side instead of creating
+            # a new group inside the existing one. This is necessary because
+            # we can quickly run into Python's recursion limit otherwise.
+            if self.left_assoc and isinstance(left, self.grouptype):
+                left.append(right)
+                del stream[position:position + 2]
+            elif not self.left_assoc and isinstance(right, self.grouptype):
+                right.insert(0, left)
+                del stream[position - 1:position + 1]
+                return position - 1
+            else:
+                stream[position - 1:position + 2] = (self.grouptype([left, right]), )
+        else:
+            del stream[position]
+        return position
 
 
 class Singleton(Token):
@@ -720,97 +828,131 @@ class FieldsPlugin(Plugin):
                 return cls(fieldname)
     
 
-class CompoundsPlugin(Plugin):
-    """Adds the ability to use AND, OR, ANDMAYBE, and ANDNOT to specify
-    query constraints.
+class OperatorsPlugin(Plugin):
+    """By default, adds the AND, OR, ANDNOT, ANDMAYBE, and NOT operators to
+    the parser syntax. This plugin scans the token stream for subclasses of
+    :class:`Operator` and calls their :meth:`Operator.make_group` methods
+    to allow them to manipulate the stream.
     
-    You can customize the tokens by passing regular expressions to the ``And``,
-    ``Or``, ``AndNot``, and/or ``AndMaybe`` keywords to the class initializer::
+    There are two levels of configuration available.
+    
+    The first level is to change the regular expressions of the default
+    operators, using the ``And``, ``Or``, ``AndNot``, ``AndMaybe``, and/or
+    ``Not`` keyword arguments. The keyword value can be a pattern string or
+    a compiled expression, or None to remove the operator::
     
         qp = qparser.QueryParser("content")
-        
-        cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
+        cp = qparser.OperatorsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not=None)
         qp.replace_plugin(cp)
     
-    This plugin is included in the default parser configuration.
+    You can also specify a list of ``(Operator, priority)`` pairs as the first
+    argument to the initializer. For example, assume you have created an
+    :class:`InfixOperator` subclass to implement a "before" operator. To add
+    this to the operators plugin with a priority of -5, you would do this::
+    
+        additional = [(MyBefore(), -5)]
+        cp = qparser.OperatorsPlugin(additional)
+    
+    Not that the list of operators you specify with the first argument is IN
+    ADDITION TO the defaults, so for example if you want the plugin to have
+    ONLY your operator, you need to do something like this::
+        
+        cp = qparser.OperatorsPlugin([(MyAnd(), 0)], And=None, Or=None,
+                                     AndNot=None, AndMaybe=None, Not=None)
+                                     
+    This class replaces the ``CompoundsPlugin``. ``qparser.CompoundsPlugin`` is
+    now an alias for this class.
     """
     
-    def __init__(self, And=r"\sAND\s", Or=r"\sOR\s", AndNot=r"\sANDNOT\s",
-                 AndMaybe=r"\sANDMAYBE\s"):
-        # Create one-off token classes using the keyword arguments
-        class AndTokenClass(Singleton):
-            expr = rcompile(And)
-        class OrTokenClass(Singleton):
-            expr = rcompile(Or)
-        class AndNotTokenClass(Singleton):
-            expr = rcompile(AndNot)
-        class AndMaybeTokenClass(Singleton):
-            expr = rcompile(AndMaybe)
-            
-        # Store these classes as attributes
-        self.And = AndTokenClass
-        self.Or = OrTokenClass
-        self.AndNot = AndNotTokenClass
-        self.AndMaybe = AndMaybeTokenClass
+    def __init__(self, ops=None, And=r"\sAND\s", Or=r"\sOR\s",
+                 AndNot=r"\sANDNOT\s", AndMaybe=r"\sANDMAYBE\s",
+                 Not=r"(^|(?<= ))NOT\s"):
+        if not ops:
+            ops = []
+        
+        if And: ops.append((InfixOperator(And, AndGroup), 0))
+        if Or: ops.append((InfixOperator(Or, OrGroup), 0))
+        if AndNot: ops.append((InfixOperator(AndNot, AndNotGroup), -10))
+        if AndMaybe: ops.append((InfixOperator(AndMaybe, AndMaybeGroup), -5))
+        if Not: ops.append((PrefixOperator(Not, NotGroup), 0))
+        
+        ops = sorted(ops, key=lambda x: x[1])
+        self.ops = ops
     
     def tokens(self, parser):
-        return ((self.AndNot, -10), (self.AndMaybe, -5), (self.And, 0),
-                (self.Or, 0))
+        return self.ops
     
     def filters(self, parser):
-        return ((self.do_compounds, 600), )
-
-    def do_compounds(self, parser, stream):
+        return ((self.do_operators, 600), )
+    
+    def do_operators(self, parser, stream, level=0):
+        for op, pri in self.ops:
+            optype = type(op)
+            if op.left_assoc:
+                i = 0
+                while i < len(stream):
+                    t = stream[i]
+                    if isinstance(t, optype):
+                        i = t.make_group(parser, stream, i)
+                    else:
+                        i += 1
+            else:
+                i = len(stream) - 1
+                while i >= 0:
+                    t = stream[i]
+                    if isinstance(t, optype):
+                        i = t.make_group(parser, stream, i)
+                    i -= 1
+        
+        #print " " * level, "stream=", stream
         newstream = stream.empty()
-        i = 0
-        while i < len(stream):
-            # The current token
-            t = stream[i]
-            
-            # Whether this token has other tokens in front and behind; that is,
-            # if ismiddle is True, this is not the first or last token
-            ismiddle = newstream and i < len(stream) - 1
+        for t in stream:
+            if isinstance(t, Group):
+                t = self.do_operators(parser, t, level+1)
+            newstream.append(t)
+        
+        #print " " * level, "newstream=", newstream
+        return newstream
+
+CompoundsPlugin = OperatorsPlugin
+
+
+class NotPlugin(Plugin):
+    """This plugin is deprecated, its functionality is now provided by the
+    :class:`OperatorsPlugin`.
+    """
+    
+    def __init__(self, token="(^|(?<= ))NOT "):
+        class Not(Singleton):
+            expr = rcompile(token)
+        
+        self.Not = Not
+    
+    def tokens(self, parser):
+        return ((self.Not, 0), )
+    
+    def filters(self, parser):
+        return ((self.do_not, 800), )
+    
+    def do_not(self, parser, stream):
+        newstream = stream.empty()
+        notnext = False
+        for t in stream:
+            if isinstance(t, self.Not):
+                notnext = True
+                continue
             
             if isinstance(t, Group):
-                # The current token is a group: recursively apply this plugin
-                # to the group
-                newstream.append(self.do_compounds(parser, t))
-                
-            elif isinstance(t, (self.And, self.Or)):
-                # This is either an And or Or token. Create a new Group class
-                # of the appropriate type
-                if isinstance(t, self.And):
-                    cls = AndGroup
-                else:
-                    cls = OrGroup
-                
-                if cls != type(newstream) and ismiddle:
-                    last = newstream.pop()
-                    rest = self.do_compounds(parser, cls(stream[i+1:]))
-                    newstream.append(cls([last, rest]))
-                    break
+                t = self.do_not(parser, t)
             
-            elif isinstance(t, (self.AndNot, self.AndMaybe)) and ismiddle:
-                # This is either an AndNot or AndMaybe token. Create a new
-                # Group class of the appropriate type
-                if isinstance(t, self.AndNot):
-                    cls = AndNotGroup
-                else:
-                    cls = AndMaybeGroup
-                
-                last = newstream.pop()
-                i += 1
-                next = stream[i]
-                if isinstance(next, Group):
-                    next = self.do_compounds(parser, next)
-                newstream.append(cls([last, next]))
+            if notnext:
+                t = NotGroup([t])
             
-            else:
-                newstream.append(t)
+            newstream.append(t)
+            notnext = False
             
-            i += 1
-        
         return newstream
+ 
 
 
 class BoostPlugin(Plugin):
@@ -868,55 +1010,6 @@ class BoostPlugin(Plugin):
                 return cls(match.group(0), float(match.group(1)))
             except ValueError:
                 return Word(match.group(0))
-    
-
-class NotPlugin(Plugin):
-    """Adds the ability to negate a clause by preceding it with NOT.
-    
-    You can customize the token by passing a regular expression to the class
-    initializer::
-    
-        qp = qparser.QueryParser("content")
-        
-        # Use - as the not token
-        qp.replace_plugin(qparser.NotPlugin("(^|(?<= ))-"))
-        
-        # Use ! as the not token
-        qp.replace_plugin(qparser.NotPlugin("(^|(?<= ))!"))
-    
-    This plugin is included in the default parser configuration.
-    """
-    
-    def __init__(self, token="(^|(?<= ))NOT "):
-        class Not(Singleton):
-            expr = rcompile(token)
-        
-        self.Not = Not
-    
-    def tokens(self, parser):
-        return ((self.Not, 0), )
-    
-    def filters(self, parser):
-        return ((self.do_not, 800), )
-    
-    def do_not(self, parser, stream):
-        newstream = stream.empty()
-        notnext = False
-        for t in stream:
-            if isinstance(t, self.Not):
-                notnext = True
-                continue
-            
-            if isinstance(t, Group):
-                t = self.do_not(parser, t)
-            
-            if notnext:
-                t = NotGroup([t])
-            
-            newstream.append(t)
-            notnext = False
-            
-        return newstream
     
 
 class PlusMinusPlugin(Plugin):
@@ -1112,9 +1205,8 @@ class CopyFieldPlugin(Plugin):
 
 # Parser object
 
-full_profile = (BoostPlugin, CompoundsPlugin, FieldsPlugin, GroupPlugin,
-                NotPlugin, PhrasePlugin, RangePlugin, SingleQuotesPlugin,
-                WildcardPlugin)
+full_profile = (BoostPlugin, OperatorsPlugin, FieldsPlugin, GroupPlugin,
+                PhrasePlugin, RangePlugin, SingleQuotesPlugin, WildcardPlugin)
 
 
 class QueryParser(object):
