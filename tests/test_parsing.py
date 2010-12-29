@@ -523,9 +523,13 @@ class TestQueryParser(unittest.TestCase):
     def test_multitoken_words(self):
         schema = fields.Schema(text=fields.TEXT)
         parser = qparser.QueryParser('text', schema=schema)
+        qstring = u"chaw-bacon"
         
-        q = parser.parse(u"chaw-bacon")
-        self.assertEqual(q.__class__, query.And)
+        texts = list(schema["text"].process_text(qstring))
+        self.assertEqual(texts, ["chaw", "bacon"])
+        
+        q = parser.parse(qstring)
+        self.assertEqual(q.__class__, query.Or)
         self.assertEqual(len(q), 2)
         self.assertEqual(q[0].__class__, query.Term)
         self.assertEqual(q[0].text, "chaw")
@@ -541,7 +545,7 @@ class TestQueryParser(unittest.TestCase):
         
         def make_parser(*ops):
             parser = qparser.QueryParser("f")
-            parser.replace_plugin(qparser.CompoundsPlugin(ops))
+            parser.replace_plugin(qparser.CompoundsPlugin(ops, clean=True))
             return parser
         
         p = make_parser(left_and, left_or)
@@ -554,7 +558,7 @@ class TestQueryParser(unittest.TestCase):
         
         p = make_parser(not_)
         q = p.parse("a NOT b NOT c NOT d", normalize=False)
-        self.assertEqual(unicode(q), "(f:a AND NOT(f:b) AND NOT(f:c) AND NOT(f:d))")
+        self.assertEqual(unicode(q), "(f:a AND NOT f:b AND NOT f:c AND NOT f:d)")
         
         p = make_parser(left_and)
         q = p.parse("(a AND b) AND (c AND d)", normalize=False)
