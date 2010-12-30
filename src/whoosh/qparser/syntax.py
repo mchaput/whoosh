@@ -14,17 +14,38 @@
 # limitations under the License.
 #===============================================================================
 
+"""
+This module contains support classes for the query parser. These objects are
+used to construct the parsed syntax tree of the query. The syntax tree is then
+tranlsated into a query tree by calling ``SyntaxObject.query()`` on the object
+at the top of the tree.
+"""
+
 from whoosh import query
 from whoosh.qparser.common import rcompile
 
 
 class SyntaxObject(object):
     """An object representing parsed text. These objects generally correspond
-    to a query object type, and are intermediate objects used to represent
-    the syntax tree parsed from a query string, and then generate a query
-    tree from the syntax tree. There will be syntax objects that do not have
-    a corresponding query type, such as the object representing whitespace.
+    to a query object type, and are intermediate objects used to represent the
+    syntax tree parsed from a query string, and then generate a query tree from
+    the syntax tree. There will be syntax objects that do not have a
+    corresponding query type, such as the syntax object representing
+    whitespace.
     """
+    
+    def set_fieldname(self, name, force=False):
+        """Returns a version of this syntax object with the field name set to
+        the given name. Normally this only changes the field name if the
+        field name is not already set, but if the ``force`` keyword argument
+        is True, the field name will be changed regardless.
+        
+        This method is mis-named and confusing, but is used by the parser
+        to assign field names to branches of the syntax tree, but only for
+        syntax objects that didn't have an explicit field name set by the user.
+        """
+        
+        raise NotImplementedError
     
     def query(self, parser):
         """Returns a query object tree representing this parser object.
@@ -36,8 +57,8 @@ class SyntaxObject(object):
 # Grouping objects
 
 class Group(SyntaxObject):
-    """An object representing a group of objects. These generally correspond
-    to compound query objects such as ``query.And`` and ``query.Or``.
+    """Represents a group of syntax objects. These generally correspond to
+    compound query objects such as ``query.And`` and ``query.Or``.
     """
     
     def __init__(self, tokens=None, boost=1.0):
@@ -301,7 +322,8 @@ class InfixOperator(Operator):
                 del stream[position - 1:position + 1]
                 return position - 1
             else:
-                stream[position - 1:position + 2] = (self.grouptype([left, right]), )
+                # Replace the operator and the two surrounding objects
+                stream[position - 1:position + 2] = [self.grouptype([left, right])]
         else:
             del stream[position]
         return position

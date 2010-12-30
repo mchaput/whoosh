@@ -14,6 +14,11 @@
 # limitations under the License.
 #===============================================================================
 
+"""
+This module contains plugins for the query parser. Most of the functionality
+of the default query parser is actually provided by plugins.
+"""
+
 import re
 
 from whoosh.qparser.syntax import *
@@ -372,7 +377,7 @@ class FieldsPlugin(Plugin):
         return newstream
     
     class Field(Token):
-        expr = rcompile(u"(\w[\w\d]*):")
+        expr = rcompile(u"((\w[\w\d]*)|\\*):")
         
         def __init__(self, fieldname):
             self.fieldname = fieldname
@@ -386,7 +391,7 @@ class FieldsPlugin(Plugin):
         @classmethod
         def create(cls, parser, match):
             fieldname = match.group(1)
-            if not parser.schema or (fieldname in parser.schema):
+            if not parser.schema or fieldname == "*" or (fieldname in parser.schema):
                 return cls(fieldname)
     
 
@@ -772,3 +777,12 @@ class CopyFieldPlugin(Plugin):
                     t = self.group([t, t.set_fieldname(fromname, force=True)])
             newstream.append(t)
         return newstream
+
+
+
+
+
+
+
+
+
