@@ -1339,17 +1339,22 @@ class Every(Query):
 
     def matcher(self, searcher, exclude_docs=None):
         fieldname = self.fieldname
-        s = set()
         
         # This is a hacky hack, but just create an in-memory set of all the
         # document numbers of every term in the field
-        for text in searcher.lexicon(fieldname):
-            pr = searcher.postings(fieldname, text)
-            s.update(pr.all_ids())
+        s = set()
+        
+        if fieldname == "*":
+            s.update(xrange(searcher.doc_count_all()))
+        else:
+            for text in searcher.lexicon(fieldname):
+                pr = searcher.postings(fieldname, text)
+                s.update(pr.all_ids())
+        
         if exclude_docs:
             s.difference_update(exclude_docs)
         
-        return ListMatcher(sorted(s), weights=[self.boost] * len(s))
+        return ListMatcher(sorted(s), all_weights=self.boost)
 
             
 class NullQuery(Query):
@@ -1393,7 +1398,7 @@ class ConstantScoreQuery(WrappingQuery):
             return m
         else:
             ids = array("I", m.all_ids())
-            return ListMatcher(ids, weights=[self.score] * len(ids))
+            return ListMatcher(ids, all_weights=self.score)
         
     def replace(self, oldtext, newtext):
         return self.__class__(self.child.replace(oldtext, newtext), self.score)

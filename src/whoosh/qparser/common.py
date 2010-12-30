@@ -14,6 +14,11 @@
 # limitations under the License.
 #===============================================================================
 
+"""
+This module contains common utility objects/functions for the other query
+parser modules.
+"""
+
 import re
 
 
