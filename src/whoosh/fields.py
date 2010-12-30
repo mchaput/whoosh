@@ -64,13 +64,13 @@ class FieldType(object):
       fields marked as 'unique' to find the previous version of a document
       being updated.
       
-    * multitoken_query (string or :class:`whoosh.query.Query` subclass): the
-      query type to use to join the token strings when a "word" in a user query
-      parses into multiple tokens. You can supply an instance of `Query` or a
-      string. The string can be one of ``'and'``, ``'or'``, ``'phrase'``,
-      ``'andmaybe'``, or ``'first'`` (take the first token and discard the
-      rest).
-    
+    * multitoken_query is a string indicating what kind of query to use when
+      a "word" in a user query parses into multiple tokens. The string is
+      interpreted by the query parser. The strings understood by the default
+      query parser are "first" (use first token only), "and" (join the tokens
+      with an AND query), "or" (join the tokens with OR), and "phrase" (join
+      the tokens with a phrase query).
+     
     The constructor for the base field type simply lets you supply your own
     configured field format, vector format, and scorable and stored values.
     Subclasses may configure some or all of this for you.
@@ -78,12 +78,12 @@ class FieldType(object):
     
     format = vector = scorable = stored = unique = None
     indexed = True
-    _multitoken_query = "or"
+    multitoken_query = "first"
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
     
     def __init__(self, format, vector=None, scorable=False, stored=False,
-                 unique=False, multitoken_query="or"):
+                 unique=False, multitoken_query="first"):
         self.format = format
         self.vector = vector
         self.scorable = scorable
@@ -112,31 +112,6 @@ class FieldType(object):
             self.format.clean()
         if self.vector and hasattr(self.vector, "clean"):
             self.vector.clean()
-    
-    def _typemap(self):
-        from whoosh import query
-        return {"and": query.And, "or": query.Or, "phrase": query.Phrase,
-                "andmaybe": query.AndMaybe, "first": None}
-    
-    def _get_multitoken_query(self):
-        typemap = self._typemap()
-        qtype = self._multitoken_query
-        if isinstance(qtype, basestring) and qtype.lower() in typemap:
-            qtype = typemap[qtype.lower()]
-        return qtype
-        
-    def _set_multitoken_query(self, qtype):
-        typemap = self._typemap()
-        
-        if isinstance(qtype, basestring) and qtype.lower() in typemap:
-            qtype = typemap[qtype.lower()]
-        elif not callable(qtype):
-            typenames = ", ".join("'%s'" % name for name in typemap.iterkeys())
-            raise Exception("multitoken_query must be a Query class or one of %s" % typenames)
-        
-        self._multitoken_query = qtype
-    
-    multitoken_query = property(_get_multitoken_query, _set_multitoken_query)
     
     def to_text(self, value):
         """Returns a textual representation of the value. Non-textual fields
