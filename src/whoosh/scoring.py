@@ -478,7 +478,6 @@ class FieldSorter(Sorter):
             for docid in ixreader.postings(fieldname, word).all_ids():
                 cache[docid] = i
 
-        self.limit = i
         self._fieldcache = cache
         return cache
 
