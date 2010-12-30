@@ -571,7 +571,13 @@ class TestQueryParser(unittest.TestCase):
         p = make_parser(right_or, left_and)
         q = p.parse("a AND b OR c AND d OR e AND f", normalize=False)
         self.assertEqual(unicode(q), "((f:a AND (f:b OR (f:c AND (f:d OR (f:e AND f:f))))))")
-        
+    
+#    def test_star_field(self):
+#        s = fields.Schema(text=fields.TEXT)
+#        qp = qparser.QueryParser("text", schema=s)
+#        q = qp.parse(u"*:*")
+#        self.assertEqual(q.__class__, query.Every)
+#        self.assertEqual(q.fieldname, "*")
         
         
 

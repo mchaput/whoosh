@@ -377,7 +377,7 @@ class FieldsPlugin(Plugin):
         return newstream
     
     class Field(Token):
-        expr = rcompile(u"((\w[\w\d]*)|\\*):")
+        expr = rcompile(u"(\w[\w\d]*):")
         
         def __init__(self, fieldname):
             self.fieldname = fieldname
