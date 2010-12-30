@@ -516,7 +516,9 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[1].text, "tom")
 
     def test_multitoken_words(self):
-        schema = fields.Schema(text=fields.TEXT)
+        textfield = fields.TEXT()
+        textfield.multitoken_query = "or"
+        schema = fields.Schema(text=textfield)
         parser = qparser.QueryParser('text', schema=schema)
         qstring = u"chaw-bacon"
         

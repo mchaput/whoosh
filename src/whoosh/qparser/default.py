@@ -48,6 +48,9 @@ class QueryParser(object):
     And([Term("content", u"hello"), Term("content", u"there")])
     """
     
+    _multitoken_query_map = {"and": query.And, "or": query.Or,
+                             "phrase": query.Phrase}
+    
     def __init__(self, fieldname, schema=None, termclass=query.Term,
                  phraseclass=query.Phrase, group=AndGroup, plugins=None):
         """
@@ -134,6 +137,12 @@ class QueryParser(object):
         items_and_priorities.sort(key=lambda x: x[1])
         return [item for item, pri in items_and_priorities]
     
+    def multitoken_query(self, name, texts, fieldname, termclass, boost):
+        qclass = self._multitoken_query_map.get(name.lower())
+        if qclass:
+            return qclass([termclass(fieldname, t, boost=boost)
+                           for t in texts])
+    
     def term_query(self, fieldname, text, termclass, boost=1.0, tokenize=True,
                    removestops=True):
         """Returns the appropriate query object for a single term in the query
@@ -158,16 +167,14 @@ class QueryParser(object):
                                             removestops=removestops))
             
             # If the analyzer returned more than one token, use the field's
-            # multitoken_query attribute to decide what query class to use to
-            # put the tokens together
+            # multitoken_query attribute to decide what query class, if any, to
+            # use to put the tokens together
             if len(texts) > 1:
-                qclass = field.multitoken_query
-                # field.multitoken_query may be None, which means just use
-                # the first token
-                if qclass:
-                    return qclass([termclass(fieldname, t, boost=boost)
-                                   for t in texts])
-            
+                mtq = self.multitoken_query(field.multitoken_query, texts,
+                                            fieldname, termclass, boost)
+                if mtq:
+                    return mtq
+                
             # It's possible field.process_text() will return an empty list (for
             # example, on a stop word)
             if not texts:

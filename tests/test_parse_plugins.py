@@ -293,7 +293,7 @@ class TestParserPlugins(unittest.TestCase):
         
         ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
         fmt = formats.Frequency(ana)
-        schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt))
+        schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt, multitoken_query="or"))
         qp = qparser.QueryParser("name", schema=schema)
         qp.add_plugin(qparser.CopyFieldPlugin("name", "name_phone"))
         self.assertEqual(unicode(qp.parse(u"spruce view")),
