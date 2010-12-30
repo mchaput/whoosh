@@ -1576,7 +1576,7 @@ class AndNot(Query):
                                self.positive, self.negative)
 
     def __unicode__(self):
-        return u"%s ANDNOT %s" % (self.positive, self.negative)
+        return u"(%s ANDNOT %s)" % (self.positive, self.negative)
 
     def copy(self):
         return self.__class__(self.positive, self.negative, boost=self.boost)

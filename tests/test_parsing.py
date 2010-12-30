@@ -56,7 +56,7 @@ class TestQueryParser(unittest.TestCase):
     def test_andor(self):
         qp  = qparser.QueryParser("a")
         q = qp.parse("a AND b OR c AND d OR e AND f")
-        self.assertEqual(unicode(q), u"(a:a AND (a:b OR (a:c AND (a:d OR (a:e AND a:f)))))")
+        self.assertEqual(unicode(q), u"((a:a AND a:b) OR (a:c AND a:d) OR (a:e AND a:f))")
         
         q = qp.parse("aORb")
         self.assertEqual(q, query.Term("a", "aORb"))
@@ -92,13 +92,8 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[2].__class__, query.Term)
         
         q = qp.parse(u"a AND b ANDNOT c")
-        self.assertEqual(q.__class__, query.And)
-        self.assertEqual(len(q), 2)
-        self.assertEqual(q[0].__class__, query.Term)
-        self.assertEqual(q[0].text, "a")
-        self.assertEqual(q[1].__class__, query.AndNot)
-        self.assertEqual(q[1].positive.text, "b")
-        self.assertEqual(q[1].negative.text, "c")
+        self.assertEqual(q.__class__, query.AndNot)
+        self.assertEqual(unicode(q), "((content:a AND content:b) ANDNOT content:c)")
     
     def test_boost(self):
         qp = qparser.QueryParser("content")
@@ -466,10 +461,10 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(unicode(q), u"(x:bravo ANDMAYBE (x:alfa OR x:charlie OR x:delta))")
         
         q = parser.parse(u"alfa +bravo -charlie delta")
-        self.assertEqual(unicode(q), u"(x:bravo ANDMAYBE (x:alfa OR x:delta)) ANDNOT x:charlie")
+        self.assertEqual(unicode(q), u"((x:bravo ANDMAYBE (x:alfa OR x:delta)) ANDNOT x:charlie)")
         
         q = parser.parse(u"- alfa +bravo + delta")
-        self.assertEqual(unicode(q), u"(x:bravo AND x:delta) ANDNOT x:alfa")
+        self.assertEqual(unicode(q), u"((x:bravo AND x:delta) ANDNOT x:alfa)")
     
     def test_dismax(self):
         parser = qparser.DisMaxParser({"body": 0.8, "title": 2.5})
@@ -480,10 +475,10 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(unicode(q), u"(DisMax(body:bravo^0.8 title:bravo^2.5) ANDMAYBE (DisMax(body:alfa^0.8 title:alfa^2.5) OR DisMax(body:charlie^0.8 title:charlie^2.5)))")
         
         q = parser.parse(u"alfa -bravo charlie")
-        self.assertEqual(unicode(q), u"(DisMax(body:alfa^0.8 title:alfa^2.5) OR DisMax(body:charlie^0.8 title:charlie^2.5)) ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5)")
+        self.assertEqual(unicode(q), u"((DisMax(body:alfa^0.8 title:alfa^2.5) OR DisMax(body:charlie^0.8 title:charlie^2.5)) ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5))")
         
         q = parser.parse(u"alfa -bravo +charlie")
-        self.assertEqual(unicode(q), u"(DisMax(body:charlie^0.8 title:charlie^2.5) ANDMAYBE DisMax(body:alfa^0.8 title:alfa^2.5)) ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5)")
+        self.assertEqual(unicode(q), u"((DisMax(body:charlie^0.8 title:charlie^2.5) ANDMAYBE DisMax(body:alfa^0.8 title:alfa^2.5)) ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5))")
     
     def test_many_clauses(self):
         parser = qparser.QueryParser("content")
@@ -496,7 +491,7 @@ class TestQueryParser(unittest.TestCase):
     def test_roundtrip(self):
         parser = qparser.QueryParser("a")
         q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
-        self.assertEqual(unicode(q), u"(a:a OR ((a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
+        self.assertEqual(unicode(q), u"((a:a OR (a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
         
     def test_ngrams(self):
         schema = fields.Schema(grams=fields.NGRAM)
@@ -535,12 +530,22 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].text, "chaw")
         self.assertEqual(q[1].__class__, query.Term)
         self.assertEqual(q[1].text, "bacon")
-        
+    
     def test_operators(self):
-        left_and = (qparser.InfixOperator("AND", qparser.AndGroup, True), 0)
-        right_and = (qparser.InfixOperator("AND", qparser.AndGroup, False), 0)
-        left_or = (qparser.InfixOperator("OR", qparser.OrGroup, True), 0)
-        right_or = (qparser.InfixOperator("OR", qparser.OrGroup, False), 0)
+        qp = qparser.QueryParser("f")
+        
+        q = qp.parse("a AND b OR c AND d")
+        self.assertEqual(unicode(q), "((f:a AND f:b) OR (f:c AND f:d))")
+        
+        q = qp.parse("a OR b OR c OR d")
+        self.assertEqual(unicode(q), "(f:a OR f:b OR f:c OR f:d)")
+        
+        q = qp.parse("a ANDMAYBE b ANDNOT c REQUIRE d")
+        self.assertEqual(unicode(q), "((f:a ANDMAYBE (f:b ANDNOT f:c)) REQUIRE f:d)")
+    
+    def test_associativity(self):
+        left_andmaybe = (qparser.InfixOperator("ANDMAYBE", qparser.AndMaybeGroup, True), 0)
+        right_andmaybe = (qparser.InfixOperator("ANDMAYBE", qparser.AndMaybeGroup, False), 0)
         not_ = (qparser.PrefixOperator("NOT", qparser.NotGroup), 0)
         
         def make_parser(*ops):
@@ -548,36 +553,35 @@ class TestQueryParser(unittest.TestCase):
             parser.replace_plugin(qparser.CompoundsPlugin(ops, clean=True))
             return parser
         
-        p = make_parser(left_and, left_or)
-        q = p.parse("a AND b OR c AND d", normalize=False)
-        self.assertEqual(unicode(q), "((((f:a AND f:b) OR f:c) AND f:d))")
+        p = make_parser(left_andmaybe)
+        q = p.parse("a ANDMAYBE b ANDMAYBE c ANDMAYBE d")
+        self.assertEqual(unicode(q), "(((f:a ANDMAYBE f:b) ANDMAYBE f:c) ANDMAYBE f:d)")
         
-        p = make_parser(right_and, right_or)
-        q = p.parse("a AND b OR c AND d", normalize=False)
-        self.assertEqual(unicode(q), "((f:a AND (f:b OR (f:c AND f:d))))")
+        p = make_parser(right_andmaybe)
+        q = p.parse("a ANDMAYBE b ANDMAYBE c ANDMAYBE d")
+        self.assertEqual(unicode(q), "(f:a ANDMAYBE (f:b ANDMAYBE (f:c ANDMAYBE f:d)))")
         
         p = make_parser(not_)
         q = p.parse("a NOT b NOT c NOT d", normalize=False)
         self.assertEqual(unicode(q), "(f:a AND NOT f:b AND NOT f:c AND NOT f:d)")
         
-        p = make_parser(left_and)
-        q = p.parse("(a AND b) AND (c AND d)", normalize=False)
-        self.assertEqual(unicode(q), "(((f:a AND f:b) AND ((f:c AND f:d))))")
+        p = make_parser(left_andmaybe)
+        q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
+        self.assertEqual(unicode(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
         
-        p = make_parser(left_and, left_or)
-        q = p.parse("a AND b OR c AND d OR e AND f", normalize=False)
-        self.assertEqual(unicode(q), "((((((f:a AND f:b) OR f:c) AND f:d) OR f:e) AND f:f))")
+        p = make_parser(right_andmaybe)
+        q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
+        self.assertEqual(unicode(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
         
-        p = make_parser(right_or, left_and)
-        q = p.parse("a AND b OR c AND d OR e AND f", normalize=False)
-        self.assertEqual(unicode(q), "((f:a AND (f:b OR (f:c AND (f:d OR (f:e AND f:f))))))")
-    
-#    def test_star_field(self):
-#        s = fields.Schema(text=fields.TEXT)
-#        qp = qparser.QueryParser("text", schema=s)
-#        q = qp.parse(u"*:*")
-#        self.assertEqual(q.__class__, query.Every)
-#        self.assertEqual(q.fieldname, "*")
+    def test_not_assoc(self):
+        qp = qparser.QueryParser("text")
+        q = qp.parse(u"a AND NOT b OR c")
+        self.assertEqual(unicode(q), "((text:a AND NOT text:b) OR text:c)")
+        
+        qp = qparser.QueryParser("text")
+        q = qp.parse(u"a NOT (b OR c)")
+        self.assertEqual(unicode(q), "(text:a AND NOT (text:b OR text:c))")
+        
         
         
 
