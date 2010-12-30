@@ -1205,7 +1205,7 @@ class Variations(MultiTerm):
             return self
 
 
-class Phrase(MultiTerm):
+class Phrase(Query):
     """Matches documents containing a given phrase."""
 
     def __init__(self, fieldname, words, slop=1, boost=1.0):
@@ -1306,6 +1306,18 @@ class Phrase(MultiTerm):
         from whoosh.spans import SpanNear
         q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
         return q.matcher(searcher, exclude_docs=exclude_docs)
+
+
+class Ordered(And):
+    """Matches documents containing a list of sub-queries in the given order.
+    """
+
+    JOINT = " BEFORE "
+    
+    def matcher(self, searcher, exclude_docs=None):
+        from spans import SpanBefore
+        return self._matcher(SpanBefore.SpanBeforeMatcher, searcher,
+                             exclude_docs=exclude_docs)
 
 
 class Every(Query):

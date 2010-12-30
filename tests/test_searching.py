@@ -865,6 +865,29 @@ class TestSearching(unittest.TestCase):
         
         q = p.parse(u'"\u306F\u6771\u4EAC\u3067"')
         self.assertEqual(len(s.search(q)), 1)
+        
+    def test_ordered(self):
+        domain = u"alfa bravo charlie delta echo foxtrot".split(" ")
+        
+        schema = fields.Schema(f=fields.TEXT(stored=True))
+        ix = RamStorage().create_index(schema)
+        writer = ix.writer()
+        for ls in permutations(domain):
+            writer.add_document(f=u" ".join(ls))
+        writer.commit()
+        
+        s = ix.searcher()
+        q = query.Ordered([Term("f", u"alfa"), Term("f", u"charlie"), Term("f", "echo")])
+        r = s.search(q)
+        for hit in r:
+            ls = hit["f"].split()
+            self.assertTrue("alfa" in ls)
+            self.assertTrue("charlie" in ls)
+            self.assertTrue("echo" in ls)
+            a = ls.index("alfa")
+            c = ls.index("charlie")
+            e = ls.index("echo")
+            self.assertTrue(a < c and c < e, repr(ls))
 
 
 if __name__ == '__main__':
