@@ -169,6 +169,13 @@ class RequireGroup(Group):
         return query.Require(self.tokens[0].query(parser),
                              self.tokens[1].query(parser), boost = self.boost)
 
+class OrderedGroup(Group):
+    """Syntax group corresponding to the Ordered query.
+    """
+    
+    many = True
+    qclass = query.Ordered
+
 class DisMaxGroup(Group):
     """Syntax group corresponding to a DisjunctionMax query.
     """
