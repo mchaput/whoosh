@@ -61,6 +61,14 @@ class Group(SyntaxObject):
     compound query objects such as ``query.And`` and ``query.Or``.
     """
     
+    # Whether this group can have any number of children. Other than AND and
+    # OR, most groups will represent binary queries, so the default is False.
+    many = False
+    
+    # Sub-classes that want to use the default query() implementation should
+    # set this to the query class corresponding to this group
+    qclass = None
+    
     def __init__(self, tokens=None, boost=1.0):
         self.tokens = tokens or []
         self.boost = boost
@@ -120,6 +128,8 @@ class AndGroup(Group):
     """Syntax group corresponding to an And query.
     """
     
+    # This group can have more than 2 children
+    many = True
     qclass = query.And
     
 
@@ -127,6 +137,8 @@ class OrGroup(Group):
     """Syntax group corresponding to an Or query.
     """
     
+    # This group can have more than 2 children
+    many = True
     qclass = query.Or
 
 
@@ -153,7 +165,7 @@ class RequireGroup(Group):
     """
     
     def query(self, parser):
-        assert len(self.tokens) == 2
+        assert len(self.tokens) == 2, self.tokens
         return query.Require(self.tokens[0].query(parser),
                              self.tokens[1].query(parser), boost = self.boost)
 
@@ -237,9 +249,7 @@ class Operator(Token):
     :meth:`Operator.make_group` method.
     """
     
-    left_assoc = False
-    
-    def __init__(self, expr, grouptype):
+    def __init__(self, expr, grouptype, left_assoc=True):
         """
         :param expr: a pattern string or compiled expression of the token text.
         :param grouptype: a :class:`Group` subclass that should be created to
@@ -248,6 +258,7 @@ class Operator(Token):
         
         self.expr = rcompile(expr)
         self.grouptype = grouptype
+        self.left_assoc = left_assoc
     
     def __repr__(self):
         return "%s<%s>" % (self.__class__.__name__, self.expr.pattern)
@@ -292,7 +303,7 @@ class InfixOperator(Operator):
     side of the operator will be put into the group.
     """
     
-    def __init__(self, expr, grouptype, left_assoc=False):
+    def __init__(self, expr, grouptype, left_assoc=True):
         """
         :param expr: a pattern string or compiled expression of the token text.
         :param grouptype: a :class:`Group` subclass that should be created to
@@ -314,10 +325,10 @@ class InfixOperator(Operator):
             # append the "weak" side to the "strong" side instead of creating
             # a new group inside the existing one. This is necessary because
             # we can quickly run into Python's recursion limit otherwise.
-            if self.left_assoc and isinstance(left, self.grouptype):
+            if self.grouptype.many and self.left_assoc and isinstance(left, self.grouptype):
                 left.append(right)
                 del stream[position:position + 2]
-            elif not self.left_assoc and isinstance(right, self.grouptype):
+            elif self.grouptype.many and not self.left_assoc and isinstance(right, self.grouptype):
                 right.insert(0, left)
                 del stream[position - 1:position + 1]
                 return position - 1

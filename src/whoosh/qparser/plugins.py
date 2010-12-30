@@ -306,6 +306,7 @@ class GroupPlugin(Plugin):
         return ((GroupPlugin.Open, 0), (GroupPlugin.Close, 0))
     
     def filters(self, parser):
+        # This should basically be the first plugin to run
         return ((GroupPlugin.do_groups, 0), )
     
     @staticmethod
@@ -437,18 +438,20 @@ class OperatorsPlugin(Plugin):
     
     def __init__(self, ops=None, And=r"\sAND\s", Or=r"\sOR\s",
                  AndNot=r"\sANDNOT\s", AndMaybe=r"\sANDMAYBE\s",
-                 Not=r"(^|(?<= ))NOT\s", clean=False):
+                 Not=r"(^|(?<= ))NOT\s", Require=r"(^|(?<= ))REQUIRE\s",
+                 clean=False):
         if isinstance(ops, tuple):
             ops = list(ops)
         if not ops:
             ops = []
         
         if not clean:
+            if Not: ops.append((PrefixOperator(Not, NotGroup), 0))
             if And: ops.append((InfixOperator(And, AndGroup), 0))
             if Or: ops.append((InfixOperator(Or, OrGroup), 0))
-            if AndNot: ops.append((InfixOperator(AndNot, AndNotGroup), -10))
+            if AndNot: ops.append((InfixOperator(AndNot, AndNotGroup), -5))
             if AndMaybe: ops.append((InfixOperator(AndMaybe, AndMaybeGroup), -5))
-            if Not: ops.append((PrefixOperator(Not, NotGroup), 0))
+            if Require: ops.append((InfixOperator(Require, RequireGroup), 0))
         
         self.ops = ops
     
@@ -459,16 +462,12 @@ class OperatorsPlugin(Plugin):
         return ((self.do_operators, 600), )
     
     def do_operators(self, parser, stream, level=0):
-        # Sort the list of operators by their priority
-        ops = [op for op, _ in sorted(self.ops, key=lambda x: x[1])]
-        
-        for op in ops:
-            optype = type(op)
+        for op, _ in self.ops:
             if op.left_assoc:
                 i = 0
                 while i < len(stream):
                     t = stream[i]
-                    if isinstance(t, optype):
+                    if t is op:
                         i = t.make_group(parser, stream, i)
                     else:
                         i += 1
@@ -476,18 +475,18 @@ class OperatorsPlugin(Plugin):
                 i = len(stream) - 1
                 while i >= 0:
                     t = stream[i]
-                    if isinstance(t, optype):
+                    if t is op:
                         i = t.make_group(parser, stream, i)
                     i -= 1
         
-        #print " " * level, "stream=", stream
+        #print " " * level, ">stream=", stream
         newstream = stream.empty()
         for t in stream:
             if isinstance(t, Group):
                 t = self.do_operators(parser, t, level+1)
             newstream.append(t)
         
-        #print " " * level, "newstream=", newstream
+        #print " " * level, "<stream=", newstream
         return newstream
 
 CompoundsPlugin = OperatorsPlugin
