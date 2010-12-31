@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
 
-from whoosh import fields, qparser, query
+from whoosh import analysis, fields, qparser, query
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support import numeric, times
 
@@ -370,9 +370,10 @@ class TestSchema(unittest.TestCase):
         ana = RegexTokenizer() | DoubleMetaphoneFilter()
         field = fields.TEXT(analyzer=ana, phrase=False)
         results = list(field.index(u"spruce view"))
-        self.assertEqual(results, [('SPRS', 1, 3.0, '\x00\x00\x00\x01'),
-                                   ('FF', 1, 1.0, '\x00\x00\x00\x01'),
-                                   ('F', 1, 3.0, '\x00\x00\x00\x01')])
+        self.assertEqual(results, [('SPRS', 1, 1.0, '\x00\x00\x00\x01'),
+                                   ('FF', 1, 0.5, '\x00\x00\x00\x01'),
+                                   ('F', 1, 1.0, '\x00\x00\x00\x01')])
+    
         
 
 

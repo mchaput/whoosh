@@ -186,7 +186,7 @@ class Frequency(Format):
         
         for t in unstopped(self.analyzer(value, boosts=True, **kwargs)):
             freqs[t.text] += 1
-            weights[t.text] += int(t.boost)
+            weights[t.text] += t.boost
         
         encode = self.encode
         return ((w, freq, weights[w], encode(freq))
