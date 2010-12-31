@@ -731,27 +731,26 @@ class CopyFieldPlugin(Plugin):
     
         hello name:matt
         
-    could be automatically converted by ``CopyFieldPlugin("name", "author")``
+    could be automatically converted by ``CopyFieldPlugin({"name", "author"})``
     to::
     
-        hello (name:matt OR name:author)
+        hello (name:matt OR author:matt)
     
     This is useful where one field was indexed with a differently-analyzed copy
     of another, and you want the query to search both fields.
     """
     
-    def __init__(self, fromname, toname, group=OrGroup, mirror=False):
+    def __init__(self, map, group=OrGroup, mirror=False):
         """
-        :param fromname: the name of the field to copy from.
-        :param toname: the name of the field to copy to.
+        :param map: a dictionary mapping names of fields to copy to the
+            names of the destination fields.
         :param group: the type of group to create in place of the original
             token.
         :param two_way: if True, the plugin copies both ways, so if the user
             specifies a query in the 'toname' field, it will be copied to
             the 'fromname' field.
         """
-        self.fromname = fromname
-        self.toname = toname
+        self.map = map
         self.group = group
         self.mirror = mirror
         
@@ -759,21 +758,27 @@ class CopyFieldPlugin(Plugin):
         return ((self.do_copyfield, 109), )
     
     def do_copyfield(self, parser, stream):
-        fromname = self.fromname
-        toname = self.toname
         mirror = self.mirror
+        map = self.map
+        if mirror:
+            # Add in reversed mappings
+            map.update(dict((v, k) for k, v in map.iteritems()))
         
         newstream = stream.empty()
         for t in stream:
             if isinstance(t, Group):
                 t = self.do_copyfield(parser, t)
             elif isinstance(t, BasicSyntax):
-                if (t.fieldname == fromname
-                    or (t.fieldname is None and parser.fieldname == fromname)):
+                toname = None
+                if t.fieldname in map:
+                    toname = map[t.fieldname]
+                elif t.fieldname is None and parser.fieldname in map:
+                    toname = map[parser.fieldname]
+                
+                if toname:
+                    # Replace the syntax object with a group containing the
+                    # original object and one with the field changed
                     t = self.group([t, t.set_fieldname(toname, force=True)])
-                elif (mirror and t.fieldname == toname
-                      or (t.fieldname is None and parser.fieldname == toname)):
-                    t = self.group([t, t.set_fieldname(fromname, force=True)])
             newstream.append(t)
         return newstream
 
