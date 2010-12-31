@@ -112,7 +112,7 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(results, [('SPRS', 3.0), ('F', 3.0), ('FF', 1.0)])
         
     def test_delimited_attribute(self):
-        ana = RegexTokenizer(r"\S+") | DeliminatedAttributeFilter()
+        ana = RegexTokenizer(r"\S+") | DelimitedAttributeFilter()
         results = [(t.text, t.boost) for t in ana(u"image render^2 file^0.5")]
         self.assertEqual(results, [("image", 1.0), ("render", 2.0), ("file", 0.5)])
         

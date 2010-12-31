@@ -3,7 +3,8 @@ import unittest
 import os, random, time
 from shutil import rmtree
 
-from whoosh import fields, index, writing
+from whoosh import analysis, fields, index, writing
+from whoosh.filedb.filestore import RamStorage
 
 
 class TestWriting(unittest.TestCase):
@@ -117,6 +118,45 @@ class TestWriting(unittest.TestCase):
         
         self.assertEqual(len(ix._segments()), 10)
         rmtree("testindex")
+        
+    def test_fractional_weights(self):
+        ana = analysis.RegexTokenizer(r"\S+") | analysis.DelimitedAttributeFilter()
+        
+        # With Positions format
+        
+        schema = fields.Schema(f=fields.TEXT(analyzer=ana))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(f=u"alfa^0.5 bravo^1.5 charlie^2.0 delta^1.5")
+        w.commit()
+        
+        s = ix.searcher()
+        wts = []
+        for word in s.lexicon("f"):
+            p = s.postings("f", word)
+            wts.append(p.weight())
+        self.assertEqual(wts, [0.5, 1.5, 2.0, 1.5])
+        
+        # Try again with Frequency format
+        
+        schema = fields.Schema(f=fields.TEXT(analyzer=ana, phrase=False))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(f=u"alfa^0.5 bravo^1.5 charlie^2.0 delta^1.5")
+        w.commit()
+        
+        s = ix.searcher()
+        wts = []
+        for word in s.lexicon("f"):
+            p = s.postings("f", word)
+            wts.append(p.weight())
+        self.assertEqual(wts, [0.5, 1.5, 2.0, 1.5])
+        
+
+
+
+
+
         
 
 if __name__ == '__main__':

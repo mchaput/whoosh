@@ -185,6 +185,7 @@ class IDTokenizer(Tokenizer):
         assert isinstance(value, unicode), "%r is not unicode" % value
         t = Token(positions, chars, removestops=removestops, mode=mode)
         t.text = value
+        t.boost=1.0
         if keeporiginal:
             t.original = value
         if positions:
@@ -250,6 +251,7 @@ class RegexTokenizer(Tokenizer):
         t = Token(positions, chars, removestops=removestops, mode=mode)
         if not tokenize:
             t.original = t.text = value
+            t.boost = 1.0
             if positions: t.pos = start_pos
             if chars:
                 t.startchar = start_char
@@ -259,6 +261,7 @@ class RegexTokenizer(Tokenizer):
             # The default: expression matches are used as tokens
             for pos, match in enumerate(self.expression.finditer(value)):
                 t.text = match.group(0)
+                t.boost = 1.0
                 if keeporiginal:
                     t.original = t.text
                 t.stopped = False
@@ -279,6 +282,7 @@ class RegexTokenizer(Tokenizer):
                 text = value[start:end]
                 if text:
                     t.text = text
+                    t.boost = 1.0
                     if keeporiginal:
                         t.original = t.text
                     t.stopped = False
@@ -297,6 +301,7 @@ class RegexTokenizer(Tokenizer):
             # yield the last bit of text as a final token.
             if prevend < len(value):
                 t.text = value[prevend:]
+                t.boost = 1.0
                 if keeporiginal:
                     t.original = t.text
                 t.stopped = False
@@ -366,6 +371,7 @@ class CharsetTokenizer(Tokenizer):
         t = Token(positions, chars, removestops=removestops, mode=mode)
         if not tokenize:
             t.original = t.text = value
+            t.boost = 1.0
             if positions: t.pos = start_pos
             if chars:
                 t.startchar = start_char
@@ -383,6 +389,7 @@ class CharsetTokenizer(Tokenizer):
                 else:
                     if currentchar > startchar:
                         t.text = text
+                        t.boost = 1.0
                         if keeporiginal:
                             t.original = t.text
                         if positions:
@@ -399,6 +406,7 @@ class CharsetTokenizer(Tokenizer):
             
             if currentchar > startchar:
                 t.text = value[startchar:currentchar]
+                t.boost = 1.0
                 if keeporiginal:
                     t.original = t.text
                 if positions:
@@ -1316,7 +1324,7 @@ class BoostTextFilter(Filter):
             yield t
 
 
-class DeliminatedAttributeFilter(Filter):
+class DelimitedAttributeFilter(Filter):
     """Looks for delimiter characters in the text of each token and stores the
     data after the delimiter in a named attribute on the token.
     
@@ -1379,8 +1387,10 @@ class DeliminatedAttributeFilter(Filter):
 
 
 class DoubleMetaphoneFilter(Filter):
-    def __init__(self, primary_boost=3.0):
+    def __init__(self, primary_boost=1.0, secondary_boost=0.5, combine=False):
         self.primary_boost = primary_boost
+        self.secondary_boost = secondary_boost
+        self.combine = combine
         
     def __eq__(self, other):
         return (other
@@ -1389,21 +1399,25 @@ class DoubleMetaphoneFilter(Filter):
     
     def __call__(self, tokens):
         primary_boost = self.primary_boost
+        secondary_boost = self.secondary_boost
+        combine = self.combine
         
         for t in tokens:
+            if combine:
+                yield t
+            
             primary, secondary = double_metaphone(t.text)
+            b = t.boost
+            # Overwrite the token's text and boost and yield it
             if primary:
-                # Save the original boost
-                b = t.boost
-                # Overwrite the token's text and boost and yield it
                 t.text = primary
                 t.boost = b * primary_boost
                 yield t
-                # Restored the original boost
-                t.boost = b 
             if secondary:
                 t.text = secondary
+                t.boost = b * secondary_boost
                 yield t
+                
 
 # Analyzers
 
