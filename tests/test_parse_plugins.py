@@ -21,7 +21,7 @@ class TestParserPlugins(unittest.TestCase):
         init_args = {qparser.DisMaxPlugin: ({"content": 1.0, "title": 1.2}, ),
                      qparser.FieldAliasPlugin: ({"content": ("text", "body")}, ),
                      qparser.MultifieldPlugin: (["title", "content"], ),
-                     qparser.CopyFieldPlugin: ("name", "phone"),
+                     qparser.CopyFieldPlugin: ({"name": "phone"}, ),
                      }
         
         plugins = self._plugin_classes(())
@@ -262,32 +262,32 @@ class TestParserPlugins(unittest.TestCase):
         
     def test_copyfield(self):
         qp = qparser.QueryParser("a")
-        qp.add_plugin(qparser.CopyFieldPlugin("b", "c"))
+        qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}))
         self.assertEqual(unicode(qp.parse("hello b:matt")),
                          "(a:hello AND (b:matt OR c:matt))")
         
         qp = qparser.QueryParser("a")
-        qp.add_plugin(qparser.CopyFieldPlugin("b", "c", qparser.AndMaybeGroup))
+        qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, qparser.AndMaybeGroup))
         self.assertEqual(unicode(qp.parse("hello b:matt")),
                          "(a:hello AND (b:matt ANDMAYBE c:matt))")
         
         qp = qparser.QueryParser("a")
-        qp.add_plugin(qparser.CopyFieldPlugin("b", "c", qparser.RequireGroup))
+        qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, qparser.RequireGroup))
         self.assertEqual(unicode(qp.parse("hello (there OR b:matt)")),
                          "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))")
         
         qp = qparser.QueryParser("a")
-        qp.add_plugin(qparser.CopyFieldPlugin("a", "c"))
+        qp.add_plugin(qparser.CopyFieldPlugin({"a": "c"}))
         self.assertEqual(unicode(qp.parse("hello there")),
                          "((a:hello OR c:hello) AND (a:there OR c:there))")
         
         qp = qparser.QueryParser("a")
-        qp.add_plugin(qparser.CopyFieldPlugin("b", "c", mirror=True))
+        qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, mirror=True))
         self.assertEqual(unicode(qp.parse("hello c:matt")),
                          "(a:hello AND (c:matt OR b:matt))")
         
         qp = qparser.QueryParser("a")
-        qp.add_plugin(qparser.CopyFieldPlugin("c", "a", mirror=True))
+        qp.add_plugin(qparser.CopyFieldPlugin({"c": "a"}, mirror=True))
         self.assertEqual(unicode(qp.parse("hello c:matt")),
                          "((a:hello OR c:hello) AND (c:matt OR a:matt))")
         
@@ -295,7 +295,7 @@ class TestParserPlugins(unittest.TestCase):
         fmt = formats.Frequency(ana)
         schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt, multitoken_query="or"))
         qp = qparser.QueryParser("name", schema=schema)
-        qp.add_plugin(qparser.CopyFieldPlugin("name", "name_phone"))
+        qp.add_plugin(qparser.CopyFieldPlugin({"name": "name_phone"}))
         self.assertEqual(unicode(qp.parse(u"spruce view")),
                          "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")
 

@@ -109,7 +109,7 @@ class TestAnalysis(unittest.TestCase):
     def test_double_metaphone(self):
         mf = RegexTokenizer() | DoubleMetaphoneFilter()
         results = [(t.text, t.boost) for t in mf(u"spruce view")]
-        self.assertEqual(results, [('SPRS', 3.0), ('F', 3.0), ('FF', 1.0)])
+        self.assertEqual(results, [('SPRS', 1.0), ('F', 1.0), ('FF', 0.5)])
         
     def test_delimited_attribute(self):
         ana = RegexTokenizer(r"\S+") | DelimitedAttributeFilter()
