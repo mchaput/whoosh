@@ -333,7 +333,9 @@ class FilePostingReader(Matcher):
         
         self.stringids = stringids
         
-        assert postfile.get_int(offset) == -48626
+        magic = postfile.get_int(offset)
+        assert magic == -48626
+        
         self.blockcount = postfile.get_uint(offset + _INT_SIZE)
         self.baseoffset = offset + _INT_SIZE * 2
         self._active = True

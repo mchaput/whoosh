@@ -143,7 +143,8 @@ def _read_toc(storage, schema, indexname):
         schema = cPickle.loads(stream.read_string())
     
     # Generation
-    assert gen == stream.read_int()
+    index_gen = stream.read_int()
+    assert gen == index_gen
     
     segment_counter = stream.read_int()
     segments = stream.read_pickle()
@@ -155,49 +156,49 @@ def _read_toc(storage, schema, indexname):
 
 
 def _next_segment_name(self):
-        #Returns the name of the next segment in sequence.
-        if self.segment_num_lock is None:
-            self.segment_num_lock = Lock()
-        
-        if self.segment_num_lock.acquire():
-            try:
-                self.segment_counter += 1
-                return 
-            finally:
-                self.segment_num_lock.release()
-        else:
-            raise LockError
+    #Returns the name of the next segment in sequence.
+    if self.segment_num_lock is None:
+        self.segment_num_lock = Lock()
+    
+    if self.segment_num_lock.acquire():
+        try:
+            self.segment_counter += 1
+            return 
+        finally:
+            self.segment_num_lock.release()
+    else:
+        raise LockError
 
 
 def _clean_files(storage, indexname, gen, segments):
-        # Attempts to remove unused index files (called when a new generation
-        # is created). If existing Index and/or reader objects have the files
-        # open, they may not be deleted immediately (i.e. on Windows) but will
-        # probably be deleted eventually by a later call to clean_files.
+    # Attempts to remove unused index files (called when a new generation
+    # is created). If existing Index and/or reader objects have the files
+    # open, they may not be deleted immediately (i.e. on Windows) but will
+    # probably be deleted eventually by a later call to clean_files.
 
-        current_segment_names = set(s.name for s in segments)
+    current_segment_names = set(s.name for s in segments)
 
-        tocpattern = _toc_pattern(indexname)
-        segpattern = _segment_pattern(indexname)
+    tocpattern = _toc_pattern(indexname)
+    segpattern = _segment_pattern(indexname)
 
-        todelete = set()
-        for filename in storage:
-            tocm = tocpattern.match(filename)
-            segm = segpattern.match(filename)
-            if tocm:
-                if int(tocm.group(1)) != gen:
-                    todelete.add(filename)
-            elif segm:
-                name = segm.group(1)
-                if name not in current_segment_names:
-                    todelete.add(filename)
-        
-        for filename in todelete:
-            try:
-                storage.delete_file(filename)
-            except OSError:
-                # Another process still has this file open
-                pass
+    todelete = set()
+    for filename in storage:
+        tocm = tocpattern.match(filename)
+        segm = segpattern.match(filename)
+        if tocm:
+            if int(tocm.group(1)) != gen:
+                todelete.add(filename)
+        elif segm:
+            name = segm.group(1)
+            if name not in current_segment_names:
+                todelete.add(filename)
+    
+    for filename in todelete:
+        try:
+            storage.delete_file(filename)
+        except OSError:
+            # Another process still has this file open
+            pass
 
 
 # Index placeholder object
