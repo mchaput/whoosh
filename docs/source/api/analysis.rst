@@ -43,7 +43,11 @@ Filters
 .. autoclass:: NgramFilter
 .. autoclass:: IntraWordFilter
 .. autoclass:: BiWordFilter
-.. autoclass:: BoostTextFilter
+.. autoclass:: ShingleFilter
+.. autoclass:: DelimitedAttributeFilter
+.. autoclass:: DoubleMetaphoneFilter
+.. autoclass:: SubstitutionFilter
+
 
 Token classes and functions
 ===========================

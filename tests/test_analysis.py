@@ -45,6 +45,15 @@ class TestAnalysis(unittest.TestCase):
         analyzer = RegexTokenizer() | filter
         self.assertEqual([t.text for t in analyzer(u"abc def")], ["ABC", "DEF"])
     
+    def test_shared_composition(self):
+        shared = RegexTokenizer(r"\S+") | LowercaseFilter()
+        
+        ana1 = shared | NgramFilter(3)
+        ana2 = shared | DoubleMetaphoneFilter()
+        
+        self.assertEqual([t.text for t in ana1(u"hello")], ["hel", "ell", "llo"])
+        self.assertEqual([t.text for t in ana2(u"hello")], ["HL"])
+    
     def test_multifilter(self):
         f1 = LowercaseFilter()
         f2 = PassFilter()
@@ -110,7 +119,14 @@ class TestAnalysis(unittest.TestCase):
         mf = RegexTokenizer() | DoubleMetaphoneFilter()
         results = [(t.text, t.boost) for t in mf(u"spruce view")]
         self.assertEqual(results, [('SPRS', 1.0), ('F', 1.0), ('FF', 0.5)])
+    
+    def test_substitution(self):
+        mf = RegexTokenizer(r"\S+") | SubstitutionFilter("-", "")
+        self.assertEqual([t.text for t in mf(u"one-two th-re-ee four")], ["onetwo", "threee", "four"])
         
+        mf = RegexTokenizer(r"\S+") | SubstitutionFilter("([^=]*)=(.*)", r"\2=\1")
+        self.assertEqual([t.text for t in mf(u"a=b c=d ef")], ["b=a", "d=c", "ef"])
+    
     def test_delimited_attribute(self):
         ana = RegexTokenizer(r"\S+") | DelimitedAttributeFilter()
         results = [(t.text, t.boost) for t in ana(u"image render^2 file^0.5")]

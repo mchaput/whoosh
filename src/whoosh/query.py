@@ -751,7 +751,6 @@ class Prefix(MultiTerm):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
 
-_wildcard_exp = re.compile("(.*?)([?*]|$)");
 class Wildcard(MultiTerm):
     """Matches documents that contain any terms that match a wildcard
     expression.
@@ -861,9 +860,6 @@ class FuzzyTerm(MultiTerm):
             for similarity.
         """
 
-        if not text:
-            raise QueryError("Fuzzy term is empty")
-
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
@@ -880,12 +876,15 @@ class FuzzyTerm(MultiTerm):
                 and self.boost == other.boost)
 
     def __repr__(self):
-        return "%s(%r, %r, ratio=%f)" % (self.__class__.__name__,
-                                         self.fieldname, self.text,
-                                         self.ratio)
+        r = "%s(%r, %r, boost=%f, minsimilarity=%f, prefixlength=%d)"
+        return r % (self.__class__.__name__, self.fieldname, self.text,
+                    self.boost, self.minsimilarity, self.prefixlength)
 
     def __unicode__(self):
-        return u"~" + self.text
+        r = u"~" + self.text
+        if self.boost != 1.0:
+            r += "^%f" % self.boost
+        return r
 
     def copy(self):
         return self.__class__(self.fieldname, self.text, boost=self.boost,
@@ -981,15 +980,11 @@ class TermRange(MultiTerm):
                              boost=self.boost)
 
     def replace(self, oldtext, newtext):
-        if self.start == oldtext:
-            return TermRange(self.fieldname, newtext, self.end,
-                             self.startexcl, self.endexcl, boost=self.boost)
-        elif self.end == oldtext:
-            return TermRange(self.fieldname, self.start, newtext,
-                             self.startexcl, self.endexcl, boost=self.boost)
-        else:
-            return self
-
+        start = newtext if self.start == oldtext else self.start
+        end = newtext if self.end == oldtext else self.end
+        return self.__class__(self.fieldname, start, end, self.startexcl,
+                              self.endexcl, boost=self.boost)
+        
     def _words(self, ixreader):
         fieldname = self.fieldname
         start = self.start
@@ -1467,165 +1462,147 @@ class WeightingQuery(WrappingQuery):
             return self.scorer.score(self)
 
 
-class Require(CompoundQuery):
+class BinaryQuery(CompoundQuery):
+    """Base class for binary queries (queries which are composed of two
+    sub-queries). Subclasses should set the ``matcherclass`` attribute or
+    override ``matcher()``, and may also need to override ``normalize()``,
+    ``estimate_size()``, and/or ``estimate_min_size()``.
+    """
+    
+    def __init__(self, a, b, boost=1.0):
+        self.a = a
+        self.b = b
+        self.subqueries = (a, b)
+        self.boost = boost
+        
+    def copy(self):
+        return self.__class__(self.a, self.b, boost=self.boost)
+    
+    def normalize(self):
+        a = self.a.normalize()
+        b = self.b.normalize()
+        if a is NullQuery and b is NullQuery:
+            return NullQuery
+        elif a is NullQuery:
+            return b
+        elif b is NullQuery:
+            return a
+    
+        return self.__class__(a, b, boost=self.boost)
+    
+    def matcher(self, searcher, exclude_docs=None):
+        return self.matcherclass(self.a.matcher(searcher, exclude_docs=exclude_docs),
+                                 self.b.matcher(searcher, exclude_docs=exclude_docs))
+
+
+class Require(BinaryQuery):
     """Binary query returns results from the first query that also appear in
     the second query, but only uses the scores from the first query. This lets
     you filter results without affecting scores.
     """
 
     JOINT = " REQUIRE "
-
-    def __init__(self, scoredquery, requiredquery, boost=1.0):
-        """
-        :param scoredquery: The query that is scored. Only documents that also
-            appear in the second query ('requiredquery') are scored.
-        :param requiredquery: Only documents that match both 'scoredquery' and
-            'requiredquery' are returned, but this query does not
-            contribute to the scoring.
-        """
-
-        # The superclass CompoundQuery expects the subqueries to be in a
-        # sequence in self.subqueries
-        self.subqueries = (scoredquery, requiredquery)
-        self.boost = boost
-
-    def copy(self):
-        return self.__class__(self.subqueries[0], self.subqueries[1],
-                              boost=self.boost)
+    matcherclass = RequireMatcher
 
     def estimate_size(self, ixreader):
-        return self.subqueries[1].estimate_size(ixreader)
+        return self.b.estimate_size(ixreader)
     
     def estimate_min_size(self, ixreader):
-        return self.subqueries[1].estimate_min_size(ixreader)
+        return self.b.estimate_min_size(ixreader)
 
     def normalize(self):
-        subqueries = [q.normalize() for q in self.subqueries]
-        if NullQuery in subqueries:
+        a = self.a.normalize()
+        b = self.b.normalize()
+        if a is NullQuery or b is NullQuery:
             return NullQuery
-        return Require(subqueries[0], subqueries[1], boost=self.boost)
-
+        return self.__class__(a, b, boost=self.boost)
+    
+    def replace(self, oldtext, newtext):
+        return self.__class__(self.a.replace(oldtext, newtext),
+                              self.b.replace(oldtext, newtext),
+                              boost=self.boost)
+    
     def docs(self, searcher, exclude_docs=None):
         return And(self.subqueries).docs(searcher, exclude_docs=exclude_docs)
     
-    def matcher(self, searcher, exclude_docs=None):
-        scored, required = self.subqueries
-        return RequireMatcher(scored.matcher(searcher, exclude_docs=exclude_docs),
-                              required.matcher(searcher, exclude_docs=exclude_docs))
 
-
-class AndMaybe(CompoundQuery):
+class AndMaybe(BinaryQuery):
     """Binary query takes results from the first query. If and only if the
     same document also appears in the results from the second query, the score
     from the second query will be added to the score from the first query.
     """
 
     JOINT = " ANDMAYBE "
-
-    def __init__(self, requiredquery, optionalquery, boost=1.0):
-        """
-        :param requiredquery: Documents matching this query are returned.
-        :param optionalquery: If a document matches this query as well as
-            'requiredquery', the score from this query is added to the
-            document score from 'requiredquery'.
-        """
-
-        # The superclass CompoundQuery expects the subqueries to be
-        # in a sequence in self.subqueries
-        self.subqueries = (requiredquery, optionalquery)
-        self.boost = boost
-
-    def copy(self):
-        return self.__class__(self.subqueries[0], self.subqueries[1],
-                              boost=self.boost)
+    matcherclass = AndMaybeMatcher
 
     def normalize(self):
-        required, optional = (q.normalize() for q in self.subqueries)
-        if required is NullQuery:
+        a = self.a.normalize()
+        b = self.b.normalize()
+        if a is NullQuery:
             return NullQuery
-        if optional is NullQuery:
-            return required
-        return AndMaybe(required, optional, boost=self.boost)
+        if b is NullQuery:
+            return a
+        return self.__class__(a, b, boost=self.boost)
 
     def estimate_min_size(self, ixreader):
         return self.subqueries[0].estimate_min_size(ixreader)
 
     def docs(self, searcher, exclude_docs=None):
         return self.subqueries[0].docs(searcher, exclude_docs=exclude_docs)
-    
-    def matcher(self, searcher, exclude_docs=None):
-        required, optional = self.subqueries
-        return AndMaybeMatcher(required.matcher(searcher, exclude_docs=exclude_docs),
-                                optional.matcher(searcher, exclude_docs=exclude_docs))
 
 
-class AndNot(Query):
+class AndNot(BinaryQuery):
     """Binary boolean query of the form 'a ANDNOT b', where documents that
     match b are removed from the matches for a.
     """
 
-    def __init__(self, positive, negative, boost=1.0):
-        """
-        :param positive: query to INCLUDE.
-        :param negative: query whose matches should be EXCLUDED.
-        :param boost: boost factor that should be applied to the raw score of
-            results matched by this query.
-        """
-
-        self.positive = positive
-        self.negative = negative
-        self.boost = boost
-
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.positive == other.positive
-                and self.negative == other.negative
-                and self.boost == other.boost)
-
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.positive, self.negative)
-
-    def __unicode__(self):
-        return u"(%s ANDNOT %s)" % (self.positive, self.negative)
-
-    def copy(self):
-        return self.__class__(self.positive, self.negative, boost=self.boost)
+    JOINT = " ANDNOT "
 
     def normalize(self):
-        pos = self.positive.normalize()
-        neg = self.negative.normalize()
+        a = self.a.normalize()
+        b = self.b.normalize()
 
-        if pos is NullQuery:
+        if a is NullQuery:
             return NullQuery
-        elif neg is NullQuery:
-            return pos
+        elif b is NullQuery:
+            return a
 
-        return AndNot(pos, neg, boost=self.boost)
-
-    def replace(self, oldtext, newtext):
-        return AndNot(self.positive.replace(oldtext, newtext),
-                      self.negative.replace(oldtext, newtext),
-                      boost=self.boost)
+        return self.__class__(a, b, boost=self.boost)
 
     def _all_terms(self, termset, phrases=True):
-        self.positive.all_terms(termset, phrases=phrases)
+        self.a.all_terms(termset, phrases=phrases)
 
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        self.positive.existing_terms(ixreader, termset, reverse=reverse,
-                                     phrases=phrases)
+        self.a.existing_terms(ixreader, termset, reverse=reverse,
+                              phrases=phrases)
 
     def matcher(self, searcher, exclude_docs=None):
-        notvector = _not_vector(searcher, [self.negative], exclude_docs)
-        return self.positive.matcher(searcher, exclude_docs=notvector)
+        # This is faster than actually using an AndNotMatcher, but could use
+        # a lot of memory on a very large index.
+        # TODO: Switch based on size of index?
+        notvector = _not_vector(searcher, [self.b], exclude_docs)
+        return self.a.matcher(searcher, exclude_docs=notvector)
+
+
+class Otherwise(BinaryQuery):
+    """A binary query that only matches the second clause if the first clause
+    doesn't match any documents.
+    """
+    
+    JOINT = " OTHERWISE "
+    
+    def matcher(self, searcher, exclude_docs=None):
+        m = self.a.matcher(searcher, exclude_docs=exclude_docs)
+        if not m.is_active():
+            m = self.b.matcher(searcher, exclude_docs=exclude_docs)
+        return m
 
 
 def BooleanQuery(required, should, prohibited):
     return AndNot(AndMaybe(And(required), Or(should)), Or(prohibited)).normalize()
 
 
-
+            
 
 
 
