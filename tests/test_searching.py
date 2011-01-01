@@ -909,6 +909,21 @@ class TestSearching(unittest.TestCase):
         q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"nine"))
         self.assertEqual([d["id"] for d in s.search(q)], [])
 
+    def test_fuzzyterm(self):
+        schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(id=1, f=u"alfa bravo charlie delta")
+        w.add_document(id=2, f=u"bravo charlie delta echo")
+        w.add_document(id=3, f=u"charlie delta echo foxtrot")
+        w.add_document(id=4, f=u"delta echo foxtrot golf")
+        w.commit()
+        
+        s = ix.searcher()
+        q = query.FuzzyTerm("f", "brave")
+        self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
+
+
 
 
 
