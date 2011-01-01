@@ -248,6 +248,7 @@ def blockname(ch):
         return None
     return _names[i]
 
+
 def blocknum(ch):
     """Returns the unicode block number for ch, or None if ch has no block.
     
@@ -267,8 +268,6 @@ def blocknum(ch):
     return i
 
 
-if __name__ == "__main__":
-    pass
     
     
     

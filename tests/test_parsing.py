@@ -73,10 +73,10 @@ class TestQueryParser(unittest.TestCase):
         qp = qparser.QueryParser("content")
         q = qp.parse(u"this ANDNOT that")
         self.assertEqual(q.__class__, query.AndNot)
-        self.assertEqual(q.positive.__class__, query.Term)
-        self.assertEqual(q.negative.__class__, query.Term)
-        self.assertEqual(q.positive.text, "this")
-        self.assertEqual(q.negative.text, "that")
+        self.assertEqual(q.a.__class__, query.Term)
+        self.assertEqual(q.b.__class__, query.Term)
+        self.assertEqual(q.a.text, "this")
+        self.assertEqual(q.b.text, "that")
         
         q = qp.parse(u"foo ANDNOT bar baz")
         self.assertEqual(q.__class__, query.And)
@@ -584,7 +584,7 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(u"a NOT (b OR c)")
         self.assertEqual(unicode(q), "(text:a AND NOT (text:b OR text:c))")
         
-        
+    
         
 
 

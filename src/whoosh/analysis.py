@@ -1387,7 +1387,23 @@ class DelimitedAttributeFilter(Filter):
 
 
 class DoubleMetaphoneFilter(Filter):
+    """Transforms the text of the tokens using Lawrence Philips's Double
+    Metaphone algorithm. This algorithm attempts to encode words in such a way
+    that similar-sounding words reduce to the same code. This may be useful for
+    fields containing the names of people and places, and other uses where
+    tolerance of spelling differences is desireable.
+    """
+    
     def __init__(self, primary_boost=1.0, secondary_boost=0.5, combine=False):
+        """
+        :param primary_boost: the boost to apply to the token containing the
+            primary code.
+        :param secondary_boost: the boost to apply to the token containing the
+            secondary code, if any.
+        :param combine: if True, the original unencoded tokens are kept in the
+            stream, preceding the encoded tokens.
+        """
+        
         self.primary_boost = primary_boost
         self.secondary_boost = secondary_boost
         self.combine = combine
@@ -1418,6 +1434,48 @@ class DoubleMetaphoneFilter(Filter):
                 t.boost = b * secondary_boost
                 yield t
                 
+
+class SubstitutionFilter(Filter):
+    """Performas a regular expression substitution on the token text.
+    
+    This is especially useful for removing text from tokens, for example
+    hyphens::
+    
+        ana = RegexTokenizer(r"\\S+") | SubstitutionFilter("-", "")
+        
+    Because it has the full power of the re.sub() method behind it, this filter
+    can perform some fairly complex transformations. For example, to take tokens
+    like ``'a=b', 'c=d', 'e=f'`` and change them to ``'b=a', 'd=c', 'f=e'``::
+    
+        # Analyzer that swaps the text on either side of an equal sign
+        ana = RegexTokenizer(r"\\S+") | SubstitutionFilter("([^/]*)/(./*)", r"\\2/\\1")
+    """
+    
+    def __init__(self, pattern, replacement):
+        """
+        :param pattern: a pattern string or compiled regular expression object
+            describing the text to replace.
+        :param replacement: the substitution text.
+        """
+        
+        if isinstance(pattern, basestring):
+            pattern = re.compile(pattern, re.UNICODE)
+        self.pattern = pattern
+        self.replacement = replacement
+    
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.pattern == other.pattern
+                and self.replacement == other.replacement)
+    
+    def __call__(self, tokens):
+        pattern = self.pattern
+        replacement = self.replacement
+        
+        for t in tokens:
+            t.text = pattern.sub(replacement, t.text)
+            yield t
+
 
 # Analyzers
 

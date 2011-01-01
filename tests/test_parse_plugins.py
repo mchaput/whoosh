@@ -249,10 +249,10 @@ class TestParserPlugins(unittest.TestCase):
         
         q = qp.parse("this&!that")
         self.assertEqual(q.__class__, query.AndNot)
-        self.assertEqual(q.positive.__class__, query.Term)
-        self.assertEqual(q.positive.text, "this")
-        self.assertEqual(q.negative.__class__, query.Term)
-        self.assertEqual(q.negative.text, "that")
+        self.assertEqual(q.a.__class__, query.Term)
+        self.assertEqual(q.a.text, "this")
+        self.assertEqual(q.b.__class__, query.Term)
+        self.assertEqual(q.b.text, "that")
         
         q = qp.parse("alfa -bravo NOT charlie")
         self.assertEqual(len(q), 4)

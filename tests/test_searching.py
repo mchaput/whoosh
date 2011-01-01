@@ -889,6 +889,28 @@ class TestSearching(unittest.TestCase):
             e = ls.index("echo")
             self.assertTrue(a < c and c < e, repr(ls))
 
+    def test_otherwise(self):
+        schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(id=1, f=u"alfa one two")
+        w.add_document(id=2, f=u"alfa three four")
+        w.add_document(id=3, f=u"bravo four five")
+        w.add_document(id=4, f=u"bravo six seven")
+        w.commit()
+        
+        s = ix.searcher()
+        q = query.Otherwise(query.Term("f", u"alfa"), query.Term("f", u"six"))
+        self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
+        
+        q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"four"))
+        self.assertEqual([d["id"] for d in s.search(q)], [2, 3])
+        
+        q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"nine"))
+        self.assertEqual([d["id"] for d in s.search(q)], [])
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
