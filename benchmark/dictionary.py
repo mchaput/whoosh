@@ -1,11 +1,11 @@
 import os.path, gzip
 
 from whoosh import analysis, fields
-from whoosh.support.bench import Bench
+from whoosh.support.bench import Bench, Spec
 
 
-class VulgarTongue(Bench):
-    _name = "dictionary"
+class VulgarTongue(Spec):
+    name = "dictionary"
     filename = "dcvgr10.txt.gz"
     headline_field = "head"
     
@@ -33,8 +33,13 @@ class VulgarTongue(Bench):
                                body=fields.TEXT(analyzer=ana, stored=True))
         return schema
 
+    def zcatalog_setup(self, cat):
+        from zcatalog import indexes
+        cat["head"] = indexes.FieldIndex(field_name="head")
+        cat["body"] = indexes.TextIndex(field_name="body")
+
 
 if __name__ == "__main__":
-    VulgarTongue().run()
+    Bench().run(VulgarTongue)
 
     

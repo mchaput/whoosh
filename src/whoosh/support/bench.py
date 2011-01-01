@@ -17,6 +17,7 @@
 from __future__ import division
 import os.path, random, sys
 from optparse import OptionParser
+from shutil import rmtree
 from zlib import compress, decompress
 
 from whoosh import index, qparser, query
@@ -35,31 +36,326 @@ try:
 except ImportError:
     pass
 
+try:
+    from persistent import Persistent
+    class ZDoc(Persistent):
+        def __init__(self, d):
+            self.__dict__.update(d)
+except ImportError:
+    pass
+
+
+class Module(object):
+    def __init__(self, bench, options, args):
+        self.bench = bench
+        self.options = options
+        self.args = args
+    
+    def __repr__(self):
+        return self.__class__.__name__
+    
+    def indexer(self):
+        pass
+    
+    def index_document(self, d):
+        raise NotImplementedError
+    
+    def finish(self):
+        pass
+    
+    def searcher(self):
+        pass
+    
+    def query(self):
+        raise NotImplementedError
+    
+    def find(self, q):
+        raise NotImplementedError
+    
+    def findterms(self, terms):
+        raise NotImplementedError
+    
+    def results(self, r):
+        return r
+
+
+class Spec(object):
+    headline_field = "title"
+    main_field = "body"
+    whoosh_compress_main = False
+    
+    def __init__(self, options, args):
+        self.options = options
+        self.args = args
+        
+    def documents(self):
+        raise NotImplementedError
+    
+    def setup(self):
+        pass
+    
+    def print_results(self, ls):
+        showbody = self.options.showbody
+        limit = self.options.limit
+        for i, hit in enumerate(ls):
+            if i >= limit:
+                break
+            
+            print "%d. %s" % (i+1, hit.get(self.headline_field))
+            if showbody:
+                print hit.get(self.main_field)
+            
+class WhooshModule(Module):
+    def indexer(self):
+        schema = self.bench.spec.whoosh_schema()
+        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        if not os.path.exists(path):
+            os.mkdir(path)
+        ix = index.create_in(path, schema)
+        self.writer = ix.writer(procs=int(self.options.procs),
+                                limitmb=int(self.options.limitmb))
+
+    def index_document(self, d):
+        if hasattr(self.bench, "process_document_whoosh"):
+            self.bench.process_document_whoosh(d)
+        if self.bench.spec.whoosh_compress_main:
+            mf = self.bench.spec.main_field
+            d["_stored_%s" % mf] = compress(d[mf], 9)
+        self.writer.add_document(**d)
+
+    def finish(self):
+        self.writer.commit()
+        
+    def searcher(self):
+        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        ix = index.open_dir(path)
+        self.srch = ix.searcher()
+        self.parser = qparser.QueryParser(self.bench.spec.main_field, schema=ix.schema)
+        
+    def query(self):
+        qstring = " ".join(self.args).decode("utf8")
+        return self.parser.parse(qstring)
+    
+    def find(self, q):
+        return self.srch.search(q, limit=int(self.options.limit))
+    
+    def results(self, r):
+        mf = self.bench.spec.main_field
+        for hit in r:
+            fs = hit.fields()
+            if self.bench.spec.whoosh_compress_main:
+                fs[mf] = decompress(fs[mf])
+            yield fs
+    
+    def findterms(self, terms):
+        limit = int(self.options.limit)
+        s = self.srch
+        q = query.Term(self.main_field, None)
+        for term in terms:
+            q.text = term
+            yield s.search(q, limit=limit)
+    
+
+class XappyModule(Module):
+    def indexer(self):
+        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        conn = self.bench.spec.xappy_connection(path)
+        return conn
+    
+    def index_document(self, conn, d):
+        if hasattr(self.bench, "process_document_xappy"):
+            self.bench.process_document_xappy(d)
+        doc = xappy.UnprocessedDocument()
+        for key, values in d:
+            if not isinstance(values, list):
+                values = [values]
+            for value in values:
+                doc.fields.append(xappy.Field(key, value))
+        conn.add(doc)
+
+    def finish(self, conn):
+        conn.flush()
+        
+    def searcher(self):
+        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        return xappy.SearchConnection(path)
+        
+    def query(self, conn):
+        return conn.query_parse(" ".join(self.args))
+    
+    def find(self, conn, q):
+        return conn.search(q, 0, int(self.options.limit))
+    
+    def findterms(self, conn, terms):
+        limit = int(self.options.limit)
+        for term in terms:
+            q = conn.query_field(self.main_field, term)
+            yield conn.search(q, 0, limit)
+    
+    def results(self, r):
+        hf = self.bench.spec.headline_field
+        mf = self.bench.spec.main_field
+        for hit in r:
+            yield {hf: hit.data[hf], mf: hit.data[mf]}
+        
+
+class XapianModule(Module):
+    def indexer(self):
+        path = os.path.join(self.options.dir, "%s_xapian" % self.options.indexname)
+        self.database = xapian.WritableDatabase(path, xapian.DB_CREATE_OR_OPEN)
+        self.ixer = xapian.TermGenerator()
+        
+    def index_document(self, d):
+        if hasattr(self.bench, "process_document_xapian"):
+            self.bench.process_document_xapian(d)
+        doc = xapian.Document()
+        doc.add_value(0, d.get(self.bench.spec.headline_field, "-"))
+        doc.set_data(d[self.main_field])
+        self.ixer.set_document(doc)
+        self.ixer.index_text(d[self.main_field])
+        self.database.add_document(doc)
+        
+    def finish(self):
+        self.database.flush()
+        
+    def searcher(self):
+        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        self.db = xapian.Database(path)
+        self.enq = xapian.Enquire(self.db)
+        self.qp = xapian.QueryParser()
+        self.qp.set_database(self.db)
+        
+    def query(self):
+        return self.qp.parse_query(" ".join(self.args))
+    
+    def find(self, q):
+        self.enq.set_query(q)
+        return self.enq.get_mset(0, int(self.options.limit))
+    
+    def findterms(self, terms):
+        limit = int(self.options.limit)
+        for term in terms:
+            q = self.qp.parse_query(term)
+            self.enq.set_query(q)
+            yield self.enq.get_mset(0, limit)
+    
+    def results(self, matches):
+        hf = self.bench.spec.headline_field
+        mf = self.bench.spec.main_field
+        for m in matches:
+            yield {hf: m.document.get_value(0), mf: m.document.get_data()}
+
+
+class SolrModule(Module):
+    def indexer(self):
+        self.solr_doclist = []
+        self.conn = pysolr.Solr(self.options.url)
+        self.conn.delete("*:*")
+        self.conn.commit()
+    
+    def index_document(self, d):
+        self.solr_doclist.append(d)
+        if len(self.solr_doclist) >= int(self.options.batch):
+            self.conn.add(self.solr_doclist, commit=False)
+            self.solr_doclist = []
+        
+    def finish(self):
+        if self.solr_doclist:
+            self.conn.add(self.solr_doclist)
+        del self.solr_doclist
+        self.conn.optimize(block=True)
+        
+    def searcher(self):
+        self.solr = pysolr.Solr(self.options.url)
+    
+    def query(self):
+        return " ".join(self.args)
+    
+    def find(self, q):
+        return self.solr.search(q, limit=int(self.options.limit))
+    
+    def findterms(self, terms):
+        limit = int(self.options.limit)
+        for term in terms:
+            yield self.solr.search("body:" + term, limit=limit)
+    
+
+class ZcatalogModule(Module):
+    def indexer(self):
+        from ZODB.FileStorage import FileStorage
+        from ZODB.DB import DB
+        from zcatalog import catalog
+        from zcatalog import indexes
+        import transaction
+        
+        dir = os.path.join(self.options.dir, "%s_zcatalog" % self.options.indexname)
+        if os.path.exists(dir):
+            rmtree(dir)
+        os.mkdir(dir)
+        
+        storage = FileStorage(os.path.join(dir, "index"))
+        db = DB(storage)
+        conn = db.open()
+        
+        self.cat = catalog.Catalog()
+        self.bench.spec.zcatalog_setup(self.cat)
+        conn.root()["cat"] = self.cat
+        transaction.commit()
+        
+        self.zcatalog_count = 0
+    
+    def index_document(self, d):
+        if hasattr(self.bench, "process_document_zcatalog"):
+            self.bench.process_document_zcatalog(d)
+        doc = ZDoc(d)
+        self.cat.index_doc(doc)
+        self.zcatalog_count += 1
+        if self.zcatalog_count >= 100:
+            import transaction
+            transaction.commit()
+            self.zcatalog_count = 0
+        
+    def finish(self):
+        import transaction
+        transaction.commit()
+        del self.zcatalog_count
+        
+    def searcher(self):
+        from ZODB.FileStorage import FileStorage
+        from ZODB.DB import DB
+        from zcatalog import catalog
+        from zcatalog import indexes
+        import transaction
+        
+        path = os.path.join(self.options.dir, "%s_zcatalog" % self.options.indexname, "index")
+        storage = FileStorage(path)
+        db = DB(storage)
+        conn = db.open()
+        
+        self.cat = conn.root()["cat"]
+    
+    def query(self):
+        return " ".join(self.args)
+    
+    def find(self, q):
+        return self.cat.searchResults(body=q)
+    
+    def findterms(self, terms):
+        for term in terms:
+            yield self.cat.searchResults(body=term)
+    
+    def results(self, r):
+        hf = self.bench.spec.headline_field
+        mf = self.bench.spec.main_field
+        for hit in r:
+            # Have to access the attributes for them to be retrieved
+            yield {hf: getattr(hit, hf), mf: getattr(hit, mf)}
 
 
 class Bench(object):
-    solr_url = "http://localhost:8983/solr"
-    main_field = "text"
-    headline_field = "title"
-    
-    libs = ("whoosh", "xappy", "xapian", "solr")
-    
-    _name = "unknown"
-    
-    def name(self):
-        return self._name
-    
-    def process_document_whoosh(self, d):
-        pass
-    
-    def process_document_xappy(self, d):
-        pass
-    
-    def process_document_xapian(self, d):
-        pass
-    
-    def process_document_solr(self, d):
-        pass
+    libs = {"whoosh": WhooshModule, "xappy": XappyModule,
+            "xapian": XapianModule, "solr": SolrModule,
+            "zcatalog": ZcatalogModule}
     
     def index(self, lib):
         print "Indexing with %s..." % lib
@@ -72,12 +368,11 @@ class Bench(object):
         skipc = skip
         
         starttime = chunkstarttime = now()
-        ix = getattr(self, "%s_indexer" % lib)()
-        index_document = getattr(self, "index_document_%s" % lib)
-        for d in self.documents():
+        lib.indexer()
+        for d in self.spec.documents():
             skipc -= 1
             if not skipc:
-                index_document(ix, d)
+                lib.index_document(d)
                 count += 1
                 skipc = skip
                 if chunk and not count % chunk:
@@ -90,203 +385,22 @@ class Bench(object):
         
         spooltime = now()
         print "Spool time:", spooltime - starttime
-        getattr(self, "finish_%s" % lib)(ix)
+        lib.finish()
         committime = now()
         print "Commit time:", committime - spooltime
         print "Total time to index", count, "documents:",  committime - starttime
     
-    def whoosh_indexer(self):
-        schema = self.whoosh_schema()
-        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
-        if not os.path.exists(path):
-            os.mkdir(path)
-        ix = index.create_in(path, schema)
-        w = ix.writer(procs=int(self.options.procs),
-                      limitmb=int(self.options.limitmb))
-        return w
-    
-    def index_document_whoosh(self, writer, d):
-        self.process_document_whoosh(d)
-        writer.add_document(**d)
-        
-    def finish_whoosh(self, writer):
-        writer.commit()
-        
-    def xappy_indexer(self):
-        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
-        conn = self.xappy_connection(path)
-        return conn
-    
-    def index_document_xappy(self, conn, d):
-        self.process_document_xappy(d)
-        doc = xappy.UnprocessedDocument()
-        for key, values in d:
-            if not isinstance(values, list):
-                values = [values]
-            for value in values:
-                doc.fields.append(xappy.Field(key, value))
-        conn.add(doc)
-        
-    def finish_xappy(self, conn):
-        conn.flush()
-                    
-    def xapian_indexer(self):
-        path = os.path.join(self.options.dir, "%s_xapian" % self.options.indexname)
-        database = xapian.WritableDatabase(path, xapian.DB_CREATE_OR_OPEN)
-        indexer = xapian.TermGenerator()
-        
-        return (database, indexer)
-    
-    def index_document_xapian(self, dix, d):
-        self.process_document_xapian(d)
-        database, indexer = dix
-        doc = xapian.Document()
-        doc.add_value(0, d.get(self.headline_field, "-"))
-        doc.set_data(d[self.main_field])
-        indexer.set_document(doc)
-        indexer.index_text(d[self.main_field])
-        database.add_document(doc)
-        
-    def finish_xapian(self, dix):
-        dix[0].flush()
-        
-    def solr_indexer(self):
-        self.solr_doclist = []
-        conn = pysolr.Solr(self.options.url)
-        conn.delete("*:*")
-        conn.commit()
-        return conn
-    
-    def index_document_solr(self, conn, d):
-        self.solr_doclist.append(d)
-        if len(self.solr_doclist) >= int(self.options.batch):
-            conn.add(self.solr_doclist, commit=False)
-            self.solr_doclist = []
-        
-    def finish_solr(self, conn):
-        if self.solr_doclist:
-            conn.add(self.solr_doclist)
-        del self.solr_doclist
-        conn.optimize(block=True)
-    
-    def whoosh_searcher(self):
-        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
-        ix = index.open_dir(path)
-        searcher = ix.searcher()
-        parser = qparser.QueryParser(self.main_field, schema=ix.schema)
-        
-        return (searcher, parser)
-    
-    def whoosh_query(self, s):
-        qstring = " ".join(self.args).decode("utf8")
-        return s[1].parse(qstring)
-    
-    def whoosh_find(self, s, q):
-        return s[0].search(q, limit=int(self.options.limit))
-    
-    def whoosh_findterms(self, s, terms):
-        limit = int(self.options.limit)
-        searcher = s[0]
-        q = query.Term(self.main_field, None)
-        for term in terms:
-            q.text = term
-            yield searcher.search(q, limit=limit)
-    
-    def whoosh_results(self, s, r):
-        showbody = self.options.showbody
-        
-        print "Runtime:", r.runtime
-        for hit in r:
-            print hit.get(self.headline_field)
-            if showbody:
-                print decompress(hit[self.main_field])
-    
-    def xappy_searcher(self):
-        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
-        return xappy.SearchConnection(path)
-        
-    def xappy_query(self, conn):
-        return conn.query_parse(" ".join(self.args))
-    
-    def xappy_find(self, conn, q):
-        return conn.search(q, 0, int(self.options.limit))
-    
-    def xappy_findterms(self, conn, terms):
-        limit = int(self.options.limit)
-        for term in terms:
-            q = conn.query_field(self.main_field, term)
-            yield conn.search(q, 0, limit)
-    
-    def xappy_results(self, conn, r):
-        showbody = self.options.showbody
-        for hit in r:
-            print hit.rank, hit.data[self.headline_field]
-            if showbody:
-                print hit.data[self.main_field]
-    
-    def xapian_searcher(self):
-        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
-        db = xapian.Database(path)
-        enq = xapian.Enquire(db)
-        qp = xapian.QueryParser()
-        qp.set_database(db)
-        return db, enq, qp
-    
-    def xapian_query(self, s):
-        return s[2].parse_query(" ".join(self.args))
-    
-    def xapian_find(self, s, q):
-        enq = s[1]
-        enq.set_query(q)
-        return enq.get_mset(0, int(self.options.limit))
-    
-    def xapian_findterms(self, s, terms):
-        limit = int(self.options.limit)
-        db, enq, qp = s
-        for term in terms:
-            q = qp.parse_query(term)
-            enq.set_query(q)
-            yield enq.get_mset(0, limit)
-    
-    def xapian_results(self, s, matches):
-        showbody = self.options.showbody
-        for m in matches:
-            print m.rank, repr(m.document.get_value(0))
-            if showbody:
-                print m.document.get_data()
-    
-    def solr_searcher(self):
-        return pysolr.Solr(self.solr_url)
-    
-    def solr_query(self, solr):
-        return " ".join(self.args)
-    
-    def solr_find(self, solr, q):
-        return solr.search(q, limit=int(self.options.limit))
-    
-    def solr_findterms(self, solr, terms):
-        limit = int(self.options.limit)
-        for term in terms:
-            yield solr.search("body:" + term, limit=limit)
-    
-    def solr_results(self, solr, r):
-        showbody = self.options.showbody
-        print len(r), "results"
-        for hit in r:
-            print hit.get(self.headline_field)
-            if showbody:
-                print hit[self.main_field]
-    
     def search(self, lib):
-        s = getattr(self, "%s_searcher" % lib)()
+        lib.searcher()
+        
         t = now()
-        q = getattr(self, "%s_query" % lib)(s)
+        q = lib.query()
         print "Query:", q
-        r = getattr(self, "%s_find" % lib)(s, q)
+        r = lib.find(q)
         print "Search time:", now() - t
         
         t = now()
-        getattr(self, "%s_results" % lib)(s, r)
+        self.spec.print_results(lib.results(r))
         print "Print time:", now() - t
     
     def search_file(self, lib):
@@ -295,30 +409,14 @@ class Bench(object):
         f.close()
         
         print "Searching %d terms with %s" % (len(terms), lib)
-        s = getattr(self, "%s_searcher" % lib)()
+        lib.searcher()
         starttime = now()
-        for r in getattr(self, "%s_findterms" % lib)(s, terms):
+        for r in lib.findterms(terms):
             pass
         searchtime = now() - starttime
         print "Search time:", searchtime, "searches/s:", float(len(terms))/searchtime
     
-    def generate_search_file(self, lib):
-        if self.args:
-            f = open(self.args[0], "wb")
-        else:
-            f = sys.stdout
-        count = int(self.options.generate)
-        
-        t = now()
-        s = self.whoosh_searcher()[0]
-        terms = list(s.lexicon(self.main_field))
-        sample = random.sample(terms, count)
-        for term in sample:
-            if term.isalnum():
-                f.write(term + "\n")
-        print now() - t
-    
-    def _parser(self):
+    def _parser(self, name):
         p = OptionParser()
         p.add_option("-x", "--lib", dest="lib",
                      help="Name of the library to use to index/search.",
@@ -330,7 +428,7 @@ class Bench(object):
         p.add_option("-i", "--index", dest="index", action="store_true",
                      help="Index the documents.", default=False)
         p.add_option("-n", "--name", dest="indexname", metavar="PREFIX",
-                     help="Index name prefix.", default="%s_index" % self.name())
+                     help="Index name prefix.", default="%s_index" % name)
         p.add_option("-U", "--url", dest="url", metavar="URL",
                      help="Solr URL", default="http://localhost:8983/solr")
         p.add_option("-m", "--mb", dest="limitmb",
@@ -362,18 +460,20 @@ class Bench(object):
         
         return p
     
-    def run(self):
-        parser = self._parser()
+    def run(self, specclass):
+        parser = self._parser(specclass.name)
         options, args = parser.parse_args()
         self.options = options
         self.args = args
         
-        lib = options.lib
-        if lib not in self.libs:
-            raise Exception("Unknown library: %r" % lib)
+        if options.lib not in self.libs:
+            raise Exception("Unknown library: %r" % options.lib)
+        lib = self.libs[options.lib](self, options, args)
+        
+        self.spec = specclass(options, args)
         
         if options.setup:
-            self.setup()
+            self.spec.setup()
         
         action = self.search
         if options.index:

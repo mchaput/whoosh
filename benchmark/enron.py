@@ -11,13 +11,15 @@ except ImportError:
     pass
 
 from whoosh import analysis, fields
-from whoosh.support.bench import Bench
+from whoosh.support.bench import Bench, Spec
 from whoosh.util import now
 
 
 # Benchmark class
 
-class EnronBench(Bench):
+class Enron(Spec):
+    name = "enron"
+    
     enron_archive_url = "http://www.cs.cmu.edu/~enron/enron_mail_082109.tar.gz"
     enron_archive_filename = "enron_mail_082109.tar.gz"
     cache_filename = "enron_cache.pickle"
@@ -25,11 +27,12 @@ class EnronBench(Bench):
     header_to_field = {"Date": "date", "From": "frm", "To": "to",
                    "Subject": "subject", "Cc": "cc", "Bcc": "bcc"}
 
-    _name = "enron"
     main_field = "body"
     headline_field = "subject"
     
     field_order = ("subject", "date", "from", "to", "cc", "bcc", "body")
+    
+    whoosh_compress_main = True
 
     # Functions for downloading and then reading the email archive and caching
     # the messages in an easier-to-digest format
@@ -86,9 +89,9 @@ class EnronBench(Bench):
         f.close()
         print "Cached messages in ", now() - t, "seconds"
 
-    def setup(self, options, args):
-        archive = os.path.abspath(os.path.join(options.dir, self.enron_archive_filename))
-        cache = os.path.abspath(os.path.join(options.dir, self.cache_filename))
+    def setup(self):
+        archive = os.path.abspath(os.path.join(self.options.dir, self.enron_archive_filename))
+        cache = os.path.abspath(os.path.join(self.options.dir, self.cache_filename))
     
         if not os.path.exists(archive):
             self.download_archive(archive)
@@ -140,9 +143,13 @@ class EnronBench(Bench):
         conn.add_field_action('bcc', xappy.FieldActions.INDEX_EXACT)
         return conn
     
-    def process_document_whoosh(self, d):
-        d["_stored_body"] = compress(d["body"], 9)
-        
+    def zcatalog_setup(self, cat):
+        from zcatalog import indexes
+        for name in ("date", "frm"):
+            cat[name] = indexes.FieldIndex(field_name=name)
+        for name in ("to", "subject", "cc", "bcc", "body"):
+            cat[name] = indexes.TextIndex(field_name=name)
+    
     def process_document_xapian(self, d):
         d[self.main_field] = " ".join([d.get(name, "") for name
                                        in self.field_order])
@@ -150,6 +157,6 @@ class EnronBench(Bench):
 
 
 if __name__=="__main__":
-    EnronBench().run()
-        
+    Bench().run(Enron)
+    
     
