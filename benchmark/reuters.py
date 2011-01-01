@@ -1,12 +1,12 @@
 import gzip, os.path
 
 from whoosh import analysis, fields, index, qparser, query
-from whoosh.support.bench import Bench
+from whoosh.support.bench import Bench, Spec
 from whoosh.util import now
 
 
-class Reuters(Bench):
-    _name = "reuters"
+class Reuters(Spec):
+    name = "reuters"
     filename = "reuters21578.txt.gz"
     main_field = "text"
     headline_text = "headline"
@@ -19,6 +19,12 @@ class Reuters(Bench):
                                text=fields.TEXT(analyzer=ana, stored=True))
         return schema
     
+    def zcatalog_setup(self, cat):
+        from zcatalog import indexes
+        cat["id"] = indexes.FieldIndex(field_name="id")
+        cat["headline"] = indexes.TextIndex(field_name="headline")
+        cat["body"] = indexes.TextIndex(field_name="text")
+    
     def documents(self):
         path = os.path.join(self.options.dir, self.filename)
         f = gzip.GzipFile(path)
@@ -29,6 +35,6 @@ class Reuters(Bench):
 
         
 if __name__ == "__main__":
-    Reuters().run()
+    Bench().run(Reuters)
     
     
