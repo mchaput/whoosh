@@ -32,14 +32,14 @@ However, the most important method on the Searcher object is
     s = myindex.searcher()
     results = s.search(q)
 
-If you know you only need the top "N" documents (for example, you're creating an
-HTML page showing the top 10 results), you can specify that you only want that
-many documents to be scored and sorted::
+By default the results contains at most the first 10 matching documents. To get
+more results, use the ``limit`` keyword::
 
-    results = s.search(q, limit=10)
-    
-You should set the limit whenever possible, because it's much more efficient
-than scoring and sorting every matching document.
+    results = s.search(q, limit=20)
+
+If you want all results, use ``limit=None``. However, setting the limit
+whenever possible makes searches faster because Whoosh doesn't need to examine
+and score every document.
 
 Since display a page of results at a time is a common pattern, the
 ``search_page`` method lets you conveniently retrieve only the results on a
