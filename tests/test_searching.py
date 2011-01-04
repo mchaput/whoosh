@@ -922,6 +922,42 @@ class TestSearching(unittest.TestCase):
         s = ix.searcher()
         q = query.FuzzyTerm("f", "brave")
         self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
+        
+    def test_multireader_not(self):
+        schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
+        
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(id=0, f=u"alfa bravo chralie")
+        w.add_document(id=1, f=u"bravo chralie delta")
+        w.add_document(id=2, f=u"charlie delta echo")
+        w.add_document(id=3, f=u"delta echo foxtrot")
+        w.add_document(id=4, f=u"echo foxtrot golf")
+        w.commit()
+        s = ix.searcher()
+        q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
+        r = s.search(q)
+        self.assertEqual(len(r), 0)
+        
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(id=0, f=u"alfa bravo chralie")
+        w.add_document(id=1, f=u"bravo chralie delta")
+        w.commit(merge=False)
+        w = ix.writer()
+        w.add_document(id=2, f=u"charlie delta echo")
+        w.add_document(id=3, f=u"delta echo foxtrot")
+        w.commit(merge=False)
+        w = ix.writer()
+        w.add_document(id=4, f=u"echo foxtrot golf")
+        w.add_document(id=4, f=u"foxtrot golf delta")
+        w.commit(merge=False)
+        self.assertTrue(len(ix._segments()) > 1)
+        s = ix.searcher()
+        q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
+        r = s.search(q)
+        self.assertEqual(len(r), 0)
+        
 
 
 
