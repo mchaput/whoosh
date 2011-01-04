@@ -1025,13 +1025,19 @@ class InverseMatcher(WrappingMatcher):
         if child.is_active() and child.id() < self._id:
             child.skip_to(self._id)
         
-        while (self._id < self.limit
-               and ((child.is_active() and self._id == child.id())
-                    or missing(self._id))):
-            self._id += 1
-            if child.is_active():
+        # While self._id is missing or is in the child matcher, increase it
+        while child.is_active() and self._id < self.limit:
+            if missing(self._id):
+                self._id += 1
+                continue
+
+            if self._id == child.id():
+                self._id += 1
                 child.next()
-    
+                continue
+            
+            break
+        
     def id(self):
         return self._id
     
