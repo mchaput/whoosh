@@ -519,15 +519,19 @@ def collect(searcher, matcher, limit=10, usequality=True, replace=True):
         # No limit? We have to score everything? Short circuit here and do it
         # simply
         h = []
+        rcounter = 0
         while matcher.is_active():
             id = matcher.id()
             h.append((getscore(), id))
             docs.add(id)
             
-            if replace:
+            if replace and rcounter >= 10:
                 matcher = matcher.replace()
                 if not matcher.is_active():
                     break
+                rcounter = 0
+            else:
+                rcounter += 1
             
             matcher.next()
     
