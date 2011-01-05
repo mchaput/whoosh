@@ -54,7 +54,7 @@ class Module(object):
     def __repr__(self):
         return self.__class__.__name__
     
-    def indexer(self):
+    def indexer(self, **kwargs):
         pass
     
     def index_document(self, d):
@@ -106,12 +106,15 @@ class Spec(object):
                 print hit.get(self.main_field)
             
 class WhooshModule(Module):
-    def indexer(self):
+    def indexer(self, create=True):
         schema = self.bench.spec.whoosh_schema()
         path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
         if not os.path.exists(path):
             os.mkdir(path)
-        ix = index.create_in(path, schema)
+        if create:
+            ix = index.create_in(path, schema)
+        else:
+            ix = index.open_dir(path)
         self.writer = ix.writer(procs=int(self.options.procs),
                                 limitmb=int(self.options.limitmb))
 
@@ -157,7 +160,7 @@ class WhooshModule(Module):
     
 
 class XappyModule(Module):
-    def indexer(self):
+    def indexer(self, **kwargs):
         path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
         conn = self.bench.spec.xappy_connection(path)
         return conn
@@ -200,7 +203,7 @@ class XappyModule(Module):
         
 
 class XapianModule(Module):
-    def indexer(self):
+    def indexer(self, **kwargs):
         path = os.path.join(self.options.dir, "%s_xapian" % self.options.indexname)
         self.database = xapian.WritableDatabase(path, xapian.DB_CREATE_OR_OPEN)
         self.ixer = xapian.TermGenerator()
@@ -247,7 +250,7 @@ class XapianModule(Module):
 
 
 class SolrModule(Module):
-    def indexer(self):
+    def indexer(self, **kwargs):
         self.solr_doclist = []
         self.conn = pysolr.Solr(self.options.url)
         self.conn.delete("*:*")
@@ -281,7 +284,7 @@ class SolrModule(Module):
     
 
 class ZcatalogModule(Module):
-    def indexer(self):
+    def indexer(self, **kwargs):
         from ZODB.FileStorage import FileStorage
         from ZODB.DB import DB
         from zcatalog import catalog
@@ -361,6 +364,7 @@ class Bench(object):
         print "Indexing with %s..." % lib
         
         options = self.options
+        every = None if options.every is None else int(options.every)
         chunk = int(options.chunk)
         skip = int(options.skip)
         upto = int(options.upto)
@@ -368,7 +372,9 @@ class Bench(object):
         skipc = skip
         
         starttime = chunkstarttime = now()
+        
         lib.indexer()
+        
         for d in self.spec.documents():
             skipc -= 1
             if not skipc:
@@ -382,6 +388,10 @@ class Bench(object):
                     chunkstarttime = t
                 if count > upto:
                     break
+                if every and not count % every:
+                    print "----Commit"
+                    lib.finish()
+                    lib.indexer(create=False)
         
         spooltime = now()
         print "Spool time:", spooltime - starttime
@@ -441,6 +451,8 @@ class Bench(object):
                      default=100)
         p.add_option("-k", "--skip", dest="skip", metavar="N",
                      help="Index every Nth document.", default=1)
+        p.add_option("-e", "--commit-every", dest="every", metavar="NUM",
+                      help="Commit every NUM documents", default=None)
         p.add_option("-u", "--upto", dest="upto", metavar="N",
                      help="Index up to this document number.", default=600000)
         p.add_option("-p", "--procs", dest="procs", metavar="NUMBER",
