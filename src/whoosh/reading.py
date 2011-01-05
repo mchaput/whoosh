@@ -590,14 +590,28 @@ class MultiReader(IndexReader):
     def postings(self, fieldname, text, scorer=None, exclude_docs=None):
         postreaders = []
         docoffsets = []
+        excl = exclude_docs
+        term = (fieldname, text)
+        
         for i, r in enumerate(self.readers):
-            try:
+            if term in r:
+                offset = self.doc_offsets[i]
+                
+                # If an exclude_docs set was passed in, we need to pull out
+                # the document numbers that apply to this reader and subtract
+                # the offset from them
+                if exclude_docs and i > 0:
+                    limit = offset + r.doc_count_all()
+                    # Create a subset of the exclude_docs set with the offset
+                    # subtracted
+                    excl = set(docnum - offset for docnum in exclude_docs
+                               if docnum >= offset and docnum < limit)
+                
+                # Get a posting reader for the term and add it to the list
                 pr = r.postings(fieldname, text, scorer=scorer,
-                                exclude_docs=exclude_docs)
+                                exclude_docs=excl)
                 postreaders.append(pr)
-                docoffsets.append(self.doc_offsets[i])
-            except TermNotFound:
-                pass
+                docoffsets.append(offset)
         
         if not postreaders:
             raise TermNotFound(fieldname, text)
