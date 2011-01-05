@@ -104,6 +104,12 @@ class FieldType(object):
                     (self.stored == other.stored),
                     (self.unique == other.unique)))
     
+    def on_add(self, schema, fieldname):
+        pass
+    
+    def on_remove(self, schema, fieldname):
+        pass
+    
     def clean(self):
         """Clears any cached information in the field and any child objects.
         """
@@ -572,7 +578,7 @@ class TEXT(FieldType):
                          stored=bool, field_boost=float)
     
     def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
-                 field_boost=1.0):
+                 field_boost=1.0, multitoken_query="first"):
         """
         :param analyzer: The analysis.Analyzer to use to index the field
             contents. See the analysis module for more information. If you omit
@@ -595,7 +601,7 @@ class TEXT(FieldType):
             formatclass = Frequency
         self.format = formatclass(analyzer=ana, field_boost=field_boost)
         self.vector = vector
-        
+        self.multitoken_query = multitoken_query
         self.scorable = True
         self.stored = stored
 
@@ -812,10 +818,12 @@ class Schema(object):
             expr = re.compile(fnmatch.translate(name))
             self._dyn_fields[name] = (expr, fieldtype)
         else:
+            fieldtype.on_add(self, name)
             self._fields[name] = fieldtype
         
     def remove(self, fieldname):
         if fieldname in self._fields:
+            self._fields[fieldname].on_remove(self, fieldname)
             del self._fields[fieldname]
         elif fieldname in self._dyn_fields:
             del self._dyn_fields[fieldname]
