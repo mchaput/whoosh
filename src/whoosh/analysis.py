@@ -140,7 +140,7 @@ class Token(object):
         
     def copy(self):
         # This is faster than using the copy module
-        return Token(**self.__dict__.copy())
+        return Token(**self.__dict__)
 
 
 # Composition support
