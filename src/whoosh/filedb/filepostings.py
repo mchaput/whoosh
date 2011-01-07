@@ -223,6 +223,17 @@ class FilePostingWriter(PostingWriter):
             self.finish()
         self.postfile.close()
 
+    def block_stats(self):
+        # Calculate block statistics
+        maxweight = max(self.blockweights)
+        maxwol = 0.0
+        minlength = 0
+        if self.blocklengths:
+            minlength = min(self.blocklengths)
+            maxwol = max(w / l for w, l in zip(self.blockweights, self.blocklengths))
+        
+        return (maxweight, maxwol, minlength)
+
     def _write_block(self):
         posting_size = self.format.posting_size
         stringids = self.stringids
@@ -235,14 +246,9 @@ class FilePostingWriter(PostingWriter):
         compressed = self.compressed and postcount > 4
         compression = self.compression
 
-        # Calculate block statistics
-        maxid = ids[-1]
-        maxweight = max(weights)
-        maxwol = 0.0
-        minlength = 0
-        if self.blocklengths:
-            minlength = min(self.blocklengths)
-            maxwol = max(w / l for w, l in zip(weights, self.blocklengths))
+        # Get the block stats
+        maxid = self.blockids[-1]
+        maxweight, maxwol, minlength = self.block_stats()
 
         # Compress IDs if necessary
         if not stringids and compressed:
@@ -556,6 +562,18 @@ class FilePostingReader(Matcher):
         bq = self.block_quality
         if bq() > minquality: return 0
         return self._skip_to_block(lambda: bq() <= minquality)
+    
+    def block_maxweight(self):
+        return self.blockinfo.maxweight
+    
+    def block_maxwol(self):
+        return self.blockinfo.maxwol
+    
+    def block_maxid(self):
+        return self.blockinfo.maxid
+    
+    def block_minlength(self):
+        return self.blockinfo.minlength
     
     def score(self):
         return self.scorer.score(self)

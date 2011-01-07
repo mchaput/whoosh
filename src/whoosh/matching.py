@@ -108,7 +108,7 @@ class Matcher(object):
         quality measurements.
         """
         
-        raise NoQualityAvailable
+        raise NoQualityAvailable(self.__class__)
     
     def id(self):
         """Returns the ID of the current posting.
@@ -251,7 +251,8 @@ class ListMatcher(Matcher):
     """
     
     def __init__(self, ids, weights=None, values=None, format=None,
-                 scorer=None, position=0, all_weights=None):
+                 scorer=None, position=0, all_weights=None,
+                 maxwol=0.0, minlength=0):
         """
         :param ids: a list of doc IDs.
         :param weights: a list of weights corresponding to the list of IDs.
@@ -271,6 +272,8 @@ class ListMatcher(Matcher):
         self._i = position
         self._format = format
         self._scorer = scorer
+        self._maxwol = maxwol
+        self._minlength = minlength
     
     def __repr__(self):
         return "%s(%r, %r, %r, %d)" % (self.__class__.__name__, self._ids,
@@ -288,6 +291,12 @@ class ListMatcher(Matcher):
     
     def quality(self):
         return self._scorer.quality(self)
+    
+    def block_quality(self):
+        return self._scorer.block_quality(self)
+    
+    def skip_to_quality(self, minquality):
+        return False
     
     def id(self):
         return self._ids[self._i]
@@ -325,6 +334,23 @@ class ListMatcher(Matcher):
             return self._weights[self._i]
         else:
             return 1.0
+    
+    def block_maxweight(self):
+        if self._all_weights:
+            return self._all_weights
+        elif self._weights:
+            return max(self._weights)
+        else:
+            return 1.0
+    
+    def block_maxwol(self):
+        return self._maxwol
+    
+    def block_maxid(self):
+        return max(self._ids)
+    
+    def block_minlength(self):
+        return self._minlength
     
     def score(self):
         if self._scorer:

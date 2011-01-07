@@ -37,7 +37,7 @@ class Searcher(object):
     methods for searching the index.
     """
 
-    def __init__(self, ix, weighting=scoring.BM25F):
+    def __init__(self, ix, reader=None, weighting=scoring.BM25F):
         """
         :param ixreader: An :class:`~whoosh.reading.IndexReader` object for
             the index to search.
@@ -46,7 +46,7 @@ class Searcher(object):
         """
 
         self.ix = ix
-        self.ixreader = ix.reader()
+        self.ixreader = reader or ix.reader()
         self.schema = self.ixreader.schema
         self._doccount = self.ixreader.doc_count_all()
 

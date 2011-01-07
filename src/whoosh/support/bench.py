@@ -60,7 +60,7 @@ class Module(object):
     def index_document(self, d):
         raise NotImplementedError
     
-    def finish(self):
+    def finish(self, **kwargs):
         pass
     
     def searcher(self):
@@ -126,8 +126,8 @@ class WhooshModule(Module):
             d["_stored_%s" % mf] = compress(d[mf], 9)
         self.writer.add_document(**d)
 
-    def finish(self):
-        self.writer.commit()
+    def finish(self, merge=True, optimize=False):
+        self.writer.commit(merge=merge, optimize=optimize)
         
     def searcher(self):
         path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
@@ -218,7 +218,7 @@ class XapianModule(Module):
         self.ixer.index_text(d[self.main_field])
         self.database.add_document(doc)
         
-    def finish(self):
+    def finish(self, **kwargs):
         self.database.flush()
         
     def searcher(self):
@@ -262,7 +262,7 @@ class SolrModule(Module):
             self.conn.add(self.solr_doclist, commit=False)
             self.solr_doclist = []
         
-    def finish(self):
+    def finish(self, **kwargs):
         if self.solr_doclist:
             self.conn.add(self.solr_doclist)
         del self.solr_doclist
@@ -318,7 +318,7 @@ class ZcatalogModule(Module):
             transaction.commit()
             self.zcatalog_count = 0
         
-    def finish(self):
+    def finish(self, **kwargs):
         import transaction
         transaction.commit()
         del self.zcatalog_count
@@ -365,6 +365,7 @@ class Bench(object):
         
         options = self.options
         every = None if options.every is None else int(options.every)
+        merge = options.merge
         chunk = int(options.chunk)
         skip = int(options.skip)
         upto = int(options.upto)
@@ -390,12 +391,12 @@ class Bench(object):
                     break
                 if every and not count % every:
                     print "----Commit"
-                    lib.finish()
+                    lib.finish(merge=merge)
                     lib.indexer(create=False)
         
         spooltime = now()
         print "Spool time:", spooltime - starttime
-        lib.finish()
+        lib.finish(merge=merge)
         committime = now()
         print "Commit time:", committime - spooltime
         print "Total time to index", count, "documents:",  committime - starttime
@@ -453,6 +454,9 @@ class Bench(object):
                      help="Index every Nth document.", default=1)
         p.add_option("-e", "--commit-every", dest="every", metavar="NUM",
                       help="Commit every NUM documents", default=None)
+        p.add_option("-M", "--no-merge", dest="merge", action="store_false",
+                     help="Don't merge segments when doing multiple commits",
+                     default=True)
         p.add_option("-u", "--upto", dest="upto", metavar="N",
                      help="Index up to this document number.", default=600000)
         p.add_option("-p", "--procs", dest="procs", metavar="NUMBER",

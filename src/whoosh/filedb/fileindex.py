@@ -48,8 +48,7 @@ def _segment_pattern(indexname):
     name is the name of the index.
     """
 
-    return re.compile("(_%s_[0-9]+).(%s)" % (indexname,
-                                             Segment.EXTENSIONS.values()))
+    return re.compile("(_%s_[0-9]+)\\..*" % indexname)
 
 
 def _latest_generation(storage, indexname):
@@ -341,9 +340,8 @@ class Segment(object):
         
         self._filenames = set()
         for attr, ext in self.EXTENSIONS.iteritems():
-            fname = "%s.%s" % (self.name, ext)
+            fname = self.make_filename(ext)
             setattr(self, attr + "_filename", fname)
-            self._filenames.add(fname)
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.name)
@@ -356,8 +354,8 @@ class Segment(object):
         return Segment(self.name, self.doccount, self.fieldlength_totals,
                        self.fieldlength_maxes, deleted)
 
-    def filenames(self):
-        return self._filenames
+    def make_filename(self, ext):
+        return "%s.%s" % (self.name, ext)
 
     def doc_count_all(self):
         """

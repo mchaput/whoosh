@@ -263,8 +263,9 @@ class SegmentReader(IndexReader):
                                            scorer=scorer, fieldname=fieldname,
                                            text=text)
         else:
-            docids, weights, values = offset
-            postreader = ListMatcher(docids, weights, values, format, scorer)
+            docids, weights, values, maxwol, minlength = offset
+            postreader = ListMatcher(docids, weights, values, format, scorer,
+                                     maxwol=maxwol, minlength=minlength)
         
         if exclude_docs:
             postreader = ExcludeMatcher(postreader, exclude_docs)
