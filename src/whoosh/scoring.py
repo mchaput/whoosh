@@ -125,7 +125,7 @@ class WOLScorer(BaseScorer):
         return matcher.weight() / self.dfl(matcher.id())
     
     def block_quality(self, matcher):
-        return matcher.blockinfo.maxwol
+        return matcher.block_maxwol()
 
 
 # WeightScorer
@@ -146,7 +146,7 @@ class WeightScorer(BaseScorer):
         return matcher.weight()
     
     def block_quality(self, matcher):
-        return matcher.blockinfo.maxweight
+        return matcher.block_maxweight()
 
 
 # WeightingModel implementations
@@ -285,7 +285,7 @@ class TF_IDF(WeightingModel):
             return matcher.weight()
         
         def block_quality(self, matcher):
-            return matcher.blockinfo.maxweight
+            return matcher.block_maxweight()
 
 
 # Utility models

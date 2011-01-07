@@ -39,9 +39,8 @@ class TestParserPlugins(unittest.TestCase):
                 qp = qparser.QueryParser("text", plugins=plist)
                 try:
                     qp.parse(qs)
-                except:
-                    print "combo", count, plist
-                    raise
+                except Exception, e:
+                    raise Exception(str(e) + " combo: %s %r" % (count, plist))
                 count += 1
 
     def test_field_alias(self):
