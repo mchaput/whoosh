@@ -33,32 +33,13 @@ from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
-                             WrappingMatcher, ConstantScoreMatcher)
+                             WrappingMatcher, ConstantScoreMatcher,
+    AndNotMatcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree
-
-
-# Utilities
-
-def _not_vector(searcher, notqueries, sourcevector):
-    # Returns a BitVector where the positions are docnums
-    # and True means the docnum is banned from the results.
-    # 'sourcevector' is the incoming exclude_docs. This
-    # function makes a copy of it and adds the documents
-    # from notqueries
-
-    if sourcevector is None:
-        nvector = BitVector(searcher.reader().doc_count_all())
-    else:
-        nvector = sourcevector.copy()
-
-    for nquery in notqueries:
-        nvector.set_from(nquery.docs(searcher))
-
-    return nvector
 
 
 # Exceptions
@@ -177,7 +158,7 @@ class Query(object):
         
         return self.estimate_size(ixreader)
 
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
         
@@ -185,7 +166,7 @@ class Query(object):
         """
         raise NotImplementedError
 
-    def docs(self, searcher, exclude_docs=None):
+    def docs(self, searcher):
         """Returns an iterator of docnums matching this query.
         
         >>> searcher = my_index.searcher()
@@ -193,15 +174,12 @@ class Query(object):
         [10, 34, 78, 103]
         
         :param searcher: A :class:`whoosh.searching.Searcher` object.
-        :param exclude_docs: A :class:`~whoosh.support.bitvector.BitVector`
-            of document numbers to exclude from the results, or None to not
-            exclude any documents.
         """
 
         try:
-            return self.matcher(searcher, exclude_docs=exclude_docs).all_ids()
+            return self.matcher(searcher).all_ids()
         except TermNotFound:
-            return []
+            return iter([])
 
     def normalize(self):
         """Returns a recursively "normalized" form of this query. The
@@ -282,8 +260,8 @@ class WrappingQuery(Query):
     def estimate_min_size(self, ixreader):
         return self.child.estimate_min_size(ixreader)
     
-    def matcher(self, searcher, exclude_docs=None):
-        return self.child.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        return self.child.matcher(searcher)
     
     def replace(self, oldtext, newtext):
         return self.__class__(self.child.replace(oldtext, newtext))
@@ -415,29 +393,42 @@ class CompoundQuery(Query):
         else:
             return NullQuery
 
-    def _submatchers(self, searcher, exclude_docs):
+    def _matcher(self, matchercls, searcher, **kwargs):
+        # Pull any queries inside a Not() out into their own list
         subs, nots = self._split_queries()
-        exclude_docs = _not_vector(searcher, nots, exclude_docs)
         
+        # Shortcut for an empty list of queries
+        if not subs:
+            return NullMatcher()
+        
+        # Sort the list of subqueries by their estimated size
         r = searcher.reader()
         subs.sort(key=lambda q: q.estimate_size(r))
         
-        return [subquery.matcher(searcher, exclude_docs=exclude_docs)
-                for subquery in subs]
-
-    def _matcher(self, matchercls, searcher, exclude_docs, **kwargs):
-        submatchers = self._submatchers(searcher, exclude_docs)
-        
-        if len(submatchers) == 1:
-            return submatchers[0]
-        if not submatchers:
-            return NullMatcher()
-        
-        tree = make_binary_tree(matchercls, submatchers, **kwargs)
-        if self.boost == 1.0:
-            return tree
+        # Create a matcher from the list of subqueries
+        subms = [subq.matcher(searcher) for subq in subs]
+        if len(subms) == 1:
+            m = subms[0]
         else:
-            return WrappingMatcher(tree, self.boost)
+            m = make_binary_tree(matchercls, subms)
+        
+        # If there were queries inside Not(), make a matcher for them and
+        # wrap the matchers in an AndNotMatcher
+        if nots:
+            notms = [subq.matcher(searcher) for subq in nots]
+            if len(notms) == 1:
+                notm = notms[0]
+            else:
+                notm = make_binary_tree(UnionMatcher, notms)
+                
+            if notm.is_active():
+                m = AndNotMatcher(m, notm)
+        
+        # If this query had a boost, add a wrapping matcher to apply the boost
+        if self.boost != 1.0:
+            m = WrappingMatcher(m, self.boost)
+            
+        return m
 
 
 class MultiTerm(Query):
@@ -478,7 +469,7 @@ class MultiTerm(Query):
         return min(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._words(ixreader))
 
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         fieldname = self.fieldname
         qs = [Term(fieldname, word) for word in self._words(searcher.reader())]
         if not qs: return NullMatcher()
@@ -487,7 +478,7 @@ class MultiTerm(Query):
             q = qs[0]
         else:
             q = Or(qs)
-        return q.matcher(searcher, exclude_docs=exclude_docs)
+        return q.matcher(searcher)
         
 
 # Concrete classes
@@ -549,10 +540,9 @@ class Term(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_frequency(self.fieldname, self.text)
 
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         try:
-            m = searcher.postings(self.fieldname, self.text,
-                                  exclude_docs=exclude_docs)
+            m = searcher.postings(self.fieldname, self.text)
             if self.boost != 1:
                 m = WrappingMatcher(m, boost=self.boost)
                 
@@ -577,8 +567,8 @@ class And(CompoundQuery):
     def estimate_size(self, ixreader):
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
-    def matcher(self, searcher, exclude_docs=None):
-        return self._matcher(IntersectionMatcher, searcher, exclude_docs)
+    def matcher(self, searcher):
+        return self._matcher(IntersectionMatcher, searcher)
 
 
 class Or(CompoundQuery):
@@ -612,8 +602,8 @@ class Or(CompoundQuery):
             norm.minmatch = self.minmatch
         return norm
 
-    def matcher(self, searcher, exclude_docs=None):
-        return self._matcher(UnionMatcher, searcher, exclude_docs)
+    def matcher(self, searcher):
+        return self._matcher(UnionMatcher, searcher)
 
 
 class DisjunctionMax(CompoundQuery):
@@ -639,8 +629,8 @@ class DisjunctionMax(CompoundQuery):
             norm.tiebreak = self.tiebreak
         return norm
     
-    def matcher(self, searcher, exclude_docs=None):
-        return self._matcher(DisjunctionMaxMatcher, searcher, exclude_docs,
+    def matcher(self, searcher):
+        return self._matcher(DisjunctionMaxMatcher, searcher,
                              tiebreak=self.tiebreak)
 
 
@@ -706,7 +696,7 @@ class Not(Query):
     def estimate_min_size(self, ixreader):
         return 1 if ixreader.doc_count() else 0
 
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         # Usually only called if Not is the root query. Otherwise, queries such
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
@@ -1080,9 +1070,9 @@ class NumericRange(Query):
     def estimate_min_size(self, ixreader):
         return self._compile_query(ixreader).estimate_min_size(ixreader)
     
-    def docs(self, searcher, exclude_docs=None):
+    def docs(self, searcher):
         q = self._compile_query(searcher.reader())
-        return q.docs(searcher, exclude_docs=exclude_docs)
+        return q.docs(searcher)
     
     def _compile_query(self, ixreader):
         from whoosh.fields import NUMERIC
@@ -1117,9 +1107,9 @@ class NumericRange(Query):
             q = ConstantScoreQuery(q, self.boost)
         return q
         
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         q = self._compile_query(searcher.reader())
-        return q.matcher(searcher, exclude_docs=exclude_docs)
+        return q.matcher(searcher)
 
 
 class DateRange(NumericRange):
@@ -1279,7 +1269,7 @@ class Phrase(Query):
     def estimate_min_size(self, ixreader):
         return self._and_query().estimate_min_size(ixreader)
 
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         fieldname = self.fieldname
         reader = searcher.reader()
 
@@ -1292,15 +1282,11 @@ class Phrase(Query):
             raise QueryError("Phrase search: %r field has no positions"
                              % self.fieldname)
         
-        #wordmatchers = [searcher.postings(fieldname, word, exclude_docs=exclude_docs)
-        #                for word in self.words]
-        #return PhraseMatcher(wordmatchers, slop=self.slop, boost=self.boost)
-        
         # Construct a tree of SpanNear queries representing the words in the
         # phrase and return its matcher
         from whoosh.spans import SpanNear
         q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
-        return q.matcher(searcher, exclude_docs=exclude_docs)
+        return q.matcher(searcher)
 
 
 class Ordered(And):
@@ -1309,10 +1295,9 @@ class Ordered(And):
 
     JOINT = " BEFORE "
     
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         from spans import SpanBefore
-        return self._matcher(SpanBefore.SpanBeforeMatcher, searcher,
-                             exclude_docs=exclude_docs)
+        return self._matcher(SpanBefore.SpanBeforeMatcher, searcher)
 
 
 class Every(Query):
@@ -1344,7 +1329,7 @@ class Every(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         fieldname = self.fieldname
         
         # This is a hacky hack, but just create an in-memory set of all the
@@ -1357,9 +1342,6 @@ class Every(Query):
             for text in searcher.lexicon(fieldname):
                 pr = searcher.postings(fieldname, text)
                 s.update(pr.all_ids())
-        
-        if exclude_docs:
-            s.difference_update(exclude_docs)
         
         return ListMatcher(sorted(s), all_weights=self.boost)
 
@@ -1378,9 +1360,9 @@ class NullQuery(Query):
         return self
     def simplify(self, ixreader):
         return self
-    def docs(self, searcher, exclude_docs=None):
+    def docs(self, searcher):
         return []
-    def matcher(self, searcher, exclude_docs=None):
+    def matcher(self, searcher):
         return NullMatcher()
 NullQuery = NullQuery()
 
@@ -1399,8 +1381,8 @@ class ConstantScoreQuery(WrappingQuery):
     def copy(self):
         return self.__class__(self.child, self.score)
     
-    def matcher(self, searcher, exclude_docs=None):
-        m = self.child.matcher(searcher, exclude_docs=None)
+    def matcher(self, searcher):
+        m = self.child.matcher(searcher)
         if isinstance(m, NullMatcher):
             return m
         else:
@@ -1430,8 +1412,8 @@ class WeightingQuery(WrappingQuery):
     def copy(self):
         return self.__class__(self.child, self.model)
     
-    def matcher(self, searcher, exclude_docs=None):
-        m = self.child.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        m = self.child.matcher(searcher)
         scorer = self.model.scorer(searcher, self.fieldname, self.text)
         if isinstance(m, NullMatcher):
             return m
@@ -1490,9 +1472,9 @@ class BinaryQuery(CompoundQuery):
     
         return self.__class__(a, b, boost=self.boost)
     
-    def matcher(self, searcher, exclude_docs=None):
-        return self.matcherclass(self.a.matcher(searcher, exclude_docs=exclude_docs),
-                                 self.b.matcher(searcher, exclude_docs=exclude_docs))
+    def matcher(self, searcher):
+        return self.matcherclass(self.a.matcher(searcher),
+                                 self.b.matcher(searcher))
 
 
 class Require(BinaryQuery):
@@ -1522,8 +1504,8 @@ class Require(BinaryQuery):
                               self.b.replace(oldtext, newtext),
                               boost=self.boost)
     
-    def docs(self, searcher, exclude_docs=None):
-        return And(self.subqueries).docs(searcher, exclude_docs=exclude_docs)
+    def docs(self, searcher):
+        return And(self.subqueries).docs(searcher)
     
 
 class AndMaybe(BinaryQuery):
@@ -1547,8 +1529,8 @@ class AndMaybe(BinaryQuery):
     def estimate_min_size(self, ixreader):
         return self.subqueries[0].estimate_min_size(ixreader)
 
-    def docs(self, searcher, exclude_docs=None):
-        return self.subqueries[0].docs(searcher, exclude_docs=exclude_docs)
+    def docs(self, searcher):
+        return self.subqueries[0].docs(searcher)
 
 
 class AndNot(BinaryQuery):
@@ -1557,6 +1539,7 @@ class AndNot(BinaryQuery):
     """
 
     JOINT = " ANDNOT "
+    matcherclass = AndNotMatcher
 
     def normalize(self):
         a = self.a.normalize()
@@ -1576,13 +1559,6 @@ class AndNot(BinaryQuery):
         self.a.existing_terms(ixreader, termset, reverse=reverse,
                               phrases=phrases)
 
-    def matcher(self, searcher, exclude_docs=None):
-        # This is faster than actually using an AndNotMatcher, but could use
-        # a lot of memory on a very large index.
-        # TODO: Switch based on size of index?
-        notvector = _not_vector(searcher, [self.b], exclude_docs)
-        return self.a.matcher(searcher, exclude_docs=notvector)
-
 
 class Otherwise(BinaryQuery):
     """A binary query that only matches the second clause if the first clause
@@ -1591,10 +1567,10 @@ class Otherwise(BinaryQuery):
     
     JOINT = " OTHERWISE "
     
-    def matcher(self, searcher, exclude_docs=None):
-        m = self.a.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        m = self.a.matcher(searcher)
         if not m.is_active():
-            m = self.b.matcher(searcher, exclude_docs=exclude_docs)
+            m = self.b.matcher(searcher)
         return m
 
 

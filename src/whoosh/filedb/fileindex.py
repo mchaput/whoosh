@@ -15,15 +15,13 @@
 #===============================================================================
 
 import cPickle, os, re
-from bisect import bisect_right
 from time import time
 from threading import Lock
 
 from whoosh import __version__
 from whoosh.fields import Schema
-from whoosh.index import Index
-from whoosh.index import EmptyIndexError, IndexVersionError
-from whoosh.index import _DEF_INDEX_NAME
+from whoosh.index import Index, EmptyIndexError, IndexVersionError, _DEF_INDEX_NAME
+from whoosh.reading import EmptyReader, MultiReader
 from whoosh.store import Storage, LockError
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 
@@ -273,26 +271,62 @@ class FileIndex(Index):
     def schema(self):
         return self._current_schema()
 
-    def reader(self):
+    def reader(self, reuse=None):
+        from whoosh.filedb.filereading import SegmentReader
+        
+        reusable = {}
+        
+        # Lock the index so nobody can delete a segment while we're in the
+        # middle of creating the reader
         lock = self.lock("READLOCK")
         lock.acquire(True)
+        
         try:
+            # Read the information from the TOC file
             info = self._read_toc()
             
-            from whoosh.filedb.filereading import SegmentReader
             if len(info.segments) == 0:
-                from whoosh.reading import EmptyReader
+                # This index has no segments! Return an EmptyReader object,
+                # which simply returns empty or zero to every method
                 return EmptyReader(info.schema)
-            elif len(info.segments) == 1:
-                return SegmentReader(self.storage, info.schema,
-                                     info.segments[0], info.generation)
+            
+            if reuse:
+                # Put all atomic readers in a dictionary keyed by their
+                # generation, so we can re-use them if them if possible
+                if reuse.is_atomic:
+                    readers = [reuse]
+                else:
+                    readers = [r for r, offset in reuse.leaf_readers()]
+                reusable = dict((r.generation(), r) for r in readers)
+            
+            # Make a function to open readers, which reuses reusable readers.
+            # It removes any readers it reuses from the "reusable" dictionary,
+            # so later we can close any remaining readers.
+            def segreader(segment):
+                gen = segment.generation
+                if gen in reusable:
+                    r = reusable[gen]
+                    del reusable[gen]
+                    return r
+                else:
+                    return SegmentReader(self.storage, info.schema, segment)
+            
+            if len(info.segments) == 1:
+                # This index has one segment, so return a SegmentReader object
+                # for the segment
+                return segreader(info.segments[0])
             else:
-                from whoosh.reading import MultiReader
-                readers = [SegmentReader(self.storage, info.schema, segment, -2)
-                           for segment in info.segments]
-                return MultiReader(readers, info.generation)
+                # This index has multiple segments, so create a list of
+                # SegmentReaders for the segments, then composite them with a
+                # MultiReader
+                
+                readers = [segreader(segment) for segment in info.segments]
+                return MultiReader(readers, generation=info.generation)
+        
         finally:
             lock.release()
+            for r in reusable.values():
+                r.close()
 
 
 class Segment(object):
@@ -313,8 +347,10 @@ class Segment(object):
                   "termsindex": "trm", "termposts": "pst",
                   "vectorindex": "vec", "vectorposts": "vps"}
     
-    def __init__(self, name, doccount, fieldlength_totals, fieldlength_maxes,
-                 deleted=None):
+    generation = 0
+    
+    def __init__(self, name, generation, doccount, fieldlength_totals,
+                 fieldlength_maxes, deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
             from its name and the generation).
@@ -333,6 +369,7 @@ class Segment(object):
         assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
         
         self.name = name
+        self.generation = generation
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
         self.fieldlength_maxes = fieldlength_maxes
@@ -347,12 +384,9 @@ class Segment(object):
         return "%s(%r)" % (self.__class__.__name__, self.name)
 
     def copy(self):
-        if self.deleted:
-            deleted = set(self.deleted)
-        else:
-            deleted = None
-        return Segment(self.name, self.doccount, self.fieldlength_totals,
-                       self.fieldlength_maxes, deleted)
+        return Segment(self.name, self.generation, self.doccount,
+                       self.fieldlength_totals, self.fieldlength_maxes,
+                       self.deleted)
 
     def make_filename(self, ext):
         return "%s.%s" % (self.name, ext)

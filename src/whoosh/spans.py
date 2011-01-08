@@ -213,8 +213,8 @@ class SpanQuery(Query):
     wrapped query, and ``matcher()`` to return a span-aware matcher object.
     """
     
-    def _subm(self, s, excl):
-        return self.q.matcher(s, exclude_docs=excl)
+    def _subm(self, s):
+        return self.q.matcher(s)
     
     def __getattr__(self, name):
         return getattr(self.q, name)
@@ -239,8 +239,8 @@ class SpanFirst(SpanQuery):
         self.q = q
         self.limit = limit
         
-    def matcher(self, searcher, exclude_docs=None):
-        return SpanFirst.SpanFirstMatcher(self._subm(searcher, exclude_docs),
+    def matcher(self, searcher):
+        return SpanFirst.SpanFirstMatcher(self._subm(searcher),
                                           limit=self.limit)
         
     class SpanFirstMatcher(SpanWrappingMatcher):
@@ -313,9 +313,9 @@ class SpanNear(SpanQuery):
                                                             self.ordered,
                                                             self.mindist)
     
-    def matcher(self, searcher, exclude_docs=None):
-        ma = self.a.matcher(searcher, exclude_docs=exclude_docs)
-        mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        ma = self.a.matcher(searcher)
+        mb = self.b.matcher(searcher)
         return SpanNear.SpanNearMatcher(ma, mb, slop=self.slop,
                                         ordered=self.ordered,
                                         mindist=self.mindist)
@@ -424,9 +424,9 @@ class SpanNot(SpanQuery):
         self.a = a
         self.b = b
         
-    def matcher(self, searcher, exclude_docs=None):
-        ma = self.a.matcher(searcher, exclude_docs=exclude_docs)
-        mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        ma = self.a.matcher(searcher)
+        mb = self.b.matcher(searcher)
         return SpanNot.SpanNotMatcher(ma, mb)
     
     class SpanNotMatcher(SpanBiMatcher):
@@ -466,9 +466,8 @@ class SpanOr(SpanQuery):
         self.q = Or(subqs)
         self.subqs = subqs
         
-    def matcher(self, searcher, exclude_docs=None):
-        matchers = [q.matcher(searcher, exclude_docs=exclude_docs)
-                    for q in self.subqs]
+    def matcher(self, searcher):
+        matchers = [q.matcher(searcher) for q in self.subqs]
         return make_binary_tree(SpanOr.SpanOrMatcher, matchers)
     
     class SpanOrMatcher(SpanBiMatcher):
@@ -514,9 +513,9 @@ class SpanContains(SpanQuery):
         self.a = a
         self.b = b
     
-    def matcher(self, searcher, exclude_docs=None):
-        ma = self.a.matcher(searcher, exclude_docs=exclude_docs)
-        mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        ma = self.a.matcher(searcher)
+        mb = self.b.matcher(searcher)
         return SpanContains.SpanContainsMatcher(ma, mb)
     
     class SpanContainsMatcher(SpanBiMatcher):
@@ -565,9 +564,9 @@ class SpanBefore(SpanQuery):
         self.b = b
         self.q = And([a, b])
         
-    def matcher(self, searcher, exclude_docs=None):
-        ma = self.a.matcher(searcher, exclude_docs=exclude_docs)
-        mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        ma = self.a.matcher(searcher)
+        mb = self.b.matcher(searcher)
         return SpanBefore.SpanBeforeMatcher(ma, mb)
         
     class SpanBeforeMatcher(SpanBiMatcher):
@@ -601,9 +600,9 @@ class SpanCondition(SpanQuery):
         self.b = b
         self.q = And([a, b])
         
-    def matcher(self, searcher, exclude_docs=None):
-        ma = self.a.matcher(searcher, exclude_docs=exclude_docs)
-        mb = self.b.matcher(searcher, exclude_docs=exclude_docs)
+    def matcher(self, searcher):
+        ma = self.a.matcher(searcher)
+        mb = self.b.matcher(searcher)
         return SpanCondition.SpanConditionMatcher(ma, mb)
     
     class SpanConditionMatcher(SpanBiMatcher):

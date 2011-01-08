@@ -385,26 +385,26 @@ class TestIndexing(unittest.TestCase):
         ix =self.make_index("testindex", schema, "multi")
         
         writer = ix.writer()
-        writer.add_document(id=u"1", content=u"alfa bravo charlie 0") #deleted 1
-        writer.add_document(id=u"2", content=u"bravo charlie delta echo 1") #deleted 1
-        writer.add_document(id=u"3", content=u"charlie delta echo foxtrot 2") #deleted 2
+        writer.add_document(id=u"1", content=u"alfa bravo charlie") #deleted 1
+        writer.add_document(id=u"2", content=u"bravo charlie delta echo") #deleted 1
+        writer.add_document(id=u"3", content=u"charlie delta echo foxtrot") #deleted 2
         writer.commit()
         
         writer = ix.writer()
         writer.delete_by_term("id", "1")
         writer.delete_by_term("id", "2")
-        writer.add_document(id=u"1", content=u"apple bear cherry donut 3")
-        writer.add_document(id=u"2", content=u"bear cherry donut eggs 4")
-        writer.add_document(id=u"4", content=u"delta echo foxtrot golf 5") #deleted 2
-        writer.add_document(id=u"5", content=u"echo foxtrot golf hotel 6")
+        writer.add_document(id=u"4", content=u"apple bear cherry donut")
+        writer.add_document(id=u"5", content=u"bear cherry donut eggs")
+        writer.add_document(id=u"6", content=u"delta echo foxtrot golf") #deleted 2
+        writer.add_document(id=u"7", content=u"echo foxtrot golf hotel") # no d
         writer.commit(merge=False)
         
         writer = ix.writer()
         writer.delete_by_term("id", "3")
-        writer.delete_by_term("id", "4")
-        writer.add_document(id=u"3", content=u"cherry donut eggs falafel 7")
-        writer.add_document(id=u"4", content=u"donut eggs falafel grape 8")
-        writer.add_document(id=u"6", content=u" foxtrot golf hotel india 9")
+        writer.delete_by_term("id", "6")
+        writer.add_document(id=u"8", content=u"cherry donut eggs falafel")
+        writer.add_document(id=u"9", content=u"donut eggs falafel grape")
+        writer.add_document(id=u"A", content=u" foxtrot golf hotel india")
         writer.commit(merge=False)
 
         self.assertEqual(ix.doc_count(), 6)
@@ -412,13 +412,13 @@ class TestIndexing(unittest.TestCase):
         s = ix.searcher()
         
         r = s.search(query.Prefix("content", u"d"), optimize=False)
-        self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
+        self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
         
         r = s.search(query.Prefix("content", u"d"))
-        self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
+        self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
         
         r = s.search(query.Prefix("content", u"d"), limit=None)
-        self.assertEqual(sorted([d["id"] for d in r]), ["1", "2", "3", "4"])
+        self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
         
     def test_deleteall(self):
         schema = fields.Schema(text=fields.TEXT)

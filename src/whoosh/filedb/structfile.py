@@ -73,6 +73,9 @@ class StructFile(object):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
 
+    def __str__(self):
+        return self._name
+
     def flush(self):
         """Flushes the buffer of the wrapped file. This is a no-op if the
         wrapped file does not have a flush method.

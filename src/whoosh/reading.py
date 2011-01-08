@@ -36,6 +36,8 @@ class IndexReader(ClosableMixin):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
+    is_atomic = True
+
     def __contains__(self, term):
         """Returns True if the given term tuple (fieldname, text) is
         in this reader.
@@ -262,19 +264,17 @@ class IndexReader(ClosableMixin):
         p = self.postings(fieldname, text)
         return p.id()
 
-    def postings(self, fieldname, text, scorer=None, exclude_docs=None):
+    def postings(self, fieldname, text, scorer=None):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
         
-        >>> pr = searcher.postings("content", "render")
+        >>> pr = reader.postings("content", "render")
         >>> pr.skip_to(10)
         >>> pr.id
         12
         
         :param fieldname: the field name or field number of the term.
         :param text: the text of the term.
-        :exclude_docs: an optional BitVector of documents to exclude from the
-            results, or None to not exclude any documents.
         :rtype: :class:`whoosh.matching.Matcher`
         """
 
@@ -350,6 +350,14 @@ class IndexReader(ClosableMixin):
         return nlargest(number, ((tf * (1.0 / df), token)
                                  for token, df, tf
                                  in self.iter_prefix(fieldname, prefix)))
+    
+    def leaf_readers(self):
+        """Returns a list of (IndexReader, docbase) pairs for the child readers
+        of this reader if it is a composite reader, or None if this reader
+        is atomic.
+        """
+        
+        return False
 
 
 # Fake IndexReader class for empty indexes
@@ -412,7 +420,7 @@ class EmptyReader(IndexReader):
     def max_field_length(self, fieldname, default=0):
         return 0
 
-    def postings(self, fieldname, text, scorer=None, exclude_docs=None):
+    def postings(self, fieldname, text, scorer=None):
         raise TermNotFound("%s:%r" % (fieldname, text))
 
     def has_vector(self, docnum, fieldname):
@@ -434,12 +442,14 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
+    is_atomic = False
+
     def __init__(self, readers, generation=-1):
         self.readers = readers
+        self._gen = generation
         self.schema = None
         if readers:
             self.schema = readers[0].schema
-        self._generation = generation
         
         self.doc_offsets = []
         base = 0
@@ -505,7 +515,7 @@ class MultiReader(IndexReader):
         self.is_closed = True
 
     def generation(self):
-        return self._generation
+        return self._gen
 
     def iter_from(self, fieldname, text):
         return self._merge_iters([r.iter_from(fieldname, text)
@@ -587,29 +597,17 @@ class MultiReader(IndexReader):
             except (KeyError, TermNotFound):
                 pass
 
-    def postings(self, fieldname, text, scorer=None, exclude_docs=None):
+    def postings(self, fieldname, text, scorer=None):
         postreaders = []
         docoffsets = []
-        excl = exclude_docs
         term = (fieldname, text)
         
         for i, r in enumerate(self.readers):
             if term in r:
                 offset = self.doc_offsets[i]
                 
-                # If an exclude_docs set was passed in, we need to pull out
-                # the document numbers that apply to this reader and subtract
-                # the offset from them
-                if exclude_docs and i > 0:
-                    limit = offset + r.doc_count_all()
-                    # Create a subset of the exclude_docs set with the offset
-                    # subtracted
-                    excl = set(docnum - offset for docnum in exclude_docs
-                               if docnum >= offset and docnum < limit)
-                
                 # Get a posting reader for the term and add it to the list
-                pr = r.postings(fieldname, text, scorer=scorer,
-                                exclude_docs=excl)
+                pr = r.postings(fieldname, text, scorer=scorer)
                 postreaders.append(pr)
                 docoffsets.append(offset)
         
@@ -650,6 +648,9 @@ class MultiReader(IndexReader):
 
     # most_frequent_terms
     # most_distinctive_terms
+    
+    def leaf_readers(self):
+        return zip(self.readers, self.doc_offsets)
 
 
 
