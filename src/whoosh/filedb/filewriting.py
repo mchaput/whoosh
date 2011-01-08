@@ -109,7 +109,7 @@ class SegmentWriter(IndexWriter):
         self._unique_cache = {}
     
         # Create a temporary segment to use its .*_filename attributes
-        segment = Segment(self.name, 0, None, None)
+        segment = Segment(self.name, self.generation, 0, None, None)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -335,7 +335,7 @@ class SegmentWriter(IndexWriter):
                     # this field and cache the mapping from term to doc num
                     term2docnum = {}
                     s = self.searcher()
-                    term2docnum = dict(s.first_ids(name))
+                    term2docnum = dict(s.reader().first_ids(name))
                     s.close()
                     _unique_cache[name] = term2docnum
                 
@@ -400,7 +400,7 @@ class SegmentWriter(IndexWriter):
             self.vpostwriter.close()
     
     def _getsegment(self):
-        return Segment(self.name, self.docnum,
+        return Segment(self.name, self.generation, self.docnum,
                        self.pool.fieldlength_totals(),
                        self.pool.fieldlength_maxes())
     

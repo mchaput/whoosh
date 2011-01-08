@@ -37,7 +37,8 @@ class Searcher(object):
     methods for searching the index.
     """
 
-    def __init__(self, ix, reader=None, weighting=scoring.BM25F):
+    def __init__(self, ix, reader=None, weighting=scoring.BM25F, schema=None,
+                 doccount=None, idf_cache=None):
         """
         :param ixreader: An :class:`~whoosh.reading.IndexReader` object for
             the index to search.
@@ -47,31 +48,42 @@ class Searcher(object):
 
         self.ix = ix
         self.ixreader = reader or ix.reader()
-        self.schema = self.ixreader.schema
-        self._doccount = self.ixreader.doc_count_all()
-
-        # Copy attributes/methods from wrapped reader
-        for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
-                     "scorable", "lexicon", "frequency", "doc_frequency", 
-                     "field_length", "doc_field_length", "max_field_length",
-                     "field", "field_names", "all_doc_ids", "first_id",
-                     "first_ids"):
-            setattr(self, name, getattr(self.ixreader, name))
+        self.is_closed = False
+        
+        self.schema = schema or self.ixreader.schema
+        self._doccount = doccount or self.ixreader.doc_count_all()
+        self._idf_cache = idf_cache or {}
+        self._sorter_cache = {}
 
         if type(weighting) is type:
             self.weighting = weighting()
         else:
             self.weighting = weighting
 
-        self.is_closed = False
-        self._idf_cache = {}
-        self._sorter_cache = {}
+        self.leafreaders = None
+        self.subsearchers = None
+        if not self.ixreader.is_atomic:
+            self.leafreaders = self.ixreader.leaf_readers()
+            self.subsearchers = [(self._subsearcher(r), offset) for r, offset
+                                 in self.leafreaders]
+
+        # Copy attributes/methods from wrapped reader
+        for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
+                     "scorable", "lexicon", "frequency", "doc_frequency", 
+                     "field_length", "doc_field_length", "max_field_length",
+                     "field", "field_names"):
+            setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
         return self
     
     def __exit__(self, *exc_info):
         self.close()
+
+    def _subsearcher(self, reader):
+        return self.__class__(self.ix, reader, weighting=self.weighting,
+                              schema=self.schema, doccount=self._doccount,
+                              idf_cache=self._idf_cache)
 
     def doc_count(self):
         """Returns the number of UNDELETED documents in the index.
@@ -97,15 +109,27 @@ class Searcher(object):
         return self.ix.latest_generation() == self.ixreader.generation()
 
     def refresh(self):
-        """
-        Returns a fresh searcher for the latest version of the index::
+        """Returns a fresh searcher for the latest version of the index::
         
-            if not my_searcher.up_to_date():
-                my_searcher = my_searcher.refresh()
+            my_searcher = my_searcher.refresh()
+        
+        If the index has not changed since this searcher was created, this
+        searcher is simply returned.
+        
+        This method may CLOSE underlying resources that are no longer needed
+        by the refreshed searcher, so you CANNOT continue to use the original
+        searcher after calling ``refresh()`` on it.
         """
         
-        self.close()
-        return self.__class__(self.ix, weighting=self.weighting)
+        if self.ix.latest_generation() == self.reader().generation():
+            return self
+        
+        # Get a new reader, re-using resources from the current reader if
+        # possible
+        newreader = self.ix.reader(reuse=self.ixreader)
+        
+        self.is_closed = True
+        return self.__class__(self.ix, reader=newreader)
 
     def close(self):
         self.ixreader.close()
@@ -117,25 +141,29 @@ class Searcher(object):
         return self.ixreader.field_length(fieldname) / (self._doccount or 1)
 
     def reader(self):
-        """Returns the underlying :class:`~whoosh.reading.IndexReader`."""
+        """Returns the underlying :class:`~whoosh.reading.IndexReader`.
+        """
         return self.ixreader
 
-    def postings(self, fieldname, text, exclude_docs=None, qf=1):
-        """Returns a :class:`whoosh.matching.Matcher` for the postings of the
-        given term. Unlike the :func:`whoosh.reading.IndexReader.postings`
-        method, this method automatically sets the scoring functions on the
-        matcher from the searcher's weighting object.
-        """
-        
+    def scorer(self, fieldname, text, qf=1):
         if self._doccount:
             scorer = self.weighting.scorer(self, fieldname, text, qf=qf)
         else:
             # Scoring functions tend to cache information that isn't available
             # on an empty index.
             scorer = None
+            
+        return scorer
+
+    def postings(self, fieldname, text, qf=1):
+        """Returns a :class:`whoosh.matching.Matcher` for the postings of the
+        given term. Unlike the :func:`whoosh.reading.IndexReader.postings`
+        method, this method automatically sets the scoring functions on the
+        matcher from the searcher's weighting object.
+        """
         
-        return self.ixreader.postings(fieldname, text, scorer=scorer,
-                                      exclude_docs=exclude_docs)
+        scorer = self.scorer(fieldname, text, qf=qf)
+        return self.ixreader.postings(fieldname, text, scorer=scorer)
 
     def idf(self, fieldname, text):
         """Calculates the Inverse Document Frequency of the current term (calls
@@ -213,7 +241,7 @@ class Searcher(object):
         # first_id() instead of building a query.
         if len(kw) == 1:
             k, v = kw.items()[0]
-            return self.first_id(k, v)
+            return self.reader().first_id(k, v)
 
         for docnum in self.document_numbers(**kw):
             return docnum
@@ -240,15 +268,14 @@ class Searcher(object):
         q = query.And(subqueries).normalize()
         return q.docs(self)
 
-    def docset(self, q, exclude_docs=None):
-        """Returns a set-like object containing the document numbers matching
-        the given query.
-        
-        >>> docset = searcher.docset(query.Term("chapter", u"1"))
-        """
-        
-        return set(q.docs(self, exclude_docs=exclude_docs))
-        
+    def docs_for_query(self, q, leafs=False):
+        if self.subsearchers and leafs:
+            for s, offset in self.subsearchers:
+                for docnum in q.docs(s):
+                    yield docnum + offset
+        else:
+            for docnum in q.docs(self):
+                yield docnum
 
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -310,7 +337,7 @@ class Searcher(object):
             self._sorter_cache[fieldname] = sorter
         return sorter
 
-    def sort_query(self, query, sortedby, reverse=False):
+    def sort_query(self, q, sortedby, reverse=False):
         if isinstance(sortedby, basestring):
             sorter = self._field_sorter(sortedby)
         elif isinstance(sortedby, (list, tuple)):
@@ -323,13 +350,13 @@ class Searcher(object):
                              " or Sorter" % sortedby)
 
         t = now()
-        sorted_docs = list(sorter.order(self, query.docs(self), reverse=reverse))
+        sorted_docs = list(sorter.order(self, q.docs(self), reverse=reverse))
         runtime = now() - t
         
-        return Results(self, query, sorted_docs, None, runtime)
+        return Results(self, q, sorted_docs, None, runtime)
     
-    def search(self, query, limit=10, sortedby=None, reverse=False,
-               optimize=True):
+    def search(self, q, limit=10, sortedby=None, reverse=False,
+               optimize=True, leafs=False):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -337,41 +364,8 @@ class Searcher(object):
         :param limit: the maximum number of documents to score. If you're only
             interested in the top N documents, you can set limit=N to limit the
             scoring for a faster search.
-        :param sortedby: if this parameter is not None, the results are sorted
-            instead of scored. If this value is a string, the results are
-            sorted by the field named in the string. If this value is a list or
-            tuple, it is assumed to be a sequence of strings and the results
-            are sorted by the fieldnames in the sequence. Otherwise 'sortedby'
-            should be a scoring.Sorter object.
-            
-            The fields you want to sort by must be indexed.
-            
-            For example, to sort the results by the 'path' field::
-            
-                searcher.find(q, sortedby = "path")
-                
-            To sort the results by the 'path' field and then the 'category'
-            field::
-                
-                searcher.find(q, sortedby = ("path", "category"))
-                
-            To use a sorting object::
-            
-                searcher.find(q, sortedby = scoring.FieldSorter("path", key=mykeyfn))
-            
-            Using a string or tuple simply instantiates a
-            :class:`whoosh.scoring.FieldSorter` or
-            :class:`whoosh.scoring.MultiFieldSorter` object for you. To get a
-            custom sort order, instantiate your own ``FieldSorter`` with a
-            ``key`` argument, or write a custom :class:`whoosh.scoring.Sorter`
-            class.
-            
-            FieldSorter and MultiFieldSorter cache the document order, using 4
-            bytes times the number of documents in the index, and taking time
-            to cache. To increase performance, instantiate your own sorter and
-            re-use it (but remember you need to recreate it if the index
-            changes).
-        
+        :param sortedby: the name of a field to sort by, or a tuple of field
+            names to sort by multiple fields.
         :param reverse: if ``sortedby`` is not None, this reverses the
             direction of the sort.
         :param optimize: use optimizations to get faster results when possible.
@@ -382,199 +376,147 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         if sortedby is not None:
-            return self.sort_query(query, sortedby, reverse=reverse)
+            return self.sort_query(q, sortedby, reverse=reverse)
         
         t = now()
-        matcher = query.matcher(self)
-        if isinstance(matcher, NullMatcher):
-            scores = []
-            docnums = []
-            bitset = None
+        col = Collector(self.weighting, limit, usequality=optimize)
+        
+        if self.subsearchers and leafs:
+            for s, offset in self.subsearchers:
+                print "s=", s, "offset=", offset
+                col.add_matches(s, q.matcher(s), offset)
         else:
-            scores, docnums, bitset = collect(self, matcher, limit,
-                                              usequality=optimize)
+            col.add_matches(self, q.matcher(self))
+        
+        items = col.items()
+        scores = [x[0] for x in items]
+        docnums = [x[1] for x in items]
+        docset = col.docset or None
+        
         runtime = now() - t
-
-        return Results(self, query, docnums, scores, runtime, docs=bitset)
-
-    def docnums(self, query):
-        """Returns a set-like object containing the document numbers that
-        match the given query.
-        """
-        
-        return set(query.docs(self))
+        return Results(self, q, docnums, scores, runtime, docs=docset)
 
 
-def pull_results(matcher, usequality=True, replace=True):
-    """Returns an enhanced generator that yields (docid, quality) tuples.
-    
-    You can use the send() method to tell the generator a new minimum
-    quality for results. All subsequent yielded documents (if any) will have
-    a higher quality than the send minimum.
-    
-    This is a low-level function. It is meant to be used by a higher-level
-    function that will collect the highest-scoring results into a hit list.
-    
-    >>> searcher = myindex.searcher()
-    >>> matcher = query.Term("text", "new").matcher(searcher)
-    >>> iterator = pull_results(matcher)
-    >>> # In this example we use the quality of each result as the new minimum,
-    >>> # so that we only ever get results of higher quality than the previous
-    >>> pquality = None
-    >>> while True:
-    ...   id, pquality = iter.send(pquality)
-    ...   print "%04d %f %f" % (id, pquality)
-    
-    Note that while the iterator yields values, you can use the methods of the
-    matcher to get the same or additional information at, each step, for
-    example ``matcher.score()``.
-    
-    :param matcher: the :class:`whoosh.matching.Matcher` representing the query.
-    :param usequality: whether to use block quality optimizations to speed up
-        searching.
-    :param replace: whether to use matcher replacement optimizations.
-    """
-    
-    # Can't use quality optimizations if the matcher doesn't support them
-    usequality = usequality and matcher.supports_quality()
-    minquality = -1
-    
-    # A flag to indicate whether we should check block quality at the start
-    # of the next loop
-    checkquality = True
-    
-    while matcher.is_active():
-        # If we're using quality optimizations, and the checkquality flag is
-        # true, try to skip ahead to the next block with the minimum required
-        # quality
-        if usequality and checkquality and minquality != -1:
-            matcher.skip_to_quality(minquality)
-            # Skipping ahead might have moved the matcher to the end of the
-            # posting list
-            if not matcher.is_active(): break
+class Collector(object):
+    def __init__(self, weighting, limit=10, usequality=True, replace=10):
+        self.weighting = weighting
+        self.limit = limit
+        self.usequality = usequality
+        self.replace = replace
         
-        # The current document ID 
-        id = matcher.id()
-        
-        # If we're using quality optimizations, check whether the current
-        # posting has higher quality than the minimum before yielding it.
-        if usequality:
-            postingquality = matcher.quality()
-            if postingquality > minquality:
-                # Yield this result and get the new minimum quality from the
-                # caller. The new minimum might be None (that's what you get
-                # if the caller used next() instead of send()), in which case
-                # ignore it
-                newmin = yield (id, postingquality)
-                if newmin is not None:
-                    minquality = newmin
-        else:
-            yield (id, None)
-        
-        # Move to the next document. This method returns True if the matcher
-        # has entered a new block, so we should check block quality again.
-        checkquality = matcher.next()
-        
-        # Ask the matcher to replace itself with a more efficient version if
-        # possible
-        if replace: matcher = matcher.replace()
-        
-
-def collect(searcher, matcher, limit=10, usequality=True, replace=True): 
-    """Returns a tuple of (sorted_scores, sorted_docids, docset), where docset
-    is None unless the ``limit`` is None or usequality is False.
+        self._items = []
+        self.docset = set()
+        self.done = False
+        self.minquality = None
     
-    :param searcher: The :class:`Searcher` object.
-    :param matcher: the :class:`whoosh.matching.Matcher` representing the query.
-    :param limit: the number of top results to calculate. For example, if
-        ``limit=10``, only return the top 10 scoring documents.
-    :param usequality: whether to use block quality optimizations to speed up
-        searching.
-    :param replace: whether to use matcher replacement optimizations.
-    """
-    
-    usefinal = searcher.weighting.use_final
-    if usefinal:
-        final = searcher.weighting.final
-        # Quality optimizations are not compatible with final() scoring
-        usequality = False
-    
-    # Theoretically, a set of matching document IDs. This is only calculated if
-    # limit is None or usequality is False. Otherwise, it's left as None and
-    # will be computed later if the user asks for it.
-    if not limit or limit >= searcher.doc_count() or not usequality:
-        docs = set()
-    else:
-        docs = None
-    
-    # Define a utility function to get the current score and apply the final()
-    # method if necessary
-    def getscore():
+    def score(self, searcher, matcher):
         s = matcher.score()
-        if usefinal:
-            s = final(searcher, id, s)
+        if self.weighting.use_final:
+            s = self.weighting.final(searcher, matcher.id(), s)
         return s
     
-    if not limit or limit >= searcher.doc_count():
-        # No limit? We have to score everything? Short circuit here and do it
-        # simply
-        h = []
-        rcounter = 0
+    def add_matches(self, searcher, matcher, offset=0):
+        limit = self.limit
+        if not limit:
+            return self.add_matches_no_limit(searcher, matcher, offset=offset)
+        
+        items = self._items
+        docset = self.docset
+        usequality = self.usequality
+        score = self.score
+        
+        for id, quality in self.pull_matches(matcher):
+            id += offset
+            
+            if len(items) < limit:
+                # The heap isn't full, so just add this document
+                heappush(items, (score(searcher, matcher), id, quality))
+            
+            elif not usequality or quality > self.minquality:
+                # The heap is full, but the posting quality indicates
+                # this document is good enough to make the top N, so
+                # calculate its true score and add it to the heap
+                
+                if not usequality:
+                    docset.add(id)
+                
+                s = score(searcher, matcher)
+                if s > items[0][0]:
+                    heapreplace(items, (s, id, quality))
+                    self.minquality = items[0][2]
+            
+    def add_matches_no_limit(self, searcher, matcher, offset=0):
+        items = self._items
+        docset = self.docset
+        replace = self.replace
+        score = self.score
+        replacecounter = 0
+        
         while matcher.is_active():
             id = matcher.id()
-            h.append((getscore(), id))
-            docs.add(id)
-            
-            if replace and rcounter >= 10:
-                matcher = matcher.replace()
-                if not matcher.is_active():
-                    break
-                rcounter = 0
-            else:
-                rcounter += 1
+            id += offset
+            items.append((score(searcher, matcher), id))
+            docset.add(id)
             
             matcher.next()
+            
+            if replace and matcher.is_active():
+                replacecounter += 1
+                if replacecounter >= replace:
+                    matcher = matcher.replace()
     
-    else:
-        # Heap of (score, docnum, postingquality) tuples
-        h = []
+    def pull_matches(self, matcher):
+        # Can't use quality optimizations if the matcher doesn't support them
+        usequality = self.usequality and matcher.supports_quality()
+        replace = self.replace
         
-        # Iterator of results
-        iterator = pull_results(matcher, usequality, replace)
-        minquality = None
+        # A flag to indicate whether we should check block quality at the start
+        # of the next loop
+        checkquality = True
+        replacecounter = 0
         
-        try:
-            while True:
-                id, quality = iterator.send(minquality)
-                
-                if len(h) < limit:
-                    # The heap isn't full, so just add this document
-                    heappush(h, (getscore(), id, quality))
-                
-                elif not usequality or quality > minquality:
-                    # The heap is full, but the posting quality indicates this
-                    # document is good enough to make the top N, so calculate
-                    # its true score and add it to the heap
-                    
-                    if not usequality:
-                        docs.add(id)
-                    
-                    s = getscore()
-                    if s > h[0][0]:
-                        heapreplace(h, (s, id, quality))
-                        minquality = h[0][2]
-        
-        except StopIteration:
-            pass
+        while matcher.is_active():
+            # If we're using quality optimizations, and the checkquality flag
+            # is true, try to skip ahead to the next block with the minimum
+            # required quality
+            if usequality and checkquality and self.minquality is not None:
+                matcher.skip_to_quality(self.minquality)
+                # Skipping ahead might have moved the matcher to the end of the
+                # posting list
+                if not matcher.is_active(): break
+            
+            # The current document ID 
+            id = matcher.id()
+            
+            # If we're using quality optimizations, check whether the current
+            # posting has higher quality than the minimum before yielding it.
+            if usequality:
+                postingquality = matcher.quality()
+                if postingquality > self.minquality:
+                    yield (id, postingquality)
+            else:
+                yield (id, None)
+            
+            # Move to the next document. This method returns True if the
+            # matcher has entered a new block, so we should check block quality
+            # again.
+            checkquality = matcher.next()
+            
+            # Ask the matcher to replace itself with a more efficient version
+            # if possible
+            if replace and matcher.is_active():
+                replacecounter += 1
+                if replacecounter >= replace:
+                    matcher = matcher.replace()
 
-    # Turn the heap into a sorted list by sorting by score first (subtract from
-    # 0 to put highest scores first) and then by document number (to enforce
-    # a consistent ordering of documents with equal score)
-    h.sort(key=lambda x: (0-x[0], x[1]))
-    return ([i[0] for i in h], # Scores
-            [i[1] for i in h], # Document numbers
-            docs)
-
+    def items(self):
+        # Turn the heap into a sorted list by sorting by score first (subtract
+        # from 0 to put highest scores first) and then by document number (to
+        # enforce a consistent ordering of documents with equal score)
+        sortkey = lambda x: (0-x[0], x[1])
+        
+        return [(item[0], item[1]) for item in sorted(self._items, key=sortkey)]
+        
 
 class Results(object):
     """This object is returned by a Searcher. This object represents the
@@ -583,7 +525,7 @@ class Results(object):
     that position in the results.
     """
 
-    def __init__(self, searcher, query, top_n, scores, runtime=-1, docs=None):
+    def __init__(self, searcher, q, top_n, scores, runtime=-1, docs=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -596,7 +538,7 @@ class Results(object):
         """
 
         self.searcher = searcher
-        self.query = query
+        self.q = q
         self._docs = docs
         if scores:
             assert len(top_n) == len(scores)
@@ -607,7 +549,7 @@ class Results(object):
 
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
-                                                       self.query,
+                                                       self.q,
                                                        self.runtime)
 
     def __len__(self):
@@ -662,7 +604,7 @@ class Results(object):
         return docnum in self._docs
 
     def _load_docs(self):
-        self._docs = set(self.query.docs(self.searcher))
+        self._docs = set(self.searcher.docs_for_query(self.q))
 
     def has_exact_length(self):
         """True if this results object already knows the exact number of
@@ -678,7 +620,7 @@ class Results(object):
         
         if self._docs is not None:
             return len(self._docs)
-        return self.query.estimate_size(self.searcher.reader())
+        return self.q.estimate_size(self.searcher.reader())
     
     def estimated_min_length(self):
         """The estimated minimum number of matching documents, or the
@@ -687,7 +629,7 @@ class Results(object):
         
         if self._docs is not None:
             return len(self._docs)
-        return self.query.estimate_min_size(self.searcher.reader())
+        return self.q.estimate_min_size(self.searcher.reader())
     
     def scored_length(self):
         """Returns the number of scored documents in the results, equal to or
@@ -731,7 +673,7 @@ class Results(object):
         else:
             scores = None
         
-        return self.__class__(self.searcher, self.query, self.top_n[:],
+        return self.__class__(self.searcher, self.q, self.top_n[:],
                               scores, runtime=self.runtime)
 
     def score(self, n):

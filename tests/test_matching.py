@@ -58,19 +58,24 @@ class TestMatchers(unittest.TestCase):
         ids = [1, 2, 5, 9, 10]
         wm = WrappingMatcher(ListMatcher(ids), boost=2.0)
         self.assertEqual(list(wm.all_ids()), ids)
+    
+    def test_filter(self):
+        lm = lambda: ListMatcher(range(2, 10))
         
+        fm = FilterMatcher(lm(), frozenset([3, 9]))
+        self.assertEqual(list(fm.all_ids()), [3, 9])
+        
+        fm = FilterMatcher(lm(), frozenset([1, 5, 9, 13]))
+        self.assertEqual(list(fm.all_ids()), [5, 9])
+    
     def test_exclude(self):
-        em = ExcludeMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]))
-        ls = []
-        while em.is_active():
-            ls.append(em.id())
-            em.next()
-        self.assertEqual(ls, [1, 5, 10])
-        
-        em = ExcludeMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]))
+        em = FilterMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
         self.assertEqual(list(em.all_ids()), [1, 5, 10])
         
-        em = ExcludeMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]))
+        em = FilterMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
+        self.assertEqual(list(em.all_ids()), [1, 5, 10])
+        
+        em = FilterMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
         em.next()
         em.next()
         em = em.copy()
@@ -143,6 +148,11 @@ class TestMatchers(unittest.TestCase):
             ls.append((anm.id(), anm.score()))
             anm.next()
         self.assertEqual(ls, [(1, 1.0), (10, 1.0), (90, 1.0)])
+        
+        echo_lm = ListMatcher([0, 1, 2, 3, 4])
+        bravo_lm = ListMatcher([0, 1])
+        anm = AndNotMatcher(echo_lm, bravo_lm)
+        self.assertEqual(list(anm.all_ids()), [2, 3, 4])
         
         lm1 = ListMatcher([1, 4, 10, 20, 90])
         lm2 = ListMatcher([0, 4, 20])

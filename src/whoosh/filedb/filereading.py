@@ -19,7 +19,7 @@ from threading import Lock
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
-from whoosh.matching import ExcludeMatcher, ListMatcher
+from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.util import protected
 
@@ -27,11 +27,10 @@ from whoosh.util import protected
 # Reader class
 
 class SegmentReader(IndexReader):
-    def __init__(self, storage, schema, segment, generation=None):
+    def __init__(self, storage, schema, segment):
         self.storage = storage
         self.schema = schema
         self.segment = segment
-        self._generation = generation
         
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
@@ -67,6 +66,9 @@ class SegmentReader(IndexReader):
         self.is_closed = False
         self._sync_lock = Lock()
 
+    def generation(self):
+        return self.segment.generation
+
     def _open_vectors(self):
         if self.vectorindex: return
         
@@ -86,9 +88,6 @@ class SegmentReader(IndexReader):
     @protected
     def __contains__(self, term):
         return term in self.termsindex
-
-    def generation(self):
-        return self._generation
 
     def close(self):
         self.storedfields.close()
@@ -245,18 +244,13 @@ class SegmentReader(IndexReader):
         else:
             return offset[0][0]
 
-    def postings(self, fieldname, text, exclude_docs=frozenset(), scorer=None):
+    def postings(self, fieldname, text, scorer=None):
         self._test_field(fieldname)
         format = self.format(fieldname)
         try:
             offset = self.termsindex[(fieldname, text)][1]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
-
-        if self.segment.deleted and exclude_docs:
-            exclude_docs = self.segment.deleted | exclude_docs
-        elif self.segment.deleted:
-            exclude_docs = self.segment.deleted
 
         if isinstance(offset, (int, long)):
             postreader = FilePostingReader(self.postfile, offset, format,
@@ -267,8 +261,9 @@ class SegmentReader(IndexReader):
             postreader = ListMatcher(docids, weights, values, format, scorer,
                                      maxwol=maxwol, minlength=minlength)
         
-        if exclude_docs:
-            postreader = ExcludeMatcher(postreader, exclude_docs)
+        deleted = self.segment.deleted
+        if deleted:
+            postreader = FilterMatcher(postreader, deleted, exclude=True)
             
         return postreader
     

@@ -125,7 +125,7 @@ class BlockInfo(object):
         else:
             nextoffset = here + nextoffset
         
-        assert postcount > 0
+        assert postcount > 0, "postcount=%r" % postcount
         minlength = byte_to_length(minlength)
         
         if stringids:
@@ -349,7 +349,7 @@ class FilePostingReader(Matcher):
         self._next_block()
 
     def __repr__(self):
-        return "%s(%r, %s, %r, %r)" % (self.__class__.__name__, self.postfile,
+        return "%s(%r, %s, %r, %r)" % (self.__class__.__name__, str(self.postfile),
                                        self.startoffset, self.fieldname, self.text)
 
     def close(self):
@@ -530,6 +530,9 @@ class FilePostingReader(Matcher):
         self.i = 0
 
     def _next_block(self, consume=True):
+        if not (self.currentblock < self.blockcount):
+            raise Exception("No next block")
+        
         self.currentblock += 1
         if self.currentblock == self.blockcount:
             self._active = False

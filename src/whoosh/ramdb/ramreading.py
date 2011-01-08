@@ -129,10 +129,8 @@ class RamIndexReader(IndexReader):
             else:
                 break
             
-    def postings(self, fieldname, text, exclude_docs=None, scorer=None):
-        if not exclude_docs:
-            exclude_docs = frozenset()
-        excludeset = self.ix.deleted | exclude_docs
+    def postings(self, fieldname, text, scorer=None):
+        excludeset = self.ix.deleted
         inv = self.ix.invertedindex
         format = self.schema[fieldname].format
         postings = inv[fieldname][text]

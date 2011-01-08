@@ -322,11 +322,16 @@ class Index(object):
         finally:
             r.close()
     
-    def reader(self):
+    def reader(self, reuse=None):
         """Returns an IndexReader object for this index.
         
+        :param reuse: an existing reader. Some implementations may recycle
+            resources from this existing reader to create the new reader. Note
+            that any resources in the "recycled" reader that are not used by
+            the new reader will be CLOSED, so you CANNOT use it afterward.
         :rtype: :class:`whoosh.reading.IndexReader`
         """
+        
         raise NotImplementedError
     
     def writer(self, **kwargs):

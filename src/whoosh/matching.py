@@ -276,8 +276,7 @@ class ListMatcher(Matcher):
         self._minlength = minlength
     
     def __repr__(self):
-        return "%s(%r, %r, %r, %d)" % (self.__class__.__name__, self._ids,
-                                       self._weights, self._values, self._i)
+        return "<%s>" % self.__class__.__name__
     
     def is_active(self):
         return self._i < len(self._ids)
@@ -552,33 +551,51 @@ class MultiMatcher(Matcher):
         return self.matchers[self.current].score()
 
 
-class ExcludeMatcher(WrappingMatcher):
-    """Excludes a list of IDs from the postings returned by the wrapped
-    matcher.
+def ExcludeMatcher(child, excluded, boost=1.0):
+    return FilterMatcher(child, excluded, exclude=True, boost=boost)
+
+class FilterMatcher(WrappingMatcher):
+    """Filters the postings from the wrapped based on whether the IDs are
+    present in or absent from a set.
     """
     
-    def __init__(self, child, excluded, boost=1.0):
-        super(ExcludeMatcher, self).__init__(child)
-        self.excluded = excluded
+    def __init__(self, child, ids, exclude=False, boost=1.0):
+        """
+        :param child: the child matcher.
+        :param ids: a set of IDs to filter by.
+        :param exclude: by default, only IDs from the wrapped matcher that are
+            IN the set are used. If this argument is True, only IDs from the
+            wrapped matcher that are NOT IN the set are used.
+        """
+        
+        super(FilterMatcher, self).__init__(child)
+        self._ids = ids
+        self._exclude = exclude
         self.boost = boost
         self._find_next()
     
     def __repr__(self):
-        return "%s(%r, %r, boost=%s)" % (self.__class__.__name__, self.child,
-                                         self.excluded, self.boost)
+        return "%s(%r, %r, %r, boost=%s)" % (self.__class__.__name__,
+                                             self.child, self._ids,
+                                             self._exclude, self.boost)
     
     def copy(self):
-        return self.__class__(self.child.copy(), self.excluded, boost=self.boost)
+        return self.__class__(self.child.copy(), self._ids, self._exclude, boost=self.boost)
     
     def _replacement(self, newchild):
-        return self.__class__(newchild, self.excluded, boost=self.boost)
+        return self.__class__(newchild, self._ids, exclude=self._exclude, boost=self.boost)
     
     def _find_next(self):
         child = self.child
-        excluded = self.excluded
+        ids = self._ids
         r = False
-        while child.is_active() and child.id() in excluded:
-            r = child.next() or r
+        
+        if self._exclude:
+            while child.is_active() and child.id() in ids:
+                r = child.next() or r
+        else:
+            while child.is_active() and child.id() not in ids:
+                r = child.next() or r
         return r
     
     def next(self):
@@ -590,14 +607,19 @@ class ExcludeMatcher(WrappingMatcher):
         self._find_next()
         
     def all_ids(self):
-        excluded = self.excluded
-        return (id for id in self.child.all_ids() if id not in excluded)
+        ids = self._ids
+        if self._exclude:
+            return (id for id in self.child.all_ids() if id not in ids)
+        else:
+            return (id for id in self.child.all_ids() if id in ids)
     
     def all_items(self):
-        excluded = self.excluded
-        return (item for item in self.child.all_items()
-                if item[0] not in excluded)
-
+        ids = self._ids
+        if self._exclude:
+            return (item for item in self.child.all_items() if item[0] not in ids)
+        else:
+            return (item for item in self.child.all_items() if item[0] in ids)
+        
 
 class BiMatcher(Matcher):
     """Base class for matchers that combine the results of two sub-matchers in
@@ -935,7 +957,7 @@ class AndNotMatcher(BiMatcher):
         super(AndNotMatcher, self).__init__(a, b)
         if (self.a.is_active()
             and self.b.is_active()
-            and self.a.id() != self.b.id()):
+            and self.a.id() == self.b.id()):
             self._find_next()
 
     def is_active(self):
@@ -951,8 +973,11 @@ class AndNotMatcher(BiMatcher):
         if neg.id() < pos_id:
             neg.skip_to(pos_id)
         
-        while neg.is_active() and pos_id == neg.id():
+        while pos.is_active() and neg.is_active() and pos_id == neg.id():
             nr = pos.next()
+            if not pos.is_active():
+                break
+            
             r = r or nr
             pos_id = pos.id()
             neg.skip_to(pos_id)

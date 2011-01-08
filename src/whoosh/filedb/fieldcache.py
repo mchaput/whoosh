@@ -157,9 +157,10 @@ class FieldCache(object):
         >>> fc.to_file(f)
         """
         
-        dbfile.write_uint(len(self.order)) # Number of documents
+        order = self.order
+        dbfile.write_uint(len(order)) # Number of documents
         
-        if self.texts:
+        if self.hastexts:
             write = dbfile.write
             dbfile.write_uint(len(self.texts)) # Number of texts
             write("(") # Pickle mark
@@ -167,8 +168,14 @@ class FieldCache(object):
                 write(unipickle(text))
             write("l.")
         
+            # Compact the order array if possible
+            if len(self.texts) < 255:
+                order = array("B", order)
+            elif len(self.texts) < 65535:
+                order = array("H", order)
+        
         # Write the order array
-        dbfile.write_array(self.order)
+        dbfile.write_array(order)
         dbfile.flush()
         
     def key_for(self, docnum):
@@ -232,7 +239,7 @@ class FieldCache(object):
             if limit:
                 if len(ls) < limit:
                     heappush(ls, ritem)
-                else:
+                elif ritem[0] > ls[0][0]:
                     heapreplace(ls, ritem)
             else:
                 ls.append(ritem)
@@ -322,9 +329,18 @@ class FieldCacheWriter(object):
     
     def close(self):
         dbfile = self.dbfile
+        order = self.order
+        keycount = self.keycount
         
         # Finish the pickled list of texts
         dbfile.write("l.")
+        
+        # Compact the order array if possible
+        if self.hastexts:
+            if keycount < 255:
+                order = array("B", order)
+            elif keycount < 65535:
+                order = array("H", order)
         
         # Write the order array
         dbfile.write_array(self.order)
@@ -332,9 +348,9 @@ class FieldCacheWriter(object):
         # Seek back to the start and write numbers of docs
         dbfile.flush()
         dbfile.seek(self.start)
-        dbfile.write_uint(len(self.order))
+        dbfile.write_uint(len(order))
         if self.hastexts:
-            dbfile.write_uint(self.keycount)
+            dbfile.write_uint(keycount)
         
         dbfile.close()
     
@@ -355,7 +371,6 @@ if __name__ == "__main__":
     print r
     for sr in r.readers:
         print sr.segment
-        print sr._generation
     
 #    t = now()
 #    fc = FieldCache.from_reader(r, "head")
