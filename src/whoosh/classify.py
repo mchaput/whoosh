@@ -125,13 +125,13 @@ class Expander(object):
     def add_document(self, docnum):
         if self.ixreader.has_vector(docnum, self.fieldname):
             self.add(self.ixreader.vector_as("weight", docnum, self.fieldname))
-        elif self.ixreader.field(self.fieldname).stored:
+        elif self.ixreader.schema[self.fieldname].stored:
             self.add_text(self.ixreader.stored_fields(docnum).get(self.fieldname))
         else:
             raise Exception("Field %r in document %s is not vectored or stored" % (self.fieldname, docnum))
     
     def add_text(self, string):
-        field = self.ixreader.field(self.fieldname)
+        field = self.ixreader.schema[self.fieldname]
         self.add((text, weight) for text, freq, weight, value
                  in field.index(string))
     

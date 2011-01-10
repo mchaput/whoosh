@@ -14,44 +14,73 @@
 # limitations under the License.
 #===============================================================================
 
+import operator
 from array import array
 from collections import defaultdict
 from heapq import nsmallest, nlargest, heappush, heapreplace
 from struct import Struct
 
+from whoosh.support.times import long_to_datetime
 from whoosh.system import _INT_SIZE, unpack_int, unpack_float, unpack_long
 from whoosh.util import utf8encode
+
+
+GZIP_CACHES = False
 
 
 class CacheSet(object):
     """Manages a set of FieldCache objects.
     """
     
-    def __init__(self, storage):
+    def __init__(self, storage, basename):
         self.storage = storage
+        self.basename = basename
         self.caches = {}
     
-    def fieldcache_filename(self, reader, fieldname):
-        return "%s.%s.fc" % (reader.segment.name, fieldname)
+    def _put(self, key, obj):
+        self.caches[key] = obj
+    
+    def fieldcache_filename(self, fieldname):
+        return "%s.%s.fc" % (self.basename, fieldname)
     
     def cache_file_exists(self, fieldname):
+        storage = self.storage
         filename = self.fieldcache_filename(fieldname)
-        return self.storage.file_exists(filename)
+        gzname = filename + ".gz"
+        return storage.file_exists(filename) or storage.file_exists(gzname)
     
-    def make_cache(self, reader, fieldname, save=True):
-        cache = FieldCache.from_reader(reader, fieldname)
+    def create_cache(self, reader, fieldname, save=True, name=None,
+                     default=None):
+        savename = name if name else fieldname
+        if name in reader.schema:
+            raise Exception("Custom name %r is the name of a field")
+        
+        cache = FieldCache.from_reader(reader, fieldname, default=default)
         
         if save:
-            filename = self.fieldcache_filename(fieldname)
-            f = self.storage.create_file(filename)
+            filename = self.fieldcache_filename(savename)
+            if GZIP_CACHES:
+                filename += ".gz"
+            
+            f = self.storage.create_file(filename, gzip=GZIP_CACHES)
             cache.to_file(f)
             f.close()
         
         return cache
     
     def load_cache(self, fieldname):
+        storage = self.storage
         filename = self.fieldcache_filename(fieldname)
-        f = self.storage.open_file(filename, mmap=False)
+        gzipped = False
+        
+        # It's possible to load GZip'd caches but for it's MUCH slower,
+        # especially for large caches
+        gzname = filename + ".gz"
+        if storage.file_exists(gzname) and not storage.file_exists(filename):
+            filename = gzname
+            gzipped = True
+        
+        f = storage.open_file(filename, mapped=False, gzip=gzipped)
         cache = FieldCache.from_file(f)
         f.close()
         return cache
@@ -59,13 +88,18 @@ class CacheSet(object):
     def get_cache(self, reader, fieldname, save=True):
         if fieldname in self.caches:
             return self.caches[fieldname]
-        elif self.cache_file_exists():
-            return self.load_cache(fieldname)
+        elif self.cache_file_exists(fieldname):
+            fc = self.load_cache(fieldname)
         else:
-            return self.make_cache(fieldname, save=save)
-        
+            fc = self.create_cache(reader, fieldname, save=save)
+        self._put(fieldname, fc)
+        return fc
+    
     def is_cached(self, fieldname):
         return fieldname in self.caches or self.cache_file_exists(fieldname)
+    
+    def is_loaded(self, fieldname):
+        return fieldname in self.caches
 
 
 pack_int_le = Struct("<i").pack
@@ -85,16 +119,21 @@ class FieldCache(object):
     
     code = "I"
     hastexts = True
+    default = u""
     
-    def __init__(self, order=None, texts=None, default=u''):
+    def __init__(self, order=None, texts=None, default=None):
         """
         :param order: an array of ints.
         :param texts: a list of text values.
         :param default: the value to use for documents without the field.
         """
         
+        if default is None:
+            default = self.default
+        
         self.order = order or array(self.code)
         self.texts = texts or [default]
+        self.maxord = len(self.texts) - 1
     
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
@@ -102,7 +141,7 @@ class FieldCache(object):
                 and self.texts == other.texts)
     
     @classmethod
-    def from_reader(cls, ixreader, fieldname, key=None, default=u''):
+    def from_reader(cls, ixreader, fieldname, default=None):
         """Creates an in-memory field cache from a reader.
         
         >>> r = ix.reader()
@@ -116,12 +155,12 @@ class FieldCache(object):
         :param default: the value to use for documents without the field.
         """
         
-        order = array(cls.code, [0] * ixreader.doc_count_all())
-        field = ixreader.field(fieldname)
-        texts = list(field.sortable_values(ixreader, fieldname))
-        if key:
-            texts.sort(key=key)
+        if default is None:
+            default = cls.default
         
+        order = array(cls.code, [0] * ixreader.doc_count_all())
+        field = ixreader.schema[fieldname]
+        texts = list(field.sortable_values(ixreader, fieldname))
         for i, text in enumerate(texts):
             ps = ixreader.postings(fieldname, text)
             for id in ps.all_ids():
@@ -146,7 +185,8 @@ class FieldCache(object):
             texts = dbfile.read_pickle()
         
         # Read the order array
-        order = dbfile.read_array(cls.code, doc_count)
+        code = dbfile.read(1)
+        order = dbfile.read_array(code, doc_count)
         
         return cls(order, texts)
     
@@ -157,8 +197,7 @@ class FieldCache(object):
         >>> fc.to_file(f)
         """
         
-        order = self.order
-        dbfile.write_uint(len(order)) # Number of documents
+        dbfile.write_uint(len(self.order)) # Number of documents
         
         if self.hastexts:
             write = dbfile.write
@@ -168,21 +207,29 @@ class FieldCache(object):
                 write(unipickle(text))
             write("l.")
         
+            code = "I"
             # Compact the order array if possible
             if len(self.texts) < 255:
-                order = array("B", order)
+                code = "B"
             elif len(self.texts) < 65535:
-                order = array("H", order)
+                code = "H"
+            
+            if code != "I":
+                self.order = array(code, self.order)
         
         # Write the order array
-        dbfile.write_array(order)
+        dbfile.write(code)
+        dbfile.write_array(self.order)
         dbfile.flush()
-        
+    
     def key_for(self, docnum):
-        """Returns the key value for a given document number.
+        """Returns the key corresponding to a document number.
         """
         
         return self.texts[self.order[docnum]]
+    
+    def reverse_key_for(self, docnum):
+        return self.texts[self.maxord - self.order[docnum]]
     
     def keys(self):
         """Returns a list of all key values in the cache.
@@ -190,35 +237,29 @@ class FieldCache(object):
         
         return self.texts
     
-    def sort(self, docnums, reverse=False):
-        """Returns a list of the given document numbers, sorted according to
-        their values in the cache.
+    def ords(self):
+        """Yields a series of (docnum, order) pairs.
         """
         
-        keyfn = self.order.__getitem__
-        return sorted(docnums, key=keyfn, reverse=reverse)
+        return enumerate(self.order)
     
-    def key_sort(self, docnums, limit, reverse=False):
-        """Returns a sorted list of at most ``limit`` (key, docnum) pairs.
+    def groups(self, docnums, counts=False):
+        """Returns a dictionary mapping key values to document numbers. If
+        ``counts_only`` is True, the returned dictionary maps key values to the
+        number of documents in that 
         """
         
-        priority = nsmallest if not reverse else nlargest
-        key_for = self.key_for
-        
-        gen = ((key_for(docnum), docnum) for docnum in docnums)
-        return priority(limit, gen)
-    
-    def groups(self, docnums):
-        """Returns a dictionary mapping key values to document numbers.
-        """
-        
-        groups = defaultdict(list)
+        defaulttype = int if counts else list
+        groups = defaultdict(defaulttype)
         key_for = self.key_for
         
         for docnum in docnums:
             key = key_for(docnum)
-            groups[key].append(docnum)
-            
+            if counts:
+                groups[key] += 1
+            else:
+                groups[key].append(docnum)
+        
         return groups
     
     def scored_groups(self, scores_and_docnums, limit=None):
@@ -249,20 +290,6 @@ class FieldCache(object):
         
         return groups
     
-    def counts(self, docnums):
-        """Takes a sequence of docnums and returns a dictionary mapping key
-        values to the number of documents with that value.
-        """
-        
-        counts = defaultdict(int)
-        key_for = self.key_for
-        
-        for docnum in docnums:
-            key = key_for(docnum)
-            counts[key] += 1
-        
-        return counts
-    
     def collapse(self, scores_and_docnums):
         """Takes a sequence of (score, docnum) pairs and returns a list of
         docnums. If any docnums in the original list had the same key value,
@@ -283,6 +310,16 @@ class FieldCache(object):
 
 class NumericFieldCache(FieldCache):
     hastexts = False
+    default = 0
+    
+    def key_for(self, docnum):
+        return self.order[docnum]
+    
+    def reverse_key_for(self, docnum):
+        return 0 - self.order[docnum]
+    
+    def keys(self):
+        return sorted(set(self.order))
     
 class IntFieldCache(NumericFieldCache):
     code = "i"
@@ -293,11 +330,17 @@ class FloatFieldCache(NumericFieldCache):
 class LongFieldCache(NumericFieldCache):
     code = "q"
     unpack = unpack_long
+class DateTimeFieldCache(LongFieldCache):
+    unpack = long_to_datetime
 
 class FieldCacheWriter(object):
     code = "I"
+    default = u""
     
-    def __init__(self, dbfile, size=0, hastexts=True, default=u''):
+    def __init__(self, dbfile, size=0, hastexts=True, default=None):
+        if default is None:
+            default = self.default
+        
         self.dbfile = dbfile
         self.order = array(self.code, [0] * size)
         self.hastexts = hastexts
@@ -338,11 +381,14 @@ class FieldCacheWriter(object):
         # Compact the order array if possible
         if self.hastexts:
             if keycount < 255:
-                order = array("B", order)
+                code = "B"
+                order = array(code, order)
             elif keycount < 65535:
-                order = array("H", order)
+                code = "H"
+                order = array(code, order)
         
         # Write the order array
+        dbfile.write(code)
         dbfile.write_array(self.order)
         
         # Seek back to the start and write numbers of docs

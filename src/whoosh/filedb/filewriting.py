@@ -236,7 +236,7 @@ class SegmentWriter(IndexWriter):
                     if fieldname in fieldnames:
                         self.pool.add_field_length(self.docnum, fieldname, length)
                 
-                for fieldname in reader.vector_names():
+                for fieldname in reader.schema.vector_names():
                     if (fieldname in fieldnames
                         and reader.has_vector(docnum, fieldname)):
                         vpostreader = reader.vector(docnum, fieldname)

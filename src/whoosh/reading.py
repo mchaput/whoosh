@@ -174,47 +174,6 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def field(self, fieldname):
-        """Returns the Field object corresponding to the given field name.
-        """
-        
-        return self.schema[fieldname]
-
-    def field_names(self):
-        """Returns a list of the field names in the index's schema.
-        """
-        
-        return self.schema.names()
-
-    def scorable(self, fieldname):
-        """Returns true if the given field stores field lengths.
-        """
-        
-        return self.field(fieldname).scorable
-
-    def format(self, fieldname):
-        """Returns the Format object corresponding to the given field name.
-        """
-        
-        return self.field(fieldname).format
-
-    def scorable_names(self):
-        """Returns a list of the names of fields that store field lengths.
-        """
-        
-        return self.schema.scorable_names()
-
-    def vector_names(self):
-        """Returns a list of the names of fields that store vectors.
-        """
-        
-        return self.schema.vector_names()
-
-    def vector_format(self, fieldname):
-        """Returns the Format object corresponding to the given field's vector.
-        """
-        raise NotImplementedError
-
     def field_length(self, fieldname):
         """Returns the total number of terms in the given field. This is used
         by some scoring algorithms.
@@ -232,7 +191,7 @@ class IndexReader(ClosableMixin):
         document. This is used internally.
         """
         
-        for fieldname in self.scorable_names():
+        for fieldname in self.schema.scorable_names():
             length = self.doc_field_length(docnum, fieldname)
             if length:
                 yield (fieldname, length)
@@ -327,7 +286,7 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), vec.weight())
                 vec.next()
         else:
-            format = self.format(fieldname)
+            format = self.schema[fieldname].format
             decoder = format.decoder(astype)
             while vec.is_active():
                 yield (vec.id(), decoder(vec.value()))
@@ -358,7 +317,21 @@ class IndexReader(ClosableMixin):
         """
         
         return False
-
+    
+    def sort_by(self, fieldname, docnums, reverse=False):
+        """Returns the docnums sorted according to the value of the field in
+        each document. Returns the document numbers in a new sequence.
+        """
+        
+        raise NotImplementedError
+    
+    def key_sort_by(self, fieldname, docnums, limit, reverse=False):
+        """Returns the first (or last, if ``reverse`` is True) "limit" number
+        (key, docnum) pairs, sorted by the value of the field in each document.
+        """
+        
+        raise NotImplementedError
+    
 
 # Fake IndexReader class for empty indexes
 
@@ -434,7 +407,7 @@ class EmptyReader(IndexReader):
 
     def most_distinctive_terms(self, fieldname, number=5, prefix=None):
         return iter([])
-
+    
 
 # Multisegment reader class
 
@@ -549,36 +522,6 @@ class MultiReader(IndexReader):
     def doc_count(self):
         return sum(dr.doc_count() for dr in self.readers)
 
-    def field(self, fieldname):
-        for r in self.readers:
-            try:
-                field = r.field(fieldname)
-                return field
-            except KeyError:
-                pass
-        raise KeyError("No field named %r" % fieldname)
-
-    def field_names(self):
-        s = set()
-        for reader in self.readers:
-            s = s.union(reader.field_names())
-        return sorted(s)
-
-    def scorable(self, fieldname):
-        return any(r.scorable(fieldname) for r in self.readers)
-
-    def scorable_names(self):
-        s = set()
-        for reader in self.readers:
-            s = s.union(reader.scorable_names())
-        return sorted(s)
-
-    def vector_names(self):
-        s = set()
-        for reader in self.readers:
-            s = s.union(reader.vector_names())
-        return sorted(s)
-
     def field_length(self, fieldname):
         return sum(dr.field_length(fieldname) for dr in self.readers)
 
@@ -652,6 +595,11 @@ class MultiReader(IndexReader):
     def leaf_readers(self):
         return zip(self.readers, self.doc_offsets)
 
+#    def key_sort_by_field(self, fieldname, docnums, limit, reverse=False):
+#        heap = []
+#        
+#        for r, offset in zip(self.readers, self.doc_offsets):
+            
 
 
 
