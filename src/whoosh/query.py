@@ -367,9 +367,9 @@ class CompoundQuery(Query):
             return NullQuery
         if len(subqs) == 1:
             sub = subqs[0]
-            if self.boost != 1.0 and sub.boost == 1.0:
+            if not (self.boost == 1.0 and sub.boost == 1.0):
                 sub = sub.copy()
-                sub.boost = self.boost
+                sub.boost *= self.boost
             return sub
 
         return self.__class__(subqs, boost=self.boost)
@@ -397,7 +397,6 @@ class CompoundQuery(Query):
         # Pull any queries inside a Not() out into their own list
         subs, nots = self._split_queries()
         
-        # Shortcut for an empty list of queries
         if not subs:
             return NullMatcher()
         
@@ -436,6 +435,9 @@ class MultiTerm(Query):
     same field.
     """
 
+    TOO_MANY_CLAUSES = 1024
+    constantscore = False
+
     def _words(self, ixreader):
         raise NotImplementedError
 
@@ -472,13 +474,35 @@ class MultiTerm(Query):
     def matcher(self, searcher):
         fieldname = self.fieldname
         qs = [Term(fieldname, word) for word in self._words(searcher.reader())]
-        if not qs: return NullMatcher()
+        if not qs:
+            return NullMatcher()
         
         if len(qs) == 1:
+            # If there's only one term, just use it
             q = qs[0]
+        
+        elif len(qs) > self.TOO_MANY_CLAUSES:
+            # If there's so many clauses that an Or search would take forever,
+            # trade memory for time and just put all the matching docs in a set
+            # and serve it up as a ListMatcher
+            docset = set()
+            for q in qs:
+                docset.update(q.matcher(searcher).all_ids())
+            return ListMatcher(sorted(docset), all_weights=self.boost)
+        
         else:
+            # The default case: Or the terms together
             q = Or(qs)
-        return q.matcher(searcher)
+        
+        m = q.matcher(searcher)
+        
+        # Multiterm queries such as Prefix are usually just about finding
+        # matching documents, not contributing to the score, so most of them
+        # have constantscore set to True by default
+        if self.constantscore:
+            m = ConstantScoreMatcher(m, score=self.boost)
+        
+        return m
         
 
 # Concrete classes
@@ -583,6 +607,8 @@ class Or(CompoundQuery):
 
     # This is used by the superclass's __unicode__ method.
     JOINT = " OR "
+    
+    gather = False
 
     def __init__(self, subqueries, boost=1.0, minmatch=0):
         CompoundQuery.__init__(self, subqueries, boost=boost)
@@ -714,10 +740,11 @@ class Prefix(MultiTerm):
 
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
 
-    def __init__(self, fieldname, text, boost=1.0):
+    def __init__(self, fieldname, text, boost=1.0, constantscore=True):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
+        self.constantscore = constantscore
 
     def __eq__(self, other):
         return other and self.__class__ is other.__class__ and\
@@ -750,7 +777,7 @@ class Wildcard(MultiTerm):
 
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
 
-    def __init__(self, fieldname, text, boost=1.0):
+    def __init__(self, fieldname, text, boost=1.0, constantscore=True):
         """
         :param fieldname: The field to search in.
         :param text: A glob to search for. May contain ? and/or * wildcard
@@ -764,6 +791,7 @@ class Wildcard(MultiTerm):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
+        self.constantscore = constantscore
 
         self.expression = re.compile(fnmatch.translate(text))
 
@@ -836,7 +864,7 @@ class FuzzyTerm(MultiTerm):
                          minsimilarity=float, prefixlength=int)
 
     def __init__(self, fieldname, text, boost=1.0, minsimilarity=0.5,
-                 prefixlength=1):
+                 prefixlength=1, constantscore=True):
         """
         :param fieldname: The name of the field to search.
         :param text: The text to search for.
@@ -855,6 +883,7 @@ class FuzzyTerm(MultiTerm):
         self.boost = boost
         self.minsimilarity = minsimilarity
         self.prefixlength = prefixlength
+        self.constantscore = constantscore
 
     def __eq__(self, other):
         return (other
@@ -904,7 +933,7 @@ class TermRange(MultiTerm):
     """
 
     def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
-                 boost=1.0):
+                 boost=1.0, constantscore=True):
         """
         :param fieldname: The name of the field to search.
         :param start: Match terms equal to or greater than this.
@@ -927,6 +956,7 @@ class TermRange(MultiTerm):
         self.startexcl = startexcl
         self.endexcl = endexcl
         self.boost = boost
+        self.constantscore = constantscore
 
     def __repr__(self):
         return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,
@@ -1078,7 +1108,7 @@ class NumericRange(Query):
         from whoosh.fields import NUMERIC
         from whoosh.support.numeric import tiered_ranges
         
-        field = ixreader.field(self.fieldname)
+        field = ixreader.schema[self.fieldname]
         if not isinstance(field, NUMERIC):
             raise Exception("NumericRange: field %r is not numeric" % self.fieldname)
         
@@ -1277,7 +1307,7 @@ class Phrase(Query):
         for word in self.words:
             if (fieldname, word) not in reader: return NullMatcher()
         
-        field = searcher.field(fieldname)
+        field = searcher.schema[fieldname]
         if not field.format or not field.format.supports("positions"):
             raise QueryError("Phrase search: %r field has no positions"
                              % self.fieldname)
@@ -1331,19 +1361,24 @@ class Every(Query):
 
     def matcher(self, searcher):
         fieldname = self.fieldname
+        reader = searcher.reader()
         
-        # This is a hacky hack, but just create an in-memory set of all the
-        # document numbers of every term in the field
-        s = set()
-        
-        if fieldname == "*":
-            s.update(xrange(searcher.doc_count_all()))
+        if hasattr(reader, "caches") and reader.fieldcache_available(self.fieldname):
+            # If the reader has a field cache, use it to quickly get the list
+            # of documents that have a value for this field
+            fc = reader.fieldcache(self.fieldname)
+            doclist = [docnum for docnum, ord in fc.ords() if ord != 0]
         else:
+            # This is a hacky hack, but just create an in-memory set of all the
+            # document numbers of every term in the field. This is SLOOOW for
+            # large indexes
+            doclist = set()
             for text in searcher.lexicon(fieldname):
                 pr = searcher.postings(fieldname, text)
-                s.update(pr.all_ids())
+                doclist.update(pr.all_ids())
+            doclist = sorted(doclist)
         
-        return ListMatcher(sorted(s), all_weights=self.boost)
+        return ListMatcher(doclist, all_weights=self.boost)
 
             
 class NullQuery(Query):

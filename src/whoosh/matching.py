@@ -295,7 +295,9 @@ class ListMatcher(Matcher):
         return self._scorer.block_quality(self)
     
     def skip_to_quality(self, minquality):
-        return False
+        # TODO: Skip to the next posting with quality > minquality
+        self._i = len(self._ids)
+        return 0
     
     def id(self):
         return self._ids[self._i]
@@ -702,10 +704,12 @@ class UnionMatcher(AdditiveBiMatcher):
     
     def skip_to(self, id):
         ra = rb = False
+        
         if self.a.is_active():
             ra = self.a.skip_to(id)
         if self.b.is_active():
             rb = self.b.skip_to(id)
+        
         return ra or rb
     
     def id(self):
@@ -716,7 +720,7 @@ class UnionMatcher(AdditiveBiMatcher):
         return min(a.id(), b.id())
     
     # Using sets is faster in most cases, but could potentially use a lot of
-    # memory
+    # memory. Comment out this method override to not use sets.
     def all_ids(self):
         return iter(sorted(set(self.a.all_ids()) | set(self.b.all_ids())))
     
@@ -737,15 +741,16 @@ class UnionMatcher(AdditiveBiMatcher):
         a_id = a.id()
         b_id = b.id()
         ar = br = None
+        
+        # After all that, here's the actual implementation
         if a_id <= b_id: ar = a.next()
         if b_id <= a_id: br = b.next()
         return ar or br
     
     def spans(self):
-        # Returns the branch that currently matches, or None if both branches
-        # currently match
         if not self.a.is_active(): return self.b.spans()
         if not self.b.is_active(): return self.a.spans()
+        
         id_a = self.a.id()
         id_b = self.b.id()
         if id_a < id_b:
@@ -774,7 +779,8 @@ class UnionMatcher(AdditiveBiMatcher):
     def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
-        minquality = minquality
+        if not (a.is_active() or b.is_active()):
+            raise ReadTooFar
         
         # Short circuit if one matcher is inactive
         if not a.is_active():

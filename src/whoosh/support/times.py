@@ -49,15 +49,28 @@ def relative_days(current_wday, wday, dir):
 
 
 def datetime_to_long(dt):
-        """Converts a datetime object to a long integer representing the number
-        of microseconds since ``datetime.min``.
-        """
-        
-        td = dt - dt.min
-        total = td.days * 86400000000 # Microseconds in a day
-        total += td.seconds * 1000000 # Microseconds in a second
-        total += td.microseconds
-        return total
+    """Converts a datetime object to a long integer representing the number
+    of microseconds since ``datetime.min``.
+    """
+    
+    td = dt - dt.min
+    total = td.days * 86400000000 # Microseconds in a day
+    total += td.seconds * 1000000 # Microseconds in a second
+    total += td.microseconds
+    return total
+
+def long_to_datetime(x):
+    """Converts a long integer representing the number of microseconds since
+    ``datetime.min`` to a datetime object.
+    """
+    
+    days = x // 86400000000 # Microseconds in a day
+    x -= days * 86400000000
+    
+    seconds = x // 1000000 # Microseconds in a second
+    x -= seconds * 1000000
+    
+    return datetime.min + timedelta(days=days, seconds=seconds, microseconds=x)
 
 
 # Ambiguous datetime object

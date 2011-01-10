@@ -20,6 +20,7 @@ from copy import copy
 from cPickle import dump as dump_pickle
 from cPickle import load as load_pickle
 from struct import calcsize
+from gzip import GzipFile
 
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_sbyte, pack_ushort, pack_int, pack_uint,
@@ -45,7 +46,12 @@ class StructFile(object):
     "write_varint" and "write_long".
     """
 
-    def __init__(self, fileobj, name=None, onclose=None, mapped=True):
+    def __init__(self, fileobj, name=None, onclose=None, mapped=True,
+                 gzip=False):
+        
+        if gzip:
+            fileobj = GzipFile(fileobj=fileobj)
+        
         self.file = fileobj
         self._name = name
         self.onclose = onclose
@@ -58,7 +64,7 @@ class StructFile(object):
         # If mapped is True, set the 'map' attribute to a memory-mapped
         # representation of the file. Otherwise, the fake 'map' that set up by
         # the base class will be used.
-        if mapped and hasattr(fileobj, "mode") and "r" in fileobj.mode:
+        if not gzip and mapped and hasattr(fileobj, "mode") and "r" in fileobj.mode:
             fd = fileobj.fileno()
             self.size = os.fstat(fd).st_size
             try:
@@ -68,7 +74,7 @@ class StructFile(object):
         else:
             self._setup_fake_map()
             
-        self.is_real = hasattr(fileobj, "fileno")
+        self.is_real = not gzip and hasattr(fileobj, "fileno")
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)

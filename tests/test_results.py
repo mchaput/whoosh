@@ -44,7 +44,6 @@ class TestResults(unittest.TestCase):
         self.assertEqual(len(r), 3)
         rcopy = r.copy()
         self.assertEqual(r.top_n, rcopy.top_n)
-        self.assertEqual(r.scores, rcopy.scores)
         
     def test_resultslength(self):
         schema = fields.Schema(id=fields.ID(stored=True),
@@ -64,7 +63,7 @@ class TestResults(unittest.TestCase):
         s = ix.searcher()
         r = s.search(query.Term("value", u"alfa"), limit=3)
         self.assertEqual(len(r), 5)
-        self.assertEqual(r.scored, 3)
+        self.assertEqual(r.scored_length(), 3)
 
     def test_pages(self):
         from whoosh.scoring import Frequency

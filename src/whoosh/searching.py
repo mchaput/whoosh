@@ -19,7 +19,7 @@
 
 
 from __future__ import division
-from array import array
+import copy
 from collections import defaultdict
 from heapq import heappush, heapreplace
 from math import ceil
@@ -53,7 +53,6 @@ class Searcher(object):
         self.schema = schema or self.ixreader.schema
         self._doccount = doccount or self.ixreader.doc_count_all()
         self._idf_cache = idf_cache or {}
-        self._sorter_cache = {}
 
         if type(weighting) is type:
             self.weighting = weighting()
@@ -69,9 +68,9 @@ class Searcher(object):
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
-                     "scorable", "lexicon", "frequency", "doc_frequency", 
+                     "lexicon", "frequency", "doc_frequency", 
                      "field_length", "doc_field_length", "max_field_length",
-                     "field", "field_names"):
+                     ):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -136,7 +135,7 @@ class Searcher(object):
         self.is_closed = True
 
     def avg_field_length(self, fieldname, default=None):
-        if not self.ixreader.scorable(fieldname):
+        if not self.ixreader.schema[fieldname].scorable:
             return default
         return self.ixreader.field_length(fieldname) / (self._doccount or 1)
 
@@ -266,9 +265,9 @@ class Searcher(object):
             return []
         
         q = query.And(subqueries).normalize()
-        return q.docs(self)
+        return self.docs_for_query(q)
 
-    def docs_for_query(self, q, leafs=False):
+    def docs_for_query(self, q, leafs=True):
         if self.subsearchers and leafs:
             for s, offset in self.subsearchers:
                 for docnum in q.docs(s):
@@ -329,34 +328,37 @@ class Searcher(object):
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 
-    def _field_sorter(self, fieldname):
-        if fieldname in self._sorter_cache:
-            sorter = self._sorter_cache[fieldname]
-        else:
-            sorter = scoring.FieldSorter(fieldname)
-            self._sorter_cache[fieldname] = sorter
-        return sorter
-
-    def sort_query(self, q, sortedby, reverse=False):
-        if isinstance(sortedby, basestring):
-            sorter = self._field_sorter(sortedby)
-        elif isinstance(sortedby, (list, tuple)):
-            sorter = scoring.MultiFieldSorter([self._field_sorter(fname)
-                                               for fname in sortedby])
-        elif isinstance(sortedby, Sorter):
-            sorter = sortedby
-        else:
-            raise ValueError("sortedby argument (%R) must be a string, list,"
-                             " or Sorter" % sortedby)
-
+    def sort_query(self, q, sortedby, limit=None, reverse=False):
         t = now()
-        sorted_docs = list(sorter.order(self, q.docs(self), reverse=reverse))
+        docset = None
+        if self.subsearchers:
+            heap = []
+            for s, offset in self.subsearchers:
+                docnums = list(q.docs(s))
+                r = s.reader()
+                srt = r.key_sort_docs_by(sortedby, docnums, limit,
+                                         reverse=reverse, offset=offset)
+                if limit:
+                    for key, docnum in srt:
+                        if len(heap) < limit or key > heap[0][0]:
+                            heapreplace(heap, (key, docnum))
+                else:
+                    heap.extend(srt)
+            top_n = [(None, docnum) for _, docnum in sorted(heap)]
+            
+        else:
+            r = self.reader()
+            top_n = [(None, docnum) for docnum
+                     in r.sort_docs_by(sortedby, q.docs(self), reverse=reverse)]
+        
+        if not limit:
+            docset = set(docnum for _, docnum in top_n)
         runtime = now() - t
         
-        return Results(self, q, sorted_docs, None, runtime)
-    
+        return Results(self, q, top_n, docset, runtime=runtime)
+        
     def search(self, q, limit=10, sortedby=None, reverse=False,
-               optimize=True, leafs=False):
+               optimize=True, leafs=True):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -376,25 +378,20 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         if sortedby is not None:
-            return self.sort_query(q, sortedby, reverse=reverse)
+            return self.sort_query(q, sortedby, limit=limit, reverse=reverse)
         
         t = now()
         col = Collector(self.weighting, limit, usequality=optimize)
         
         if self.subsearchers and leafs:
             for s, offset in self.subsearchers:
-                print "s=", s, "offset=", offset
                 col.add_matches(s, q.matcher(s), offset)
         else:
             col.add_matches(self, q.matcher(self))
-        
-        items = col.items()
-        scores = [x[0] for x in items]
-        docnums = [x[1] for x in items]
-        docset = col.docset or None
-        
         runtime = now() - t
-        return Results(self, q, docnums, scores, runtime, docs=docset)
+        
+        docset = col.docset or None
+        return Results(self, q, col.items(), docset, runtime=runtime)
 
 
 class Collector(object):
@@ -525,7 +522,7 @@ class Results(object):
     that position in the results.
     """
 
-    def __init__(self, searcher, q, top_n, scores, runtime=-1, docs=None):
+    def __init__(self, searcher, q, top_n, docset, runtime=-1):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -539,12 +536,8 @@ class Results(object):
 
         self.searcher = searcher
         self.q = q
-        self._docs = docs
-        if scores:
-            assert len(top_n) == len(scores)
         self.top_n = top_n
-        self.scores = scores
-        self.scored = len(top_n)
+        self.docset = docset
         self.runtime = runtime
 
     def __repr__(self):
@@ -556,21 +549,19 @@ class Results(object):
         """Returns the total number of documents that matched the query. Note
         this may be more than the number of scored documents, given the value
         of the ``limit`` keyword argument to :meth:`Searcher.search`.
+        
+        If this Results object was created by searching with a ``limit``
+        keyword, then computing the exact length of the result set may be
+        expensive for large indexes or large result sets. You may consider
+        using :meth:`Results.has_exact_length`,
+        :meth:`Results.estimated_length`, and
+        :meth:`Results.estimated_min_length` to display an estimated size of
+        the result set instead of an exact number.
         """
         
-        if self._docs is None:
+        if self.docset is None:
             self._load_docs()
-        return len(self._docs)
-
-    def _get(self, i, docnum):
-            
-        d = self.searcher.stored_fields(docnum)
-        d.position = i
-        d.docnum = docnum
-        if self.scores:
-            d.score = self.scores[i]
-        else:
-            d.score = None
+        return len(self.docset)
 
     def fields(self, n):
         """Returns the stored fields for the document at the ``n`` th position
@@ -578,48 +569,48 @@ class Results(object):
         document number instead of the stored fields.
         """
         
-        return self.searcher.stored_fields(self.top_n[n])
+        return self.searcher.stored_fields(self.top_n[n][1])
     
     def __getitem__(self, n):
         if isinstance(n, slice):
             start, stop, step = n.indices(len(self))
-            return [Hit(self.searcher, i, self.top_n[i], self.score(i))
+            return [Hit(self.searcher, i, self.top_n[i][1], self.top_n[i][0])
                     for i in xrange(start, stop, step)]
         else:
-            return Hit(self.searcher, n, self.top_n[n], self.score(n))
+            return Hit(self.searcher, n, self.top_n[n][1], self.top_n[n][0])
 
     def __iter__(self):
         """Yields the stored fields of each result document in ranked order.
         """
         
         for i in xrange(len(self.top_n)):
-            yield Hit(self.searcher, i, self.top_n[i], self.score(i))
-        
+            yield Hit(self.searcher, i, self.top_n[i][1], self.top_n[i][0])
+    
     def __contains__(self, docnum):
         """Returns True if the given document number matched the query.
         """
         
-        if self._docs is None:
+        if self.docset is None:
             self._load_docs()
-        return docnum in self._docs
+        return docnum in self.docset
 
     def _load_docs(self):
-        self._docs = set(self.searcher.docs_for_query(self.q))
+        self.docset = set(self.searcher.docs_for_query(self.q))
 
     def has_exact_length(self):
         """True if this results object already knows the exact number of
         matching documents.
         """
         
-        return self._docs is not None
+        return self.docset is not None
 
     def estimated_length(self):
         """The estimated maximum number of matching documents, or the
         exact number of matching documents if it's known.
         """
         
-        if self._docs is not None:
-            return len(self._docs)
+        if self.docset is not None:
+            return len(self.docset)
         return self.q.estimate_size(self.searcher.reader())
     
     def estimated_min_length(self):
@@ -627,8 +618,8 @@ class Results(object):
         exact number of matching documents if it's known.
         """
         
-        if self._docs is not None:
-            return len(self._docs)
+        if self.docset is not None:
+            return len(self.docset)
         return self.q.estimate_min_size(self.searcher.reader())
     
     def scored_length(self):
@@ -652,59 +643,29 @@ class Results(object):
         matched the query.
         """
         
-        if self._docs is None:
+        if self.docset is None:
             self._load_docs()
-        return self._docs
-
-    def limit(self):
-        return len(self.top_n)
-
-    def iterslice(self, start, stop, step=1):
-        stored_fields = self.searcher.stored_fields
-        for docnum in self.top_n[start:stop:step]:
-            yield stored_fields(docnum)
+        return self.docset
 
     def copy(self):
         """Returns a copy of this results object.
         """
         
-        if self.scores:
-            scores = self.scores[:]
-        else:
-            scores = None
-        
         return self.__class__(self.searcher, self.q, self.top_n[:],
-                              scores, runtime=self.runtime)
+                              copy.copy(self.docset), runtime=self.runtime)
 
     def score(self, n):
         """Returns the score for the document at the Nth position in the list
-        of results. If the search was not scored, returns None.
+        of ranked documents. If the search was not scored, this may return None.
         """
 
-        if self.scores:
-            return self.scores[n]
-        else:
-            return None
+        return self.top_n[n][0]
 
     def docnum(self, n):
         """Returns the document number of the result at position n in the list
-        of ranked documents. Use __getitem__ (i.e. Results[n]) to get the
-        stored fields directly.
+        of ranked documents.
         """
-        return self.top_n[n]
-
-    def items(self):
-        """Returns a list of (docnum, score) pairs for the ranked documents.
-        """
-        
-        if self.scores:
-            return zip(self.top_n, self.scores)
-        else:
-            return [(docnum, 0) for docnum in self.top_n]
-        
-    def _setitems(self, items):
-        self.top_n = [docnum for docnum, score in items]
-        self.scores = [score for docnum, score in items]
+        return self.top_n[n][1]
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -729,7 +690,7 @@ class Results(object):
         reader = self.searcher.reader()
 
         expander = classify.Expander(reader, fieldname, model=model)
-        for docnum in self.top_n[:docs]:
+        for _, docnum in self.top_n[:docs]:
             expander.add_document(docnum)
 
         return expander.expanded_terms(numterms, normalize=normalize)
@@ -747,7 +708,7 @@ class Results(object):
             if docnum not in docs:
                 self.top_n.append(docnum)
                 self.scores.append(score)
-        self._docs = docs | results.docs()
+        self.docset = docs | results.docs()
         
     def filter(self, results):
         """Removes any hits that are not also in the other results object.
@@ -756,10 +717,9 @@ class Results(object):
         if not len(results): return
 
         docs = self.docs() & results.docs()
-        items = [(docnum, score) for docnum, score in self.items()
-                 if docnum in docs]
-        self._setitems(items)
-        self._docs = docs
+        items = [item for item in self.top_n if item[1] in docs]
+        self.top_n = items
+        self.docset = docs
         
     def upgrade(self, results, reverse=False):
         """Re-sorts the results so any hits that are also in 'results' appear
@@ -774,44 +734,36 @@ class Results(object):
 
         if not len(results): return
 
-        items = self.items()
         otherdocs = results.docs()
-        arein = [(docnum, score) for docnum, score in items
-                 if docnum in otherdocs]
-        notin = [(docnum, score) for docnum, score in items
-                 if docnum not in otherdocs]
+        arein = [item for item in self.top_n if item[1] in otherdocs]
+        notin = [item for item in self.top_n if item[1] not in otherdocs]
 
         if reverse:
             items = notin + arein
         else:
             items = arein + notin
         
-        self._setitems(items)
+        self.top_n = items
         
     def upgrade_and_extend(self, results):
         """Combines the effects of extend() and increase(): hits that are also
-        in 'results' are raised. Then any hits from 'results' that are not in
-        this results object are appended to the end of these results.
+        in 'results' are raised. Then any hits from the other results object
+        that are not in this results object are appended to the end.
         
         :param results: another results object.
         """
 
         if not len(results): return
 
-        items = self.items()
         docs = self.docs()
         otherdocs = results.docs()
 
-        arein = [(docnum, score) for docnum, score in items
-                 if docnum in otherdocs]
-        notin = [(docnum, score) for docnum, score in items
-                 if docnum not in otherdocs]
-        other = [(docnum, score) for docnum, score in results.items()
-                 if docnum not in docs]
+        arein = [item for item in self.top_n if item[1] in otherdocs]
+        notin = [item for item in self.top_n if item[1] not in otherdocs]
+        other = [item for item in results.top_n if item[1] not in docs]
 
-        self._docs = docs | otherdocs
-        items = arein + notin + other
-        self._setitems(items)
+        self.docset = docs | otherdocs
+        self.top_n = arein + notin + other
 
 
 class Hit(object):
@@ -966,11 +918,13 @@ class ResultsPage(object):
             return self.results.__getitem__(n + offset)
 
     def __iter__(self):
-        offset, pagelen = self.offset, self.pagelen
-        return self.results.iterslice(offset, offset + pagelen)
+        return iter(self.results[self.offset : self.offset + self.pagelen])
 
     def __len__(self):
         return self.total
+
+    def scored_length(self):
+        return self.results.scored_length()
 
     def score(self, n):
         """Returns the score of the hit at the nth position on this page.
@@ -981,7 +935,7 @@ class ResultsPage(object):
         """Returns the document number of the hit at the nth position on this
         page.
         """
-        return self.results.scored_list[n + self.offset]
+        return self.results.docnum(n + self.offset)
     
     def is_last_page(self):
         """Returns True if this object represents the last page of results.
@@ -1207,15 +1161,7 @@ class Facets(object):
         names = self.names()
         facetmap = self.map
         
-        # If all the results are scored, then we will use the scores to build
-        # the categorized list in scored order. If not all the results are
-        # scored, 
-        if len(results) == len(results.docs()):
-            items = results.items()
-        else:
-            items = ((docnum, None) for docnum in results.docs())
-        
-        for docnum, score in items:
+        for score, docnum in results.top_n:
             index = facetmap.get(docnum)
             if index is None:
                 name = None

@@ -14,8 +14,11 @@
 # limitations under the License.
 #===============================================================================
 
+from bisect import bisect_left
+from heapq import nlargest
 from threading import Lock
 
+from whoosh.filedb.fieldcache import CacheSet
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
@@ -63,6 +66,8 @@ class SegmentReader(IndexReader):
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
         
+        self.caches = CacheSet(self.storage, self.segment.name)
+        
         self.is_closed = False
         self._sync_lock = Lock()
 
@@ -102,24 +107,6 @@ class SegmentReader(IndexReader):
 
     def doc_count_all(self):
         return self.dc
-
-    def field(self, fieldname):
-        return self.schema[fieldname]
-
-    def scorable(self, fieldname):
-        return self.schema[fieldname].scorable
-    
-    def scorable_names(self):
-        return self.schema.scorable_names()
-    
-    def vector_names(self):
-        return self.schema.vector_names()
-    
-    def format(self, fieldname):
-        return self.schema[fieldname].format
-    
-    def vector_format(self, fieldname):
-        return self.schema[fieldname].vector
 
     @protected
     def stored_fields(self, docnum):
@@ -203,6 +190,13 @@ class SegmentReader(IndexReader):
         # FileTableReader.keys_from() is much, much faster.
 
         self._test_field(fieldname)
+        
+        # If a field cache happens to already be loaded for this field, use it
+        # instead of loading the field values from disk
+        if self.fieldcache_loaded(fieldname):
+            fieldcache = self.fieldcache(fieldname)
+            return fieldcache.texts
+        
         return self.expand_prefix(fieldname, '')
 
     @protected
@@ -212,14 +206,22 @@ class SegmentReader(IndexReader):
         # FileTableReader.keys_from() is much, much faster.
 
         self._test_field(fieldname)
-        for fn, t in self.termsindex.keys_from((fieldname, prefix)):
-            if fn != fieldname or not t.startswith(prefix):
-                return
-            yield t
+
+        if self.fieldcache_loaded(fieldname):
+            texts = self.fieldcache(fieldname).texts
+            i = bisect_left(texts, prefix)
+            while i < len(texts) and texts[i].startswith(prefix):
+                yield texts[i]
+                i += 1
+        else:
+            for fn, t in self.termsindex.keys_from((fieldname, prefix)):
+                if fn != fieldname or not t.startswith(prefix):
+                    break
+                yield t
 
     def first_ids(self, fieldname):
         self._test_field(fieldname)
-        format = self.format(fieldname)
+        format = self.schema[fieldname].format
         
         for (fn, t), (totalfreq, offset, postcount) in self.termsindex.items_from((fieldname, '')):
             if fn != fieldname:
@@ -235,7 +237,7 @@ class SegmentReader(IndexReader):
 
     def first_id(self, fieldname, text):
         self._test_field(fieldname)
-        format = self.format(fieldname)
+        format = self.schema[fieldname].format
         
         offset = self.termsindex[(fieldname, text)][1]
         if isinstance(offset, (int, long)):
@@ -246,7 +248,7 @@ class SegmentReader(IndexReader):
 
     def postings(self, fieldname, text, scorer=None):
         self._test_field(fieldname)
-        format = self.format(fieldname)
+        format = self.schema[fieldname].format
         try:
             offset = self.termsindex[(fieldname, text)][1]
         except KeyError:
@@ -270,7 +272,7 @@ class SegmentReader(IndexReader):
     def vector(self, docnum, fieldname):
         if fieldname not in self.schema:
             raise TermNotFound("No  field %r" % fieldname)
-        vformat = self.vector_format(fieldname)
+        vformat = self.schema[fieldname].vector
         if not vformat:
             raise Exception("No vectors are stored for field %r" % fieldname)
         
@@ -282,13 +284,70 @@ class SegmentReader(IndexReader):
         
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
+    def fieldcache(self, fieldname, save=True):
+        return self.caches.get_cache(self, fieldname, save=save)
+    
+    def fieldcache_available(self, fieldname):
+        return self.caches.is_cached(fieldname)
+    
+    def fieldcache_loaded(self, fieldname):
+        return self.caches.is_loaded(fieldname)
+
+    def fieldcache_create(self, fieldname, save=True, name=None, default=u''):
+        self.caches.create_cache(self, fieldname, save=save, name=name,
+                                 default=default)
+    
+    def sort_docs_by(self, fieldname, docnums, reverse=False):
+        if isinstance(fieldname, (tuple, list)):
+            # The "fieldname" is actually a sequence of field names to sort by
+            fcs = [self.fieldcache(fn) for fn in fieldname]
+            keyfn = lambda docnum: tuple(fc.order[docnum] for fc in fcs)
+        else:
+            fieldcache = self.fieldcache(fieldname)
+            keyfn = fieldcache.order.__getitem__
         
-
-
-
-
-
-
+        return sorted(docnums, key=keyfn, reverse=reverse)
+    
+    def key_sort_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
+        
+        # We have to invert the keys to use nlargest (which is more efficient
+        # than nsmallest), so if reverse is True we use key_for and if reverse
+        # is False we use reverse_key_for
+        
+        if isinstance(fieldname, (tuple, list)):
+            # The "fieldname" is actually a sequence of field names to sort by
+            fcs = [self.fieldcache(fn) for fn in fieldname]
+            
+            if reverse:
+                keyfn = lambda docnum: tuple(fc.key_for(docnum) for fc in fcs)
+            else:
+                keyfn = lambda docnum: tuple(fc.reverse_key_for(docnum)
+                                             for fc in fcs)
+        else:
+            fc = self.fieldcache(fieldname)
+            if reverse:
+                keyfn = fc.key_for
+            else:
+                keyfn = fc.reverse_key_for
+        
+        if limit is None:
+            return sorted([(keyfn(docnum), docnum + offset)
+                           for docnum in docnums])
+        else:
+            return nlargest(limit, ((keyfn(docnum), docnum + offset)
+                                    for docnum in docnums))
+        
+#    def group_docs_by(self, fieldname, docnums, counts=False):
+#        fieldcache = self.caches.get_cache(self, fieldname)
+#        return fieldcache.groups(docnums, counts=counts)
+#    
+#    def group_scored_docs_by(self, fieldname, scores_and_docnums, limit=None):
+#        fieldcache = self.caches.get_cache(self, fieldname)
+#        return fieldcache.groups(scores_and_docnums, limit=limit)
+#    
+#    def collapse_docs_by(self, fieldname, scores_and_docnums):
+#        fieldcache = self.caches.get_cache(self, fieldname)
+#        return fieldcache.collapse(scores_and_docnums)
 
 
 

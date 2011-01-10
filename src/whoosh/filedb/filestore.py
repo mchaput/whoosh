@@ -48,9 +48,9 @@ class FileStorage(Storage):
         from whoosh.filedb.fileindex import FileIndex
         return FileIndex(self, schema=schema, indexname=indexname)
 
-    def create_file(self, name):
+    def create_file(self, name, **kwargs):
         f = StructFile(open(self._fpath(name), "wb"), name=name,
-                       mapped=self.mapped)
+                       mapped=self.mapped, **kwargs)
         return f
 
     def open_file(self, name, *args, **kwargs):
@@ -150,7 +150,7 @@ class RamStorage(FileStorage):
         del self.files[name]
         self.files[newname] = content
 
-    def create_file(self, name):
+    def create_file(self, name, **kwargs):
         def onclose_fn(sfile):
             self.files[name] = sfile.file.getvalue()
         f = StructFile(StringIO(), name=name, onclose=onclose_fn)

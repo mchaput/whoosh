@@ -178,7 +178,7 @@ class BM25F(WeightingModel):
                 self._field_B[fieldname] = v
     
     def scorer(self, searcher, fieldname, text, qf=1):
-        if not searcher.field(fieldname).scorable:
+        if not searcher.schema[fieldname].scorable:
             return WeightScorer()
         
         idf = searcher.idf(fieldname, text)
@@ -224,7 +224,7 @@ class PL2(WeightingModel):
         self.c = c
         
     def scorer(self, searcher, fieldname, text, qf=1):
-        if not searcher.field(fieldname).scorable:
+        if not searcher.schema[fieldname].scorable:
             return WeightScorer()
         
         collfreq = searcher.frequency(fieldname, text)
