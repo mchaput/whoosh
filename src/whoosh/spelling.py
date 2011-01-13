@@ -24,8 +24,6 @@ from whoosh import analysis, fields, query, scoring
 from whoosh.support.levenshtein import relative, distance
 
 
-nullsorter = scoring.NullSorter()
-
 class SpellChecker(object):
     """Implements a spell-checking engine using a search index for the backend
     storage and lookup. This class is based on the Lucene contributed spell-

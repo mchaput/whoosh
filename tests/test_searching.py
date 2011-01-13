@@ -4,7 +4,6 @@ import unittest
 from whoosh import analysis, fields, formats, index, qparser, query, scoring
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
-from whoosh.scoring import FieldSorter
 from whoosh.util import permutations
 
 
