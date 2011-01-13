@@ -386,7 +386,7 @@ class Searcher(object):
         
         return Results(self, q, top_n, docset, runtime=runtime)
     
-    def define_facets(self, name, qs, save=True):
+    def define_facets(self, name, qs, save=False):
         def doclists_for_searcher(s):
             return dict((key, q.docs(s)) for key, q in qs.iteritems())
         

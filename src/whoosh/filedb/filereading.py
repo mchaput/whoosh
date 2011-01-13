@@ -27,6 +27,7 @@ from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.util import protected
 
+SAVE_BY_DEFAULT = False
 
 # Reader class
 
@@ -330,7 +331,8 @@ class SegmentReader(IndexReader):
         cache.to_file(f)
         f.close()
 
-    def _create_fieldcache(self, fieldname, save=True, name=None, default=u''):
+    def _create_fieldcache(self, fieldname, save=SAVE_BY_DEFAULT, name=None,
+                           default=u''):
         if name in self.schema:
             raise Exception("Custom name %r is the name of a field")
         savename = name if name else fieldname
@@ -344,7 +346,7 @@ class SegmentReader(IndexReader):
             self._save_fieldcache(savename, cache)
         return cache
 
-    def define_facets(self, name, qs, save=True):
+    def define_facets(self, name, qs, save=SAVE_BY_DEFAULT):
         if name in self.schema:
             raise Exception("Can't define facets using the name of a field (%r)" % name)
         
@@ -357,7 +359,7 @@ class SegmentReader(IndexReader):
             self._save_fieldcache(name, cache)
         self._put_fieldcache(name, cache)
 
-    def fieldcache(self, fieldname, save=True):
+    def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
         the given field.
         
@@ -371,7 +373,7 @@ class SegmentReader(IndexReader):
         elif self._cachefile_exists(fieldname):
             fc = self._load_fieldcache(fieldname)
         else:
-            fc = self._create_fieldcache(fieldname, save=save)
+            fc = self._create_fieldcache(fieldname, save=SAVE_BY_DEFAULT)
         self._put_fieldcache(fieldname, fc)
         return fc
     
