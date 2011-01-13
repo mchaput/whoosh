@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 import os.path, shutil
 
@@ -35,12 +36,9 @@ class TestSchema(unittest.TestCase):
             w.add_document(id=u"e", content=u"echo", added=u"fifth")
             w.commit(merge=False)
             
-            s = ix.searcher()
-            try:
+            with ix.searcher() as s:
                 self.assertEqual(s.document(id=u"d"), {"id": "d", "added": "fourth"})
                 self.assertEqual(s.document(id=u"b"), {"id": "b"})
-            finally:
-                s.close()
         finally:
             ix.close()
             self.destroy_index()
@@ -58,12 +56,9 @@ class TestSchema(unittest.TestCase):
             w.add_document(id=u"d", content=u"delta", city=u"dakar")
             w.commit()
             
-            s = ix.searcher()
-            try:
+            with ix.searcher() as s:
                 self.assertEqual(s.document(id=u"c"),
                                  {"id": "c", "city": "cairo"})
-            finally:
-                s.close()
             
             w = ix.writer()
             w.remove_field("content")
@@ -74,10 +69,9 @@ class TestSchema(unittest.TestCase):
             self.assertEqual(ixschema.names(), ["id"])
             self.assertEqual(ixschema.stored_names(), ["id"])
             
-            s = ix.searcher()
-            self.assertFalse(("content", u"charlie") in s.reader())
-            self.assertEqual(s.document(id=u"c"), {"id": u"c"})
-            s.close()
+            with ix.searcher() as s:
+                self.assertFalse(("content", u"charlie") in s.reader())
+                self.assertEqual(s.document(id=u"c"), {"id": u"c"})
         finally:
             ix.close()
             self.destroy_index()
@@ -95,22 +89,18 @@ class TestSchema(unittest.TestCase):
             w.add_document(id=u"d", content=u"delta", city=u"dakar")
             w.commit()
             
-            s = ix.searcher()
-            try:
+            with ix.searcher() as s:
                 self.assertEqual(s.document(id=u"c"),
                                  {"id": "c", "city": "cairo"})
-            finally:
-                s.close()
             
             w = ix.writer()
             w.remove_field("content")
             w.remove_field("city")
             w.commit(optimize=True)
             
-            s = ix.searcher()
-            self.assertFalse(("content", u"charlie") in s.reader())
-            self.assertEqual(s.document(id=u"c"), {"id": u"c"})
-            s.close()
+            with ix.searcher() as s:
+                self.assertFalse(("content", u"charlie") in s.reader())
+                self.assertEqual(s.document(id=u"c"), {"id": u"c"})
         finally:
             ix.close()
             self.destroy_index()

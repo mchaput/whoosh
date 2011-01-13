@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 from datetime import datetime, timedelta
 
@@ -100,17 +101,17 @@ class TestSchema(unittest.TestCase):
         w.add_document(id=u"e", integer=9, floating=5.6)
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("integer", schema=schema)
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("integer", schema=schema)
+            
+            r = s.search(qp.parse("5820"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "a")
         
-        r = s.search(qp.parse("5820"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "a")
-        
-        s = ix.searcher()
-        r = s.search(qp.parse("floating:4.5"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "d")
+        with ix.searcher() as s:
+            r = s.search(qp.parse("floating:4.5"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "d")
         
         q = qp.parse("integer:*")
         self.assertEqual(q.__class__, query.Every)
@@ -136,14 +137,14 @@ class TestSchema(unittest.TestCase):
         w.add_document(id=u"d", deci=Decimal("58"))
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("deci", schema=schema)
-        
-        r = s.search(qp.parse("123.56"))
-        self.assertEqual(r[0]["id"], "a")
-        
-        r = s.search(qp.parse("0.536255"))
-        self.assertEqual(r[0]["id"], "b")
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("deci", schema=schema)
+            
+            r = s.search(qp.parse("123.56"))
+            self.assertEqual(r[0]["id"], "a")
+            
+            r = s.search(qp.parse("0.536255"))
+            self.assertEqual(r[0]["id"], "b")
     
     def test_numeric_parsing(self):
         schema = fields.Schema(id=fields.ID(stored=True), number=fields.NUMERIC)
@@ -176,23 +177,23 @@ class TestSchema(unittest.TestCase):
             w.add_document(id=i, num=i)
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("num", schema=schema)
-        
-        def check(qs, target):
-            q = qp.parse(qs)
-            result = [s.stored_fields(d)["id"] for d in q.docs(s)]
-            self.assertEqual(result, target)
-        
-        # Note that range() is always inclusive-exclusive
-        check("[10 to 390]", range(10, 390+1))
-        check("[100 to]", range(100, 400))
-        check("[to 350]", range(0, 350+1))
-        check("[16 to 255]", range(16, 255+1))
-        check("{10 to 390]", range(11, 390+1))
-        check("[10 to 390}", range(10, 390))
-        check("{10 to 390}", range(11, 390))
-        check("{16 to 255}", range(17, 255))
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("num", schema=schema)
+            
+            def check(qs, target):
+                q = qp.parse(qs)
+                result = [s.stored_fields(d)["id"] for d in q.docs(s)]
+                self.assertEqual(result, target)
+            
+            # Note that range() is always inclusive-exclusive
+            check("[10 to 390]", range(10, 390+1))
+            check("[100 to]", range(100, 400))
+            check("[to 350]", range(0, 350+1))
+            check("[16 to 255]", range(16, 255+1))
+            check("{10 to 390]", range(11, 390+1))
+            check("[10 to 390}", range(10, 390))
+            check("{10 to 390}", range(11, 390))
+            check("{16 to 255}", range(17, 255))
         
     def test_decimal_ranges(self):
         from decimal import Decimal
@@ -207,26 +208,26 @@ class TestSchema(unittest.TestCase):
             count += inc
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("num", schema=schema)
-        
-        def check(qs, start, end):
-            q = qp.parse(qs)
-            result = [s.stored_fields(d)["id"] for d in q.docs(s)]
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("num", schema=schema)
             
-            target = []
-            count = Decimal(start)
-            limit = Decimal(end)
-            while count <= limit:
-                target.append(str(count))
-                count += inc
+            def check(qs, start, end):
+                q = qp.parse(qs)
+                result = [s.stored_fields(d)["id"] for d in q.docs(s)]
+                
+                target = []
+                count = Decimal(start)
+                limit = Decimal(end)
+                while count <= limit:
+                    target.append(str(count))
+                    count += inc
+                
+                self.assertEqual(result, target)
             
-            self.assertEqual(result, target)
-        
-        check("[10.2 to 80.8]", "10.2", "80.8")
-        check("{10.2 to 80.8]", "10.4", "80.8")
-        check("[10.2 to 80.8}", "10.2", "80.6")
-        check("{10.2 to 80.8}", "10.4", "80.6")
+            check("[10.2 to 80.8]", "10.2", "80.8")
+            check("{10.2 to 80.8]", "10.4", "80.8")
+            check("[10.2 to 80.8}", "10.2", "80.6")
+            check("{10.2 to 80.8}", "10.4", "80.6")
     
     def test_nontext_document(self):
         schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC,
@@ -239,14 +240,14 @@ class TestSchema(unittest.TestCase):
             w.add_document(id=i, num=i, date=dt + timedelta(days=i), even=not(i % 2))
         w.commit()
         
-        s = ix.searcher()
-        def check(kwargs, target):
-            result = [d['id'] for d in s.documents(**kwargs)]
-            self.assertEqual(result, target)
-        
-        check({"num": 49}, [49])
-        check({"date": dt + timedelta(days=30)}, [30])
-        check({"even": True}, range(0, 50, 2))
+        with ix.searcher() as s:
+            def check(kwargs, target):
+                result = [d['id'] for d in s.documents(**kwargs)]
+                self.assertEqual(result, target)
+            
+            check({"num": 49}, [49])
+            check({"date": dt + timedelta(days=30)}, [30])
+            check({"even": True}, range(0, 50, 2))
     
     def test_nontext_update(self):
         schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(unique=True),
@@ -281,25 +282,25 @@ class TestSchema(unittest.TestCase):
                                date=datetime(2010, month, day, 14, 00, 00))
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("id", schema=schema)
-        
-        r = s.search(qp.parse("date:20100523"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "5-23")
-        self.assertEqual(r[0]["date"].__class__, datetime)
-        self.assertEqual(r[0]["date"].month, 5)
-        self.assertEqual(r[0]["date"].day, 23)
-        
-        r = s.search(qp.parse("date:'2010 02'"))
-        self.assertEqual(len(r), 27)
-        
-        q = qp.parse(u"date:[2010-05 to 2010-08]")
-        startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
-        enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
-        self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, times.datetime_to_long(startdt))
-        self.assertEqual(q.end, times.datetime_to_long(enddt))
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("id", schema=schema)
+            
+            r = s.search(qp.parse("date:20100523"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "5-23")
+            self.assertEqual(r[0]["date"].__class__, datetime)
+            self.assertEqual(r[0]["date"].month, 5)
+            self.assertEqual(r[0]["date"].day, 23)
+            
+            r = s.search(qp.parse("date:'2010 02'"))
+            self.assertEqual(len(r), 27)
+            
+            q = qp.parse(u"date:[2010-05 to 2010-08]")
+            startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
+            enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
+            self.assertEqual(q.__class__, query.NumericRange)
+            self.assertEqual(q.start, times.datetime_to_long(startdt))
+            self.assertEqual(q.end, times.datetime_to_long(enddt))
     
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),
@@ -315,29 +316,29 @@ class TestSchema(unittest.TestCase):
         w.add_document(id=u"e", done=True)
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("id", schema=schema)
-        
-        def all_false(ls):
-            for item in ls:
-                if item: return False
-            return True
-        
-        r = s.search(qp.parse("done:true"))
-        self.assertEqual(sorted([d["id"] for d in r]), ["a", "c", "e"])
-        self.assertTrue(all(d["done"] for d in r))
-        
-        r = s.search(qp.parse("done:yes"))
-        self.assertEqual(sorted([d["id"] for d in r]), ["a", "c", "e"])
-        self.assertTrue(all(d["done"] for d in r))
-        
-        r = s.search(qp.parse("done:false"))
-        self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
-        self.assertTrue(all_false(d["done"] for d in r))
-        
-        r = s.search(qp.parse("done:no"))
-        self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
-        self.assertTrue(all_false(d["done"] for d in r))
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("id", schema=schema)
+            
+            def all_false(ls):
+                for item in ls:
+                    if item: return False
+                return True
+            
+            r = s.search(qp.parse("done:true"))
+            self.assertEqual(sorted([d["id"] for d in r]), ["a", "c", "e"])
+            self.assertTrue(all(d["done"] for d in r))
+            
+            r = s.search(qp.parse("done:yes"))
+            self.assertEqual(sorted([d["id"] for d in r]), ["a", "c", "e"])
+            self.assertTrue(all(d["done"] for d in r))
+            
+            r = s.search(qp.parse("done:false"))
+            self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
+            self.assertTrue(all_false(d["done"] for d in r))
+            
+            r = s.search(qp.parse("done:no"))
+            self.assertEqual(sorted([d["id"] for d in r]), ["b", "d"])
+            self.assertTrue(all_false(d["done"] for d in r))
 
     def test_boolean2(self):
         schema = fields.Schema(t=fields.TEXT(stored=True), b=fields.BOOLEAN(stored=True))
@@ -349,21 +350,21 @@ class TestSchema(unittest.TestCase):
         writer.add_document(t=u'some again', b=True)
         writer.commit()
         
-        s = ix.searcher()
-        qf = qparser.QueryParser('b').parse(u'f')
-        qt = qparser.QueryParser('b').parse(u't')
-        r = s.search(qf)
-        self.assertEqual(len(r), 3)
-        
-        self.assertEqual([d["b"] for d in s.search(qt)], [True])
-        self.assertEqual([d["b"] for d in s.search(qf)], [False] * 3)
+        with ix.searcher() as s:
+            qf = qparser.QueryParser('b').parse(u'f')
+            qt = qparser.QueryParser('b').parse(u't')
+            r = s.search(qf)
+            self.assertEqual(len(r), 3)
+            
+            self.assertEqual([d["b"] for d in s.search(qt)], [True])
+            self.assertEqual([d["b"] for d in s.search(qf)], [False] * 3)
         
     def test_missing_field(self):
         schema = fields.Schema()
         ix = RamStorage().create_index(schema)
         
-        s = ix.searcher()
-        self.assertRaises(KeyError, s.document_numbers, id=u"test")
+        with ix.searcher() as s:
+            self.assertRaises(KeyError, s.document_numbers, id=u"test")
 
     def test_token_boost(self):
         from whoosh.analysis import RegexTokenizer, DoubleMetaphoneFilter

@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 
 from whoosh import analysis, fields, reading
@@ -135,12 +136,12 @@ class TestReading(unittest.TestCase):
         writer.add_document(a=u"3", b="c", c=u"xray", d=u"Charlie")
         writer.commit()
         
-        sr = ix.searcher()
-        self.assertEqual(sr.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
-        self.assertEqual(sr.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
-        
-        self.assertEqual(sr.document(a=u"1"), {"a": u"1", "b": "a", "d": u"Alfa"})
-        self.assertEqual(sr.document(a=u"2"), {"a": u"2", "b": "b", "d": u"Bravo"})
+        with ix.searcher() as sr:
+            self.assertEqual(sr.stored_fields(0), {"a": u"1", "b": "a", "d": u"Alfa"})
+            self.assertEqual(sr.stored_fields(2), {"a": u"3", "b": "c", "d": u"Charlie"})
+            
+            self.assertEqual(sr.document(a=u"1"), {"a": u"1", "b": "a", "d": u"Alfa"})
+            self.assertEqual(sr.document(a=u"2"), {"a": u"2", "b": "b", "d": u"Bravo"})
 
     def test_stored_fields2(self):
         schema = fields.Schema(content=fields.TEXT(stored=True),
@@ -181,13 +182,12 @@ class TestReading(unittest.TestCase):
         ix.close()
         
         ix = st.open_index()
-        searcher = ix.searcher()
-        doc = searcher.document(path="/main")
-        self.assertEqual([doc[k] for k in sorted(doc.keys())],
-                         ["Content of this document.", "/main",
-                          "This is the summary", "This is the title"])
+        with ix.searcher() as s:
+            doc = s.document(path="/main")
+            self.assertEqual([doc[k] for k in sorted(doc.keys())],
+                             ["Content of this document.", "/main",
+                              "This is the summary", "This is the title"])
         
-        searcher.close()
         ix.close()
         
     def test_first_id(self):

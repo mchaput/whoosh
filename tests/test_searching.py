@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 
 from whoosh import analysis, fields, formats, index, qparser, query, scoring
@@ -34,8 +35,8 @@ class TestSearching(unittest.TestCase):
     
     def _run_query(self, q, target):
         ix = self.make_index()
-        s = ix.searcher()
-        self.assertEqual(target, self._docs(q, s))
+        with ix.searcher() as s:
+            self.assertEqual(target, self._docs(q, s))
     
     def test_empty_index(self):
         schema = fields.Schema(key = fields.ID(stored=True), value = fields.TEXT)
@@ -44,10 +45,9 @@ class TestSearching(unittest.TestCase):
     
     def test_docs_method(self):
         ix = self.make_index()
-        s = ix.searcher()
-        
-        self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
-        self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
+        with ix.searcher() as s:
+            self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
+            self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
     
     def test_term(self):
         self._run_query(Term("name", u"yellow"), [u"A", u"E"])
@@ -106,21 +106,19 @@ class TestSearching(unittest.TestCase):
         writer.add_document(name=u"e", value=u"echo golf hotel india juliet")
         writer.commit()
         
-        searcher = ix.searcher()
-        p = qparser.QueryParser("value")
-        results = searcher.search(p.parse("echo NOT golf"))
-        self.assertEqual(sorted([d["name"] for d in results]), ["a", "b"])
-        
-        results = searcher.search(p.parse("echo NOT bravo"))
-        self.assertEqual(sorted([d["name"] for d in results]), ["c", "d", "e"])
-        searcher.close()
+        with ix.searcher() as s:
+            p = qparser.QueryParser("value")
+            results = s.search(p.parse("echo NOT golf"))
+            self.assertEqual(sorted([d["name"] for d in results]), ["a", "b"])
+            
+            results = s.search(p.parse("echo NOT bravo"))
+            self.assertEqual(sorted([d["name"] for d in results]), ["c", "d", "e"])
         
         ix.delete_by_term("value", u"bravo")
         
-        searcher = ix.searcher()
-        results = searcher.search(p.parse("echo NOT charlie"))
-        self.assertEqual(sorted([d["name"] for d in results]), ["d", "e"])
-        searcher.close()
+        with ix.searcher() as s:
+            results = s.search(p.parse("echo NOT charlie"))
+            self.assertEqual(sorted([d["name"] for d in results]), ["d", "e"])
     
 #    def test_or_minmatch(self):
 #        schema = fields.Schema(k=fields.STORED, v=fields.TEXT)
@@ -153,44 +151,45 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"D", content=u"delta echo foxtrot golf hotel")
         w.add_document(id=u"E", content=u"echo foxtrot golf hotel india")
         w.commit()
-        s = ix.searcher()
-        qp = qparser.QueryParser("content", schema=schema)
         
-        q = qp.parse(u"charlie [delta TO foxtrot]")
-        self.assertEqual(q.__class__, query.And)
-        self.assertEqual(q[0].__class__, query.Term)
-        self.assertEqual(q[1].__class__, query.TermRange)
-        self.assertEqual(q[1].start, "delta")
-        self.assertEqual(q[1].end, "foxtrot")
-        self.assertEqual(q[1].startexcl, False)
-        self.assertEqual(q[1].endexcl, False)
-        ids = sorted([d['id'] for d in s.search(q)])
-        self.assertEqual(ids, [u'A', u'B', u'C'])
-        
-        q = qp.parse(u"foxtrot {echo TO hotel]")
-        self.assertEqual(q.__class__, query.And)
-        self.assertEqual(q[0].__class__, query.Term)
-        self.assertEqual(q[1].__class__, query.TermRange)
-        self.assertEqual(q[1].start, "echo")
-        self.assertEqual(q[1].end, "hotel")
-        self.assertEqual(q[1].startexcl, True)
-        self.assertEqual(q[1].endexcl, False)
-        ids = sorted([d['id'] for d in s.search(q)])
-        self.assertEqual(ids, [u'B', u'C', u'D', u'E'])
-        
-        q = qp.parse(u"{bravo TO delta}")
-        self.assertEqual(q.__class__, query.TermRange)
-        self.assertEqual(q.start, "bravo")
-        self.assertEqual(q.end, "delta")
-        self.assertEqual(q.startexcl, True)
-        self.assertEqual(q.endexcl, True)
-        ids = sorted([d['id'] for d in s.search(q)])
-        self.assertEqual(ids, [u'A', u'B', u'C'])
-        
-        # Shouldn't match anything
-        q = qp.parse(u"[1 to 10]")
-        self.assertEqual(q.__class__, query.TermRange)
-        self.assertEqual(len(s.search(q)), 0)
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("content", schema=schema)
+            
+            q = qp.parse(u"charlie [delta TO foxtrot]")
+            self.assertEqual(q.__class__, query.And)
+            self.assertEqual(q[0].__class__, query.Term)
+            self.assertEqual(q[1].__class__, query.TermRange)
+            self.assertEqual(q[1].start, "delta")
+            self.assertEqual(q[1].end, "foxtrot")
+            self.assertEqual(q[1].startexcl, False)
+            self.assertEqual(q[1].endexcl, False)
+            ids = sorted([d['id'] for d in s.search(q)])
+            self.assertEqual(ids, [u'A', u'B', u'C'])
+            
+            q = qp.parse(u"foxtrot {echo TO hotel]")
+            self.assertEqual(q.__class__, query.And)
+            self.assertEqual(q[0].__class__, query.Term)
+            self.assertEqual(q[1].__class__, query.TermRange)
+            self.assertEqual(q[1].start, "echo")
+            self.assertEqual(q[1].end, "hotel")
+            self.assertEqual(q[1].startexcl, True)
+            self.assertEqual(q[1].endexcl, False)
+            ids = sorted([d['id'] for d in s.search(q)])
+            self.assertEqual(ids, [u'B', u'C', u'D', u'E'])
+            
+            q = qp.parse(u"{bravo TO delta}")
+            self.assertEqual(q.__class__, query.TermRange)
+            self.assertEqual(q.start, "bravo")
+            self.assertEqual(q.end, "delta")
+            self.assertEqual(q.startexcl, True)
+            self.assertEqual(q.endexcl, True)
+            ids = sorted([d['id'] for d in s.search(q)])
+            self.assertEqual(ids, [u'A', u'B', u'C'])
+            
+            # Shouldn't match anything
+            q = qp.parse(u"[1 to 10]")
+            self.assertEqual(q.__class__, query.TermRange)
+            self.assertEqual(len(s.search(q)), 0)
     
     def test_range_clusiveness(self):
         schema = fields.Schema(id=fields.ID(stored=True))
@@ -200,17 +199,17 @@ class TestSearching(unittest.TestCase):
         for letter in u"abcdefg":
             w.add_document(id=letter)
         w.commit()
-        s = ix.searcher()
         
-        def check(startexcl, endexcl, string):
-            q = TermRange("id", "b", "f", startexcl, endexcl)
-            r = "".join(sorted(d['id'] for d in s.search(q)))
-            self.assertEqual(r, string)
-            
-        check(False, False, "bcdef")
-        check(True, False, "cdef")
-        check(True, True, "cde")
-        check(False, True, "bcde")
+        with ix.searcher() as s:
+            def check(startexcl, endexcl, string):
+                q = TermRange("id", "b", "f", startexcl, endexcl)
+                r = "".join(sorted(d['id'] for d in s.search(q)))
+                self.assertEqual(r, string)
+                
+            check(False, False, "bcdef")
+            check(True, False, "cdef")
+            check(True, True, "cde")
+            check(False, True, "bcde")
         
     def test_open_ranges(self):
         schema = fields.Schema(id=fields.ID(stored=True))
@@ -220,22 +219,20 @@ class TestSearching(unittest.TestCase):
         for letter in u"abcdefg":
             w.add_document(id=letter)
         w.commit()
-        s = ix.searcher()
         
-        #from whoosh.qparser.old import QueryParser
-        #qp = QueryParser("id", schema=schema)
-        qp = qparser.QueryParser("id", schema=schema)
-        def check(qstring, result):
-            q = qp.parse(qstring)
-            r = "".join(sorted([d['id'] for d in s.search(q)]))
-            self.assertEqual(r, result)
-            
-        check(u"[b TO]", "bcdefg")
-        check(u"[TO e]", "abcde")
-        check(u"[b TO d]", "bcd")
-        check(u"{b TO]", "cdefg")
-        check(u"[TO e}", "abcd")
-        check(u"{b TO d}", "c")
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("id", schema=schema)
+            def check(qstring, result):
+                q = qp.parse(qstring)
+                r = "".join(sorted([d['id'] for d in s.search(q)]))
+                self.assertEqual(r, result)
+                
+            check(u"[b TO]", "bcdefg")
+            check(u"[TO e]", "abcde")
+            check(u"[b TO d]", "bcd")
+            check(u"{b TO]", "cdefg")
+            check(u"[TO e}", "abcd")
+            check(u"{b TO d}", "c")
     
     def test_negated_unlimited_ranges(self):
         # Whoosh should treat u"[to]" as if it was "*"
@@ -253,34 +250,34 @@ class TestSearching(unittest.TestCase):
             w.add_document(id=letter, num=i, date=dt + timedelta(days=i))
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("id", schema=schema)
-        
-        nq = qp.parse(u"NOT [to]")
-        self.assertEqual(nq.__class__, query.Not)
-        q = nq.query
-        self.assertEqual(q.__class__, query.Every)
-        self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
-                         domain)
-        self.assertEqual(list(nq.docs(s)), [])
-        
-        nq = qp.parse(u"NOT num:[to]")
-        self.assertEqual(nq.__class__, query.Not)
-        q = nq.query
-        self.assertEqual(q.__class__, query.NumericRange)
-        self.assertEqual(q.start, None)
-        self.assertEqual(q.end, None)
-        self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
-                         domain)
-        self.assertEqual(list(nq.docs(s)), [])
-        
-        nq = qp.parse(u"NOT date:[to]")
-        self.assertEqual(nq.__class__, query.Not)
-        q = nq.query
-        self.assertEqual(q.__class__, query.Every)
-        self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
-                         domain)
-        self.assertEqual(list(nq.docs(s)), [])
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("id", schema=schema)
+            
+            nq = qp.parse(u"NOT [to]")
+            self.assertEqual(nq.__class__, query.Not)
+            q = nq.query
+            self.assertEqual(q.__class__, query.Every)
+            self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
+                             domain)
+            self.assertEqual(list(nq.docs(s)), [])
+            
+            nq = qp.parse(u"NOT num:[to]")
+            self.assertEqual(nq.__class__, query.Not)
+            q = nq.query
+            self.assertEqual(q.__class__, query.NumericRange)
+            self.assertEqual(q.start, None)
+            self.assertEqual(q.end, None)
+            self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
+                             domain)
+            self.assertEqual(list(nq.docs(s)), [])
+            
+            nq = qp.parse(u"NOT date:[to]")
+            self.assertEqual(nq.__class__, query.Not)
+            q = nq.query
+            self.assertEqual(q.__class__, query.Every)
+            self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
+                             domain)
+            self.assertEqual(list(nq.docs(s)), [])
     
     def test_keyword_or(self):
         schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
@@ -294,13 +291,13 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         qp = qparser.QueryParser("b", schema=schema)
-        searcher = ix.searcher()
-        qr = qp.parse(u"b:ccc OR b:eee")
-        self.assertEqual(qr.__class__, Or)
-        r = searcher.search(qr)
-        self.assertEqual(len(r), 2)
-        self.assertEqual(r[0]["a"], "Third")
-        self.assertEqual(r[1]["a"], "First")
+        with ix.searcher() as s:
+            qr = qp.parse(u"b:ccc OR b:eee")
+            self.assertEqual(qr.__class__, Or)
+            r = s.search(qr)
+            self.assertEqual(len(r), 2)
+            self.assertEqual(r[0]["a"], "Third")
+            self.assertEqual(r[1]["a"], "First")
 
     def test_merged(self):
         sc = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
@@ -313,20 +310,20 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"delta", content=u"delta")
         w.commit()
         
-        s = ix.searcher()
-        r = s.search(Term("content", u"bravo"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "bravo")
+        with ix.searcher() as s:
+            r = s.search(Term("content", u"bravo"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "bravo")
         
         w = ix.writer()
         w.add_document(id=u"echo", content=u"echo")
         w.commit()
         self.assertEqual(len(ix._segments()), 1)
         
-        s = ix.searcher()
-        r = s.search(Term("content", u"bravo"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "bravo")
+        with ix.searcher() as s:
+            r = s.search(Term("content", u"bravo"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "bravo")
         
     def test_multireader(self):
         sc = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
@@ -344,10 +341,10 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"india", content=u"india")
         w.commit()
         
-        s = ix.searcher()
-        r = s.search(Term("content", u"bravo"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "bravo")
+        with ix.searcher() as s:
+            r = s.search(Term("content", u"bravo"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "bravo")
         
         w = ix.writer()
         w.add_document(id=u"juliet", content=u"juliet")
@@ -362,13 +359,14 @@ class TestSearching(unittest.TestCase):
         w.commit()
         self.assertEqual(len(ix._segments()), 2)
         
-        r = ix.reader()
-        self.assertEqual(r.__class__.__name__, "MultiReader")
-        pr = r.postings("content", u"bravo")
-        s = ix.searcher()
-        r = s.search(Term("content", u"bravo"))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "bravo")
+        #r = ix.reader()
+        #self.assertEqual(r.__class__.__name__, "MultiReader")
+        #pr = r.postings("content", u"bravo")
+        
+        with ix.searcher() as s:
+            r = s.search(Term("content", u"bravo"))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "bravo")
 
     def test_posting_phrase(self):
         schema = fields.Schema(name=fields.ID(stored=True), value=fields.TEXT)
@@ -382,36 +380,35 @@ class TestSearching(unittest.TestCase):
         writer.add_document(name=u"E", value=u"Blah blah blah pancakes")
         writer.commit()
         
-        searcher = ix.searcher()
-        
-        def names(results):
-            return sorted([fields['name'] for fields in results])
-        
-        q = Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
-        m = q.matcher(searcher)
-        self.assertEqual(m.__class__.__name__, "SpanNearMatcher")
-        
-        r = searcher.search(q)
-        self.assertEqual(names(r), ["A"])
-        self.assertEqual(len(r), 1)
-        
-        q = Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
-        self.assertEqual(names(searcher.search(q)), ["A", "D"])
-        
-        q = Phrase("value", [u"falunk", u"gibberish"])
-        r = searcher.search(q)
-        self.assertEqual(names(r), [])
-        self.assertEqual(len(r), 0)
-        
-        q = Phrase("value", [u"gibberish", u"falunk"], slop=2)
-        self.assertEqual(names(searcher.search(q)), ["D"])
-        
-        q = Phrase("value", [u"blah"] * 4)
-        self.assertEqual(names(searcher.search(q)), []) # blah blah blah blah
-        
-        q = Phrase("value", [u"blah"] * 3)
-        m = q.matcher(searcher)
-        self.assertEqual(names(searcher.search(q)), ["E"])
+        with ix.searcher() as s:
+            def names(results):
+                return sorted([fields['name'] for fields in results])
+            
+            q = Phrase("value", [u"little", u"miss", u"muffet", u"sat", u"tuffet"])
+            m = q.matcher(s)
+            self.assertEqual(m.__class__.__name__, "SpanNearMatcher")
+            
+            r = s.search(q)
+            self.assertEqual(names(r), ["A"])
+            self.assertEqual(len(r), 1)
+            
+            q = Phrase("value", [u"miss", u"muffet", u"sat", u"tuffet"])
+            self.assertEqual(names(s.search(q)), ["A", "D"])
+            
+            q = Phrase("value", [u"falunk", u"gibberish"])
+            r = s.search(q)
+            self.assertEqual(names(r), [])
+            self.assertEqual(len(r), 0)
+            
+            q = Phrase("value", [u"gibberish", u"falunk"], slop=2)
+            self.assertEqual(names(s.search(q)), ["D"])
+            
+            q = Phrase("value", [u"blah"] * 4)
+            self.assertEqual(names(s.search(q)), []) # blah blah blah blah
+            
+            q = Phrase("value", [u"blah"] * 3)
+            m = q.matcher(s)
+            self.assertEqual(names(s.search(q)), ["E"])
     
 #    def test_vector_phrase(self):
 #        ana = analysis.StandardAnalyzer()
@@ -466,15 +463,15 @@ class TestSearching(unittest.TestCase):
         writer.add_document(name=u"F", value=u"Little miss muffet little miss muffet")
         writer.commit()
         
-        searcher = ix.searcher()
-        q = Phrase("value", [u"little", u"miss", u"muffet"])
-        m = q.matcher(searcher)
-        self.assertEqual(m.id(), 0)
-        score1 = m.weight()
-        self.assertTrue(score1 > 0)
-        m.next()
-        self.assertEqual(m.id(), 3)
-        self.assertTrue(m.weight() > score1)
+        with ix.searcher() as s:
+            q = Phrase("value", [u"little", u"miss", u"muffet"])
+            m = q.matcher(s)
+            self.assertEqual(m.id(), 0)
+            score1 = m.weight()
+            self.assertTrue(score1 > 0)
+            m.next()
+            self.assertEqual(m.id(), 3)
+            self.assertTrue(m.weight() > score1)
 
     def test_stop_phrase(self):
         schema = fields.Schema(title=fields.TEXT(stored=True))
@@ -485,13 +482,13 @@ class TestSearching(unittest.TestCase):
         writer.add_document(title=u"Lily the Pink")
         writer.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("title", schema=schema)
-        q = qp.parse(u"richard of york")
-        self.assertEqual(len(s.search(q)), 1)
-        #q = qp.parse(u"lily the pink")
-        #self.assertEqual(len(s.search(q)), 1)
-        self.assertEqual(len(s.find("title", u"lily the pink")), 1)
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("title", schema=schema)
+            q = qp.parse(u"richard of york")
+            self.assertEqual(len(s.search(q)), 1)
+            #q = qp.parse(u"lily the pink")
+            #self.assertEqual(len(s.search(q)), 1)
+            self.assertEqual(len(s.find("title", u"lily the pink")), 1)
     
     def test_phrase_order(self):
         tfield = fields.TEXT(stored=True, analyzer=analysis.SimpleAnalyzer())
@@ -504,14 +501,13 @@ class TestSearching(unittest.TestCase):
             writer.add_document(text=u" ".join(ls))
         writer.commit()
         
-        searcher = ix.searcher()
-        
-        def result(q):
-            r = searcher.search(q, limit=None, sortedby=None)
-            return sorted([d['text'] for d in r])
-        
-        q = Phrase("text", ["bay", "can", "day"])
-        self.assertEqual(result(q), [u'ape bay can day', u'bay can day ape'])
+        with ix.searcher() as s:
+            def result(q):
+                r = s.search(q, limit=None, sortedby=None)
+                return sorted([d['text'] for d in r])
+            
+            q = Phrase("text", ["bay", "can", "day"])
+            self.assertEqual(result(q), [u'ape bay can day', u'bay can day ape'])
         
     def test_phrase_sameword(self):
         schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
@@ -523,10 +519,10 @@ class TestSearching(unittest.TestCase):
         writer.add_document(id=2, text=u"The model Linda Evangelista is pretty")
         writer.commit()
         
-        s = ix.searcher()
-        r = s.search(Phrase("text", ["linda", "linda", "linda"]), limit=None)
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], 1)
+        with ix.searcher() as s:
+            r = s.search(Phrase("text", ["linda", "linda", "linda"]), limit=None)
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], 1)
     
     def test_phrase_multi(self):
         schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
@@ -544,9 +540,9 @@ class TestSearching(unittest.TestCase):
         if w is not None:
             w.commit()
         
-        s = ix.searcher()
-        q = query.Phrase("text", ["alfa", "bravo"])
-        r = s.search(q)
+        with ix.searcher() as s:
+            q = query.Phrase("text", ["alfa", "bravo"])
+            r = s.search(q)
     
     def test_missing_field_scoring(self):
         schema = fields.Schema(name=fields.TEXT(stored=True),
@@ -565,17 +561,16 @@ class TestSearching(unittest.TestCase):
         writer.add_document(name=u'Jonny') 
         writer.commit()
         
-        searcher = ix.searcher()
-        r = searcher.reader()
-        self.assertEqual(len(ix._segments()), 1)
-        self.assertEqual(r.field_length("hobbies"), 2)
-        self.assertEqual(r.field_length("name"), 2)
-        
-        parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
-        q = parser.parse(u"baseball")
-        result = searcher.search(q)
-        self.assertEqual(len(result), 1)
-        searcher.close()
+        with ix.searcher() as s:
+            r = s.reader()
+            self.assertEqual(len(ix._segments()), 1)
+            self.assertEqual(r.field_length("hobbies"), 2)
+            self.assertEqual(r.field_length("name"), 2)
+            
+            parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
+            q = parser.parse(u"baseball")
+            result = s.search(q)
+            self.assertEqual(len(result), 1)
         
     def test_search_fieldname_underscores(self):
         s = fields.Schema(my_name=fields.ID(stored=True), my_value=fields.TEXT)
@@ -588,11 +583,9 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         qp = qparser.QueryParser("my_value", schema=s)
-        s = ix.searcher()
-        r = s.search(qp.parse(u"my_name:Green"))
-        self.assertEqual(r[0]['my_name'], "Green")
-        s.close()
-        ix.close()
+        with ix.searcher() as s:
+            r = s.search(qp.parse(u"my_name:Green"))
+            self.assertEqual(r[0]['my_name'], "Green")
         
     def test_short_prefix(self):
         s = fields.Schema(name=fields.ID, value=fields.TEXT)
@@ -601,83 +594,6 @@ class TestSearching(unittest.TestCase):
         self.assertEqual(q.__class__.__name__, "Prefix")
         self.assertEqual(q.text, "s")
         
-    def test_sortedby(self):
-        schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD)
-        st = RamStorage()
-        ix = st.create_index(schema)
-
-        w = ix.writer()
-        w.add_document(a=u"First", b=u"ccc ddd")
-        w.add_document(a=u"Second", b=u"aaa ddd")
-        w.add_document(a=u"Third", b=u"ccc eee")
-        w.commit()
-
-        qp = qparser.QueryParser("b", schema=schema)
-        searcher = ix.searcher()
-        qr = qp.parse(u"b:ccc")
-        self.assertEqual(qr.__class__, Term)
-        r = searcher.search(qr, sortedby='a')
-        self.assertEqual(len(r), 2)
-        self.assertEqual(r[0]["a"], "First")
-        self.assertEqual(r[1]["a"], "Third")
-    
-    def test_sort_numeric(self):
-        schema = fields.Schema(n=fields.NUMERIC, id=fields.STORED)
-        ix = RamStorage().create_index(schema)
-        
-        import random
-        domain = range(100)
-        random.shuffle(domain)
-        w = ix.writer()
-        for num in domain:
-            w.add_document(id=num, n=num)
-        w.commit()
-        
-        s = ix.searcher()
-        r = s.search(query.Every("n"), sortedby="n")
-        self.assertEqual([d["id"] for d in r], range(100))
-    
-    def test_multisort(self):
-        schema = fields.Schema(a=fields.ID(stored=True), b=fields.KEYWORD(stored=True))
-        st = RamStorage()
-        ix = st.create_index(schema)
-        
-        w = ix.writer()
-        w.add_document(a=u"bravo", b=u"romeo")
-        w.add_document(a=u"alfa", b=u"tango")
-        w.add_document(a=u"bravo", b=u"india")
-        w.add_document(a=u"alfa", b=u"juliet")
-        w.commit()
-        
-        q = Or([Term("a", u"alfa"), Term("a", u"bravo")])
-        searcher = ix.searcher()
-        r = searcher.search(q, sortedby=('a', 'b'))
-        self.assertEqual(r[0]['b'], "juliet")
-        self.assertEqual(r[1]['b'], "tango")
-        self.assertEqual(r[2]['b'], "india")
-        self.assertEqual(r[3]['b'], "romeo")
-        
-    def test_keysort(self):
-        from whoosh.util import natural_key
-        self.assertEqual(natural_key("Hi100there2"), ('hi', 100, 'there', 2))
-        schema = fields.Schema(a=fields.ID(stored=True))
-        st = RamStorage()
-        ix = st.create_index(schema)
-        
-        w = ix.writer()
-        w.add_document(a=u"b100x")
-        w.add_document(a=u"b5x")
-        w.add_document(a=u"100b5x")
-        w.commit()
-        
-#        q = Or([Term("a", u"b100x"), Term("a", u"b5x"), Term("a", u"100b5x")])
-#        searcher = ix.searcher()
-#        sorter = FieldSorter("a", key=natural_key)
-#        r = searcher.search(q, sortedby=sorter)
-#        self.assertEqual(r[0]['a'], "100b5x")
-#        self.assertEqual(r[1]['a'], "b5x")
-#        self.assertEqual(r[2]['a'], "b100x")
-    
     def test_weighting(self):
         from whoosh.scoring import Weighting, BaseScorer
         
@@ -706,10 +622,10 @@ class TestSearching(unittest.TestCase):
                     ncomments = self.stored_fields(matcher.id()).get("n_comments", 0)
                     return ncomments
         
-        s = ix.searcher(weighting=CommentWeighting())
-        r = s.search(query.TermRange("id", u"1", u"4", constantscore=False))
-        ids = [fs["id"] for fs in r]
-        self.assertEqual(ids, ["2", "4", "1", "3"])
+        with ix.searcher(weighting=CommentWeighting()) as s:
+            r = s.search(query.TermRange("id", u"1", u"4", constantscore=False))
+            ids = [fs["id"] for fs in r]
+            self.assertEqual(ids, ["2", "4", "1", "3"])
     
     def test_dismax(self):
         schema = fields.Schema(id=fields.STORED,
@@ -723,10 +639,10 @@ class TestSearching(unittest.TestCase):
                        f3 = u"alfa echo foxtrot hotel india")
         w.commit()
         
-        s = ix.searcher(weighting=scoring.Frequency())
-        qs = [Term("f1", "alfa"), Term("f2", "alfa"), Term("f3", "alfa")]
-        r = s.search(DisjunctionMax(qs))
-        self.assertEqual(r.score(0), 3.0)
+        with ix.searcher(weighting=scoring.Frequency()) as s:
+            qs = [Term("f1", "alfa"), Term("f2", "alfa"), Term("f3", "alfa")]
+            r = s.search(DisjunctionMax(qs))
+            self.assertEqual(r.score(0), 3.0)
     
     def test_deleted_wildcard(self):
         schema = fields.Schema(id=fields.ID(stored=True))
@@ -748,8 +664,9 @@ class TestSearching(unittest.TestCase):
         w.delete_by_term("id", "echo")
         w.commit()
         
-        r = ix.searcher().search(Every("id"))
-        self.assertEqual(sorted([d['id'] for d in r]), ["alfa", "charlie", "foxtrot"])
+        with ix.searcher() as s:
+            r = s.search(Every("id"))
+            self.assertEqual(sorted([d['id'] for d in r]), ["alfa", "charlie", "foxtrot"])
         
     def test_missing_wildcard(self):
         schema = fields.Schema(id=fields.ID(stored=True), f1=fields.TEXT, f2=fields.TEXT)
@@ -764,16 +681,15 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=u"5")
         w.commit()
         
-        s = ix.searcher()
-        
-        r = s.search(Every("id"))
-        self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3", "4", "5"])
-        
-        r = s.search(Every("f1"))
-        self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3"])
-        
-        r = s.search(Every("f2"))
-        self.assertEqual(sorted([d['id'] for d in r]), ["1", "3", "4"])
+        with ix.searcher() as s:
+            r = s.search(Every("id"))
+            self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3", "4", "5"])
+            
+            r = s.search(Every("f1"))
+            self.assertEqual(sorted([d['id'] for d in r]), ["1", "2", "3"])
+            
+            r = s.search(Every("f2"))
+            self.assertEqual(sorted([d['id'] for d in r]), ["1", "3", "4"])
     
     def test_finalweighting(self):
         from whoosh.scoring import Frequency
@@ -798,10 +714,10 @@ class TestSearching(unittest.TestCase):
                 ncomments = searcher.stored_fields(docnum).get("n_comments", 0)
                 return ncomments
         
-        s = ix.searcher(weighting=CommentWeighting())
-        r = s.search(qparser.QueryParser("summary").parse("alfa OR bravo"))
-        ids = [fs["id"] for fs in r]
-        self.assertEqual(["2", "4", "1", "3"], ids)
+        with ix.searcher(weighting=CommentWeighting()) as s:
+            r = s.search(qparser.QueryParser("summary").parse("alfa OR bravo"))
+            ids = [fs["id"] for fs in r]
+            self.assertEqual(["2", "4", "1", "3"], ids)
         
     def test_outofdate(self):
         schema = fields.Schema(id=fields.ID(stored=True))
@@ -826,6 +742,7 @@ class TestSearching(unittest.TestCase):
 
         s = s.refresh()
         self.assertTrue(s.up_to_date())
+        s.close()
 
     def test_find_missing(self):
         schema = fields.Schema(id=fields.ID, text=fields.KEYWORD(stored=True))
@@ -841,11 +758,11 @@ class TestSearching(unittest.TestCase):
         w.add_document(text=u"golf")
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("text", schema=schema)
-        q = qp.parse(u"NOT id:*")
-        r = s.search(q, limit=None)
-        self.assertEqual(list(h["text"] for h in r), ["charlie", "echo", "golf"])
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("text", schema=schema)
+            q = qp.parse(u"NOT id:*")
+            r = s.search(q, limit=None)
+            self.assertEqual(list(h["text"] for h in r), ["charlie", "echo", "golf"])
 
     def test_ngram_phrase(self):
         schema = fields.Schema(text=fields.NGRAM(minsize=2, maxsize=2, phrase=True), path=fields.ID(stored=True)) 
@@ -854,17 +771,17 @@ class TestSearching(unittest.TestCase):
         writer.add_document(text=u'\u9AD8\u6821\u307E\u3067\u306F\u6771\u4EAC\u3067\u3001\u5927\u5B66\u304B\u3089\u306F\u4EAC\u5927\u3067\u3059\u3002', path=u'sample') 
         writer.commit()
         
-        s = ix.searcher()
-        p = qparser.QueryParser("text", schema=schema)
-        
-        q = p.parse(u'\u6771\u4EAC\u5927\u5B66')
-        self.assertEqual(len(s.search(q)), 1)
-        
-        q = p.parse(u'"\u6771\u4EAC\u5927\u5B66"')
-        self.assertEqual(len(s.search(q)), 0)
-        
-        q = p.parse(u'"\u306F\u6771\u4EAC\u3067"')
-        self.assertEqual(len(s.search(q)), 1)
+        with ix.searcher() as s:
+            p = qparser.QueryParser("text", schema=schema)
+            
+            q = p.parse(u'\u6771\u4EAC\u5927\u5B66')
+            self.assertEqual(len(s.search(q)), 1)
+            
+            q = p.parse(u'"\u6771\u4EAC\u5927\u5B66"')
+            self.assertEqual(len(s.search(q)), 0)
+            
+            q = p.parse(u'"\u306F\u6771\u4EAC\u3067"')
+            self.assertEqual(len(s.search(q)), 1)
         
     def test_ordered(self):
         domain = u"alfa bravo charlie delta echo foxtrot".split(" ")
@@ -876,18 +793,18 @@ class TestSearching(unittest.TestCase):
             writer.add_document(f=u" ".join(ls))
         writer.commit()
         
-        s = ix.searcher()
-        q = query.Ordered([Term("f", u"alfa"), Term("f", u"charlie"), Term("f", "echo")])
-        r = s.search(q)
-        for hit in r:
-            ls = hit["f"].split()
-            self.assertTrue("alfa" in ls)
-            self.assertTrue("charlie" in ls)
-            self.assertTrue("echo" in ls)
-            a = ls.index("alfa")
-            c = ls.index("charlie")
-            e = ls.index("echo")
-            self.assertTrue(a < c and c < e, repr(ls))
+        with ix.searcher() as s:
+            q = query.Ordered([Term("f", u"alfa"), Term("f", u"charlie"), Term("f", "echo")])
+            r = s.search(q)
+            for hit in r:
+                ls = hit["f"].split()
+                self.assertTrue("alfa" in ls)
+                self.assertTrue("charlie" in ls)
+                self.assertTrue("echo" in ls)
+                a = ls.index("alfa")
+                c = ls.index("charlie")
+                e = ls.index("echo")
+                self.assertTrue(a < c and c < e, repr(ls))
 
     def test_otherwise(self):
         schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
@@ -899,15 +816,15 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=4, f=u"bravo six seven")
         w.commit()
         
-        s = ix.searcher()
-        q = query.Otherwise(query.Term("f", u"alfa"), query.Term("f", u"six"))
-        self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
-        
-        q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"four"))
-        self.assertEqual([d["id"] for d in s.search(q)], [2, 3])
-        
-        q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"nine"))
-        self.assertEqual([d["id"] for d in s.search(q)], [])
+        with ix.searcher() as s:
+            q = query.Otherwise(query.Term("f", u"alfa"), query.Term("f", u"six"))
+            self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
+            
+            q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"four"))
+            self.assertEqual([d["id"] for d in s.search(q)], [2, 3])
+            
+            q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"nine"))
+            self.assertEqual([d["id"] for d in s.search(q)], [])
 
     def test_fuzzyterm(self):
         schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
@@ -919,9 +836,9 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=4, f=u"delta echo foxtrot golf")
         w.commit()
         
-        s = ix.searcher()
-        q = query.FuzzyTerm("f", "brave")
-        self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
+        with ix.searcher() as s:
+            q = query.FuzzyTerm("f", "brave")
+            self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
         
     def test_multireader_not(self):
         schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
@@ -934,10 +851,11 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=3, f=u"delta echo foxtrot")
         w.add_document(id=4, f=u"echo foxtrot golf")
         w.commit()
-        s = ix.searcher()
-        q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
-        r = s.search(q)
-        self.assertEqual(len(r), 0, [d["id"] for d in r])
+        
+        with ix.searcher() as s:
+            q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
+            r = s.search(q)
+            self.assertEqual(len(r), 0, [d["id"] for d in r])
         
         ix = RamStorage().create_index(schema)
         w = ix.writer()
@@ -953,10 +871,11 @@ class TestSearching(unittest.TestCase):
         w.add_document(id=10, f=u"foxtrot golf delta")
         w.commit(merge=False)
         self.assertTrue(len(ix._segments()) > 1)
-        s = ix.searcher()
-        q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
-        r = s.search(q)
-        self.assertEqual(len(r), 0)
+        
+        with ix.searcher() as s:
+            q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
+            r = s.search(q)
+            self.assertEqual(len(r), 0)
         
 
 
