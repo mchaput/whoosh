@@ -384,7 +384,7 @@ class IndexReader(ClosableMixin):
                 if key not in groups: groups[key] = []
                 groups[key].append(docnum)
                 
-    def define_facets(self, name, doclists, save=True):
+    def define_facets(self, name, doclists, save=False):
         """Tells the reader to remember a set of facets under the given name.
         
         :param name: the name to use for the set of facets.
