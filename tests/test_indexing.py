@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 import os.path, random
 from shutil import rmtree
@@ -364,9 +365,8 @@ class TestIndexing(unittest.TestCase):
             w.add_document(id=choice(values), tags=u" ".join(sample(values, randint(2, 7))))
         w.commit()
         
-        s = ix.searcher()
-        s.search(query.Term("id", "bravo"))
-        s.close()
+        with ix.searcher() as s:
+            s.search(query.Term("id", "bravo"))
         ix.close()
         self.destroy_index("testindex")
             
@@ -409,16 +409,15 @@ class TestIndexing(unittest.TestCase):
 
         self.assertEqual(ix.doc_count(), 6)
         
-        s = ix.searcher()
-        
-        r = s.search(query.Prefix("content", u"d"), optimize=False)
-        self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
-        
-        r = s.search(query.Prefix("content", u"d"))
-        self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
-        
-        r = s.search(query.Prefix("content", u"d"), limit=None)
-        self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
+        with ix.searcher() as s:
+            r = s.search(query.Prefix("content", u"d"), optimize=False)
+            self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
+            
+            r = s.search(query.Prefix("content", u"d"))
+            self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
+            
+            r = s.search(query.Prefix("content", u"d"), limit=None)
+            self.assertEqual(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
         
     def test_deleteall(self):
         schema = fields.Schema(text=fields.TEXT)
@@ -436,8 +435,9 @@ class TestIndexing(unittest.TestCase):
             w.delete_document(docnum)
         w.commit()
         
-        r = ix.searcher().search(query.Or([query.Term("text", u"alfa"), query.Term("text", u"bravo")]))
-        self.assertEqual(len(r), 0)
+        with ix.searcher() as s:
+            r = s.search(query.Or([query.Term("text", u"alfa"), query.Term("text", u"bravo")]))
+            self.assertEqual(len(r), 0)
         
         ix.optimize()
         self.assertEqual(ix.doc_count_all(), 0)

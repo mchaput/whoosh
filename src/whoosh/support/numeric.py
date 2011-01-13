@@ -18,10 +18,12 @@ import struct
 from array import array
 
 
-_dstruct = struct.Struct("<d")
-_qstruct = struct.Struct("<q")
-_dpack, _dunpack = _dstruct.pack, _dstruct.unpack
+_istruct = struct.Struct(">i")
+_qstruct = struct.Struct(">q")
+_dstruct = struct.Struct(">d")
+_ipack, _iunpack = _istruct.pack, _istruct.unpack
 _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
+_dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
 _max_sortable_int = 4294967295L
 _max_sortable_long = 18446744073709551615L
@@ -105,24 +107,27 @@ def text_to_float(text, signed=True):
 def sortable_int_to_text(x, shift=0):
     if shift:
         x >>= shift
-    text = chr(shift) + u"%08x" % x
-    assert len(text) == 9
+    #text = chr(shift) + u"%08x" % x
+    text = chr(shift) + to_base85(x, False)
     return text
 
 def sortable_long_to_text(x, shift=0):
     if shift:
         x >>= shift
-    text = chr(shift) + u"%016x" % x
-    assert len(text) == 17
+    #text = chr(shift) + u"%016x" % x
+    #assert len(text) == 17
+    text = chr(shift) + to_base85(x, True)
     return text
 
 def text_to_sortable_int(text):
     #assert len(text) == 9
-    return int(text[1:], 16)
+    #return int(text[1:], 16)
+    return from_base85(text[1:])
 
 def text_to_sortable_long(text):
     #assert len(text) == 17
-    return long(text[1:], 16)
+    #return long(text[1:], 16)
+    return from_base85(text[1:])
 
 
 # Functions for generating tiered ranges
@@ -210,6 +215,35 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
 
 
 # Functions for encoding numeric values as sequences of 7-bit ascii characters
+
+# Instead of using the character set from the ascii85 algorithm, I put the
+# characters in order so that the encoded text sorts properly (my life would be
+# a lot easier if they had just done that from the start)
+_b85chars = "!$%&*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz{|}~"
+_b85dec = {}
+for i in range(len(_b85chars)):
+    _b85dec[_b85chars[i]] = i
+
+def to_base85(x, islong=False):
+    "Encodes the given integer using base 85."
+    
+    size = 10 if islong else 5
+    rems = ""
+    for i in xrange(size):
+        rems = _b85chars[x % 85] + rems
+        x //= 85
+    return rems
+
+def from_base85(text):
+    "Decodes the given base 85 text into an integer."
+
+    acc = 0
+    for c in text:
+        acc = acc * 85 + _b85dec[c]
+    return acc
+
+
+# Older, slower number-to-ascii functions
 
 def to_7bit(x, islong):
     if not islong:

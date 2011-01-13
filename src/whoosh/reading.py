@@ -18,6 +18,7 @@
 """
 
 from bisect import bisect_right
+from collections import defaultdict
 from heapq import heapify, heapreplace, heappop, nlargest
 
 from whoosh.fields import UnknownFieldError
@@ -302,7 +303,7 @@ class IndexReader(ClosableMixin):
                                  in self.iter_prefix(fieldname, prefix)))
 
     def most_distinctive_terms(self, fieldname, number=5, prefix=None):
-        """Returns the top 'number' terms with the highest ``tf*idf`` scores as
+        """Returns the top 'number' terms with the highest `tf*idf` scores as
         a list of (score, text) tuples.
         """
 
@@ -318,20 +319,65 @@ class IndexReader(ClosableMixin):
         
         return False
     
-    def sort_by(self, fieldname, docnums, reverse=False):
-        """Returns the docnums sorted according to the value of the field in
-        each document. Returns the document numbers in a new sequence.
+    #
+    
+    def sort_docs_by(self, fieldname, docnums, reverse=False):
+        """Returns a version of `docnums` sorted by the value of a field or
+        a set of fields in each document.
+        
+        :param fieldname: either the name of a field, or a tuple of field names
+            to specify a multi-level sort.
+        :param docnums: a sequence of document numbers to sort.
+        :param reverse: if True, reverses the sort direction.
         """
         
         raise NotImplementedError
     
-    def key_sort_by(self, fieldname, docnums, limit, reverse=False):
-        """Returns the first (or last, if ``reverse`` is True) "limit" number
-        (key, docnum) pairs, sorted by the value of the field in each document.
+    def key_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
+        """Returns a sequence of `(sorting_key, docnum)` pairs for the
+        document numbers in `docnum`.
+        
+        If `limit` is `None`, this method associates every document number with
+        a sorting key but does not sort them. If `limit` is not `None`, this
+        method returns a sorted list of at most `limit` pairs.
+        
+        This method is useful for sorting and faceting documents in different
+        readers, by associating the sort key with the document number.
+        
+        :param fieldname: either the name of a field, or a tuple of field names
+            to specify a multi-level sort.
+        :param docnums: a sequence of document numbers to key.
+        :param limit: if not `None`, only keys the first/last N documents.
+        :param reverse: if True, reverses the sort direction (when limit is not
+            `None`).
+        :param offset: a number to add to the docnums returned.
         """
         
         raise NotImplementedError
     
+    def group_docs_by(self, fieldname, docnums, groups, counts=False, offset=0):
+        """Returns a dictionary mapping field values to items with that value
+        in the given field(s).
+        
+        :param fieldname: either the name of a field, or a tuple of field names
+            to specify a multi-level sort.
+        :param docnums: a sequence of document numbers to group.
+        :param counts: if True, return a dictionary of doc counts, instead of
+            a dictionary of lists of docnums.
+        :param offset: a number to add to the docnums returned.
+        """
+        
+        gen = self.key_docs_by(fieldname, docnums, None, offset=offset)
+        
+        if counts:
+            for key, docnum in gen:
+                if key not in groups: groups[key] = 0
+                groups[key] += 1
+        else:
+            for key, docnum in gen:
+                if key not in groups: groups[key] = []
+                groups[key].append(docnum)
+        
 
 # Fake IndexReader class for empty indexes
 
@@ -595,12 +641,7 @@ class MultiReader(IndexReader):
     def leaf_readers(self):
         return zip(self.readers, self.doc_offsets)
 
-#    def key_sort_by_field(self, fieldname, docnums, limit, reverse=False):
-#        heap = []
-#        
-#        for r, offset in zip(self.readers, self.doc_offsets):
-            
-
+    
 
 
 

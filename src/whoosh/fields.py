@@ -79,6 +79,9 @@ class FieldType(object):
     format = vector = scorable = stored = unique = None
     indexed = True
     multitoken_query = "first"
+    sortable_type = unicode
+    sortable_typecode = None
+    
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
     
@@ -175,15 +178,21 @@ class FieldType(object):
         return None
     
     def sortable_values(self, ixreader, fieldname):
-        """Returns an iterator of field values for the given field in the given
-        reader that can be used for sorting. The default implementation simply
-        returns all field values.
+        """Returns an iterator of (term_text, sortable_value) pairs for the
+        terms in the given reader and field. The sortable values can be used
+        for sorting. The default implementation simply returns the texts of all
+        terms in the field.
+        
+        The value of the field's ``sortable_type`` attribute should contain the
+        type of the second item (the sortable value) in the pairs, e.g.
+        ``unicode`` or ``int``.
         
         This can be overridden by field types such as NUMERIC where some values
-        in a field are not useful for sorting.
+        in a field are not useful for sorting, and where the sortable values
+        can be expressed more compactly as numbers.
         """
         
-        return ixreader.lexicon(fieldname)
+        return ((text, text) for text in ixreader.lexicon(fieldname))
     
 
 class ID(FieldType):
@@ -278,12 +287,17 @@ class NUMERIC(FieldType):
         if self.type is int:
             self._to_text = int_to_text
             self._from_text = text_to_int
+            self.sortable_type = int
+            self.sortable_typecode = "i" if signed else "I"
         elif self.type is long:
             self._to_text = long_to_text
             self._from_text = text_to_long
+            self.sortable_type = long
+            self.sortable_typecode = "q" if signed else "Q"
         elif self.type is float:
-            self._to_text =  float_to_text
+            self._to_text = float_to_text
             self._from_text = text_to_float
+            self.sortable_typecode = "f"
         elif self.type is Decimal:
             raise TypeError("To store Decimal instances, set type to int or "
                             "float and use the decimal_places argument")
@@ -372,11 +386,15 @@ class NUMERIC(FieldType):
                                   boost=boost)
     
     def sortable_values(self, ixreader, fieldname):
-        # Only return the full-precision values
-        for value in ixreader.lexicon(fieldname):
-            if value[0] != "\x00": break
-            yield value
-    
+        from_text = self._from_text
+        
+        for text in ixreader.lexicon(fieldname):
+            if text[0] != "\x00":
+                # Only yield the full-precision values
+                break
+            
+            yield (text, from_text(text))
+
 
 class DATETIME(NUMERIC):
     """Special field type that lets you index datetime objects. The field

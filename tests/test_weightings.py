@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 import inspect
 from random import choice, randint
@@ -40,14 +41,14 @@ class TestWeightings(unittest.TestCase):
                     weighting = wclass()
             except TypeError, e:
                 raise TypeError("Error instantiating %r: %s" % (wclass, e))
-            searcher = ix.searcher(weighting=weighting)
             
-            try:
-                for word in domain:
-                    searcher.search(query.Term("text", word))
-            except Exception, e:
-                e.msg = "Error searching with %r: %s" % (wclass, e)
-                raise
+            with ix.searcher(weighting=weighting) as s:
+                try:
+                    for word in domain:
+                        s.search(query.Term("text", word))
+                except Exception, e:
+                    e.msg = "Error searching with %r: %s" % (wclass, e)
+                    raise
     
     def test_compatibility(self):
         from whoosh.scoring import Weighting

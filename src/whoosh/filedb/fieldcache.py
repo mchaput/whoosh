@@ -14,99 +14,42 @@
 # limitations under the License.
 #===============================================================================
 
-import operator
 from array import array
 from collections import defaultdict
-from heapq import nsmallest, nlargest, heappush, heapreplace
+from heapq import heappush, heapreplace
 from struct import Struct
 
-from whoosh.support.times import long_to_datetime
-from whoosh.system import _INT_SIZE, unpack_int, unpack_float, unpack_long
+from whoosh.system import _INT_SIZE
 from whoosh.util import utf8encode
 
 
-GZIP_CACHES = False
-
-
-class CacheSet(object):
-    """Manages a set of FieldCache objects.
-    """
-    
-    def __init__(self, storage, basename):
-        self.storage = storage
-        self.basename = basename
-        self.caches = {}
-    
-    def _put(self, key, obj):
-        self.caches[key] = obj
-    
-    def fieldcache_filename(self, fieldname):
-        return "%s.%s.fc" % (self.basename, fieldname)
-    
-    def cache_file_exists(self, fieldname):
-        storage = self.storage
-        filename = self.fieldcache_filename(fieldname)
-        gzname = filename + ".gz"
-        return storage.file_exists(filename) or storage.file_exists(gzname)
-    
-    def create_cache(self, reader, fieldname, save=True, name=None,
-                     default=None):
-        savename = name if name else fieldname
-        if name in reader.schema:
-            raise Exception("Custom name %r is the name of a field")
-        
-        cache = FieldCache.from_reader(reader, fieldname, default=default)
-        
-        if save:
-            filename = self.fieldcache_filename(savename)
-            if GZIP_CACHES:
-                filename += ".gz"
-            
-            f = self.storage.create_file(filename, gzip=GZIP_CACHES)
-            cache.to_file(f)
-            f.close()
-        
-        return cache
-    
-    def load_cache(self, fieldname):
-        storage = self.storage
-        filename = self.fieldcache_filename(fieldname)
-        gzipped = False
-        
-        # It's possible to load GZip'd caches but for it's MUCH slower,
-        # especially for large caches
-        gzname = filename + ".gz"
-        if storage.file_exists(gzname) and not storage.file_exists(filename):
-            filename = gzname
-            gzipped = True
-        
-        f = storage.open_file(filename, mapped=False, gzip=gzipped)
-        cache = FieldCache.from_file(f)
-        f.close()
-        return cache
-    
-    def get_cache(self, reader, fieldname, save=True):
-        if fieldname in self.caches:
-            return self.caches[fieldname]
-        elif self.cache_file_exists(fieldname):
-            fc = self.load_cache(fieldname)
-        else:
-            fc = self.create_cache(reader, fieldname, save=save)
-        self._put(fieldname, fc)
-        return fc
-    
-    def is_cached(self, fieldname):
-        return fieldname in self.caches or self.cache_file_exists(fieldname)
-    
-    def is_loaded(self, fieldname):
-        return fieldname in self.caches
-
-
 pack_int_le = Struct("<i").pack
-def unipickle(u):
+def pickled_unicode(u):
     # Returns the unicode string as a pickle protocol 2 operator
     return "X%s%s" % (pack_int_le(len(u)), utf8encode(u)[0])
 
+# Python does not support arrays of long long see Issue 1172711
+# These functions help write/read a simulated an array of q/Q using lists
+def write_qsafe_array(typecode, arry, dbfile):
+    if typecode == "q":
+        for num in arry:
+            dbfile.write_long(num)
+    elif typecode == "Q":
+        for num in arry:
+            dbfile.write_ulong(num)
+    else:
+        dbfile.write_array(arry)
+        
+def read_qsafe_array(typecode, size, dbfile):
+    if typecode == "q":
+        arry = [dbfile.read_long() for _ in xrange(size)]
+    elif typecode == "Q":
+        arry = [dbfile.read_ulong() for _ in xrange(size)]
+    else:
+        arry = dbfile.read_array(typecode, size)
+    
+    return arry
+        
 
 class FieldCache(object):
     """Keeps a list of the sorted text values of a field and an array of ints
@@ -117,31 +60,31 @@ class FieldCache(object):
     each document with a value through the array.
     """
     
-    code = "I"
-    hastexts = True
-    default = u""
-    
-    def __init__(self, order=None, texts=None, default=None):
+    def __init__(self, order=None, texts=None, hastexts=True, default=u"",
+                 typecode="I"):
         """
         :param order: an array of ints.
         :param texts: a list of text values.
         :param default: the value to use for documents without the field.
         """
         
-        if default is None:
-            default = self.default
-        
         self.order = order or array(self.code)
-        self.texts = texts or [default]
-        self.maxord = len(self.texts) - 1
+        self.hastexts = hastexts
+        self.texts = None
+        if hastexts:
+            self.texts = texts or [default]
+        self.typecode = typecode
     
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
+                and self.hastexts == other.hastexts
                 and self.order == other.order
                 and self.texts == other.texts)
     
+    # Class constructor for building a field cache from a reader
+    
     @classmethod
-    def from_reader(cls, ixreader, fieldname, default=None):
+    def from_reader(cls, ixreader, fieldname, default=u""):
         """Creates an in-memory field cache from a reader.
         
         >>> r = ix.reader()
@@ -155,17 +98,38 @@ class FieldCache(object):
         :param default: the value to use for documents without the field.
         """
         
-        if default is None:
-            default = cls.default
-        
-        order = array(cls.code, [0] * ixreader.doc_count_all())
         field = ixreader.schema[fieldname]
-        texts = list(field.sortable_values(ixreader, fieldname))
-        for i, text in enumerate(texts):
+        hastexts = field.sortable_typecode in (None, "unicode")
+        
+        texts = None
+        if hastexts:
+            typecode = "I"
+            texts = [default]
+        else:
+            typecode = field.sortable_typecode
+        
+        doccount = ixreader.doc_count_all()
+        # Python does not support arrays of long long see Issue 1172711
+        if typecode.lower() == "q":
+            order = [0] * doccount
+        else:
+            order = array(typecode, [0] * doccount)
+        
+        enum = enumerate(field.sortable_values(ixreader, fieldname))
+        for i, (text, sortable) in enum:
+            if hastexts:
+                texts.append(sortable)
+            
             ps = ixreader.postings(fieldname, text)
             for id in ps.all_ids():
-                order[id] = i + 1
-        return cls(order, [default] + texts)
+                if hastexts:
+                    order[id] = i + 1
+                else:
+                    order[id] = sortable
+        
+        return cls(order, texts, hastexts=hastexts, typecode=typecode)
+    
+    # Class constructor for loading a field cache from a file
     
     @classmethod
     def from_file(cls, dbfile):
@@ -176,19 +140,17 @@ class FieldCache(object):
         """
         
         # Read the number of documents
-        doc_count = dbfile.read_uint()
+        doccount = dbfile.read_uint()
+        textcount = dbfile.read_uint()
         
-        if cls.hastexts:
-            # Seek past the number of texts
-            dbfile.seek(_INT_SIZE, 1)
+        texts = None
+        if textcount:
             # Read the texts
             texts = dbfile.read_pickle()
         
-        # Read the order array
-        code = dbfile.read(1)
-        order = dbfile.read_array(code, doc_count)
-        
-        return cls(order, texts)
+        typecode = dbfile.read(1)
+        order = read_qsafe_array(typecode, doccount, dbfile)
+        return cls(order, texts, typecode=typecode, hastexts=bool(texts))
     
     def to_file(self, dbfile):
         """Saves an in-memory field cache to a file.
@@ -200,42 +162,45 @@ class FieldCache(object):
         dbfile.write_uint(len(self.order)) # Number of documents
         
         if self.hastexts:
-            write = dbfile.write
             dbfile.write_uint(len(self.texts)) # Number of texts
-            write("(") # Pickle mark
-            for text in self.texts:
-                write(unipickle(text))
-            write("l.")
+            dbfile.write_pickle(self.texts)
         
-            code = "I"
             # Compact the order array if possible
             if len(self.texts) < 255:
-                code = "B"
+                newcode = "B"
             elif len(self.texts) < 65535:
-                code = "H"
+                newcode = "H"
             
-            if code != "I":
-                self.order = array(code, self.order)
+            if newcode != self.order.typecode:
+                self.order = array(newcode, self.order)
+                self.typecode = newcode
+        else:
+            dbfile.write_uint(0) # No texts
         
-        # Write the order array
-        dbfile.write(code)
-        dbfile.write_array(self.order)
+        dbfile.write(self.typecode)
+        write_qsafe_array(self.typecode, self.order, dbfile)
         dbfile.flush()
+    
+    # Field cache operations
     
     def key_for(self, docnum):
         """Returns the key corresponding to a document number.
         """
         
-        return self.texts[self.order[docnum]]
-    
-    def reverse_key_for(self, docnum):
-        return self.texts[self.maxord - self.order[docnum]]
+        o = self.order[docnum]
+        if self.hastexts:
+            return self.texts[o]
+        else:
+            return o
     
     def keys(self):
         """Returns a list of all key values in the cache.
         """
         
-        return self.texts
+        if self.hastexts:
+            return self.texts
+        else:
+            return sorted(set(self.order))
     
     def ords(self):
         """Yields a series of (docnum, order) pairs.
@@ -308,58 +273,30 @@ class FieldCache(object):
         return sorted(maxes.keys())
 
 
-class NumericFieldCache(FieldCache):
-    hastexts = False
-    default = 0
-    
-    def key_for(self, docnum):
-        return self.order[docnum]
-    
-    def reverse_key_for(self, docnum):
-        return 0 - self.order[docnum]
-    
-    def keys(self):
-        return sorted(set(self.order))
-    
-class IntFieldCache(NumericFieldCache):
-    code = "i"
-    unpack = unpack_int
-class FloatFieldCache(NumericFieldCache):
-    code = "f"
-    unpack = unpack_float
-class LongFieldCache(NumericFieldCache):
-    code = "q"
-    unpack = unpack_long
-class DateTimeFieldCache(LongFieldCache):
-    unpack = long_to_datetime
+# Streaming cache file writer
 
 class FieldCacheWriter(object):
-    code = "I"
-    default = u""
-    
-    def __init__(self, dbfile, size=0, hastexts=True, default=None):
-        if default is None:
-            default = self.default
-        
+    def __init__(self, dbfile, size=0, hastexts=True, code="I", default=u""):
         self.dbfile = dbfile
         self.order = array(self.code, [0] * size)
         self.hastexts = hastexts
+        self.code = code
         
         self.key = 0
         self.keycount = 1
         
         self.start = dbfile.tell()
         dbfile.write_uint(0) # Number of docs
+        dbfile.write_uint(0) # Number of texts
         
         if self.hastexts:
-            dbfile.write_uint(0) # Number of texts
             # Start the pickled list of texts
-            dbfile.write("(" + unipickle(default))
+            dbfile.write("(" + pickled_unicode(default))
     
     def add_key(self, value):
         if self.hastexts:
             self.key += 1
-            self.dbfile.write(unipickle(value))
+            self.dbfile.write(pickled_unicode(value))
         else:
             self.key = value
         self.keycount += 1
@@ -400,67 +337,5 @@ class FieldCacheWriter(object):
         
         dbfile.close()
     
-
-
-if __name__ == "__main__":
-    import random
-    
-    from whoosh import index
-    from whoosh.filedb.structfile import StructFile
-    from whoosh.util import now
-    
-    
-    ix = index.open_dir("e:/workspace/whoosh/benchmark/dictionary_index_whoosh")
-    s = ix.searcher()
-    r = s.reader()
-    
-    print r
-    for sr in r.readers:
-        print sr.segment
-    
-#    t = now()
-#    fc = FieldCache.from_reader(r, "head")
-#    print "make field cache", now() - t
-    
-#    t = now()
-#    f = StructFile(open("e:/workspace/whoosh/bmark/combined.fc", "wb"))
-#    fc.to_file(f)
-#    print "tofile", now() - t
-    
-#    t = now()
-#    for sr in r.readers:
-#        f = StructFile(open("e:/workspace/whoosh/bmark/perseg_%s.fc" % (id(sr)), "wb"))
-#        fc = FieldCache.from_reader(sr, "body")
-#        fc.to_file(f)
-#    print now() - t
-    
-#    t = now()
-#    f = StructFile(open("e:/workspace/whoosh/bmark/combined_w.fc", "wb"))
-#    fcw = FieldCacheWriter(f)
-#    for w in ix.schema["head"].sortable_values(r, "head"):
-#        fcw.add_key(w)
-#        p = r.postings("head", w)
-#        for docnum in p.all_ids():
-#            fcw.add_doc(docnum)
-#    fcw.close()
-#    print "writer", now() - t
-    
-#    t = now()
-#    f = StructFile(open("e:/workspace/whoosh/bmark/combined.fc", "rb"))
-#    rfc = FieldCache.from_file(f)
-#    print now() - t
-#    
-#    f = StructFile(open("e:/workspace/whoosh/bmark/combined_w.fc", "rb"))
-#    rfc2 = FieldCache.from_file(f)
-#    
-#    print fc == rfc, fc == rfc2
-#    
-#    t = now()
-#    print rfc.key_sort(xrange(1000), 10)
-#    print now() - t
-    
-    
-
-
 
 

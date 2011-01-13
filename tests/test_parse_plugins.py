@@ -1,5 +1,5 @@
+from __future__ import with_statement
 import unittest
-
 import inspect
 from datetime import datetime
 
@@ -143,10 +143,10 @@ class TestParserPlugins(unittest.TestCase):
         writer.add_document(test=None)
         writer.commit()
         
-        searcher = ix.searcher()
-        q = query.DateRange("test", datetime.fromtimestamp(0), datetime.today())
-        r = searcher.search(q)
-        self.assertEqual(len(r), 0)
+        with ix.searcher() as s:
+            q = query.DateRange("test", datetime.fromtimestamp(0), datetime.today())
+            r = s.search(q)
+            self.assertEqual(len(r), 0)
     
     def test_free_dates(self):
         a = analysis.StandardAnalyzer(stoplist=None)
@@ -215,18 +215,18 @@ class TestParserPlugins(unittest.TestCase):
         w.add_document(id=u"3", text=u"buono")
         w.commit()
         
-        s = ix.searcher()
-        qp = qparser.QueryParser("text", schema=schema)
-        qp.remove_plugin_class(qparser.WildcardPlugin)
-        qp.add_plugin(qparser.PrefixPlugin)
-        
-        q = qp.parse(u"b*")
-        r = s.search(q, limit=None)
-        self.assertEqual(len(r), 2)
-        
-        q = qp.parse(u"br*")
-        r = s.search(q, limit=None)
-        self.assertEqual(len(r), 1)
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("text", schema=schema)
+            qp.remove_plugin_class(qparser.WildcardPlugin)
+            qp.add_plugin(qparser.PrefixPlugin)
+            
+            q = qp.parse(u"b*")
+            r = s.search(q, limit=None)
+            self.assertEqual(len(r), 2)
+            
+            q = qp.parse(u"br*")
+            r = s.search(q, limit=None)
+            self.assertEqual(len(r), 1)
         
     def test_custom_tokens(self):
         qp = qparser.QueryParser("text")

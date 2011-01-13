@@ -21,7 +21,7 @@
 from __future__ import division
 import copy
 from collections import defaultdict
-from heapq import heappush, heapreplace
+from heapq import nlargest, nsmallest, heappush, heapreplace
 from math import ceil
 
 from whoosh import classify, query, scoring
@@ -330,34 +330,77 @@ class Searcher(object):
 
     def sort_query(self, q, sortedby, limit=None, reverse=False):
         t = now()
-        docset = None
+        docset = set()
+        
+        
         if self.subsearchers:
             heap = []
+            
+            # I wish I could actually do a heap thing here, but the Python heap
+            # queue only works with greater-than, and I haven't thought of a
+            # smart way to get around that yet, so I'm being dumb and using
+            # nlargest/nsmallest on the heap + each subreader list :(
+            op = nlargest if reverse else nsmallest
+            
             for s, offset in self.subsearchers:
+                # This searcher is wrapping a MultiReader, so push the sorting
+                # down to the leaf readers and then combine the results.
                 docnums = list(q.docs(s))
+                
+                # Add the docnums to the docset
+                docset.update(docnums)
+                
+                # Ask the reader to return a list of (key, docnum) pairs to
+                # sort by. If limit=None, the returned list is not sorted. If
+                # limit=True, it is sorted.
                 r = s.reader()
-                srt = r.key_sort_docs_by(sortedby, docnums, limit,
-                                         reverse=reverse, offset=offset)
+                srt = r.key_docs_by(sortedby, docnums, limit, reverse=reverse,
+                                    offset=offset)
                 if limit:
-                    for key, docnum in srt:
-                        if len(heap) < limit or key > heap[0][0]:
-                            heapreplace(heap, (key, docnum))
+                    # Pick the "limit" smallest/largest items from the current
+                    # and new list
+                    heap = op(limit, heap + srt)
                 else:
+                    # If limit=None, we'll just add everything to the "heap"
+                    # and sort it at the end.
                     heap.extend(srt)
-            top_n = [(None, docnum) for _, docnum in sorted(heap)]
+            
+            # Sort the heap and add a None in the place of a score
+            top_n = [(None, docnum) for _, docnum in sorted(heap, reverse=reverse)]
             
         else:
+            # This searcher is wrapping an atomic reader, so we don't need to
+            # get tricky combining the results of multiple readers, just ask
+            # the reader to sort the results.
             r = self.reader()
             top_n = [(None, docnum) for docnum
                      in r.sort_docs_by(sortedby, q.docs(self), reverse=reverse)]
+            
+            # I artificially enforce the limit here, even thought the current
+            # implementation can't use it, so that the results don't change
+            # based on single- vs- multi-segment.
+            top_n = top_n[:limit]
         
-        if not limit:
+            # Create the docset from top_n
             docset = set(docnum for _, docnum in top_n)
+            
         runtime = now() - t
         
         return Results(self, q, top_n, docset, runtime=runtime)
-        
-    def search(self, q, limit=10, sortedby=None, reverse=False,
+    
+    def categorize_query(self, q, fieldname, counts=False):
+        groups = {}
+        if self.subsearchers:
+            for s, offset in self.subsearchers:
+                r = s.reader()
+                r.group_docs_by(fieldname, q.docs(s), groups, counts=counts,
+                                offset=offset)
+        else:
+            self.ixreader.group_docs_by(fieldname, q.docs(self), groups,
+                                        counts=counts)
+        return groups
+    
+    def search(self, q, limit=10, sortedby=None, reverse=False, groups=None,
                optimize=True, leafs=True):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
@@ -441,7 +484,7 @@ class Collector(object):
                 if s > items[0][0]:
                     heapreplace(items, (s, id, quality))
                     self.minquality = items[0][2]
-            
+    
     def add_matches_no_limit(self, searcher, matcher, offset=0):
         items = self._items
         docset = self.docset
@@ -942,239 +985,5 @@ class ResultsPage(object):
         """
         
         return self.pagecount == 0 or self.pagenum == self.pagecount
-
-
-class Facets(object):
-    """This object lets you categorize a Results object based on a set of
-    non-overlapping "facets" defined by queries.
-    
-    (It is not an error if the facets overlap; each document will simply be
-    sorted into one category arbitrarily.)
-    
-    For the common case of using the terms in a certain field as the facets,
-    you can create a Facets object and set up the facets with the ``from_field``
-    class method::
-    
-        # Automatically gets the values of the field and sets them up as the
-        # facets
-        facets = Facets.from_field(searcher, "size")
-    
-    The initializer takes keyword arguments in the form ``facetname=query``,
-    for example::
-    
-        from whoosh import query
-        
-        facets = Facets(searcher,
-                        small=query.Term("size", u"small"),
-                        medium=query.Term("size", u"medium"),
-                        large=query.Or([query.Term("size", u"large"),
-                                        query.Term("size", u"xlarge")]))
-    
-    ...or you can use the ``add_facet()`` method::
-    
-        facets = Facets(searcher)
-        facets.add_facet("small", query.Term("size", u"small"))
-    
-    Note that the fields used in the queries must of course be indexed. Also
-    note that the queries can be complex (for example, you might use range
-    queries to create price categories on a numeric field). If you want to show
-    multiple facet lists in your results (for exmaple, "price" and "size"),
-    you must instantiate multiple Facets objects.
-    
-    Once you have a Facets object, you can use the
-    :func:`~whoosh.searching.Facets.categorize` and
-    :func:`~whoosh.searching.Facets.counts` methods to apply the facets to a
-    set of search results.
-    
-    If you want the list of documents in the ``categorize`` dictionary to be
-    in scored order, you should create the ``Results`` by calling ``search``
-    with ``limit=None`` to turn off optimizations so all documents are scored::
-    
-        # Normally, the searcher uses a bunch of optimizations to avoid working
-        # having to look at every search result. However, since we want to know
-        # how many documents appeared in each facet, we have to look at every
-        # matching document, so use limit=None
-        facets = searcher.facets_from_field("chapter")
-        myresults = searcher.search(myquery, limit=None)
-        cats = facets.categorize(myresults)
-    
-    The ``categorize()`` method returns a dictionary mapping facet names to
-    lists of (docnum, score) pairs. The scores are included in case you want
-    to, for example, calculate which facet has the highest aggregate score.
-    
-    For example, if you have a content management system where the documents
-    have a "chapter" field, and you want to display results to the user sorted
-    by chapter::
-    
-        searcher = myindex.searcher()
-        facets = Facets.from_field(searcher, "chapter")
-        
-        results = searcher.search(myquery, limit=None)
-        print "Query matched %s documents" % len(results)
-        
-        cats = facets.categorize(results)
-        for facetname, facetlist in cats:
-            print "%s matching documents in the %s chapter" % (len(facetlist), facetname)
-            for docnum, score in facetlist:
-                print "-", searcher.stored_fields(docnum).get("title")
-            print
-            
-    """
-    
-    def __init__(self, searcher, **queries):
-        """You can supply keyword arguments in the form facetname=queryobject.
-        For example::
-    
-            from whoosh import query
-            
-            facets = Facets(small=query.Term("size", u"small"),
-                            medium=query.Term("size", u"medium"),
-                            large=query.Or([query.Term("size", u"large"),
-                                            query.Term("size", u"xlarge")]))
-                                            
-        Note that for the common case where facets correspond to the values of
-        an indexed field, it is easier to use the ``from_field()`` class
-        method::
-        
-            facets = Facets().from_field(searcher, fieldname)
-        """
-        
-        self.searcher = searcher
-        self.queries = queries.items()
-        self.map = None
-    
-    def add_facet(self, name, q):
-        """Adds a facet to the object.
-        
-        :param name: the name of the facet. This is used as a key in the
-            dictionary returned by ``categorize()``.
-        :param q: a :class:`query.Query` object. Documents matching this query
-            will be considered a member of this facet.
-        """
-        
-        self.queries.append((name, q))
-        self.map = None
-    
-    def remove_facet(self, name):
-        self.queries = [(n, q) for n, q in self.queries if n != name]
-        self.map = None
-    
-    @classmethod
-    def from_field(cls, searcher, fieldname):
-        """Sets the facets in the object based on the terms in the given
-        field::
-        
-            searcher = myindex.searcher()
-            facets = Facets.from_field(searcher, "chapter")
-        
-        :param searcher: a :class:`Searcher` object.
-        :param fieldname: the name of the field to use to create the facets.
-        """
-        
-        fs = cls(searcher)
-        fs.queries = [(token, query.Term(fieldname, token))
-                        for token in searcher.lexicon(fieldname)]
-        fs._study()
-        return fs
-    
-    def facets(self):
-        """Returns a list of (facetname, queryobject) pairs for the facets in
-        this object.
-        """
-        
-        return self.queries
-    
-    def names(self):
-        """Returns a list of the names of the facets in this object.
-        """
-        
-        return [name for name, q in self.queries]
-    
-    def _study(self):
-        # Sets up the data structures that associate documents in the index
-        # with facets.
-        
-        searcher = self.searcher
-        facetmap = {}
-        for i, (name, q) in enumerate(self.queries):
-            for docnum in q.docs(searcher):
-                facetmap[docnum] = i
-        self.map = facetmap
-    
-    def counts(self, results):
-        """Returns a dictionary mapping facet names to the number of hits in
-        'results' in the facet. The results object does NOT need to have been
-        created with the ``limit=None`` keyword argument to ``search()`` for
-        this method to work.
-        """
-        
-        if self.map is None:
-            self._study()
-        
-        d = defaultdict(int)
-        names = self.names()
-        facetmap = self.map
-        
-        for docnum in results.docs():
-            index = facetmap.get(docnum)
-            if index is None:
-                name = None
-            else:
-                name = names[index]
-            
-            d[name] += 1
-        
-        return dict(d)
-    
-    def categorize(self, results):
-        """Sorts the results based on the facets. Returns a dictionary mapping
-        facet names to lists of (docnum, score) pairs. The scores are included
-        in case you want to, for example, calculate which facet has the highest
-        aggregate score.
-        
-        If you want the list of documents in the ``categorize`` dictionary to
-        be in scored order, you should create the ``Results`` by calling
-        ``search`` with ``limit=None`` to turn off optimizations so all
-        documents are scored.
-        
-        >>> myfacets = Facets.from_field(mysearcher, "chapter")
-        >>> results = mysearcher.search(myquery, limit=None)
-        >>> print myfacets.categorize(results)
-        
-        Note that if there are documents in the results that don't correspond
-        to any of the facets in this object, the dictionary will list them
-        under the None key.
-        
-        >>> cats = myfacets.categorize(results)
-        >>> print cats[None]
-        
-        You can use the ``Searcher.stored_fields(docnum)`` method to get the
-        stored fields corresponding to a document number.
-        
-        :param results: a :class:`Results` object.
-        """
-        
-        if self.map is None:
-            self._study()
-        
-        d = defaultdict(list)
-        names = self.names()
-        facetmap = self.map
-        
-        for score, docnum in results.top_n:
-            index = facetmap.get(docnum)
-            if index is None:
-                name = None
-            else:
-                name = names[index]
-            d[name].append((docnum, score))
-        
-        return dict(d)
-
-
-
-
-
-
 
 

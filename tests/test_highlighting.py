@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 
 from whoosh import analysis, highlight, fields, qparser
@@ -70,39 +71,38 @@ class TestHighlighting(unittest.TestCase):
         w.add_document(id=u"5", title=u"The woman who disappeared")
         w.commit()
         
-        s = ix.searcher()
-        
-        # Parse the user query
-        parser = qparser.QueryParser("title", schema=ix.schema)
-        q = parser.parse(u"man")
-        
-        # Extract the terms the user used in the field we're interested in
-        terms = [text for fieldname, text in q.all_terms()
-                 if fieldname == "title"]
-        
-        # Perform the search
-        r = s.search(q)
-        self.assertEqual(len(r), 2)
-        
-        # Use the same analyzer as the field uses. To be sure, you can
-        # do schema[fieldname].format.analyzer. Be careful not to do this
-        # on non-text field types such as DATETIME.
-        analyzer = schema["title"].format.analyzer
-        
-        # Since we want to highlight the full title, not extract fragments,
-        # we'll use NullFragmenter.
-        nf = highlight.NullFragmenter
-        
-        # In this example we'll simply uppercase the matched terms
-        fmt = highlight.UppercaseFormatter()
-        
-        outputs = []
-        for d in r:
-            text = d["title"]
-            outputs.append(highlight.highlight(text, terms, analyzer, nf, fmt))
-        
-        self.assertEqual(outputs, ["The invisible MAN",
-                                   "The MAN who wasn't there"])
+        with ix.searcher() as s:
+            # Parse the user query
+            parser = qparser.QueryParser("title", schema=ix.schema)
+            q = parser.parse(u"man")
+            
+            # Extract the terms the user used in the field we're interested in
+            terms = [text for fieldname, text in q.all_terms()
+                     if fieldname == "title"]
+            
+            # Perform the search
+            r = s.search(q)
+            self.assertEqual(len(r), 2)
+            
+            # Use the same analyzer as the field uses. To be sure, you can
+            # do schema[fieldname].format.analyzer. Be careful not to do this
+            # on non-text field types such as DATETIME.
+            analyzer = schema["title"].format.analyzer
+            
+            # Since we want to highlight the full title, not extract fragments,
+            # we'll use NullFragmenter.
+            nf = highlight.NullFragmenter
+            
+            # In this example we'll simply uppercase the matched terms
+            fmt = highlight.UppercaseFormatter()
+            
+            outputs = []
+            for d in r:
+                text = d["title"]
+                outputs.append(highlight.highlight(text, terms, analyzer, nf, fmt))
+            
+            self.assertEqual(outputs, ["The invisible MAN",
+                                       "The MAN who wasn't there"])
         
 
 

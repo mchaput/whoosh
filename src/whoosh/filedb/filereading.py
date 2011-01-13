@@ -15,10 +15,10 @@
 #===============================================================================
 
 from bisect import bisect_left
-from heapq import nlargest
+from heapq import nlargest, nsmallest
 from threading import Lock
 
-from whoosh.filedb.fieldcache import CacheSet
+from whoosh.filedb.fieldcache import FieldCache
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
@@ -30,6 +30,8 @@ from whoosh.util import protected
 # Reader class
 
 class SegmentReader(IndexReader):
+    GZIP_CACHES = False
+    
     def __init__(self, storage, schema, segment):
         self.storage = storage
         self.schema = schema
@@ -66,7 +68,7 @@ class SegmentReader(IndexReader):
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
         
-        self.caches = CacheSet(self.storage, self.segment.name)
+        self.caches = {}
         
         self.is_closed = False
         self._sync_lock = Lock()
@@ -195,7 +197,7 @@ class SegmentReader(IndexReader):
         # instead of loading the field values from disk
         if self.fieldcache_loaded(fieldname):
             fieldcache = self.fieldcache(fieldname)
-            return fieldcache.texts
+            return iter(fieldcache.texts)
         
         return self.expand_prefix(fieldname, '')
 
@@ -279,23 +281,112 @@ class SegmentReader(IndexReader):
         self._open_vectors()
         offset = self.vectorindex.get((docnum, fieldname))
         if offset is None:
-            raise Exception("No vector found"
-                            " for document %s field %r" % (docnum, fieldname))
+            raise Exception("No vector found for document"
+                            " %s field %r" % (docnum, fieldname))
         
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
+    # Field cache methods
+
+    def _fieldcache_filename(self, fieldname):
+        return "%s.%s.fc" % (self.segment.name, fieldname)
+
+    def _put_fieldcache(self, name, fieldcache):
+        self.caches[name] = fieldcache
+
+    def _load_fieldcache(self, fieldname):
+        storage = self.storage
+        filename = self._fieldcache_filename(fieldname)
+        gzipped = False
+        
+        # It's possible to load GZip'd caches but for it's MUCH slower,
+        # especially for large caches
+        gzname = filename + ".gz"
+        if storage.file_exists(gzname) and not storage.file_exists(filename):
+            filename = gzname
+            gzipped = True
+        
+        f = storage.open_file(filename, mapped=False, gzip=gzipped)
+        cache = FieldCache.from_file(f)
+        f.close()
+        return cache
+
+    def _cachefile_exists(self, fieldname):
+        storage = self.storage
+        filename = self._fieldcache_filename(fieldname)
+        gzname = filename + ".gz"
+        return storage.file_exists(filename) or storage.file_exists(gzname)
+
+    def _create_fieldcache(self, fieldname, save=True, name=None, default=u''):
+        if name in self.schema:
+            raise Exception("Custom name %r is the name of a field")
+        savename = name if name else fieldname
+        
+        if self.fieldcache_available(savename):
+            # Don't recreate the cache if it already exists
+            return None
+        
+        cache = FieldCache.from_reader(self, fieldname, default=default)
+        
+        if save:
+            filename = self._fieldcache_filename(savename)
+            if self.GZIP_CACHES:
+                filename += ".gz"
+            f = self.storage.create_file(filename, gzip=self.GZIP_CACHES)
+            cache.to_file(f)
+            f.close()
+            
+        return cache
+
     def fieldcache(self, fieldname, save=True):
-        return self.caches.get_cache(self, fieldname, save=save)
+        """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
+        the given field.
+        
+        :param fieldname: the name of the field to get a cache for.
+        :param save: if True (the default), the cache is saved to disk if it
+            doesn't already exist.
+        """
+        
+        if fieldname in self.caches:
+            return self.caches[fieldname]
+        elif self._cachefile_exists(fieldname):
+            fc = self._load_fieldcache(fieldname)
+        else:
+            fc = self._create_fieldcache(fieldname, save=save)
+        self._put_fieldcache(fieldname, fc)
+        return fc
     
     def fieldcache_available(self, fieldname):
-        return self.caches.is_cached(fieldname)
+        """Returns True if a field cache exists for the given field (either in
+        memory already or on disk).
+        """
+        
+        return fieldname in self.caches or self._cachefile_exists(fieldname)
     
     def fieldcache_loaded(self, fieldname):
-        return self.caches.is_loaded(fieldname)
+        """Returns True if a field cache for the given field is in memory.
+        """
+        
+        return fieldname in self.caches
 
-    def fieldcache_create(self, fieldname, save=True, name=None, default=u''):
-        self.caches.create_cache(self, fieldname, save=save, name=name,
-                                 default=default)
+    def unload_fieldcache(self, name):
+        try:
+            del self.caches[name]
+        except:
+            pass
+
+    # Sorting and faceting methods
+    
+    def _get_keyfn(self, fieldname):
+        if isinstance(fieldname, (tuple, list)):
+            # The "fieldname" is actually a sequence of field names to sort by
+            fcs = [self.fieldcache(fn) for fn in fieldname]
+            keyfn = lambda docnum: tuple(fc.key_for(docnum) for fc in fcs)
+        else:
+            fc = self.fieldcache(fieldname)
+            keyfn = fc.key_for
+            
+        return keyfn
     
     def sort_docs_by(self, fieldname, docnums, reverse=False):
         if isinstance(fieldname, (tuple, list)):
@@ -308,43 +399,24 @@ class SegmentReader(IndexReader):
         
         return sorted(docnums, key=keyfn, reverse=reverse)
     
-    def key_sort_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
-        
-        # We have to invert the keys to use nlargest (which is more efficient
-        # than nsmallest), so if reverse is True we use key_for and if reverse
-        # is False we use reverse_key_for
-        
-        if isinstance(fieldname, (tuple, list)):
-            # The "fieldname" is actually a sequence of field names to sort by
-            fcs = [self.fieldcache(fn) for fn in fieldname]
-            
-            if reverse:
-                keyfn = lambda docnum: tuple(fc.key_for(docnum) for fc in fcs)
-            else:
-                keyfn = lambda docnum: tuple(fc.reverse_key_for(docnum)
-                                             for fc in fcs)
-        else:
-            fc = self.fieldcache(fieldname)
-            if reverse:
-                keyfn = fc.key_for
-            else:
-                keyfn = fc.reverse_key_for
+    def key_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
+        keyfn = self._get_keyfn(fieldname)
         
         if limit is None:
-            return sorted([(keyfn(docnum), docnum + offset)
-                           for docnum in docnums])
+            # Don't bother sorting, the caller will do that
+            return [(keyfn(docnum), docnum + offset) for docnum in docnums]
         else:
-            return nlargest(limit, ((keyfn(docnum), docnum + offset)
-                                    for docnum in docnums))
+            # A non-reversed sort (the usual case) is inefficient because we
+            # have to use nsmallest, but I can't think of a cleverer thing to
+            # do right now. I thought I had an idea, but I was wrong.
+            op = nlargest if reverse else nsmallest
+            
+            return op(limit, ((keyfn(docnum), docnum + offset)
+                              for docnum in docnums))
+
+            
         
-#    def group_docs_by(self, fieldname, docnums, counts=False):
-#        fieldcache = self.caches.get_cache(self, fieldname)
-#        return fieldcache.groups(docnums, counts=counts)
-#    
-#    def group_scored_docs_by(self, fieldname, scores_and_docnums, limit=None):
-#        fieldcache = self.caches.get_cache(self, fieldname)
-#        return fieldcache.groups(scores_and_docnums, limit=limit)
-#    
+
 #    def collapse_docs_by(self, fieldname, scores_and_docnums):
 #        fieldcache = self.caches.get_cache(self, fieldname)
 #        return fieldcache.collapse(scores_and_docnums)

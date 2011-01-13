@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 from random import randint, choice, sample
 
@@ -241,15 +242,14 @@ class TestMatchers(unittest.TestCase):
         w.add_document(key=u"e", value=u"delta bravo india bravo")
         w.commit()
         
-        searcher = ix.searcher()
-        
-        q = And([Term("value", u"bravo"), Term("value", u"delta")])
-        m = q.matcher(searcher)
-        self.assertEqual(self._keys(searcher, m.all_ids()), ["a", "e"])
-        
-        q = And([Term("value", u"bravo"), Term("value", u"alpha")])
-        m = q.matcher(searcher)
-        self.assertEqual(self._keys(searcher, m.all_ids()), ["a", "b", "d"])
+        with ix.searcher() as s:
+            q = And([Term("value", u"bravo"), Term("value", u"delta")])
+            m = q.matcher(s)
+            self.assertEqual(self._keys(s, m.all_ids()), ["a", "e"])
+            
+            q = And([Term("value", u"bravo"), Term("value", u"alpha")])
+            m = q.matcher(s)
+            self.assertEqual(self._keys(s, m.all_ids()), ["a", "b", "d"])
         
     def test_random_intersections(self):
         domain = [u"alpha", u"bravo", u"charlie", u"delta", u"echo",
@@ -284,41 +284,41 @@ class TestMatchers(unittest.TestCase):
         testcount = 20
         testlimits = (2, 5)
         
-        searcher = ix.searcher()
-        for i in xrange(searcher.doc_count_all()):
-            self.assertNotEqual(searcher.stored_fields(i).get("key"), None)
-        
-        for _ in xrange(testcount):
-            # Create a random list of words and manually do an intersection of
-            # items in "documents" that contain the words ("target").
-            words = sample(domain, randint(*testlimits))
-            target = []
-            for docnum, doc in documents:
-                if all((doc.find(w) > -1) for w in words):
-                    target.append(docnum)
-            target.sort()
+        with ix.searcher() as s:
+            for i in xrange(s.doc_count_all()):
+                self.assertNotEqual(s.stored_fields(i).get("key"), None)
             
-            # Create a query from the list of words and get two matchers from
-            # it.
-            q = And([Term("value", w) for w in words])
-            m1 = q.matcher(searcher)
-            m2 = q.matcher(searcher)
-            
-            # Try getting the list of IDs from all_ids()
-            ids1 = list(m1.all_ids())
-            
-            # Try getting the list of IDs using id()/next()
-            ids2 = []
-            while m2.is_active():
-                ids2.append(m2.id())
-                m2.next()
-            
-            # Check that the two methods return the same list
-            self.assertEqual(ids1, ids2)
-            
-            # Check that the IDs match the ones we manually calculated
-            keys = self._keys(searcher, ids1)
-            self.assertEqual(keys, target)
+            for _ in xrange(testcount):
+                # Create a random list of words and manually do an intersection of
+                # items in "documents" that contain the words ("target").
+                words = sample(domain, randint(*testlimits))
+                target = []
+                for docnum, doc in documents:
+                    if all((doc.find(w) > -1) for w in words):
+                        target.append(docnum)
+                target.sort()
+                
+                # Create a query from the list of words and get two matchers from
+                # it.
+                q = And([Term("value", w) for w in words])
+                m1 = q.matcher(s)
+                m2 = q.matcher(s)
+                
+                # Try getting the list of IDs from all_ids()
+                ids1 = list(m1.all_ids())
+                
+                # Try getting the list of IDs using id()/next()
+                ids2 = []
+                while m2.is_active():
+                    ids2.append(m2.id())
+                    m2.next()
+                
+                # Check that the two methods return the same list
+                self.assertEqual(ids1, ids2)
+                
+                # Check that the IDs match the ones we manually calculated
+                keys = self._keys(s, ids1)
+                self.assertEqual(keys, target)
 
     def test_union(self):
         s1 = ListMatcher([1, 2, 3, 4, 5, 6, 7, 8])

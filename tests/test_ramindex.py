@@ -1,3 +1,4 @@
+from __future__ import with_statement
 import unittest
 
 import os.path
@@ -41,25 +42,25 @@ class TestRamIndex(unittest.TestCase):
     
     def test_indexing(self):
         ix = self.make_index()
-        s = ix.searcher()
-        q = query.Term("text", "format")
-        r = s.search(q)
-        self.assertEqual(len(r), 2)
-        self.assertEqual(r[0]["id"], "format")
-        self.assertEqual(r[0]["subs"], 100)
-        self.assertEqual(r[1]["id"], "vector")
-        self.assertEqual(r[1]["subs"], 23)
+        with ix.searcher() as s:
+            q = query.Term("text", "format")
+            r = s.search(q)
+            self.assertEqual(len(r), 2)
+            self.assertEqual(r[0]["id"], "format")
+            self.assertEqual(r[0]["subs"], 100)
+            self.assertEqual(r[1]["id"], "vector")
+            self.assertEqual(r[1]["subs"], 23)
 
     def test_deleting(self):
         ix = self.make_index()
         ix.delete_by_term("id", u"vector")
         
-        s = ix.searcher()
-        q = query.Term("text", "format")
-        r = s.search(q)
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0]["id"], "format")
-        self.assertEqual(r[0]["subs"], 100)
+        with ix.searcher() as s:
+            q = query.Term("text", "format")
+            r = s.search(q)
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0]["id"], "format")
+            self.assertEqual(r[0]["subs"], 100)
         
     def test_optimize(self):
         ix = self.make_index()
