@@ -118,8 +118,8 @@ class TestSorting(unittest.TestCase):
         ix = self.make_single_index()
         with ix.searcher() as s:
             q = query.Every("id")
-            groups = s.categorize(q, "tag")
-            self.assertEqual(sorted(groups.items()), {})
+            groups = s.categorize_query(q, "tag")
+            self.assertEqual(sorted(groups.items()), [(u'one', [0L, 6L]), (u'three', [1L, 3L, 7L, 8L]), (u'two', [2L, 4L, 5L])])
         
 
 
