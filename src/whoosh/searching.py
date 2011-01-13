@@ -332,7 +332,6 @@ class Searcher(object):
         t = now()
         docset = set()
         
-        
         if self.subsearchers:
             heap = []
             
@@ -388,6 +387,18 @@ class Searcher(object):
         
         return Results(self, q, top_n, docset, runtime=runtime)
     
+    def define_facets(self, name, qs, save=True):
+        def doclists_for_searcher(s):
+            return dict((key, q.docs(s)) for key, q in qs.iteritems())
+        
+        if self.subsearchers:
+            for s in self.subsearchers:
+                dls = doclists_for_searcher(s)
+                s.reader().define_facets(name, dls, save=save)
+        else:
+            dls = doclists_for_searcher(self)
+            self.ixreader.define_facets(name, dls, save=save)
+    
     def categorize_query(self, q, fieldname, counts=False):
         groups = {}
         if self.subsearchers:
@@ -400,7 +411,7 @@ class Searcher(object):
                                         counts=counts)
         return groups
     
-    def search(self, q, limit=10, sortedby=None, reverse=False, groups=None,
+    def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
                optimize=True, leafs=True):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
@@ -423,8 +434,12 @@ class Searcher(object):
         if sortedby is not None:
             return self.sort_query(q, sortedby, limit=limit, reverse=reverse)
         
+        if isinstance(groupedby, basestring):
+            groupedby = (groupedby, )
+        
         t = now()
-        col = Collector(self.weighting, limit, usequality=optimize)
+        col = Collector(self.weighting, limit=limit, usequality=optimize,
+                        groupedby=groupedby)
         
         if self.subsearchers and leafs:
             for s, offset in self.subsearchers:
@@ -434,17 +449,26 @@ class Searcher(object):
         runtime = now() - t
         
         docset = col.docset or None
-        return Results(self, q, col.items(), docset, runtime=runtime)
+        return Results(self, q, col.items(), docset, groups=col.groups,
+                       runtime=runtime)
 
 
 class Collector(object):
-    def __init__(self, weighting, limit=10, usequality=True, replace=10):
+    def __init__(self, weighting, limit=10, usequality=True, replace=10,
+                 groupedby=None):
         self.weighting = weighting
         self.limit = limit
         self.usequality = usequality
         self.replace = replace
         
+        self.groupnames = groupedby
+        self.groups = {}
+        if self.groupnames:
+            for name in self.groupnames:
+                self.groups[name] = defaultdict(list)
+        
         self._items = []
+        self._groups = {}
         self.docset = set()
         self.done = False
         self.minquality = None
@@ -457,7 +481,7 @@ class Collector(object):
     
     def add_matches(self, searcher, matcher, offset=0):
         limit = self.limit
-        if not limit:
+        if not limit or self.groupnames:
             return self.add_matches_no_limit(searcher, matcher, offset=offset)
         
         items = self._items
@@ -492,11 +516,23 @@ class Collector(object):
         score = self.score
         replacecounter = 0
         
+        keyfns = None
+        if self.groupnames:
+            keyfns = {}
+            for name in self.groupnames:
+                keyfns[name] = searcher.reader().key_fn(name)
+        
         while matcher.is_active():
             id = matcher.id()
-            id += offset
-            items.append((score(searcher, matcher), id))
-            docset.add(id)
+            offsetid = id + offset
+            
+            if keyfns:
+                for name, keyfn in keyfns.iteritems():
+                    key = keyfn(id)
+                    self.groups[name][key].append(id)
+            
+            items.append((score(searcher, matcher), offsetid))
+            docset.add(offsetid)
             
             matcher.next()
             
@@ -565,7 +601,7 @@ class Results(object):
     that position in the results.
     """
 
-    def __init__(self, searcher, q, top_n, docset, runtime=-1):
+    def __init__(self, searcher, q, top_n, docset, groups=None, runtime=-1):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -581,6 +617,7 @@ class Results(object):
         self.q = q
         self.top_n = top_n
         self.docset = docset
+        self._groups = groups or {}
         self.runtime = runtime
 
     def __repr__(self):
@@ -614,20 +651,33 @@ class Results(object):
         
         return self.searcher.stored_fields(self.top_n[n][1])
     
+    def groups(self, name):
+        """If you generating groupings for the results by using the `groups`
+        keyword to the `search()` method, you can use this method to retrieve
+        the groups.
+        
+        >>> results = searcher.search(my_query, groups=["tag"])
+        >>> results.groups("tag")
+        
+        Returns a dictionary mapping category names to lists of document IDs.
+        """
+        
+        return self._groups[name]
+    
     def __getitem__(self, n):
         if isinstance(n, slice):
             start, stop, step = n.indices(len(self))
-            return [Hit(self.searcher, i, self.top_n[i][1], self.top_n[i][0])
+            return [Hit(self.searcher, self.top_n[i][1], i, self.top_n[i][0])
                     for i in xrange(start, stop, step)]
         else:
-            return Hit(self.searcher, n, self.top_n[n][1], self.top_n[n][0])
+            return Hit(self.searcher, self.top_n[n][1], n, self.top_n[n][0])
 
     def __iter__(self):
         """Yields the stored fields of each result document in ranked order.
         """
         
         for i in xrange(len(self.top_n)):
-            yield Hit(self.searcher, i, self.top_n[i][1], self.top_n[i][0])
+            yield Hit(self.searcher, self.top_n[i][1], i, self.top_n[i][0])
     
     def __contains__(self, docnum):
         """Returns True if the given document number matched the query.
@@ -831,7 +881,7 @@ class Hit(object):
     ["title"]
     """
     
-    def __init__(self, searcher, pos, docnum, score):
+    def __init__(self, searcher, docnum, pos=None, score=None):
         """
         :param results: the Results object this hit belongs to.
         :param pos: the position in the results list of this hit, for example
@@ -985,5 +1035,6 @@ class ResultsPage(object):
         """
         
         return self.pagecount == 0 or self.pagenum == self.pagecount
+
 
 

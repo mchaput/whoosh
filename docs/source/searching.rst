@@ -107,24 +107,14 @@ To sort by the contents of the "path" field::
     
 To sort by the contents of the "date" field, and within that the "id" field::
 
-    results = s.search(myquery, sortedby=("path", "date"))
+    results = s.search(myquery, sortedby=["path", "date"])
     
 To reverse the sort order::
 
     results = s.search(myquery, sortedby="path", reverse=True)
 
-Custom sorters
---------------
-
-If you require more complex sorting you can implement a custom
-:class:`whoosh.scoring.Sorter` object and pass it to the `sortedby` keyword
-argument::
-
-    results = s.search(myquery, sortedby=mysorter())
-    
-A sorting object is an object with an :meth:`~whoosh.scoring.Sorter.order`
-method, which takes a searcher and an unsorted list of document numbers, and
-returns a sorted list of document numbers.
+Sorting relies on field caches. See :doc:`fieldcaches` for information about
+field caches.
 
 
 Convenience functions

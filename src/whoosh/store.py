@@ -23,6 +23,8 @@ class Storage(object):
     """Abstract base class for storage objects.
     """
     
+    readonly = False
+    
     def create_index(self, schema, indexname=None):
         raise NotImplementedError
     

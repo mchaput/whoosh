@@ -1,6 +1,8 @@
 from __future__ import with_statement
 import unittest
 
+import random
+
 from whoosh import index, fields, query
 from whoosh.filedb.filestore import RamStorage
 
@@ -114,13 +116,76 @@ class TestSorting(unittest.TestCase):
         self.try_sort("num", lambda d: d["num"], limit=5)
         self.try_sort("frac", lambda d: d["frac"])
 
-    def test_facets(self):
-        ix = self.make_single_index()
-        with ix.searcher() as s:
-            q = query.Every("id")
-            groups = s.categorize_query(q, "tag")
-            self.assertEqual(sorted(groups.items()), [(u'one', [0L, 6L]), (u'three', [1L, 3L, 7L, 8L]), (u'two', [2L, 4L, 5L])])
+    def test_field_facets(self):
+        def check(ix):
+            with ix.searcher() as s:
+                q = query.Every()
+                groups = s.categorize_query(q, "tag")
+                self.assertEqual(sorted(groups.items()), [(u'one', [0L, 6L]),
+                                                          (u'three', [1L, 3L, 7L, 8L]),
+                                                          (u'two', [2L, 4L, 5L])])
         
+        check(self.make_single_index())
+        check(self.make_multi_index())
+    
+    def test_query_facets(self):
+        schema = fields.Schema(value=fields.ID(stored=True))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        alphabet = list(u"abcdefghijklmnopqrstuvwxyz")
+        random.shuffle(alphabet)
+        
+        for letter in alphabet:
+            w.add_document(value=letter)
+        w.commit()
+        
+        with ix.searcher() as s:
+            q1 = query.TermRange("value", u"a", u"i")
+            q2 = query.TermRange("value", u"j", u"r")
+            q3 = query.TermRange("value", u"s", u"z")
+            s.define_facets("range", {"a-i": q1, "j-r": q2, "s-z": q3},
+                            save=False)
+            
+            def check(groups):
+                for key in groups.keys():
+                    groups[key] = "".join(sorted([s.stored_fields(id)["value"]
+                                                  for id in groups[key]]))
+                self.assertEqual(groups, {'a-i': u'abcdefghi',
+                                          'j-r': u'jklmnopqr',
+                                          's-z': u'stuvwxyz'})
+            
+            check(s.categorize_query(query.Every(), "range"))
+
+            r = s.search(query.Every(), groupedby="range")
+            check(r.groups("range"))
+            
+        with ix.searcher() as s:
+            self.assertFalse(s.reader().fieldcache_available("range"))
+
+    def test_multifacet(self):
+        schema = fields.Schema(tag=fields.ID(stored=True),
+                               size=fields.ID(stored=True))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(tag=u"alfa", size=u"small")
+        w.add_document(tag=u"bravo", size=u"medium")
+        w.add_document(tag=u"alfa", size=u"large")
+        w.add_document(tag=u"bravo", size=u"small")
+        w.add_document(tag=u"alfa", size=u"medium")
+        w.add_document(tag=u"bravo", size=u"medium")
+        w.commit()
+        
+        correct = {(u'bravo', u'medium'): [1, 5], (u'alfa', u'large'): [2],
+                   (u'alfa', u'medium'): [4], (u'alfa', u'small'): [0],
+                   (u'bravo', u'small'): [3]}
+        
+        with ix.searcher() as s:
+            cats = s.categorize_query(query.Every(), ("tag", "size"))
+            self.assertEqual(cats, correct)
+            
+            r = s.search(query.Every(), groupedby=[("tag", "size")])
+            cats = r.groups(("tag", "size"))
+            self.assertEqual(cats, correct)
 
 
 if __name__ == '__main__':
