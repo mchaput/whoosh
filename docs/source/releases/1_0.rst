@@ -2,12 +2,53 @@
 Whoosh 1.x release notes
 ========================
 
-Whoosh 1.0 is a major milestone release with vastly improved performance and
-several useful new features.
+Whoosh 1.5
+==========
 
-*The index format of this version is not compatibile with indexes created by
-previous versions of Whoosh*. You will need to reindex your data to use this
-version.
+.. note::
+    Whoosh 1.5 is incompatible with previous indexes. You must recreate
+    existing indexes with Whoosh 1.5.
+
+Fixed a bug where postings were not portable across different endian platforms.
+
+New generalized field cache system, using per-reader caches, for much faster
+sorting and faceting of search results, as well as much faster multi-term (e.g.
+prefix and wildcard) and range queries, especially for large indexes and/or
+indexes with multiple segments.
+
+Changed the faceting API. See :doc:`../facets`.
+
+Faster storage and retrieval of posting values.
+
+Added per-field ``multitoken_query`` attribute to control how the query parser
+deals with a "term" that when analyzed generates multiple tokens. The default
+value is `"first"` which throws away all but the first token (the previous
+behavior). Other possible values are `"and"`, `"or"`, or `"phrase"`.
+
+Added :class:`whoosh.analysis.DoubleMetaphoneFilter`,
+:class:`whoosh.analysis.SubstitutionFilter`, and
+:class:`whoosh.analysis.ShingleFilter`.
+
+Added :class:`whoosh.qparser.CopyFieldPlugin`.
+
+Added :class:`whoosh.query.Otherwise`.
+
+Generalized parsing of operators (such as OR, AND, NOT, etc.) in the query
+parser to make it easier to add new operators. In intend to add a better API
+for this in a future release.
+
+Switched NUMERIC and DATETIME fields to use more compact on-disk
+representations of numbers.
+
+Fixed a bug in the porter2 stemmer when stemming the string `"y"`.
+
+Added methods to :class:`whoosh.searching.Hit` to make it more like a `dict`.
+
+Short posting lists (by default, single postings) are inline in the term file
+instead of written to the posting file for faster retrieval and a small saving
+in disk space.
+
+Miscellaneous bug fixes.
 
 
 Whoosh 1.3
@@ -24,8 +65,15 @@ Whoosh 1.2 adds tiered indexing for NUMERIC fields, resulting in much faster
 range queries on numeric fields.
 
 
-New features
-============
+Whoosh 1.0
+==========
+
+Whoosh 1.0 is a major milestone release with vastly improved performance and
+several useful new features.
+
+*The index format of this version is not compatibile with indexes created by
+previous versions of Whoosh*. You will need to reindex your data to use this
+version.
 
 Orders of magnitude faster searches for common terms. Whoosh now uses
 optimizations similar to those in Xapian to skip reading low-scoring postings.
