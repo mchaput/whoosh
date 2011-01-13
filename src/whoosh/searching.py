@@ -26,7 +26,6 @@ from math import ceil
 
 from whoosh import classify, query, scoring
 from whoosh.matching import NullMatcher
-from whoosh.scoring import Sorter
 from whoosh.util import now
 
 
