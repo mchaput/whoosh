@@ -2,6 +2,8 @@
 How to present faceted search results
 =====================================
 
+.. note::
+    The API for sorting and faceting changed in Whoosh 1.5.
 
 Overview
 ========
@@ -32,98 +34,32 @@ types of found documents, and let the user click to see more results from a
 category they're interested in, similarly to how the Spotlight quick results
 work on Mac OS X.
 
-You should use a separate ``Facets`` object for each different type of
-categorization. For example, in the shopping example, "manufacturer" and
-"price" would be two separate ``Facets`` objects.
+.. tip::
+    Whoosh currently only supports **non-overlapping** categories. A document
+    cannot belong to facets at the same time. (It is not an error if the facets
+    overlap; each document will simply be sorted into one category arbitrarily.)
+
+Faceting relies on field caches. See :doc:`fieldcaches` for information about
+field caches.
 
 
-Setting up categories
-=====================
+Categorizing search results by field
+====================================
 
-The :class:`whoosh.searching.Facets` object lets you categorize search results
-based on custom criteria::
+When you use the :meth:`Searcher.search` method, add the `groups` keyword
+argument to specify how to categorize the results::
 
-    from whoosh import index
-    from whoosh.searching import Facets
+    # Group by the value of the "tag" field
+    results = searcher.search(my_query, groupedby=["tag"])
     
-    ix = index.open_dir("myindex")
-    searcher = ix.searcher()
+    # Retrieve the groups from the results object
+    groups = results.groups("tag")
 
-Categorizing based on the value of an indexed field
----------------------------------------------------
+The ``groups()`` method simply returns a dictionary mapping category names
+to lists of **document IDs**. The document IDs will be in their relative
+order from the original results.
 
-The most common way to break down results is by the value of an indexed field,
-usually an ``ID`` field, such as ``manufacturer``. The ``Facets.from_field()``
-method sets up the facets based on the terms in a field automatically::
-
-    manuf_facets = Facets.from_field(searcher, "manufacturer")
-
-Categorizing based on custom queries
-------------------------------------
-
-If you need more complex categories, you can set up categories defined by
-queries. For example, you can create price categories using range queries::
-
-    # Assuming "price" is a NUMERIC field, we'll need to convert
-    # numeric values to text before we can search for them, using
-    # the field's to_text() method
-    tt = searcher.schema["price"].to_text
-
-    price_facets = Facets(searcher)
-    price_facets.add_facet("$0 - $100",
-                           query.Range("price", tt(0), tt(100)))
-    price_facets.add_facet("$101 - $500",
-                           query.Range("price", tt(101), tt(500)))
-    price_facets.add_facet("$501 - $1000",
-                           query.Range("price", tt(501), tt(1000)))
-    price_facets.add_facet("$1001+",
-                           query.Range("price", tt(1001), None))
-
-Note that the facets object currently only supports **non-overlapping**
-categories. A document cannot belong to two categories in the same Facets
-object. It is not an error if the facets overlap; each document will simply be
-sorted into one category arbitrarily.
-
-If it's convenient, you can also instantiate a Facets object with keyword
-arguments mapping names to queries::
-
-    my_facets = Facets(searcher,
-                       small=Or([Term("size", "s"), Term("size", "xs")]),
-                       medium=Term("size", "m"),
-                       large=Or([Term("size", "l"), Term("size", "xl")]))
-
-
-Categorizing search results
-===========================
-
-First, get the search results.
-
-(Normally, the searcher uses a bunch of optimizations to avoid working having
-to look at every search result. However, if you want to preserve the scored
-order of documents in each category, Whoosh needs to score every matching
-document, so use ``limit=None``. If you only want to use ``counts()`` or don't
-care about the relative order of documents within categories, you don't need
-to use ``limit=None``)::
-
-    results = searcher.search(my_query, limit=None)
-
-Now you can use your Facets object(s) to sort the results into categories::
-
-    categories = my_facets.categorize(results)
-
-The ``categorize()`` method simply returns a dictionary mapping category names to
-lists of **document numbers** and **scores**. The document numbers will be in
-their relative order from the original results.
-
->>> print categories
-{"small": [(5, 2.0), (1, 1.8), (4, 1.5), (8, 1.3), (2, 0.8)],
- "medium": [(3, 2.5), (0, 1.32), (6, 0.28)],
- "large": [(9, 2.3), (7, 1.4)]}
-
-(If there were documents in the results that didn't match any of the categories
-in the ``Facets`` object, they will be grouped under a ``None`` key. If you
-didn't score all documents by using ``limit=None``, the score will be None for
-all documents.)
+    {"small": [5, 1, 4, 8, 2], "medium": [3, 0, 6], "large": [9, 7]}
 
 The last thing you need to know is how to translate document numbers into
 something you can display. The ``Searcher`` object's ``stored_fields()``
@@ -140,4 +76,69 @@ dictionary::
 
 You can use the categories dictionary and ``stored_fields()`` to display the
 categories and results any way you want in your application.
+
+
+Getting multiple categorizations of results
+===========================================
+
+To generate multiple groupings, you can name multiple fields in the list you
+pass to the `groups` keyword::
+
+    # Generate separate groupings for the "tag" and "size" fields
+    results = searcher.search(my_query, groupedby=["tag", "size"])
+    
+    # Get the groupings by "tag"
+    tag_groups = results.groups("tag")
+    
+    # Get the groupings by "size"
+    size_groups = results.groups("size")
+
+
+Categorizing by multiple fields
+===============================
+
+To group results by the *combined values of multiple fields*, use a tuple of
+field names instead of a field name. For example, if you have two fields named
+``tag`` and ``size``, you could group the results by all combinations of the
+``tag`` and ``size`` field, such as ``('tag1', 'small')``,
+``('tag2', 'small')``, ``('tag1', 'medium')``, and so on::
+
+    # Generate a grouping from the combination of the "tag" and "size" fields
+    results = searcher.search(my_query, groupedby=[("tag", "size")])
+    
+    groups = results.groups(("tag", "size"))
+
+
+Categorizing based on custom queries
+====================================
+
+If you need more complex categories, you can set up categories defined by
+queries. For example, you can create price categories using range queries::
+
+    # Use queries to define each category
+    # (Here I'll assume "price" is a NUMERIC field, so I'll use
+    # NumericRange)
+    categories = {}
+    category["$0 - $100"] = query.NumericRange("price", 0, 100)
+    category["$101 - $500"] = query.NumericRange("price", 101, 500)
+    category["$501 - $1000"] = query.NumericRange("price", 501, 1000)
+    
+    # Define the facets on the searcher. If save=True, the cached
+    # facets will be saved to disk for future use. Use save=False to
+    # avoid this for one-off queries.
+    searcher.define_facets("pricerange", categories, save=False)
+
+Now you can use ``pricerange`` as if it was the name of a field for the
+purposes of grouping and sorting::
+
+    r = searcher.search(my_query, groupedby=["princerange"])
+
+
+
+
+
+
+
+
+
 

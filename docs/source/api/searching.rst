@@ -21,8 +21,4 @@ Results class
 	:members:
 
 
-Facets
-======
-
-.. autoclass:: Facets
 

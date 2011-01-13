@@ -24,13 +24,17 @@ from whoosh.support.filelock import FileLock
 from whoosh.filedb.structfile import StructFile
 
 
+class ReadOnlyError(Exception): pass
+
+
 class FileStorage(Storage):
     """Storage object that stores the index as files in a directory on disk.
     """
 
-    def __init__(self, path, mapped=True):
+    def __init__(self, path, mapped=True, readonly=False):
         self.folder = path
         self.mapped = mapped
+        self.readonly = readonly
         self.locks = {}
 
         if not os.path.exists(path):
@@ -40,6 +44,9 @@ class FileStorage(Storage):
         return iter(self.list())
 
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
+        if self.readonly:
+            raise ReadOnlyError
+        
         from whoosh.filedb.fileindex import _create_index, FileIndex
         _create_index(self, schema, indexname)
         return FileIndex(self, schema, indexname)
@@ -49,6 +56,9 @@ class FileStorage(Storage):
         return FileIndex(self, schema=schema, indexname=indexname)
 
     def create_file(self, name, **kwargs):
+        if self.readonly:
+            raise ReadOnlyError
+        
         f = StructFile(open(self._fpath(name), "wb"), name=name,
                        mapped=self.mapped, **kwargs)
         return f

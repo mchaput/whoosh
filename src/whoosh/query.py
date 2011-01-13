@@ -1336,7 +1336,7 @@ class Every(Query):
     with an empty prefix or a '*' wildcard.
     """
 
-    def __init__(self, fieldname, boost=1.0):
+    def __init__(self, fieldname=None, boost=1.0):
         self.fieldname = fieldname
         self.boost = boost
 
@@ -1363,7 +1363,9 @@ class Every(Query):
         fieldname = self.fieldname
         reader = searcher.reader()
         
-        if hasattr(reader, "caches") and reader.fieldcache_available(self.fieldname):
+        if fieldname in (None, "", "*"):
+            doclist = list(searcher.reader().all_doc_ids())
+        elif reader.supports_caches() and reader.fieldcache_available(self.fieldname):
             # If the reader has a field cache, use it to quickly get the list
             # of documents that have a value for this field
             fc = reader.fieldcache(self.fieldname)

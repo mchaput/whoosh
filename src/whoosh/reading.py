@@ -321,6 +321,12 @@ class IndexReader(ClosableMixin):
     
     #
     
+    def supports_caches(self):
+        """Returns True if this reader supports the field cache protocol.
+        """
+        
+        return False
+    
     def sort_docs_by(self, fieldname, docnums, reverse=False):
         """Returns a version of `docnums` sorted by the value of a field or
         a set of fields in each document.
@@ -377,6 +383,19 @@ class IndexReader(ClosableMixin):
             for key, docnum in gen:
                 if key not in groups: groups[key] = []
                 groups[key].append(docnum)
+                
+    def define_facets(self, name, doclists, save=True):
+        """Tells the reader to remember a set of facets under the given name.
+        
+        :param name: the name to use for the set of facets.
+        :param doclists: a dictionary mapping facet names to lists of document
+            IDs.
+        :param save: whether to save caches (if any) to some form of permanent
+            storage (i.e. disk) if possible. This keyword may be used or
+            ignored in the backend.
+        """
+        
+        raise NotImplementedError
         
 
 # Fake IndexReader class for empty indexes

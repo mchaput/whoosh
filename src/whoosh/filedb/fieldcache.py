@@ -84,11 +84,11 @@ class FieldCache(object):
     # Class constructor for building a field cache from a reader
     
     @classmethod
-    def from_reader(cls, ixreader, fieldname, default=u""):
+    def from_field(cls, ixreader, fieldname, default=u""):
         """Creates an in-memory field cache from a reader.
         
         >>> r = ix.reader()
-        >>> fc = FieldCache.from_reader(r, "chapter")
+        >>> fc = FieldCache.from_field(r, "chapter")
         
         :param ixreader: a :class:`whoosh.reading.IndexReader` object.
         :param fieldname: the name of the field to cache.
@@ -129,6 +129,22 @@ class FieldCache(object):
         
         return cls(order, texts, hastexts=hastexts, typecode=typecode)
     
+    # Class constructor for defining a field cache using arbitrary queries
+    
+    @classmethod
+    def from_lists(cls, doclists, doccount, default=u""):
+        texts = sorted(doclists.keys())
+        order = array("I", [0] * doccount)
+        
+        # Run the queries to populate the order array
+        for i, text in enumerate(texts):
+            doclist = doclists[text]
+            for id in doclist:
+                order[id] = i + 1
+        
+        texts.insert(0, default)
+        return cls(order, texts)
+    
     # Class constructor for loading a field cache from a file
     
     @classmethod
@@ -155,7 +171,7 @@ class FieldCache(object):
     def to_file(self, dbfile):
         """Saves an in-memory field cache to a file.
         
-        >>> fc = FieldCache.from_reader(r, "tag")
+        >>> fc = FieldCache.from_field(r, "tag")
         >>> fc.to_file(f)
         """
         

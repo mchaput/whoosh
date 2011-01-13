@@ -20,6 +20,7 @@ from threading import Lock
 
 from whoosh.filedb.fieldcache import FieldCache
 from whoosh.filedb.filepostings import FilePostingReader
+from whoosh.filedb.filestore import ReadOnlyError
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
@@ -288,6 +289,9 @@ class SegmentReader(IndexReader):
 
     # Field cache methods
 
+    def supports_caches(self):
+        return True
+
     def _fieldcache_filename(self, fieldname):
         return "%s.%s.fc" % (self.segment.name, fieldname)
 
@@ -317,6 +321,15 @@ class SegmentReader(IndexReader):
         gzname = filename + ".gz"
         return storage.file_exists(filename) or storage.file_exists(gzname)
 
+    def _save_fieldcache(self, name, cache):
+        filename = self._fieldcache_filename(name)
+        if self.GZIP_CACHES:
+            filename += ".gz"
+            
+        f = self.storage.create_file(filename, gzip=self.GZIP_CACHES)
+        cache.to_file(f)
+        f.close()
+
     def _create_fieldcache(self, fieldname, save=True, name=None, default=u''):
         if name in self.schema:
             raise Exception("Custom name %r is the name of a field")
@@ -326,17 +339,23 @@ class SegmentReader(IndexReader):
             # Don't recreate the cache if it already exists
             return None
         
-        cache = FieldCache.from_reader(self, fieldname, default=default)
-        
-        if save:
-            filename = self._fieldcache_filename(savename)
-            if self.GZIP_CACHES:
-                filename += ".gz"
-            f = self.storage.create_file(filename, gzip=self.GZIP_CACHES)
-            cache.to_file(f)
-            f.close()
-            
+        cache = FieldCache.from_field(self, fieldname, default=default)
+        if save and not self.storage.readonly:
+            self._save_fieldcache(savename, cache)
         return cache
+
+    def define_facets(self, name, qs, save=True):
+        if name in self.schema:
+            raise Exception("Can't define facets using the name of a field (%r)" % name)
+        
+        if self.fieldcache_available(name):
+            # Don't recreate the cache if it already exists
+            return
+        
+        cache = FieldCache.from_lists(qs, self.doc_count_all())
+        if save and not self.storage.readonly:
+            self._save_fieldcache(name, cache)
+        self._put_fieldcache(name, cache)
 
     def fieldcache(self, fieldname, save=True):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
@@ -374,10 +393,19 @@ class SegmentReader(IndexReader):
             del self.caches[name]
         except:
             pass
+        
+    def delete_fieldcache(self, name):
+        self.unload_fieldcache(name)
+        filename = self._fieldcache_filename(name)
+        if self.storage.file_exists(filename):
+            try:
+                self.storage.delete_file(filename)
+            except:
+                pass
 
     # Sorting and faceting methods
     
-    def _get_keyfn(self, fieldname):
+    def key_fn(self, fieldname):
         if isinstance(fieldname, (tuple, list)):
             # The "fieldname" is actually a sequence of field names to sort by
             fcs = [self.fieldcache(fn) for fn in fieldname]
@@ -389,18 +417,11 @@ class SegmentReader(IndexReader):
         return keyfn
     
     def sort_docs_by(self, fieldname, docnums, reverse=False):
-        if isinstance(fieldname, (tuple, list)):
-            # The "fieldname" is actually a sequence of field names to sort by
-            fcs = [self.fieldcache(fn) for fn in fieldname]
-            keyfn = lambda docnum: tuple(fc.order[docnum] for fc in fcs)
-        else:
-            fieldcache = self.fieldcache(fieldname)
-            keyfn = fieldcache.order.__getitem__
-        
+        keyfn = self.key_fn(fieldname)
         return sorted(docnums, key=keyfn, reverse=reverse)
     
     def key_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
-        keyfn = self._get_keyfn(fieldname)
+        keyfn = self.key_fn(fieldname)
         
         if limit is None:
             # Don't bother sorting, the caller will do that
