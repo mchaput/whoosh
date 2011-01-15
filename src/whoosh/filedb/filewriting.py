@@ -79,10 +79,13 @@ def OPTIMIZE(writer, segments):
 
 class SegmentWriter(IndexWriter):
     def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
-                 timeout=0.0, delay=0.1, name=None, **poolargs):
-        self.writelock = ix.lock("WRITELOCK")
-        if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
-            raise LockError
+                 timeout=0.0, delay=0.1, name=None, lock=True, **poolargs):
+        
+        self.writelock = None
+        if lock:
+            self.writelock = ix.lock("WRITELOCK")
+            if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
+                raise LockError
         
         self.ix = ix
         self.storage = ix.storage
@@ -102,7 +105,7 @@ class SegmentWriter(IndexWriter):
             self._doc_offsets.append(base)
             base += s.doc_count_all()
         
-        self.name = name or "_%s_%s" % (self.indexname, self.segment_number)
+        self.name = name or Segment.basename(self.indexname, self.segment_number)
         self.docnum = 0
         self.fieldlength_totals = defaultdict(int)
         self._added = False
@@ -262,6 +265,8 @@ class SegmentWriter(IndexWriter):
         self._added = True
     
     def add_document(self, **fields):
+        #from whoosh.util import now
+        #t = now()
         self._check_state()
         schema = self.schema
         
@@ -274,7 +279,6 @@ class SegmentWriter(IndexWriter):
             if name not in schema:
                 raise UnknownFieldError("No field named %r in %s" % (name, schema))
         
-        self.storedfields
         storedvalues = {}
         
         docnum = self.docnum
@@ -305,6 +309,7 @@ class SegmentWriter(IndexWriter):
         self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
+        #print "%f" % (now() - t)
     
     def update_document(self, **fields):
         self._check_state()
@@ -474,7 +479,8 @@ class SegmentWriter(IndexWriter):
                 readlock.release()
         
         finally:
-            self.writelock.release()
+            if self.writelock:
+                self.writelock.release()
         
     def cancel(self):
         self._check_state()
@@ -482,7 +488,8 @@ class SegmentWriter(IndexWriter):
             self.pool.cancel()
             self._close_all()
         finally:
-            self.writelock.release()
+            if self.writelock:
+                self.writelock.release()
 
 
 

@@ -391,6 +391,10 @@ class Segment(object):
     def make_filename(self, ext):
         return "%s.%s" % (self.name, ext)
 
+    @classmethod
+    def basename(cls, indexname, segment_number):
+        return "_%s_%s" % (indexname, segment_number)
+
     def doc_count_all(self):
         """
         :returns: the total number of documents, DELETED OR UNDELETED, in this

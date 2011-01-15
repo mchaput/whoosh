@@ -15,20 +15,16 @@
 # limitations under the License.
 #===============================================================================
 
-import os, random, string, tempfile
+import os, tempfile
 from array import array
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
 from marshal import load, dump
+import sqlite3 as sqlite
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte, now
 
-
-_unique_name_chars = string.ascii_letters + string.digits + "_"
-def unique_name(length=16):
-    return "".join(random.choice(_unique_name_chars) for _ in xrange(length))
-    
 
 def imerge(iterators):
     """Merge-sorts items from a list of iterators.
@@ -160,6 +156,16 @@ class PoolBase(object):
     def _filename(self, name):
         return os.path.abspath(os.path.join(self.dir, self.basename + name))
     
+    def _clean_temp_dir(self):
+        if self._using_tempdir:
+            try:
+                os.rmdir(self.dir)
+            except OSError, e:
+                # directory didn't exist or was not empty -- don't
+                # accidentially delete data
+                print "Error:", str(e)
+                pass
+    
     def unique_name(self, ext=""):
         return self._filename(unique_name() + ext)
     
@@ -242,8 +248,8 @@ class TempfilePool(PoolBase):
         if self.size > 0:
             #print "Dumping run..."
             t = now()
-            filename = self.unique_name(".run")
-            runfile = open(filename, "w+b")
+            fd, filename = tempfile.mkstemp(".run", dir=self.dir)
+            runfile = os.fdopen(fd, "w+b")
             self.postings.sort()
             for p in self.postings:
                 dump(p, runfile)
@@ -268,14 +274,9 @@ class TempfilePool(PoolBase):
                     os.remove(filename)
                 except IOError:
                     pass
-        if self._using_tempdir:
-            try:
-                os.rmdir(self.dir)
-            except OSError:
-                # directory didn't exist or was not empty -- don't
-                # accidentially delete data
-                pass
-    
+                
+        self._clean_temp_dir()
+        
     def finish(self, doccount, lengthfile, termtable, postingwriter):
         self._write_lengths(lengthfile, doccount)
         lengths = LengthReader(None, doccount, self.length_arrays)
@@ -295,8 +296,143 @@ class TempfilePool(PoolBase):
         self.cleanup()
         
 
-
+class SqlitePool(PoolBase):
+    def __init__(self, schema, dir=None, basename='', limitmb=32, **kwargs):
+        super(SqlitePool, self).__init__(schema, dir=dir, basename=basename)
+        self.postbuf = defaultdict(list)
+        self.bufsize = 0
+        self.limit = limitmb * 1024 * 1024
+        self.fieldnames = set()
+        self._flushed = False
     
+    def _field_filename(self, name):
+        return self._filename("%s.sqlite" % name)
+    
+    def _con(self, name):
+        filename = self._field_filename(name)
+        con = sqlite.connect(filename)
+        if name not in self.fieldnames:
+            self.fieldnames.add(name)
+            con.execute("create table postings (token text, docnum int, weight float, value blob)")
+            #con.execute("create index postix on postings (token, docnum)")
+        return con
+    
+    def flush(self):
+        for fieldname, lst in self.postbuf.iteritems():
+            con = self._con(fieldname)
+            con.executemany("insert into postings values (?, ?, ?, ?)", lst)
+            con.commit()
+            con.close()
+        self.postbuf = defaultdict(list)
+        self.bufsize = 0
+        self._flushed = True
+        print "flushed"
+    
+    def add_posting(self, fieldname, text, docnum, weight, valuestring):
+        self.postbuf[fieldname].append((text, docnum, weight, valuestring))
+        self.bufsize += len(text) + 8 + len(valuestring)
+        if self.bufsize > self.limit:
+            self.flush()
+    
+    def readback(self):
+        for name in sorted(self.fieldnames):
+            con = self._con(name)
+            con.execute("create index postix on postings (token, docnum)")
+            for text, docnum, weight, valuestring in con.execute("select * from postings order by token, docnum"):
+                yield (name, text, docnum, weight, valuestring)
+            con.close()
+            os.remove(self._field_filename(name))
+        
+        if self._using_tempdir:
+            try:
+                os.rmdir(self.dir)
+            except OSError:
+                # directory didn't exist or was not empty -- don't
+                # accidentially delete data
+                pass
+    
+    def readback_buffer(self):
+        for fieldname in sorted(self.postbuf.keys()):
+            lst = self.postbuf[fieldname]
+            lst.sort()
+            for text, docnum, weight, valuestring in lst:
+                yield (fieldname, text, docnum, weight, valuestring)
+            del self.postbuf[fieldname]
+            
+    def finish(self, doccount, lengthfile, termtable, postingwriter):
+        self._write_lengths(lengthfile, doccount)
+        lengths = LengthReader(None, doccount, self.length_arrays)
+        
+        if not self._flushed:
+            gen = self.readback_buffer()
+        else:
+            if self.postbuf:
+                self.flush()
+            gen = self.readback()
+        
+        write_postings(self.schema, termtable, lengths, postingwriter, gen)
+    
+
+class NullPool(PoolBase):
+    def __init__(self, *args, **kwargs):
+        self._fieldlength_totals = {}
+        self._fieldlength_maxes = {}
+    
+    def add_content(self, *args):
+        pass
+    
+    def add_posting(self, *args):
+        pass
+    
+    def add_field_length(self, *args, **kwargs):
+        pass
+    
+    def finish(self, *args):
+        pass
+        
+
+class MemPool(PoolBase):
+    def __init__(self, schema, **kwargs):
+        super(MemPool, self).__init__(schema)
+        self.schema = schema
+        self.postbuf = []
+        
+    def add_posting(self, *item):
+        self.postbuf.append(item)
+        
+    def finish(self, doccount, lengthfile, termtable, postingwriter):
+        self._write_lengths(lengthfile, doccount)
+        lengths = LengthReader(None, doccount, self.length_arrays)
+        self.postbuf.sort()
+        write_postings(self.schema, termtable, lengths, postingwriter, self.postbuf)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -637,7 +637,7 @@ class StoredFieldWriter(object):
     def __init__(self, dbfile, fieldnames):
         self.dbfile = dbfile
         self.length = 0
-        self.directory = ""
+        self.directory = []
         
         self.dbfile.write_long(0)
         self.dbfile.write_uint(0)
@@ -660,16 +660,17 @@ class StoredFieldWriter(object):
                 # as a tuple of (fieldname, value)
                 vlist.append((k, v))
                 
-        v = dumps(vlist, -1)
+        v = dumps(vlist, -1)[2:-1]
         self.length += 1
-        self.directory += pack_stored_pointer(f.tell(), len(v))
+        self.directory.append(pack_stored_pointer(f.tell(), len(v)))
         f.write(v)
     
     def close(self):
         f = self.dbfile
         directory_pos = f.tell()
         f.write_pickle(self.name_map)
-        f.write(self.directory)
+        for pair in self.directory:
+            f.write(pair)
         f.flush()
         f.seek(0)
         f.write_long(directory_pos)
@@ -706,7 +707,7 @@ class StoredFieldReader(object):
         if len(ptr) != stored_pointer_size:
             raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
         position, length = unpack_stored_pointer(ptr)
-        vlist = loads(dbfile.map[position:position+length])
+        vlist = loads(dbfile.map[position:position+length] + ".")
         
         names = self.names
         # Recreate a dictionary by putting the field names and values back

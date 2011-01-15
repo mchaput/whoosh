@@ -21,7 +21,7 @@ from shutil import rmtree
 from zlib import compress, decompress
 
 from whoosh import index, qparser, query
-from whoosh.util import now
+from whoosh.util import now, find_object
 
 try:
     import xappy
@@ -115,8 +115,20 @@ class WhooshModule(Module):
             ix = index.create_in(path, schema)
         else:
             ix = index.open_dir(path)
-        self.writer = ix.writer(procs=int(self.options.procs),
-                                limitmb=int(self.options.limitmb))
+        
+        poolclass = None
+        if self.options.pool:
+            poolclass = find_object(self.options.pool)
+        
+        kwargs = dict(limitmb=int(self.options.limitmb), poolclass=poolclass,
+                      dir=self.options.tempdir, procs=int(self.options.procs),
+                      batchsize=int(self.options.batch))
+        
+        if self.options.expw:
+            from whoosh.filedb.multiproc import MultiSegmentWriter
+            self.writer = MultiSegmentWriter(ix, **kwargs)
+        else:
+            self.writer = ix.writer(**kwargs)
 
     def index_document(self, d):
         if hasattr(self.bench, "process_document_whoosh"):
@@ -399,7 +411,8 @@ class Bench(object):
         lib.finish(merge=merge)
         committime = now()
         print "Commit time:", committime - spooltime
-        print "Total time to index", count, "documents:",  committime - starttime
+        totaltime = committime - starttime
+        print "Total time to index %d documents: %0.3f secs, %0.3f docs/s" % (count, totaltime, count/totaltime)
     
     def search(self, lib):
         lib.searcher()
@@ -460,7 +473,7 @@ class Bench(object):
         p.add_option("-u", "--upto", dest="upto", metavar="N",
                      help="Index up to this document number.", default=600000)
         p.add_option("-p", "--procs", dest="procs", metavar="NUMBER",
-                     help="Number of processors to use.", default=1)
+                     help="Number of processors to use.", default=0)
         p.add_option("-l", "--limit", dest="limit", metavar="N",
                      help="Maximum number of search results to retrieve.",
                      default=10)
@@ -473,6 +486,12 @@ class Bench(object):
         p.add_option("-f", "--file", dest="termfile", metavar="FILENAME",
                      help="Search using the list of terms in this file.",
                      default=None)
+        p.add_option("-t", "--tempdir", dest="tempdir", metavar="DIRNAME",
+                     help="Whoosh temp dir", default=None)
+        p.add_option("-P", "--pool", dest="pool", metavar="CLASSNAME",
+                     help="Whoosh pool class", default=None)
+        p.add_option("-X", "--expw", dest="expw", action="store_true",
+                     help="Use experimental whoosh writer", default=False)
         
         return p
     
