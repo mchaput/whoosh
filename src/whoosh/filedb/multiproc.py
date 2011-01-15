@@ -14,151 +14,255 @@
 # limitations under the License.
 #===============================================================================
 
-import os
-from multiprocessing import Process, Queue
+import os, tempfile
+from multiprocessing import Process, Queue, cpu_count
+from cPickle import dump, load
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
+from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filewriting import SegmentWriter
 from whoosh.filedb.pools import (imerge, PoolBase, read_run, TempfilePool,
                                  write_postings)
 from whoosh.filedb.structfile import StructFile
 from whoosh.writing import IndexWriter
-from whoosh.util import now
 
 
 # Multiprocessing writer
 
 class SegmentWritingTask(Process):
-    def __init__(self, storage, indexname, segmentname, kwargs, postingqueue):
+    def __init__(self, storage, indexname, segname, kwargs, jobqueue, firstjob = None):
         Process.__init__(self)
         self.storage = storage
         self.indexname = indexname
-        self.segmentname = segmentname
+        self.segname = segname
         self.kwargs = kwargs
-        self.postingqueue = postingqueue
+        self.jobqueue = jobqueue
+        self.firstjob = firstjob
         
         self.segment = None
         self.running = True
     
+    def _add_file(self, args):
+        writer = self.writer
+        filename, length = args
+        f = open(filename, "rb")
+        for _ in xrange(length):
+            writer.add_document(**load(f))
+        f.close()
+        os.remove(filename)
+    
     def run(self):
-        pqueue = self.postingqueue
+        jobqueue = self.jobqueue
+        ix = self.storage.open_index(self.indexname)
+        writer = self.writer = SegmentWriter(ix, lock=False, name=self.segname,
+                                             **self.kwargs)
         
-        index = self.storage.open_index(self.indexname)
-        writer = SegmentWriter(index, name=self.segmentname, lock=False, **self.kwargs)
+        if self.firstjob:
+            self._add_file(self.firstjob)
         
         while self.running:
-            args = pqueue.get()
+            args = jobqueue.get()
             if args is None:
                 break
+            self._add_file(args)
             
-            writer.add_document(**args)
-        
         if not self.running:
             writer.cancel()
-            self.terminate()
         else:
             writer.pool.finish(writer.docnum, writer.lengthfile,
                                writer.termsindex, writer.postwriter)
-            self._segment = writer._getsegment()
-    
-    def get_segment(self):
-        return self._segment
+            self.jobqueue.put(writer._getsegment())
     
     def cancel(self):
         self.running = False
-
+        
 
 class MultiSegmentWriter(IndexWriter):
-    def __init__(self, index, procs=2, **writerargs):
-        self.index = index
-        self.lock = index.storage.lock(index.indexname + "_LOCK")
+    def __init__(self, ix, procs=None, batchsize=100, dir=None, **kwargs):
+        self.index = ix
+        self.procs = procs or cpu_count()
+        self.bufferlimit = batchsize
+        self.dir = dir
+        self.kwargs = kwargs
+        self.kwargs["dir"] = dir
+        
+        self.segnames = []
         self.tasks = []
-        self.postingqueue = Queue()
-        #self.resultqueue = Queue()
+        self.jobqueue = Queue()
+        self.docbuffer = []
         
-        names = [index._next_segment_name() for _ in xrange(procs)]
+        self.writelock = ix.lock("WRITELOCK")
+        self.writelock.acquire()
         
-        self.tasks = [SegmentWritingTask(index.storage, index.indexname,
-                                         segname, writerargs, self.postingqueue)
-                      for segname in names]
-        for task in self.tasks:
-            task.start()
+        info = ix._read_toc()
+        self.schema = info.schema
+        self.segment_number = info.segment_counter
+        self.generation = info.generation + 1
+        self.segments = info.segments
+        self.storage = ix.storage
         
-    def add_document(self, **args):
-        self.postingqueue.put(args)
+    def _new_task(self, firstjob):
+        ix = self.index
+        self.segment_number += 1
+        segmentname = Segment.basename(ix.indexname, self.segment_number)
+        task = SegmentWritingTask(ix.storage, ix.indexname, segmentname,
+                                  self.kwargs, self.jobqueue, firstjob)
+        self.tasks.append(task)
+        task.start()
+        return task
+    
+    def _enqueue(self):
+        doclist = self.docbuffer
+        fd, filename = tempfile.mkstemp(".doclist", dir=self.dir)
+        f = os.fdopen(fd, "wb")
+        for doc in doclist:
+            dump(doc, f, -1)
+        f.close()
+        args = (filename, len(doclist))
         
+        if len(self.tasks) < self.procs:
+            self._new_task(args)
+        else:
+            self.jobqueue.put(args)
+        
+        self.docbuffer = []
+    
     def cancel(self):
-        for task in self.tasks:
-            task.cancel()
-        self.lock.release()
-        
-    def commit(self):
-        procs = len(self.tasks)
-        for _ in xrange(procs):
-            self.postingqueue.put(None)
-        for task in self.tasks:
-            print "Joining", task
-            task.join()
-            self.index.segments.append(task.get_segment())
-        self.index.commit()
-        self.lock.release()
-
+        try:
+            for task in self.tasks:
+                task.cancel()
+        finally:
+            self.lock.release()
+    
+    def add_document(self, **fields):
+        self.docbuffer.append(fields)
+        if len(self.docbuffer) >= self.bufferlimit:
+            self._enqueue()
+    
+    def commit(self, **kwargs):
+        try:
+            for task in self.tasks:
+                self.jobqueue.put(None)
+            
+            for task in self.tasks:
+                task.join()
+            
+            for task in self.tasks:
+                taskseg = self.jobqueue.get()
+                print "Segment=", taskseg
+                self.segments.append(taskseg)
+            
+            self.jobqueue.close()
+            
+            from whoosh.filedb.fileindex import _write_toc, _clean_files
+            _write_toc(self.storage, self.schema, self.index.indexname,
+                       self.generation, self.segment_number, self.segments)
+            
+            readlock = self.index.lock("READLOCK")
+            readlock.acquire(True)
+            try:
+                _clean_files(self.storage, self.index.indexname,
+                             self.generation, self.segments)
+            finally:
+                readlock.release()
+        finally:
+            self.writelock.release()
 
 # Multiprocessing pool
 
 class PoolWritingTask(Process):
-    def __init__(self, schema, dir, postingqueue, resultqueue, limitmb):
+    def __init__(self, schema, dir, jobqueue, resultqueue, limitmb,
+                 firstjob=None):
         Process.__init__(self)
         self.schema = schema
         self.dir = dir
-        self.postingqueue = postingqueue
+        self.jobqueue = jobqueue
         self.resultqueue = resultqueue
         self.limitmb = limitmb
-        
-    def run(self):
-        pqueue = self.postingqueue
-        rqueue = self.resultqueue
-        
-        subpool = TempfilePool(self.schema, limitmb=self.limitmb, dir=self.dir)
-        
-        while True:
-            code, args = pqueue.get()
-            
-            if code == -1:
-                doccount = args
-                break
+        self.firstjob = firstjob
+    
+    def _add_file(self, filename, length):
+        subpool = self.subpool
+        f = open(filename, "rb")
+        for _ in xrange(length):
+            code, args = load(f)
             if code == 0:
                 subpool.add_content(*args)
             elif code == 1:
                 subpool.add_posting(*args)
             elif code == 2:
                 subpool.add_field_length(*args)
+        f.close()
+        os.remove(filename)
+    
+    def run(self):
+        jobqueue = self.jobqueue
+        rqueue = self.resultqueue
+        subpool = self.subpool = TempfilePool(self.schema, limitmb=self.limitmb,
+                                              dir=self.dir)
         
-        lenfilename = subpool.unique_name(".lengths")
-        subpool._write_lengths(StructFile(open(lenfilename, "wb")), doccount)
+        if self.firstjob:
+            self._add_file(*self.firstjob)
+        
+        while True:
+            arg1, arg2 = jobqueue.get()
+            if arg1 is None:
+                doccount = arg2
+                break
+            else:
+                self._add_file(arg1, arg2)
+        
+        lenfd, lenfilename = tempfile.mkstemp(".lengths", dir=subpool.dir)
+        lenf = os.fdopen(lenfd, "wb")
+        subpool._write_lengths(StructFile(lenf), doccount)
         subpool.dump_run()
         rqueue.put((subpool.runs, subpool.fieldlength_totals(),
                     subpool.fieldlength_maxes(), lenfilename))
 
 
 class MultiPool(PoolBase):
-    def __init__(self, schema, dir=None, procs=2, limitmb=32, **kw):
+    def __init__(self, schema, dir=None, procs=2, limitmb=32, batchsize=100,
+                 **kw):
         PoolBase.__init__(self, schema, dir=dir)
         
         self.procs = procs
         self.limitmb = limitmb
+        self.jobqueue = Queue()
+        self.resultqueue = Queue()
+        self.tasks = []
+        self.buffer = []
+        self.bufferlimit = batchsize
+    
+    def _new_task(self, firstjob):
+        task = PoolWritingTask(self.schema, self.dir, self.jobqueue,
+                               self.resultqueue, self.limitmb, firstjob=firstjob)
+        self.tasks.append(task)
+        task.start()
+        return task
+    
+    def _enqueue(self):
+        commandlist = self.buffer
+        fd, filename = tempfile.mkstemp(".commands", dir=self.dir)
+        f = os.fdopen(fd, "wb")
+        for command in commandlist:
+            dump(command, f, -1)
+        f.close()
+        args = (filename, len(commandlist))
         
-        self.postingqueue = Queue()
-        self.resultsqueue = Queue()
-        
-        self.tasks = [PoolWritingTask(self.schema, self.dir, self.postingqueue,
-                                      self.resultsqueue, self.limitmb)
-                      for _ in xrange(procs)]
-        for task in self.tasks:
-            task.start()
+        if len(self.tasks) < self.procs:
+            self._new_task(args)
+        else:
+            self.jobqueue.put(args)
+            
+        self.buffer = []
+    
+    def _append(self, item):
+        self.buffer.append(item)
+        if len(self.buffer) > self.bufferlimit:
+            self._enqueue()
     
     def add_content(self, *args):
-        self.postingqueue.put((0, args))
+        self._append((0, args))
         
     def add_posting(self, *args):
         self.postingqueue.put((1, args))
@@ -172,18 +276,18 @@ class MultiPool(PoolBase):
         self.cleanup()
     
     def cleanup(self):
-        pass
+        self._clean_temp_dir()
     
     def finish(self, doccount, lengthfile, termtable, postingwriter):
         _fieldlength_totals = self._fieldlength_totals
         if not self.tasks:
             return
         
-        pqueue = self.postingqueue
-        rqueue = self.resultsqueue
+        jobqueue = self.jobqueue
+        rqueue = self.resultqueue
         
-        for _ in xrange(self.procs):
-            pqueue.put((-1, doccount))
+        for task in self.tasks:
+            jobqueue.put((None, doccount))
         
         for task in self.tasks:
             task.join()
@@ -199,6 +303,9 @@ class MultiPool(PoolBase):
             for fieldnum, length in flenmaxes.iteritems():
                 if length > self._fieldlength_maxes.get(fieldnum, 0):
                     self._fieldlength_maxes[fieldnum] = length
+        
+        jobqueue.close()
+        rqueue.close()
         
         lw = LengthWriter(lengthfile, doccount)
         for lenfilename in lenfilenames:
