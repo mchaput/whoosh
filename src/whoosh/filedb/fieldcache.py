@@ -19,7 +19,7 @@ from collections import defaultdict
 from heapq import heappush, heapreplace
 from struct import Struct
 
-from whoosh.system import _INT_SIZE
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 from whoosh.util import utf8encode
 
 
@@ -81,6 +81,26 @@ class FieldCache(object):
                 and self.order == other.order
                 and self.texts == other.texts)
     
+    def size(self):
+        """Returns the size in bytes (or as accurate an estimate as is
+        practical, anyway) of this cache.
+        """
+        
+        orderlen = len(self.order)
+        if self.typecode == "B":
+            total = orderlen
+        elif self.typecode in "Ii":
+            total = orderlen * _INT_SIZE
+        elif self.typecode == "f":
+            total = orderlen * _FLOAT_SIZE
+        elif self.typecode in "Qq":
+            total = orderlen * _LONG_SIZE
+        
+        if self.hastexts:
+            total += sum(len(t) for t in self.texts)
+            
+        return total
+    
     # Class constructor for building a field cache from a reader
     
     @classmethod
@@ -126,6 +146,17 @@ class FieldCache(object):
                     order[id] = i + 1
                 else:
                     order[id] = sortable
+        
+        # Compact the order array if possible
+        if hastexts:
+            if len(texts) < 255:
+                newcode = "B"
+            elif len(texts) < 65535:
+                newcode = "H"
+            
+            if newcode != order.typecode:
+                order = array(newcode, order)
+                typecode = newcode
         
         return cls(order, texts, hastexts=hastexts, typecode=typecode)
     
@@ -353,5 +384,129 @@ class FieldCacheWriter(object):
         
         dbfile.close()
     
+
+# Caching policies
+
+class FieldCachingPolicy(object):
+    """Base class for caching policies.
+    """
+    
+    def put(self, key, obj, save=True):
+        raise NotImplementedError
+    
+    def __contains__(self, key):
+        raise NotImplementedError
+    
+    def is_loaded(self, key):
+        raise NotImplementedError
+    
+    def get(self, key):
+        raise NotImplementedError
+    
+    def delete(self, key):
+        pass
+    
+
+class NoCaching(FieldCachingPolicy):
+    def put(self, key, obj, save=True):
+        pass
+    
+    def __contains__(self, key):
+        return False
+    
+    def is_loaded(self, key):
+        return False
+    
+    def get(self, key):
+        return None
+    
+
+class DefaultFieldCachingPolicy(FieldCachingPolicy):
+    def __init__(self, basename, storage=None, gzip_caches=False,
+                 fcclass=FieldCache):
+        self.basename = basename
+        self.storage = storage
+        self.caches = {}
+        self.gzip_caches = gzip_caches
+        self.fcclass = fcclass
+    
+    def __contains__(self, key):
+        return self.is_loaded(key) or self._file_exists(key)
+    
+    def _filename(self, key):
+        return "%s.%s.fc" % (self.basename, key)
+    
+    def _file_exists(self, key):
+        if not self.storage: return False
+        
+        filename = self._filename(key)
+        gzfilename = filename + ".gz"
+        return (self.storage.file_exists(filename)
+                or self.storage.file_exists(gzfilename))
+    
+    def _save(self, key, cache):
+        filename = self._filename(key)
+        if self.gzip_caches:
+            filename += ".gz"
+        
+        try:
+            f = self.storage.create_file(filename, gzip=self.gzip_caches,
+                                         excl=True)
+            cache.to_file(f)
+            f.close()
+        except OSError:
+            pass
+    
+    def _load(self, key):
+        storage = self.storage
+        filename = self._filename(key)
+        gzfilename = filename + ".gz"
+        gzipped = False
+        if storage.file_exists(gzfilename) and not storage.file_exists(filename):
+            filename = gzfilename
+            gzipped = True
+        
+        f = storage.open_file(filename, mapped=False, gzip=gzipped)
+        cache = self.fcclass.from_file(f)
+        f.close()
+        return cache
+    
+    def is_loaded(self, key):
+        return key in self.caches
+    
+    def put(self, key, cache, save=True):
+        self.caches[key] = cache
+        if save and self.storage:
+            self._save(key, cache)
+    
+    def get(self, key):
+        if key in self.caches:
+            return self.caches.get(key)
+        elif self._file_exists(key):
+            try:
+                return self._load(key)
+            except OSError:
+                return None
+
+    def delete(self, key):
+        try:
+            del self.caches[key]
+        except KeyError:
+            pass
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

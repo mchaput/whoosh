@@ -18,7 +18,7 @@ from bisect import bisect_left
 from heapq import nlargest, nsmallest
 from threading import Lock
 
-from whoosh.filedb.fieldcache import FieldCache
+from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filestore import ReadOnlyError
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
@@ -27,7 +27,7 @@ from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.util import protected
 
-SAVE_BY_DEFAULT = False
+SAVE_BY_DEFAULT = True
 
 # Reader class
 
@@ -70,7 +70,7 @@ class SegmentReader(IndexReader):
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
         
-        self.caches = {}
+        self.set_caching_policy()
         
         self.is_closed = False
         self._sync_lock = Lock()
@@ -293,58 +293,44 @@ class SegmentReader(IndexReader):
     def supports_caches(self):
         return True
 
-    def _fieldcache_filename(self, fieldname):
-        return "%s.%s.fc" % (self.segment.name, fieldname)
-
-    def _put_fieldcache(self, name, fieldcache):
-        self.caches[name] = fieldcache
-
-    def _load_fieldcache(self, fieldname):
-        storage = self.storage
-        filename = self._fieldcache_filename(fieldname)
-        gzipped = False
+    def set_caching_policy(self, cp=None, save=True, storage=None):
+        """This method lets you control the caching policy of the reader. You
+        can either pass a :class:`whoosh.filedb.fieldcache.FieldCachingPolicy`
+        as the first argument, *or* use the `save` and `storage` keywords to
+        alter the default caching policy::
         
-        # It's possible to load GZip'd caches but for it's MUCH slower,
-        # especially for large caches
-        gzname = filename + ".gz"
-        if storage.file_exists(gzname) and not storage.file_exists(filename):
-            filename = gzname
-            gzipped = True
-        
-        f = storage.open_file(filename, mapped=False, gzip=gzipped)
-        cache = FieldCache.from_file(f)
-        f.close()
-        return cache
-
-    def _cachefile_exists(self, fieldname):
-        storage = self.storage
-        filename = self._fieldcache_filename(fieldname)
-        gzname = filename + ".gz"
-        return storage.file_exists(filename) or storage.file_exists(gzname)
-
-    def _save_fieldcache(self, name, cache):
-        filename = self._fieldcache_filename(name)
-        if self.GZIP_CACHES:
-            filename += ".gz"
+            # Use a custom field caching policy object
+            reader.set_caching_policy(MyPolicy())
             
-        f = self.storage.create_file(filename, gzip=self.GZIP_CACHES)
-        cache.to_file(f)
-        f.close()
-
-    def _create_fieldcache(self, fieldname, save=SAVE_BY_DEFAULT, name=None,
-                           default=u''):
-        if name in self.schema:
-            raise Exception("Custom name %r is the name of a field")
-        savename = name if name else fieldname
+            # Use the default caching policy but turn off saving caches to disk
+            reader.set_caching_policy(save=False)
+            
+            # Use the default caching policy but save caches to a custom storage
+            from whoosh.filedb.filestore import FileStorage
+            mystorage = FileStorage("path/to/cachedir")
+            reader.set_caching_policy(storage=mystorage)
         
-        if self.fieldcache_available(savename):
-            # Don't recreate the cache if it already exists
-            return None
+        :param cp: a :class:`whoosh.filedb.fieldcache.FieldCachingPolicy`
+            object. If this argument is not given, the default caching policy
+            is used.
+        :param save: save field caches to disk for re-use. If a caching policy
+            object is specified using `cp`, this argument is ignored.
+        :param storage: a custom :class:`whoosh.store.Storage` object to use
+            for saving field caches. If a caching policy object is specified
+            using `cp` or `save` is `False`, this argument is ignored. 
+        """
         
-        cache = FieldCache.from_field(self, fieldname, default=default)
-        if save and not self.storage.readonly:
-            self._save_fieldcache(savename, cache)
-        return cache
+        if not cp:
+            if save and storage is None:
+                storage = self.storage
+            else:
+                storage = None
+            cp = DefaultFieldCachingPolicy(self.segment.name, storage=storage)
+            
+        if type(cp) is type:
+            cp = cp()
+        
+        self.caching_policy = cp
 
     def define_facets(self, name, qs, save=SAVE_BY_DEFAULT):
         if name in self.schema:
@@ -355,9 +341,7 @@ class SegmentReader(IndexReader):
             return
         
         cache = FieldCache.from_lists(qs, self.doc_count_all())
-        if save and not self.storage.readonly:
-            self._save_fieldcache(name, cache)
-        self._put_fieldcache(name, cache)
+        self.caching_policy.put(name, cache, save=save)
 
     def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
@@ -368,13 +352,10 @@ class SegmentReader(IndexReader):
             doesn't already exist.
         """
         
-        if fieldname in self.caches:
-            return self.caches[fieldname]
-        elif self._cachefile_exists(fieldname):
-            fc = self._load_fieldcache(fieldname)
-        else:
-            fc = self._create_fieldcache(fieldname, save=SAVE_BY_DEFAULT)
-        self._put_fieldcache(fieldname, fc)
+        fc = self.caching_policy.get(fieldname)
+        if not fc:
+            fc = FieldCache.from_field(self, fieldname)
+            self.caching_policy.put(fieldname, fc, save=save)
         return fc
     
     def fieldcache_available(self, fieldname):
@@ -382,29 +363,17 @@ class SegmentReader(IndexReader):
         memory already or on disk).
         """
         
-        return fieldname in self.caches or self._cachefile_exists(fieldname)
+        return fieldname in self.caching_policy
     
     def fieldcache_loaded(self, fieldname):
         """Returns True if a field cache for the given field is in memory.
         """
         
-        return fieldname in self.caches
+        return self.caching_policy.is_loaded(fieldname)
 
     def unload_fieldcache(self, name):
-        try:
-            del self.caches[name]
-        except:
-            pass
+        self.caching_policy.delete(name)
         
-    def delete_fieldcache(self, name):
-        self.unload_fieldcache(name)
-        filename = self._fieldcache_filename(name)
-        if self.storage.file_exists(filename):
-            try:
-                self.storage.delete_file(filename)
-            except:
-                pass
-
     # Sorting and faceting methods
     
     def key_fn(self, fieldname):

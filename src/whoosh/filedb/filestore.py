@@ -55,12 +55,18 @@ class FileStorage(Storage):
         from whoosh.filedb.fileindex import FileIndex
         return FileIndex(self, schema=schema, indexname=indexname)
 
-    def create_file(self, name, **kwargs):
+    def create_file(self, name, excl=False, mode="wb", **kwargs):
         if self.readonly:
             raise ReadOnlyError
         
-        f = StructFile(open(self._fpath(name), "wb"), name=name,
-                       mapped=self.mapped, **kwargs)
+        path = self._fpath(name)
+        if excl:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL)
+            fileobj = os.fdopen(fd, mode)
+        else:
+            fileobj = open(path, mode)
+        
+        f = StructFile(fileobj, name=name, mapped=self.mapped, **kwargs)
         return f
 
     def open_file(self, name, *args, **kwargs):
