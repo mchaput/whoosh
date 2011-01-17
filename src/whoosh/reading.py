@@ -396,6 +396,12 @@ class IndexReader(ClosableMixin):
         """
         
         raise NotImplementedError
+    
+    def set_caching_policy(self, *args, **kwargs):
+        """Sets the field caching policy for this reader.
+        """
+        
+        pass
         
 
 # Fake IndexReader class for empty indexes
@@ -660,7 +666,9 @@ class MultiReader(IndexReader):
     def leaf_readers(self):
         return zip(self.readers, self.doc_offsets)
 
-    
+    def set_caching_policy(self, *args, **kwargs):
+        for r in self.readers:
+            r.set_caching_policy(*args, **kwargs)
 
 
 
