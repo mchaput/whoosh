@@ -25,15 +25,5 @@ Scoring utility classes
 .. autoclass:: ReverseWeighting
 
 
-Sorting classes
-===============
-
-.. autoclass:: Sorter
-
-.. autoclass:: NullSorter
-
-.. autoclass:: FieldSorter
-
-.. autoclass:: MultiFieldSorter
 
 
