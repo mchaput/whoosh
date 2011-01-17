@@ -143,6 +143,9 @@ class Searcher(object):
         """
         return self.ixreader
 
+    def set_caching_policy(self, *args, **kwargs):
+        self.ixreader.set_caching_policy(*args, **kwargs)
+
     def scorer(self, fieldname, text, qf=1):
         if self._doccount:
             scorer = self.weighting.scorer(self, fieldname, text, qf=qf)
