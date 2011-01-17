@@ -33,6 +33,7 @@ Contents
     keywords
     spelling
     fieldcaches
+    batch
     api/api
     tech/index
 
