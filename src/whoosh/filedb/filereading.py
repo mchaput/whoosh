@@ -340,7 +340,7 @@ class SegmentReader(IndexReader):
             # Don't recreate the cache if it already exists
             return
         
-        cache = FieldCache.from_lists(qs, self.doc_count_all())
+        cache = self.caching_policy.get_class().from_lists(qs, self.doc_count_all())
         self.caching_policy.put(name, cache, save=save)
 
     def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):

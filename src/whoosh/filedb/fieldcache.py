@@ -388,26 +388,55 @@ class FieldCacheWriter(object):
 # Caching policies
 
 class FieldCachingPolicy(object):
-    """Base class for caching policies.
+    """Base class for field caching policies.
     """
     
     def put(self, key, obj, save=True):
+        """Adds the given object to the cache under the given key.
+        """
+        
         raise NotImplementedError
     
     def __contains__(self, key):
+        """Returns True if an object exists in the cache (either in memory
+        or on disk) under the given key.
+        """
+        
         raise NotImplementedError
     
     def is_loaded(self, key):
+        """Returns True if an object exists in memory for the given key. This
+        might be useful for scenarios where code can use a field cache if it's
+        already loaded, but is not important enough to load it for its own sake.
+        """
+        
         raise NotImplementedError
     
     def get(self, key):
+        """Returns the object for the given key, or ``None`` if the key does
+        not exist in the cache.
+        """
+        
         raise NotImplementedError
     
     def delete(self, key):
+        """Removes the object for the given key from the cache.
+        """
+        
         pass
+    
+    def get_class(self):
+        """Returns the class to use when creating field caches. This class
+        should implement the same protocol as FieldCache.
+        """
+        
+        return FieldCache
     
 
 class NoCaching(FieldCachingPolicy):
+    """A field caching policy that does not save field caches at all.
+    """
+    
     def put(self, key, obj, save=True):
         pass
     
@@ -422,8 +451,24 @@ class NoCaching(FieldCachingPolicy):
     
 
 class DefaultFieldCachingPolicy(FieldCachingPolicy):
+    """A field caching policy that saves generated caches in memory and also
+    writes them to disk by default.
+    """
+    
     def __init__(self, basename, storage=None, gzip_caches=False,
                  fcclass=FieldCache):
+        """
+        :param basename: a prefix for filenames. This is usually the name of
+            the reader's segment.
+        :param storage: a custom :class:`whoosh.store.Storage` object to use
+            for saving field caches. If this is ``None``, this object will not
+            save caches to disk.
+        :param gzip_caches: if True, field caches saved to disk by this object
+            will be compressed. Loading compressed caches is very slow, so you
+            should not turn this option on.
+        :param fcclass: 
+        """
+        
         self.basename = basename
         self.storage = storage
         self.caches = {}
@@ -493,6 +538,9 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
             del self.caches[key]
         except KeyError:
             pass
+        
+    def get_class(self):
+        return self.fcclass
     
 
 
