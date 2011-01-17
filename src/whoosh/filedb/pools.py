@@ -166,9 +166,6 @@ class PoolBase(object):
                 print "Error:", str(e)
                 pass
     
-    def unique_name(self, ext=""):
-        return self._filename(unique_name() + ext)
-    
     def cancel(self):
         pass
     
