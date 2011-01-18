@@ -14,6 +14,8 @@
 # limitations under the License.
 #===============================================================================
 
+from __future__ import with_statement
+import threading, weakref
 from array import array
 from collections import defaultdict
 from heapq import heappush, heapreplace
@@ -455,6 +457,9 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
     writes them to disk by default.
     """
     
+    shared_cache = weakref.WeakValueDictionary()
+    sharedlock = threading.Lock()
+    
     def __init__(self, basename, storage=None, gzip_caches=False,
                  fcclass=FieldCache):
         """
@@ -517,17 +522,32 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         return cache
     
     def is_loaded(self, key):
-        return key in self.caches
+        if key in self.caches:
+            return True
+        
+        with self.sharedlock:
+            return key in self.shared_cache
     
     def put(self, key, cache, save=True):
         self.caches[key] = cache
-        if save and self.storage:
-            self._save(key, cache)
+        if save:
+            if self.storage:
+                self._save(key, cache)
+            with self.sharedlock:
+                if key not in self.shared_cache:
+                    self.shared_cache[key] = cache
     
     def get(self, key):
         if key in self.caches:
             return self.caches.get(key)
-        elif self._file_exists(key):
+        
+        with self.sharedlock:
+            if key in self.shared_cache:
+                fc = self.shared_cache[key]
+                self.caches[key] = fc
+                return fc
+        
+        if self._file_exists(key):
             try:
                 return self._load(key)
             except OSError:

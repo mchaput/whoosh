@@ -39,6 +39,12 @@ class SegmentReader(IndexReader):
         self.schema = schema
         self.segment = segment
         
+        if hasattr(self.segment, "uuid"):
+            self.uuid_string = str(self.segment.uuid)
+        else:
+            import uuid
+            self.uuid_string = str(uuid.uuid4())
+        
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
         self.termsindex = TermIndexReader(tf)
@@ -326,11 +332,14 @@ class SegmentReader(IndexReader):
             else:
                 storage = None
             cp = DefaultFieldCachingPolicy(self.segment.name, storage=storage)
-            
+        
         if type(cp) is type:
             cp = cp()
         
         self.caching_policy = cp
+
+    def _fieldkey(self, fieldname):
+        return "%s_%s" % (self.uuid_string, fieldname)
 
     def define_facets(self, name, qs, save=SAVE_BY_DEFAULT):
         if name in self.schema:
@@ -341,7 +350,7 @@ class SegmentReader(IndexReader):
             return
         
         cache = self.caching_policy.get_class().from_lists(qs, self.doc_count_all())
-        self.caching_policy.put(name, cache, save=save)
+        self.caching_policy.put(self._fieldkey(name), cache, save=save)
 
     def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
@@ -352,10 +361,11 @@ class SegmentReader(IndexReader):
             doesn't already exist.
         """
         
-        fc = self.caching_policy.get(fieldname)
+        key = self._fieldkey(fieldname)
+        fc = self.caching_policy.get(key)
         if not fc:
             fc = FieldCache.from_field(self, fieldname)
-            self.caching_policy.put(fieldname, fc, save=save)
+            self.caching_policy.put(key, fc, save=save)
         return fc
     
     def fieldcache_available(self, fieldname):
@@ -363,16 +373,16 @@ class SegmentReader(IndexReader):
         memory already or on disk).
         """
         
-        return fieldname in self.caching_policy
+        return self._fieldkey(fieldname) in self.caching_policy
     
     def fieldcache_loaded(self, fieldname):
         """Returns True if a field cache for the given field is in memory.
         """
         
-        return self.caching_policy.is_loaded(fieldname)
+        return self.caching_policy.is_loaded(self._fieldkey(fieldname))
 
     def unload_fieldcache(self, name):
-        self.caching_policy.delete(name)
+        self.caching_policy.delete(self._fieldkey(name))
         
     # Sorting and faceting methods
     
