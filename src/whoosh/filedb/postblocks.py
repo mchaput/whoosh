@@ -223,10 +223,11 @@ class Block2(BlockBase):
         
         
         # Header
+        flags = 1 if compression else 0
         minlen_byte = length_to_byte(minlength)
         blocksize = sum((self._struct.size, len(maxid_string), len(ids_string),
                          len(weights_string), len(values_string)))
-        header = self._struct.pack(blocksize, compression, postcount, typecode,
+        header = self._struct.pack(blocksize, flags, postcount, typecode,
                                    0, len(ids_string), len(weights_string),
                                    maxweight, maxwol, 0, minlen_byte)
         
