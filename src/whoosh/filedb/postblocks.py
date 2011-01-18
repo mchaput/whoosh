@@ -189,7 +189,6 @@ class Block2(BlockBase):
             ids_string = dumps(ids, -1)[2:]
             typecode = "s"
         else:
-            maxid = max(ids)
             if maxid <= 255:
                 typecode = "B"
             elif maxid <= 65535:
