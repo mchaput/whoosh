@@ -98,6 +98,16 @@ class TestSorting(unittest.TestCase):
         self.assertEqual(fc.typecode, "q")
         self.assertEqual(list(fc.order), [2858205080241, -3572050858202, 4985020582043])
     
+    def test_shared_cache(self):
+        ix = self.make_single_index()
+        r1 = ix.reader()
+        fc1 = r1.fieldcache("id")
+        
+        r2 = ix.reader()
+        fc2 = r2.fieldcache("id")
+        
+        self.assertTrue(fc1 is fc2)
+        
     def test_sortedby(self):
         self.try_sort("id", lambda d: d["id"])
         self.try_sort("id", lambda d: d["id"], limit=5)
