@@ -14,26 +14,17 @@
 # limitations under the License.
 #===============================================================================
 
-import types
-from array import array
-from struct import Struct
-
-try:
-    from zlib import compress, decompress
-    can_compress = True
-except ImportError:
-    can_compress = False
-
 from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.spans import Span
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE, unpack_long, IS_LITTLE
-from whoosh.util import utf8encode, utf8decode, length_to_byte, byte_to_length
+from whoosh.system import _INT_SIZE
 from whoosh.filedb import postblocks
 
 
 class FilePostingWriter(PostingWriter):
+    blockclass = postblocks.current
+    
     def __init__(self, postfile, stringids=False, blocklimit=128,
                  compression=3):
         self.postfile = postfile
@@ -48,7 +39,7 @@ class FilePostingWriter(PostingWriter):
         self.block = None
 
     def _reset_block(self):
-        self.block = postblocks.current(self.postfile, self.stringids)
+        self.block = self.blockclass(self.postfile, self.stringids)
         
     def start(self, format):
         if self.block is not None:
@@ -60,7 +51,7 @@ class FilePostingWriter(PostingWriter):
         self.startoffset = self.postfile.tell()
         
         # Magic number
-        self.postfile.write_int(postblocks.current.magic)
+        self.postfile.write_int(self.blockclass.magic)
         # Placeholder for block count
         self.postfile.write_uint(0)
         
