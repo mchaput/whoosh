@@ -102,11 +102,7 @@ def write_postings(schema, termtable, lengths, postwriter, postiter,
                 # If the number of posts is below a certain threshold,
                 # inline them in the "offset" argument.
                 if postcount <= inlinelimit and postwriter.blockcount < 1:
-                    _, maxwol, minlength = postwriter.block_stats()
-                    offset = (tuple(postwriter.blockids),
-                              tuple(postwriter.blockweights),
-                              tuple(postwriter.blockvalues),
-                              maxwol, minlength)
+                    offset = postwriter.as_inline()
                     postwriter.cancel()
                 else:
                     postwriter.finish()
