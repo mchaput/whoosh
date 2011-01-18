@@ -149,7 +149,6 @@ class MultiSegmentWriter(IndexWriter):
             
             for task in self.tasks:
                 taskseg = self.jobqueue.get()
-                print "Segment=", taskseg
                 self.segments.append(taskseg)
             
             self.jobqueue.close()
@@ -167,6 +166,7 @@ class MultiSegmentWriter(IndexWriter):
                 readlock.release()
         finally:
             self.writelock.release()
+
 
 # Multiprocessing pool
 
