@@ -153,14 +153,16 @@ class PoolBase(object):
         return os.path.abspath(os.path.join(self.dir, self.basename + name))
     
     def _clean_temp_dir(self):
-        if self._using_tempdir:
+        if self._using_tempdir and os.path.exists(self.dir):
             try:
                 os.rmdir(self.dir)
-            except OSError, e:
+            except OSError:
                 # directory didn't exist or was not empty -- don't
                 # accidentially delete data
-                print "Error:", str(e)
                 pass
+    
+    def cleanup(self):
+        self._clean_temp_dir()
     
     def cancel(self):
         pass
