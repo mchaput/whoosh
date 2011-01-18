@@ -462,6 +462,8 @@ class SegmentWriter(IndexWriter):
                 # add it to the list of remaining segments returned by the merge policy
                 # function
                 new_segments.append(self._getsegment())
+            else:
+                self.pool.cleanup()
             
             # Close all files, write a new TOC with the new segment list, and
             # release the lock.
