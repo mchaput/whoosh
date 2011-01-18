@@ -57,7 +57,7 @@ class StructFile(object):
         self.onclose = onclose
         self.is_closed = False
 
-        for attr in ("read", "write", "tell", "seek", "truncate"):
+        for attr in ("read", "readline", "write", "tell", "seek", "truncate"):
             if hasattr(fileobj, attr):
                 setattr(self, attr, getattr(fileobj, attr))
 

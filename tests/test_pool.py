@@ -37,8 +37,8 @@ class FakePostWriter(object):
     def cancel(self):
         pass
     
-    def block_stats(self):
-        return (None, None, None)
+    def as_inline(self):
+        return ([], [], [], None, None)
     
     @property
     def posttotal(self):

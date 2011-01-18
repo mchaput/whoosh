@@ -295,9 +295,9 @@ class ListMatcher(Matcher):
         return self._scorer.block_quality(self)
     
     def skip_to_quality(self, minquality):
-        # TODO: Skip to the next posting with quality > minquality
-        self._i = len(self._ids)
-        return 0
+        self._i += 1
+        while self._i < len(self._ids) and self.quality() <= minquality:
+            self._i += 1
     
     def id(self):
         return self._ids[self._i]
