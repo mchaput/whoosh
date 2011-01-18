@@ -14,7 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
-import cPickle, os, re
+import cPickle, os, re, uuid
 from time import time
 from threading import Lock
 
@@ -374,14 +374,21 @@ class Segment(object):
         self.fieldlength_totals = fieldlength_totals
         self.fieldlength_maxes = fieldlength_maxes
         self.deleted = deleted
+        self.uuid = uuid.uuid4()
         
-        self._filenames = set()
-        for attr, ext in self.EXTENSIONS.iteritems():
-            fname = self.make_filename(ext)
-            setattr(self, attr + "_filename", fname)
-
     def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.name)
+        return "%s(%r, %s)" % (self.__class__.__name__, self.name, self.uuid)
+
+    def __getattr__(self, name):
+        # Capture accesses to e.g. Segment.fieldlengths_filename and return
+        # the appropriate filename
+        ext = "_filename"
+        if name.endswith(ext):
+            basename = name[:0-len(ext)]
+            if basename in self.EXTENSIONS:
+                return self.make_filename(self.EXTENSIONS[basename])
+        
+        raise AttributeError(name)
 
     def copy(self):
         return Segment(self.name, self.generation, self.doccount,
