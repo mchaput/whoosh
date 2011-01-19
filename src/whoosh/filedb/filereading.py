@@ -113,6 +113,7 @@ class SegmentReader(IndexReader):
             self.vectorindex.close()
         #if self.fieldlengths:
         #    self.fieldlengths.close()
+        self.caching_policy = None
         self.is_closed = True
 
     def doc_count_all(self):
@@ -339,7 +340,7 @@ class SegmentReader(IndexReader):
         self.caching_policy = cp
 
     def _fieldkey(self, fieldname):
-        return "%s_%s" % (self.uuid_string, fieldname)
+        return "%s/%s" % (self.uuid_string, fieldname)
 
     def define_facets(self, name, qs, save=SAVE_BY_DEFAULT):
         if name in self.schema:

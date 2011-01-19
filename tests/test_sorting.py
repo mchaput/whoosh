@@ -108,6 +108,14 @@ class TestSorting(unittest.TestCase):
         
         self.assertTrue(fc1 is fc2)
         
+        r3 = ix.reader()
+        self.assertTrue(r3.fieldcache_loaded("id"))
+        
+        del r1, fc1, r2, fc2
+        import gc
+        gc.collect()
+        self.assertFalse(r3.fieldcache_loaded("id"))
+    
     def test_sortedby(self):
         self.try_sort("id", lambda d: d["id"])
         self.try_sort("id", lambda d: d["id"], limit=5)
