@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import fields, index, qparser
+from whoosh import fields, qparser
 from whoosh.analysis import *
 from whoosh.filedb.filestore import RamStorage
 

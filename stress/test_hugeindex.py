@@ -1,6 +1,6 @@
 import unittest
 
-import os.path, struct
+import shutil, struct, tempfile
 
 from whoosh import formats
 from whoosh.filedb.filestore import FileStorage
@@ -9,22 +9,11 @@ from whoosh.util import now
 
 
 class Test(unittest.TestCase):
-    def make_file(self, name):
-        if not os.path.exists("testindex"):
-            os.mkdir("testindex")
-        return FileStorage("testindex").create_file(name+"_test.pst")
-    
-    def open_file(self, name):
-        return FileStorage("testindex").open_file(name+"_test.pst")
-    
-    def delete_file(self, name):
-        try:
-            FileStorage("testindex").delete_file(name+"_test.pst")
-        except OSError:
-            raise
-    
     def test_huge_postfile(self):
-        pf = self.make_file("huge")
+        dir = tempfile.mkdtemp(prefix="hugeindex", suffix=".tmpix")
+        st = FileStorage(dir)
+        
+        pf = st.create_file("test.pst")
         
         gb5 = 5 * 1024 * 1024 * 1024
         pf.seek(gb5)
@@ -40,7 +29,7 @@ class Test(unittest.TestCase):
         self.assertEqual(posttotal, 10)
         fpw.close()
         
-        pf = self.open_file("huge")
+        pf = st.open_file("test.pst")
         pfr = FilePostingReader(pf, offset, format)
         i = 0
         while pfr.is_active():
@@ -51,9 +40,7 @@ class Test(unittest.TestCase):
             i += 1
         pf.close()
         
-        #self.delete_file("huge")
-        
-        
+        shutil.rmtree()
         
         
     

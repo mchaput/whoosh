@@ -1,27 +1,15 @@
 import unittest
 
-import os.path
+import os.path, shutil, tempfile
 from random import randint, shuffle
-from shutil import rmtree
 
 from whoosh.filedb.filestore import FileStorage
 from whoosh.filedb.filetables import HashWriter, HashReader, dump_hash
 
 class Test(unittest.TestCase):
-    def make_storage(self, dirname):
-        if not os.path.exists(dirname):
-            os.mkdir(dirname)
-        return FileStorage(dirname)
-    
-    def destroy_storage(self, dirname):
-        if os.path.exists(dirname):
-            try:
-                rmtree(dirname)
-            except OSError:
-                raise
-    
     def test_bigtable(self):
-        st = self.make_storage("testindex")
+        dir = tempfile.mkdtemp(prefix="bigtable", suffix=".tmpix")
+        st = FileStorage(dir)
         
         def randstring(min, max):
             return "".join(chr(randint(1, 255))
@@ -46,8 +34,7 @@ class Test(unittest.TestCase):
         self.assertEqual(set1, set2)
         
         fhr.close()
-        
-        self.destroy_storage("testindex")
+        shutil.rmtree(dir)
 
 
 if __name__ == "__main__":
