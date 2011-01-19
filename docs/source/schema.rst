@@ -127,7 +127,7 @@ base class::
         content = TEXT
         tags = KEYWORD
 
-You can pass a declarative class to :func:`~whoosh.index.create_index_in` or
+You can pass a declarative class to :func:`~whoosh.index.create_in` or
 :meth:`~whoosh.store.Storage.create_index()` instead of a
 :class:`~whoosh.fields.Schema` instance.
 
