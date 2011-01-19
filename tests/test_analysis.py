@@ -1,6 +1,8 @@
 import unittest
 
+from whoosh import fields, index, qparser
 from whoosh.analysis import *
+from whoosh.filedb.filestore import RamStorage
 
 
 class TestAnalysis(unittest.TestCase):
@@ -116,9 +118,18 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(blocknum(unichr(0x0b80)), blocks.Tamil)
         
     def test_double_metaphone(self):
-        mf = RegexTokenizer() | DoubleMetaphoneFilter()
-        results = [(t.text, t.boost) for t in mf(u"spruce view")]
+        mf = RegexTokenizer() | LowercaseFilter() | DoubleMetaphoneFilter()
+        results = [(t.text, t.boost) for t in mf(u"Spruce View")]
         self.assertEqual(results, [('SPRS', 1.0), ('F', 1.0), ('FF', 0.5)])
+        
+        mf = RegexTokenizer() | LowercaseFilter() | DoubleMetaphoneFilter(combine=True)
+        results = [(t.text, t.boost) for t in mf(u"Spruce View")]
+        self.assertEqual(results, [('spruce', 1.0), ('SPRS', 1.0),
+                                   ('view', 1.0), ('F', 1.0), ('FF', 0.5)])
+    
+        namefield = fields.TEXT(analyzer=mf)
+        texts = list(namefield.process_text(u"Spruce View", mode="query"))
+        self.assertEqual(texts, [u'spruce', 'SPRS', u'view', 'F', 'FF'])
     
     def test_substitution(self):
         mf = RegexTokenizer(r"\S+") | SubstitutionFilter("-", "")
@@ -150,6 +161,27 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(stem("bill's"), "bill")
         self.assertEqual(stem("y's"), "y")
         
+    def test_name_field(self):
+        ana = (RegexTokenizer(r"\S+")
+               | LowercaseFilter()
+               | DoubleMetaphoneFilter(combine=True))
+        namefield = fields.TEXT(analyzer=ana, multitoken_query="or")
+        schema = fields.Schema(id=fields.STORED, name=namefield)
+        
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(id=u"one", name=u"Leif Ericson")
+        w.commit()
+        
+        s = ix.searcher()
+        qp = qparser.QueryParser("name", schema=schema)
+        q = qp.parse(u"leaf eriksen", normalize=False)
+        r = s.search(q)
+        self.assertEqual(len(r), 1)
+
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
