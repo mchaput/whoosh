@@ -116,6 +116,17 @@ If you aren't specifying any constructor keyword arguments to one of the
 predefined fields, you can leave off the brackets (e.g. fieldname=TEXT instead
 of fieldname=TEXT()). Whoosh will instantiate the class for you.
 
+Alternatively you can create a schema declaratively using the ``SchemaClass``
+base class::
+
+    from whoosh.fields import SchemaClass, TEXT, KEYWORD, ID, STORED
+
+    class MySchema(SchemaClass):
+        path = ID(stored=True)
+        title = TEXT(stored=True)
+        content = TEXT
+        tags = KEYWORD
+
 
 Modifying the schema after indexing
 ===================================

@@ -10,6 +10,7 @@ Schema class
 .. autoclass:: Schema
     :members:
 
+.. autoclass:: SchemaClass
 
 FieldType base class
 ====================

@@ -19,7 +19,7 @@ from time import time
 from threading import Lock
 
 from whoosh import __version__
-from whoosh.fields import Schema
+from whoosh.fields import ensure_schema
 from whoosh.index import Index, EmptyIndexError, IndexVersionError, _DEF_INDEX_NAME
 from whoosh.reading import EmptyReader, MultiReader
 from whoosh.store import Storage, LockError
@@ -68,11 +68,14 @@ def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
         if filename.startswith(prefix):
             storage.delete_file(filename)
     
+    schema = ensure_schema(schema)
+    
     # Write a TOC file with an empty list of segments
     _write_toc(storage, schema, indexname, 0, 0, [])
 
 
 def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
+    schema = ensure_schema(schema)
     schema.clean()
 
     # Use a temporary file for atomic write.
@@ -138,6 +141,7 @@ def _read_toc(storage, schema, indexname):
         stream.skip_string()
     else:
         schema = cPickle.loads(stream.read_string())
+    schema = ensure_schema(schema)
     
     # Generation
     index_gen = stream.read_int()
@@ -204,10 +208,11 @@ class FileIndex(Index):
     def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
         if not isinstance(storage, Storage):
             raise ValueError("%r is not a Storage object" % storage)
-        if schema is not None and not isinstance(schema, Schema):
-            raise ValueError("%r is not a Schema object" % schema)
         if not isinstance(indexname, (str, unicode)):
             raise ValueError("indexname %r is not a string" % indexname)
+        
+        if schema:
+            schema = ensure_schema(schema)
         
         self.storage = storage
         self._schema = schema

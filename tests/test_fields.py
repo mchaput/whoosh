@@ -44,7 +44,36 @@ class TestSchema(unittest.TestCase):
         self.assertTrue("a" in s)
         self.assertTrue("b" in s)
         self.assertTrue("c" in s)
+    
+    def test_declarative(self):
+        class MySchema(fields.SchemaClass):
+            content = fields.TEXT
+            title = fields.TEXT
+            path = fields.ID
+            date = fields.DATETIME
         
+        ix = RamStorage().create_index(MySchema)
+        self.assertEqual(ix.schema.names(), ["content", "date", "path", "title"])
+        
+        ix = RamStorage().create_index(MySchema())
+        self.assertEqual(ix.schema.names(), ["content", "date", "path", "title"])
+        
+        self.assertRaises(fields.FieldConfigurationError, RamStorage().create_index, object())
+    
+    def test_declarative_inherit(self):
+        class Parent(fields.SchemaClass):
+            path = fields.ID
+            date = fields.DATETIME
+            
+        class Child(Parent):
+            content = fields.TEXT
+            
+        class Grandchild(Child):
+            title = fields.TEXT
+            
+        s = Grandchild()
+        self.assertEqual(s.names(), ["content", "date", "path", "title"])
+    
     def test_badnames(self):
         s = fields.Schema()
         self.assertRaises(fields.FieldConfigurationError, s.add, "_test", fields.ID)
