@@ -139,21 +139,23 @@ class PoolBase(object):
     def __init__(self, schema, dir=None, basename=''):
         self.schema = schema
         self._using_tempdir = False
-        if dir is None:
-            dir = tempfile.mkdtemp(".whoosh")
-            self._using_tempdir = True
         self.dir = dir
+        self._using_tempdir = dir is not None
         self.basename = basename
         
         self.length_arrays = {}
         self._fieldlength_totals = defaultdict(int)
         self._fieldlength_maxes = {}
     
+    def _make_dir(self):
+        if self.dir is None:
+            self.dir = tempfile.mkdtemp(".whoosh")
+    
     def _filename(self, name):
         return os.path.abspath(os.path.join(self.dir, self.basename + name))
     
     def _clean_temp_dir(self):
-        if self._using_tempdir and os.path.exists(self.dir):
+        if self._using_tempdir and self.dir and os.path.exists(self.dir):
             try:
                 os.rmdir(self.dir)
             except OSError:
@@ -243,6 +245,7 @@ class TempfilePool(PoolBase):
         if self.size > 0:
             #print "Dumping run..."
             t = now()
+            self._make_dir()
             fd, filename = tempfile.mkstemp(".run", dir=self.dir)
             runfile = os.fdopen(fd, "w+b")
             self.postings.sort()
@@ -294,6 +297,7 @@ class TempfilePool(PoolBase):
 class SqlitePool(PoolBase):
     def __init__(self, schema, dir=None, basename='', limitmb=32, **kwargs):
         super(SqlitePool, self).__init__(schema, dir=dir, basename=basename)
+        self._make_dir()
         self.postbuf = defaultdict(list)
         self.bufsize = 0
         self.limit = limitmb * 1024 * 1024
@@ -338,7 +342,7 @@ class SqlitePool(PoolBase):
             con.close()
             os.remove(self._field_filename(name))
         
-        if self._using_tempdir:
+        if self._using_tempdir and self.dir:
             try:
                 os.rmdir(self.dir)
             except OSError:
