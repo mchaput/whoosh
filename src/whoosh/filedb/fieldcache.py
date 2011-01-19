@@ -484,7 +484,11 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         return self.is_loaded(key) or self._file_exists(key)
     
     def _filename(self, key):
-        return "%s.%s.fc" % (self.basename, key)
+        if "/" in key:
+            savename = key[key.rfind("/") + 1:]
+        else:
+            savename = key
+        return "%s.%s.fc" % (self.basename, savename)
     
     def _file_exists(self, key):
         if not self.storage: return False
@@ -543,9 +547,7 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         
         with self.sharedlock:
             if key in self.shared_cache:
-                fc = self.shared_cache[key]
-                self.caches[key] = fc
-                return fc
+                return self.shared_cache[key]
         
         if self._file_exists(key):
             try:

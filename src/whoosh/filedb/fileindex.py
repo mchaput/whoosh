@@ -377,7 +377,8 @@ class Segment(object):
         self.uuid = uuid.uuid4()
         
     def __repr__(self):
-        return "%s(%r, %s)" % (self.__class__.__name__, self.name, self.uuid)
+        return "%s(%r, %s)" % (self.__class__.__name__, self.name,
+                               getattr(self, "uuid", ""))
 
     def __getattr__(self, name):
         # Capture accesses to e.g. Segment.fieldlengths_filename and return
