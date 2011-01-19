@@ -111,6 +111,8 @@ class SegmentReader(IndexReader):
             self.postfile.close()
         if self.vectorindex:
             self.vectorindex.close()
+        if self.vpostfile:
+            self.vpostfile.close()
         #if self.fieldlengths:
         #    self.fieldlengths.close()
         self.caching_policy = None

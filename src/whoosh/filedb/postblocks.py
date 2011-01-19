@@ -41,6 +41,12 @@ class BlockBase(object):
         self.lengths = array("i")
         self.values = None
     
+    def __del__(self):
+        try:
+            del self.postfile
+        except:
+            pass
+    
     def __len__(self):
         return len(self.ids)
     

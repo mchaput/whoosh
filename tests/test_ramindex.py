@@ -2,11 +2,11 @@ from __future__ import with_statement
 import unittest
 
 import os.path
-from shutil import rmtree
 
 from whoosh import query
 from whoosh.fields import *
 from whoosh.ramdb.ramindex import RamIndex
+from whoosh.support.testing import TempIndex
 
 
 class TestRamIndex(unittest.TestCase):
@@ -135,21 +135,16 @@ class TestRamIndex(unittest.TestCase):
         self.assertEqual(target, vec)
         
     def test_todisk(self):
-        if not os.path.exists("testindex"):
-            os.mkdir("testindex")
-
         ix = self.make_index()
 
-        from whoosh.index import create_in
-        fix = create_in("testindex", ix.schema)
-        
-        w = fix.writer()
-        w.add_reader(ix.reader())
-        w.commit()
-        
-        rmtree("testindex", ignore_errors=True)
+        with TempIndex(ix.schema, "ramtodisk") as fix:
+            w = fix.writer()
+            w.add_reader(ix.reader())
+            w.commit()
 
 
+
+        
 if __name__ == '__main__':
     unittest.main()
 
