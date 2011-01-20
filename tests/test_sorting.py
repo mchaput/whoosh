@@ -4,7 +4,6 @@ import unittest
 import random
 
 from whoosh import index, fields, query
-from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempIndex
 
 
@@ -30,22 +29,18 @@ class TestSorting(unittest.TestCase):
                              ev=fields.ID,
                              )
     
-    def make_single_index(self):
-        ix = RamStorage().create_index(self.get_schema())
+    def make_single_index(self, ix):
         w = ix.writer()
         for doc in self.docs:
             w.add_document(ev=u"a", **doc)
         w.commit()
-        return ix
     
-    def make_multi_index(self):
-        ix = RamStorage().create_index(self.get_schema())
+    def make_multi_index(self, ix):
         for i in xrange(0, len(self.docs), 3):
             w = ix.writer()
             for doc in self.docs[i:i+3]:
                 w.add_document(ev=u"a", **doc)
             w.commit(merge=False)
-        return ix
     
     def try_sort(self, sortedby, key, q=None, limit=None, reverse=False):
         if q is None: q = query.Term("ev", u"a")
@@ -53,11 +48,12 @@ class TestSorting(unittest.TestCase):
         correct = [d["id"] for d in sorted(self.docs, key=key, reverse=reverse)][:limit]
         
         for ixtype in ("single", "multi"):
-            ix = getattr(self, "make_%s_index" % ixtype)()
-            with ix.searcher() as s:
-                r = s.search(q, sortedby=sortedby, limit=limit, reverse=reverse)
-                rids = [d["id"] for d in r]
-                self.assertEqual(rids, correct, "type=%r %r != %r" % (ixtype, rids, correct))
+            with TempIndex(self.get_schema()) as ix:
+                getattr(self, "make_%s_index" % ixtype)(ix)
+                with ix.searcher() as s:
+                    r = s.search(q, sortedby=sortedby, limit=limit, reverse=reverse)
+                    rids = [d["id"] for d in r]
+                    self.assertEqual(rids, correct, "type=%r %r != %r" % (ixtype, rids, correct))
     
     def test_cached_lexicon(self):
         schema = fields.Schema(tag=fields.ID)
@@ -77,60 +73,65 @@ class TestSorting(unittest.TestCase):
     
     def test_float_cache(self):
         schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=float))
-        ix = RamStorage().create_index(schema)
-        w = ix.writer()
-        w.add_document(id=1, num=1.5)
-        w.add_document(id=2, num=-8.25)
-        w.add_document(id=3, num=0.75)
-        w.commit()
-        
-        r = ix.reader()
-        r.fieldcache("num")
-        r.unload_fieldcache("num")
-        
-        fc = r.fieldcache("num")
-        self.assertFalse(fc.hastexts)
-        self.assertEqual(fc.texts, None)
-        self.assertEqual(fc.typecode, "f")
-        self.assertEqual(list(fc.order), [1.5, -8.25, 0.75])
+        with TempIndex(schema, "floatcache") as ix:
+            w = ix.writer()
+            w.add_document(id=1, num=1.5)
+            w.add_document(id=2, num=-8.25)
+            w.add_document(id=3, num=0.75)
+            w.commit()
+            
+            with ix.reader() as r:
+                r.fieldcache("num")
+                r.unload_fieldcache("num")
+                
+                fc = r.fieldcache("num")
+                self.assertFalse(fc.hastexts)
+                self.assertEqual(fc.texts, None)
+                self.assertEqual(fc.typecode, "f")
+                self.assertEqual(list(fc.order), [1.5, -8.25, 0.75])
     
     def test_long_cache(self):
         schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=long))
-        ix = RamStorage().create_index(schema)
-        w = ix.writer()
-        w.add_document(id=1, num=2858205080241)
-        w.add_document(id=2, num=-3572050858202)
-        w.add_document(id=3, num=4985020582043)
-        w.commit()
-        
-        r = ix.reader()
-        r.fieldcache("num")
-        r.unload_fieldcache("num")
-        
-        fc = r.fieldcache("num")
-        self.assertFalse(fc.hastexts)
-        self.assertEqual(fc.texts, None)
-        self.assertEqual(fc.typecode, "q")
-        self.assertEqual(list(fc.order), [2858205080241, -3572050858202, 4985020582043])
+        with TempIndex(schema, "longcache") as ix:
+            w = ix.writer()
+            w.add_document(id=1, num=2858205080241)
+            w.add_document(id=2, num=-3572050858202)
+            w.add_document(id=3, num=4985020582043)
+            w.commit()
+            
+            with ix.reader() as r:
+                r.fieldcache("num")
+                r.unload_fieldcache("num")
+                
+                fc = r.fieldcache("num")
+                self.assertFalse(fc.hastexts)
+                self.assertEqual(fc.texts, None)
+                self.assertEqual(fc.typecode, "q")
+                self.assertEqual(list(fc.order), [2858205080241, -3572050858202, 4985020582043])
     
     def test_shared_cache(self):
-        ix = self.make_single_index()
-        r1 = ix.reader()
-        fc1 = r1.fieldcache("id")
-        
-        r2 = ix.reader()
-        fc2 = r2.fieldcache("id")
-        
-        self.assertTrue(fc1 is fc2)
-        
-        r3 = ix.reader()
-        self.assertTrue(r3.fieldcache_loaded("id"))
-        
-        del r1, fc1, r2, fc2
-        import gc
-        gc.collect()
-        self.assertFalse(r3.fieldcache_loaded("id"))
-    
+        with TempIndex(self.get_schema(), "sharedcache") as ix:
+            self.make_single_index(ix)
+            r1 = ix.reader()
+            fc1 = r1.fieldcache("id")
+            
+            r2 = ix.reader()
+            fc2 = r2.fieldcache("id")
+            
+            self.assertTrue(fc1 is fc2)
+            
+            r3 = ix.reader()
+            self.assertTrue(r3.fieldcache_loaded("id"))
+            
+            r1.close()
+            r2.close()
+            del r1, fc1, r2, fc2
+            import gc
+            gc.collect()
+            
+            self.assertFalse(r3.fieldcache_loaded("id"))
+            r3.close()
+            
     def test_sortedby(self):
         self.try_sort("id", lambda d: d["id"])
         self.try_sort("id", lambda d: d["id"], limit=5)
@@ -150,75 +151,77 @@ class TestSorting(unittest.TestCase):
         self.try_sort("frac", lambda d: d["frac"])
 
     def test_field_facets(self):
-        def check(ix):
-            with ix.searcher() as s:
-                q = query.Every()
-                groups = s.categorize_query(q, "tag")
-                self.assertEqual(sorted(groups.items()), [(u'one', [0L, 6L]),
-                                                          (u'three', [1L, 3L, 7L, 8L]),
-                                                          (u'two', [2L, 4L, 5L])])
+        def check(method):
+            with TempIndex(self.get_schema()) as ix:
+                method(ix)
+                with ix.searcher() as s:
+                    q = query.Every()
+                    groups = s.categorize_query(q, "tag")
+                    self.assertEqual(sorted(groups.items()), [(u'one', [0L, 6L]),
+                                                              (u'three', [1L, 3L, 7L, 8L]),
+                                                              (u'two', [2L, 4L, 5L])])
         
-        check(self.make_single_index())
-        check(self.make_multi_index())
+        check(self.make_single_index)
+        check(self.make_multi_index)
     
     def test_query_facets(self):
         schema = fields.Schema(value=fields.ID(stored=True))
-        ix = RamStorage().create_index(schema)
-        w = ix.writer()
-        alphabet = list(u"abcdefghijklmnopqrstuvwxyz")
-        random.shuffle(alphabet)
-        
-        for letter in alphabet:
-            w.add_document(value=letter)
-        w.commit()
-        
-        with ix.searcher() as s:
-            q1 = query.TermRange("value", u"a", u"i")
-            q2 = query.TermRange("value", u"j", u"r")
-            q3 = query.TermRange("value", u"s", u"z")
-            s.define_facets("range", {"a-i": q1, "j-r": q2, "s-z": q3},
-                            save=False)
+        with TempIndex(schema, "queryfacets") as ix:
+            w = ix.writer()
+            alphabet = list(u"abcdefghijklmnopqrstuvwxyz")
+            random.shuffle(alphabet)
             
-            def check(groups):
-                for key in groups.keys():
-                    groups[key] = "".join(sorted([s.stored_fields(id)["value"]
-                                                  for id in groups[key]]))
-                self.assertEqual(groups, {'a-i': u'abcdefghi',
-                                          'j-r': u'jklmnopqr',
-                                          's-z': u'stuvwxyz'})
+            for letter in alphabet:
+                w.add_document(value=letter)
+            w.commit()
             
-            check(s.categorize_query(query.Every(), "range"))
-
-            r = s.search(query.Every(), groupedby="range")
-            check(r.groups("range"))
-            
-        with ix.searcher() as s:
-            self.assertFalse(s.reader().fieldcache_available("range"))
+            with ix.searcher() as s:
+                q1 = query.TermRange("value", u"a", u"i")
+                q2 = query.TermRange("value", u"j", u"r")
+                q3 = query.TermRange("value", u"s", u"z")
+                s.define_facets("range", {"a-i": q1, "j-r": q2, "s-z": q3},
+                                save=False)
+                
+                def check(groups):
+                    for key in groups.keys():
+                        groups[key] = "".join(sorted([s.stored_fields(id)["value"]
+                                                      for id in groups[key]]))
+                    self.assertEqual(groups, {'a-i': u'abcdefghi',
+                                              'j-r': u'jklmnopqr',
+                                              's-z': u'stuvwxyz'})
+                
+                check(s.categorize_query(query.Every(), "range"))
+    
+                r = s.search(query.Every(), groupedby="range")
+                check(r.groups("range"))
+                
+            with ix.searcher() as s:
+                self.assertFalse(s.reader().fieldcache_available("range"))
 
     def test_multifacet(self):
         schema = fields.Schema(tag=fields.ID(stored=True),
                                size=fields.ID(stored=True))
-        ix = RamStorage().create_index(schema)
-        w = ix.writer()
-        w.add_document(tag=u"alfa", size=u"small")
-        w.add_document(tag=u"bravo", size=u"medium")
-        w.add_document(tag=u"alfa", size=u"large")
-        w.add_document(tag=u"bravo", size=u"small")
-        w.add_document(tag=u"alfa", size=u"medium")
-        w.add_document(tag=u"bravo", size=u"medium")
-        w.commit()
-        
-        correct = {(u'bravo', u'medium'): [1, 5], (u'alfa', u'large'): [2],
-                   (u'alfa', u'medium'): [4], (u'alfa', u'small'): [0],
-                   (u'bravo', u'small'): [3]}
-        
-        with ix.searcher() as s:
-            cats = s.categorize_query(query.Every(), ("tag", "size"))
-            self.assertEqual(cats, correct)
+        with TempIndex(schema, "multifacet") as ix:
+            w = ix.writer()
+            w.add_document(tag=u"alfa", size=u"small")
+            w.add_document(tag=u"bravo", size=u"medium")
+            w.add_document(tag=u"alfa", size=u"large")
+            w.add_document(tag=u"bravo", size=u"small")
+            w.add_document(tag=u"alfa", size=u"medium")
+            w.add_document(tag=u"bravo", size=u"medium")
+            w.commit()
             
-            r = s.search(query.Every(), groupedby=[("tag", "size")])
-            cats = r.groups(("tag", "size"))
-            self.assertEqual(cats, correct)
+            correct = {(u'bravo', u'medium'): [1, 5], (u'alfa', u'large'): [2],
+                       (u'alfa', u'medium'): [4], (u'alfa', u'small'): [0],
+                       (u'bravo', u'small'): [3]}
+            
+            with ix.searcher() as s:
+                cats = s.categorize_query(query.Every(), ("tag", "size"))
+                self.assertEqual(cats, correct)
+                
+                r = s.search(query.Every(), groupedby=[("tag", "size")])
+                cats = r.groups(("tag", "size"))
+                self.assertEqual(cats, correct)
 
 
 if __name__ == '__main__':
