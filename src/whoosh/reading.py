@@ -222,7 +222,9 @@ class IndexReader(ClosableMixin):
         """
         
         p = self.postings(fieldname, text)
-        return p.id()
+        if p.is_active():
+            return p.id()
+        raise TermNotFound((fieldname, text))
 
     def postings(self, fieldname, text, scorer=None):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the

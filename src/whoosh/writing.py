@@ -14,6 +14,7 @@
 # limitations under the License.
 #===============================================================================
 
+from __future__ import with_statement
 import threading, time
 
 from whoosh.store import LockError
@@ -96,14 +97,15 @@ class IndexWriter(object):
         else:
             s = self.searcher()
         
-        count = 0
-        for docnum in q.docs(s):
-            if not self.is_deleted(docnum):
-                self.delete_document(docnum)
-                count += 1
-        
-        if not searcher:
-            s.close()
+        try:
+            count = 0
+            for docnum in s.docs_for_query(q):
+                if not self.is_deleted(docnum):
+                    self.delete_document(docnum)
+                    count += 1
+        finally:
+            if not searcher:
+                s.close()
         
         return count
     
@@ -154,17 +156,17 @@ class IndexWriter(object):
             raise IndexingError("None of the fields in %r"
                                 " are unique" % fields.keys())
         
-        # Find the set of documents matching the unique terms
+        # Delete the set of documents matching the unique terms
         delset = set()
-        reader = self.searcher().reader()
-        for name in unique_fields:
-            field = self.schema[name]
-            text = field.to_text(fields[name])
-            docnum = reader.postings(name, text).id()
-            delset.add(docnum)
-        reader.close()
+        with self.searcher() as s:
+            for name in unique_fields:
+                field = self.schema[name]
+                text = field.to_text(fields[name])
+                
+                docnum = s.document_number(**{name: text})
+                if docnum is not None:
+                    delset.add(docnum)
         
-        # Delete the old docs
         for docnum in delset:
             self.delete_document(docnum)
         

@@ -24,7 +24,10 @@ class TempStorage(object):
                 return False
         
         if not self.keepdir:
-            shutil.rmtree(self.dir)
+            try:
+                shutil.rmtree(self.dir)
+            except OSError, e:
+                print "Can't remove temp dir: " + str(e)
 
 
 class TempIndex(TempStorage):

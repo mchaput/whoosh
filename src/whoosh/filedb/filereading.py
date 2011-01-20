@@ -248,17 +248,6 @@ class SegmentReader(IndexReader):
             
             yield (t, id)
 
-    def first_id(self, fieldname, text):
-        self._test_field(fieldname)
-        format = self.schema[fieldname].format
-        
-        offset = self.termsindex[(fieldname, text)][1]
-        if isinstance(offset, (int, long)):
-            postreader = FilePostingReader(self.postfile, offset, format)
-            return postreader.id()
-        else:
-            return offset[0][0]
-
     def postings(self, fieldname, text, scorer=None):
         self._test_field(fieldname)
         format = self.schema[fieldname].format
