@@ -506,10 +506,11 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         try:
             f = self.storage.create_file(filename, gzip=self.gzip_caches,
                                          excl=True)
-            cache.to_file(f)
-            f.close()
         except OSError:
             pass
+        else:
+            cache.to_file(f)
+            f.close()
     
     def _load(self, key):
         storage = self.storage

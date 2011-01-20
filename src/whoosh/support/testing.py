@@ -31,7 +31,7 @@ class TempStorage(object):
 
 
 class TempIndex(TempStorage):
-    def __init__(self, schema, ixname=None, **kwargs):
+    def __init__(self, schema, ixname='', **kwargs):
         super(TempIndex, self).__init__(basename=ixname, **kwargs)
         self.schema = schema
 
