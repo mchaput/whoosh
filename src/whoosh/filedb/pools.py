@@ -135,12 +135,14 @@ def write_postings(schema, termtable, lengths, postwriter, postiter,
                       (current_weight, offset, postcount))
 
 
+DEBUG_DIR = False
+
 class PoolBase(object):
     def __init__(self, schema, dir=None, basename=''):
         self.schema = schema
         self._using_tempdir = False
         self.dir = dir
-        self._using_tempdir = dir is not None
+        self._using_tempdir = dir is None
         self.basename = basename
         
         self.length_arrays = {}
@@ -150,12 +152,21 @@ class PoolBase(object):
     def _make_dir(self):
         if self.dir is None:
             self.dir = tempfile.mkdtemp(".whoosh")
+            
+            if DEBUG_DIR:
+                dfile = open(self._filename("DEBUG.txt"), "wb")
+                import traceback
+                traceback.print_stack(file=dfile)
+                dfile.close()
     
     def _filename(self, name):
         return os.path.abspath(os.path.join(self.dir, self.basename + name))
     
     def _clean_temp_dir(self):
         if self._using_tempdir and self.dir and os.path.exists(self.dir):
+            if DEBUG_DIR:
+                os.remove(self._filename("DEBUG.txt"))
+            
             try:
                 os.rmdir(self.dir)
             except OSError:
@@ -272,7 +283,7 @@ class TempfilePool(PoolBase):
                     os.remove(filename)
                 except IOError:
                     pass
-                
+        
         self._clean_temp_dir()
         
     def finish(self, doccount, lengthfile, termtable, postingwriter):
