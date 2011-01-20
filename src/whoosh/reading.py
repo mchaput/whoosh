@@ -202,20 +202,6 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def first_ids(self, fieldname):
-        """Yields a series of (text, docid) tuples for the terms in the given
-        field. This may be optimized in certain backends to be much faster than
-        iterating on the field and reading the first item from each posting
-        list.
-        
-        Taking the first doc ID for each term in a field is often useful when
-        working with fields of unique identifier values, where you know each
-        term should only have one doc ID in the posting list.
-        """
-        
-        for text in self.lexicon(fieldname):
-            yield (text, self.first_id(fieldname, text))
-
     def first_id(self, fieldname, text):
         """Returns the first ID in the posting list for the given term. This
         may be optimized in certain backends.
@@ -609,9 +595,12 @@ class MultiReader(IndexReader):
         for i, r in enumerate(self.readers):
             try:
                 id = r.first_id(fieldname, text)
-                return self.doc_offsets[i] + id
             except (KeyError, TermNotFound):
                 pass
+            else:
+                return self.doc_offsets[i] + id
+        
+        raise TermNotFound((fieldname, text))
 
     def postings(self, fieldname, text, scorer=None):
         postreaders = []

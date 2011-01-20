@@ -160,15 +160,12 @@ class IndexWriter(object):
         delset = set()
         with self.searcher() as s:
             for name in unique_fields:
-                field = self.schema[name]
-                text = field.to_text(fields[name])
-                
-                docnum = s.document_number(**{name: text})
+                docnum = s.document_number(**{name: fields[name]})
                 if docnum is not None:
                     delset.add(docnum)
         
-        for docnum in delset:
-            self.delete_document(docnum)
+            for docnum in delset:
+                self.delete_document(docnum)
         
         # Add the given fields
         self.add_document(**fields)
