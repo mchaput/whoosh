@@ -224,6 +224,7 @@ class MultiPool(PoolBase):
     def __init__(self, schema, dir=None, procs=2, limitmb=32, batchsize=100,
                  **kw):
         PoolBase.__init__(self, schema, dir=dir)
+        self._make_dir()
         
         self.procs = procs
         self.limitmb = limitmb
