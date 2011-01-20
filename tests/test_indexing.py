@@ -287,15 +287,15 @@ class TestIndexing(unittest.TestCase):
         
     def test_update2(self):
         schema = fields.Schema(key=fields.ID(unique=True, stored=True),
-                               number=fields.ID(stored=True))
+                               p=fields.ID(stored=True))
         with TempIndex(schema, "update2") as ix:
             nums = range(100)
             random.shuffle(nums)
-            for n in nums:
+            for i, n in enumerate(nums):
                 w = ix.writer()
-                w.update_document(key=unicode(n % 10), number=unicode(n))
+                w.update_document(key=unicode(n % 10), p=unicode(i))
                 w.commit()
-        
+                
             with ix.searcher() as s:
                 results = [d["key"] for d in s.all_stored_fields()]
                 results.sort()

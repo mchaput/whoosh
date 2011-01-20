@@ -208,7 +208,10 @@ class SegmentReader(IndexReader):
         # instead of loading the field values from disk
         if self.fieldcache_loaded(fieldname):
             fieldcache = self.fieldcache(fieldname)
-            return iter(fieldcache.texts)
+            it = iter(fieldcache.texts)
+            # The first value in fieldcache.texts is the default; throw it away
+            it.next()
+            return it
         
         return self.expand_prefix(fieldname, '')
 
@@ -232,21 +235,24 @@ class SegmentReader(IndexReader):
                     break
                 yield t
 
-    def first_ids(self, fieldname):
-        self._test_field(fieldname)
-        format = self.schema[fieldname].format
-        
-        for (fn, t), (totalfreq, offset, postcount) in self.termsindex.items_from((fieldname, '')):
-            if fn != fieldname:
-                break
-            
-            if isinstance(offset, (int, long)):
-                postreader = FilePostingReader(self.postfile, offset, format)
-                id = postreader.id()
-            else:
-                id = offset[0][0]
-            
-            yield (t, id)
+#    def first_id(self, fieldname, text):
+#        id = None
+#        try:
+#            offset = self.termsindex[fieldname, text][1]
+#        except KeyError:
+#            raise TermNotFound((fieldname, text))
+#        else:
+#            if isinstance(offset, (int, long)):
+#                format = self.schema[fieldname].format
+#                pr = FilePostingReader(self.postfile, offset, format)
+#                if pr.is_active():
+#                    id = pr.id()
+#            else:
+#                id = offset[0][0]
+#        
+#        if id is not None and not self.is_deleted(id):
+#            return id
+#        raise TermNotFound((fieldname, text))
 
     def postings(self, fieldname, text, scorer=None):
         self._test_field(fieldname)

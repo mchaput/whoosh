@@ -223,6 +223,17 @@ class Searcher(object):
         return (ixreader.stored_fields(docnum)
                 for docnum in self.document_numbers(**kw))
 
+    def _kw_to_text(self, kw):
+        for k, v in kw.iteritems():
+            field = self.schema[k]
+            kw[k] = field.to_text(v)
+
+    def _query_for_kw(self, kw):
+        subqueries = []
+        for key, value in kw.iteritems():
+            subqueries.append(query.Term(key, value))
+        return query.And(subqueries).normalize()
+
     def document_number(self, **kw):
         """Returns the document number of the document matching the given
         keyword arguments, where the keyword keys are field names and the
@@ -240,15 +251,18 @@ class Searcher(object):
 
         # In the common case where only one keyword was given, just use
         # first_id() instead of building a query.
+        
+        self._kw_to_text(kw)
         if len(kw) == 1:
             k, v = kw.items()[0]
             try:
                 return self.reader().first_id(k, v)
             except TermNotFound:
                 return None
-
-        for docnum in self.document_numbers(**kw):
-            return docnum
+        else:
+            m = self._query_for_kw(kw).matcher(self)
+            if m.is_active():
+                return m.id()
 
     def document_numbers(self, **kw):
         """Returns a generator of the document numbers for documents matching
@@ -259,18 +273,10 @@ class Searcher(object):
         """
 
         if len(kw) == 0:
-            return
-
-        subqueries = []
-        for key, value in kw.iteritems():
-            field = self.schema[key]
-            text = field.to_text(value)
-            subqueries.append(query.Term(key, text))
-        if not subqueries:
             return []
         
-        q = query.And(subqueries).normalize()
-        return self.docs_for_query(q)
+        self._kw_to_text(kw)
+        return self.docs_for_query(self._query_for_kw(kw))
 
     def docs_for_query(self, q, leafs=True):
         if self.subsearchers and leafs:

@@ -5,6 +5,7 @@ import random
 
 from whoosh import index, fields, query
 from whoosh.filedb.filestore import RamStorage
+from whoosh.support.testing import TempIndex
 
 
 class TestSorting(unittest.TestCase):
@@ -57,6 +58,20 @@ class TestSorting(unittest.TestCase):
                 r = s.search(q, sortedby=sortedby, limit=limit, reverse=reverse)
                 rids = [d["id"] for d in r]
                 self.assertEqual(rids, correct, "type=%r %r != %r" % (ixtype, rids, correct))
+    
+    def test_cached_lexicon(self):
+        schema = fields.Schema(tag=fields.ID)
+        with TempIndex(schema, "cachedlexicon") as ix:
+            w = ix.writer()
+            w.add_document(tag=u"sierra")
+            w.add_document(tag=u"alfa")
+            w.add_document(tag=u"juliet")
+            w.add_document(tag=u"romeo")
+            w.commit()
+            
+            with ix.reader() as r:
+                fc = r.fieldcache("tag")
+                self.assertEqual(list(r.lexicon("tag")), ["alfa", "juliet", "romeo", "sierra"])
     
     # 
     
