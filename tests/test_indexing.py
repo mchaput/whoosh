@@ -300,7 +300,7 @@ class TestIndexing(unittest.TestCase):
                 results = [d["key"] for d in s.all_stored_fields()]
                 results.sort()
                 self.assertEqual(results, ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
-        
+    
     def test_reindex(self):
         SAMPLE_DOCS = [
             {'id': u'test1', 'text': u'This is a document. Awesome, is it not?'},
@@ -313,13 +313,9 @@ class TestIndexing(unittest.TestCase):
         with TempIndex(schema, "reindex") as ix:
             def reindex():
                 writer = ix.writer()
-                try:
-                    for doc in SAMPLE_DOCS:
-                        writer.update_document(**doc)
-                    writer.commit()
-                except:
-                    writer.cancel()
-                    raise
+                for doc in SAMPLE_DOCS:
+                    writer.update_document(**doc)
+                writer.commit()
     
             reindex()
             self.assertEqual(ix.doc_count_all(), 3)

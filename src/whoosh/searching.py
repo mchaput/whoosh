@@ -25,7 +25,7 @@ from heapq import nlargest, nsmallest, heappush, heapreplace
 from math import ceil
 
 from whoosh import classify, query, scoring
-from whoosh.matching import NullMatcher
+from whoosh.reading import TermNotFound
 from whoosh.util import now
 
 
@@ -242,7 +242,10 @@ class Searcher(object):
         # first_id() instead of building a query.
         if len(kw) == 1:
             k, v = kw.items()[0]
-            return self.reader().first_id(k, v)
+            try:
+                return self.reader().first_id(k, v)
+            except TermNotFound:
+                return None
 
         for docnum in self.document_numbers(**kw):
             return docnum
