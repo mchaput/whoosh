@@ -61,7 +61,10 @@ class FileStorage(Storage):
         
         path = self._fpath(name)
         if excl:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_BINARY | os.O_RDWR)
+            flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
+            if hasattr(os, "O_BINARY"):
+                flags |= os.O_BINARY
+            fd = os.open(path, flags)
             fileobj = os.fdopen(fd, mode)
         else:
             fileobj = open(path, mode)
