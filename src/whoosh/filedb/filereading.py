@@ -413,7 +413,7 @@ class SegmentReader(IndexReader):
             
             return op(limit, ((keyfn(docnum), docnum + offset)
                               for docnum in docnums))
-
+            
             
         
 

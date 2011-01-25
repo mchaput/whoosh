@@ -1156,8 +1156,9 @@ class DateRange(NumericRange):
                  boost=1.0, constantscore=True):
         self.startdate = start
         self.enddate = end
-        super(DateRange, self).__init__(fieldname, datetime_to_long(start),
-                                        datetime_to_long(end),
+        if start: start = datetime_to_long(start)
+        if end: end = datetime_to_long(end)
+        super(DateRange, self).__init__(fieldname, start, end,
                                         startexcl=startexcl, endexcl=endexcl,
                                         boost=boost, constantscore=constantscore)
     

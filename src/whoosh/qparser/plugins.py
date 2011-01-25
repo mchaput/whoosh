@@ -56,27 +56,21 @@ class RangePlugin(Plugin):
         return ((RangePlugin.Range, 1), )
     
     class Range(Token):
-        expr = rcompile(r"""
+        expr = re.compile(r"""
         (?P<open>\{|\[)               # Open paren
-        
-        (                             # Begin optional "start"
-          (                           # Begin choice between start1 and start2
-            ('(?P<start2>[^']+)')     # Quoted start
-            | (?P<start1>[^ ]+)       # ...or regular start
-          )                           # End choice
-        [ ]+)?                        # Space at end of optional "start"
-        
-        [Tt][Oo]                      # "to" between start and end
-        
-        ([ ]+                         # Space at start of optional "end"
-          (                           # Begin choice between end1 and end2
-            ('(?P<end2>[^']+)')       # Quoted end
-            | (?P<end1>[^\]\}]*)      # ...or normal end
-          )                           # End choice
-        )?                            # End of optional "end
-        
-        (?P<close>\}|\])              # Close paren
-        """, re.VERBOSE)
+        (?P<start>
+            ('[^']*?'\s+)             # single-quoted 
+            |                         # or
+            (.+?(?=[Tt][Oo]))         # everything until "to"
+        )?
+        [Tt][Oo]                      # "to"
+        (?P<end>
+            (\s+'[^']*?')             # single-quoted
+            |                         # or
+            ((.+?)(?=]|}))            # everything until "]" or "}"
+        )?
+        (?P<close>}|])                # Close paren
+        """, re.UNICODE | re.VERBOSE)
         
         def __init__(self, start, end, startexcl, endexcl, fieldname=None, boost=1.0):
             self.fieldname = fieldname
@@ -108,8 +102,17 @@ class RangePlugin(Plugin):
         
         @classmethod
         def create(cls, parser, match):
-            start = match.group("start2") or match.group("start1")
-            end = match.group("end2") or match.group("end1")
+            start = match.group("start")
+            end = match.group("end")
+            if start:
+                start = start.rstrip()
+                if start.startswith("'") and start.endswith("'"):
+                    start = start[1:-1]
+            if end:
+                end = end.lstrip()
+                if end.startswith("'") and end.endswith("'"):
+                    end = end[1:-1]
+            
             return cls(start, end, startexcl=match.group("open") == "{",
                        endexcl=match.group("close") == "}")
             

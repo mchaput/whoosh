@@ -423,7 +423,7 @@ class Searcher(object):
         return groups
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, leafs=True):
+               optimize=True, leafs=True, scored=True):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -450,7 +450,7 @@ class Searcher(object):
         
         t = now()
         col = Collector(self.weighting, limit=limit, usequality=optimize,
-                        groupedby=groupedby)
+                        groupedby=groupedby, scored=scored)
         
         if self.subsearchers and leafs:
             for s, offset in self.subsearchers:
@@ -466,11 +466,12 @@ class Searcher(object):
 
 class Collector(object):
     def __init__(self, weighting, limit=10, usequality=True, replace=10,
-                 groupedby=None):
+                 groupedby=None, scored=True):
         self.weighting = weighting
-        self.limit = limit
+        self.limit = limit if scored else None
         self.usequality = usequality
         self.replace = replace
+        self.scored = scored
         
         self.groupnames = groupedby
         self.groups = {}
@@ -524,6 +525,7 @@ class Collector(object):
         items = self._items
         docset = self.docset
         replace = self.replace
+        scored = self.scored
         score = self.score
         replacecounter = 0
         
@@ -542,7 +544,10 @@ class Collector(object):
                     key = keyfn(id)
                     self.groups[name][key].append(id)
             
-            items.append((score(searcher, matcher), offsetid))
+            if scored:
+                items.append((score(searcher, matcher), offsetid))
+            else:
+                items.append((None, offsetid))
             docset.add(offsetid)
             
             matcher.next()
@@ -600,9 +605,10 @@ class Collector(object):
         # Turn the heap into a sorted list by sorting by score first (subtract
         # from 0 to put highest scores first) and then by document number (to
         # enforce a consistent ordering of documents with equal score)
-        sortkey = lambda x: (0-x[0], x[1])
-        
-        return [(item[0], item[1]) for item in sorted(self._items, key=sortkey)]
+        items = self._items
+        if self.scored:
+            items = sorted(self._items, key=lambda x: (0-x[0], x[1]))
+        return [(item[0], item[1]) for item in items]
         
 
 class Results(object):
