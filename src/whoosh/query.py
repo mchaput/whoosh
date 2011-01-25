@@ -1080,12 +1080,11 @@ class NumericRange(Query):
                 and self.boost == other.boost)
         
     def __unicode__(self):
-        startchar = "["
-        if self.startexcl: startchar = "{"
-        endchar = "]"
-        if self.endexcl: endchar = "}"
-        return u"%s:%s%s TO %s%s" % (self.fieldname,
-                                     startchar, self.start, self.end, endchar)
+        startchar = "{" if self.startexcl else "["
+        endchar = "}" if self.endexcl else "]"
+        start = self.start if self.start is not None else ''
+        end = self.end if self.end is not None else ''
+        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end, endchar)
     
     def copy(self):
         return NumericRange(self.fieldname, self.start, self.end,

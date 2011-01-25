@@ -302,6 +302,30 @@ class TestParserPlugins(unittest.TestCase):
         qp.add_plugin(qparser.CopyFieldPlugin({"name": "name_phone"}))
         self.assertEqual(unicode(qp.parse(u"spruce view")),
                          "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")
+        
+    def test_gtlt(self):
+        schema = fields.Schema(a=fields.TEXT, b=fields.NUMERIC, c=fields.TEXT,
+                               d=fields.NUMERIC(float), e=fields.DATETIME)
+        qp = qparser.QueryParser("a", schema=schema)
+        qp.add_plugin(qparser.GtLtPlugin())
+        qp.add_plugin(qparser.dateparse.DateParserPlugin())
+        
+        q = qp.parse(u"a:hello b:>100 c:<=z there")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 4)
+        self.assertEqual(q[0], query.Term("a", "hello"))
+        self.assertEqual(q[1], query.NumericRange("b", 100, None, startexcl=True))
+        self.assertEqual(q[2], query.TermRange("c", '', 'z'))
+        self.assertEqual(q[3], query.Term("a", "there"))
+        
+        q = qp.parse(u"hello e:>'29 mar 2001' there")
+        self.assertEqual(q.__class__, query.And)
+        self.assertEqual(len(q), 3)
+        self.assertEqual(q[0], query.Term("a", "hello"))
+        # As of this writing, date ranges don't support startexcl/endexcl
+        self.assertEqual(q[1], query.DateRange("e", datetime(2001, 3, 29, 0, 0), None))
+        self.assertEqual(q[2], query.Term("a", "there"))
+        
 
 
 if __name__ == '__main__':

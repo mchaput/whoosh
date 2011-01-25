@@ -786,6 +786,86 @@ class CopyFieldPlugin(Plugin):
         return newstream
 
 
+class GtLtPlugin(Plugin):
+    """Allows the user to use greater than/less than symbols to create range
+    queries::
+    
+        a:>100 b:<=z c:>=-1.4 d:<mz
+        
+    This is the equivalent of::
+    
+        a:{100 to] b:[to z] c:[-1.4 to] d:[to mz}
+        
+    The plugin recognizes ``>``, ``<``, ``>=``, ``<=``, ``=>``, and ``=<``
+    after a field specifier. The field specifier is required. You cannot do the
+    following::
+    
+        >100
+    
+    """
+    
+    def tokens(self, parser):
+        # Run before fields plugin
+        return ((self.GtLtToken, -1), )
+    
+    def filters(self, parser):
+        return ((self.do_gtlt, 99), )
+    
+    def make_range(self, text, rel):
+        if rel == "<":
+            return RangePlugin.Range(None, text, False, True)
+        elif rel == ">":
+            return RangePlugin.Range(text, None, True, False)
+        elif rel == "<=" or rel == "=<":
+            return RangePlugin.Range(None, text, False, False)
+        elif rel == ">=" or rel == "=>":
+            return RangePlugin.Range(text, None, False, False)
+    
+    def do_gtlt(self, parser, stream):
+        # Look for GtLtTokens in the stream and
+        # - replace it with a Field token
+        # - if the next token is a Word, replace it with a Range based on the
+        #   GtLtToken
+        
+        newstream = stream.empty()
+        rel = None
+        for t in stream:
+            if isinstance(t, GtLtPlugin.GtLtToken):
+                rel = t.rel
+                t = FieldsPlugin.Field(t.fieldname)
+            elif rel and isinstance(t, Word):
+                t = self.make_range(t.text, rel)
+                rel = None
+            elif isinstance(t, Group):
+                t = self.do_gtlt(parser, t)
+                rel = None
+            
+            newstream.append(t)
+        
+        return newstream
+    
+    class GtLtToken(Token):
+        expr = rcompile(u"(\w[\w\d]*):(<=|>=|<|>|=<|=>)")
+        
+        def __init__(self, fieldname, rel):
+            self.fieldname = fieldname
+            self.rel = rel
+        
+        def __repr__(self):
+            return "<%s:'%s'>" % (self.fieldname, self.rel)
+        
+        def set_fieldname(self, name, force=False):
+            if force or self.fieldname is None:
+                return self.__class__(name, self.rel)
+            else:
+                return self
+        
+        @classmethod
+        def create(cls, parser, match):
+            fieldname = match.group(1)
+            rel = match.group(2)
+            if not parser.schema or fieldname == "*" or (fieldname in parser.schema):
+                return cls(fieldname, rel)
 
 
 
