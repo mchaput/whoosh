@@ -1,5 +1,6 @@
 from __future__ import with_statement
 import unittest
+from datetime import datetime, timedelta
 
 from whoosh import analysis, fields, formats, index, qparser, query, scoring
 from whoosh.filedb.filestore import RamStorage
@@ -233,10 +234,70 @@ class TestSearching(unittest.TestCase):
             check(u"[TO e}", "abcd")
             check(u"{b TO d}", "c")
     
+    def test_open_numeric_ranges(self):
+        domain = range(0, 10000, 7)
+        
+        schema = fields.Schema(num=fields.NUMERIC(stored=True))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        for i in domain:
+            w.add_document(num=i)
+        w.commit()
+        
+        qp = qparser.QueryParser("num", schema=schema)
+        with ix.searcher() as s:
+            q = qp.parse("[100 to]")
+            r = [hit["num"] for hit in s.search(q, limit=None)]
+            self.assertEqual(r, [n for n in domain if n >= 100])
+            
+            q = qp.parse("[to 5000]")
+            r = [hit["num"] for hit in s.search(q, limit=None)]
+            self.assertEqual(r, [n for n in domain if n <= 5000])
+    
+    def test_open_date_ranges(self):
+        basedate = datetime(2011, 1, 24, 6, 25, 0, 0)
+        domain = [basedate + timedelta(days=n) for n in xrange(-20, 20)]
+        
+        schema = fields.Schema(date=fields.DATETIME(stored=True))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        for d in domain:
+            w.add_document(date=d)
+        w.commit()
+        
+        with ix.searcher() as s:
+            # Without date parser
+            qp = qparser.QueryParser("date", schema=schema)
+            q = qp.parse("[2011-01-10 to]")
+            r = [hit["date"] for hit in s.search(q, limit=None)]
+            self.assertTrue(len(r) > 0)
+            target = [d for d in domain if d >= datetime(2011, 1, 10, 6, 25)]
+            self.assertEqual(r, target)
+            
+            q = qp.parse("[to 2011-01-30]")
+            r = [hit["date"] for hit in s.search(q, limit=None)]
+            self.assertTrue(len(r) > 0)
+            target = [d for d in domain if d <= datetime(2011, 1, 30, 6, 25)]
+            self.assertEqual(r, target)
+        
+            # With date parser
+            from whoosh.qparser.dateparse import DateParserPlugin
+            qp.add_plugin(DateParserPlugin(basedate))
+            
+            q = qp.parse("[10 jan 2011 to]")
+            r = [hit["date"] for hit in s.search(q, limit=None)]
+            self.assertTrue(len(r) > 0)
+            target = [d for d in domain if d >= datetime(2011, 1, 10, 6, 25)]
+            self.assertEqual(r, target)
+            
+            q = qp.parse("[to 30 jan 2011]")
+            r = [hit["date"] for hit in s.search(q, limit=None)]
+            self.assertTrue(len(r) > 0)
+            target = [d for d in domain if d <= datetime(2011, 1, 30, 6, 25)]
+            self.assertEqual(r, target)
+            
     def test_negated_unlimited_ranges(self):
         # Whoosh should treat u"[to]" as if it was "*"
-        from datetime import datetime, timedelta
-        
         schema = fields.Schema(id=fields.ID(stored=True), num=fields.NUMERIC,
                                date=fields.DATETIME)
         ix = RamStorage().create_index(schema)

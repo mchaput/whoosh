@@ -1578,7 +1578,19 @@ def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
 RegexAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
 
 
-def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
+default_pattern = re.compile(r"\w+", re.UNICODE)
+url_pattern = re.compile("""
+(
+    [A-Za-z+]+://          # URL protocol
+    \\S+?                  # URL body
+    (?=\\s|[.]\\s|$|[.]$)  # Stop at space/end, or a dot followed by space/end
+) | (                      # or...
+    \w+([:.]?\w+)*         # word characters, with optional internal colons/dots
+)
+""", re.VERBOSE | re.UNICODE)
+
+
+def SimpleAnalyzer(expression=default_pattern, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter.
     
     >>> ana = SimpleAnalyzer()
@@ -1593,7 +1605,8 @@ def SimpleAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
     return RegexTokenizer(expression=expression, gaps=gaps) | LowercaseFilter()
 SimpleAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
 
-def StandardAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
+
+def StandardAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      minsize=2, maxsize=None, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter and optional
     StopFilter.
@@ -1621,7 +1634,7 @@ StandardAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
                                       stoplist=list, minsize=int, maxsize=int)
 
 
-def StemmingAnalyzer(expression=r"\w+(\.?\w+)*", stoplist=STOP_WORDS,
+def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      minsize=2, maxsize=None, gaps=False, stemfn=stem,
                      ignore=None):
     """Composes a RegexTokenizer with a lower case filter, an optional stop

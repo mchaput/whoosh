@@ -222,6 +222,79 @@ class TestSorting(unittest.TestCase):
                 r = s.search(query.Every(), groupedby=[("tag", "size")])
                 cats = r.groups(("tag", "size"))
                 self.assertEqual(cats, correct)
+                
+    def test_custom_sort(self):
+        from array import array
+        from whoosh.searching import Results
+        
+        class CustomSort(object):
+            def __init__(self, *criteria):
+                self.criteria = criteria
+                self.arrays = None
+                
+            def cache(self, searcher):
+                self.arrays = []
+                r = searcher.reader()
+                for name, reverse in self.criteria:
+                    arry = array("i", [0] * r.doc_count_all())
+                    field = ix.schema[name]
+                    for i, (token, _) in enumerate(field.sortable_values(r, name)):
+                        if reverse: i = 0 - i
+                        postings = r.postings(name, token)
+                        for docid in postings.all_ids():
+                            arry[docid] = i
+                    self.arrays.append(arry)
+                    
+            def key_fn(self, docnum):
+                return tuple(arry[docnum] for arry in self.arrays)
+            
+            def sort_query(self, searcher, q):
+                if self.arrays is None:
+                    self.cache(searcher)
+                
+                return self._results(searcher, q, searcher.docs_for_query(q))
+            
+            def sort_all(self, searcher):
+                if self.arrays is None:
+                    self.cache(searcher)
+                
+                return self._results(searcher, None, searcher.reader().all_doc_ids())
+                
+            def _results(self, searcher, q, docnums):
+                docnums = sorted(docnums, key=self.key_fn)
+                return Results(searcher, q, [(None, docnum) for docnum in docnums], None)
+                
+        
+        schema = fields.Schema(name=fields.ID(stored=True),
+                               price=fields.NUMERIC,
+                               quant=fields.NUMERIC)
+        
+        with TempIndex(schema, "customsort") as ix:
+            w = ix.writer()
+            w.add_document(name=u"A", price=200, quant=9)
+            w.add_document(name=u"E", price=300, quant=4)
+            w.add_document(name=u"F", price=200, quant=8)
+            w.add_document(name=u"D", price=150, quant=5)
+            w.add_document(name=u"B", price=250, quant=11)
+            w.add_document(name=u"C", price=200, quant=10)
+            w.commit()
+            
+            cs = CustomSort(("price", False), ("quant", True))
+            with ix.searcher() as s:
+                self.assertEqual([hit["name"] for hit in cs.sort_all(s)],
+                                 list("DCAFBE"))
+            
+                
+                    
+        
+        
+#item A   |   200 |        9
+#item E   |   300 |        4
+#item F   |   200 |        8
+#item D   |   150 |        5
+#item B   |   250 |       11
+#item C   |   200 |       10
+
 
 
 if __name__ == '__main__':

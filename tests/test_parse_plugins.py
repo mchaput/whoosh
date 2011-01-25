@@ -104,16 +104,6 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[0][0].__class__, query.DateRange)
         self.assertEqual(q[0][1].__class__, query.DateRange)
         
-        #q = qp.parse(u"date:'to dec 12'")
-        #self.assertEqual(q.__class__, query.DateRange)
-        #self.assertEqual(q.startdate, None)
-        #self.assertEqual(q.enddate, adatetime(2010, 12, 12).ceil())
-        
-        #q = qp.parse(u"date:'march 24 to'")
-        #self.assertEqual(q.__class__, query.DateRange)
-        #self.assertEqual(q.startdate, adatetime(2010, 3, 24).floor())
-        #self.assertEqual(q.enddate, None)
-    
     def test_date_range(self):
         schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
         qp = qparser.QueryParser("text", schema=schema)
@@ -125,15 +115,30 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
         self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
         
-        #q = qp.parse(u"date:[to 'next wednesday']")
-        #self.assertEqual(q.__class__, query.DateRange)
-        #self.assertEqual(q.startdate, None)
-        #self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
+        q = qp.parse(u"date:[to 'next wednesday']")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, None)
+        self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
         
-        #q = qp.parse(u"date:['30 march' to]")
-        #self.assertEqual(q.__class__, query.DateRange)
-        #self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
-        #self.assertEqual(q.enddate, None)
+        q = qp.parse(u"date:['30 march' to]")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
+        self.assertEqual(q.enddate, None)
+        
+        q = qp.parse(u"date:[30 march to next wednesday]")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
+        self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
+        
+        q = qp.parse(u"date:[to next wednesday]")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, None)
+        self.assertEqual(q.enddate, adatetime(2010, 9, 22).ceil())
+        
+        q = qp.parse(u"date:[30 march to]")
+        self.assertEqual(q.__class__, query.DateRange)
+        self.assertEqual(q.startdate, adatetime(2010, 3, 30).floor())
+        self.assertEqual(q.enddate, None)
     
     def test_daterange_empty_field(self):
         schema = fields.Schema(test=fields.DATETIME)

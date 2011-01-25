@@ -160,7 +160,18 @@ class TestAnalysis(unittest.TestCase):
         
         self.assertEqual(stem("bill's"), "bill")
         self.assertEqual(stem("y's"), "y")
+    
+    def test_url(self):
+        sample = u"Visit http://bitbucket.org/mchaput/whoosh or urn:isbn:5930502 or http://www.apple.com/."
         
+        for ana in (SimpleAnalyzer(url_pattern),
+                    StandardAnalyzer(url_pattern, stoplist=None)):
+            ts = [t.text for t in ana(sample)]
+            self.assertEqual(ts, [u'visit',
+                                  u'http://bitbucket.org/mchaput/whoosh',
+                                  u'or', u'urn:isbn:5930502', u'or',
+                                  u'http://www.apple.com/'])
+    
     def test_name_field(self):
         ana = (RegexTokenizer(r"\S+")
                | LowercaseFilter()

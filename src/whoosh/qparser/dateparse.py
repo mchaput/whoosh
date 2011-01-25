@@ -707,7 +707,7 @@ class DateParserPlugin(Plugin):
             you to provide feedback to the user about problems parsing dates.
         :param remove: if True, unparseable dates are removed from the token
             stream instead of being replaced with ErrorToken.
-        :param loose: if True, this plugin will install a filter early in the
+        :param free: if True, this plugin will install a filter early in the
             parsing process and try to find undelimited dates such as
             ``date:last tuesday``. Note that allowing this could result in
             normal query words accidentally being parsed as dates sometimes.
@@ -745,7 +745,8 @@ class DateParserPlugin(Plugin):
         for t in stream:
             if isinstance(t, Group):
                 t = self.do_dates(parser, t)
-            elif t.fieldname in datefields:
+            elif (t.fieldname in datefields
+                  or (t.fieldname is None and parser.fieldname in datefields)):
                 if isinstance(t, Word):
                     text = t.text
                     try:
@@ -781,8 +782,18 @@ class DateParserPlugin(Plugin):
                             self.callback(error)
                         t = ErrorToken(t)
                     else:
-                        ts = timespan(start, end).disambiguated(self.basedate)
-                        t = DateToken(t.fieldname, ts, boost=t.boost)
+                        if start and end:
+                            ts = timespan(start, end).disambiguated(self.basedate)
+                            start, end = ts.start, ts.end
+                        elif start:
+                            start = start.disambiguated(self.basedate)
+                            if isinstance(start, timespan):
+                                start = start.start
+                        elif end:
+                            end = end.disambiguated(self.basedate)
+                            if isinstance(end, timespan):
+                                end = end.end
+                        t = DateRangeToken(t.fieldname, start, end, boost=t.boost)
             
             newstream.append(t)
         return newstream
@@ -804,8 +815,8 @@ class DateToken(BasicSyntax):
         return r
     
     def set_boost(self, b):
-        return DateParserPlugin.Date(self.fieldname, self.timeobj, boost=b,
-                                     endpos=self.endpos)
+        return self.__class__(self.fieldname, self.timeobj, boost=b,
+                              endpos=self.endpos)
     
     def set_fieldname(self, name):
         if name is None: raise Exception
@@ -815,13 +826,13 @@ class DateToken(BasicSyntax):
     def query(self, parser):
         from whoosh import query
         
-        field = parser.schema[self.fieldname]
+        fieldname = self.fieldname or parser.fieldname
+        field = parser.schema[fieldname]
         dt = self.timeobj
         if isinstance(self.timeobj, datetime):
-            return query.Term(self.fieldname, field.to_text(dt),
-                              boost=self.boost)
+            return query.Term(fieldname, field.to_text(dt), boost=self.boost)
         elif isinstance(self.timeobj, timespan):
-            return query.DateRange(self.fieldname, dt.start, dt.end,
+            return query.DateRange(fieldname, dt.start, dt.end,
                                    boost=self.boost)
         else:
             raise Exception("Unknown time object: %r" % dt)
@@ -845,8 +856,40 @@ class DateToken(BasicSyntax):
                 if d:
                     return cls(fieldname, d, endpos=newpos + textstart)
     
+
+class DateRangeToken(BasicSyntax):
+    def __init__(self, fieldname, starttime, endtime, boost=1.0, endpos=None):
+        self.fieldname = fieldname
+        self.starttime = starttime
+        self.endtime = endtime
+        self.boost = boost
+        self.endpos = endpos
+        
+    def __repr__(self):
+        r = "%s:(%r, %r)" % (self.fieldname, self.starttime, self.endtime)
+        if self.boost != 1.0:
+            r + "^%s" % self.boost
+        return r
     
+    def set_boost(self, b):
+        return self.__class__(self.fieldname, self.starttime, self.endtime,
+                              boost=b, endpos=self.endpos)
     
+    def set_fieldname(self, name):
+        if name is None: raise Exception
+        return self.__class__(name, self.starttime, self.endtime,
+                              boost=self.boost, endpos=self.endpos)
+        
+    def query(self, parser):
+        from whoosh import query
+        fieldname = self.fieldname or parser.fieldname
+        start = self.starttime
+        end = self.endtime
+        
+        if start is None and end is None:
+            return query.Every(fieldname)
+        else:
+            return query.DateRange(fieldname, start, end, boost=self.boost)
     
     
     
