@@ -3,7 +3,6 @@ import os.path, tarfile
 from email import message_from_string
 from marshal import dump, load
 from urllib import urlretrieve
-from zlib import compress, decompress
 
 try:
     import xappy
@@ -118,7 +117,8 @@ class Enron(Spec):
     
     def whoosh_schema(self):
         ana = analysis.StemmingAnalyzer(maxsize=40)
-        schema = fields.Schema(body=fields.TEXT(analyzer=ana, stored=True),
+        storebody = not self.options.nobody
+        schema = fields.Schema(body=fields.TEXT(analyzer=ana, stored=storebody),
                                date=fields.ID(stored=True),
                                frm=fields.ID(stored=True),
                                to=fields.IDLIST(stored=True),
@@ -130,7 +130,8 @@ class Enron(Spec):
     def xappy_indexer_connection(self, path):
         conn = xappy.IndexerConnection(path)
         conn.add_field_action('body', xappy.FieldActions.INDEX_FREETEXT, language='en')
-        conn.add_field_action('body', xappy.FieldActions.STORE_CONTENT)
+        if not self.options.nobody:
+            conn.add_field_action('body', xappy.FieldActions.STORE_CONTENT)
         conn.add_field_action('date', xappy.FieldActions.INDEX_EXACT)
         conn.add_field_action('date', xappy.FieldActions.STORE_CONTENT)
         conn.add_field_action('frm', xappy.FieldActions.INDEX_EXACT)

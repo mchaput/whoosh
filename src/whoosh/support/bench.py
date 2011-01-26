@@ -103,12 +103,13 @@ class Spec(object):
             
             print "%d. %s" % (i+1, hit.get(self.headline_field))
             if showbody:
-                print hit.get(self.main_field)
+                print hit.get(self.bench.spec.main_field)
             
 class WhooshModule(Module):
     def indexer(self, create=True):
         schema = self.bench.spec.whoosh_schema()
         path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        
         if not os.path.exists(path):
             os.mkdir(path)
         if create:
@@ -133,7 +134,7 @@ class WhooshModule(Module):
     def index_document(self, d):
         if hasattr(self.bench, "process_document_whoosh"):
             self.bench.process_document_whoosh(d)
-        if self.bench.spec.whoosh_compress_main:
+        if not self.options.nobody and self.bench.spec.whoosh_compress_main:
             mf = self.bench.spec.main_field
             d["_stored_%s" % mf] = compress(d[mf], 9)
         self.writer.add_document(**d)
@@ -165,7 +166,7 @@ class WhooshModule(Module):
     def findterms(self, terms):
         limit = int(self.options.limit)
         s = self.srch
-        q = query.Term(self.main_field, None)
+        q = query.Term(self.bench.spec.main_field, None)
         for term in terms:
             q.text = term
             yield s.search(q, limit=limit)
@@ -204,7 +205,7 @@ class XappyModule(Module):
     def findterms(self, conn, terms):
         limit = int(self.options.limit)
         for term in terms:
-            q = conn.query_field(self.main_field, term)
+            q = conn.query_field(self.bench.spec.main_field, term)
             yield conn.search(q, 0, limit)
     
     def results(self, r):
@@ -225,9 +226,9 @@ class XapianModule(Module):
             self.bench.process_document_xapian(d)
         doc = xapian.Document()
         doc.add_value(0, d.get(self.bench.spec.headline_field, "-"))
-        doc.set_data(d[self.main_field])
+        doc.set_data(d[self.bench.spec.main_field])
         self.ixer.set_document(doc)
-        self.ixer.index_text(d[self.main_field])
+        self.ixer.index_text(d[self.bench.spec.main_field])
         self.database.add_document(doc)
         
     def finish(self, **kwargs):
@@ -492,6 +493,8 @@ class Bench(object):
                      help="Whoosh pool class", default=None)
         p.add_option("-X", "--expw", dest="expw", action="store_true",
                      help="Use experimental whoosh writer", default=False)
+        p.add_option("-N", "--nobody", dest="nobody", action="store_true",
+                     help="Don't store body text in index", default=False)
         
         return p
     
