@@ -41,6 +41,7 @@ Plug-ins
 .. autoclass:: DisMaxPlugin
 .. autoclass:: FieldAliasPlugin
 .. autoclass:: CopyFieldPlugin
+.. autoclass:: GtLtPlugin
 
 
 Syntax objects

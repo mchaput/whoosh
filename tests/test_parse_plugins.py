@@ -326,6 +326,10 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[1], query.DateRange("e", datetime(2001, 3, 29, 0, 0), None))
         self.assertEqual(q[2], query.Term("a", "there"))
         
+        qp.remove_plugin_class(qparser.FieldsPlugin)
+        qp.remove_plugin_class(qparser.RangePlugin)
+        self.assertRaises(NotImplementedError, qp.parse, u"hello a:>500 there")
+        
 
 
 if __name__ == '__main__':
