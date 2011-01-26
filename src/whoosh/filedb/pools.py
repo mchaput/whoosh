@@ -15,7 +15,8 @@
 # limitations under the License.
 #===============================================================================
 
-import os, tempfile
+import os
+import tempfile
 from array import array
 from collections import defaultdict
 from heapq import heapify, heappush, heappop
@@ -23,7 +24,7 @@ from marshal import load, dump
 import sqlite3 as sqlite
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
-from whoosh.util import length_to_byte, now
+from whoosh.util import length_to_byte
 
 
 def imerge(iterators):
@@ -79,8 +80,8 @@ def write_postings(schema, termtable, lengths, postwriter, postiter,
     # count the document frequency and sum the terms by looking at the
     # postings).
 
-    current_fieldname = None # Field number of the current term
-    current_text = None # Text of the current term
+    current_fieldname = None  # Field number of the current term
+    current_text = None  # Text of the current term
     first = True
     current_weight = 0
     offset = None
@@ -136,6 +137,7 @@ def write_postings(schema, termtable, lengths, postwriter, postiter,
 
 
 DEBUG_DIR = False
+
 
 class PoolBase(object):
     def __init__(self, schema, dir=None, basename=''):
@@ -247,15 +249,14 @@ class TempfilePool(PoolBase):
             self.dump_run()
 
         self.size += len(fieldname) + len(text) + 18
-        if valuestring: self.size += len(valuestring)
+        if valuestring:
+            self.size += len(valuestring)
         
         self.postings.append((fieldname, text, docnum, weight, valuestring))
         self.count += 1
     
     def dump_run(self):
         if self.size > 0:
-            #print "Dumping run..."
-            t = now()
             self._make_dir()
             fd, filename = tempfile.mkstemp(".run", dir=self.dir)
             runfile = os.fdopen(fd, "w+b")
@@ -268,7 +269,6 @@ class TempfilePool(PoolBase):
             self.postings = []
             self.size = 0
             self.count = 0
-            #print "Dumping run took", now() - t, "seconds"
     
     def run_filenames(self):
         return [filename for filename, _ in self.runs]

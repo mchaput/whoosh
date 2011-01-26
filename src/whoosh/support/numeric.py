@@ -32,37 +32,49 @@ _max_sortable_long = 18446744073709551615L
 # Functions for converting numbers to and from sortable representations
 
 def int_to_sortable_int(x, signed=True):
-    if signed: x += 1 << 31
+    if signed:
+        x += 1 << 31
     assert x >= 0
     return x
+
 
 def sortable_int_to_int(x, signed=True):
-    if signed: x -= 1 << 31
+    if signed:
+        x -= 1 << 31
     return x
 
+
 def long_to_sortable_long(x, signed=True):
-    if signed: x += 1 << 63
+    if signed:
+        x += 1 << 63
     assert x >= 0
     return x
 
+
 def sortable_long_to_long(x, signed=True):
-    if signed: x -= 1 << 63
+    if signed:
+        x -= 1 << 63
     return x
+
 
 def float_to_sortable_long(x, signed=True):
     x = _qunpack(_dpack(x))[0]
     if x < 0:
         x ^= 0x7fffffffffffffff
-    if signed: x += 1 << 63
+    if signed:
+        x += 1 << 63
     assert x >= 0
     return x
 
+
 def sortable_long_to_float(x, signed=True):
-    if signed: x -= 1 << 63
+    if signed:
+        x -= 1 << 63
     if x < 0:
         x ^= 0x7fffffffffffffff
     x = _dunpack(_qpack(x))[0]
     return x
+
 
 # Functions for converting numbers to and from text
 
@@ -70,28 +82,34 @@ def int_to_text(x, shift=0, signed=True):
     x = int_to_sortable_int(x, signed)
     return sortable_int_to_text(x, shift)
 
+
 def text_to_int(text, signed=True):
     x = text_to_sortable_int(text)
     x = sortable_int_to_int(x, signed)
     return x
 
+
 def long_to_text(x, shift=0, signed=True):
     x = long_to_sortable_long(x, signed)
     return sortable_long_to_text(x, shift)
+
 
 def text_to_long(text, signed=True):
     x = text_to_sortable_long(text)
     x = sortable_long_to_long(x, signed)
     return x
 
+
 def float_to_text(x, shift=0, signed=True):
     x = float_to_sortable_long(x, signed)
     return sortable_long_to_text(x, shift)
+
 
 def text_to_float(text, signed=True):
     x = text_to_sortable_long(text)
     x = sortable_long_to_float(x, signed)
     return x
+
 
 # Functions for converting sortable representations to and from text.
 #
@@ -111,6 +129,7 @@ def sortable_int_to_text(x, shift=0):
     text = chr(shift) + to_base85(x, False)
     return text
 
+
 def sortable_long_to_text(x, shift=0):
     if shift:
         x >>= shift
@@ -119,10 +138,12 @@ def sortable_long_to_text(x, shift=0):
     text = chr(shift) + to_base85(x, True)
     return text
 
+
 def text_to_sortable_int(text):
     #assert len(text) == 9
     #return int(text[1:], 16)
     return from_base85(text[1:])
+
 
 def text_to_sortable_long(text):
     #assert len(text) == 17
@@ -185,7 +206,8 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
             start = long_to_sortable_long(start, signed)
         elif numtype is float:
             start = float_to_sortable_long(start, signed)
-        if startexcl: start += 1
+        if startexcl:
+            start += 1
     
     if end is None:
         end = _max_sortable_int if valsize == 32 else _max_sortable_long
@@ -196,7 +218,8 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
             end = long_to_sortable_long(end, signed)
         elif numtype is float:
             end = float_to_sortable_long(end, signed)
-        if endexcl: end -= 1
+        if endexcl:
+            end -= 1
     
     if numtype is int:
         to_text = sortable_int_to_text
@@ -224,6 +247,7 @@ _b85dec = {}
 for i in range(len(_b85chars)):
     _b85dec[_b85chars[i]] = i
 
+
 def to_base85(x, islong=False):
     "Encodes the given integer using base 85."
     
@@ -233,6 +257,7 @@ def to_base85(x, islong=False):
         rems = _b85chars[x % 85] + rems
         x //= 85
     return rems
+
 
 def from_base85(text):
     "Decodes the given base 85 text into an integer."
@@ -260,6 +285,7 @@ def to_7bit(x, islong):
         x >>= 7
         nchars -= 1
     return buffer.tostring()
+
 
 def from_7bit(text):
     if len(text) == 5:

@@ -230,8 +230,6 @@ class SpellChecker(object):
 
 
 
-if __name__ == '__main__':
-    pass
 
 
 

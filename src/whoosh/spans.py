@@ -90,7 +90,7 @@ class Span(object):
         """
         
         i = 0
-        while i < len(spans)-1:
+        while i < len(spans) - 1:
             here = spans[i]
             j = i + 1
             while j < len(spans):

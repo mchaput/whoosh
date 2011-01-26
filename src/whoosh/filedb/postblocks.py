@@ -74,10 +74,11 @@ class BlockBase(object):
         if dfl:
             self.lengths.append(dfl)
 
+
 # Current block format
 
 class Block2(BlockBase):
-    magic = 1114401586 # "Blk2"
+    magic = 1114401586  # "Blk2"
     
     # Offset  Type  Desc
     # ------  ----  -------
@@ -227,7 +228,6 @@ class Block2(BlockBase):
         if values_string and compression:
             values_string = compress(values_string, compression)
         
-        
         # Header
         flags = 1 if compression else 0
         minlen_byte = length_to_byte(minlength)
@@ -242,6 +242,7 @@ class Block2(BlockBase):
         postfile.write(ids_string)
         postfile.write(weights_string)
         postfile.write(values_string)
+
 
 # Old block formats
 

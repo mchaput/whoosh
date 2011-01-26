@@ -15,9 +15,11 @@
 #===============================================================================
 
 from __future__ import with_statement
-import threading, time
+import threading
+import time
 
 from whoosh.store import LockError
+
 
 # Exceptions
 

@@ -24,7 +24,8 @@ from whoosh.support.filelock import FileLock
 from whoosh.filedb.structfile import StructFile
 
 
-class ReadOnlyError(Exception): pass
+class ReadOnlyError(Exception):
+    pass
 
 
 class FileStorage(Storage):
@@ -102,8 +103,10 @@ class FileStorage(Storage):
 
     def file_exists(self, name):
         return os.path.exists(self._fpath(name))
+    
     def file_modified(self, name):
         return os.path.getmtime(self._fpath(name))
+    
     def file_length(self, name):
         return os.path.getsize(self._fpath(name))
 
@@ -192,8 +195,7 @@ def copy_to_ram(storage):
     :rtype: :class:`RamStorage`
     """
 
-    import shutil #, time
-    #t = time.time()
+    import shutil
     ram = RamStorage()
     for name in storage.list():
         f = storage.open_file(name)
@@ -201,7 +203,6 @@ def copy_to_ram(storage):
         shutil.copyfileobj(f.file, r.file)
         f.close()
         r.close()
-    #print time.time() - t, "to load index into ram"
     return ram
 
 

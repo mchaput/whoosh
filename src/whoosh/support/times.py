@@ -14,14 +14,13 @@
 # limitations under the License.
 #===============================================================================
 
-import calendar, copy
-from datetime import date, time, datetime, timedelta
+import calendar
+import copy
+from datetime import date, datetime, timedelta
 
-from whoosh.support.relativedelta import relativedelta
 
-
-class TimeError(Exception): pass
-
+class TimeError(Exception):
+    pass
 
 
 def relative_days(current_wday, wday, dir):
@@ -54,20 +53,21 @@ def datetime_to_long(dt):
     """
     
     td = dt - dt.min
-    total = td.days * 86400000000 # Microseconds in a day
-    total += td.seconds * 1000000 # Microseconds in a second
+    total = td.days * 86400000000  # Microseconds in a day
+    total += td.seconds * 1000000  # Microseconds in a second
     total += td.microseconds
     return total
+
 
 def long_to_datetime(x):
     """Converts a long integer representing the number of microseconds since
     ``datetime.min`` to a datetime object.
     """
     
-    days = x // 86400000000 # Microseconds in a day
+    days = x // 86400000000  # Microseconds in a day
     x -= days * 86400000000
     
-    seconds = x // 1000000 # Microseconds in a second
+    seconds = x // 1000000  # Microseconds in a second
     x -= seconds * 1000000
     
     return datetime.min + timedelta(days=days, seconds=seconds, microseconds=x)
@@ -174,12 +174,18 @@ class adatetime(object):
         if year is None:
             raise ValueError("Date has no year")
         
-        if month is None: month = 1
-        if day is None: day = 1
-        if hour is None: hour = 0
-        if minute is None: minute = 0
-        if second is None: second = 0
-        if microsecond is None: microsecond = 0
+        if month is None:
+            month = 1
+        if day is None:
+            day = 1
+        if hour is None:
+            hour = 0
+        if minute is None:
+            minute = 0
+        if second is None:
+            second = 0
+        if microsecond is None:
+            microsecond = 0
         return datetime(year, month, day, hour, minute, second, microsecond)
     
     def ceil(self):
@@ -199,12 +205,18 @@ class adatetime(object):
         if year is None:
             raise ValueError("Date has no year")
         
-        if month is None: month = 12
-        if day is None: day = calendar.monthrange(year, month)[1]
-        if hour is None: hour = 23
-        if minute is None: minute = 59
-        if second is None: second = 59
-        if microsecond is None: microsecond = 999999
+        if month is None:
+            month = 12
+        if day is None:
+            day = calendar.monthrange(year, month)[1]
+        if hour is None:
+            hour = 23
+        if minute is None:
+            minute = 59
+        if second is None:
+            second = 59
+        if microsecond is None:
+            microsecond = 999999
         return datetime(year, month, day, hour, minute, second, microsecond)
     
     def disambiguated(self, basedate):
@@ -251,7 +263,8 @@ class timespan(object):
         self.end = copy.copy(end)
         
     def __eq__(self, other):
-        if not other.__class__ is self.__class__: return False
+        if not other.__class__ is self.__class__:
+            return False
         return self.start == other.start and self.end == other.end
     
     def __repr__(self):
@@ -356,10 +369,12 @@ def floor(at):
         return at
     return at.floor()
 
+
 def ceil(at):
     if isinstance(at, datetime):
         return at
     return at.ceil()
+
 
 def fill_in(at, basedate, units=adatetime.units):
     """Returns a copy of ``at`` with any unspecified (None) units filled in

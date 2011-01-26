@@ -14,7 +14,9 @@
 # limitations under the License.
 #===============================================================================
 
-import cPickle, os, re, uuid
+import cPickle
+import re
+import uuid
 from time import time
 from threading import Lock
 
@@ -34,12 +36,14 @@ _INDEX_VERSION = -110
 def _toc_filename(indexname, gen):
     return "_%s_%s.toc" % (indexname, gen)
 
+
 def _toc_pattern(indexname):
     """Returns a regular expression object that matches TOC filenames.
     name is the name of the index.
     """
 
     return re.compile("^_%s_([0-9]+).toc$" % indexname)
+
 
 def _segment_pattern(indexname):
     """Returns a regular expression object that matches segment filenames.
@@ -57,7 +61,8 @@ def _latest_generation(storage, indexname):
         m = pattern.match(filename)
         if m:
             num = int(m.group(1))
-            if num > max: max = num
+            if num > max:
+                max = num
     return max
 
 
@@ -390,7 +395,7 @@ class Segment(object):
         # the appropriate filename
         ext = "_filename"
         if name.endswith(ext):
-            basename = name[:0-len(ext)]
+            basename = name[:0 - len(ext)]
             if basename in self.EXTENSIONS:
                 return self.make_filename(self.EXTENSIONS[basename])
         
@@ -431,7 +436,8 @@ class Segment(object):
         """
         :returns: the total number of deleted documents in this segment.
         """
-        if self.deleted is None: return 0
+        if self.deleted is None:
+            return 0
         return len(self.deleted)
 
     def field_length(self, fieldname, default=0):
@@ -464,7 +470,8 @@ class Segment(object):
     def is_deleted(self, docnum):
         """:returns: True if the given document number is deleted."""
 
-        if self.deleted is None: return False
+        if self.deleted is None:
+            return False
         return docnum in self.deleted
 
 

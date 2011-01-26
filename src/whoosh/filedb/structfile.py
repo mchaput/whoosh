@@ -14,7 +14,8 @@
 # limitations under the License.
 #===============================================================================
 
-import mmap, os, sys
+import mmap
+import os
 from array import array
 from copy import copy
 from cPickle import dump as dump_pickle
@@ -105,6 +106,7 @@ class StructFile(object):
 
     def _setup_fake_map(self):
         _self = self
+        
         class fakemap(object):
             def __getitem__(self, slice):
                 if isinstance(slice, (int, long)):
@@ -113,6 +115,7 @@ class StructFile(object):
                 else:
                     _self.seek(slice.start)
                     return _self.read(slice.stop - slice.start)
+        
         self.map = fakemap()
 
     def write_string(self, s):
@@ -191,7 +194,7 @@ class StructFile(object):
         """
         return byte_to_float(self.read_byte(), mantissabits, zeroexp)
 
-    def write_pickle(self, obj, protocol= -1):
+    def write_pickle(self, obj, protocol=-1):
         """Writes a pickled representation of obj to the wrapped file.
         """
         dump_pickle(obj, self.file, protocol)
@@ -203,16 +206,22 @@ class StructFile(object):
 
     def write_sbyte(self, n):
         self.file.write(pack_sbyte(n))
+        
     def write_int(self, n):
         self.file.write(pack_int(n))
+        
     def write_uint(self, n):
         self.file.write(pack_uint(n))
+        
     def write_ushort(self, n):
         self.file.write(pack_ushort(n))
+        
     def write_long(self, n):
         self.file.write(pack_long(n))
+        
     def write_float(self, n):
         self.file.write(pack_float(n))
+        
     def write_array(self, arry):
         if IS_LITTLE:
             arry = copy(arry)
@@ -224,42 +233,56 @@ class StructFile(object):
 
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
+    
     def read_int(self):
         return unpack_int(self.file.read(_INT_SIZE))[0]
+    
     def read_uint(self):
         return unpack_uint(self.file.read(_INT_SIZE))[0]
+    
     def read_ushort(self):
         return unpack_ushort(self.file.read(_SHORT_SIZE))[0]
+    
     def read_long(self):
         return unpack_long(self.file.read(_LONG_SIZE))[0]
+    
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
+    
     def read_array(self, typecode, length):
         a = array(typecode)
         if self.is_real:
             a.fromfile(self.file, length)
         else:
             a.fromstring(self.file.read(length * _SIZEMAP[typecode]))
-        if IS_LITTLE: a.byteswap()
+        if IS_LITTLE:
+            a.byteswap()
         return a
 
     def get_sbyte(self, position):
         return unpack_sbyte(self.map[position:position + 1])[0]
+    
     def get_int(self, position):
         return unpack_int(self.map[position:position + _INT_SIZE])[0]
+    
     def get_uint(self, position):
         return unpack_uint(self.map[position:position + _INT_SIZE])[0]
+    
     def get_ushort(self, position):
         return unpack_ushort(self.map[position:position + _SHORT_SIZE])[0]
+    
     def get_long(self, position):
         return unpack_long(self.map[position:position + _LONG_SIZE])[0]
+    
     def get_float(self, position):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
+    
     def get_array(self, position, typecode, length):
         source = self.map[position:position + length * _SIZEMAP[typecode]]
         a = array(typecode)
         a.fromstring(source)
-        if IS_LITTLE: a.byteswap()
+        if IS_LITTLE:
+            a.byteswap()
         return a
 
 

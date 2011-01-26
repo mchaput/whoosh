@@ -14,8 +14,8 @@
 # limitations under the License.
 #===============================================================================
 
-import calendar, re
-from datetime import date, time, datetime, timedelta
+import re
+from datetime import datetime, timedelta
 
 from whoosh.qparser import BasicSyntax, ErrorToken, Plugin, RangePlugin, Group, Word
 from whoosh.support.relativedelta import relativedelta
@@ -37,7 +37,8 @@ def rcompile(pattern):
 
 
 def print_debug(level, msg, *args):
-    if level > 0: print ("  " * (level-1)) + (msg % args)
+    if level > 0:
+        print ("  " * (level - 1)) + (msg % args)
 
 
 # Parser element objects
@@ -317,7 +318,7 @@ class Bag(MultiBase):
                 print_debug(debug, "Bag %s trying=%r", self.name, e)
                 
                 try:
-                    at, xpos  = e.parse(text, dt, newpos, debug + 1)
+                    at, xpos = e.parse(text, dt, newpos, debug + 1)
                 except TimeError:
                     at, xpos = None, None
                     
@@ -619,7 +620,6 @@ class DateParser(object):
         return d
     
     
-
 class English(DateParser):
     day = Regex("(?P<day>([123][0-9])|[1-9])(st|nd|rd|th)?(?=(\\W|$))",
                 lambda p, dt: adatetime(day=p.day))
@@ -819,7 +819,8 @@ class DateToken(BasicSyntax):
                               endpos=self.endpos)
     
     def set_fieldname(self, name):
-        if name is None: raise Exception
+        if name is None:
+            raise Exception
         return self.__class__(name, self.timeobj, boost=self.boost,
                               endpos=self.endpos)
     
@@ -876,7 +877,8 @@ class DateRangeToken(BasicSyntax):
                               boost=b, endpos=self.endpos)
     
     def set_fieldname(self, name):
-        if name is None: raise Exception
+        if name is None:
+            raise Exception
         return self.__class__(name, self.starttime, self.endtime,
                               boost=self.boost, endpos=self.endpos)
         

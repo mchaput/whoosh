@@ -19,8 +19,7 @@ This module contains classes for scoring (and sorting) search results.
 """
 
 from __future__ import division
-from array import array
-from math import log, pi, log10
+from math import log, pi
 
 
 # Base classes
@@ -43,7 +42,7 @@ class WeightingModel(object):
         """
         
         n = searcher.doc_frequency(fieldname, text)
-        return log((searcher.doc_count_all()) / (n+1)) + 1
+        return log((searcher.doc_count_all()) / (n + 1)) + 1
     
     def scorer(self, searcher, fieldname, text, qf=1):
         """Returns an instance of :class:`whoosh.scoring.Scorer` configured
@@ -218,7 +217,7 @@ class PL2(WeightingModel):
     See http://terrier.org/
     """
     
-    rec_log2_of_e = 1.0/log(2)
+    rec_log2_of_e = 1.0 / log(2)
     
     def __init__(self, c=1.0):
         self.c = c
@@ -373,8 +372,10 @@ class ReverseWeighting(WeightingModel):
         
         def score(self, matcher):
             return 0 - self.subscorer.score(matcher)
+        
         def quality(self, matcher):
             return 0 - self.subscorer.quality(matcher)
+        
         def block_quality(self, matcher):
             return 0 - self.subscorer.block_quality(matcher)
         

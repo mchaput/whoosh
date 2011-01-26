@@ -23,6 +23,7 @@ from __future__ import division
 from heapq import nlargest
 from cgi import escape as htmlescape
 
+
 # Fragment object
 
 class Fragment(object):
@@ -294,12 +295,18 @@ def BasicFragmentScorer(f):
 def SCORE(fragment):
     "Sorts higher scored passages first."
     return None
+
+
 def FIRST(fragment):
     "Sorts passages from earlier in the document first."
     return fragment.startchar
+
+
 def LONGER(fragment):
     "Sorts longer passages first."
     return 0 - len(fragment)
+
+
 def SHORTER(fragment):
     "Sort shorter passages first."
     return len(fragment)
@@ -327,7 +334,8 @@ class UppercaseFormatter(object):
                 output.append(text[index:t.startchar])
             
             ttxt = text[t.startchar:t.endchar]
-            if t.matched: ttxt = ttxt.upper()
+            if t.matched:
+                ttxt = ttxt.upper()
             output.append(ttxt)
             index = t.endchar
         
@@ -441,7 +449,7 @@ class GenshiFormatter(object):
         self.qname = qname
         self.between = between
         
-        from genshi.core import START, END, TEXT, Attrs, Stream #@UnresolvedImport
+        from genshi.core import START, END, TEXT, Attrs, Stream
         self.START, self.END, self.TEXT = START, END, TEXT
         self.Attrs, self.Stream = Attrs, Stream
 

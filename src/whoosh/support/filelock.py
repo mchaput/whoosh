@@ -22,7 +22,10 @@ lock directory was left behind and would keep the index locked until it was
 cleaned up. Using OS-level file locks fixes this.
 """
 
-import errno, os, time
+import errno
+import os
+import time
+
 
 def try_for(fn, timeout=5.0, delay=0.1):
     """Calls ``fn`` every ``delay`` seconds until it returns True or ``timeout``
@@ -83,7 +86,8 @@ class FcntlLock(LockBase):
         self.fd = os.open(self.filename, flags)
         
         mode = fcntl.LOCK_EX
-        if not blocking: mode |= fcntl.LOCK_NB
+        if not blocking:
+            mode |= fcntl.LOCK_NB
         
         try:
             fcntl.flock(self.fd, mode)
@@ -112,7 +116,8 @@ class MsvcrtLock(LockBase):
         
         flags = os.O_CREAT | os.O_WRONLY
         mode = msvcrt.LK_NBLCK
-        if blocking: mode = msvcrt.LK_LOCK
+        if blocking:
+            mode = msvcrt.LK_LOCK
             
         self.fd = os.open(self.filename, flags)
         try:

@@ -83,7 +83,8 @@ class PaiceHuskStemmer(object):
         
         rules = self.rules
         match = self.stem_expr.match(word)
-        if not match: return word
+        if not match:
+            return word
         stem = self.strip_prefix(match.group(0))
         
         is_intact = True
@@ -91,12 +92,14 @@ class PaiceHuskStemmer(object):
         while continuing:
             pfv = self.first_vowel(stem)
             rulelist = rules.get(stem[-1])
-            if not rulelist: break
+            if not rulelist:
+                break
             
             continuing = False
             for ending, intact, num, append, cont in rulelist:
                 if stem.endswith(ending):
-                    if intact and not is_intact: continue
+                    if intact and not is_intact:
+                        continue
                     newlen = len(stem) - num + len(append)
                     
                     if ((pfv == 0 and newlen < 2)
@@ -107,7 +110,7 @@ class PaiceHuskStemmer(object):
                             continue
                     
                     is_intact = False
-                    stem = stem[:0-num] + append
+                    stem = stem[:0 - num] + append
                     
                     continuing = cont
                     break

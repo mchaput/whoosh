@@ -233,9 +233,11 @@ class QueryParser(object):
         while i < len(text):
             matched = False
             
-            if debug: print ".matching at %r" % text[i:]
+            if debug:
+                print ".matching at %r" % text[i:]
             for tk in tokens:
-                if debug: print "..trying token %r" % tk
+                if debug:
+                    print "..trying token %r" % tk
                 m = tk.match(text, i)
                 if m:
                     item = tk.create(self, m)
@@ -252,7 +254,8 @@ class QueryParser(object):
                             raise Exception("Parser element %r did not move the cursor forward (pos=%s match=%r)" % (tk, i, m.group(0)))
                         
                         if prev < i:
-                            if debug:  print "...Adding in-between %r as a term" % text[prev:i]
+                            if debug:
+                                print "...Adding in-between %r as a term" % text[prev:i]
                             stack.append(Word(text[prev:i]))
                         
                         stack.append(item)
@@ -269,7 +272,8 @@ class QueryParser(object):
         if prev < len(text):
             stack.append(Word(text[prev:]))
         
-        if debug: print "Final stack %r" % (stack, )
+        if debug:
+            print "Final stack %r" % (stack, )
         return self.group(stack)
     
     def _filterize(self, stream, debug=False):

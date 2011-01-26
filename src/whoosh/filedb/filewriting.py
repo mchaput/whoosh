@@ -24,7 +24,6 @@ from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
-from whoosh.reading import TermNotFound
 from whoosh.store import LockError
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
@@ -172,7 +171,8 @@ class SegmentWriter(IndexWriter):
         #number.
 
         offsets = self._doc_offsets
-        if len(offsets) == 1: return 0
+        if len(offsets) == 1:
+            return 0
         return bisect_right(offsets, docnum) - 1
 
     def _segment_and_docnum(self, docnum):

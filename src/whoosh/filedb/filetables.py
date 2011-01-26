@@ -19,7 +19,6 @@ on-disk key-value database format. The current format is based heavily on
 D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
-from sys import byteorder
 from array import array
 from collections import defaultdict
 from cPickle import loads, dumps
@@ -38,17 +37,17 @@ _4GB = 4 * 1024 * 1024 * 1024
 #        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
 #    return h
 
-_header_entry_struct = Struct("!qI") # Position, number of slots
+_header_entry_struct = Struct("!qI")  # Position, number of slots
 header_entry_size = _header_entry_struct.size
 pack_header_entry = _header_entry_struct.pack
 unpack_header_entry = _header_entry_struct.unpack
 
-_lengths_struct = Struct("!II") # Length of key, length of data
+_lengths_struct = Struct("!II")  # Length of key, length of data
 lengths_size = _lengths_struct.size
 pack_lengths = _lengths_struct.pack
 unpack_lengths = _lengths_struct.unpack
 
-_pointer_struct = Struct("!qq") # Hash value, position
+_pointer_struct = Struct("!qq")  # Hash value, position
 pointer_size = _pointer_struct.size
 pack_pointer = _pointer_struct.pack
 unpack_pointer = _pointer_struct.unpack
@@ -58,6 +57,7 @@ HEADER_SIZE = 256 * header_entry_size
 #def _hash(value):
 #    return abs(hash(value))
 _hash = hash
+
 
 # Table classes
 
@@ -301,10 +301,12 @@ class OrderedHashReader(HashReader):
         lo = 0
         hi = self.length
         while lo < hi:
-            mid = (lo+hi)//2
+            mid = (lo + hi) // 2
             midkey = key_at(dbfile.get_long(indexbase + mid * _LONG_SIZE))
-            if midkey < key: lo = mid+1
-            else: hi = mid
+            if midkey < key:
+                lo = mid + 1
+            else:
+                hi = mid
         #i = max(0, mid - 1)
         if lo == self.length:
             return None
@@ -536,6 +538,7 @@ class TermIndexReader(CodedOrderedReader):
 # docnum, fieldnum
 _vectorkey_struct = Struct("!IH")
 
+
 class TermVectorWriter(TermIndexWriter):
     def keycoder(self, key):
         fieldmap = self.fieldmap
@@ -580,14 +583,14 @@ class LengthWriter(object):
         for docnum, fieldname, byte in items:
             if byte:
                 if fieldname not in lengths:
-                    lengths[fieldname] = array("B",  (0 for _ in xrange(self.doccount)))
+                    lengths[fieldname] = array("B", (0 for _ in xrange(self.doccount)))
                 lengths[fieldname][docnum] = byte
     
     def add(self, docnum, fieldname, byte):
         lengths = self.lengths
         if byte:
             if fieldname not in lengths:
-                lengths[fieldname] = array("B",  (0 for _ in xrange(self.doccount)))
+                lengths[fieldname] = array("B", (0 for _ in xrange(self.doccount)))
             lengths[fieldname][docnum] = byte
     
     def reader(self):
@@ -628,10 +631,11 @@ class LengthReader(object):
         return byte_to_length(byte)
         
 
-_stored_pointer_struct = Struct("!qI") # offset, length
+_stored_pointer_struct = Struct("!qI")  # offset, length
 stored_pointer_size = _stored_pointer_struct.size
 pack_stored_pointer = _stored_pointer_struct.pack
 unpack_stored_pointer = _stored_pointer_struct.unpack
+
 
 class StoredFieldWriter(object):
     def __init__(self, dbfile, fieldnames):
@@ -697,7 +701,7 @@ class StoredFieldReader(object):
         self.dbfile.close()
 
     def __getitem__(self, num):
-        if num > self.length-1:
+        if num > self.length - 1:
             raise IndexError("Tried to get document %s, file has %s" % (num, self.length))
         
         dbfile = self.dbfile
@@ -707,7 +711,7 @@ class StoredFieldReader(object):
         if len(ptr) != stored_pointer_size:
             raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
         position, length = unpack_stored_pointer(ptr)
-        vlist = loads(dbfile.map[position:position+length] + ".")
+        vlist = loads(dbfile.map[position:position + length] + ".")
         
         names = self.names
         # Recreate a dictionary by putting the field names and values back

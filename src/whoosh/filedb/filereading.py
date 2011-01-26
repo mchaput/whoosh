@@ -20,7 +20,6 @@ from threading import Lock
 
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.filedb.filepostings import FilePostingReader
-from whoosh.filedb.filestore import ReadOnlyError
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
@@ -28,6 +27,7 @@ from whoosh.reading import IndexReader, TermNotFound
 from whoosh.util import protected
 
 SAVE_BY_DEFAULT = True
+
 
 # Reader class
 
@@ -85,7 +85,8 @@ class SegmentReader(IndexReader):
         return self.segment.generation
 
     def _open_vectors(self):
-        if self.vectorindex: return
+        if self.vectorindex:
+            return
         
         storage, segment = self.storage, self.segment
         
@@ -141,7 +142,8 @@ class SegmentReader(IndexReader):
 
     @protected
     def doc_field_length(self, docnum, fieldname, default=0):
-        if self.fieldlengths is None: return default
+        if self.fieldlengths is None:
+            return default
         return self.fieldlengths.get(docnum, fieldname, default=default)
 
     def max_field_length(self, fieldname):

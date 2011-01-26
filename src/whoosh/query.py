@@ -26,7 +26,8 @@ __all__ = ("QueryError", "Query", "CompoundQuery", "MultiTerm", "Term", "And",
            "AndMaybe", "AndNot")
 
 import copy
-import fnmatch, re
+import fnmatch
+import re
 from array import array
 
 from whoosh.lang.morph_en import variations
@@ -36,7 +37,6 @@ from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              WrappingMatcher, ConstantScoreMatcher,
     AndNotMatcher)
 from whoosh.reading import TermNotFound
-from whoosh.support.bitvector import BitVector
 from whoosh.support.levenshtein import relative
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree
@@ -459,7 +459,8 @@ class MultiTerm(Query):
         for word in self._words(ixreader):
             t = (fieldname, word)
             contains = t in ixreader
-            if reverse: contains = not contains
+            if reverse:
+                contains = not contains
             if contains:
                 termset.add(t)
 
@@ -1151,8 +1152,10 @@ class DateRange(NumericRange):
                  boost=1.0, constantscore=True):
         self.startdate = start
         self.enddate = end
-        if start: start = datetime_to_long(start)
-        if end: end = datetime_to_long(end)
+        if start:
+            start = datetime_to_long(start)
+        if end:
+            end = datetime_to_long(end)
         super(DateRange, self).__init__(fieldname, start, end,
                                         startexcl=startexcl, endexcl=endexcl,
                                         boost=boost, constantscore=constantscore)
@@ -1198,7 +1201,8 @@ class Variations(MultiTerm):
         for word in self.words:
             t = (self.fieldname, word)
             contains = t in ixreader
-            if reverse: contains = not contains
+            if reverse:
+                contains = not contains
             if contains:
                 termset.add(t)
 
@@ -1261,7 +1265,8 @@ class Phrase(Query):
             fieldname = self.fieldname
             for word in self.words:
                 contains = (fieldname, word) in ixreader
-                if reverse: contains = not contains
+                if reverse:
+                    contains = not contains
                 if contains:
                     termset.add((fieldname, word))
 
@@ -1301,7 +1306,8 @@ class Phrase(Query):
 
         # Shortcut the query if one of the words doesn't exist.
         for word in self.words:
-            if (fieldname, word) not in reader: return NullMatcher()
+            if (fieldname, word) not in reader:
+                return NullMatcher()
         
         field = searcher.schema[fieldname]
         if not field.format or not field.format.supports("positions"):
@@ -1383,20 +1389,29 @@ class NullQuery(Query):
     "Represents a query that won't match anything."
     def __call__(self):
         return self
+    
     def __repr__(self):
         return "<%s>" % (self.__class__.__name__, )
+    
     def copy(self):
         return self
+    
     def estimate_size(self, ixreader):
         return 0
+    
     def normalize(self):
         return self
+    
     def simplify(self, ixreader):
         return self
+    
     def docs(self, searcher):
         return []
+    
     def matcher(self, searcher):
         return NullMatcher()
+
+
 NullQuery = NullQuery()
 
 
