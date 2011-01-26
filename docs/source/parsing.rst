@@ -194,6 +194,27 @@ words for the AND, OR, ANDNOT, ANDMAYBE, and NOT functions::
     parser.replace_plugin(qparser.NotPlugin("!"))
 
 
+Adding less-than, greater-than, etc.
+------------------------------------
+
+Normally, the way you match all terms in a field greater than "apple" is with
+an open ended range::
+
+    field:{apple to]
+
+The :class:`whoosh.qparser.GtLtPlugin` lets you specify the same search like
+this::
+
+    field:>apple
+    
+The plugin lets you use ``>``, ``<``, ``>=``, ``<=``, ``=>``, or ``=<`` after
+a field specifier, and translates the expression into the equivalent range::
+
+    date:>='31 march 2001'
+    
+    date:[31 march 2001 to]
+
+
 Advanced customization
 ======================
 

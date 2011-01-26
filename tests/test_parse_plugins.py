@@ -304,7 +304,8 @@ class TestParserPlugins(unittest.TestCase):
                          "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")
         
     def test_gtlt(self):
-        schema = fields.Schema(a=fields.TEXT, b=fields.NUMERIC, c=fields.TEXT,
+        schema = fields.Schema(a=fields.KEYWORD, b=fields.NUMERIC,
+                               c=fields.KEYWORD,
                                d=fields.NUMERIC(float), e=fields.DATETIME)
         qp = qparser.QueryParser("a", schema=schema)
         qp.add_plugin(qparser.GtLtPlugin())
@@ -312,10 +313,10 @@ class TestParserPlugins(unittest.TestCase):
         
         q = qp.parse(u"a:hello b:>100 c:<=z there")
         self.assertEqual(q.__class__, query.And)
-        self.assertEqual(len(q), 4)
+        self.assertEqual(len(q), 4, unicode(q))
         self.assertEqual(q[0], query.Term("a", "hello"))
         self.assertEqual(q[1], query.NumericRange("b", 100, None, startexcl=True))
-        self.assertEqual(q[2], query.TermRange("c", '', 'z'))
+        self.assertEqual(q[2], query.TermRange("c", None, 'z'))
         self.assertEqual(q[3], query.Term("a", "there"))
         
         q = qp.parse(u"hello e:>'29 mar 2001' there")
@@ -326,9 +327,14 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[1], query.DateRange("e", datetime(2001, 3, 29, 0, 0), None))
         self.assertEqual(q[2], query.Term("a", "there"))
         
+        q = qp.parse(u"a:> alfa c:<= bravo")
+        self.assertEqual(unicode(q), "(a:a: AND a:alfa AND a:c: AND a:bravo)")
+        
         qp.remove_plugin_class(qparser.FieldsPlugin)
         qp.remove_plugin_class(qparser.RangePlugin)
-        self.assertRaises(NotImplementedError, qp.parse, u"hello a:>500 there")
+        q = qp.parse(u"hello a:>500 there")
+        self.assertEqual(unicode(q), "(a:hello AND a:a: AND a:500 AND a:there)")
+        
         
 
 

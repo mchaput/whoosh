@@ -947,11 +947,7 @@ class TermRange(MultiTerm):
         """
 
         self.fieldname = fieldname
-        if start is None:
-            start = u''
         self.start = start
-        if end is None:
-            end = u'\uffff'
         self.end = end
         self.startexcl = startexcl
         self.endexcl = endexcl
@@ -975,12 +971,12 @@ class TermRange(MultiTerm):
                 and self.boost == other.boost)
 
     def __unicode__(self):
-        startchar = "["
-        if self.startexcl: startchar = "{"
-        endchar = "]"
-        if self.endexcl: endchar = "}"
-        return u"%s:%s%s TO %s%s" % (self.fieldname,
-                                     startchar, self.start, self.end, endchar)
+        startchar = "{" if self.startexcl else "["
+        endchar = "}" if self.endexcl else "]"
+        start = '' if self.start is None else self.start
+        end = '' if self.end is None else self.end
+        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
+                                     endchar)
 
     def copy(self):
         return self.__class__(self.fieldname, self.start, self.end,
@@ -1004,15 +1000,15 @@ class TermRange(MultiTerm):
         end = newtext if self.end == oldtext else self.end
         return self.__class__(self.fieldname, start, end, self.startexcl,
                               self.endexcl, boost=self.boost)
-        
+    
     def _words(self, ixreader):
         fieldname = self.fieldname
-        start = self.start
-        end = self.end
+        start = '' if self.start is None else self.start
+        end = u'\uFFFF' if self.end is None else self.end
         startexcl = self.startexcl
         endexcl = self.endexcl
 
-        for fname, t, _, _ in ixreader.iter_from(fieldname, self.start):
+        for fname, t, _, _ in ixreader.iter_from(fieldname, start):
             if fname != fieldname:
                 break
             if t == start and startexcl:
