@@ -60,6 +60,7 @@ from itertools import chain
 
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
+from whoosh.util import lru_cache
 
 
 # Default list of stop words (words so common it's usually wasteful to index
@@ -728,7 +729,7 @@ class StemFilter(Filter):
     
     __inittypes__ = dict(stemfn=object, ignore=list)
     
-    def __init__(self, stemfn=stem, ignore=None):
+    def __init__(self, stemfn=stem, ignore=None, cachesize=50000):
         """
         :param stemfn: the function to use for stemming.
         :param ignore: a set/list of words that should not be stemmed. This is
@@ -737,11 +738,25 @@ class StemFilter(Filter):
         """
         
         self.stemfn = stemfn
-        self.cache = {}
-        if ignore is None:
-            self.ignores = frozenset()
-        else:
-            self.ignores = frozenset(ignore)
+        self.ignore = frozenset() if ignore is None else frozenset(ignore)
+        self.cachesize = cachesize
+        # clear() sets the _stem attr to a cached wrapper around self.stemfn
+        self.clear()
+    
+    def __getstate__(self):
+        # Can't pickle a dynamic function, so we have to remove the _stem
+        # attribute from the state
+        return dict([(k, self.__dict__[k]) for k in self.__dict__
+                      if k != "_stem"])
+    
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Set the _stem attribute
+        self.clear()
+    
+    def clear(self):
+        self._stem = (self.stemfn if self.cachesize == 1
+                      else lru_cache(self.cachesize)(self.stemfn))
     
     def __eq__(self, other):
         return (other
@@ -749,32 +764,40 @@ class StemFilter(Filter):
                 and self.stemfn == other.stemfn)
     
     def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
-        stemfn = self.stemfn
-        cache = self.cache
-        ignores = self.ignores
+        stemfn = self._stem
+        ignore = self.ignore
         
         for t in tokens:
-            if t.stopped:
-                yield t
-                continue
-            
-            text = t.text
-            if text in ignores:
-                yield t
-            elif text in cache:
-                t.text = cache[text]
-                yield t
-            else:
-                t.text = s = stemfn(text)
-                cache[text] = s
-                yield t
+            if not t.stopped:
+                text = t.text
+                if text not in ignore:
+                    t.text = stemfn(text)
+            yield t
                 
-    def clean(self):
-        """This filter memoizes previously stemmed words to greatly speed up
-        stemming. This method clears the cache of previously stemmed words.
-        """
-        self.cache.clear()
+
+#class SnowballStemFilter(Filter):
+#    @staticmethod
+#    def available_stemmers():
+#        import zopyx.txng3.ext.stemmer as stemmer
+#        return stemmer.availableStemmers()
+#    
+#    def __init__(self, lang="english", ignore=None):
+#        import zopyx.txng3.ext.stemmer as stemmer
+#        self.stemmer = stemmer.Stemmer(lang)
+#        self.ignores = frozenset() if ignore is None else frozenset(ignore)
+#        
+#    def __eq__(self, other):
+#        return (other and self.__class__ is other.__class__
+#                and self.stemmer == other.stemmer)
+#    
+#    def __call__(self, tokens):
+#        stemfn = self.stemmer.stem
+#        ignores = self.ignores
+#        
+#        for t in tokens:
+#            if not t.stopped and not(t.text in ignores):
+#                t.text = stemfn((t.text, ))[0]
+#            yield t
 
 
 class CharsetFilter(Filter):
@@ -1650,7 +1673,7 @@ StandardAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
 
 def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      minsize=2, maxsize=None, gaps=False, stemfn=stem,
-                     ignore=None):
+                     ignore=None, cachesize=50000):
     """Composes a RegexTokenizer with a lower case filter, an optional stop
     filter, and a stemming filter.
     
@@ -1665,6 +1688,10 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
     :param maxsize: Words longer that this are removed from the stream.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
+    :param ignore: a set of words to not stem.
+    :param cachesize: the maximum number of stemmed words to cache. The larger
+        this number, the faster stemming will be but the more memory it will
+        use.
     """
     
     ret = RegexTokenizer(expression=expression, gaps=gaps)
@@ -1672,7 +1699,7 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
     if stoplist is not None:
         chain = chain | StopFilter(stoplist=stoplist, minsize=minsize,
                                    maxsize=maxsize)
-    return chain | StemFilter(stemfn=stemfn, ignore=ignore)
+    return chain | StemFilter(stemfn=stemfn, ignore=ignore, cachesize=cachesize)
 StemmingAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool,
                                       stoplist=list, minsize=int, maxsize=int)
 

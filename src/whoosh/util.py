@@ -17,16 +17,17 @@
 """Miscellaneous utility functions and classes.
 """
 
-from array import array
-from math import log
+from __future__ import with_statement
 import codecs
 import re
 import sys
 import time
-
+from array import array
 from copy import copy
 from functools import wraps
+from math import log
 from struct import pack, unpack
+from threading import Lock
 
 from whoosh.system import IS_LITTLE
 
@@ -390,47 +391,112 @@ def protected(func):
     return protected_wrapper
     
 
-class LRUCache(object):
-    def __init__(self, size):
-        self.size = size
-        self.clock = []
-        for i in xrange(0, size):
-            self.clock.append([None, False])
-        self.hand = 0
-        self.data = {}
+def lru_cache(maxsize=100):
+    """Least-recently-used cache decorator.
 
-    def __contains__(self, key):
-        return key in self.data
+    This function duplicates (more-or-less) the protocol of the
+    ``functools.lru_cache`` decorator in the Python 3.2 standard library, but
+    uses the clock face LRU algorithm instead of an ordered dictionary.
+
+    If *maxsize* is set to None, the LRU features are disabled and the cache
+    can grow without bound.
+
+    Arguments to the cached function must be hashable.
+
+    View the cache statistics named tuple (hits, misses, maxsize, currsize)
+    with f.cache_info().  Clear the cache and statistics with f.cache_clear().
+    Access the underlying function with f.__wrapped__.
+    """
     
-    def __getitem__(self, key):
-        pos, val = self.data[key]
-        self.clock[pos][1] = True
-        self.hand = (pos + 1) % self.size
-        return val
-        
-    def __setitem__(self, key, val):
-        size = self.size
-        hand = self.hand
-        clock = self.clock
-        data = self.data
+    def decorating_function(user_function, tuple=tuple, sorted=sorted,
+                            len=len, KeyError=KeyError):
 
-        end = (hand or size) - 1
-        while True:
-            current = clock[hand]
-            ref = current[1]
-            if ref:
-                current[1] = False
-                hand = (hand + 1) % size
-            elif ref is False or hand == end:
-                oldkey = current[0]
-                if oldkey in data:
-                    del data[oldkey]
-                current[0] = key
-                current[1] = True
-                data[key] = (hand, val)
-                hand = (hand + 1) % size
-                self.hand = hand
-                return
+        stats = [0, 0, 0]  # hits, misses
+        data = {}
+        
+        if maxsize:
+            # The keys at each point on the clock face
+            clock_keys = [None] * maxsize
+            # The "referenced" bits at each point on the clock face
+            clock_refs = array("B", (0 for _ in xrange(maxsize)))
+            lock = Lock()
+            
+            @wraps(user_function)
+            def wrapper(*args):
+                key = args
+                try:
+                    with lock:
+                        pos, result = data[key]
+                        # The key is in the cache. Set the key's reference bit
+                        clock_refs[pos] = 1
+                        # Record a cache hit
+                        stats[0] += 1
+                except KeyError:
+                    # Compute the value
+                    result = user_function(*args)
+                    with lock:
+                        # Current position of the clock hand
+                        hand = stats[2]
+                        # Remember to stop here after a full revolution
+                        end = hand
+                        # Sweep around the clock looking for a position with
+                        # the reference bit off
+                        while True:
+                            hand = (hand + 1) % maxsize
+                            current_ref = clock_refs[hand]
+                            if current_ref:
+                                # This position's "referenced" bit is set. Turn
+                                # the bit off and move on.
+                                clock_refs[hand] = 0
+                            elif not current_ref or hand == end:
+                                # We've either found a position with the
+                                # "reference" bit off or reached the end of the
+                                # circular cache. So we'll replace this
+                                # position with the new key
+                                current_key = clock_keys[hand]
+                                if current_key in data:
+                                    del data[current_key]
+                                clock_keys[hand] = key
+                                clock_refs[hand] = 1
+                                break
+                        # Put the key and result in the cache
+                        data[key] = (hand, result)
+                        # Save the new hand position
+                        stats[2] = hand
+                        # Record a cache miss
+                        stats[1] += 1
+                return result
+        
+        else:
+            @wraps(user_function)
+            def wrapper(*args):
+                key = args
+                try:
+                    result = data[key]
+                    stats[0] += 1
+                except KeyError:
+                    result = user_function(*args)
+                    data[key] = result
+                    stats[1] += 1
+                return result
+
+        def cache_info():
+            """Report cache statistics"""
+            return (stats[0], stats[1], maxsize, len(data))
+
+        def cache_clear():
+            """Clear the cache and cache statistics"""
+            data.clear()
+            stats[0] = stats[1] = stats[2] = 0
+            for i in xrange(maxsize):
+                clock_keys[i] = None
+                clock_refs[i] = 0
+
+        wrapper.cache_info = cache_info
+        wrapper.cache_clear = cache_clear
+        return wrapper
+
+    return decorating_function
 
 
 def find_object(name, blacklist=None, whitelist=None):
