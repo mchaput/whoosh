@@ -801,7 +801,8 @@ class GtLtPlugin(Plugin):
     following::
     
         >100
-    
+        
+    This plugin requires the FieldsPlugin and RangePlugin to work.
     """
     
     def tokens(self, parser):
