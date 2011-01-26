@@ -584,6 +584,19 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse(u"a NOT (b OR c)")
         self.assertEqual(unicode(q), "(text:a AND NOT (text:b OR text:c))")
         
+    def test_fieldname_space(self):
+        qp = qparser.QueryParser("a")
+        q = qp.parse("Man Ray: a retrospective")
+        self.assertEqual(unicode(q), "(a:Man AND a:Ray: AND a:a AND a:retrospective)")
+        
+    def test_fieldname_fieldname(self):
+        qp = qparser.QueryParser("a")
+        q = qp.parse("a:b:")
+        self.assertEqual(q, query.Term("a", u"b:"))
+        
+        q = qp.parse("a:b:c:d:e")
+        self.assertEqual(q, query.Term("a", u"b:c:d:e"))
+        
     
         
 

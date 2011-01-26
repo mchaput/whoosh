@@ -116,6 +116,9 @@ class Group(SyntaxObject):
     def pop(self):
         return self.tokens.pop()
     
+    def reverse(self):
+        self.tokens.reverse()
+    
     def query(self, parser):
         return self.qclass([t.query(parser) for t in self.tokens],
                            boost=self.boost)

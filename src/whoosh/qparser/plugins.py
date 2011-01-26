@@ -139,11 +139,6 @@ class RangePlugin(Plugin):
                     end = get_single_text(field, end, tokenize=False,
                                           removestops=False)
             
-            if start is None:
-                start = u''
-            if end is None:
-                end = u'\uFFFF'
-            
             return query.TermRange(fieldname, start, end, self.startexcl,
                                    self.endexcl, boost=self.boost)
             
@@ -356,47 +351,56 @@ class FieldsPlugin(Plugin):
 
     @staticmethod
     def do_fieldnames(parser, stream):
+        fieldtoken = FieldsPlugin.Field
         newstream = stream.empty()
-        newname = None
-        for i, t in enumerate(stream):
-            if isinstance(t, FieldsPlugin.Field):
-                valid = False
-                if i < len(stream) - 1:
-                    next = stream[i+1]
-                    if not isinstance(next, (White, FieldsPlugin.Field)):
-                        newname = t.fieldname
-                        valid = True
-                if not valid:
-                    newstream.append(Word(t.fieldname, fieldname=parser.fieldname))
-                continue
-            
-            if isinstance(t, Group):
-                t = FieldsPlugin.do_fieldnames(parser, t)
-                
-            if newname is not None:
-                t = t.set_fieldname(newname)
-            newstream.append(t)
-            newname = None
         
+        i = len(stream)
+        # Iterate backwards through the stream, looking for field-able objects
+        # with field tokens in front of them
+        while i > 0:
+            i -= 1
+            t = stream[i]
+            
+            if isinstance(t, fieldtoken):
+                # If this we see a field token in the stream, it means it
+                # wasn't in front of a field-able object, so convert it into a
+                # Word token
+                t = Word(t.original)
+            elif isinstance(t, Group):
+                t = FieldsPlugin.do_fieldnames(parser, t)
+            
+            # If this is a field-able object (not whitespace or a field token)
+            # and it has a field token in front of it, apply the field token
+            if (i > 0 and not isinstance(t, (White, fieldtoken))
+                and isinstance(stream[i-1], fieldtoken)):
+                # Set the field name for this object from the field token
+                t = t.set_fieldname(stream[i-1].fieldname)
+                # Skip past the field token
+                i -= 1
+            
+            newstream.append(t)
+
+        newstream.reverse()
         return newstream
     
     class Field(Token):
-        expr = rcompile(u"(\w[\w\d]*):")
+        expr = rcompile(r"(^|(?<=\s))(?P<fieldname>\w[\w\d]*):")
         
-        def __init__(self, fieldname):
+        def __init__(self, fieldname, original):
             self.fieldname = fieldname
+            self.original = original
         
         def __repr__(self):
             return "<%s:>" % self.fieldname
         
         def set_fieldname(self, fieldname, force=False):
-            return self.__class__(fieldname)
+            return self.__class__(fieldname, self.original)
         
         @classmethod
         def create(cls, parser, match):
-            fieldname = match.group(1)
+            fieldname = match.group("fieldname")
             if not parser.schema or fieldname == "*" or (fieldname in parser.schema):
-                return cls(fieldname)
+                return cls(fieldname, match.group(0))
     
 
 class OperatorsPlugin(Plugin):
@@ -805,11 +809,24 @@ class GtLtPlugin(Plugin):
     This plugin requires the FieldsPlugin and RangePlugin to work.
     """
     
+    def __init__(self, expr=r"(?P<rel>(<=|>=|<|>|=<|=>))"):
+        """
+        :param expr: a regular expression that must capture a "rel" group
+        (which contains <, >, >=, <=, =>, or =<)
+        """
+        
+        self.expr = rcompile(expr)
+    
     def tokens(self, parser):
-        # Run before fields plugin
-        return ((self.GtLtToken, -1), )
+        # Create a dynamic subclass of GtLtToken and give it the configured
+        # regular expression
+        tkclass = type("DynamicGtLtToken", (GtLtPlugin.GtLtToken, ),
+                       {"expr": self.expr})
+        
+        return ((tkclass, 0), )
     
     def filters(self, parser):
+        # Run before the fieldnames filter
         return ((self.do_gtlt, 99), )
     
     def make_range(self, text, rel):
@@ -828,45 +845,34 @@ class GtLtPlugin(Plugin):
         # - if the next token is a Word, replace it with a Range based on the
         #   GtLtToken
         
+        gtlttoken = GtLtPlugin.GtLtToken
+        
         newstream = stream.empty()
-        rel = None
+        prev = None
         for t in stream:
-            if isinstance(t, GtLtPlugin.GtLtToken):
-                rel = t.rel
-                t = FieldsPlugin.Field(t.fieldname)
-            elif rel and isinstance(t, Word):
-                t = self.make_range(t.text, rel)
-                rel = None
-            elif isinstance(t, Group):
-                t = self.do_gtlt(parser, t)
-                rel = None
+            if isinstance(t, gtlttoken):
+                if not isinstance(prev, FieldsPlugin.Field):
+                    prev = None
+                    continue
+            elif isinstance(t, Word) and isinstance(prev, gtlttoken):
+                t = self.make_range(t.text, prev.rel)
             
-            newstream.append(t)
+            if not isinstance(t, gtlttoken):
+                newstream.append(t)
+            prev = t
         
         return newstream
     
     class GtLtToken(Token):
-        expr = rcompile(u"(\w[\w\d]*):(<=|>=|<|>|=<|=>)")
-        
-        def __init__(self, fieldname, rel):
-            self.fieldname = fieldname
+        def __init__(self, rel):
             self.rel = rel
         
         def __repr__(self):
-            return "<%s:'%s'>" % (self.fieldname, self.rel)
-        
-        def set_fieldname(self, name, force=False):
-            if force or self.fieldname is None:
-                return self.__class__(name, self.rel)
-            else:
-                return self
+            return "{%s}" % (self.rel)
         
         @classmethod
         def create(cls, parser, match):
-            fieldname = match.group(1)
-            rel = match.group(2)
-            if not parser.schema or fieldname == "*" or (fieldname in parser.schema):
-                return cls(fieldname, rel)
+            return cls(match.group("rel"))
 
 
 
