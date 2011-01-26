@@ -154,6 +154,7 @@ class AndNotGroup(Group):
         return query.AndNot(self.tokens[0].query(parser),
                             self.tokens[1].query(parser), boost=self.boost)
     
+
 class AndMaybeGroup(Group):
     """Syntax group corresponding to an AndMaybe query.
     """
@@ -163,6 +164,7 @@ class AndMaybeGroup(Group):
         return query.AndMaybe(self.tokens[0].query(parser),
                               self.tokens[1].query(parser), boost=self.boost)
 
+
 class RequireGroup(Group):
     """Syntax group corresponding to a Require query.
     """
@@ -170,7 +172,8 @@ class RequireGroup(Group):
     def query(self, parser):
         assert len(self.tokens) == 2, self.tokens
         return query.Require(self.tokens[0].query(parser),
-                             self.tokens[1].query(parser), boost = self.boost)
+                             self.tokens[1].query(parser), boost=self.boost)
+
 
 class OrderedGroup(Group):
     """Syntax group corresponding to the Ordered query.
@@ -178,6 +181,7 @@ class OrderedGroup(Group):
     
     many = True
     qclass = query.Ordered
+
 
 class DisMaxGroup(Group):
     """Syntax group corresponding to a DisjunctionMax query.
@@ -282,6 +286,7 @@ class Operator(Token):
     def create(self, parser, match):
         return self
     
+    
 class PrefixOperator(Operator):
     """Implements a prefix operator. That is, the token immediately following
     the operator will be put into the group.
@@ -295,6 +300,7 @@ class PrefixOperator(Operator):
             del stream[position]
         return position
     
+    
 class PostfixOperator(Operator):
     """Implements a postfix operator. That is, the token immediately preceding
     the operator will be put into the group.
@@ -307,6 +313,7 @@ class PostfixOperator(Operator):
         else:
             del stream[position]
         return position
+
 
 class InfixOperator(Operator):
     """Implements an infix operator. That is, the tokens immediately on either
