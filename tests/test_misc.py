@@ -56,6 +56,20 @@ class TestMisc(unittest.TestCase):
         xform = [length_to_byte(n) for n in source]
         result = [byte_to_length(n) for n in xform]
         self.assertEqual(source, result)
+        
+    def test_lru_cache(self):
+        from whoosh.util import lru_cache
+        
+        @lru_cache(5)
+        def test(n):
+            return n * 2
+        
+        result = [test(n) for n in (1, 2, 3, 4, 5, 4, 3, 2, 10, 1)]
+        self.assertEqual(result, [2, 4, 6, 8, 10, 8, 6, 4, 20, 2])
+        self.assertEqual(test.cache_info(), (3, 7, 5, 5))
+        test.cache_clear()
+        self.assertEqual(test.cache_info(), (0, 0, 5, 0))
+        
 
 
 if __name__ == '__main__':
