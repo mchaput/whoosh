@@ -15,7 +15,8 @@
 #===============================================================================
 
 from __future__ import with_statement
-import threading, weakref
+import threading
+import weakref
 from array import array
 from collections import defaultdict
 from heapq import heappush, heapreplace
@@ -26,12 +27,16 @@ from whoosh.util import utf8encode
 
 
 pack_int_le = Struct("<i").pack
+
+
 def pickled_unicode(u):
     # Returns the unicode string as a pickle protocol 2 operator
     return "X%s%s" % (pack_int_le(len(u)), utf8encode(u)[0])
 
+
 # Python does not support arrays of long long see Issue 1172711
 # These functions help write/read a simulated an array of q/Q using lists
+
 def write_qsafe_array(typecode, arry, dbfile):
     if typecode == "q":
         for num in arry:
@@ -41,7 +46,8 @@ def write_qsafe_array(typecode, arry, dbfile):
             dbfile.write_ulong(num)
     else:
         dbfile.write_array(arry)
-        
+
+
 def read_qsafe_array(typecode, size, dbfile):
     if typecode == "q":
         arry = [dbfile.read_long() for _ in xrange(size)]
@@ -208,10 +214,10 @@ class FieldCache(object):
         >>> fc.to_file(f)
         """
         
-        dbfile.write_uint(len(self.order)) # Number of documents
+        dbfile.write_uint(len(self.order))  # Number of documents
         
         if self.hastexts:
-            dbfile.write_uint(len(self.texts)) # Number of texts
+            dbfile.write_uint(len(self.texts))  # Number of texts
             dbfile.write_pickle(self.texts)
         
             # Compact the order array if possible
@@ -224,7 +230,7 @@ class FieldCache(object):
                 self.order = array(newcode, self.order)
                 self.typecode = newcode
         else:
-            dbfile.write_uint(0) # No texts
+            dbfile.write_uint(0)  # No texts
         
         dbfile.write(self.typecode)
         write_qsafe_array(self.typecode, self.order, dbfile)
@@ -289,7 +295,7 @@ class FieldCache(object):
         
         for score, docnum in scores_and_docnums:
             key = key_for(docnum)
-            ritem = (0-score, docnum)
+            ritem = (0 - score, docnum)
             ls = groups[key]
             if limit:
                 if len(ls) < limit:
@@ -335,8 +341,8 @@ class FieldCacheWriter(object):
         self.keycount = 1
         
         self.start = dbfile.tell()
-        dbfile.write_uint(0) # Number of docs
-        dbfile.write_uint(0) # Number of texts
+        dbfile.write_uint(0)  # Number of docs
+        dbfile.write_uint(0)  # Number of texts
         
         if self.hastexts:
             # Start the pickled list of texts
@@ -491,7 +497,8 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         return "%s.%s.fc" % (self.basename, savename)
     
     def _file_exists(self, key):
-        if not self.storage: return False
+        if not self.storage:
+            return False
         
         filename = self._filename(key)
         gzfilename = filename + ".gz"

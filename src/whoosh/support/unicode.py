@@ -213,8 +213,12 @@ pattern = re.compile(r'([0-9A-F]+)\.\.([0-9A-F]+);\ (\S.*\S)')
 _starts = []
 _ends = []
 _names = []
+
+
 class blocks(object):
     pass
+
+
 def _init():
     count = 0
     for line in _blockdata.splitlines():
@@ -242,7 +246,7 @@ def blockname(ch):
 
     assert isinstance(ch, unicode) and len(ch) == 1, repr(ch)
     cp = ord(ch)
-    i = bisect_right(_starts, cp)-1
+    i = bisect_right(_starts, cp) - 1
     end = _ends[i]
     if cp > end:
         return None
@@ -261,7 +265,7 @@ def blocknum(ch):
     """
     
     cp = ord(ch)
-    i = bisect_right(_starts, cp)-1
+    i = bisect_right(_starts, cp) - 1
     end = _ends[i]
     if cp > end:
         return None

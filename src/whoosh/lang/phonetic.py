@@ -11,6 +11,7 @@ import re
 
 english_codes = '01230120022455012623010202'
 
+
 def soundex_en(word):
     # digits holds the soundex values for the alphabet
     r = ""
@@ -20,8 +21,9 @@ def soundex_en(word):
         prevcode = None
         for char in word.lower():
             c = ord(char)
-            if c >= 97 and c <= 122: # a-z
-                if not fc: fc = char
+            if c >= 97 and c <= 122:  # a-z
+                if not fc:
+                    fc = char
                 code = english_codes[c - 97]
                 # Don't append the code if it's the same as the previous
                 if code != prevcode:
@@ -46,9 +48,10 @@ _esp_codes = (("\\Aw?[uh]?([aeiou])", ""),
               ("[dpc]t", "t"),
               ("c[aouáóú]|ck|q", "k"),
               ("v", "b"),
-              ("d$", "t"), # Change a trailing d to a t
+              ("d$", "t"),  # Change a trailing d to a t
               )
 _esp_codes = tuple((re.compile(pat), repl) for pat, repl in _esp_codes)    
+
 
 def soundex_esp(word):
     word = word.lower()
@@ -92,6 +95,7 @@ for chars, code in {'\u0627\u0623\u0625\u0622\u062d\u062e\u0647\u0639\u063a\u063
                     }.iteritems():
     for char in chars:
         _arabic_codes[char] = code
+
 
 def soundex_ar(word):
     if word[0] in "\u0627\u0623\u0625\u0622":

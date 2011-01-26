@@ -18,12 +18,11 @@
 """
 
 from bisect import bisect_right
-from collections import defaultdict
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh.fields import UnknownFieldError
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
+
 
 # Exceptions
 
@@ -365,11 +364,13 @@ class IndexReader(ClosableMixin):
         
         if counts:
             for key, docnum in gen:
-                if key not in groups: groups[key] = 0
+                if key not in groups:
+                    groups[key] = 0
                 groups[key] += 1
         else:
             for key, docnum in gen:
-                if key not in groups: groups[key] = []
+                if key not in groups:
+                    groups[key] = []
                 groups[key].append(docnum)
                 
     def define_facets(self, name, doclists, save=False):

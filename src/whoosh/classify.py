@@ -151,7 +151,8 @@ class Expander(object):
         for word, weight in self.topN_weight.iteritems():
             if word in collection_freq:
                 score = model.score(weight, collection_freq[word], self.top_total)
-                if score > maxweight: maxweight = score
+                if score > maxweight:
+                    maxweight = score
                 tlist.append((score, word))
         
         if normalize:
@@ -169,7 +170,7 @@ class Expander(object):
 def median(nums):
     nums = sorted(nums)
     l = len(nums)
-    if l % 2: # Odd
+    if l % 2:  # Odd
         return nums[l // 2]
     else:
         return (nums[l // 2 - 1] + nums[l // 2]) / 2.0
@@ -180,9 +181,9 @@ def mean(nums):
 
 
 def minkowski_distance(x, y, p=2):
-    assert(len(y)==len(x))
+    assert(len(y) == len(x))
     s = sum(abs(x[i] - y[i]) ** p for i in xrange(len(x)))
-    return s ** 1.0/p
+    return s ** 1.0 / p
    
 
 def list_to_matrix(ls, f, symmetric=False, diagonal=None):
@@ -257,7 +258,7 @@ class Cluster(object):
         print "%s-" % (" " * tab, )
         for item in self.items:
             if isinstance(item, Cluster):
-                item.dump(tab+2)
+                item.dump(tab + 2)
             else:
                 print "%s%r" % (" " * tab, item)
     
@@ -343,7 +344,6 @@ class KMeansClustering(object):
         if not data or len(data) == 1 or count >= len(data):
             return data
         
-        
         clusters = [Cluster() for _ in xrange(count)]
         for i, item in enumerate(data):
             clusters[i % count].append(item)
@@ -373,7 +373,8 @@ class KMeansClustering(object):
 
 def shingles(input, size=2):
     d = defaultdict(int)
-    for shingle in (input[i:i+size] for i in xrange(len(input)-(size-1))):
+    for shingle in (input[i:i + size]
+                    for i in xrange(len(input) - (size - 1))):
         d[shingle] += 1
     return d.iteritems()
 
@@ -405,9 +406,9 @@ def _hash(s, hashbits):
     if s == "":
         return 0
     else:
-        x = ord(s[0])<<7
+        x = ord(s[0]) << 7
         m = 1000003
-        mask = 2 ** hashbits-1
+        mask = 2 ** hashbits - 1
         for c in s:
             x = ((x * m) ^ ord(c)) & mask
         x ^= len(s)
@@ -421,7 +422,7 @@ def hamming_distance(first_hash, other_hash, hashbits=32):
     tot = 0
     while x:
         tot += 1
-        x &= x-1
+        x &= x - 1
     return tot
 
 

@@ -14,7 +14,8 @@
 # limitations under the License.
 #===============================================================================
 
-import os, tempfile
+import os
+import tempfile
 from multiprocessing import Process, Queue, cpu_count
 from cPickle import dump, load
 
@@ -30,7 +31,8 @@ from whoosh.writing import IndexWriter
 # Multiprocessing writer
 
 class SegmentWritingTask(Process):
-    def __init__(self, storage, indexname, segname, kwargs, jobqueue, firstjob = None):
+    def __init__(self, storage, indexname, segname, kwargs, jobqueue,
+                 firstjob=None):
         Process.__init__(self)
         self.storage = storage
         self.indexname = indexname

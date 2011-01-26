@@ -160,7 +160,8 @@ class FilePostingReader(Matcher):
         return self.format.supports(astype)
 
     def value(self):
-        if self.block.values is None: self.block.read_values(self.format.posting_size)
+        if self.block.values is None:
+            self.block.read_values(self.format.posting_size)
         return self.block.values[self.i]
 
     def value_as(self, astype):
@@ -201,16 +202,19 @@ class FilePostingReader(Matcher):
             return False
 
     def skip_to(self, id):
-        if not self.is_active(): raise ReadTooFar
+        if not self.is_active():
+            raise ReadTooFar
         
         i = self.i
         # If we're already in the block with the target ID, do nothing
-        if id <= self.block.ids[i]: return
+        if id <= self.block.ids[i]:
+            return
         
         # Skip to the block that would contain the target ID
         if id > self.block.maxid:
             self._skip_to_block(lambda: id > self.block.maxid)
-        if not self._active: return
+        if not self._active:
+            return
 
         # Iterate through the IDs in the block until we find or pass the
         # target
@@ -267,7 +271,8 @@ class FilePostingReader(Matcher):
     
     def skip_to_quality(self, minquality):
         bq = self.block_quality
-        if bq() > minquality: return 0
+        if bq() > minquality:
+            return 0
         return self._skip_to_block(lambda: bq() <= minquality)
     
     def block_maxweight(self):

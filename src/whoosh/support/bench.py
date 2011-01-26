@@ -15,7 +15,7 @@
 #===============================================================================
 
 from __future__ import division
-import os.path, random, sys
+import os.path
 from optparse import OptionParser
 from shutil import rmtree
 from zlib import compress, decompress
@@ -38,6 +38,7 @@ except ImportError:
 
 try:
     from persistent import Persistent
+    
     class ZDoc(Persistent):
         def __init__(self, d):
             self.__dict__.update(d)
@@ -101,10 +102,11 @@ class Spec(object):
             if i >= limit:
                 break
             
-            print "%d. %s" % (i+1, hit.get(self.headline_field))
+            print "%d. %s" % (i + 1, hit.get(self.headline_field))
             if showbody:
                 print hit.get(self.bench.spec.main_field)
-            
+
+
 class WhooshModule(Module):
     def indexer(self, create=True):
         schema = self.bench.spec.whoosh_schema()
@@ -398,7 +400,7 @@ class Bench(object):
                 if chunk and not count % chunk:
                     t = now()
                     sofar = t - starttime
-                    print "Done %d docs, %0.3f secs for %d, %0.3f total, %0.3f docs/s" % (count, t - chunkstarttime, chunk, sofar, count/sofar)
+                    print "Done %d docs, %0.3f secs for %d, %0.3f total, %0.3f docs/s" % (count, t - chunkstarttime, chunk, sofar, count / sofar)
                     chunkstarttime = t
                 if count > upto:
                     break
@@ -413,7 +415,7 @@ class Bench(object):
         committime = now()
         print "Commit time:", committime - spooltime
         totaltime = committime - starttime
-        print "Total time to index %d documents: %0.3f secs, %0.3f docs/s" % (count, totaltime, count/totaltime)
+        print "Total time to index %d documents: %0.3f secs, %0.3f docs/s" % (count, totaltime, count / totaltime)
     
     def search(self, lib):
         lib.searcher()
@@ -439,7 +441,7 @@ class Bench(object):
         for r in lib.findterms(terms):
             pass
         searchtime = now() - starttime
-        print "Search time:", searchtime, "searches/s:", float(len(terms))/searchtime
+        print "Search time:", searchtime, "searches/s:", float(len(terms)) / searchtime
     
     def _parser(self, name):
         p = OptionParser()

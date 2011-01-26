@@ -177,7 +177,8 @@ class Searcher(object):
         
         cache = self._idf_cache
         term = (fieldname, text)
-        if term in cache: return cache[term]
+        if term in cache:
+            return cache[term]
 
         idf = self.weighting.idf(self, fieldname, text)
         cache[term] = idf
@@ -575,7 +576,8 @@ class Collector(object):
                 matcher.skip_to_quality(self.minquality)
                 # Skipping ahead might have moved the matcher to the end of the
                 # posting list
-                if not matcher.is_active(): break
+                if not matcher.is_active():
+                    break
             
             # The current document ID 
             id = matcher.id()
@@ -607,7 +609,7 @@ class Collector(object):
         # enforce a consistent ordering of documents with equal score)
         items = self._items
         if self.scored:
-            items = sorted(self._items, key=lambda x: (0-x[0], x[1]))
+            items = sorted(self._items, key=lambda x: (0 - x[0], x[1]))
         return [(item[0], item[1]) for item in items]
         
 
@@ -824,7 +826,8 @@ class Results(object):
         """Removes any hits that are not also in the other results object.
         """
 
-        if not len(results): return
+        if not len(results):
+            return
 
         docs = self.docs() & results.docs()
         items = [item for item in self.top_n if item[1] in docs]
@@ -842,7 +845,8 @@ class Results(object):
             results object instead of raising them.
         """
 
-        if not len(results): return
+        if not len(results):
+            return
 
         otherdocs = results.docs()
         arein = [item for item in self.top_n if item[1] in otherdocs]
@@ -863,7 +867,8 @@ class Results(object):
         :param results: another results object.
         """
 
-        if not len(results): return
+        if not len(results):
+            return
 
         docs = self.docs()
         otherdocs = results.docs()
@@ -933,24 +938,48 @@ class Hit(object):
         else:
             return False
     
-    def __len__(self): return len(self.fields())
-    def __iter__(self): return self.fields().iterkeys()
-    def __getitem__(self, key): return self.fields().__getitem__(key)
-    def __contains__(self, key): return key in self.fields()
-    def items(self): return self.fields().items()
-    def keys(self): return self.fields().keys()
-    def values(self): return self.fields().values()
-    def iteritems(self): return self.fields().iteritems()
-    def iterkeys(self): return self.fields().iterkeys()
-    def itervalues(self): return self.fields().itervalues()
-    def get(self, key, default=None): return self.fields().get(key, default)
+    def __len__(self):
+        return len(self.fields())
+    
+    def __iter__(self):
+        return self.fields().iterkeys()
+    
+    def __getitem__(self, key):
+        return self.fields().__getitem__(key)
+    
+    def __contains__(self, key):
+        return key in self.fields()
+    
+    def items(self):
+        return self.fields().items()
+    
+    def keys(self):
+        return self.fields().keys()
+    
+    def values(self):
+        return self.fields().values()
+    
+    def iteritems(self):
+        return self.fields().iteritems()
+    
+    def iterkeys(self):
+        return self.fields().iterkeys()
+    
+    def itervalues(self):
+        return self.fields().itervalues()
+    
+    def get(self, key, default=None):
+        return self.fields().get(key, default)
     
     def __setitem__(self, key, value):
         raise NotImplementedError("You cannot modify a search result")
+    
     def __delitem__(self, key, value):
         raise NotImplementedError("You cannot modify a search result")
+    
     def clear(self):
         raise NotImplementedError("You cannot modify a search result")
+    
     def update(self, dict=None, **kwargs):
         raise NotImplementedError("You cannot modify a search result")
     
@@ -1028,7 +1057,7 @@ class ResultsPage(object):
             return self.results.__getitem__(n + offset)
 
     def __iter__(self):
-        return iter(self.results[self.offset : self.offset + self.pagelen])
+        return iter(self.results[self.offset:self.offset + self.pagelen])
 
     def __len__(self):
         return self.total

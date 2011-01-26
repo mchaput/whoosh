@@ -13,121 +13,147 @@ def A(base):
     # A   No restrictions on stem
     return True
 
+
 def B(base):
     # B  Minimum stem length = 3
     return len(base) > 2
+
 
 def C(base):
     # C  Minimum stem length = 4
     return len(base) > 3
 
+
 def D(base):
     # D  Minimum stem length = 5
     return len(base) > 4
 
+
 def E(base):
     # E  Do not remove ending after e
     return base[-1] != "e"
-    
+
+
 def F(base):
     # F  Minimum stem length = 3 and do not remove ending after e
     return len(base) > 2 and base[-1] != "e"
+
 
 def G(base):
     # G  Minimum stem length = 3 and remove ending only after f
     return len(base) > 2 and base[-1] == "f"
 
+
 def H(base):
     # H  Remove ending only after t or ll
     c1, c2 = base[-2:]
     return c2 == "t" or (c2 == "l" and c1 == "l")
-    
+
+
 def I(base):
     # I  Do not remove ending after o or e
     c = base[-1]
     return c != "o" and c != "e"
-    
+
+
 def J(base):
     # J  Do not remove ending after a or e
     c = base[-1]
     return c != "a" and c != "e"
-    
+
+
 def K(base):
     # K  Minimum stem length = 3 and remove ending only after l, i or u*e
     c = base[-1]
     cc = base[-3]
     return len(base) > 2 and (c == "l" or c == "i" or (c == "e" and cc == "u"))
-    
+
+
 def L(base):
     # L  Do not remove ending after u, x or s, unless s follows o
     c1, c2 = base[-2:]
     return c2 != "u" and c2 != "x" and (c2 != "s" or c1 == "o")
-    
+
+
 def M(base):
     # M  Do not remove ending after a, c, e or m
     c = base[-1]
-    return c != "a" and c!= "c" and c != "e" and c != "m"
+    return c != "a" and c != "c" and c != "e" and c != "m"
+
 
 def N(base):
     # N  Minimum stem length = 4 after s**, elsewhere = 3
     return len(base) > 3 or (len(base) == 3 and base[-1] != "s")
 
+
 def O(base):
     # O  Remove ending only after l or i
     c = base[-1]
     return c == "l" or c == "i"
- 
+
+
 def P(base):
     # P  Do not remove ending after c
     return base[-1] != "c"
-    
+
+
 def Q(base):
     # Q  Minimum stem length = 3 and do not remove ending after l or n
     c = base[-1]
     return len(base) > 2 and (c != "l" and c != "n")
+
 
 def R(base):
     # R  Remove ending only after n or r
     c = base[-1]
     return c == "n" or c == "r"
 
+
 def S(base):
     # S  Remove ending only after dr or t, unless t follows t
     l2 = base[-2]
     return l2 == "rd" or (base[-1] == "t" and l2 != "tt")
+
 
 def T(base):
     # T  Remove ending only after s or t, unless t follows o
     c1, c2 = base[-2:]
     return c2 == "s" or (c2 == "t" and c1 != "o")
 
+
 def U(base):
     # U  Remove ending only after l, m, n or r
     c = base[-1]
     return c == "l" or c == "m" or c == "n" or c == "r"
 
+
 def V(base):
     # V  Remove ending only after c
     return base[-1] == "c"
+
 
 def W(base):
     # W  Do not remove ending after s or u
     c = base[-1]
     return c != "s" and c != "u"
 
+
 def X(base):
     # X  Remove ending only after l, i or u*e
     c = base[-1]
     cc = base[-3]
     return c == "l" or c == "i" or (c == "e" and cc == "u")
-    
+
+
 def Y(base):
     # Y  Remove ending only after in
     return base[-2:] == "in"
 
+
 def Z(base):
     # Z  Do not remove ending after f
     return base[-1] != "f"
+
 
 def a(base):
     # a  Remove ending only after d, f, ph, th, l, er, or, es or t
@@ -135,15 +161,18 @@ def a(base):
     l2 = base[-2:]
     return (c == "d" or c == "f" or l2 == "ph" or l2 == "th" or c == "l"
             or l2 == "er" or l2 == "or" or l2 == "es" or c == "t")
-    
+
+
 def b(base):
     # b  Minimum stem length = 3 and do not remove ending after met or ryst
     return len(base) > 2 and not (base.endswith("met")
                                   or base.endswith("ryst"))
 
+
 def c(base):
     # c  Remove ending only after l
     return base[-1] == "l"
+
 
 # Endings
 
@@ -461,10 +490,10 @@ def remove_ending(word):
     el = 11
     while el > 0:
         if length - el > 1:
-            ending = word[length-el:]
+            ending = word[length - el:]
             cond = m[el].get(ending)
             if cond:
-                base = word[:length-el]
+                base = word[:length - el]
                 if cond(base):
                     return base
         el -= 1
@@ -508,6 +537,7 @@ _endings = (("iev", "ief"),
             ("yt", "ys"),
             ("yz", "ys"))
 
+
 # Hash the ending rules by the last letter of the target ending
 _endingrules = defaultdict(list)
 for rule in _endings:
@@ -525,10 +555,11 @@ def fix_ending(word):
         if word.endswith(target):
             if len(endingrule) > 2:
                 exceptafter = endingrule[2]
-                c = word[0-(len(target)+1)]
-                if c in exceptafter: return word
+                c = word[0 - (len(target) + 1)]
+                if c in exceptafter:
+                    return word
             
-            return word[:0-len(target)] + newend
+            return word[:0 - len(target)] + newend
     
     return word
 

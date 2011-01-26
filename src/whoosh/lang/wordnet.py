@@ -24,7 +24,6 @@ http://wordnetcode.princeton.edu/3.0/WNprolog-3.0.tar.gz
 from collections import defaultdict
 
 from whoosh.fields import Schema, ID, STORED
-from whoosh.index import Index
 
 
 def parse_file(f):
@@ -42,7 +41,7 @@ def parse_file(f):
         line = line[2:]
         num = int(line[:line.find(",")])
         qt = line.find("'")
-        line = line[qt+1:]
+        line = line[qt + 1:]
         qt = line.find("'")
         word = line[:qt].lower()
 

@@ -17,7 +17,9 @@
 """ Contains functions and classes related to fields.
 """
 
-import datetime, fnmatch, re, struct
+import datetime
+import fnmatch
+import re
 from decimal import Decimal
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
@@ -34,6 +36,8 @@ from whoosh.support.times import datetime_to_long
 
 class FieldConfigurationError(Exception):
     pass
+
+
 class UnknownFieldError(Exception):
     pass
 
@@ -330,7 +334,8 @@ class NUMERIC(FieldType):
             return [(self.to_text(num), 1, 1.0, '')]
     
     def prepare_number(self, x):
-        if x is None: return x
+        if x is None:
+            return x
         if self.decimal_places:
             x = Decimal(x)
             x *= 10 ** self.decimal_places
@@ -490,7 +495,6 @@ class DATETIME(NUMERIC):
         
         return query.NumericRange(fieldname, start, end, boost=boost)
         
-    
 
 class BOOLEAN(FieldType):
     """Special field type that lets you index boolean values (True and False).
@@ -731,6 +735,7 @@ class MetaSchema(type):
     
     def schema(self):
         return Schema(**self._clsfields)
+
 
 class Schema(object):
     """Represents the collection of fields in an index. Maps field names to

@@ -1,4 +1,5 @@
-import os, shutil, tempfile
+import shutil
+import tempfile
 
 from whoosh.filedb.filestore import FileStorage
 
@@ -16,7 +17,7 @@ class TempStorage(object):
         self.dir = tempfile.mkdtemp(prefix=self.basename, suffix=".tmpix",
                                     dir=self.parentdir)
         return FileStorage(self.dir)
-        
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             if exc_type not in self.suppress:

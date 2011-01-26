@@ -73,6 +73,7 @@ _step4_1 = re.compile("^(.+?)(al|ance|ence|er|ic|able|ible|ant|ement|ment|ent|ou
 _step4_2 = re.compile("^(.+?)(s|t)(ion)$")
 _step5 = re.compile("^(.+?)e$")
 
+
 # Stemming function
 
 def stem(w):
@@ -83,7 +84,8 @@ def stem(w):
     "fundament"
     """
     
-    if len(w) < 3: return w
+    if len(w) < 3:
+        return w
     
     first_is_y = w[0] == "y"
     if first_is_y:

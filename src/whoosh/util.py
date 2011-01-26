@@ -19,9 +19,11 @@
 
 from array import array
 from math import log
-import codecs, re, sys, time
+import codecs
+import re
+import sys
+import time
 
-from collections import deque, defaultdict
 from copy import copy
 from functools import wraps
 from struct import pack, unpack
@@ -40,13 +42,13 @@ except ImportError:
         if r > n:
             return
         indices = range(n)
-        cycles = range(n, n-r, -1)
+        cycles = range(n, n - r, -1)
         yield tuple(pool[i] for i in indices[:r])
         while n:
             for i in reversed(range(r)):
                 cycles[i] -= 1
                 if cycles[i] == 0:
-                    indices[i:] = indices[i+1:] + indices[i:i+1]
+                    indices[i:] = indices[i + 1:] + indices[i:i + 1]
                     cycles[i] = n - i
                 else:
                     j = cycles[i]
@@ -77,6 +79,7 @@ def array_to_string(a):
         a = copy(a)
         a.byteswap()
     return a.tostring()
+
 
 def string_to_array(typecode, s):
     a = array(typecode)
@@ -122,11 +125,13 @@ def _varint(i):
     s += chr(i)
     return s
 
+
 _varint_cache_size = 512
 _varint_cache = []
 for i in xrange(0, _varint_cache_size):
     _varint_cache.append(_varint(i))
 _varint_cache = tuple(_varint_cache)
+
 
 def varint(i):
     """Encodes the given integer into a string of the minimum number  of bytes.
@@ -134,6 +139,7 @@ def varint(i):
     if i < len(_varint_cache):
         return _varint_cache[i]
     return _varint(i)
+
 
 def varint_to_int(vi):
     b = ord(vi[0])
@@ -155,6 +161,7 @@ def signed_varint(i):
     if i >= 0:
         return varint(i << 1)
     return varint((i << 1) ^ (~0))
+
 
 def decode_signed_varint(i):
     """Zig-zag decodes an integer value.
@@ -184,17 +191,25 @@ def read_varint(readfn):
     return i
 
 
+# Fibonacci function
+
 _fib_cache = {}
+
+
 def fib(n):
     """Returns the nth value in the Fibonacci sequence.
     """
 
-    if n <= 2: return n
-    if n in _fib_cache: return _fib_cache[n]
+    if n <= 2:
+        return n
+    if n in _fib_cache:
+        return _fib_cache[n]
     result = fib(n - 1) + fib(n - 2)
     _fib_cache[n] = result
     return result
 
+
+# Float-to-byte encoding/decoding
 
 def float_to_byte(value, mantissabits=5, zeroexp=2):
     """Encodes a floating point number in a single byte.
@@ -217,6 +232,7 @@ def float_to_byte(value, mantissabits=5, zeroexp=2):
         return chr(255)
     else:
         return chr(smallfloat - fzero)
+
 
 def byte_to_float(b, mantissabits=5, zeroexp=2):
     """Decodes a floating point number stored in a single byte.
@@ -244,18 +260,21 @@ def length_to_byte(length):
     
     # This encoding formula works up to 108116 -> 255, so if the length is
     # equal to or greater than that limit, just return 255.
-    if length >= 108116: return 255
+    if length >= 108116:
+        return 255
     
     # The parameters of this formula where chosen heuristically so that low
     # numbers would approximate closely, and the byte range 0-255 would cover
     # a decent range of document lengths (i.e. 1 to ~100000).
-    return int(round(log((length/27.0)+1, 1.033)))
+    return int(round(log((length / 27.0) + 1, 1.033)))
+
 
 def _byte_to_length(n):
-    return int(round((pow(1.033, n)-1)*27))
+    return int(round((pow(1.033, n) - 1) * 27))
 
 _length_byte_cache = array("i", (_byte_to_length(i) for i in xrange(256)))
 byte_to_length = _length_byte_cache.__getitem__
+
 
 # Prefix encoding functions
 
@@ -270,7 +289,8 @@ def first_diff(a, b):
     for i in xrange(0, len(a)):
         if a[i] != b[1]:
             return i
-        if i == 255: return i
+        if i == 255:
+            return i
 
 
 def prefix_encode(a, b):
@@ -294,6 +314,7 @@ def prefix_encode_all(ls):
         yield chr(i) + w[i:].encode("utf8")
         last = w
 
+
 def prefix_decode_all(ls):
     """Decompresses a list of strings compressed by prefix_encode().
     """
@@ -306,12 +327,18 @@ def prefix_decode_all(ls):
         last = decoded
 
 
+# Natural key sorting function
+
 _nkre = re.compile(r"\D+|\d+", re.UNICODE)
+
+
 def _nkconv(i):
     try:
         return int(i)
     except ValueError:
         return i.lower()
+
+
 def natural_key(s):
     """Converts string ``s`` into a tuple that will sort "naturally" (i.e.,
     ``name5`` will come before ``name10`` and ``1`` will come before ``A``).
@@ -327,6 +354,8 @@ def natural_key(s):
     # the digit runs into ints and the non-digit runs to lowercase.
     return tuple(_nkconv(m) for m in _nkre.findall(s))
 
+
+# Mixins and decorators
 
 class ClosableMixin(object):
     """Mix-in for classes with a close() method to allow them to be used as a
@@ -428,7 +457,7 @@ def find_object(name, blacklist=None, whitelist=None):
     
     assert lastdot > -1, "Name %r must be fully qualified" % name
     modname = name[:lastdot]
-    clsname = name[lastdot+1:]
+    clsname = name[lastdot + 1:]
     
     mod = __import__(modname, fromlist=[clsname])
     cls = getattr(mod, clsname)

@@ -372,9 +372,9 @@ class FieldsPlugin(Plugin):
             # If this is a field-able object (not whitespace or a field token)
             # and it has a field token in front of it, apply the field token
             if (i > 0 and not isinstance(t, (White, fieldtoken))
-                and isinstance(stream[i-1], fieldtoken)):
+                and isinstance(stream[i - 1], fieldtoken)):
                 # Set the field name for this object from the field token
-                t = t.set_fieldname(stream[i-1].fieldname)
+                t = t.set_fieldname(stream[i - 1].fieldname)
                 # Skip past the field token
                 i -= 1
             
@@ -453,12 +453,18 @@ class OperatorsPlugin(Plugin):
             ops = []
         
         if not clean:
-            if Not: ops.append((PrefixOperator(Not, NotGroup), 0))
-            if And: ops.append((InfixOperator(And, AndGroup), 0))
-            if Or: ops.append((InfixOperator(Or, OrGroup), 0))
-            if AndNot: ops.append((InfixOperator(AndNot, AndNotGroup), -5))
-            if AndMaybe: ops.append((InfixOperator(AndMaybe, AndMaybeGroup), -5))
-            if Require: ops.append((InfixOperator(Require, RequireGroup), 0))
+            if Not:
+                ops.append((PrefixOperator(Not, NotGroup), 0))
+            if And:
+                ops.append((InfixOperator(And, AndGroup), 0))
+            if Or:
+                ops.append((InfixOperator(Or, OrGroup), 0))
+            if AndNot:
+                ops.append((InfixOperator(AndNot, AndNotGroup), -5))
+            if AndMaybe:
+                ops.append((InfixOperator(AndMaybe, AndMaybeGroup), -5))
+            if Require:
+                ops.append((InfixOperator(Require, RequireGroup), 0))
         
         self.ops = ops
     
@@ -490,7 +496,7 @@ class OperatorsPlugin(Plugin):
         newstream = stream.empty()
         for t in stream:
             if isinstance(t, Group):
-                t = self.do_operators(parser, t, level+1)
+                t = self.do_operators(parser, t, level + 1)
             newstream.append(t)
         
         #print " " * level, "<stream=", newstream
@@ -536,7 +542,6 @@ class NotPlugin(Plugin):
         return newstream
  
 
-
 class BoostPlugin(Plugin):
     """Adds the ability to boost clauses of the query using the circumflex.
     
@@ -554,7 +559,7 @@ class BoostPlugin(Plugin):
         newstream = stream.empty()
         for i, t in enumerate(stream):
             if isinstance(t, BoostPlugin.Boost):
-                if i == 0 or isinstance(stream[i-1], (BoostPlugin.Boost, White)):
+                if i == 0 or isinstance(stream[i - 1], (BoostPlugin.Boost, White)):
                     t = Word(t.original)
             newstream.append(t)
         return newstream

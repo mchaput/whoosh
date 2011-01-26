@@ -32,6 +32,7 @@ _DEF_INDEX_NAME = "MAIN"
 class IndexError(Exception):
     """Generic index error."""
 
+
 class IndexVersionError(IndexError):
     """Raised when you try to open an index using a format that the current
     version of Whoosh cannot read. That is, when the index you're trying to
@@ -44,10 +45,12 @@ class IndexVersionError(IndexError):
         self.version = version
         self.release = release
 
+
 class OutOfDateError(IndexError):
     """Raised when you try to commit changes to an index which is not the
     latest generation.
     """
+
 
 class EmptyIndexError(IndexError):
     """Raised when you try to work with an index that has no indexed terms.
@@ -74,6 +77,7 @@ def create_in(dirname, schema, indexname=None):
     storage = FileStorage(dirname)
     return storage.create_index(schema, indexname)
 
+
 def open_dir(dirname, indexname=None, mapped=True, readonly=False):
     """Convenience function for opening an index in a directory. Takes care of
     creating a FileStorage object for you. dirname is the filename of the
@@ -96,6 +100,7 @@ def open_dir(dirname, indexname=None, mapped=True, readonly=False):
     storage = FileStorage(dirname, mapped=mapped, readonly=readonly)
     return storage.open_index(indexname)
 
+
 def exists_in(dirname, indexname=None):
     """Returns True if dirname contains a Whoosh index.
     
@@ -113,6 +118,7 @@ def exists_in(dirname, indexname=None):
             pass
 
     return False
+
 
 def exists(storage, indexname=None):
     """Returns True if the given Storage object contains a Whoosh index.
@@ -135,6 +141,7 @@ def exists(storage, indexname=None):
         pass
     
     return False
+
 
 def version_in(dirname, indexname=None):
     """Returns a tuple of (release_version, format_version), where
@@ -353,8 +360,3 @@ class Index(object):
         
     
 
-# Debugging functions
-
-        
-if __name__ == '__main__':
-    pass

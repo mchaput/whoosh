@@ -53,7 +53,7 @@ The first item must be a tokenizer and the rest must be filters (you can't put
 a filter first or a tokenizer after the first item).
 """
 
-import copy, re
+import re
 from array import array
 from collections import deque
 from itertools import chain
@@ -185,7 +185,7 @@ class IDTokenizer(Tokenizer):
         assert isinstance(value, unicode), "%r is not unicode" % value
         t = Token(positions, chars, removestops=removestops, mode=mode)
         t.text = value
-        t.boost=1.0
+        t.boost = 1.0
         if keeporiginal:
             t.original = value
         if positions:
@@ -243,7 +243,7 @@ class RegexTokenizer(Tokenizer):
         :param start_char: The offset of the first character of the first
             token. For example, if you set start_char=2, the text "aaa bbb"
             will have chars (2,5),(6,9) instead (0,3),(4,7).
-        :param tokenize: if True, the text should be tokenized. 
+        :param tokenize: if True, the text should be tokenized.
         """
         
         assert isinstance(value, unicode), "%r is not unicode" % value
@@ -252,7 +252,8 @@ class RegexTokenizer(Tokenizer):
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
-            if positions: t.pos = start_pos
+            if positions:
+                t.pos = start_pos
             if chars:
                 t.startchar = start_char
                 t.endchar = start_char + len(value)
@@ -363,7 +364,7 @@ class CharsetTokenizer(Tokenizer):
         :param start_char: The offset of the first character of the first
             token. For example, if you set start_char=2, the text "aaa bbb"
             will have chars (2,5),(6,9) instead (0,3),(4,7).
-        :param tokenize: if True, the text should be tokenized. 
+        :param tokenize: if True, the text should be tokenized.
         """
         
         assert isinstance(value, unicode), "%r is not unicode" % value
@@ -372,7 +373,8 @@ class CharsetTokenizer(Tokenizer):
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
-            if positions: t.pos = start_pos
+            if positions:
+                t.pos = start_pos
             if chars:
                 t.startchar = start_char
                 t.endchar = start_char + len(value)
@@ -490,8 +492,8 @@ class NgramTokenizer(Tokenizer):
             size = min(self.max, inlen)
             for start in xrange(0, inlen - size + 1):
                 end = start + size
-                if end > inlen: continue
-                
+                if end > inlen:
+                    continue
                 t.text = value[start:end]
                 if keeporiginal:
                     t.original = t.text
@@ -507,8 +509,8 @@ class NgramTokenizer(Tokenizer):
             for start in xrange(0, inlen - self.min + 1):
                 for size in xrange(self.min, self.max + 1):
                     end = start + size
-                    if end > inlen: continue
-                    
+                    if end > inlen:
+                        continue
                     t.text = value[start:end]
                     if keeporiginal:
                         t.original = t.text
@@ -634,7 +636,6 @@ class StripFilter(Filter):
         for t in tokens:
             t.text = t.text.strip()
             yield t
-
 
 
 class StopFilter(Filter):
@@ -789,8 +790,9 @@ class CharsetFilter(Filter):
     >>> [t.text for t in chfilter(retokenizer(u'café'))]
     [u'cafe']
     
-    Another way to get a character mapping object is to convert a Sphinx charset
-    table file using :func:`whoosh.support.charset.charset_table_to_dict`.
+    Another way to get a character mapping object is to convert a Sphinx
+    charset table file using
+    :func:`whoosh.support.charset.charset_table_to_dict`.
     
     >>> from whoosh.support.charset import charset_table_to_dict, default_charset
     >>> retokenizer = RegexTokenizer()
@@ -883,13 +885,13 @@ class NgramFilter(Filter):
                         t.endchar = startchar + size
                     yield t
                 elif at == 1:
-                    t.text = text[0-size:]
+                    t.text = text[0 - size:]
                     if chars:
                         t.startchar = t.endchar - size
                     yield t
                 else:
                     for start in xrange(0, len(text) - size + 1):
-                        t.text = text[start:start+size]
+                        t.text = text[start:start + size]
                         if chars:
                             t.startchar = startchar + start
                             t.endchar = startchar + start + size
@@ -904,7 +906,7 @@ class NgramFilter(Filter):
                         yield t
                         
                 elif at == 1:
-                    start = max(0, len(text)-self.max)
+                    start = max(0, len(text) - self.max)
                     for i in xrange(start, len(text) - self.min + 1):
                         t.text = text[i:]
                         if chars:
@@ -914,7 +916,8 @@ class NgramFilter(Filter):
                     for start in xrange(0, len(text) - self.min + 1):
                         for size in xrange(self.min, self.max + 1):
                             end = start + size
-                            if end > len(text): continue
+                            if end > len(text):
+                                continue
                             
                             t.text = text[start:end]
                             
@@ -984,9 +987,12 @@ class IntraWordFilter(Filter):
     lowers = array("u")
     for n in xrange(2 ** 16 - 1):
         ch = unichr(n)
-        if ch.islower(): lowers.append(ch)
-        elif ch.isupper(): uppers.append(ch)
-        elif ch.isdigit(): digits.append(ch)
+        if ch.islower():
+            lowers.append(ch)
+        elif ch.isupper():
+            uppers.append(ch)
+        elif ch.isdigit():
+            digits.append(ch)
     
     # Create escaped strings of characters for use in regular expressions
     digits = re.escape("".join(digits))
@@ -1080,8 +1086,10 @@ class IntraWordFilter(Filter):
         buf = []
         for pos, part in parts[:]:
             # Set the type of this part
-            if part.isalpha(): this = 1
-            elif part.isdigit(): this = 2
+            if part.isalpha():
+                this = 1
+            elif part.isdigit():
+                this = 2
             
             # Is this the same type as the previous part?
             if buf and (this == last == 1 and mergewords)\
@@ -1203,16 +1211,20 @@ class BiWordFilter(Filter):
             
             # Save the original position
             positions = token.positions
-            if positions: ps = token.pos
+            if positions:
+                ps = token.pos
             
             # Save the original start char
             chars = token.chars
-            if chars: sc = token.startchar
+            if chars:
+                sc = token.startchar
             
             if prev_text is not None:
                 # Use the pos and startchar from the previous token
-                if positions: token.pos = prev_pos
-                if chars: token.startchar = prev_startchar
+                if positions:
+                    token.pos = prev_pos
+                if chars:
+                    token.startchar = prev_startchar
                 
                 # Join the previous token text and the current token text to
                 # form the biword token
@@ -1222,8 +1234,10 @@ class BiWordFilter(Filter):
             
             # Save the originals and the new "previous" values
             prev_text = text
-            if chars: prev_startchar = sc
-            if positions: prev_pos = ps
+            if chars:
+                prev_startchar = sc
+            if positions:
+                prev_pos = ps
         
         # If no bi-words were emitted, that is, the token stream only had
         # a single token, then emit that single token.
@@ -1378,7 +1392,7 @@ class DelimitedAttributeFilter(Filter):
             text = t.text
             pos = text.find(delim)
             if pos > -1:
-                setattr(t, attr, typ(text[pos+1:]))
+                setattr(t, attr, typ(text[pos + 1:]))
                 t.text = text[:pos]
             else:
                 setattr(t, attr, default)

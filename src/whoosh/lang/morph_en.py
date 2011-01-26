@@ -1,9 +1,9 @@
 """
-Contains the variations() function for expanding an English word into multiple variations
-by programmatically adding and removing suffixes.
+Contains the variations() function for expanding an English word into multiple
+variations by programatically adding and removing suffixes.
 
-Translated to Python from the ``com.sun.labs.minion.lexmorph.LiteMorph_en`` class of
-Sun's `Minion search engine <https://minion.dev.java.net/>`_.
+Translated to Python from the ``com.sun.labs.minion.lexmorph.LiteMorph_en``
+class of Sun's `Minion search engine <https://minion.dev.java.net/>`_.
 """
 
 import re
@@ -888,11 +888,11 @@ _partition_size = 20
 _partitions = []
 for p in xrange(0, len(rules) // _partition_size + 1):
     start = p * _partition_size
-    end = (p+1) * _partition_size
-    pattern = "|".join("(?P<_g%s>%s)$" % (i, r[0]) for i,r in enumerate(rules[start:end]))
+    end = (p + 1) * _partition_size
+    pattern = "|".join("(?P<_g%s>%s)$" % (i, r[0])
+                       for i, r in enumerate(rules[start:end]))
     _partitions.append(re.compile(pattern))
 
-#print "\n".join(p.pattern for p in _partitions)
 
 def variations(word):
     """Given an English word, returns a collection of morphological variations
@@ -916,7 +916,7 @@ def variations(word):
             # positional groups are None)
             groups = [g for g in match.groups() if g is not None]
             ending = groups[-1]
-            root = word[:0-len(ending)] if ending else word 
+            root = word[:0 - len(ending)] if ending else word 
 
             out = set((word, ))
             results = rules[i * _partition_size + num][1]

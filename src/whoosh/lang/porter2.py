@@ -17,6 +17,7 @@ ccy_exp = re.compile(r"([aeiouy])y")
 s1a_exp = re.compile(r"[aeiouy].")
 s1b_exp = re.compile(r"[aeiouy]")
 
+
 def get_r1(word):
     # exceptional forms
     if word.startswith('gener') or word.startswith('arsen'):
@@ -29,13 +30,15 @@ def get_r1(word):
     if match:
         return match.start(1)
     return len(word)
- 
+
+
 def get_r2(word):
     match = r_exp.match(word, get_r1(word))
     if match:
         return match.start(1)
     return len(word)
- 
+
+
 def ends_with_short_syllable(word):
     if len(word) == 2:
         if ewss_exp1.match(word):
@@ -43,23 +46,27 @@ def ends_with_short_syllable(word):
     if ewss_exp2.match(word):
         return True
     return False
- 
+
+
 def is_short_word(word):
     if ends_with_short_syllable(word):
         if get_r1(word) == len(word):
             return True
     return False
- 
+
+
 def remove_initial_apostrophe(word):
     if word.startswith("'"):
         return word[1:]
     return word
  
+
 def capitalize_consonant_ys(word):
     if word.startswith('y'):
         word = 'Y' + word[1:]
     return ccy_exp.sub('\g<1>Y', word)
- 
+
+
 def step_0(word):
     if word.endswith("'s'"):
         return word[:-3]
@@ -68,7 +75,8 @@ def step_0(word):
     if word.endswith("'"):
         return word[:-1]
     return word
- 
+
+
 def step_1a(word):
     if word.endswith('sses'):
         return word[:-4] + 'ss'
@@ -86,12 +94,17 @@ def step_1a(word):
         return word
     return word
 
+
 doubles = ('bb', 'dd', 'ff', 'gg', 'mm', 'nn', 'pp', 'rr', 'tt')
+
+
 def ends_with_double(word):
     for double in doubles:
         if word.endswith(double):
             return True
     return False
+
+
 def step_1b_helper(word):
     if word.endswith('at') or word.endswith('bl') or word.endswith('iz'):
         return word + 'e'
@@ -100,7 +113,10 @@ def step_1b_helper(word):
     if is_short_word(word):
         return word + 'e'
     return word
+
+
 s1b_suffixes = ('ed', 'edly', 'ing', 'ingly')
+
 
 def step_1b(word, r1):
     if word.endswith('eedly'):
@@ -120,13 +136,15 @@ def step_1b(word, r1):
             return word
  
     return word
- 
+
+
 def step_1c(word):
     if word.endswith('y') or word.endswith('Y') and len(word) > 1:
         if word[-2] not in 'aeiouy':
             if len(word) > 2:
                 return word[:-1] + 'i'
     return word
+
 
 def step_2_helper(word, r1, end, repl, prev):
         if word.endswith(end):
@@ -138,6 +156,8 @@ def step_2_helper(word, r1, end, repl, prev):
                         return word[:-len(end)] + repl
             return word
         return None
+
+
 s2_triples = (('ization', 'ize', []),
                ('ational', 'ate', []),
                ('fulness', 'ful', []),
@@ -163,12 +183,14 @@ s2_triples = (('ization', 'ize', []),
                ('ogi', 'og', ['l']),
                ('li', '', ['c', 'd', 'e', 'g', 'h', 'k', 'm', 'n', 'r', 't']))
 
+
 def step_2(word, r1):
     for trip in s2_triples:
         attempt = step_2_helper(word, r1, trip[0], trip[1], trip[2])
         if attempt:
             return attempt
     return word
+
 
 def step_3_helper(word, r1, r2, end, repl, r2_necessary):
     if word.endswith(end):
@@ -180,6 +202,8 @@ def step_3_helper(word, r1, r2, end, repl, r2_necessary):
                     return word[:-len(end)] + repl
         return word
     return None
+
+
 s3_triples = (('ational', 'ate', False),
                ('tional', 'tion', False),
                ('alize', 'al', False),
@@ -189,6 +213,8 @@ s3_triples = (('ational', 'ate', False),
                ('ical', 'ic', False),
                ('ness', '', False),
                ('ful', '', False))
+
+
 def step_3(word, r1, r2):
     for trip in s3_triples:
         attempt = step_3_helper(word, r1, r2, trip[0], trip[1], trip[2])
@@ -196,8 +222,10 @@ def step_3(word, r1, r2):
             return attempt
     return word
 
+
 s4_delete_list = ('al', 'ance', 'ence', 'er', 'ic', 'able', 'ible', 'ant', 'ement',
                   'ment', 'ent', 'ism', 'ate', 'iti', 'ous', 'ive', 'ize')
+
 
 def step_4(word, r2):
     for end in s4_delete_list:
@@ -211,7 +239,8 @@ def step_4(word, r2):
             return word[:-3]
  
     return word
- 
+
+
 def step_5(word, r1, r2):
     if word.endswith('l'):
         if len(word) - 1 >= r2 and word[-2] == 'l':
@@ -225,10 +254,12 @@ def step_5(word, r1, r2):
             return word[:-1]
  
     return word
- 
+
+
 def normalize_ys(word):
     return word.replace('Y', 'y')
- 
+
+
 exceptional_forms = {'skis': 'ski',
                     'skies': 'sky',
                     'dying': 'die',
