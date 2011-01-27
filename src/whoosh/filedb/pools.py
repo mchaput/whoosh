@@ -15,6 +15,7 @@
 # limitations under the License.
 #===============================================================================
 
+from __future__ import with_statement
 import os
 import tempfile
 from array import array
@@ -63,12 +64,16 @@ def imerge(iterators):
             yield item
 
 
-def read_run(filename, count):
-    f = open(filename, "rb")
-    while count:
-        count -= 1
-        yield load(f)
-    f.close()
+def read_run(filename, count, atatime=100):
+    with open(filename, "rb") as f:
+        while count:
+            buff = []
+            take = min(atatime, count)
+            for _ in xrange(take):
+                buff.append(load(f))
+            count -= take
+            for item in buff:
+                yield item
 
 
 def write_postings(schema, termtable, lengths, postwriter, postiter,
