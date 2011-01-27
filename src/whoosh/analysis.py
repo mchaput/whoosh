@@ -479,9 +479,8 @@ class NgramTokenizer(Tokenizer):
                 return True
         return False
     
-    def __call__(self, value, positions=False, chars=False,
-                 keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0, mode='',
+    def __call__(self, value, positions=False, chars=False, keeporiginal=False,
+                 removestops=True, start_pos=0, start_char=0, mode='',
                  **kwargs):
         assert isinstance(value, unicode), "%r is not unicode" % value
         
@@ -524,7 +523,7 @@ class NgramTokenizer(Tokenizer):
                     
                     yield t
                 pos += 1
-                    
+
 
 # Filters
 
@@ -735,6 +734,7 @@ class StemFilter(Filter):
         :param ignore: a set/list of words that should not be stemmed. This is
             converted into a frozenset. If you omit this argument, all tokens
             are stemmed.
+        :param cachesize: the maximum number of words to cache.
         """
         
         self.stemfn = stemfn
@@ -758,9 +758,13 @@ class StemFilter(Filter):
         self._stem = (self.stemfn if self.cachesize == 1
                       else lru_cache(self.cachesize)(self.stemfn))
     
+    def cache_info(self):
+        if self.cachesize == 1:
+            return None
+        return self._stem.cache_info()
+    
     def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
+        return (other and self.__class__ is other.__class__
                 and self.stemfn == other.stemfn)
     
     def __call__(self, tokens):
@@ -773,32 +777,47 @@ class StemFilter(Filter):
                 if text not in ignore:
                     t.text = stemfn(text)
             yield t
-                
 
-#class SnowballStemFilter(Filter):
-#    @staticmethod
-#    def available_stemmers():
-#        import zopyx.txng3.ext.stemmer as stemmer
-#        return stemmer.availableStemmers()
-#    
-#    def __init__(self, lang="english", ignore=None):
-#        import zopyx.txng3.ext.stemmer as stemmer
-#        self.stemmer = stemmer.Stemmer(lang)
-#        self.ignores = frozenset() if ignore is None else frozenset(ignore)
-#        
-#    def __eq__(self, other):
-#        return (other and self.__class__ is other.__class__
-#                and self.stemmer == other.stemmer)
-#    
-#    def __call__(self, tokens):
-#        stemfn = self.stemmer.stem
-#        ignores = self.ignores
-#        
-#        for t in tokens:
-#            if not t.stopped and not(t.text in ignores):
-#                t.text = stemfn((t.text, ))[0]
-#            yield t
 
+class PyStemmerFilter(StemFilter):
+    """This is a simple sublcass of StemFilter that works with the py-stemmer
+    third-party library. You must have the py-stemmer library installed to use
+    this filter.
+    
+    >>> PyStemmerFilter("spanish")
+    """
+    
+    def __init__(self, lang="english", ignore=None, cachesize=10000):
+        """
+        :param lang: a string identifying the stemming algorithm to use. You
+            can get a list of available algorithms by with the
+            :meth:`PyStemmerFilter.algorithms` method. The identification
+            strings are directly from the py-stemmer library.
+        :param ignore: a set/list of words that should not be stemmed. This is
+            converted into a frozenset. If you omit this argument, all tokens
+            are stemmed.
+        :param cachesize: the maximum number of words to cache.
+        """
+        
+        import Stemmer
+        
+        stemmer = Stemmer.Stemmer(lang)
+        stemmer.maxCacheSize = cachesize
+        self._stem = stemmer.stemWord
+        self.ignore = frozenset() if ignore is None else frozenset(ignore)
+        
+    def algorithms(self):
+        """Returns a list of stemming algorithms provided by the py-stemmer
+        library.
+        """
+        
+        import Stemmer
+        
+        return Stemmer.algorithms()
+    
+    def cache_info(self):
+        return None
+        
 
 class CharsetFilter(Filter):
     """Translates the text of tokens by calling unicode.translate() using the
