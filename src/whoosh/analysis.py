@@ -719,11 +719,23 @@ class StemFilter(Filter):
     root word (for example, "rendering", "renders", "rendered", etc.) to a
     single word in the index.
     
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"fundamentally willows")
-    >>> stemmer = StemFilter()
-    >>> [token.text for token in stemmer(stream)]
+    >>> stemmer = RegexTokenizer() | StemFilter()
+    >>> [token.text for token in stemmer(u"fundamentally willows")]
     [u"fundament", u"willow"]
+    
+    You can pass your own stemming function to the StemFilter. The default
+    is the Porter stemming algorithm for English.
+    
+    >>> stemfilter = StemFilter(stem_function)
+    
+    By default, this class wraps an LRU cache around the stemming function. The
+    ``cachesize`` keyword argument sets the size of the cache. To make the
+    cache unbounded (the class caches every input), use ``cachesize=None``. To
+    disable caching, use ``cachesize=1``.
+    
+    If you compile and install the py-stemmer library, the
+    :class:`PyStemmerFilter` provides slightly easier access to the language
+    stemmers in that library.
     """
     
     __inittypes__ = dict(stemfn=object, ignore=list)
