@@ -76,71 +76,6 @@ def read_run(filename, count, atatime=100):
                 yield item
 
 
-def write_postings(schema, termtable, lengths, postwriter, postiter,
-                   inlinelimit=1):
-    # This method pulls postings out of the posting pool (built up as
-    # documents are added) and writes them to the posting file. Each time
-    # it encounters a posting for a new term, it writes the previous term
-    # to the term index (by waiting to write the term entry, we can easily
-    # count the document frequency and sum the terms by looking at the
-    # postings).
-
-    current_fieldname = None  # Field number of the current term
-    current_text = None  # Text of the current term
-    first = True
-    current_weight = 0
-    offset = None
-    getlength = lengths.get
-    format = None
-
-    # Loop through the postings in the pool. Postings always come out of the
-    # pool in (field number, lexical) order.
-    for fieldname, text, docnum, weight, valuestring in postiter:
-        # Is this the first time through, or is this a new term?
-        if first or fieldname > current_fieldname or text > current_text:
-            if first:
-                first = False
-            else:
-                # This is a new term, so finish the postings and add the
-                # term to the term table
-                
-                postcount = postwriter.posttotal
-                # If the number of posts is below a certain threshold,
-                # inline them in the "offset" argument.
-                if postcount <= inlinelimit and postwriter.blockcount < 1:
-                    offset = postwriter.as_inline()
-                    postwriter.cancel()
-                else:
-                    postwriter.finish()
-                
-                termtable.add((current_fieldname, current_text),
-                              (current_weight, offset, postcount))
-
-            # Reset the post writer and the term variables
-            if fieldname != current_fieldname:
-                format = schema[fieldname].format
-                current_fieldname = fieldname
-            current_text = text
-            current_weight = 0
-            offset = postwriter.start(format)
-
-        elif (fieldname < current_fieldname
-              or (fieldname == current_fieldname and text < current_text)):
-            # This should never happen!
-            raise Exception("Postings are out of order: %r:%s .. %r:%s" %
-                            (current_fieldname, current_text, fieldname, text))
-
-        # Write a posting for this occurrence of the current term
-        current_weight += weight
-        postwriter.write(docnum, weight, valuestring, getlength(docnum, fieldname))
-
-    # If there are still "uncommitted" postings at the end, finish them off
-    if not first:
-        postcount = postwriter.finish()
-        termtable.add((current_fieldname, current_text),
-                      (current_weight, offset, postcount))
-
-
 DEBUG_DIR = False
 
 
@@ -291,7 +226,7 @@ class TempfilePool(PoolBase):
         
         self._clean_temp_dir()
         
-    def finish(self, doccount, lengthfile, termtable, postingwriter):
+    def finish(self, termswriter, doccount, lengthfile):
         self._write_lengths(lengthfile, doccount)
         lengths = LengthReader(None, doccount, self.length_arrays)
         
@@ -306,7 +241,7 @@ class TempfilePool(PoolBase):
                 postiter = imerge([read_run(runname, count)
                                    for runname, count in self.runs])
         
-            write_postings(self.schema, termtable, lengths, postingwriter, postiter)
+            termswriter.add_iter(postiter, lengths.get)
         self.cleanup()
         
 
@@ -374,7 +309,7 @@ class SqlitePool(PoolBase):
                 yield (fieldname, text, docnum, weight, valuestring)
             del self.postbuf[fieldname]
             
-    def finish(self, doccount, lengthfile, termtable, postingwriter):
+    def finish(self, termswriter, doccount, lengthfile):
         self._write_lengths(lengthfile, doccount)
         lengths = LengthReader(None, doccount, self.length_arrays)
         
@@ -385,7 +320,7 @@ class SqlitePool(PoolBase):
                 self.flush()
             gen = self.readback()
         
-        write_postings(self.schema, termtable, lengths, postingwriter, gen)
+        termswriter.add_iter(gen, lengths.get)
     
 
 class NullPool(PoolBase):
@@ -415,11 +350,11 @@ class MemPool(PoolBase):
     def add_posting(self, *item):
         self.postbuf.append(item)
         
-    def finish(self, doccount, lengthfile, termtable, postingwriter):
+    def finish(self, termswriter, doccount, lengthfile):
         self._write_lengths(lengthfile, doccount)
         lengths = LengthReader(None, doccount, self.length_arrays)
         self.postbuf.sort()
-        write_postings(self.schema, termtable, lengths, postingwriter, self.postbuf)
+        termswriter.add_iter(self.postbuf, lengths.get)
 
 
 

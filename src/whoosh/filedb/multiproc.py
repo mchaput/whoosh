@@ -22,8 +22,7 @@ from cPickle import dump, load
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filewriting import SegmentWriter
-from whoosh.filedb.pools import (imerge, PoolBase, read_run, TempfilePool,
-                                 write_postings)
+from whoosh.filedb.pools import (imerge, PoolBase, read_run, TempfilePool)
 from whoosh.filedb.structfile import StructFile
 from whoosh.writing import IndexWriter
 
@@ -281,7 +280,7 @@ class MultiPool(PoolBase):
     def cleanup(self):
         self._clean_temp_dir()
     
-    def finish(self, doccount, lengthfile, termtable, postingwriter):
+    def finish(self, termswriter, doccount, lengthfile):
         _fieldlength_totals = self._fieldlength_totals
         if not self.tasks:
             return
@@ -320,7 +319,7 @@ class MultiPool(PoolBase):
         
         iterator = imerge([read_run(runname, count) for runname, count in runs])
         total = sum(count for runname, count in runs)
-        write_postings(self.schema, termtable, lengths, postingwriter, iterator)
+        termswriter.add_iter(iterator, lengths.get)
         for runname, count in runs:
             os.remove(runname)
         

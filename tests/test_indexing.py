@@ -410,8 +410,38 @@ class TestIndexing(unittest.TestCase):
             
             with ix.reader() as r:
                 self.assertEqual(list(r), [])
+                
+    def test_single(self):
+        schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
+        with TempIndex(schema, "single") as ix:
+            w = ix.writer()
+            w.add_document(id=u"1", text=u"alfa")
+            w.commit()
+            
+            with ix.searcher() as s:
+                self.assertTrue(("text", u"alfa") in s.reader())
+                self.assertEqual(list(s.documents(id="1")), [{"id": "1"}])
+                self.assertEqual(list(s.documents(text="alfa")), [{"id": "1"}])
+                self.assertEqual(list(s.all_stored_fields()), [{"id": "1"}])
         
+    def test_indentical_fields(self):
+        schema = fields.Schema(id=fields.STORED,
+                               f1=fields.TEXT, f2=fields.TEXT, f3=fields.TEXT)
+        with TempIndex(schema, "identifields") as ix:
+            w = ix.writer()
+            w.add_document(id=1, f1=u"alfa", f2=u"alfa", f3 = u"alfa")
+            w.commit()
         
+            with ix.searcher() as s:
+                self.assertEqual(list(s.lexicon("f1")), ["alfa"])
+                self.assertEqual(list(s.lexicon("f2")), ["alfa"])
+                self.assertEqual(list(s.lexicon("f3")), ["alfa"])
+                self.assertEqual(list(s.documents(f1="alfa")), [{"id": 1}])
+                self.assertEqual(list(s.documents(f2="alfa")), [{"id": 1}])
+                self.assertEqual(list(s.documents(f3="alfa")), [{"id": 1}])
+        
+            
+                
 
 
 if __name__ == '__main__':

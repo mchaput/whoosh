@@ -210,7 +210,7 @@ class Matcher(object):
         minimum quality value.
         """
         
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
     
     def next(self):
         """Moves this matcher to the next posting.
@@ -228,7 +228,7 @@ class Matcher(object):
         """Returns the score of the current posting.
         """
         
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
     
 
 class NullMatcher(Matcher):
@@ -285,7 +285,7 @@ class ListMatcher(Matcher):
                               self._format, self._scorer, self._i)
     
     def supports_quality(self):
-        return self._scorer is not None
+        return self._scorer is not None and self._scorer.supports_quality()
     
     def quality(self):
         return self._scorer.quality(self)
@@ -840,7 +840,12 @@ class DisjunctionMaxMatcher(UnionMatcher):
                               tiebreak=self.tiebreak)
     
     def score(self):
-        return max(self.a.score(), self.b.score())
+        if not self.a.is_active():
+            return self.b.score()
+        elif not self.b.is_active():
+            return self.a.score()
+        else:
+            return max(self.a.score(), self.b.score())
     
     def quality(self):
         return max(self.a.quality(), self.b.quality())
