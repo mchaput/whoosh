@@ -380,16 +380,23 @@ def protected(func):
     def protected_wrapper(self, *args, **kwargs):
         if self.is_closed:
             raise Exception("%r has been closed" % self)
-        if self._sync_lock.acquire(False):
-            try:
-                return func(self, *args, **kwargs)
-            finally:
-                self._sync_lock.release()
-        else:
-            raise Exception("Could not acquire sync lock")
+        with self._sync_lock:
+            return func(self, *args, **kwargs)
 
     return protected_wrapper
     
+
+def synchronized(func):
+    """Decorator for storage-access methods, which synchronizes on a threading
+    lock. The parent object must have 'is_closed' and '_sync_lock' attributes.
+    """
+    
+    @wraps(func)
+    def synchronized_wrapper(self, *args, **kwargs):
+        with self._sync_lock:
+            return func(self, *args, **kwargs)
+
+    return synchronized_wrapper
 
 def lru_cache(maxsize=100):
     """Least-recently-used cache decorator.
