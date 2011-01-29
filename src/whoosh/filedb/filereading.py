@@ -181,7 +181,7 @@ class SegmentReader(IndexReader):
     def _term_info(self, fieldname, text):
         self._test_field(fieldname)
         try:
-            return self.termsindex[(fieldname, text)]
+            return self.termsindex[fieldname, text]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
@@ -260,7 +260,7 @@ class SegmentReader(IndexReader):
         self._test_field(fieldname)
         format = self.schema[fieldname].format
         try:
-            offset = self.termsindex[(fieldname, text)][1]
+            offset = self.termsindex[fieldname, text][1]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
