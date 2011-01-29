@@ -116,11 +116,12 @@ class SegmentWriter(IndexWriter):
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
-        self.termsindex = TermIndexWriter(tf)
-        
+        ti = TermIndexWriter(tf)
         # Term postings file
         pf = self.storage.create_file(segment.termposts_filename)
-        self.postwriter = FilePostingWriter(pf, blocklimit=blocklimit)
+        pw = FilePostingWriter(pf, blocklimit=blocklimit)
+        # Terms writer
+        self.termswriter = TermsWriter(self.schema, ti, pw)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -213,6 +214,56 @@ class SegmentWriter(IndexWriter):
         from whoosh.filedb.fileindex import FileIndex
         return FileIndex(self.storage, indexname=self.indexname).searcher()
     
+    def add_ramindex(self, reader):
+        from whoosh.filedb.filetables import LengthWriter
+        from whoosh.util import length_to_byte
+        
+        self._check_state()
+        lengthfile = LengthWriter(self.lengthfile, reader.doc_count())
+        termswriter = self.termswriter
+        
+        has_deletions = reader.has_deletions()
+        if has_deletions:
+            docmap = {}
+            docoffset = 0
+        else:
+            docmap = None
+            docoffset = self.docnum
+        
+        fieldnames = set(self.schema.names())
+        
+        # Add stored documents, vectors, and field lengths
+        for docnum in reader.all_doc_ids():
+            if (not has_deletions) or (not reader.is_deleted(docnum)):
+                d = dict(item for item
+                         in reader.stored_fields(docnum).iteritems()
+                         if item[0] in fieldnames)
+                # We have to append a dictionary for every document, even if
+                # it's empty.
+                self.storedfields.append(d)
+                
+                if has_deletions:
+                    docmap[docnum] = self.docnum
+                
+                for fieldname, length in reader.doc_field_lengths(docnum):
+                    lengthfile.add(self.docnum, fieldname,
+                                   length_to_byte(length))
+                
+                for fieldname in reader.schema.vector_names():
+                    if (fieldname in fieldnames
+                        and reader.has_vector(docnum, fieldname)):
+                        vpostreader = reader.vector(docnum, fieldname)
+                        self._add_vector_reader(self.docnum, fieldname, vpostreader)
+                
+                self.docnum += 1
+        
+        for fieldname, text, _, _ in reader:
+            if fieldname in fieldnames:
+                postreader = reader.postings(fieldname, text)
+                termswriter.add_postings(fieldname, text, postreader,
+                                         reader.doc_field_length,
+                                         offset=docoffset, docmap=docmap)
+    
     def add_reader(self, reader):
         self._check_state()
         startdoc = self.docnum
@@ -224,7 +275,7 @@ class SegmentWriter(IndexWriter):
         fieldnames = set(self.schema.names())
         
         # Add stored documents, vectors, and field lengths
-        for docnum in xrange(reader.doc_count_all()):
+        for docnum in reader.all_doc_ids():
             if (not has_deletions) or (not reader.is_deleted(docnum)):
                 d = dict(item for item
                          in reader.stored_fields(docnum).iteritems()
@@ -338,8 +389,7 @@ class SegmentWriter(IndexWriter):
     def _close_all(self):
         self.is_closed = True
         
-        self.termsindex.close()
-        self.postwriter.close()
+        self.termswriter.close()
         self.storedfields.close()
         if not self.lengthfile.is_closed:
             self.lengthfile.close()
@@ -399,8 +449,7 @@ class SegmentWriter(IndexWriter):
             # Tell the pool we're finished adding information, it should add its
             # accumulated data to the lengths, terms index, and posting files.
             if self._added:
-                self.pool.finish(self.docnum, self.lengthfile, self.termsindex,
-                                 self.postwriter)
+                self.pool.finish(self.termswriter, self.docnum, self.lengthfile)
             
                 # Create a Segment object for the segment created by this writer and
                 # add it to the list of remaining segments returned by the merge policy
@@ -436,6 +485,105 @@ class SegmentWriter(IndexWriter):
         finally:
             if self.writelock:
                 self.writelock.release()
+
+
+class TermsWriter(object):
+    def __init__(self, schema, termsindex, postwriter, inlinelimit=1):
+        self.schema = schema
+        self.termsindex = termsindex
+        self.postwriter = postwriter
+        self.inlinelimit = inlinelimit
+        
+        self.lastfn = None
+        self.lasttext = None
+        self.format = None
+        self.offset = None
+    
+    def _new_term(self, fieldname, text):
+        lastfn = self.lastfn
+        lasttext = self.lasttext
+        if fieldname < lastfn or (fieldname == lastfn and text < lasttext):
+            raise Exception("Postings are out of order: %r:%s .. %r:%s" %
+                            (lastfn, lasttext, fieldname, text))
+    
+        if fieldname != lastfn:
+            self.format = self.schema[fieldname].format
+    
+        if fieldname != lastfn or text != lasttext:
+            self._finish_term()
+            # Reset the term attributes
+            self.weight = 0
+            self.offset = self.postwriter.start(self.format)
+            self.lasttext = text
+            self.lastfn = fieldname
+    
+    def _finish_term(self):
+        postwriter = self.postwriter
+        if self.lasttext is not None:
+            postcount = postwriter.posttotal
+            if postcount <= self.inlinelimit and postwriter.blockcount < 1:
+                offset = postwriter.as_inline()
+                postwriter.cancel()
+            else:
+                offset = self.offset
+                postwriter.finish()
+            
+            self.termsindex.add((self.lastfn, self.lasttext),
+                                (self.weight, offset, postcount))
+    
+    def add_postings(self, fieldname, text, matcher, getlen, offset=0, docmap=None):
+        self._new_term(fieldname, text)
+        postwrite = self.postwriter.write
+        totalweight = 0
+        while matcher.is_active():
+            docnum = matcher.id()
+            weight = matcher.weight()
+            valuestring = matcher.value()
+            if docmap:
+                newdoc = docmap[docnum]
+            else:
+                newdoc = offset + docnum
+            totalweight += weight
+            postwrite(newdoc, weight, valuestring, getlen(fieldname, docnum))
+            matcher.next()
+        self.weight += totalweight
+    
+    def add_iter(self, postiter, getlen, offset=0, docmap=None):
+        _new_term = self._new_term
+        postwrite = self.postwriter.write
+        for fieldname, text, docnum, weight, valuestring in postiter:
+            _new_term(fieldname, text)
+            if docmap:
+                newdoc = docmap[docnum]
+            else:
+                newdoc = offset + docnum
+            self.weight += weight
+            postwrite(newdoc, weight, valuestring, getlen(fieldname, docnum))
+    
+    def add(self, fieldname, text, docnum, weight, valuestring, fieldlen):
+        self._new_term(fieldname, text)
+        self.weight += weight
+        self.postwriter.write(docnum, weight, valuestring, fieldlen)
+        
+    def close(self):
+        self._finish_term()
+        self.termsindex.close()
+        self.postwriter.close()
+            
+        
+        
+        
+            
+        
+
+
+
+
+
+
+
+
+
 
 
 

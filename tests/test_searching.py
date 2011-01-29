@@ -46,8 +46,8 @@ class TestSearching(unittest.TestCase):
     def test_docs_method(self):
         ix = self.make_index()
         with ix.searcher() as s:
-            self.assertEqual(self._get_keys(s.documents(name = "yellow")), [u"A", u"E"])
-            self.assertEqual(self._get_keys(s.documents(value = "red")), [u"A", u"D"])
+            self.assertEqual(self._get_keys(s.documents(name="yellow")), [u"A", u"E"])
+            self.assertEqual(self._get_keys(s.documents(value="red")), [u"A", u"D"])
     
     def test_term(self):
         self._run_query(Term("name", u"yellow"), [u"A", u"E"])
@@ -683,16 +683,16 @@ class TestSearching(unittest.TestCase):
                     return ncomments
         
         with ix.searcher(weighting=CommentWeighting()) as s:
-            r = s.search(query.TermRange("id", u"1", u"4", constantscore=False))
+            q = query.TermRange("id", u"1", u"4", constantscore=False)
+            
+            r = s.search(q)
             ids = [fs["id"] for fs in r]
             self.assertEqual(ids, ["2", "4", "1", "3"])
     
     def test_dismax(self):
         schema = fields.Schema(id=fields.STORED,
                                f1=fields.TEXT, f2=fields.TEXT, f3=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(schema)
-        
+        ix = RamStorage().create_index(schema)
         w = ix.writer()
         w.add_document(id=1, f1=u"alfa bravo charlie delta",
                        f2=u"alfa alfa alfa",
@@ -700,8 +700,13 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher(weighting=scoring.Frequency()) as s:
+            self.assertEqual(list(s.documents(f1="alfa")), [{"id": 1}])
+            self.assertEqual(list(s.documents(f2="alfa")), [{"id": 1}])
+            self.assertEqual(list(s.documents(f3="alfa")), [{"id": 1}])
+            
             qs = [Term("f1", "alfa"), Term("f2", "alfa"), Term("f3", "alfa")]
-            r = s.search(DisjunctionMax(qs))
+            dm = DisjunctionMax(qs)
+            r = s.search(dm)
             self.assertEqual(r.score(0), 3.0)
     
     def test_deleted_wildcard(self):

@@ -92,21 +92,21 @@ class BaseScorer(object):
         """Returns a score for the current document of the matcher.
         """
         
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
     
     def quality(self, matcher):
         """Returns an approximate quality rating for the current document of
         the matcher.
         """
         
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
     
     def block_quality(self, matcher):
         """Returns an approximate quality rating for the matcher's current
         block (whatever concept of block the matcher might use).
         """
         
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
 
 
 class WOLScorer(BaseScorer):
