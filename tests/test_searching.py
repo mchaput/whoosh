@@ -107,7 +107,7 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         
         with ix.searcher() as s:
-            p = qparser.QueryParser("value")
+            p = qparser.QueryParser("value", None)
             results = s.search(p.parse("echo NOT golf"))
             self.assertEqual(sorted([d["name"] for d in results]), ["a", "b"])
             
@@ -153,7 +153,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("content", schema=schema)
+            qp = qparser.QueryParser("content", schema)
             
             q = qp.parse(u"charlie [delta TO foxtrot]")
             self.assertEqual(q.__class__, query.And)
@@ -221,7 +221,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("id", schema=schema)
+            qp = qparser.QueryParser("id", schema)
             def check(qstring, result):
                 q = qp.parse(qstring)
                 r = "".join(sorted([d['id'] for d in s.search(q)]))
@@ -244,7 +244,7 @@ class TestSearching(unittest.TestCase):
             w.add_document(num=i)
         w.commit()
         
-        qp = qparser.QueryParser("num", schema=schema)
+        qp = qparser.QueryParser("num", schema)
         with ix.searcher() as s:
             q = qp.parse("[100 to]")
             r = [hit["num"] for hit in s.search(q, limit=None)]
@@ -267,7 +267,7 @@ class TestSearching(unittest.TestCase):
         
         with ix.searcher() as s:
             # Without date parser
-            qp = qparser.QueryParser("date", schema=schema)
+            qp = qparser.QueryParser("date", schema)
             q = qp.parse("[2011-01-10 to]")
             r = [hit["date"] for hit in s.search(q, limit=None)]
             self.assertTrue(len(r) > 0)
@@ -311,7 +311,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("id", schema=schema)
+            qp = qparser.QueryParser("id", schema)
             
             nq = qp.parse(u"NOT [to]")
             self.assertEqual(nq.__class__, query.Not)
@@ -350,7 +350,7 @@ class TestSearching(unittest.TestCase):
         w.add_document(a=u"Third", b=u"ccc eee")
         w.commit()
         
-        qp = qparser.QueryParser("b", schema=schema)
+        qp = qparser.QueryParser("b", schema)
         with ix.searcher() as s:
             qr = qp.parse(u"b:ccc OR b:eee")
             self.assertEqual(qr.__class__, Or)
@@ -543,7 +543,7 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("title", schema=schema)
+            qp = qparser.QueryParser("title", schema)
             q = qp.parse(u"richard of york")
             self.assertEqual(len(s.search(q)), 1)
             #q = qp.parse(u"lily the pink")
@@ -627,7 +627,7 @@ class TestSearching(unittest.TestCase):
             self.assertEqual(r.field_length("hobbies"), 2)
             self.assertEqual(r.field_length("name"), 2)
             
-            parser = qparser.MultifieldParser(['name', 'hobbies'], schema=schema)
+            parser = qparser.MultifieldParser(['name', 'hobbies'], schema)
             q = parser.parse(u"baseball")
             result = s.search(q)
             self.assertEqual(len(result), 1)
@@ -780,7 +780,7 @@ class TestSearching(unittest.TestCase):
                 return ncomments
         
         with ix.searcher(weighting=CommentWeighting()) as s:
-            r = s.search(qparser.QueryParser("summary").parse("alfa OR bravo"))
+            r = s.search(qparser.QueryParser("summary", None).parse("alfa OR bravo"))
             ids = [fs["id"] for fs in r]
             self.assertEqual(["2", "4", "1", "3"], ids)
         
@@ -824,7 +824,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("text", schema=schema)
+            qp = qparser.QueryParser("text", schema)
             q = qp.parse(u"NOT id:*")
             r = s.search(q, limit=None)
             self.assertEqual(list(h["text"] for h in r), ["charlie", "echo", "golf"])
@@ -837,7 +837,7 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         
         with ix.searcher() as s:
-            p = qparser.QueryParser("text", schema=schema)
+            p = qparser.QueryParser("text", schema)
             
             q = p.parse(u'\u6771\u4EAC\u5927\u5B66')
             self.assertEqual(len(s.search(q)), 1)

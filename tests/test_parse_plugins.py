@@ -36,7 +36,7 @@ class TestParserPlugins(unittest.TestCase):
             for j in xrange(len(plugins)):
                 if i == j: continue
                 plist = [p for p in plugins[:j] if p is not first] + [first]
-                qp = qparser.QueryParser("text", plugins=plist)
+                qp = qparser.QueryParser("text", None, plugins=plist)
                 try:
                     qp.parse(qs)
                 except Exception, e:
@@ -44,14 +44,14 @@ class TestParserPlugins(unittest.TestCase):
                 count += 1
 
     def test_field_alias(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         qp.add_plugin(qparser.FieldAliasPlugin({"title": ("article", "caption")}))
         q = qp.parse("alfa title:bravo article:charlie caption:delta")
         self.assertEqual(unicode(q), u"(content:alfa AND title:bravo AND title:charlie AND title:delta)")
 
     def test_dateparser(self):
         schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         
         errs = []
         def cb(arg):
@@ -106,7 +106,7 @@ class TestParserPlugins(unittest.TestCase):
         
     def test_date_range(self):
         schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
         qp.add_plugin(dateparse.DateParserPlugin(basedate))
         
@@ -156,7 +156,7 @@ class TestParserPlugins(unittest.TestCase):
     def test_free_dates(self):
         a = analysis.StandardAnalyzer(stoplist=None)
         schema = fields.Schema(text=fields.TEXT(analyzer=a), date=fields.DATETIME)
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
         qp.add_plugin(dateparse.DateParserPlugin(basedate, free=True))
         
@@ -221,7 +221,7 @@ class TestParserPlugins(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("text", schema=schema)
+            qp = qparser.QueryParser("text", schema)
             qp.remove_plugin_class(qparser.WildcardPlugin)
             qp.add_plugin(qparser.PrefixPlugin)
             
@@ -234,7 +234,7 @@ class TestParserPlugins(unittest.TestCase):
             self.assertEqual(len(r), 1)
         
     def test_custom_tokens(self):
-        qp = qparser.QueryParser("text")
+        qp = qparser.QueryParser("text", None)
         qp.remove_plugin_class(qparser.CompoundsPlugin)
         qp.remove_plugin_class(qparser.NotPlugin)
         
@@ -265,32 +265,32 @@ class TestParserPlugins(unittest.TestCase):
         self.assertEqual(q[2].text, "NOT")
         
     def test_copyfield(self):
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}))
         self.assertEqual(unicode(qp.parse("hello b:matt")),
                          "(a:hello AND (b:matt OR c:matt))")
         
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, qparser.AndMaybeGroup))
         self.assertEqual(unicode(qp.parse("hello b:matt")),
                          "(a:hello AND (b:matt ANDMAYBE c:matt))")
         
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, qparser.RequireGroup))
         self.assertEqual(unicode(qp.parse("hello (there OR b:matt)")),
                          "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))")
         
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         qp.add_plugin(qparser.CopyFieldPlugin({"a": "c"}))
         self.assertEqual(unicode(qp.parse("hello there")),
                          "((a:hello OR c:hello) AND (a:there OR c:there))")
         
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, mirror=True))
         self.assertEqual(unicode(qp.parse("hello c:matt")),
                          "(a:hello AND (c:matt OR b:matt))")
         
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         qp.add_plugin(qparser.CopyFieldPlugin({"c": "a"}, mirror=True))
         self.assertEqual(unicode(qp.parse("hello c:matt")),
                          "((a:hello OR c:hello) AND (c:matt OR a:matt))")
@@ -298,7 +298,7 @@ class TestParserPlugins(unittest.TestCase):
         ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
         fmt = formats.Frequency(ana)
         schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt, multitoken_query="or"))
-        qp = qparser.QueryParser("name", schema=schema)
+        qp = qparser.QueryParser("name", schema)
         qp.add_plugin(qparser.CopyFieldPlugin({"name": "name_phone"}))
         self.assertEqual(unicode(qp.parse(u"spruce view")),
                          "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")
@@ -307,7 +307,7 @@ class TestParserPlugins(unittest.TestCase):
         schema = fields.Schema(a=fields.KEYWORD, b=fields.NUMERIC,
                                c=fields.KEYWORD,
                                d=fields.NUMERIC(float), e=fields.DATETIME)
-        qp = qparser.QueryParser("a", schema=schema)
+        qp = qparser.QueryParser("a", schema)
         qp.add_plugin(qparser.GtLtPlugin())
         qp.add_plugin(qparser.dateparse.DateParserPlugin())
         

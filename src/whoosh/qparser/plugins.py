@@ -416,7 +416,7 @@ class OperatorsPlugin(Plugin):
     ``Not`` keyword arguments. The keyword value can be a pattern string or
     a compiled expression, or None to remove the operator::
     
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", schema)
         cp = qparser.OperatorsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not=None)
         qp.replace_plugin(cp)
     

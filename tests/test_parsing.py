@@ -54,7 +54,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.text, "url")
     
     def test_andor(self):
-        qp  = qparser.QueryParser("a")
+        qp  = qparser.QueryParser("a", None)
         q = qp.parse("a AND b OR c AND d OR e AND f")
         self.assertEqual(unicode(q), u"((a:a AND a:b) OR (a:c AND a:d) OR (a:e AND a:f))")
         
@@ -70,7 +70,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(qp.parse("OR"), query.Term("a", "OR"))
     
     def test_andnot(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         q = qp.parse(u"this ANDNOT that")
         self.assertEqual(q.__class__, query.AndNot)
         self.assertEqual(q.a.__class__, query.Term)
@@ -96,7 +96,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(unicode(q), "((content:a AND content:b) ANDNOT content:c)")
     
     def test_boost(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         q = qp.parse(u"this^3 fn:that^0.5 5.67 hi^5x")
         self.assertEqual(q[0].boost, 3.0)
         self.assertEqual(q[1].boost, 0.5)
@@ -111,7 +111,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[2].text, "^3")
         
     def test_wildcard1(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         q = qp.parse(u"hello *the?e* ?star*s? test")
         self.assertEqual(len(q), 4)
         self.assertEqual(q[0].__class__, query.Term)
@@ -124,7 +124,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[3].text, "test")
         
     def test_wildcard2(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         q = qp.parse(u"*the?e*")
         self.assertEqual(q.__class__, query.Wildcard)
         self.assertEqual(q.text, "*the?e*")
@@ -138,7 +138,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.text, "Green")
     
     def test_endstar(self):
-        qp = qparser.QueryParser("text")
+        qp = qparser.QueryParser("text", None)
         q = qp.parse(u"word*")
         self.assertEqual(q.__class__, query.Prefix)
         self.assertEqual(q.text, "word")
@@ -148,7 +148,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[0].text, "first")
     
     def test_singlequotes(self):
-        qp = qparser.QueryParser("text")
+        qp = qparser.QueryParser("text", None)
         q = qp.parse("hell's hot 'i stab at thee'")
         self.assertEqual(q.__class__.__name__, 'And')
         self.assertEqual(len(q), 3)
@@ -188,7 +188,7 @@ class TestQueryParser(unittest.TestCase):
                          ["I", "forgot", "the" ,"drinkin'", "in", "'98"])
     
 #    def test_escaping(self):
-#        qp = qparser.QueryParser("text")
+#        qp = qparser.QueryParser("text", None)
 #        
 #        q = qp.parse(r'big\small')
 #        self.assertEqual(q.__class__, query.Term, q)
@@ -212,7 +212,7 @@ class TestQueryParser(unittest.TestCase):
 #        self.assertEqual(q.text, "[start TO end]")
 #    
 #        schema = fields.Schema(text=fields.TEXT)
-#        qp = qparser.QueryParser("text")
+#        qp = qparser.QueryParser("text", None)
 #        q = qp.parse(r"http\:\/\/www\.example\.com")
 #        self.assertEqual(q.__class__, query.Term)
 #        self.assertEqual(q.text, "http://www.example.com")
@@ -222,7 +222,7 @@ class TestQueryParser(unittest.TestCase):
 #        self.assertEqual(q.text, "\\")
     
 #    def test_escaping_wildcards(self):
-#        qp = qparser.QueryParser("text")
+#        qp = qparser.QueryParser("text", None)
 #        
 #        q = qp.parse(u"a*b*c?d")
 #        self.assertEqual(q.__class__, query.Wildcard)
@@ -245,7 +245,7 @@ class TestQueryParser(unittest.TestCase):
 #        self.assertEqual(q.text, u"ab\\*")
         
     def test_phrase(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         q = qp.parse('"alfa bravo" "charlie delta echo"^2.2 test:"foxtrot golf"')
         self.assertEqual(q[0].__class__, query.Phrase)
         self.assertEqual(q[0].words, ["alfa", "bravo"])
@@ -257,7 +257,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[2].fieldname, "test")
         
     def test_weird_characters(self):
-        qp = qparser.QueryParser("content")
+        qp = qparser.QueryParser("content", None)
         q = qp.parse(u".abcd@gmail.com")
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.text, u".abcd@gmail.com")
@@ -273,14 +273,14 @@ class TestQueryParser(unittest.TestCase):
         
     def test_euro_chars(self):
         schema = fields.Schema(text=fields.TEXT)
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         q = qp.parse(u"straße")
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.text, u"straße")
     
     def test_star(self):
         schema = fields.Schema(text = fields.TEXT(stored=True))
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         q = qp.parse(u"*")
         self.assertEqual(q.__class__, query.Every)
         
@@ -309,7 +309,7 @@ class TestQueryParser(unittest.TestCase):
 
     def test_range(self):
         schema = fields.Schema(name=fields.ID(stored=True), text = fields.TEXT(stored=True))
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         
         q = qp.parse(u"[alfa to bravo}")
         self.assertEqual(q.__class__, query.TermRange)
@@ -368,7 +368,7 @@ class TestQueryParser(unittest.TestCase):
     
     def test_numeric_range(self):
         schema = fields.Schema(id=fields.STORED, number=fields.NUMERIC)
-        qp = qparser.QueryParser("number", schema=schema)
+        qp = qparser.QueryParser("number", schema)
         
         teststart = 40
         testend = 100
@@ -392,7 +392,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.end, testend)
         
     def test_regressions(self):
-        qp = qparser.QueryParser("f")
+        qp = qparser.QueryParser("f", None)
         
         # From 0.3.18, these used to require escaping. Mostly good for
         # regression testing.
@@ -410,7 +410,7 @@ class TestQueryParser(unittest.TestCase):
     def test_empty_ranges(self):
         schema = fields.Schema(name=fields.TEXT, num=fields.NUMERIC,
                                date=fields.DATETIME)
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         
         for fname in ("name", "date"):
             q = qp.parse("%s:[to]" % fname)
@@ -418,7 +418,7 @@ class TestQueryParser(unittest.TestCase):
     
     def test_empty_numeric_range(self):
         schema = fields.Schema(id=fields.ID, num=fields.NUMERIC)
-        qp = qparser.QueryParser("num", schema=schema)
+        qp = qparser.QueryParser("num", schema)
         q = qp.parse("num:[to]")
         self.assertEqual(q.__class__, query.NumericRange)
         self.assertEqual(q.start, None)
@@ -429,7 +429,7 @@ class TestQueryParser(unittest.TestCase):
         a = analysis.SimpleAnalyzer("\\S+")
         schema = fields.Schema(id=fields.ID, text=fields.TEXT(analyzer=a))
         
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         q = qp.parse(u"id:/code http://localhost/")
         self.assertEqual(q.__class__, query.And)
         self.assertEqual(q[0].__class__, query.Term)
@@ -441,19 +441,19 @@ class TestQueryParser(unittest.TestCase):
     
     def test_stopped(self):
         schema = fields.Schema(text = fields.TEXT)
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         q = qp.parse(u"a b")
         self.assertEqual(q, query.NullQuery)
         
     def test_analyzing_terms(self):
         schema = fields.Schema(text=fields.TEXT(analyzer=analysis.StemmingAnalyzer()))
-        qp = qparser.QueryParser("text", schema=schema)
+        qp = qparser.QueryParser("text", schema)
         q = qp.parse(u"Indexed!")
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.text, "index")
         
     def test_simple(self):
-        parser = qparser.SimpleParser("x")
+        parser = qparser.SimpleParser("x", None)
         q = parser.parse(u"alfa bravo charlie delta")
         self.assertEqual(unicode(q), u"(x:alfa OR x:bravo OR x:charlie OR x:delta)")
         
@@ -467,7 +467,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(unicode(q), u"((x:bravo AND x:delta) ANDNOT x:alfa)")
     
     def test_dismax(self):
-        parser = qparser.DisMaxParser({"body": 0.8, "title": 2.5})
+        parser = qparser.DisMaxParser({"body": 0.8, "title": 2.5}, None)
         q = parser.parse(u"alfa bravo charlie")
         self.assertEqual(unicode(q), u"(DisMax(body:alfa^0.8 title:alfa^2.5) OR DisMax(body:bravo^0.8 title:bravo^2.5) OR DisMax(body:charlie^0.8 title:charlie^2.5))")
         
@@ -481,21 +481,21 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(unicode(q), u"((DisMax(body:charlie^0.8 title:charlie^2.5) ANDMAYBE DisMax(body:alfa^0.8 title:alfa^2.5)) ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5))")
     
     def test_many_clauses(self):
-        parser = qparser.QueryParser("content")
+        parser = qparser.QueryParser("content", None)
         qs = "1" + (" OR 1" * 1000)
         parser.parse(qs)
         
-        parser = qparser.QueryParser("content")
+        parser = qparser.QueryParser("content", None)
         parser.parse(qs)
     
     def test_roundtrip(self):
-        parser = qparser.QueryParser("a")
+        parser = qparser.QueryParser("a", None)
         q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
         self.assertEqual(unicode(q), u"((a:a OR (a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
         
     def test_ngrams(self):
         schema = fields.Schema(grams=fields.NGRAM)
-        parser = qparser.QueryParser('grams', schema=schema)
+        parser = qparser.QueryParser('grams', schema)
         parser.remove_plugin_class(qparser.WhitespacePlugin)
         
         q = parser.parse(u"Hello There")
@@ -505,7 +505,7 @@ class TestQueryParser(unittest.TestCase):
         
     def test_ngramwords(self):
         schema = fields.Schema(grams=fields.NGRAMWORDS(queryor=True))
-        parser = qparser.QueryParser('grams', schema=schema)
+        parser = qparser.QueryParser('grams', schema)
         
         q = parser.parse(u"Hello Tom")
         self.assertEqual(q.__class__, query.And)
@@ -519,7 +519,7 @@ class TestQueryParser(unittest.TestCase):
         textfield = fields.TEXT()
         textfield.multitoken_query = "or"
         schema = fields.Schema(text=textfield)
-        parser = qparser.QueryParser('text', schema=schema)
+        parser = qparser.QueryParser('text', schema)
         qstring = u"chaw-bacon"
         
         texts = list(schema["text"].process_text(qstring))
@@ -534,7 +534,7 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q[1].text, "bacon")
     
     def test_operators(self):
-        qp = qparser.QueryParser("f")
+        qp = qparser.QueryParser("f", None)
         
         q = qp.parse("a AND b OR c AND d")
         self.assertEqual(unicode(q), "((f:a AND f:b) OR (f:c AND f:d))")
@@ -551,7 +551,7 @@ class TestQueryParser(unittest.TestCase):
         not_ = (qparser.PrefixOperator("NOT", qparser.NotGroup), 0)
         
         def make_parser(*ops):
-            parser = qparser.QueryParser("f")
+            parser = qparser.QueryParser("f", None)
             parser.replace_plugin(qparser.CompoundsPlugin(ops, clean=True))
             return parser
         
@@ -576,21 +576,21 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(unicode(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
         
     def test_not_assoc(self):
-        qp = qparser.QueryParser("text")
+        qp = qparser.QueryParser("text", None)
         q = qp.parse(u"a AND NOT b OR c")
         self.assertEqual(unicode(q), "((text:a AND NOT text:b) OR text:c)")
         
-        qp = qparser.QueryParser("text")
+        qp = qparser.QueryParser("text", None)
         q = qp.parse(u"a NOT (b OR c)")
         self.assertEqual(unicode(q), "(text:a AND NOT (text:b OR text:c))")
         
     def test_fieldname_space(self):
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         q = qp.parse("Man Ray: a retrospective")
         self.assertEqual(unicode(q), "(a:Man AND a:Ray: AND a:a AND a:retrospective)")
         
     def test_fieldname_fieldname(self):
-        qp = qparser.QueryParser("a")
+        qp = qparser.QueryParser("a", None)
         q = qp.parse("a:b:")
         self.assertEqual(q, query.Term("a", u"b:"))
         

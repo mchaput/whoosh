@@ -307,7 +307,7 @@ class AsyncWriter(threading.Thread, IndexWriter):
         if self.writer:
             self.writer.cancel(*args, **kwargs)
     
-    
+
 class BatchWriter(object):
     """Convenience wrapper that batches up calls to ``add_document()``,
     ``update_document()``, and/or ``delete_document()``, and commits them
