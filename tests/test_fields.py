@@ -334,8 +334,7 @@ class TestSchema(unittest.TestCase):
     def test_boolean(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                done=fields.BOOLEAN(stored=True))
-        st = RamStorage()
-        ix = st.create_index(schema)
+        ix = RamStorage().create_index(schema)
         
         w = ix.writer()
         w.add_document(id=u"a", done=True)
