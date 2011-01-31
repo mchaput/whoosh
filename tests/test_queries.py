@@ -8,7 +8,7 @@ from whoosh.query import *
 
 class TestQueries(unittest.TestCase):
     def test_all_terms(self):
-        q = QueryParser("a").parse(u'hello b:there c:"my friend"')
+        q = QueryParser("a", None).parse(u'hello b:there c:"my friend"')
         ts = set()
         q.all_terms(ts, phrases=False)
         self.assertEqual(sorted(ts), [("a", "hello"), ("b", "there")])
@@ -28,7 +28,7 @@ class TestQueries(unittest.TestCase):
         w.commit()
         
         r = ix.reader()
-        q = QueryParser("value").parse(u'alfa hotel tango "sierra bravo"')
+        q = QueryParser("value", None).parse(u'alfa hotel tango "sierra bravo"')
         
         ts = q.existing_terms(r, phrases=False)
         self.assertEqual(sorted(ts), [("value", "alfa"), ("value", "hotel")])

@@ -41,7 +41,7 @@ class TestResults(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            r = s.search(qparser.QueryParser("a").parse(u"charlie"))
+            r = s.search(qparser.QueryParser("a", None).parse(u"charlie"))
             self.assertEqual(len(r), 3)
             rcopy = r.copy()
             self.assertEqual(r.top_n, rcopy.top_n)

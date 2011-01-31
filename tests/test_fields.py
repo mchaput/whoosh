@@ -131,7 +131,7 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("integer", schema=schema)
+            qp = qparser.QueryParser("integer", schema)
             
             r = s.search(qp.parse("5820"))
             self.assertEqual(len(r), 1)
@@ -167,7 +167,7 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("deci", schema=schema)
+            qp = qparser.QueryParser("deci", schema)
             
             r = s.search(qp.parse("123.56"))
             self.assertEqual(r[0]["id"], "a")
@@ -178,7 +178,7 @@ class TestSchema(unittest.TestCase):
     def test_numeric_parsing(self):
         schema = fields.Schema(id=fields.ID(stored=True), number=fields.NUMERIC)
         
-        qp = qparser.QueryParser("number", schema=schema)
+        qp = qparser.QueryParser("number", schema)
         q = qp.parse("[10 to *]")
         self.assertEqual(q, query.NullQuery)
         
@@ -207,7 +207,7 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("num", schema=schema)
+            qp = qparser.QueryParser("num", schema)
             
             def check(qs, target):
                 q = qp.parse(qs)
@@ -238,7 +238,7 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("num", schema=schema)
+            qp = qparser.QueryParser("num", schema)
             
             def check(qs, start, end):
                 q = qp.parse(qs)
@@ -312,7 +312,7 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("id", schema=schema)
+            qp = qparser.QueryParser("id", schema)
             
             r = s.search(qp.parse("date:20100523"))
             self.assertEqual(len(r), 1)
@@ -345,7 +345,7 @@ class TestSchema(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            qp = qparser.QueryParser("id", schema=schema)
+            qp = qparser.QueryParser("id", schema)
             
             def all_false(ls):
                 for item in ls:
@@ -379,8 +379,8 @@ class TestSchema(unittest.TestCase):
         writer.commit()
         
         with ix.searcher() as s:
-            qf = qparser.QueryParser('b').parse(u'f')
-            qt = qparser.QueryParser('b').parse(u't')
+            qf = qparser.QueryParser('b', None).parse(u'f')
+            qt = qparser.QueryParser('b', None).parse(u't')
             r = s.search(qf)
             self.assertEqual(len(r), 3)
             

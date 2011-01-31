@@ -185,7 +185,7 @@ class TestAnalysis(unittest.TestCase):
         w.commit()
         
         s = ix.searcher()
-        qp = qparser.QueryParser("name", schema=schema)
+        qp = qparser.QueryParser("name", schema)
         q = qp.parse(u"leaf eriksen", normalize=False)
         r = s.search(q)
         self.assertEqual(len(r), 1)

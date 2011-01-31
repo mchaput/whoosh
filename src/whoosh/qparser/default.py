@@ -42,7 +42,7 @@ class QueryParser(object):
     ``remove_plugin_class()`` to change the plug-ins included in the parser.
     
     >>> from whoosh import qparser
-    >>> parser = qparser.QueryParser("content")
+    >>> parser = qparser.QueryParser("content", schema)
     >>> parser.remove_plugin_class(qparser.WildcardPlugin)
     >>> parser.parse(u"hello there")
     And([Term("content", u"hello"), Term("content", u"there")])
@@ -51,15 +51,16 @@ class QueryParser(object):
     _multitoken_query_map = {"and": query.And, "or": query.Or,
                              "phrase": query.Phrase}
     
-    def __init__(self, fieldname, schema=None, termclass=query.Term,
+    def __init__(self, fieldname, schema, termclass=query.Term,
                  phraseclass=query.Phrase, group=AndGroup, plugins=None):
         """
         :param fieldname: the default field -- use this as the field for any
             terms without an explicit field.
         :param schema: a :class:`whoosh.fields.Schema` object to use when
-            parsing. If you specify a schema, the appropriate fields in the
-            schema will be used to tokenize terms/phrases before they are
-            turned into query objects.
+            parsing. The appropriate fields in the schema will be used to
+            tokenize terms/phrases before they are turned into query objects.
+            You can specify None for the schema to create a parser that does
+            not analyze the text of the query, usually for testing purposes.
         :param termclass: the query class to use for individual search terms.
             The default is :class:`whoosh.query.Term`.
         :param phraseclass: the query class to use for phrases. The default
@@ -115,7 +116,7 @@ class QueryParser(object):
         ``remove_plugin_class`` followed by ``add_plugin`` each time you want
         to reconfigure a default plugin.
         
-        >>> qp = qparser.QueryParser("content")
+        >>> qp = qparser.QueryParser("content", schema)
         >>> qp.replace_plugin(qparser.NotPlugin("(^| )-"))
         """
         
@@ -295,7 +296,7 @@ class QueryParser(object):
 
 # Premade parser configurations
 
-def MultifieldParser(fieldnames, schema=None, fieldboosts=None, **kwargs):
+def MultifieldParser(fieldnames, schema, fieldboosts=None, **kwargs):
     """Returns a QueryParser configured to search in multiple fields.
     
     Instead of assigning unfielded clauses to a default field, this parser
@@ -309,21 +310,21 @@ def MultifieldParser(fieldnames, schema=None, fieldboosts=None, **kwargs):
     :param fieldboosts: an optional dictionary mapping field names to boosts.
     """
     
-    p = QueryParser(None, schema=schema, **kwargs)
+    p = QueryParser(None, schema, **kwargs)
     p.add_plugin(MultifieldPlugin(fieldnames, fieldboosts=fieldboosts))
     return p
 
 
-def SimpleParser(fieldname, schema=None, **kwargs):
+def SimpleParser(fieldname, schema, **kwargs):
     """Returns a QueryParser configured to support only +, -, and phrase
     syntax.
     """
     
-    return QueryParser(fieldname, schema=schema,
+    return QueryParser(fieldname, schema,
                        plugins=(PlusMinusPlugin, PhrasePlugin), **kwargs)
 
 
-def DisMaxParser(fieldboosts, schema=None, tiebreak=0.0, **kwargs):
+def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
     """Returns a QueryParser configured to support only +, -, and phrase
     syntax, and which converts individual terms into DisjunctionMax queries
     across a set of fields.
@@ -332,7 +333,7 @@ def DisMaxParser(fieldboosts, schema=None, tiebreak=0.0, **kwargs):
     """
     
     dmpi = DisMaxPlugin(fieldboosts, tiebreak)
-    return QueryParser(None, schema=schema,
+    return QueryParser(None, schema,
                        plugins=(PlusMinusPlugin, PhrasePlugin, dmpi), **kwargs)
     
 
