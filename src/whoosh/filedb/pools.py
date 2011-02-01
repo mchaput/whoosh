@@ -20,7 +20,7 @@ import os
 import tempfile
 from array import array
 from collections import defaultdict
-from heapq import heapify, heappush, heappop
+from heapq import heapify, heappop, heapreplace
 from marshal import load, dump
 import sqlite3 as sqlite
 
@@ -28,40 +28,58 @@ from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte
 
 
-def imerge(iterators):
-    """Merge-sorts items from a list of iterators.
-    """
-    
-    # The list of "current" head items from the iterators
-    current = []
-    
-    # Initialize the current list with the first item from each iterator
-    for g in iterators:
-        try:
-            current.append((g.next(), g))
-        except StopIteration:
-            pass
+try:
+    from sys import getsizeof
+except ImportError:
+    # If this is Python 2.5, rig up a guesstimated version of getsizeof
+    def getsizeof(obj):
+        if obj is None:
+            return 8
+        t = type(obj)
+        if t is int:
+            return 12
+        elif t is float:
+            return 16
+        elif t is long:
+            return 16
+        elif t is str:
+            return 21 + len(obj)
+        elif t is unicode:
+            return 26 + 2 * len(obj)
+
+
+try:
+    from heapq import merge
+    def imerge(iterables):
+        return merge(*iterables)
+except ImportError:
+    def imerge(iterables):
+        """Merge-sorts items from a list of iterators.
+        """
         
-    # Turn the current list into a heap structure
-    heapify(current)
+        _heappop, _heapreplace, _StopIteration = heappop, heapreplace, StopIteration
     
-    # While there are multiple iterators in the current list, pop the lowest
-    # item and refill from the popped item's iterator
-    while len(current) > 1:
-        item, gen = heappop(current)
-        yield item
-        try:
-            heappush(current, (gen.next(), gen))
-        except StopIteration:
-            pass
+        h = []
+        h_append = h.append
+        for itnum, it in enumerate(map(iter, iterables)):
+            try:
+                next = it.next
+                h_append([next(), itnum, next])
+            except _StopIteration:
+                pass
+        heapify(h)
     
-    # If there's only one iterator left, shortcut to simply yield all items
-    # from the iterator. This is faster than popping and refilling the heap.
-    if current:
-        item, gen = current[0]
-        yield item
-        for item in gen:
-            yield item
+        while 1:
+            try:
+                while 1:
+                    v, itnum, next = s = h[0]   # raises IndexError when h is empty
+                    yield v
+                    s[0] = next()               # raises StopIteration when exhausted
+                    _heapreplace(h, s)          # restore heap condition
+            except _StopIteration:
+                _heappop(h)                     # remove empty iterator
+            except IndexError:
+                return
 
 
 def read_run(filename, count, atatime=100):
@@ -188,11 +206,12 @@ class TempfilePool(PoolBase):
         if self.size >= self.limit:
             self.dump_run()
 
-        self.size += len(fieldname) + len(text) + 18
-        if valuestring:
-            self.size += len(valuestring)
-        
-        self.postings.append((fieldname, text, docnum, weight, valuestring))
+        tup = (fieldname, text, docnum, weight, valuestring)
+        # 48 bytes for tuple overhead (28 bytes + 4 bytes * 5 items) plus the
+        # sizes of the objects inside the tuple, plus 4 bytes overhead for
+        # putting the tuple in the postings list
+        self.size += 48 + sum(getsizeof(o) for o in tup) + 4
+        self.postings.append(tup)
         self.count += 1
     
     def dump_run(self):
