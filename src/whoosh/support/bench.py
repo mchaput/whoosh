@@ -370,10 +370,62 @@ class ZcatalogModule(Module):
             yield {hf: getattr(hit, hf), mf: getattr(hit, mf)}
 
 
+class NucularModule(Module):
+    def indexer(self, create=True):
+        import shutil
+        from nucular import Nucular
+        
+        dir = os.path.join(self.options.dir, "%s_nucular" % self.options.indexname)
+        if create:
+            if os.path.exists(dir):
+                shutil.rmtree(dir)
+            os.mkdir(dir)
+        self.archive = Nucular.Nucular(dir)
+        if create:
+            self.archive.create()
+        self.count = 0
+    
+    def index_document(self, d):
+        try:
+            self.archive.indexDictionary(str(self.count), d)
+        except ValueError:
+            print "d=", d
+            raise
+        self.count += 1
+        if not self.count % int(self.options.batch):
+            t = now()
+            self.archive.store(lazy=True)
+            self.indexer(create=False)
+    
+    def finish(self, **kwargs):
+        self.archive.store(lazy=False)
+        self.archive.aggregateRecent(fast=False, verbose=True)
+        self.archive.moveTransientToBase(verbose=True)
+        self.archive.cleanUp()
+    
+    def searcher(self):
+        from nucular import Nucular
+        
+        dir = os.path.join(self.options.dir, "%s_nucular" % self.options.indexname)
+        self.archive = Nucular.Nucular(dir)
+    
+    def query(self):
+        return " ".join(self.args)
+    
+    def find(self, q):
+        return self.archive.dictionaries(q)
+        
+    def findterms(self, terms):
+        for term in terms:
+            q = self.archive.Query()
+            q.anyWord(term)
+            yield q.resultDictionaries()
+            
+    
 class Bench(object):
     libs = {"whoosh": WhooshModule, "xappy": XappyModule,
             "xapian": XapianModule, "solr": SolrModule,
-            "zcatalog": ZcatalogModule}
+            "zcatalog": ZcatalogModule, "nucular": NucularModule}
     
     def index(self, lib):
         print "Indexing with %s..." % lib
@@ -465,7 +517,7 @@ class Bench(object):
                      default=1000)
         p.add_option("-B", "--batch", dest="batch",
                      help="Batch size for batch adding documents.",
-                     default=100)
+                     default=1000)
         p.add_option("-k", "--skip", dest="skip", metavar="N",
                      help="Index every Nth document.", default=1)
         p.add_option("-e", "--commit-every", dest="every", metavar="NUM",
