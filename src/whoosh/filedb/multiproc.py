@@ -70,8 +70,9 @@ class SegmentWritingTask(Process):
         if not self.running:
             writer.cancel()
         else:
-            writer.pool.finish(writer.docnum, writer.lengthfile,
-                               writer.termsindex, writer.postwriter)
+            writer.pool.finish(writer.termswriter, writer.docnum,
+                               writer.lengthfile)
+            writer.termswriter.close()
             self.jobqueue.put(writer._getsegment())
     
     def cancel(self):
