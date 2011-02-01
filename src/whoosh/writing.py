@@ -19,6 +19,7 @@ import threading
 import time
 
 from whoosh.store import LockError
+from whoosh.util import synchronized
 
 
 # Exceptions
@@ -70,11 +71,16 @@ class IndexWriter(object):
         
         self.schema.remove(fieldname, **kwargs)
         
-    def searcher(self, **kwargs):
-        """Returns a searcher for the existing index.
+    def reader(self, **kwargs):
+        """Returns a reader for the existing index.
         """
         
         raise NotImplementedError
+    
+    def searcher(self, **kwargs):
+        from whoosh.searching import Searcher
+        
+        return Searcher(self.reader(), **kwargs)
     
     def delete_by_term(self, fieldname, text, searcher=None):
         """Deletes any documents containing "term" in the "fieldname" field.
@@ -85,6 +91,7 @@ class IndexWriter(object):
         """
         
         from whoosh.query import Term
+        
         q = Term(fieldname, text)
         return self.delete_by_query(q, searcher=searcher)
     
@@ -159,14 +166,9 @@ class IndexWriter(object):
                                 " are unique" % fields.keys())
         
         # Delete the set of documents matching the unique terms
-        delset = set()
         with self.searcher() as s:
-            for name in unique_fields:
-                docnum = s.document_number(**{name: fields[name]})
-                if docnum is not None:
-                    delset.add(docnum)
-        
-            for docnum in delset:
+            for docnum in s._find_unique([(name, fields[name])
+                                          for name in unique_fields]):
                 self.delete_document(docnum)
         
         # Add the given fields
@@ -257,8 +259,12 @@ class AsyncWriter(threading.Thread, IndexWriter):
         except LockError:
             self.writer = None
     
-    def searcher(self):
-        return self.index.searcher()
+    def reader(self):
+        return self.index.reader()
+    
+    def searcher(self, **kwargs):
+        from whoosh.searching import Searcher
+        return Searcher(self.reader(), fromindex=self.index, **kwargs)
     
     def _record(self, method, args, kwargs):
         if self.writer:
@@ -308,92 +314,179 @@ class AsyncWriter(threading.Thread, IndexWriter):
             self.writer.cancel(*args, **kwargs)
     
 
-class BatchWriter(object):
-    """Convenience wrapper that batches up calls to ``add_document()``,
-    ``update_document()``, and/or ``delete_document()``, and commits them
-    whenever a maximum amount of time passes or a maximum number of batched
-    changes accumulate.
-    
-    This is useful when you're adding documents one at a time, in rapid
-    succession (e.g. a web app). The more documents you add per commit, the
-    more efficient Whoosh is. This class batches multiple documents and adds
-    them all at once. If you're adding a bunch of documents at a time, just use
-    a regular writer -- you're already committing a "batch" of documents, so
-    you don't need this class.
+class BufferedWriter(IndexWriter):
+    """Convenience class that acts like a writer but buffers added documents to
+    a :class:`~whoosh.ramindex.RamIndex` before dumping the buffered documents
+    as a batch into the actual index.
     
     In scenarios where you are continuously adding single documents very
     rapidly (for example a web application where lots of users are adding
-    content simultaneously), and you don't mind a delay between documents being
-    added and becoming searchable, using a BatchWriter is *much* faster than
+    content simultaneously), using a BufferedWriter is *much* faster than
     opening and committing a writer for each document you add.
     
-    >>> from whoosh.writing import BatchWriter
-    >>> writer = BatchWriter(myindex)
+    (This class may also be useful for batches of ``update_document`` calls. In
+    a normal writer, ``update_document`` calls cannot update documents you've
+    added *in that writer*. With ``BufferedWriter``, this will work.)
     
-    Calling ``commit()`` on this object opens a writer and commits any batched
+    If you're adding a batches of documents at a time, you can just use a
+    regular writer -- you're already committing a "batch" of documents, so you
+    don't need this class.
+    
+    To use this class, create it from your index and *keep it open*, sharing
+    it between threads.
+    
+    >>> from whoosh.writing import BufferedWriter
+    >>> writer = BufferedWriter(myindex, period=120, limit=100)
+    
+    You can control how often the ``BufferedWriter`` flushes the in-memory
+    index to disk using the ``period`` and ``limit`` arguments. ``period`` is
+    the maximum number of seconds between commits. ``limit`` is the maximum
+    number of additions to buffer between commits.
+    
+    You can read/search the combination of the on-disk index and the buffered
+    documents in memory by calling ``BufferedWriter.reader()`` or
+    ``BufferedWriter.searcher()``. This allows quasi-real-time search, where
+    documents are available for searching as soon as they are buffered in
+    memory, before they are committed to disk.
+    
+    >>> searcher = writer.searcher()
+    
+    .. tip::
+        By using a searcher from the shared writer, multiple *threads* can
+        search the buffered documents. Of course, other *processes* will only
+        see the documents that have been written to disk. If you want indexed
+        documents to become available to other processes as soon as possible,
+        you have to use a traditional writer instead of a ``BufferedWriter``.
+    
+    Calling ``commit()`` on the ``BufferedWriter`` manually commits any batched
     up changes. You can continue to make changes after calling ``commit()``,
     and you can call ``commit()`` multiple times.
     
-    You should explicitly call ``commit()`` on this object before it goes out
-    of scope to make sure any uncommitted changes are saved.
+    .. note::
+        This object keeps an underlying writer open and stores documents in
+        memory, so you must explicitly call the :meth:`~BufferedWriter.close()`
+        method on this object before it goes out of scope to release the
+        write lock and make sure any uncommitted changes are saved.
     """
 
     def __init__(self, index, period=60, limit=10, writerargs=None,
-                 commitargs=None):
+                 commitargs=None, tempixclass=None):
         """
         :param index: the :class:`whoosh.index.Index` to write to.
         :param period: the maximum amount of time (in seconds) between commits.
-        :param limit: the maximum number of changes to accumulate before
+            Set this to ``0`` or ``None`` to not use a timer. Do not set this
+            any lower than a few seconds.
+        :param limit: the maximum number of documents to buffer before
             committing.
         :param writerargs: dictionary specifying keyword arguments to be passed
-            to the index's ``writer()`` method.
+            to the index's ``writer()`` method when creating a writer.
         :param commitargs: dictionary specifying keyword arguments to be passed
-            to the writer's ``commit()`` method.
+            to the writer's ``commit()`` method when committing a writer.
         """
+        
         self.index = index
         self.period = period
         self.limit = limit
         self.writerargs = writerargs or {}
         self.commitargs = commitargs or {}
+        self._sync_lock = threading.Lock()
+        self._write_lock = threading.Lock()
         
-        self.events = []
-        self.timer = threading.Timer(self.period, self.commit)
+        if tempixclass is None:
+            from whoosh.ramindex import RamIndex as tempixclass
+        self.tempixclass = tempixclass
+        
+        self.commitcount = 0
+        self.ramindex = self._create_ramindex()
+        self._start_writer()
+        if self.period:
+            self.timer = threading.Timer(self.period, self.commit)
     
     def __del__(self):
+        if hasattr(self, "writer"):
+            if not self.writer.is_closed:
+                self.writer.cancel()
+            del self.writer
+    
+    def _create_ramindex(self):
+        return self.tempixclass(self.index.schema)
+    
+    def _start_writer(self):
+        self.writer = self.index.writer(**self.writerargs)
+        self.schema = self.writer.schema
+        self.base = self.index.doc_count_all()
+        self.bufferedcount = 0
+    
+    @synchronized
+    def reader(self, **kwargs):
+        from whoosh.reading import MultiReader
+        
+        ramreader = self.ramindex
+        if self.index.is_empty():
+            return ramreader
+        else:
+            reader = self.writer.reader(**kwargs)
+            if reader.is_atomic():
+                reader = MultiReader([reader, ramreader])
+            else:
+                reader.add_reader(ramreader)
+            return reader
+    
+    def searcher(self, **kwargs):
+        from whoosh.searching import Searcher
+        
+        return Searcher(self.reader(), fromindex=self.index, **kwargs)
+    
+    def close(self):
         self.commit(restart=False)
     
     def commit(self, restart=True):
-        self.timer.cancel()
-        if self.events:
-            writer = self.index.writer(**self.writerargs)
-            for method, args, kwargs in self.events:
-                getattr(writer, method)(*args, **kwargs)
-            writer.commit(**self.commitargs)
-            self.events = []
+        if self.period:
+            self.timer.cancel()
         
-        if restart:
-            self.timer = threading.Timer(self.period, self.commit)
+        # Replace the RAM index
+        with self._sync_lock:
+            oldramindex = self.ramindex
+            self.ramindex = self._create_ramindex()
+        
+        with self._write_lock:
+            if self.bufferedcount:
+                self.writer.add_reader(oldramindex.reader())
+            self.writer.commit(**self.commitargs)
+            self.commitcount += 1
+        
+            if restart:
+                self._start_writer()
+                if self.period:
+                    self.timer = threading.Timer(self.period, self.commit)
     
-    def _record(self, method, args, kwargs):
-        self.events.append((method, args, kwargs))
-        if len(self.events) >= self.limit:
+    def add_reader(self, reader):
+        with self._write_lock:
+            self.writer.add_reader(reader)
+    
+    def add_document(self, **fields):
+        with self._sync_lock:
+            self.ramindex.add_document(**fields)
+            self.bufferedcount += 1
+        if self.bufferedcount >= self.limit:
             self.commit()
-        
-    def delete_document(self, *args, **kwargs):
-        self._record("delete_document", args, kwargs)
-        
-    def add_document(self, *args, **kwargs):
-        self._record("add_document", args, kwargs)
+    
+    @synchronized
+    def delete_document(self, docnum, delete=True):
+        if docnum < self.base:
+            return self.writer.delete_document(docnum, delete=delete)
+        else:
+            return self.ramindex.delete_document(docnum - self.base, delete=delete)
+    
+    @synchronized
+    def is_deleted(self, docnum):
+        if docnum < self.base:
+            return self.writer.is_deleted(docnum)
+        else:
+            return self.ramindex.is_deleted(docnum - self.base)
 
-    def update_document(self, *args, **kwargs):
-        self._record("update_document", args, kwargs)
-
-    def add_field(self, *args, **kwargs):
-        self._record("add_field", args, kwargs)
-        
-    def remove_field(self, *args, **kwargs):
-        self._record("remove_field", args, kwargs)
-
+# Backwards compatibility with old name
+BatchWriter = BufferedWriter
 
 
 
