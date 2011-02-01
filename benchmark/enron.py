@@ -41,8 +41,9 @@ class Enron(Spec):
         t = now()
         urlretrieve(self.enron_archive_url, archive)
         print "Downloaded in ", now() - t, "seconds"
-        
-    def get_texts(self, archive):
+    
+    @staticmethod
+    def get_texts(archive):
         archive = tarfile.open(archive, "r:gz")
         while True:
             entry = archive.next()
@@ -54,9 +55,10 @@ class Enron(Spec):
                 text = f.read()
                 yield text
     
-    def get_messages(self, archive, headers=True):
-        header_to_field = self.header_to_field
-        for text in self.get_texts(archive):
+    @staticmethod
+    def get_messages(archive, headers=True):
+        header_to_field = Enron.header_to_field
+        for text in Enron.get_texts(archive):
             message = message_from_string(text)
             body = message.as_string().decode("latin_1")
             blank = body.find("\n\n")
