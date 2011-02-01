@@ -248,8 +248,7 @@ class FileIndex(Index):
         return self.storage.file_modified(filename)
 
     def is_empty(self):
-        info = _read_toc(self.storage, self.schema, self.indexname)
-        return len(info.segments) == 0
+        return len(self._read_toc().segments) == 0
     
     def optimize(self):
         w = self.writer()
@@ -281,29 +280,21 @@ class FileIndex(Index):
     def schema(self):
         return self._current_schema()
 
-    def reader(self, reuse=None):
+    @classmethod
+    def _reader(self, storage, schema, segments, generation, reuse=None):
         from whoosh.filedb.filereading import SegmentReader
         
         reusable = {}
-        
-        # Lock the index so nobody can delete a segment while we're in the
-        # middle of creating the reader
-        lock = self.lock("READLOCK")
-        lock.acquire(True)
-        
         try:
-            # Read the information from the TOC file
-            info = self._read_toc()
-            
-            if len(info.segments) == 0:
+            if len(segments) == 0:
                 # This index has no segments! Return an EmptyReader object,
                 # which simply returns empty or zero to every method
-                return EmptyReader(info.schema)
+                return EmptyReader(schema)
             
             if reuse:
                 # Put all atomic readers in a dictionary keyed by their
                 # generation, so we can re-use them if them if possible
-                if reuse.is_atomic:
+                if reuse.is_atomic():
                     readers = [reuse]
                 else:
                     readers = [r for r, offset in reuse.leaf_readers()]
@@ -319,24 +310,35 @@ class FileIndex(Index):
                     del reusable[gen]
                     return r
                 else:
-                    return SegmentReader(self.storage, info.schema, segment)
+                    return SegmentReader(storage, schema, segment)
             
-            if len(info.segments) == 1:
+            if len(segments) == 1:
                 # This index has one segment, so return a SegmentReader object
                 # for the segment
-                return segreader(info.segments[0])
+                return segreader(segments[0])
             else:
                 # This index has multiple segments, so create a list of
                 # SegmentReaders for the segments, then composite them with a
                 # MultiReader
                 
-                readers = [segreader(segment) for segment in info.segments]
-                return MultiReader(readers, generation=info.generation)
-        
+                readers = [segreader(segment) for segment in segments]
+                return MultiReader(readers, generation=generation)
         finally:
-            lock.release()
             for r in reusable.values():
                 r.close()
+
+    def reader(self, reuse=None):
+        # Lock the index so nobody can delete a segment while we're in the
+        # middle of creating the reader
+        lock = self.lock("READLOCK")
+        lock.acquire(True)
+        try:
+            # Read the information from the TOC file
+            info = self._read_toc()
+            return self._reader(self.storage, info.schema, info.segments,
+                                info.generation, reuse=reuse)
+        finally:
+            lock.release()    
 
 
 class Segment(object):
@@ -387,7 +389,7 @@ class Segment(object):
         self.uuid = uuid.uuid4()
         
     def __repr__(self):
-        return "%s(%r, %s)" % (self.__class__.__name__, self.name,
+        return "<%s %r %s>" % (self.__class__.__name__, self.name,
                                getattr(self, "uuid", ""))
 
     def __getattr__(self, name):

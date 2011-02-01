@@ -1,10 +1,9 @@
 from __future__ import with_statement
 import unittest
 
-import os, random, time
-from shutil import rmtree
+import random, time
 
-from whoosh import analysis, fields, index, writing
+from whoosh import analysis, fields, query, writing
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempIndex
 
@@ -74,21 +73,64 @@ class TestWriting(unittest.TestCase):
             with ix.reader() as r:
                 self.assertEqual(sorted([int(id) for id in r.lexicon("id")]), range(20))
         
-    def test_batchwriter(self):
+    def test_buffered(self):
         schema = fields.Schema(id=fields.ID, text=fields.TEXT)
-        with TempIndex(schema, "batchwriter") as ix:
+        with TempIndex(schema, "buffered") as ix:
             domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot",
                       u"golf", u"hotel", u"india")
             
-            w = writing.BatchWriter(ix, period=0.5, limit=10,
-                                    commitargs={"merge": False})
+            w = writing.BufferedWriter(ix, period=None, limit=10,
+                                       commitargs={"merge": False})
             for i in xrange(100):
                 w.add_document(id=unicode(i), text=u" ".join(random.sample(domain, 5)))
             time.sleep(0.5)
-            w.commit(restart=False)
+            w.close()
             
             self.assertEqual(len(ix._segments()), 10)
-        
+    
+    def test_buffered_search(self):
+        schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+        with TempIndex(schema, "bufferedsearch") as ix:
+            w = writing.BufferedWriter(ix, period=None, limit=5)
+            w.add_document(id=1, text=u"alfa bravo charlie")
+            w.add_document(id=2, text=u"bravo tango delta")
+            w.add_document(id=3, text=u"tango delta echo")
+            w.add_document(id=4, text=u"charlie delta echo")
+            
+            with w.searcher() as s:
+                r = s.search(query.Term("text", u"tango"), scored=False)
+                self.assertEqual([d["id"] for d in r], [2, 3])
+                
+            w.add_document(id=5, text=u"foxtrot golf hotel")
+            w.add_document(id=6, text=u"india tango juliet")
+            w.add_document(id=7, text=u"tango kilo lima")
+            w.add_document(id=8, text=u"mike november echo")
+            
+            with w.searcher() as s:
+                r = s.search(query.Term("text", u"tango"), scored=False)
+                self.assertEqual([d["id"] for d in r], [2, 3, 6, 7])
+                
+            w.close()
+    
+    def test_buffered_update(self):
+        schema = fields.Schema(id=fields.ID(stored=True, unique=True),
+                               payload=fields.STORED)
+        with TempIndex(schema, "bufferedupdate") as ix:
+            w = writing.BufferedWriter(ix, period=None, limit=5)
+            for i in xrange(10):
+                for char in u"abc":
+                    fs = dict(id=char, payload=unicode(i) + char)
+                    w.update_document(**fs)
+                    
+            with w.reader() as r:
+                self.assertEqual(sorted(r.all_stored_fields(), key=lambda x: x["id"]),
+                                 [{'id': u'a', 'payload': u'9a'},
+                                  {'id': u'b', 'payload': u'9b'},
+                                  {'id': u'c', 'payload': u'9c'}])
+                self.assertEqual(r.doc_count(), 3)
+                
+            w.close()
+    
     def test_fractional_weights(self):
         ana = analysis.RegexTokenizer(r"\S+") | analysis.DelimitedAttributeFilter()
         
@@ -119,9 +161,82 @@ class TestWriting(unittest.TestCase):
                 p = s.postings("f", word)
                 wts.append(p.weight())
             self.assertEqual(wts, [0.5, 1.5, 2.0, 1.5])
+            
+    def test_cancel_delete(self):
+        schema = fields.Schema(id=fields.ID(stored=True))
+        # Single segment
+        with TempIndex(schema, "canceldelete1") as ix:
+            w = ix.writer()
+            for char in u"ABCD":
+                w.add_document(id=char)
+            w.commit()
+            
+            with ix.reader() as r:
+                self.assertFalse(r.has_deletions())
+            
+            w = ix.writer()
+            w.delete_document(2)
+            w.delete_document(3)
+            w.cancel()
+            
+            with ix.reader() as r:
+                self.assertFalse(r.has_deletions())
+                self.assertFalse(r.is_deleted(2))
+                self.assertFalse(r.is_deleted(3))
         
-
-
+        # Multiple segments
+        with TempIndex(schema, "canceldelete2") as ix:
+            for char in u"ABCD":
+                w = ix.writer()
+                w.add_document(id=char)
+                w.commit(merge=False)
+            
+            with ix.reader() as r:
+                self.assertFalse(r.has_deletions())
+            
+            w = ix.writer()
+            w.delete_document(2)
+            w.delete_document(3)
+            w.cancel()
+            
+            with ix.reader() as r:
+                self.assertFalse(r.has_deletions())
+                self.assertFalse(r.is_deleted(2))
+                self.assertFalse(r.is_deleted(3))
+    
+    def test_delete_nonexistant(self):
+        from whoosh.writing import IndexingError
+        
+        schema = fields.Schema(id=fields.ID(stored=True))
+        # Single segment
+        with TempIndex(schema, "deletenon1") as ix:
+            w = ix.writer()
+            for char in u"ABC":
+                w.add_document(id=char)
+            w.commit()
+            
+            try:
+                w = ix.writer()
+                self.assertRaises(IndexingError, w.delete_document, 5)
+            finally:
+                w.cancel()
+        
+        # Multiple segments
+        with TempIndex(schema, "deletenon1") as ix:
+            for char in u"ABC":
+                w = ix.writer()
+                w.add_document(id=char)
+                w.commit(merge=False)
+            
+            try:
+                w = ix.writer()
+                self.assertRaises(IndexingError, w.delete_document, 5)
+            finally:
+                w.cancel()
+            
+        
+        
+        
 
 
 
