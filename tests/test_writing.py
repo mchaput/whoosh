@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import unittest
 
-import random, time
+import random, time, threading
 
 from whoosh import analysis, fields, query, writing
 from whoosh.filedb.filestore import RamStorage
@@ -130,6 +130,36 @@ class TestWriting(unittest.TestCase):
                 self.assertEqual(r.doc_count(), 3)
                 
             w.close()
+    
+    def test_buffered_threads(self):
+        class SimWriter(threading.Thread):
+            def __init__(self, w, domain):
+                threading.Thread.__init__(self)
+                self.w = w
+                self.domain = domain
+                
+            def run(self):
+                w = self.w
+                domain = self.domain
+                for _ in xrange(10):
+                    w.update_document(name=random.choice(domain))
+                    time.sleep(random.uniform(0.1, 0.3))
+        
+        schema = fields.Schema(name=fields.ID(unique=True, stored=True))
+        with TempIndex(schema, "buffthreads") as ix:
+            domain = u"alfa bravo charlie delta".split()
+            w = writing.BufferedWriter(ix, limit=10)
+            threads = [SimWriter(w, domain) for _ in xrange(10)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            w.close()
+            
+            with ix.reader() as r:
+                self.assertEqual(r.doc_count(), 4)
+                self.assertEqual(sorted([d["name"] for d in r.all_stored_fields()]),
+                                 domain)
     
     def test_fractional_weights(self):
         ana = analysis.RegexTokenizer(r"\S+") | analysis.DelimitedAttributeFilter()

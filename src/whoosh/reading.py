@@ -606,7 +606,10 @@ class MultiReader(IndexReader):
             except (KeyError, TermNotFound):
                 pass
             else:
-                return self.doc_offsets[i] + id
+                if id is None:
+                    raise TermNotFound((fieldname, text))
+                else:
+                    return self.doc_offsets[i] + id
         
         raise TermNotFound((fieldname, text))
 
