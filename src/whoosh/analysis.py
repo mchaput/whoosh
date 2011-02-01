@@ -74,6 +74,20 @@ STOP_WORDS = frozenset(('a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can',
                         'you', 'your'))
 
 
+# Pre-configured regular expressions
+
+default_pattern = re.compile(r"\w+(\.?\w+)*", re.UNICODE)
+url_pattern = re.compile("""
+(
+    [A-Za-z+]+://          # URL protocol
+    \\S+?                  # URL body
+    (?=\\s|[.]\\s|$|[.]$)  # Stop at space/end, or a dot followed by space/end
+) | (                      # or...
+    \w+([:.]?\w+)*         # word characters, with optional internal colons/dots
+)
+""", re.VERBOSE | re.UNICODE)
+
+
 # Utility functions
 
 def unstopped(tokenstream):
@@ -208,7 +222,7 @@ class RegexTokenizer(Tokenizer):
     
     __inittypes__ = dict(expression=unicode, gaps=bool)
     
-    def __init__(self, expression=r"\w+(\.?\w+)*", gaps=False):
+    def __init__(self, expression=default_pattern, gaps=False):
         """
         :param expression: A regular expression object or string. Each match
             of the expression equals a token. Group 0 (the entire matched text)
@@ -1644,18 +1658,6 @@ def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
     
     return RegexTokenizer(expression=expression, gaps=gaps)
 RegexAnalyzer.__inittypes__ = dict(expression=unicode, gaps=bool)
-
-
-default_pattern = re.compile(r"\w+", re.UNICODE)
-url_pattern = re.compile("""
-(
-    [A-Za-z+]+://          # URL protocol
-    \\S+?                  # URL body
-    (?=\\s|[.]\\s|$|[.]$)  # Stop at space/end, or a dot followed by space/end
-) | (                      # or...
-    \w+([:.]?\w+)*         # word characters, with optional internal colons/dots
-)
-""", re.VERBOSE | re.UNICODE)
 
 
 def SimpleAnalyzer(expression=default_pattern, gaps=False):
