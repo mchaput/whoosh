@@ -136,6 +136,15 @@ class IndexWriter(object):
         """
         raise NotImplementedError
     
+    def _unique_fields(self, fields):
+        # Check which of the supplied fields are unique
+        unique_fields = [name for name, field in self.schema.items()
+                         if name in fields and field.unique]
+        if not unique_fields:
+            raise IndexingError("None of the fields in %r"
+                                " are unique" % fields.keys())
+        return unique_fields
+    
     def update_document(self, **fields):
         """The keyword arguments map field names to the values to index/store.
         
@@ -158,14 +167,8 @@ class IndexWriter(object):
             writer.update_document(title=u"a b c", _stored_title=u"e f g")
         """
         
-        # Check which of the supplied fields are unique
-        unique_fields = [name for name, field in self.schema.items()
-                         if name in fields and field.unique]
-        if not unique_fields:
-            raise IndexingError("None of the fields in %r"
-                                " are unique" % fields.keys())
-        
         # Delete the set of documents matching the unique terms
+        unique_fields = self._unique_fields(fields)
         with self.searcher() as s:
             for docnum in s._find_unique([(name, fields[name])
                                           for name in unique_fields]):
@@ -389,7 +392,7 @@ class BufferedWriter(IndexWriter):
         self.limit = limit
         self.writerargs = writerargs or {}
         self.commitargs = commitargs or {}
-        self._sync_lock = threading.Lock()
+        self._sync_lock = threading.RLock()
         self._write_lock = threading.Lock()
         
         if tempixclass is None:
@@ -472,12 +475,16 @@ class BufferedWriter(IndexWriter):
             self.commit()
     
     @synchronized
+    def update_document(self, **fields):
+        super(BufferedWriter, self).update_document(**fields)
+    
+    @synchronized
     def delete_document(self, docnum, delete=True):
         if docnum < self.base:
             return self.writer.delete_document(docnum, delete=delete)
         else:
             return self.ramindex.delete_document(docnum - self.base, delete=delete)
-    
+        
     @synchronized
     def is_deleted(self, docnum):
         if docnum < self.base:
