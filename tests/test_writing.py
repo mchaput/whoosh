@@ -280,10 +280,11 @@ class TestWriting(unittest.TestCase):
                 self.assertEqual(item[1][1], ((i,), (1.0,),
                                               ('\x00\x00\x00\x01]q\x01K\x00a',),
                                               1.0, 1))
+            tr.close()
             
-            r = ix.reader()
-            pr = r.postings("a", "bravo")
-            self.assertEqual(pr.id(), 1)
+            with ix.reader() as r:
+                pr = r.postings("a", "bravo")
+                self.assertEqual(pr.id(), 1)
             
         
 
