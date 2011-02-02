@@ -307,7 +307,7 @@ class Index(object):
         """
         
         from whoosh.searching import Searcher
-        return Searcher(self, **kwargs)
+        return Searcher(self.reader(), fromindex=self, **kwargs)
     
     def field_length(self, fieldname):
         """Returns the total length of the field across all documents.

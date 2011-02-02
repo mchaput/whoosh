@@ -36,18 +36,24 @@ class Searcher(object):
     methods for searching the index.
     """
 
-    def __init__(self, ix, reader=None, weighting=scoring.BM25F, schema=None,
-                 doccount=None, idf_cache=None):
+    def __init__(self, reader, weighting=scoring.BM25F, closereader=True,
+                 fromindex=None, schema=None, doccount=None, idf_cache=None):
         """
-        :param ixreader: An :class:`~whoosh.reading.IndexReader` object for
+        :param reader: An :class:`~whoosh.reading.IndexReader` object for
             the index to search.
         :param weighting: A :class:`whoosh.scoring.Weighting` object to use to
             score found documents.
+        :param closereader: Whether the underlying reader will be closed when
+            the searcher is closed.
+        :param fromindex: An optional reference to the index of the underlying
+            reader. This is required for :meth:`Searcher.up_to_date` and
+            :meth:`Searcher.refresh` to work.
         """
 
-        self.ix = ix
-        self.ixreader = reader or ix.reader()
+        self.ixreader = reader
         self.is_closed = False
+        self._closereader = closereader
+        self._ix = fromindex
         
         self.schema = schema or self.ixreader.schema
         self._doccount = doccount or self.ixreader.doc_count_all()
@@ -60,7 +66,7 @@ class Searcher(object):
 
         self.leafreaders = None
         self.subsearchers = None
-        if not self.ixreader.is_atomic:
+        if not self.ixreader.is_atomic():
             self.leafreaders = self.ixreader.leaf_readers()
             self.subsearchers = [(self._subsearcher(r), offset) for r, offset
                                  in self.leafreaders]
@@ -79,8 +85,9 @@ class Searcher(object):
         self.close()
 
     def _subsearcher(self, reader):
-        return self.__class__(self.ix, reader, weighting=self.weighting,
-                              schema=self.schema, doccount=self._doccount,
+        return self.__class__(reader, fromindex=self._ix,
+                              weighting=self.weighting, schema=self.schema,
+                              doccount=self._doccount,
                               idf_cache=self._idf_cache)
 
     def doc_count(self):
@@ -96,15 +103,14 @@ class Searcher(object):
         
         return self._doccount
 
-    def last_modified(self):
-        return self.ix.last_modified()
-
     def up_to_date(self):
         """Returns True if this Searcher represents the latest version of the
         index, for backends that support versioning.
         """
         
-        return self.ix.latest_generation() == self.ixreader.generation()
+        if not self._ix:
+            raise Exception("This searcher was not created with a reference to its index")
+        return self._ix.latest_generation() == self.ixreader.generation()
 
     def refresh(self):
         """Returns a fresh searcher for the latest version of the index::
@@ -119,18 +125,21 @@ class Searcher(object):
         searcher after calling ``refresh()`` on it.
         """
         
-        if self.ix.latest_generation() == self.reader().generation():
+        if not self._ix:
+            raise Exception("This searcher was not created with a reference to its index")
+        if self._ix.latest_generation() == self.reader().generation():
             return self
         
         # Get a new reader, re-using resources from the current reader if
         # possible
-        newreader = self.ix.reader(reuse=self.ixreader)
-        
         self.is_closed = True
-        return self.__class__(self.ix, reader=newreader)
+        newreader = self._ix.reader(reuse=self.ixreader)
+        return self.__class__(newreader, fromindex=self._ix,
+                              weighting=self.weighting)
 
     def close(self):
-        self.ixreader.close()
+        if self._closereader:
+            self.ixreader.close()
         self.is_closed = True
 
     def avg_field_length(self, fieldname, default=None):
@@ -278,6 +287,15 @@ class Searcher(object):
         
         self._kw_to_text(kw)
         return self.docs_for_query(self._query_for_kw(kw))
+
+    def _find_unique(self, uniques):
+        # uniques is a list of ("unique_field_name", "field_value") tuples
+        delset = set()
+        for name, value in uniques:
+            docnum = self.document_number(**{name: value})
+            if docnum is not None:
+                delset.add(docnum)
+        return delset
 
     def docs_for_query(self, q, leafs=True):
         if self.subsearchers and leafs:
