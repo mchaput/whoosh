@@ -2,6 +2,68 @@
 Whoosh 1.x release notes
 ========================
 
+Whoosh 1.6
+==========
+
+The ``whoosh.writing.BatchWriter`` class is now called
+:class:`whoosh.writing.BufferedWriter`. It is similar to the old ``BatchWriter``
+class but allows you to search and update the buffered documents as well as the
+documents that have been flushed to disk::
+
+    writer = writing.BufferedWriter(myindex)
+    
+    # You can update (replace) documents in RAM without having to commit them
+    # to disk
+    writer.add_document(path="/a", text="Hi there")
+    writer.update_document(path="/a", text="Hello there")
+    
+    # Search committed and uncommited documents by getting a searcher from the
+    # writer instead of the index
+    searcher = writer.searcher()
+
+(BatchWriter is still available as an alias for backwards compatibility.)
+
+The :class:`whoosh.qparser.QueryParser` initialization method now requires a
+schema as the second argument. Previously the default was to create a
+``QueryParser`` without a schema, which was confusing::
+
+    qp = qparser.QueryParser("content", myindex.schema)
+
+The :meth:`whoosh.searching.Searcher.search` method now takes a ``scored``
+keyword. If you search with ``scored=False``, the results will be in "natural"
+order (the order the documents were added to the index). This is useful when
+you don't need scored results but want the convenience of the Results object.
+
+Added the :class:`whoosh.qparser.GtLtPlugin` parser plugin to allow greater
+than/less as an alternative syntax for ranges::
+
+    count:>100 tag:<=zebra date:>='29 march 2001'
+
+Added the ability to define schemas declaratively, similar to Django models::
+
+    from whoosh import index
+    from whoosh.fields import SchemaClass, ID, KEYWORD, STORED, TEXT
+
+    class MySchema(SchemaClass):
+        uuid = ID(stored=True, unique=True)
+        path = STORED
+        tags = KEYWORD(stored=True)
+        content = TEXT
+        
+    index.create_in("indexdir", MySchema)
+
+Replaced the unbounded cache in :class:`whoosh.analysis.StemFilter` with a
+bounded LRU (least recently used) cache. This will make stemming analysis
+slightly slower but prevent it from eating up too much memory over time.
+
+Added a simple :class:`whoosh.analysis.PyStemmerFilter` that works when the
+py-stemmer library is installed::
+
+    ana = RegexTokenizer() | PyStemmerFilter("spanish")
+
+Miscellaneous bug fixes.
+
+
 Whoosh 1.5
 ==========
 
@@ -47,8 +109,6 @@ Added methods to :class:`whoosh.searching.Hit` to make it more like a `dict`.
 Short posting lists (by default, single postings) are inline in the term file
 instead of written to the posting file for faster retrieval and a small saving
 in disk space.
-
-Miscellaneous bug fixes.
 
 
 Whoosh 1.3
