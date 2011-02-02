@@ -399,14 +399,16 @@ class BufferedWriter(IndexWriter):
             from whoosh.ramindex import RamIndex as tempixclass
         self.tempixclass = tempixclass
         
+        self.writer = None
+        self.base = self.index.doc_count_all()
+        self.bufferedcount = 0
         self.commitcount = 0
         self.ramindex = self._create_ramindex()
-        self._start_writer()
         if self.period:
             self.timer = threading.Timer(self.period, self.commit)
     
     def __del__(self):
-        if hasattr(self, "writer"):
+        if hasattr(self, "writer") and self.writer:
             if not self.writer.is_closed:
                 self.writer.cancel()
             del self.writer
@@ -414,21 +416,24 @@ class BufferedWriter(IndexWriter):
     def _create_ramindex(self):
         return self.tempixclass(self.index.schema)
     
-    def _start_writer(self):
-        self.writer = self.index.writer(**self.writerargs)
-        self.schema = self.writer.schema
-        self.base = self.index.doc_count_all()
-        self.bufferedcount = 0
+    def _get_writer(self):
+        if self.writer is None:
+            self.writer = self.index.writer(**self.writerargs)
+            self.schema = self.writer.schema
+            self.base = self.index.doc_count_all()
+            self.bufferedcount = 0
+        return self.writer
     
     @synchronized
     def reader(self, **kwargs):
         from whoosh.reading import MultiReader
         
+        writer = self._get_writer()
         ramreader = self.ramindex
         if self.index.is_empty():
             return ramreader
         else:
-            reader = self.writer.reader(**kwargs)
+            reader = writer.reader(**kwargs)
             if reader.is_atomic():
                 reader = MultiReader([reader, ramreader])
             else:
@@ -454,18 +459,20 @@ class BufferedWriter(IndexWriter):
         
         with self._write_lock:
             if self.bufferedcount:
-                self.writer.add_reader(oldramindex.reader())
-            self.writer.commit(**self.commitargs)
-            self.commitcount += 1
+                self._get_writer().add_reader(oldramindex.reader())
+                
+            if self.writer:
+                self.writer.commit(**self.commitargs)
+                self.writer = None
+                self.commitcount += 1
         
             if restart:
-                self._start_writer()
                 if self.period:
                     self.timer = threading.Timer(self.period, self.commit)
     
     def add_reader(self, reader):
         with self._write_lock:
-            self.writer.add_reader(reader)
+            self._get_writer().add_reader(reader)
     
     def add_document(self, **fields):
         with self._sync_lock:
@@ -476,12 +483,13 @@ class BufferedWriter(IndexWriter):
     
     @synchronized
     def update_document(self, **fields):
+        self._get_writer()
         super(BufferedWriter, self).update_document(**fields)
     
     @synchronized
     def delete_document(self, docnum, delete=True):
         if docnum < self.base:
-            return self.writer.delete_document(docnum, delete=delete)
+            return self._get_writer().delete_document(docnum, delete=delete)
         else:
             return self.ramindex.delete_document(docnum - self.base, delete=delete)
         
