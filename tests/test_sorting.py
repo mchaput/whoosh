@@ -3,8 +3,25 @@ import unittest
 
 import random
 
-from whoosh import index, fields, query
+from whoosh import fields, query
 from whoosh.support.testing import TempIndex
+
+
+try:
+    import multiprocessing
+    
+    class MPFCTask(multiprocessing.Process):
+        def __init__(self, storage, indexname):
+            multiprocessing.Process.__init__(self)
+            self.storage = storage
+            self.indexname = indexname
+            
+        def run(self):
+            ix = self.storage.open_index(self.indexname)
+            with ix.searcher() as s:
+                r = s.search(query.Every(), sortedby="key")
+except ImportError:
+    multiprocessing = None
 
 
 class TestSorting(unittest.TestCase):
@@ -150,6 +167,38 @@ class TestSorting(unittest.TestCase):
         self.try_sort("num", lambda d: d["num"], limit=5)
         self.try_sort("frac", lambda d: d["frac"])
 
+    def test_empty_field(self):
+        schema = fields.Schema(id=fields.STORED, key=fields.KEYWORD)
+        with TempIndex(schema, "emptysort") as ix:
+            w = ix.writer()
+            w.add_document(id=1)
+            w.add_document(id=2)
+            w.add_document(id=3)
+            w.commit()
+            
+            with ix.searcher() as s:
+                r = s.search(query.Every(), sortedby="key")
+                self.assertEqual([h["id"] for h in r], [1, 2, 3])
+    
+    def test_multiproc_fieldcache(self):
+        if not multiprocessing:
+            return
+        
+        schema = fields.Schema(key=fields.KEYWORD)
+        with TempIndex(schema, "mpfieldcache") as ix:
+            domain = list(u"abcdefghijklmnopqrstuvwxyz")
+            random.shuffle(domain)
+            w = ix.writer()
+            for char in domain:
+                w.add_document(key=char)
+            w.commit()
+            
+            tasks = [MPFCTask(ix.storage, ix.indexname) for _ in xrange(4)]
+            for task in tasks:
+                task.start()
+            for task in tasks:
+                task.join()
+    
     def test_field_facets(self):
         def check(method):
             with TempIndex(self.get_schema()) as ix:
@@ -222,7 +271,7 @@ class TestSorting(unittest.TestCase):
                 r = s.search(query.Every(), groupedby=[("tag", "size")])
                 cats = r.groups(("tag", "size"))
                 self.assertEqual(cats, correct)
-                
+    
     def test_custom_sort(self):
         from array import array
         from whoosh.searching import Results
@@ -288,12 +337,7 @@ class TestSorting(unittest.TestCase):
                     
         
         
-#item A   |   200 |        9
-#item E   |   300 |        4
-#item F   |   200 |        8
-#item D   |   150 |        5
-#item B   |   250 |       11
-#item C   |   200 |       10
+
 
 
 
