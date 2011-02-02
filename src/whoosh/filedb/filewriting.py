@@ -544,7 +544,7 @@ class TermsWriter(object):
             else:
                 newdoc = offset + docnum
             totalweight += weight
-            postwrite(newdoc, weight, valuestring, getlen(fieldname, docnum))
+            postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
             matcher.next()
         self.weight += totalweight
     
@@ -558,7 +558,7 @@ class TermsWriter(object):
             else:
                 newdoc = offset + docnum
             self.weight += weight
-            postwrite(newdoc, weight, valuestring, getlen(fieldname, docnum))
+            postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
     
     def add(self, fieldname, text, docnum, weight, valuestring, fieldlen):
         self._new_term(fieldname, text)
@@ -569,7 +569,7 @@ class TermsWriter(object):
         self._finish_term()
         self.termsindex.close()
         self.postwriter.close()
-            
+        
         
         
         

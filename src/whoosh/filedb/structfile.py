@@ -68,10 +68,11 @@ class StructFile(object):
         if not gzip and mapped and hasattr(fileobj, "mode") and "r" in fileobj.mode:
             fd = fileobj.fileno()
             self.size = os.fstat(fd).st_size
-            try:
-                self.map = mmap.mmap(fd, self.size, access=mmap.ACCESS_READ)
-            except OSError:
-                self._setup_fake_map()
+            if self.size > 0:
+                try:
+                    self.map = mmap.mmap(fd, self.size, access=mmap.ACCESS_READ)
+                except OSError:
+                    self._setup_fake_map()
         else:
             self._setup_fake_map()
             

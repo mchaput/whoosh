@@ -19,6 +19,7 @@ from __future__ import with_statement
 import os
 import tempfile
 from array import array
+from base64 import b64encode, b64decode
 from collections import defaultdict
 from heapq import heapify, heappop, heapreplace
 from marshal import load, dump
@@ -210,7 +211,9 @@ class TempfilePool(PoolBase):
         # 48 bytes for tuple overhead (28 bytes + 4 bytes * 5 items) plus the
         # sizes of the objects inside the tuple, plus 4 bytes overhead for
         # putting the tuple in the postings list
-        self.size += 48 + sum(getsizeof(o) for o in tup) + 4
+        #self.size += 48 + sum(getsizeof(o) for o in tup) + 4
+        valsize = len(valuestring) if valuestring else 0
+        self.size += 48 + len(fieldname) + 22 + len(text) + 26 + 16 + 16 + valsize + 22 + 4
         self.postings.append(tup)
         self.count += 1
     
@@ -263,6 +266,8 @@ class TempfilePool(PoolBase):
             termswriter.add_iter(postiter, lengths.get)
         self.cleanup()
         
+
+# Alternative experimental and testing pools
 
 class SqlitePool(PoolBase):
     def __init__(self, schema, dir=None, basename='', limitmb=32, **kwargs):
@@ -376,8 +381,30 @@ class MemPool(PoolBase):
         termswriter.add_iter(self.postbuf, lengths.get)
 
 
-
-
+class UnixSortPool(PoolBase):
+    def __init__(self, schema, dir=None, basename='', limitmb=32, **kwargs):
+        super(UnixSortPool, self).__init__(schema, dir=dir, basename=basename)
+        self._make_dir()
+        fd, self.filename = tempfile.mkstemp(".run", dir=self.dir)
+        self.sortfile = os.fdopen(fd, "wb")
+        self.linebuffer = []
+        self.bufferlimit = 100
+        
+    def add_posting(self, *args):
+        self.sortfile.write(b64encode(dumps(args)) + "\n")
+        
+    def finish(self, termswriter, doccount, lengthfile):
+        self.sortfile.close()
+        from whoosh.util import now
+        print "Sorting file...", self.filename
+        t = now()
+        outpath = os.path.join(os.path.dirname(self.filename), "sorted.txt")
+        os.system("sort %s >%s" % (self.filename, outpath))
+        print "...took", now() - t
+    
+        
+    
+    
 
 
 
