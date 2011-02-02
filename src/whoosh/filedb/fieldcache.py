@@ -34,6 +34,10 @@ def pickled_unicode(u):
     return "X%s%s" % (pack_int_le(len(u)), utf8encode(u)[0])
 
 
+class BadFieldCache(Exception):
+    pass
+
+
 # Python does not support arrays of long long see Issue 1172711
 # These functions help write/read a simulated an array of q/Q using lists
 
@@ -194,6 +198,11 @@ class FieldCache(object):
         >>> fc = FieldCache.from_file(f)
         """
         
+        # Read the finished tag
+        tag = dbfile.read(1)
+        if tag != "+":
+            raise BadFieldCache
+        
         # Read the number of documents
         doccount = dbfile.read_uint()
         textcount = dbfile.read_uint()
@@ -213,6 +222,11 @@ class FieldCache(object):
         >>> fc = FieldCache.from_field(r, "tag")
         >>> fc.to_file(f)
         """
+        
+        # Write a tag at the start of the file indicating the file write is in
+        # progress, to warn other processes that might open the file. We'll
+        # seek back and change this when the file is done.
+        dbfile.write("-")
         
         dbfile.write_uint(len(self.order))  # Number of documents
         
@@ -235,6 +249,10 @@ class FieldCache(object):
         dbfile.write(self.typecode)
         write_qsafe_array(self.typecode, self.order, dbfile)
         dbfile.flush()
+        
+        # Seek back and change the tag byte at the start of the file
+        dbfile.seek(0)
+        dbfile.write("+")
     
     # Field cache operations
     
@@ -340,6 +358,8 @@ class FieldCacheWriter(object):
         self.key = 0
         self.keycount = 1
         
+        self.tagpos = dbfile.tell()
+        dbfile.write("-")
         self.start = dbfile.tell()
         dbfile.write_uint(0)  # Number of docs
         dbfile.write_uint(0)  # Number of texts
@@ -389,6 +409,11 @@ class FieldCacheWriter(object):
         dbfile.write_uint(len(order))
         if self.hastexts:
             dbfile.write_uint(keycount)
+        dbfile.flush()
+        
+        # Seek back and write the finished file tag
+        dbfile.seek(self.tagpos)
+        dbfile.write("+")
         
         dbfile.close()
     
@@ -560,7 +585,7 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         if self._file_exists(key):
             try:
                 return self._load(key)
-            except OSError:
+            except (OSError, BadFieldCache):
                 return None
 
     def delete(self, key):
