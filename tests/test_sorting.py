@@ -9,7 +9,11 @@ from whoosh.support.testing import TempIndex
 
 try:
     import multiprocessing
-    
+except ImportError:
+    multiprocessing = None
+
+
+if multiprocessing:
     class MPFCTask(multiprocessing.Process):
         def __init__(self, storage, indexname):
             multiprocessing.Process.__init__(self)
@@ -19,10 +23,9 @@ try:
         def run(self):
             ix = self.storage.open_index(self.indexname)
             with ix.searcher() as s:
-                r = s.search(query.Every(), sortedby="key")
-except ImportError:
-    multiprocessing = None
-
+                r = s.search(query.Every(), sortedby="key", limit=None)
+                result = "".join([h["key"] for h in r])
+                assert result == "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", result
 
 class TestSorting(unittest.TestCase):
     docs = ({"id": u"zulu", "num": 100, "tag": u"one", "frac": 0.75},
@@ -180,13 +183,13 @@ class TestSorting(unittest.TestCase):
                 r = s.search(query.Every(), sortedby="key")
                 self.assertEqual([h["id"] for h in r], [1, 2, 3])
     
-    def test_multiproc_fieldcache(self):
+    def test_mp_fieldcache(self):
         if not multiprocessing:
             return
         
-        schema = fields.Schema(key=fields.KEYWORD)
+        schema = fields.Schema(key=fields.KEYWORD(stored=True))
         with TempIndex(schema, "mpfieldcache") as ix:
-            domain = list(u"abcdefghijklmnopqrstuvwxyz")
+            domain = list(u"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
             random.shuffle(domain)
             w = ix.writer()
             for char in domain:
