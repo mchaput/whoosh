@@ -1,12 +1,14 @@
 from __future__ import with_statement
 import unittest
 
-import os, random, time
-from shutil import rmtree
+import random, time
 
-from whoosh import analysis, fields, index, writing
+from whoosh import analysis, fields, writing
+from whoosh.filedb import postblocks
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.testing import TempIndex
+from whoosh.filedb.filetables import TermIndexWriter, TermIndexReader
+from whoosh.filedb.filewriting import TermsWriter
+from whoosh.support.testing import TempIndex, TempStorage
 
 
 class TestWriting(unittest.TestCase):
@@ -119,10 +121,27 @@ class TestWriting(unittest.TestCase):
                 p = s.postings("f", word)
                 wts.append(p.weight())
             self.assertEqual(wts, [0.5, 1.5, 2.0, 1.5])
-        
-
-
-
+            
+    def test_read_inline(self):
+        schema = fields.Schema(a=fields.TEXT)
+        self.assertTrue(schema["a"].scorable)
+        with TempIndex(schema, "readinline") as ix:
+            w = ix.writer()
+            w.add_document(a=u"alfa")
+            w.add_document(a=u"bravo")
+            w.add_document(a=u"charlie")
+            w.commit()
+            
+            tr = TermIndexReader(ix.storage.open_file("_readinline_1.trm"))
+            for i, item in enumerate(tr.items()):
+                self.assertEqual(item[1][1], ((i,), (1.0,),
+                                              ('\x00\x00\x00\x01]q\x01K\x00a',),
+                                              1.0, 1))
+            
+            r = ix.reader()
+            pr = r.postings("a", "bravo")
+            self.assertEqual(pr.id(), 1)
+            
 
 
         
