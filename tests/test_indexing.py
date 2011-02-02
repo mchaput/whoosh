@@ -6,7 +6,7 @@ from whoosh import fields, query
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length, permutations
-from whoosh.writing import BatchWriter, IndexingError
+from whoosh.writing import IndexingError
 from whoosh.support.testing import TempIndex
 
 
@@ -388,10 +388,13 @@ class TestIndexing(unittest.TestCase):
     def test_deleteall(self):
         schema = fields.Schema(text=fields.TEXT)
         with TempIndex(schema, "deleteall") as ix:
-            w = BatchWriter(ix, limit=10)
+            w = ix.writer()
             domain = u"alfa bravo charlie delta echo".split()
-            for ls in permutations(domain):
+            for i, ls in enumerate(permutations(domain)):
                 w.add_document(text=u" ".join(ls))
+                if not i % 10:
+                    w.commit()
+                    w = ix.writer()
             w.commit()
             
             # This is just a test, don't use this method to delete all docs IRL!

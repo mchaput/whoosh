@@ -73,8 +73,11 @@ class RamIndex(IndexReader, IndexWriter):
         return docnum in self.deleted
     
     @synchronized
-    def delete_document(self, docnum):
-        self.deleted.add(docnum)
+    def delete_document(self, docnum, delete=True):
+        if delete:
+            self.deleted.add(docnum)
+        else:
+            self.deleted.remove(docnum)
     
     @synchronized
     def stored_fields(self, docnum):

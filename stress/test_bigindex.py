@@ -5,38 +5,67 @@ import random
 
 from whoosh import fields
 from whoosh.support.testing import TempIndex
+from whoosh.util import now
 
 
 class Test(unittest.TestCase):
-    def test_20000_small_files(self):
+    def test_20000_single(self):
         sc = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
-        with TempIndex(sc, "2000small") as ix:
+        with TempIndex(sc, "20000single") as ix:
             domain = ["alfa", "bravo", "charlie", "delta", "echo", "foxtrot",
                       "golf", "hotel", "india", "juliet", "kilo", "lima"]
             
+            t = now()
             for i in xrange(20000):
                 w = ix.writer()
-                w.add_document(id=unicode(i),
-                               text = u" ".join(random.sample(domain, 5)))
+                w.add_document(id=unicode(i), text=u" ".join(random.sample(domain, 5)))
                 w.commit()
+            print "Write single:", now() - t
             
+            t = now()
             ix.optimize()
+            print "Optimize single:", now() - t
 
-    def test_20000_batch(self):
+    def test_20000_buffered(self):
+        from whoosh.writing import BufferedWriter
+        
         sc = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
-        with TempIndex(sc, "2000batch") as ix:
+        with TempIndex(sc, "20000buffered") as ix:
             domain = ["alfa", "bravo", "charlie", "delta", "echo", "foxtrot",
                       "golf", "hotel", "india", "juliet", "kilo", "lima"]
             
-            from whoosh.writing import BatchWriter
-            w = BatchWriter(ix, limit=100)
+            t = now()
+            w = BufferedWriter(ix, limit=100, period=None)
             for i in xrange(20000):
                 w.add_document(id=unicode(i),
                                text = u" ".join(random.sample(domain, 5)))
-            w.commit()
+            w.close()
+            print "Write buffered:", now() - t
             
+            t = now()
             ix.optimize()
-
+            print "Optimize buffered:", now() - t
+            
+    def test_20000_batch(self):
+        sc = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
+        with TempIndex(sc, "20000batch") as ix:
+            domain = ["alfa", "bravo", "charlie", "delta", "echo", "foxtrot",
+                      "golf", "hotel", "india", "juliet", "kilo", "lima"]
+            
+            t = now()
+            w = ix.writer()
+            for i in xrange(20000):
+                w.add_document(id=unicode(i),
+                               text = u" ".join(random.sample(domain, 5)))
+                if not i % 100:
+                    w.commit()
+                    w = ix.writer()
+            w.commit()
+            print "Write batch:", now() - t
+            
+            t = now()
+            ix.optimize()
+            print "Optimize batch:", now() - t
 
 
 

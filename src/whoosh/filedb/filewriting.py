@@ -86,15 +86,15 @@ class SegmentWriter(IndexWriter):
             self.writelock = ix.lock("WRITELOCK")
             if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
                 raise LockError
-        
-        self.ix = ix
-        self.storage = ix.storage
-        self.indexname = ix.indexname
-        self.is_closed = False
+        self.readlock = ix.lock("READLOCK")
         
         info = ix._read_toc()
         self.schema = info.schema
         self.segments = info.segments
+        self.storage = ix.storage
+        self.indexname = ix.indexname
+        self.is_closed = False
+        
         self.blocklimit = blocklimit
         self.segment_number = info.segment_counter + 1
         self.generation = info.generation + 1
@@ -195,6 +195,8 @@ class SegmentWriter(IndexWriter):
 
     def delete_document(self, docnum, delete=True):
         self._check_state()
+        if docnum >= sum(seg.doccount for seg in self.segments):
+            raise IndexingError("No document ID %r in this index" % docnum)
         segment, segdocnum = self._segment_and_docnum(docnum)
         segment.delete_document(segdocnum, delete=delete)
 
@@ -209,60 +211,12 @@ class SegmentWriter(IndexWriter):
         segment, segdocnum = self._segment_and_docnum(docnum)
         return segment.is_deleted(segdocnum)
 
-    def searcher(self):
+    def reader(self, reuse=None):
         self._check_state()
         from whoosh.filedb.fileindex import FileIndex
-        return FileIndex(self.storage, indexname=self.indexname).searcher()
-    
-    def add_ramindex(self, reader):
-        from whoosh.filedb.filetables import LengthWriter
-        from whoosh.util import length_to_byte
         
-        self._check_state()
-        lengthfile = LengthWriter(self.lengthfile, reader.doc_count())
-        termswriter = self.termswriter
-        
-        has_deletions = reader.has_deletions()
-        if has_deletions:
-            docmap = {}
-            docoffset = 0
-        else:
-            docmap = None
-            docoffset = self.docnum
-        
-        fieldnames = set(self.schema.names())
-        
-        # Add stored documents, vectors, and field lengths
-        for docnum in reader.all_doc_ids():
-            if (not has_deletions) or (not reader.is_deleted(docnum)):
-                d = dict(item for item
-                         in reader.stored_fields(docnum).iteritems()
-                         if item[0] in fieldnames)
-                # We have to append a dictionary for every document, even if
-                # it's empty.
-                self.storedfields.append(d)
-                
-                if has_deletions:
-                    docmap[docnum] = self.docnum
-                
-                for fieldname, length in reader.doc_field_lengths(docnum):
-                    lengthfile.add(self.docnum, fieldname,
-                                   length_to_byte(length))
-                
-                for fieldname in reader.schema.vector_names():
-                    if (fieldname in fieldnames
-                        and reader.has_vector(docnum, fieldname)):
-                        vpostreader = reader.vector(docnum, fieldname)
-                        self._add_vector_reader(self.docnum, fieldname, vpostreader)
-                
-                self.docnum += 1
-        
-        for fieldname, text, _, _ in reader:
-            if fieldname in fieldnames:
-                postreader = reader.postings(fieldname, text)
-                termswriter.add_postings(fieldname, text, postreader,
-                                         reader.doc_field_length,
-                                         offset=docoffset, docmap=docmap)
+        return FileIndex._reader(self.storage, self.schema, self.segments,
+                                 self.generation, reuse=reuse)
     
     def add_reader(self, reader):
         self._check_state()
@@ -466,12 +420,11 @@ class SegmentWriter(IndexWriter):
             _write_toc(self.storage, self.schema, self.indexname, self.generation,
                        self.segment_number, new_segments)
             
-            readlock = self.ix.lock("READLOCK")
-            readlock.acquire(True)
+            self.readlock.acquire(True)
             try:
                 _clean_files(self.storage, self.indexname, self.generation, new_segments)
             finally:
-                readlock.release()
+                self.readlock.release()
         
         finally:
             if self.writelock:

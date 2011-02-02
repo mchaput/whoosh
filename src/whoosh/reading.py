@@ -36,7 +36,8 @@ class IndexReader(ClosableMixin):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    is_atomic = True
+    def is_atomic(self):
+        return True
 
     def __contains__(self, term):
         """Returns True if the given term tuple (fieldname, text) is
@@ -475,7 +476,8 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    is_atomic = False
+    def is_atomic(self):
+        return False
 
     def __init__(self, readers, generation=-1):
         self.readers = readers
@@ -485,10 +487,10 @@ class MultiReader(IndexReader):
             self.schema = readers[0].schema
         
         self.doc_offsets = []
-        base = 0
+        self.base = 0
         for r in self.readers:
-            self.doc_offsets.append(base)
-            base += r.doc_count_all()
+            self.doc_offsets.append(self.base)
+            self.base += r.doc_count_all()
         
         self.is_closed = False
 
@@ -541,6 +543,11 @@ class MultiReader(IndexReader):
 
             # Yield the term with the summed doc frequency and term count.
             yield (fnum, text, docfreq, termcount)
+
+    def add_reader(self, reader):
+        self.readers.append(reader)
+        self.doc_offsets.append(self.base)
+        self.base += reader.doc_count_all()
 
     def close(self):
         for d in self.readers:
@@ -599,7 +606,10 @@ class MultiReader(IndexReader):
             except (KeyError, TermNotFound):
                 pass
             else:
-                return self.doc_offsets[i] + id
+                if id is None:
+                    raise TermNotFound((fieldname, text))
+                else:
+                    return self.doc_offsets[i] + id
         
         raise TermNotFound((fieldname, text))
 
@@ -662,8 +672,7 @@ class MultiReader(IndexReader):
         for r in self.readers:
             r.set_caching_policy(*args, **kwargs)
 
-
-
+        
 
 
 
