@@ -61,6 +61,13 @@ py-stemmer library is installed::
 
     ana = RegexTokenizer() | PyStemmerFilter("spanish")
 
+The estimation of memory usage for the ``limitmb`` keyword argument to
+``FileIndex.writer()`` is more accurate, which should help keep memory usage
+memory usage by the sorting pool closer to the limit.
+
+The ``whoosh.ramdb`` package was removed and replaced with a single
+``whoosh.ramindex`` module.
+
 Miscellaneous bug fixes.
 
 
