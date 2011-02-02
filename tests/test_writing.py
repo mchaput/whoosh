@@ -5,6 +5,7 @@ import random, time, threading
 
 from whoosh import analysis, fields, query, writing
 from whoosh.filedb.filestore import RamStorage
+from whoosh.filedb.filetables import TermIndexReader
 from whoosh.support.testing import TempIndex, TempStorage
 
 
