@@ -703,7 +703,7 @@ class Results(object):
     
     def __getitem__(self, n):
         if isinstance(n, slice):
-            start, stop, step = n.indices(len(self))
+            start, stop, step = n.indices(len(self.top_n))
             return [Hit(self.searcher, self.top_n[i][1], i, self.top_n[i][0])
                     for i in xrange(start, stop, step)]
         else:
@@ -1069,7 +1069,7 @@ class ResultsPage(object):
     def __getitem__(self, n):
         offset = self.offset
         if isinstance(n, slice):
-            start, stop, step = slice.indices(self.pagelen)
+            start, stop, step = n.indices(self.pagelen)
             return self.results.__getitem__(slice(start + offset, stop + offset, step))
         else:
             return self.results.__getitem__(n + offset)
