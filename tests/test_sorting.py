@@ -5,6 +5,7 @@ import random
 
 from whoosh import fields, query
 from whoosh.support.testing import TempIndex
+from whoosh.util import permutations
 
 
 try:
@@ -182,6 +183,26 @@ class TestSorting(unittest.TestCase):
             with ix.searcher() as s:
                 r = s.search(query.Every(), sortedby="key")
                 self.assertEqual([h["id"] for h in r], [1, 2, 3])
+    
+    def test_page_sorted(self):
+        schema = fields.Schema(key=fields.ID(stored=True))
+        with TempIndex(schema, "pagesorted") as ix:
+            domain = list(u"abcdefghijklmnopqrstuvwxyz")
+            random.shuffle(domain)
+            
+            w = ix.writer()
+            for char in domain:
+                w.add_document(key=char)
+            w.commit()
+            
+            with ix.searcher() as s:
+                rp = s.search_page(query.Every(), 1, pagelen=5, sortedby="key")
+                self.assertEqual("".join([h["key"] for h in rp]), "abcde")
+                self.assertEqual(rp[10:], [])
+                
+                rp = s.search_page(query.Term("key", "glonk"), 1, pagelen=5, sortedby="key")
+                self.assertEqual(len(rp), 0)
+                self.assertTrue(rp.is_last_page())
     
     def test_mp_fieldcache(self):
         if not multiprocessing:

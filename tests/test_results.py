@@ -65,13 +65,13 @@ class TestResults(unittest.TestCase):
             r = s.search(query.Term("value", u"alfa"), limit=3)
             self.assertEqual(len(r), 5)
             self.assertEqual(r.scored_length(), 3)
+            self.assertEqual(r[10:], [])
 
     def test_pages(self):
         from whoosh.scoring import Frequency
         
         schema = fields.Schema(id=fields.ID(stored=True), c=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(schema)
+        ix = RamStorage().create_index(schema)
         
         w = ix.writer()
         w.add_document(id=u"1", c=u"alfa alfa alfa alfa alfa alfa")
@@ -93,6 +93,18 @@ class TestResults(unittest.TestCase):
             self.assertEqual(r.total, 6)
             self.assertEqual(r.pagenum, 2)
             self.assertEqual(r.pagelen, 2)
+    
+    def test_extra_slice(self):
+        schema = fields.Schema(key=fields.ID(stored=True))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        for char in u"abcdefghijklmnopqrstuvwxyz":
+            w.add_document(key=char)
+        w.commit()
+        
+        with ix.searcher() as s:
+            r = s.search(query.Every(), limit=5)
+            self.assertEqual(r[6:7], []) 
     
     def test_page_counts(self):
         from whoosh.scoring import Frequency
@@ -134,15 +146,12 @@ class TestResults(unittest.TestCase):
     
     def test_resultspage(self):
         schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(schema)
+        ix = RamStorage().create_index(schema)
         
         domain = ("alfa", "bravo", "bravo", "charlie", "delta")
         w = ix.writer()
-        i = 0
-        for lst in permutations(domain, 3):
+        for i, lst in enumerate(permutations(domain, 3)):
             w.add_document(id=unicode(i), content=u" ".join(lst))
-            i += 1
         w.commit()
         
         with ix.searcher() as s:
@@ -152,6 +161,7 @@ class TestResults(unittest.TestCase):
             
             rp = s.search_page(q, 1, pagelen=5)
             self.assertEqual(list(rp), tops[0:5])
+            self.assertEqual(rp[10:], [])
             
             rp = s.search_page(q, 2, pagelen=5)
             self.assertEqual(list(rp), tops[5:10])
