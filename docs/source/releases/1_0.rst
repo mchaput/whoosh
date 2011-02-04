@@ -52,6 +52,9 @@ Added the ability to define schemas declaratively, similar to Django models::
         
     index.create_in("indexdir", MySchema)
 
+Whoosh 1.6.2: Added :class:`whoosh.searching.TermTrackingCollector` which tracks
+which part of the query matched which documents in the final results.
+
 Replaced the unbounded cache in :class:`whoosh.analysis.StemFilter` with a
 bounded LRU (least recently used) cache. This will make stemming analysis
 slightly slower but prevent it from eating up too much memory over time.
