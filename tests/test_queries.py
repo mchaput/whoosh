@@ -1,6 +1,6 @@
 import unittest
 
-from whoosh import fields, index
+from whoosh import fields, index, qparser
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.query import *
@@ -45,16 +45,27 @@ class TestQueries(unittest.TestCase):
         q = q.replace("b", "BB")
         self.assertEqual(q, And([Or([Term("a", "BB"), Term("b", "c")], boost=1.2), Variations("a", "BB", boost=2.0)]))
     
-    def test_visitor(self):
-        def visitor(q):
+    def test_apply(self):
+        def visit(q):
             if isinstance(q, (Term, Variations, FuzzyTerm)):
                 q.text = q.text.upper()
-            return q
+                return q
+            return q.apply(visit)
         
-        before = And([Not(Term("a", u"b")), Variations("a", u"c"), FuzzyTerm("a", u"d")])
-        after = before.accept(visitor)
-        self.assertEqual(after, And([Not(Term("a", u"B")), Variations("a", u"C"), FuzzyTerm("a", u"D")]))
-
+        before = And([Not(Term("a", u"b")), Variations("a", u"c"), Not(FuzzyTerm("a", u"d"))])
+        after = visit(before)
+        self.assertEqual(after, And([Not(Term("a", u"B")), Variations("a", u"C"), Not(FuzzyTerm("a", u"D"))]))
+        
+        def term2var(q):
+            if isinstance(q, Term):
+                return Variations(q.fieldname, q.text)
+            else:
+                return q.apply(term2var)
+    
+        q = And([Term("f", "alfa"), Or([Term("f", "bravo"), Not(Term("f", "charlie"))])])
+        q = term2var(q)
+        self.assertEqual(q, And([Variations('f', 'alfa'), Or([Variations('f', 'bravo'), Not(Variations('f', 'charlie'))])]))
+        
     def test_simplify(self):
         s = fields.Schema(k=fields.ID, v=fields.TEXT)
         st = RamStorage()
