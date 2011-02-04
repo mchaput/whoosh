@@ -4,11 +4,17 @@
 
 .. automodule:: whoosh.searching
 
-Searcher class
-==============
+
+Searching classes
+=================
 
 .. autoclass:: Searcher
     :members:
+
+.. autoclass:: Collector
+    :members:
+    
+.. autoclass:: TermTrackingCollector
 
 
 Results class

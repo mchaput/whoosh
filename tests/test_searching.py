@@ -2,7 +2,7 @@ from __future__ import with_statement
 import unittest
 from datetime import datetime, timedelta
 
-from whoosh import analysis, fields, formats, index, qparser, query, scoring
+from whoosh import analysis, fields, index, qparser, searching, scoring
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
 from whoosh.util import permutations
@@ -156,9 +156,9 @@ class TestSearching(unittest.TestCase):
             qp = qparser.QueryParser("content", schema)
             
             q = qp.parse(u"charlie [delta TO foxtrot]")
-            self.assertEqual(q.__class__, query.And)
-            self.assertEqual(q[0].__class__, query.Term)
-            self.assertEqual(q[1].__class__, query.TermRange)
+            self.assertEqual(q.__class__, And)
+            self.assertEqual(q[0].__class__, Term)
+            self.assertEqual(q[1].__class__, TermRange)
             self.assertEqual(q[1].start, "delta")
             self.assertEqual(q[1].end, "foxtrot")
             self.assertEqual(q[1].startexcl, False)
@@ -167,9 +167,9 @@ class TestSearching(unittest.TestCase):
             self.assertEqual(ids, [u'A', u'B', u'C'])
             
             q = qp.parse(u"foxtrot {echo TO hotel]")
-            self.assertEqual(q.__class__, query.And)
-            self.assertEqual(q[0].__class__, query.Term)
-            self.assertEqual(q[1].__class__, query.TermRange)
+            self.assertEqual(q.__class__, And)
+            self.assertEqual(q[0].__class__, Term)
+            self.assertEqual(q[1].__class__, TermRange)
             self.assertEqual(q[1].start, "echo")
             self.assertEqual(q[1].end, "hotel")
             self.assertEqual(q[1].startexcl, True)
@@ -178,7 +178,7 @@ class TestSearching(unittest.TestCase):
             self.assertEqual(ids, [u'B', u'C', u'D', u'E'])
             
             q = qp.parse(u"{bravo TO delta}")
-            self.assertEqual(q.__class__, query.TermRange)
+            self.assertEqual(q.__class__, TermRange)
             self.assertEqual(q.start, "bravo")
             self.assertEqual(q.end, "delta")
             self.assertEqual(q.startexcl, True)
@@ -188,7 +188,7 @@ class TestSearching(unittest.TestCase):
             
             # Shouldn't match anything
             q = qp.parse(u"[1 to 10]")
-            self.assertEqual(q.__class__, query.TermRange)
+            self.assertEqual(q.__class__, TermRange)
             self.assertEqual(len(s.search(q)), 0)
     
     def test_range_clusiveness(self):
@@ -314,17 +314,17 @@ class TestSearching(unittest.TestCase):
             qp = qparser.QueryParser("id", schema)
             
             nq = qp.parse(u"NOT [to]")
-            self.assertEqual(nq.__class__, query.Not)
+            self.assertEqual(nq.__class__, Not)
             q = nq.query
-            self.assertEqual(q.__class__, query.Every)
+            self.assertEqual(q.__class__, Every)
             self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
                              domain)
             self.assertEqual(list(nq.docs(s)), [])
             
             nq = qp.parse(u"NOT num:[to]")
-            self.assertEqual(nq.__class__, query.Not)
+            self.assertEqual(nq.__class__, Not)
             q = nq.query
-            self.assertEqual(q.__class__, query.NumericRange)
+            self.assertEqual(q.__class__, NumericRange)
             self.assertEqual(q.start, None)
             self.assertEqual(q.end, None)
             self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
@@ -332,9 +332,9 @@ class TestSearching(unittest.TestCase):
             self.assertEqual(list(nq.docs(s)), [])
             
             nq = qp.parse(u"NOT date:[to]")
-            self.assertEqual(nq.__class__, query.Not)
+            self.assertEqual(nq.__class__, Not)
             q = nq.query
-            self.assertEqual(q.__class__, query.Every)
+            self.assertEqual(q.__class__, Every)
             self.assertEqual("".join(h["id"] for h in s.search(q, limit=None)),
                              domain)
             self.assertEqual(list(nq.docs(s)), [])
@@ -601,7 +601,7 @@ class TestSearching(unittest.TestCase):
             w.commit()
         
         with ix.searcher() as s:
-            q = query.Phrase("text", ["alfa", "bravo"])
+            q = Phrase("text", ["alfa", "bravo"])
             r = s.search(q)
     
     def test_missing_field_scoring(self):
@@ -683,7 +683,7 @@ class TestSearching(unittest.TestCase):
                     return ncomments
         
         with ix.searcher(weighting=CommentWeighting()) as s:
-            q = query.TermRange("id", u"1", u"4", constantscore=False)
+            q = TermRange("id", u"1", u"4", constantscore=False)
             
             r = s.search(q)
             ids = [fs["id"] for fs in r]
@@ -859,7 +859,7 @@ class TestSearching(unittest.TestCase):
         writer.commit()
         
         with ix.searcher() as s:
-            q = query.Ordered([Term("f", u"alfa"), Term("f", u"charlie"), Term("f", "echo")])
+            q = Ordered([Term("f", u"alfa"), Term("f", u"charlie"), Term("f", "echo")])
             r = s.search(q)
             for hit in r:
                 ls = hit["f"].split()
@@ -882,13 +882,13 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            q = query.Otherwise(query.Term("f", u"alfa"), query.Term("f", u"six"))
+            q = Otherwise(Term("f", u"alfa"), Term("f", u"six"))
             self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
             
-            q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"four"))
+            q = Otherwise(Term("f", u"tango"), Term("f", u"four"))
             self.assertEqual([d["id"] for d in s.search(q)], [2, 3])
             
-            q = query.Otherwise(query.Term("f", u"tango"), query.Term("f", u"nine"))
+            q = Otherwise(Term("f", u"tango"), Term("f", u"nine"))
             self.assertEqual([d["id"] for d in s.search(q)], [])
 
     def test_fuzzyterm(self):
@@ -902,7 +902,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            q = query.FuzzyTerm("f", "brave")
+            q = FuzzyTerm("f", "brave")
             self.assertEqual([d["id"] for d in s.search(q)], [1, 2])
         
     def test_multireader_not(self):
@@ -918,7 +918,7 @@ class TestSearching(unittest.TestCase):
         w.commit()
         
         with ix.searcher() as s:
-            q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
+            q = And([Term("f", "delta"), Not(Term("f", "delta"))])
             r = s.search(q)
             self.assertEqual(len(r), 0, [d["id"] for d in r])
         
@@ -938,10 +938,37 @@ class TestSearching(unittest.TestCase):
         self.assertTrue(len(ix._segments()) > 1)
         
         with ix.searcher() as s:
-            q = query.And([query.Term("f", "delta"), query.Not(query.Term("f", "delta"))])
+            q = And([Term("f", "delta"), Not(Term("f", "delta"))])
             r = s.search(q)
             self.assertEqual(len(r), 0)
+            
+    def test_trackingcollector(self):
+        schema = fields.Schema(text=fields.TEXT(stored=True))
+        ix = RamStorage().create_index(schema)
+        domain = u"alfa bravo charlie delta echo".split()
+        w = ix.writer()
+        for ls in list(permutations(domain, 3))[::2]:
+            w.add_document(text=u" ".join(ls))
+        w.commit()
         
+        with ix.searcher() as s:
+            q = Or([Term("text", u"alfa"),Term("text", u"bravo"),
+                    Not(Term("text", "charlie"))])
+            
+            col = searching.TermTrackingCollector()
+            r = s.search(q, collector=col)
+            
+            for docnum in col.catalog["text:alfa"]:
+                words = s.stored_fields(docnum)["text"].split()
+                self.assertTrue("alfa" in words)
+                self.assertTrue("charlie" not in words)
+            
+            for docnum in col.catalog["text:bravo"]:
+                words = s.stored_fields(docnum)["text"].split()
+                self.assertTrue("bravo" in words)
+                self.assertTrue("charlie" not in words)
+            
+            
 
 
 

@@ -90,6 +90,9 @@ class Searcher(object):
                               doccount=self._doccount,
                               idf_cache=self._idf_cache)
 
+    def is_atomic(self):
+        return self.reader().is_atomic()
+
     def doc_count(self):
         """Returns the number of UNDELETED documents in the index.
         """
@@ -442,7 +445,7 @@ class Searcher(object):
         return groups
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, leafs=True, scored=True):
+               optimize=True, scored=True, collector=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -454,7 +457,15 @@ class Searcher(object):
             names to sort by multiple fields.
         :param reverse: if ``sortedby`` is not None, this reverses the
             direction of the sort.
+        :param groupedby: a list of field names or facet names. If this
+            argument is not None, you can use the :meth:`Results.groups` method
+            on the results object to retrieve a dictionary mapping field/facet
+            values to document numbers.
         :param optimize: use optimizations to get faster results when possible.
+        :param scored: if False, the results are not scored and are returned in
+            "natural" order (the order in which they were added).
+        :param collector: (expert) an instance of :class:`Collector` to use to
+            collect the found documents.
         :rtype: :class:`Results`
         """
 
@@ -467,118 +478,209 @@ class Searcher(object):
         if isinstance(groupedby, basestring):
             groupedby = (groupedby, )
         
-        t = now()
-        col = Collector(self.weighting, limit=limit, usequality=optimize,
-                        groupedby=groupedby, scored=scored)
-        
-        if self.subsearchers and leafs:
-            for s, offset in self.subsearchers:
-                col.add_matches(s, q.matcher(s), offset)
+        if collector is None:
+            collector = Collector(limit=limit, usequality=optimize,
+                                  groupedby=groupedby, scored=scored)
         else:
-            col.add_matches(self, q.matcher(self))
-        runtime = now() - t
+            collector.limit = limit
+            collector.usequality = optimize
+            collector.groupedby = groupedby
+            collector.scored = scored
         
-        docset = col.docset or None
-        return Results(self, q, col.items(), docset, groups=col.groups,
-                       runtime=runtime)
-
+        return collector.search(self, q)
+        
 
 class Collector(object):
-    def __init__(self, weighting, limit=10, usequality=True, replace=10,
+    def __init__(self, limit=10, usequality=True, replace=10,
                  groupedby=None, scored=True):
-        self.weighting = weighting
-        self.limit = limit if scored else None
+        """A Collector finds the matching documents, scores them, collects them
+        into a list, and produces a Results object from them.
+        
+        Normally you do not need to instantiate an instance of the base
+        Collector class, the :meth:`Searcher.search` method does that for you.
+        
+        If you create a custom Collector subclass you can pass it to the
+        :meth:`Searcher.search` method using the ``collector`` keyword
+        argument::
+        
+            mycollector = MyCollector()
+            results = searcher.search(myquery, collector=mycollector)
+        
+        Note that when you call :meth:`Searcher.search` with a custom collector
+        the method will overwrite several attributes on the collector instance
+        with the values of keyword arguments to :meth:`Searcher.search`. To
+        avoid this, start the search from the collector instead::
+        
+            mycollector = MyCollector()
+            results = mycollector.search(searcher, myquery)
+        
+        **Do not** re-use or share Collector instances between searches. You
+        should create a new Collector instance for each search.
+        """
+        
+        self.limit = limit
         self.usequality = usequality
         self.replace = replace
+        self.groupedby = groupedby
         self.scored = scored
         
-        self.groupnames = groupedby
         self.groups = {}
-        if self.groupnames:
-            for name in self.groupnames:
-                self.groups[name] = defaultdict(list)
-        
         self._items = []
         self._groups = {}
         self.docset = set()
         self.done = False
         self.minquality = None
+        self.doc_offset = 0
+    
+    def search(self, searcher, q):
+        """Top-level method call which uses the given :class:`Searcher` and
+        :class:`whoosh.query.Query` objects to return a :class:`Results`
+        object.
+        
+        This method takes care of calling :meth:`Collector.add_searcher`
+        for each sub-searcher in a collective searcher. You should only call
+        this method on a top-level searcher.
+        """
+        
+        w = searcher.weighting
+        self.final = w.final if w.use_final else None
+        
+        if self.limit and self.limit > searcher.doc_count_all():
+            self.limit = None
+        
+        t = now()
+        if not searcher.is_atomic():
+            for s, offset in searcher.subsearchers:
+                self.doc_offset = offset
+                self.add_searcher(s, q)
+        else:
+            self.add_searcher(searcher, q)
+        runtime = now() - t
+        
+        return self.results(searcher, q, runtime=runtime)
+    
+    def add_searcher(self, searcher, q):
+        """Adds the documents from the given searcher with the given query to
+        the collector. This is called by the :meth:`Collector.search` method.
+        """
+        
+        self.add_matches(searcher, q.matcher(searcher))
     
     def score(self, searcher, matcher):
+        """Called to compute the score for the current document in the given
+        :class:`whoosh.matching.Matcher`.
+        """
+        
         s = matcher.score()
-        if self.weighting.use_final:
-            s = self.weighting.final(searcher, matcher.id(), s)
+        if self.final:
+            s = self.final(searcher, matcher.id(), s)
         return s
     
-    def add_matches(self, searcher, matcher, offset=0):
-        limit = self.limit
-        if not limit or self.groupnames:
-            return self.add_matches_no_limit(searcher, matcher, offset=offset)
+    def collect(self, score, id):
+        """This method is called for each found document. This method is only
+        called by :meth:`Collector.add_all_matches`.
         
+        :param score: the  score for this document. This may be None if the
+            collector is not set up to compute scores.
+        :param id: the document number of the document.
+        """
+        
+        # This method is only called by add_all_matches
+        self._items.append((score, id))
+        self.docset.add(id)
+    
+    def should_add_all(self):
+        """Returns True if this collector needs to add all found documents (for
+        example, if ``limit=None``), or alse if this collector should only
+        add the top N found documents.
+        """
+        
+        return not self.scored or not self.limit or self.groupedby
+    
+    def add_matches(self, searcher, matcher):
+        """Calls either :meth:Collector.add_top_matches` or
+        :meth:`Collector.add_all_matches` depending on whether this collector
+        needs to examine all documents.
+        
+        This method should record the current document as a hit for later
+        retrieval with :meth:`Collector.items`.
+        """
+        
+        if self.should_add_all():
+            return self.add_all_matches(searcher, matcher)
+        else:
+            return self.add_top_matches(searcher, matcher)
+    
+    def add_top_matches(self, searcher, matcher):
+        """Adds the matched documents from the given matcher to the collector's
+        priority queue.
+        """
+        
+        offset = self.doc_offset
+        limit = self.limit
         items = self._items
-        docset = self.docset
         usequality = self.usequality
         score = self.score
         
-        for id, quality in self.pull_matches(matcher):
+        for id, quality in self.pull_matches(matcher, usequality):
             id += offset
             
             if len(items) < limit:
                 # The heap isn't full, so just add this document
                 heappush(items, (score(searcher, matcher), id, quality))
             
-            elif not usequality or quality > self.minquality:
+            elif quality > self.minquality:
                 # The heap is full, but the posting quality indicates
                 # this document is good enough to make the top N, so
                 # calculate its true score and add it to the heap
-                
-                if not usequality:
-                    docset.add(id)
                 
                 s = score(searcher, matcher)
                 if s > items[0][0]:
                     heapreplace(items, (s, id, quality))
                     self.minquality = items[0][2]
     
-    def add_matches_no_limit(self, searcher, matcher, offset=0):
-        items = self._items
-        docset = self.docset
-        replace = self.replace
+    def add_all_matches(self, searcher, matcher):
+        """Adds the matched documents from the given matcher to the collector's
+        list of matched documents.
+        """
+        
+        offset = self.doc_offset
         scored = self.scored
         score = self.score
-        replacecounter = 0
         
         keyfns = None
-        if self.groupnames:
+        if self.groupedby:
             keyfns = {}
-            for name in self.groupnames:
+            for name in self.groupedby:
                 keyfns[name] = searcher.reader().key_fn(name)
         
-        while matcher.is_active():
-            id = matcher.id()
+        for id, _ in self.pull_matches(matcher, False):
             offsetid = id + offset
             
             if keyfns:
                 for name, keyfn in keyfns.iteritems():
+                    if name not in self.groups:
+                        self.groups[name] = defaultdict(list)
                     key = keyfn(id)
                     self.groups[name][key].append(id)
             
+            scr = None
             if scored:
-                items.append((score(searcher, matcher), offsetid))
-            else:
-                items.append((None, offsetid))
-            docset.add(offsetid)
+                scr = score(searcher, matcher)
+            self.collect(scr, offsetid)
             
-            matcher.next()
-            
-            if replace and matcher.is_active():
-                replacecounter += 1
-                if replacecounter >= replace:
-                    matcher = matcher.replace()
-    
-    def pull_matches(self, matcher):
+    def pull_matches(self, matcher, usequality):
+        """Low-level method yields (docid, quality) pairs from the given
+        matcher. Called by :meth:`Collector.add_top_matches` and
+        :meth:`Collector.add_all_matches`. If ``usequality`` is False or the
+        matcher doesn't support quality, the second item in each pair will be
+        ``None``.
+        """
+        
+        docset = self.docset
+        
         # Can't use quality optimizations if the matcher doesn't support them
-        usequality = self.usequality and matcher.supports_quality()
+        usequality = usequality and matcher.supports_quality()
         replace = self.replace
         
         # A flag to indicate whether we should check block quality at the start
@@ -599,6 +701,9 @@ class Collector(object):
             
             # The current document ID 
             id = matcher.id()
+            
+            if not usequality:
+                docset.add(id)
             
             # If we're using quality optimizations, check whether the current
             # posting has higher quality than the minimum before yielding it.
@@ -622,6 +727,9 @@ class Collector(object):
                     matcher = matcher.replace()
 
     def items(self):
+        """Returns the collected hits as a list of (score, docid) pairs.
+        """
+        
         # Turn the heap into a sorted list by sorting by score first (subtract
         # from 0 to put highest scores first) and then by document number (to
         # enforce a consistent ordering of documents with equal score)
@@ -629,7 +737,114 @@ class Collector(object):
         if self.scored:
             items = sorted(self._items, key=lambda x: (0 - x[0], x[1]))
         return [(item[0], item[1]) for item in items]
+    
+    def results(self, searcher, q, runtime=None):
+        """Returns the collected hits as a :class:`Results` object.
+        """
         
+        docset = self.docset or None
+        return Results(searcher, q, self.items(), docset,
+                       groups=self.groups, runtime=runtime)
+
+
+class TermTrackingCollector(Collector):
+    """This collector records which parts of the query matched which documents
+    in the final results. The results for each part of the query are available
+    as a dictionary in the ``catalog`` attribute of the collector after the
+    search, where the keys are representations of the parts of the query and
+    the values are sets of document numbers that matched that part of the
+    query.
+    
+    How to choose a key to represent query objects in the ``catalog``
+    dictionary was not entirely clear. The current implementation uses the
+    unicode representation of the query object, which usually returns something
+    at least recognizable (for example, ``unicode(Term("f", u"a")) == u"f:a"``
+    and ``unicode(Prefix("f", "b")) == u"f:b*"`).
+    
+    >>> myparser = qparser.QueryParser("content", myindex.schema)
+    >>> myquery = myparser.parse(u"apple OR bear NOT camel")
+    >>> col = TermTrackingCollector()
+    >>> results = searcher.search(myquery, collector=col)
+    >>> # The docnums in the results that contained "apple"
+    >>> col.catalog["content:apple"]
+    set([1, 2, 3])
+    >>> for hit in results:
+    ...     print hit.rank, ":", hit["title"]
+    ...     for key, docset in col.catalog.keys():
+    ...         if hit.docnum in docset:
+    ...             print "   - Contains", key
+    """
+    
+    # This collector works by rewriting the query with "TaggedQuery" wrappers
+    # around the leaf nodes before it searches. When base collector generates
+    # a matcher tree from the query tree, these wrappers "phone home" to this
+    # collector and register the leaf matchers. Then, when collecting hits, the
+    # collector checks with the leaf matchers at each hit to see if they are
+    # matching the current document.
+    
+    def __init__(self, *args, **kwargs):
+        super(TermTrackingCollector, self).__init__(*args, **kwargs)
+        self.matchers = []
+        self.catalog = {}
+    
+    def add_searcher(self, searcher, q):
+        # For each searcher added to the collector, reset the list of matchers
+        # and re-tag the query
+        self.matchers = []
+        q = self._tag(q)
+        return super(TermTrackingCollector, self).add_searcher(searcher, q)
+    
+    def should_add_all(self):
+        # If you're using this collector, you need to examine all documents
+        return True
+    
+    def collect(self, score, id):
+        # The id passed to this method is rebased for the top-level searcher,
+        # so we need to subtract the doc offset from it before we can compare
+        # it to a matcher's id()
+        offset = self.doc_offset
+        
+        # Check the registered matchers, and if they're contributing to the
+        # current match, add the current match to the set of documents
+        # containing them
+        for q, m in self.matchers:
+            if m.is_active() and m.id() == id - offset:
+                key = unicode(q)
+                if key not in self.catalog:
+                    self.catalog[key] = set()
+                self.catalog[key].add(id)
+        
+        super(TermTrackingCollector, self).collect(score, id)
+    
+    def _tag(self, q):
+        # Takes a query and returns a copy of the query with a TaggedQuery
+        # wrapper around any leaf nodes in the query tree
+        if isinstance(q, query.Not):
+            return q
+        elif q.is_leaf():
+            return TermTrackingCollector.TaggedQuery(q, self)
+        else:
+            return q.apply(self._tag)
+        
+    def _tag_matcher(self, q, m):
+        # This method is called from the TaggedQuery wrappers that the _tag
+        # method added to the query
+        self.matchers.append((q, m))
+        
+    class TaggedQuery(query.WrappingQuery):
+        # The only purpose of this query wrapper is to "call home" to the
+        # TrackingCollector instance when the child query generates a matcher
+        # so the TrackingCollector can register it
+        
+        def __init__(self, child, tracker):
+            self.child = child
+            self.tracker = tracker
+        
+        def matcher(self, searcher):
+            m = self.child.matcher(searcher)
+            self.tracker._tag_matcher(self.child, m)
+            return m
+
 
 class Results(object):
     """This object is returned by a Searcher. This object represents the
@@ -656,7 +871,7 @@ class Results(object):
         self.docset = docset
         self._groups = groups or {}
         self.runtime = runtime
-
+        
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
                                                        self.q,
