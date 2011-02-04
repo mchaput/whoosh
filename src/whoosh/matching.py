@@ -1022,7 +1022,7 @@ class AndNotMatcher(BiMatcher):
         if not self.a.is_active():
             return NullMatcher()
         if not self.b.is_active():
-            return self.a
+            return self.a.replace()
         return self
     
     def quality(self):
