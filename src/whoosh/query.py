@@ -20,12 +20,6 @@ objects are composable to form complex query trees.
 
 from __future__ import division
 
-__all__ = ("QueryError", "Query", "CompoundQuery", "MultiTerm", "Term", "And",
-           "Or", "DisjunctionMax", "Not", "Prefix", "Wildcard", "FuzzyTerm",
-           "TermRange", "Variations", "Phrase", "Every", "NullQuery", "Require",
-           "AndMaybe", "AndNot")
-
-import copy
 import fnmatch
 import re
 from array import array
@@ -89,6 +83,36 @@ class Query(object):
 
     def copy(self):
         raise NotImplementedError(self.__class__.__name__)
+
+    def is_leaf(self):
+        """Returns True if this is a leaf node in the query tree, or False if
+        this query has sub-queries.
+        """
+        
+        return True
+
+    def apply(self, fn):
+        """If this query has children, calls the given function on each child
+        and returns a new copy of this node with the new children returned by
+        the function. If this is a leaf node, simply returns this object.
+        
+        This is useful for writing functions that transform a query tree. For
+        example, this function changes all Term objects in a query tree into
+        Variations objects::
+        
+            def term2var(q):
+                if isinstance(q, Term):
+                    return Variations(q.fieldname, q.text)
+                else:
+                    return q.apply(term2var)
+        
+            q = And([Term("f", "alfa"),
+                     Or([Term("f", "bravo"),
+                         Not(Term("f", "charlie"))])])
+            q = term2var(q)
+        """
+        
+        return self
 
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
@@ -215,36 +239,22 @@ class Query(object):
         """
         return self
 
-    def accept(self, visitor):
-        """Accepts a "visitor" function, applies it to any sub-queries and then
-        to this object itself, and returns the result.
-        
-        For example, to find any Term objects in a query tree that have
-        fieldname == 'title', and replace them with Prefix objects, you can
-        write a visitor function like this::
-        
-            def visitor(q):
-                if isinstance(q, query.Term) and q.fieldname == "title":
-                    return query.Prefix("title", q.text)
-                else:
-                    return q
-        
-        ...and then pass the visitor function to the accept method of a query
-        to transform it::
-        
-            newquery = myquery.accept(visitor)
-            # Probably a good idea to re-normalize after transforming
-        """
-
-        return visitor(copy.deepcopy(self))
-
 
 class WrappingQuery(Query):
     def __init__(self, child):
         self.child = child
-        
+    
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.child)
+    
     def copy(self):
-        return self.__class__(self.child)
+        return self.__class__(self.child.copy())
+    
+    def is_leaf(self):
+        return False
+    
+    def apply(self, fn):
+        return self.__class__(fn(self.child.copy()))
     
     def all_terms(self, termset=None, phrases=True):
         return self.child.all_terms(termset=termset, phrases=phrases)
@@ -266,9 +276,6 @@ class WrappingQuery(Query):
     def replace(self, oldtext, newtext):
         return self.__class__(self.child.replace(oldtext, newtext))
     
-    def accept(self, visitor):
-        return self.__class__(self.child.accept(visitor))
-
 
 class CompoundQuery(Query):
     """Abstract base class for queries that combine or manipulate the results
@@ -307,7 +314,14 @@ class CompoundQuery(Query):
         return iter(self.subqueries)
 
     def copy(self):
-        return self.__class__(self.subqueries[:], boost=self.boost)
+        subqs = [subq.copy() for subq in self.subqueries]
+        return self.__class__(subqs, boost=self.boost)
+
+    def is_leaf(self):
+        return False
+    
+    def apply(self, fn):
+        return self.__class__([fn(q) for q in self.subqueries], boost=self.boost)
 
     def estimate_size(self, ixreader):
         return sum(q.estimate_size(ixreader) for q in self.subqueries)
@@ -323,10 +337,6 @@ class CompoundQuery(Query):
     def replace(self, oldtext, newtext):
         return self.__class__([q.replace(oldtext, newtext)
                                for q in self.subqueries], boost=self.boost)
-
-    def accept(self, visitor):
-        qs = [q.accept(visitor) for q in self.subqueries]
-        return visitor(self.__class__(qs, boost=self.boost))
 
     def _all_terms(self, termset, phrases=True):
         for q in self.subqueries:
@@ -574,7 +584,7 @@ class Term(Query):
             return m
         except TermNotFound:
             return NullMatcher()
-        
+
 
 class And(CompoundQuery):
     """Matches documents that match ALL of the subqueries.
@@ -695,7 +705,13 @@ class Not(Query):
         return u"NOT " + unicode(self.query)
 
     def copy(self):
-        return self.__class__(self.query)
+        return self.__class__(self.query.copy())
+    
+    def is_leaf(self):
+        return False
+    
+    def apply(self, fn):
+        return self.__class__(fn(self.query))
 
     def normalize(self):
         query = self.query.normalize()
@@ -706,9 +722,6 @@ class Not(Query):
 
     def replace(self, oldtext, newtext):
         return Not(self.query.replace(oldtext, newtext), boost=self.boost)
-
-    def accept(self, visitor):
-        return visitor(Not(self.query.accept(visitor), boost=self.boost))
 
     def _all_terms(self, termset, phrases=True):
         self.query.all_terms(termset, phrases=phrases)
@@ -1427,7 +1440,10 @@ class ConstantScoreQuery(WrappingQuery):
         self.score = score
     
     def copy(self):
-        return self.__class__(self.child, self.score)
+        return self.__class__(self.child.copy(), self.score)
+    
+    def apply(self, fn):
+        return self.__class__(fn(self.child), self.score)
     
     def matcher(self, searcher):
         m = self.child.matcher(searcher)
@@ -1436,13 +1452,10 @@ class ConstantScoreQuery(WrappingQuery):
         else:
             ids = array("I", m.all_ids())
             return ListMatcher(ids, all_weights=self.score)
-        
+    
     def replace(self, oldtext, newtext):
         return self.__class__(self.child.replace(oldtext, newtext), self.score)
     
-    def accept(self, visitor):
-        return self.__class__(self.child.accept(visitor), self.score)
-
 
 class WeightingQuery(WrappingQuery):
     """Wraps a query and specifies a custom weighting model to apply to the
@@ -1458,7 +1471,12 @@ class WeightingQuery(WrappingQuery):
         self.text = text
         
     def copy(self):
-        return self.__class__(self.child, self.model)
+        return self.__class__(self.child.copy(), self.model, self.fieldname,
+                              self.text)
+        
+    def apply(self, fn):
+        return self.__class__(fn(self.child), self.model, self.fieldname,
+                              self.text)
     
     def matcher(self, searcher):
         m = self.child.matcher(searcher)
@@ -1506,7 +1524,7 @@ class BinaryQuery(CompoundQuery):
         self.boost = boost
         
     def copy(self):
-        return self.__class__(self.a, self.b, boost=self.boost)
+        return self.__class__(self.a.copy(), self.b.copy(), boost=self.boost)
     
     def normalize(self):
         a = self.a.normalize()
@@ -1626,7 +1644,6 @@ def BooleanQuery(required, should, prohibited):
     return AndNot(AndMaybe(And(required), Or(should)), Or(prohibited)).normalize()
 
 
-            
 
 
 
