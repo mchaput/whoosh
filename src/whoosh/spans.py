@@ -32,7 +32,6 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
-
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
                              IntersectionMatcher, NullMatcher)
 from whoosh.query import And, AndMaybe, Or, Query, Term

@@ -68,8 +68,7 @@ class TestQueries(unittest.TestCase):
         
     def test_simplify(self):
         s = fields.Schema(k=fields.ID, v=fields.TEXT)
-        st = RamStorage()
-        ix = st.create_index(s)
+        ix = RamStorage().create_index(s)
         
         w = ix.writer()
         w.add_document(k=u"1", v=u"aardvark apple allan alfa bear bee")
@@ -81,6 +80,39 @@ class TestQueries(unittest.TestCase):
         q2 = And([Or([Term('v', u'bear', boost=2.0), Term('v', u'bee', boost=2.0),
                       Term('v', u'brie', boost=2.0)]), Term('v', 'juliet')])
         self.assertEqual(q1.simplify(r), q2)
+        
+    def test_merge_ranges(self):
+        q = And([TermRange("f1", u"a", None), TermRange("f1", None, u"z")])
+        self.assertEqual(q.normalize(), TermRange("f1", u"a", u"z"))
+        
+        q = And([NumericRange("f1", None, u"aaaaa"), NumericRange("f1", u"zzzzz", None)])
+        self.assertEqual(q.normalize(), q)
+        
+        q = And([TermRange("f1", u"a", u"z"), TermRange("f1", "b", "x")])
+        self.assertEqual(q.normalize(), TermRange("f1", u"a", u"z"))
+        
+        q = And([TermRange("f1", u"a", u"m"), TermRange("f1", u"f", u"q")])
+        self.assertEqual(q.normalize(), TermRange("f1", u"f", u"m"))
+        
+        q = Or([TermRange("f1", u"a", u"m"), TermRange("f1", u"f", u"q")])
+        self.assertEqual(q.normalize(), TermRange("f1", u"a", u"q"))
+        
+        q = Or([TermRange("f1", u"m", None), TermRange("f1", None, u"n")])
+        self.assertEqual(q.normalize(), Every("f1"))
+        
+        q = And([Every("f1"), Term("f1", "a"), Variations("f1", "b")])
+        self.assertEqual(q.normalize(), Every("f1"))
+        
+        q = Or([Term("f1", u"q"), TermRange("f1", u"m", None), TermRange("f1", None, u"n")])
+        self.assertEqual(q.normalize(), Every("f1"))
+        
+        q = And([Or([Term("f1", u"a"), Term("f1", u"b")]), Every("f1")])
+        self.assertEqual(q.normalize(), Every("f1"))
+        
+        q = And([Term("f1", u"a"), And([Or([Every("f1")])])])
+        self.assertEqual(q.normalize(), Every("f1"))
+        
+        
 
 
 if __name__ == '__main__':
