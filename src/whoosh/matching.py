@@ -282,7 +282,8 @@ class ListMatcher(Matcher):
     
     def copy(self):
         return self.__class__(self._ids, self._weights, self._values,
-                              self._format, self._scorer, self._i)
+                              self._format, self._scorer, self._i,
+                              self._all_weights, self._maxwol, self._minlength)
     
     def supports_quality(self):
         return self._scorer is not None and self._scorer.supports_quality()
@@ -471,8 +472,8 @@ class MultiMatcher(Matcher):
             self.current += 1
         
     def copy(self):
-        return self.__class__([mr.copy() for mr in self.matchers[self.current:]],
-                              self.offsets[self.current:], current=self.current)
+        return self.__class__([mr.copy() for mr in self.matchers],
+                              self.offsets, current=self.current)
     
     def depth(self):
         if self.is_active():
@@ -585,7 +586,8 @@ class FilterMatcher(WrappingMatcher):
                                              self._exclude, self.boost)
     
     def copy(self):
-        return self.__class__(self.child.copy(), self._ids, self._exclude, boost=self.boost)
+        return self.__class__(self.child.copy(), self._ids, self._exclude,
+                              boost=self.boost)
     
     def _replacement(self, newchild):
         return self.__class__(newchild, self._ids, exclude=self._exclude, boost=self.boost)
@@ -644,7 +646,7 @@ class BiMatcher(Matcher):
 
     def depth(self):
         return 1 + max(self.a.depth(), self.b.depth())
-
+    
     def skip_to(self, id):
         if not self.is_active():
             raise ReadTooFar
