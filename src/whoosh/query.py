@@ -44,6 +44,27 @@ class QueryError(Exception):
     pass
 
 
+# Utility classes
+
+class Lowest(object):
+    "A value that is always compares lower than any other object except itself."
+    
+    def __cmp__(self, other):
+        if other.__class__ is Lowest:
+            return 0
+        return -1
+Lowest = Lowest()
+
+class Highest(object):
+    "A value that is always compares higher than any other object except itself."
+    
+    def __cmp__(self, other):
+        if other.__class__ is Highest:
+            return 0
+        return 1
+Highest = Highest()
+
+
 # Base classes
 
 class Query(object):
@@ -167,6 +188,13 @@ class Query(object):
                              phrases=phrases)
         return termset
 
+    def field(self):
+        """Returns the field this query matches in, or None if this query does
+        not match in a single field.
+        """
+        
+        return self.fieldname
+
     def estimate_size(self, ixreader):
         """Returns an estimate of how many documents this query could
         potentially match (for example, the estimated size of a simple term
@@ -264,6 +292,9 @@ class WrappingQuery(Query):
         return self.child.existing_terms(ixreader, termset=termset,
                                          reverse=reverse, phrases=phrases)
     
+    def field(self):
+        return self.child.field()
+    
     def estimate_size(self, ixreader):
         return self.child.estimate_size(ixreader)
     
@@ -323,6 +354,12 @@ class CompoundQuery(Query):
     def apply(self, fn):
         return self.__class__([fn(q) for q in self.subqueries], boost=self.boost)
 
+    def field(self):
+        if self.subqueries:
+            f = self.subqueries[0].field()
+            if all(q.field() == f for q in self.subqueries[1:]):
+                return f
+
     def estimate_size(self, ixreader):
         return sum(q.estimate_size(ixreader) for q in self.subqueries)
     
@@ -348,33 +385,64 @@ class CompoundQuery(Query):
                              phrases=phrases)
 
     def normalize(self):
-        # Do an initial check for NullQuery.
-        subqueries = [q for q in self.subqueries if q is not NullQuery]
-
-        if not subqueries:
+        # Normalize subqueries and merge nested instances of this class
+        subqueries = []
+        for s in self.subqueries:
+            s = s.normalize()
+            if isinstance(s, self.__class__):
+                subqueries += [ss.normalize() for ss in s.subqueries]
+            else:
+                subqueries.append(s)
+        
+        if all(q is NullQuery for q in subqueries):
             return NullQuery
 
-        # Normalize the subqueries and eliminate duplicate terms.
+        if any((isinstance(q, Every) and q.fieldname is None) for q in subqueries):
+            return Every()
+
+        # Merge ranges and Everys
+        everyfields = set()
+        i = 0
+        while i < len(subqueries):
+            q = subqueries[i]
+            f = q.field()
+            if f in everyfields:
+                subqueries.pop(i)
+                continue
+            
+            if isinstance(q, (TermRange, NumericRange)):
+                j = i + 1
+                while j < len(subqueries):
+                    if q.overlaps(subqueries[j]):
+                        qq = subqueries.pop(j)
+                        q = q.merge(qq, intersect=self.intersect_merge)
+                    else:
+                        j += 1
+                q = subqueries[i] = q.normalize()
+            
+            if isinstance(q, Every):
+                everyfields.add(q.fieldname)
+            i += 1
+
+        # Eliminate duplicate terms.
         subqs = []
         seenterms = set()
         for s in subqueries:
-            s = s.normalize()
-            if s is NullQuery:
+            if (not isinstance(s, Every) and s.field() in everyfields):
                 continue
-
             if isinstance(s, Term):
                 term = (s.fieldname, s.text)
                 if term in seenterms:
                     continue
                 seenterms.add(term)
+            subqs.append(s)
 
-            if isinstance(s, self.__class__):
-                subqs += s.subqueries
-            else:
-                subqs.append(s)
+        # Remove NullQuerys
+        subqs = [q for q in subqs if q is not NullQuery]
 
         if not subqs:
             return NullQuery
+        
         if len(subqs) == 1:
             sub = subqs[0]
             if not (self.boost == 1.0 and sub.boost == 1.0):
@@ -598,6 +666,7 @@ class And(CompoundQuery):
 
     # This is used by the superclass's __unicode__ method.
     JOINT = " AND "
+    intersect_merge = True
 
     def estimate_size(self, ixreader):
         return min(q.estimate_size(ixreader) for q in self.subqueries)
@@ -618,8 +687,7 @@ class Or(CompoundQuery):
 
     # This is used by the superclass's __unicode__ method.
     JOINT = " OR "
-    
-    gather = False
+    intersect_merge = False
 
     def __init__(self, subqueries, boost=1.0, minmatch=0):
         CompoundQuery.__init__(self, subqueries, boost=boost)
@@ -729,6 +797,9 @@ class Not(Query):
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
         self.query.existing_terms(ixreader, termset, reverse=reverse,
                                   phrases=phrases)
+
+    def field(self):
+        return None
 
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
@@ -938,7 +1009,102 @@ class FuzzyTerm(MultiTerm):
                 yield term
 
 
-class TermRange(MultiTerm):
+class RangeMixin(object):
+    # Contains methods shared by TermRange and NumericRange
+    
+    def __repr__(self):
+        return ('%s(%r, %r, %r, %s, %s, boost=%s, constantscore=%s)'
+                % (self.__class__.__name__, self.fieldname, self.start,
+                   self.end, self.startexcl, self.endexcl, self.boost,
+                   self.constantscore))
+    
+    def __unicode__(self):
+        startchar = "{" if self.startexcl else "["
+        endchar = "}" if self.endexcl else "]"
+        start = '' if self.start is None else self.start
+        end = '' if self.end is None else self.end
+        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
+                                     endchar)
+    
+    def __eq__(self, other):
+        return (other
+                and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.start == other.start
+                and self.end == other.end
+                and self.startexcl == other.startexcl
+                and self.endexcl == other.endexcl
+                and self.boost == other.boost)
+    
+    def copy(self):
+        return self.__class__(self.fieldname, self.start, self.end,
+                              startexcl=self.startexcl, endexcl=self.endexcl,
+                              boost=self.boost)
+
+    def _comparable_start(self):
+        if self.start is None:
+            return (Lowest, 0)
+        else:
+            second = 1 if self.startexcl else 0
+            return (self.start, second)
+        
+    def _comparable_end(self):
+        if self.end is None:
+            return (Highest, 0)
+        else:
+            second = -1 if self.endexcl else 0
+            return (self.end, second)
+
+    def overlaps(self, other):
+        if not isinstance(other, TermRange):
+            return False
+        if self.fieldname != other.fieldname:
+            return False
+        
+        start1 = self._comparable_start()
+        start2 = other._comparable_start()
+        end1 = self._comparable_end()
+        end2 = other._comparable_end()
+        
+        return ((start1 >= start2 and start1 <= end2)
+                or (end1 >= start2 and end1 <= end2)
+                or (start2 >= start1 and start2 <= end1)
+                or (end2 >= start1 and end2 <= end1))
+
+    def merge(self, other, intersect=True):
+        assert self.fieldname == other.fieldname
+        
+        start1 = self._comparable_start()
+        start2 = other._comparable_start()
+        end1 = self._comparable_end()
+        end2 = other._comparable_end()
+        
+        if start1 >= start2 and end1 <= end2:
+            start = start2
+            end = end2
+        elif start2 >= start1 and end2 <= end1:
+            start = start1
+            end = end1
+        elif intersect:
+            start = max(start1, start2)
+            end = min(end1, end2)
+        else:
+            start = min(start1, start2)
+            end = max(end1, end2)
+        
+        startval = None if start[0] is Lowest else start[0]
+        startexcl = start[1] == 1
+        endval = None if end[0] is Highest else end[0]
+        endexcl = end[1] == -1
+        
+        boost = max(self.boost, other.boost)
+        constantscore = self.constantscore or other.constantscore
+        
+        return self.__class__(self.fieldname, startval, endval, startexcl,
+                              endexcl, boost=boost, constantscore=constantscore)
+
+
+class TermRange(MultiTerm, RangeMixin):
     """Matches documents containing any terms in a given range.
     
     >>> # Match documents where the indexed "id" field is greater than or equal
@@ -967,35 +1133,6 @@ class TermRange(MultiTerm):
         self.endexcl = endexcl
         self.boost = boost
         self.constantscore = constantscore
-
-    def __repr__(self):
-        return '%s(%r, %r, %r, %s, %s)' % (self.__class__.__name__,
-                                           self.fieldname,
-                                           self.start, self.end,
-                                           self.startexcl, self.endexcl)
-
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.fieldname == other.fieldname
-                and self.start == other.start
-                and self.end == other.end
-                and self.startexcl == other.startexcl
-                and self.endexcl == other.endexcl
-                and self.boost == other.boost)
-
-    def __unicode__(self):
-        startchar = "{" if self.startexcl else "["
-        endchar = "}" if self.endexcl else "]"
-        start = '' if self.start is None else self.start
-        end = '' if self.end is None else self.end
-        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
-                                     endchar)
-
-    def copy(self):
-        return self.__class__(self.fieldname, self.start, self.end,
-                              startexcl=self.startexcl, endexcl=self.endexcl,
-                              boost=self.boost)
 
     def normalize(self):
         if self.start in ('', None) and self.end in (u'\uffff', None):
@@ -1034,7 +1171,7 @@ class TermRange(MultiTerm):
             yield t
 
 
-class NumericRange(Query):
+class NumericRange(Query, RangeMixin):
     """A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
@@ -1071,34 +1208,6 @@ class NumericRange(Query):
         self.endexcl = endexcl
         self.boost = boost
         self.constantscore = constantscore
-    
-    def __repr__(self):
-        return '%s(%r, %r, %r, %s, %s, boost=%s)' % (self.__class__.__name__,
-                                           self.fieldname,
-                                           self.start, self.end,
-                                           self.startexcl, self.endexcl,
-                                           self.boost)
-
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.fieldname == other.fieldname
-                and self.start == other.start
-                and self.end == other.end
-                and self.startexcl == other.startexcl
-                and self.endexcl == other.endexcl
-                and self.boost == other.boost)
-        
-    def __unicode__(self):
-        startchar = "{" if self.startexcl else "["
-        endchar = "}" if self.endexcl else "]"
-        start = self.start if self.start is not None else ''
-        end = self.end if self.end is not None else ''
-        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end, endchar)
-    
-    def copy(self):
-        return NumericRange(self.fieldname, self.start, self.end,
-                            self.startexcl, self.endexcl, boost=self.boost)
     
     def simplify(self, ixreader):
         return self._compile_query(ixreader).simplify(ixreader)
@@ -1352,6 +1461,8 @@ class Every(Query):
     """
 
     def __init__(self, fieldname=None, boost=1.0):
+        if not fieldname or fieldname == "*":
+            fieldname = None
         self.fieldname = fieldname
         self.boost = boost
 
@@ -1408,6 +1519,9 @@ class NullQuery(Query):
     
     def copy(self):
         return self
+    
+    def field(self):
+        return None
     
     def estimate_size(self, ixreader):
         return 0
@@ -1525,6 +1639,11 @@ class BinaryQuery(CompoundQuery):
         
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy(), boost=self.boost)
+    
+    def field(self):
+        f = self.a.field()
+        if self.b.field() == f:
+            return f
     
     def normalize(self):
         a = self.a.normalize()
