@@ -112,6 +112,18 @@ class TestQueries(unittest.TestCase):
         q = And([Term("f1", u"a"), And([Or([Every("f1")])])])
         self.assertEqual(q.normalize(), Every("f1"))
         
+    def test_normalize_compound(self):
+        def oq():
+            return Or([Term("a", u"a"), Term("a", u"b")])
+        def nq(level):
+            if level == 0:
+                return oq()
+            else:
+                return Or([nq(level-1), nq(level-1), nq(level-1)])
+        
+        q = nq(7)
+        q = q.normalize()
+        self.assertEqual(q, Or([Term("a", u"a"), Term("a", u"b")]))
         
 
 
