@@ -86,7 +86,10 @@ class BitVector(object):
         return self.count()
     
     def __contains__(self, index):
-        return self[index]
+        byte = self.bits[index >> 3]
+        if not byte:
+            return False
+        return byte & (1 << (index & 7)) != 0
     
     def __iter__(self):
         get = self.__getitem__
