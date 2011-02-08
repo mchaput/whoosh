@@ -102,6 +102,9 @@ class Query(object):
 
         return And([self, Not(query)]).normalize()
 
+    def __hash__(self):
+        raise NotImplementedError
+
     def copy(self):
         raise NotImplementedError(self.__class__.__name__)
 
@@ -275,6 +278,9 @@ class WrappingQuery(Query):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.child)
     
+    def __hash__(self):
+        return hash(self.__class__.__name__) ^ hash(self.child)
+    
     def copy(self):
         return self.__class__(self.child.copy())
     
@@ -343,6 +349,12 @@ class CompoundQuery(Query):
 
     def __iter__(self):
         return iter(self.subqueries)
+
+    def __hash__(self):
+        h = hash(self.__class__.__name__) ^ hash(self.boost)
+        for q in self.subqueries:
+            h ^= hash(q)
+        return h
 
     def copy(self):
         subqs = [subq.copy() for subq in self.subqueries]
@@ -619,6 +631,9 @@ class Term(Query):
         if self.boost != 1:
             t += u"^" + unicode(self.boost)
         return t
+    
+    def __hash__(self):
+        return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
     def _all_terms(self, termset, phrases=True):
         termset.add((self.fieldname, self.text))
@@ -772,6 +787,9 @@ class Not(Query):
     def __unicode__(self):
         return u"NOT " + unicode(self.query)
 
+    def __hash__(self):
+        return hash(self.__class__.__name__) ^ hash(self.query) ^ hash(self.boost)
+
     def copy(self):
         return self.__class__(self.query.copy())
     
@@ -816,13 +834,10 @@ class Not(Query):
                               missing=reader.is_deleted)
 
 
-class Prefix(MultiTerm):
-    """Matches documents that contain any terms that start with the given text.
-    
-    >>> # Match documents containing words starting with 'comp'
-    >>> Prefix("content", u"comp")
+class PatternQuery(MultiTerm):
+    """An intermediate base class for common methods of Prefix and Wildcard.
     """
-
+    
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0, constantscore=True):
@@ -830,100 +845,79 @@ class Prefix(MultiTerm):
         self.text = text
         self.boost = boost
         self.constantscore = constantscore
-
+        
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.fieldname == other.fieldname and self.text == other.text and\
-        self.boost == other.boost
-
+        return (other and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.text == other.text and self.boost == other.boost
+                and self.constantscore == other.constantscore)
+        
     def __repr__(self):
         r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
         if self.boost != 1:
             r += ", boost=" + self.boost
         r += ")"
         return r
+    
+    def __hash__(self):
+        return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
+                ^ hash(self.constantscore))
+        
+    def copy(self):
+        return self.__class__(self.fieldname, self.text, boost=self.boost,
+                              constantscore=self.constantscore)
+
+class Prefix(PatternQuery):
+    """Matches documents that contain any terms that start with the given text.
+    
+    >>> # Match documents containing words starting with 'comp'
+    >>> Prefix("content", u"comp")
+    """
 
     def __unicode__(self):
         return "%s:%s*" % (self.fieldname, self.text)
-
-    def copy(self):
-        return self.__class__(self.fieldname, self.text, boost=self.boost)
 
     def _words(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
 
-class Wildcard(MultiTerm):
+class Wildcard(PatternQuery):
     """Matches documents that contain any terms that match a wildcard
     expression.
     
     >>> Wildcard("content", u"in*f?x")
     """
 
-    __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
-
-    def __init__(self, fieldname, text, boost=1.0, constantscore=True):
-        """
-        :param fieldname: The field to search in.
-        :param text: A glob to search for. May contain ? and/or * wildcard
-            characters. Note that matching a wildcard expression that starts
-            with a wildcard is very inefficent, since the query must test every
-            term in the field.
-        :param boost: A boost factor that should be applied to the raw score of
-            results matched by this query.
-        """
-
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
-        self.constantscore = constantscore
-
-        self.expression = re.compile(fnmatch.translate(text))
-
-        # Get the "prefix" -- the substring before the first wildcard.
-        qm = text.find("?")
-        st = text.find("*")
-        if qm < 0 and st < 0:
-            self.prefix = ""
-        elif qm < 0:
-            self.prefix = text[:st]
-        elif st < 0:
-            self.prefix = text[:qm]
-        else:
-            self.prefix = text[:min(st, qm)]
-
-    def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.fieldname == other.fieldname and self.text == other.text and\
-        self.boost == other.boost
-
-    def __repr__(self):
-        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
-        if self.boost != 1:
-            r += ", boost=%s" % self.boost
-        r += ")"
-        return r
-
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
 
-    def copy(self):
-        return self.__class__(self.fieldname, self.text, boost=self.boost)
-
     def _words(self, ixreader):
-        if self.prefix:
-            candidates = ixreader.expand_prefix(self.fieldname, self.prefix)
+        exp = re.compile(fnmatch.translate(self.text))
+
+        # Get the "prefix" -- the substring before the first wildcard.
+        qm = self.text.find("?")
+        st = self.text.find("*")
+        if qm < 0 and st < 0:
+            prefix = ""
+        elif qm < 0:
+            prefix = self.text[:st]
+        elif st < 0:
+            prefix = self.text[:qm]
+        else:
+            prefix = self.text[:min(st, qm)]
+        
+        if prefix:
+            candidates = ixreader.expand_prefix(self.fieldname, prefix)
         else:
             candidates = ixreader.lexicon(self.fieldname)
 
-        exp = self.expression
         for text in candidates:
             if exp.match(text):
                 yield text
 
     def normalize(self):
         # If there are no wildcard characters in this "wildcard", turn it into
-        # a simple Term.
+        # a simple Term
         text = self.text
         if text == "*":
             return Every(self.fieldname, boost=self.boost)
@@ -971,13 +965,13 @@ class FuzzyTerm(MultiTerm):
         self.constantscore = constantscore
 
     def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
+        return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
                 and self.text == other.text
                 and self.minsimilarity == other.minsimilarity
                 and self.prefixlength == other.prefixlength
-                and self.boost == other.boost)
+                and self.boost == other.boost
+                and self.constantscore == other.constantscore)
 
     def __repr__(self):
         r = "%s(%r, %r, boost=%f, minsimilarity=%f, prefixlength=%d)"
@@ -990,10 +984,16 @@ class FuzzyTerm(MultiTerm):
             r += "^%f" % self.boost
         return r
 
+    def __hash__(self):
+        return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
+                ^ hash(self.minsimilarity) ^ hash(self.prefixlength)
+                ^ hash(self.constantscore))
+
     def copy(self):
         return self.__class__(self.fieldname, self.text, boost=self.boost,
                               minsimilarity=self.minsimilarity,
-                              prefixlength=self.prefixlength)
+                              prefixlength=self.prefixlength,
+                              constantscore=self.constantscore)
 
     def _all_terms(self, termset, phrases=True):
         termset.add((self.fieldname, self.text))
@@ -1027,14 +1027,17 @@ class RangeMixin(object):
                                      endchar)
     
     def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
+        return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
                 and self.start == other.start
                 and self.end == other.end
                 and self.startexcl == other.startexcl
                 and self.endexcl == other.endexcl
                 and self.boost == other.boost)
+    
+    def __hash__(self):
+        return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl)
+                ^ hash(self.end) ^ hash(self.endexcl) ^ hash(self.boost))
     
     def copy(self):
         return self.__class__(self.fieldname, self.start, self.end,
@@ -1104,7 +1107,7 @@ class RangeMixin(object):
                               endexcl, boost=boost, constantscore=constantscore)
 
 
-class TermRange(MultiTerm, RangeMixin):
+class TermRange(RangeMixin, MultiTerm):
     """Matches documents containing any terms in a given range.
     
     >>> # Match documents where the indexed "id" field is greater than or equal
@@ -1171,7 +1174,7 @@ class TermRange(MultiTerm, RangeMixin):
             yield t
 
 
-class NumericRange(Query, RangeMixin):
+class NumericRange(RangeMixin, Query):
     """A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
@@ -1309,9 +1312,12 @@ class Variations(MultiTerm):
         return r
 
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.fieldname == other.fieldname and self.text == other.text and\
-        self.boost == other.boost
+        return (other and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.text == other.text and self.boost == other.boost)
+
+    def __hash__(self):
+        return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
     def copy(self):
         return self.__class__(self.fieldname, self.text, boost=self.boost)
@@ -1372,6 +1378,12 @@ class Phrase(Query):
 
     def __unicode__(self):
         return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
+
+    def __hash__(self):
+        h = hash(self.fieldname) ^ hash(self.slop) ^ hash(self.boost)
+        for w in self.words:
+            h ^= hash(w)
+        return h
 
     def copy(self):
         return self.__class__(self.fieldname, self.words[:], boost=self.boost)
@@ -1451,7 +1463,7 @@ class Ordered(And):
     
     def matcher(self, searcher):
         from spans import SpanBefore
-        return self._matcher(SpanBefore.SpanBeforeMatcher, searcher)
+        return self._matcher(SpanBefore._Matcher, searcher)
 
 
 class Every(Query):
@@ -1510,13 +1522,15 @@ class Every(Query):
                                      self.boost)
 
     def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
+        return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
                 and self.boost == other.boost)
 
     def __unicode__(self):
         return u"%s:*" % self.fieldname
+
+    def __hash__(self):
+        return hash(self.fieldname)
 
     def copy(self):
         return self.__class__(self.fieldname, boost=self.boost)
@@ -1556,6 +1570,9 @@ class NullQuery(Query):
     def __repr__(self):
         return "<%s>" % (self.__class__.__name__, )
     
+    def __hash__(self):
+        return id(self)
+    
     def copy(self):
         return self
     
@@ -1592,6 +1609,13 @@ class ConstantScoreQuery(WrappingQuery):
         super(ConstantScoreQuery, self).__init__(child)
         self.score = score
     
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.child == other.child and self.score == other.score)
+    
+    def __hash__(self):
+        return hash(self.child) ^ hash(self.score)
+    
     def copy(self):
         return self.__class__(self.child.copy(), self.score)
     
@@ -1622,7 +1646,17 @@ class WeightingQuery(WrappingQuery):
         self.model = model
         self.fieldname = fieldname
         self.text = text
-        
+    
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.child == other.child
+                and self.model == other.model
+                and self.fieldname == other.fieldname
+                and self.text == other.text)
+    
+    def __hash__(self):
+        return hash(self.child) ^ hash(self.fieldname) ^ hash(self.text)
+    
     def copy(self):
         return self.__class__(self.child.copy(), self.model, self.fieldname,
                               self.text)
@@ -1675,7 +1709,16 @@ class BinaryQuery(CompoundQuery):
         self.b = b
         self.subqueries = (a, b)
         self.boost = boost
-        
+
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.a == other.a and self.b == other.b
+                and self.boost == other.boost)
+    
+    def __hash__(self):
+        return (hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b)
+                ^ hash(self.boost))
+    
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy(), boost=self.boost)
     

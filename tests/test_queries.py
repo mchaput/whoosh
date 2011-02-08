@@ -1,9 +1,10 @@
 import unittest
 
-from whoosh import fields, index, qparser
+from whoosh import fields, scoring
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.query import *
+from whoosh.spans import *
 
 
 class TestQueries(unittest.TestCase):
@@ -124,6 +125,81 @@ class TestQueries(unittest.TestCase):
         q = nq(7)
         q = q.normalize()
         self.assertEqual(q, Or([Term("a", u"a"), Term("a", u"b")]))
+    
+    def test_query_copy_hash(self):
+        def do(q1, q2):
+            q1a = q1.copy()
+            self.assertEqual(q1, q1a)
+            self.assertEqual(hash(q1), hash(q1a))
+            self.assertNotEqual(q1, q2)
+            
+        do(Term("a", u"b", boost=1.1), Term("a", u"b", boost=1.5))
+        do(And([Term("a", u"b"), Term("c", u"d")], boost=1.1),
+           And([Term("a", u"b"), Term("c", u"d")], boost=1.5))
+        do(Or([Term("a", u"b", boost=1.1), Term("c", u"d")]),
+           Or([Term("a", u"b", boost=1.8), Term("c", u"d")], boost=1.5))
+        do(DisjunctionMax([Term("a", u"b", boost=1.8), Term("c", u"d")]),
+           DisjunctionMax([Term("a", u"b", boost=1.1), Term("c", u"d")], boost=1.5))
+        do(Not(Term("a", u"b", boost=1.1)), Not(Term("a", u"b", boost=1.5)))
+        do(Prefix("a", u"b", boost=1.1), Prefix("a", u"b", boost=1.5))
+        do(Wildcard("a", u"b*x?", boost=1.1), Wildcard("a", u"b*x?", boost=1.5))
+        do(FuzzyTerm("a", u"b", constantscore=True),
+           FuzzyTerm("a", u"b", constantscore=False))
+        do(FuzzyTerm("a", u"b", boost=1.1), FuzzyTerm("a", u"b", boost=1.5))
+        do(TermRange("a", u"b", u"c"), TermRange("a", u"b", u"d"))
+        do(TermRange("a", None, u"c"), TermRange("a", None, None))
+        do(TermRange("a", u"b", u"c", boost=1.1),
+           TermRange("a", u"b", u"c", boost=1.5))
+        do(TermRange("a", u"b", u"c", constantscore=True),
+           TermRange("a", u"b", u"c", constantscore=False))
+        do(NumericRange("a", 1, 5), NumericRange("a", 1, 6))
+        do(NumericRange("a", None, 5), NumericRange("a", None, None))
+        do(NumericRange("a", 3, 6, boost=1.1), NumericRange("a", 3, 6, boost=1.5))
+        do(NumericRange("a", 3, 6, constantscore=True),
+           NumericRange("a", 3, 6, constantscore=False))
+        # do(DateRange)
+        do(Variations("a", u"render"), Variations("a", u"renders"))
+        do(Variations("a", u"render", boost=1.1),
+           Variations("a", u"renders", boost=1.5))
+        do(Phrase("a", [u"b", u"c", u"d"]), Phrase("a", [u"b", u"c", u"e"]))
+        do(Phrase("a", [u"b", u"c", u"d"], boost=1.1),
+           Phrase("a", [u"b", u"c", u"d"], boost=1.5))
+        do(Phrase("a", [u"b", u"c", u"d"], slop=1),
+           Phrase("a", [u"b", u"c", u"d"], slop=2))
+        # do(Ordered)
+        do(Every(), Every("a"))
+        do(Every("a"), Every("b"))
+        do(Every("a", boost=1.1), Every("a", boost=1.5))
+        do(NullQuery, Term("a", u"b"))
+        do(ConstantScoreQuery(Term("a", u"b")), ConstantScoreQuery(Term("a", u"c")))
+        do(ConstantScoreQuery(Term("a", u"b"), score=2.0),
+           ConstantScoreQuery(Term("a", u"c"), score=2.1))
+        do(WeightingQuery(Term("a", u"b"), scoring.Frequency()),
+           WeightingQuery(Term("a", u"c"), scoring.Frequency()))
+        do(Require(Term("a", u"b"), Term("c", u"d")),
+           Require(Term("a", u"b", boost=1.1), Term("c", u"d")))
+        # do(Require)
+        # do(AndMaybe)
+        # do(AndNot)
+        # do(Otherwise)
+        
+        do(SpanFirst(Term("a", u"b"), limit=1), SpanFirst(Term("a", u"b"), limit=2))
+        do(SpanNear(Term("a", u"b"), Term("c", u"d")),
+           SpanNear(Term("a", u"b"), Term("c", u"e")))
+        do(SpanNear(Term("a", u"b"), Term("c", u"d"), slop=1),
+           SpanNear(Term("a", u"b"), Term("c", u"d"), slop=2))
+        do(SpanNear(Term("a", u"b"), Term("c", u"d"), mindist=1),
+           SpanNear(Term("a", u"b"), Term("c", u"d"), mindist=2))
+        do(SpanNear(Term("a", u"b"), Term("c", u"d"), ordered=True),
+           SpanNear(Term("a", u"b"), Term("c", u"d"), ordered=False))
+        do(SpanNot(Term("a", u"b"), Term("a", u"c")),
+           SpanNot(Term("a", u"b"), Term("a", u"d")))
+        do(SpanOr([Term("a", u"b"), Term("a", u"c"), Term("a", u"d")]),
+           SpanOr([Term("a", u"b"), Term("a", u"c"), Term("a", u"e")]))
+        do(SpanContains(Term("a", u"b"), Term("a", u"c")),
+           SpanContains(Term("a", u"b"), Term("a", u"d")))
+        # do(SpanBefore)
+        # do(SpanCondition)
         
 
 
