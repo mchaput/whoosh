@@ -1455,12 +1455,51 @@ class Ordered(And):
 
 
 class Every(Query):
-    """A query that matches every document containing any word in a given
-    field. This is intended as a more efficient substitute for a prefix query
-    with an empty prefix or a '*' wildcard.
+    """A query that matches every document containing any term in a given
+    field. If you don't specify a field, the query matches every document.
+    
+    >>> # Match any documents with something in the "path" field
+    >>> q = Every("path")
+    >>> # Matcher every document
+    >>> q = Every()
+    
+    The unfielded form (matching every document) is efficient.
+    
+    The fielded is more efficient than a prefix query with an empty prefix or a
+    '*' wildcard, but it can still be very slow on large indexes. It requires
+    the searcher to read the full posting list of every term in the given
+    field.
+    
+    Instead of using this query it is much more efficient when you create the
+    index to include a single term that appears in all documents that have the
+    field you want to match.
+    
+    For example, instead of this::
+    
+        # Match all documents that have something in the "path" field
+        q = Every("path")
+        
+    Do this when indexing::
+    
+        # Add an extra field that indicates whether a document has a path
+        schema = fields.Schema(path=fields.ID, has_path=fields.ID)
+        
+        # When indexing, set the "has_path" field based on whether the document
+        # has anything in the "path" field
+        writer.add_document(text=text_value1)
+        writer.add_document(text=text_value2, path=path_value2, has_path="t")
+    
+    Then to find all documents with a path::
+    
+        q = Term("has_path", "t")
     """
 
     def __init__(self, fieldname=None, boost=1.0):
+        """
+        :param fieldname: the name of the field to match, or ``None`` or ``*``
+            to match all documents.
+        """
+        
         if not fieldname or fieldname == "*":
             fieldname = None
         self.fieldname = fieldname
