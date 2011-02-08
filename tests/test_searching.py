@@ -968,7 +968,49 @@ class TestSearching(unittest.TestCase):
                 self.assertTrue("bravo" in words)
                 self.assertTrue("charlie" not in words)
             
+    def test_timelimit(self):
+        schema = fields.Schema(text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        for _ in xrange(50):
+            w.add_document(text=u"alfa")
+        w.commit()
+        
+        import time
+        from whoosh import matching
+        
+        class SlowMatcher(matching.WrappingMatcher):
+            def next(self):
+                time.sleep(0.02)
+                self.child.next()
+        
+        class SlowQuery(WrappingQuery):
+            def matcher(self, searcher):
+                return SlowMatcher(self.child.matcher(searcher))
+        
+        with ix.searcher() as s:
+            oq = Term("text", u"alfa")
+            sq = SlowQuery(oq)
             
+            col = searching.Collector(timelimit=0.1)
+            self.assertRaises(searching.TimeLimit, s.search, sq, limit=None, collector=col)
+            
+            col = searching.Collector(timelimit=0.1)
+            self.assertRaises(searching.TimeLimit, s.search, sq, limit=40, collector=col)
+            
+            col = searching.Collector(timelimit=0.25)
+            try:
+                s.search(sq, limit=None, collector=col)
+            except searching.TimeLimit:
+                r = col.results()
+                self.assertTrue(r.scored_length() > 0)
+            
+            col = searching.Collector(timelimit=0.5)
+            r = s.search(oq, limit=None, collector=col)
+            self.assertTrue(r.runtime < 0.5)
+            
+
+
 
 
 
