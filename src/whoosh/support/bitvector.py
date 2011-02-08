@@ -215,7 +215,8 @@ class BitSet(object):
             self.add = self._back.set
             self.remove = self._vec_remove
             
-        self.__contains__ = self._back.__contains__
+    def __contains__(self, n):
+        return n in self._back
 
     def __repr__(self):
         return "<%s %s/%s>" % (self.__class__.__name__, len(self._back), self.size)

@@ -296,6 +296,54 @@ class TestSorting(unittest.TestCase):
                 cats = r.groups(("tag", "size"))
                 self.assertEqual(cats, correct)
     
+    def test_sort_filter(self):
+        schema = fields.Schema(group=fields.ID(stored=True), key=fields.ID(stored=True))
+        groups = u"alfa bravo charlie".split()
+        keys = u"abcdefghijklmnopqrstuvwxyz"
+        source = []
+        for i in xrange(100):
+            key = keys[i % len(keys)]
+            group = groups[i % len(groups)]
+            source.append({"key": key, "group": group})
+        source.sort(key=lambda x: (x["key"], x["group"]))
+        
+        sample = source[:]
+        random.shuffle(sample)
+        
+        with TempIndex(schema, "sortfilter") as ix:
+            w = ix.writer()
+            for i, fs in enumerate(sample):
+                w.add_document(**fs)
+                i += 1
+                if not i % 26:
+                    w.commit(merge=False)
+                    w = ix.writer()
+            w.commit()
+            
+            fq = query.Term("group", u"bravo")
+            
+            with ix.searcher() as s:
+                r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=20)
+                self.assertEqual([h.fields() for h in r],
+                                 [d for d in source if d["group"] == "bravo"][:20])
+                
+                fq = query.Term("group", u"bravo")
+                r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=None)
+                self.assertEqual([h.fields() for h in r],
+                                 [d for d in source if d["group"] == "bravo"])
+                
+            ix.optimize()
+            
+            with ix.searcher() as s:
+                r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=20)
+                self.assertEqual([h.fields() for h in r],
+                                 [d for d in source if d["group"] == "bravo"][:20])
+                
+                fq = query.Term("group", u"bravo")
+                r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=None)
+                self.assertEqual([h.fields() for h in r],
+                                 [d for d in source if d["group"] == "bravo"])
+    
     def test_custom_sort(self):
         from array import array
         from whoosh.searching import Results

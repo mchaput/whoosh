@@ -27,7 +27,8 @@ from math import ceil
 
 from whoosh import classify, query, scoring
 from whoosh.reading import TermNotFound
-from whoosh.util import now
+from whoosh.support.bitvector import BitSet
+from whoosh.util import now, lru_cache
 
 
 class TimeLimit(Exception):
@@ -310,13 +311,9 @@ class Searcher(object):
                 delset.add(docnum)
         return delset
 
+    @lru_cache(20)
     def _query_to_comb(self, fq):
-        try:
-            return self._filter_cache[fq]
-        except KeyError:
-            docset = set(self.docs_for_query(fq))
-            self._filter_cache[fq] = docset
-            return docset
+        return BitSet(self.doc_count_all(), source=self.docs_for_query(fq))
 
     def _filter_to_comb(self, obj):
         if isinstance(obj, set):
@@ -446,14 +443,14 @@ class Searcher(object):
                      in r.sort_docs_by(sortedby, q.docs(self), reverse=reverse)
                      if (not comb) or docnum in comb]
             
+            # Create the docset from top_n
+            docset = set(docnum for _, docnum in top_n)
+            
             # I artificially enforce the limit here, even thought the current
             # implementation can't use it, so that the results don't change
             # based on single- vs- multi-segment.
             top_n = top_n[:limit]
         
-            # Create the docset from top_n
-            docset = set(docnum for _, docnum in top_n)
-            
         runtime = now() - t
         
         return Results(self, q, top_n, docset, runtime=runtime)
@@ -513,7 +510,8 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         if sortedby is not None:
-            return self.sort_query(q, sortedby, limit=limit, reverse=reverse)
+            return self.sort_query(q, sortedby, limit=limit, reverse=reverse,
+                                   filter=filter)
         
         if isinstance(groupedby, basestring):
             groupedby = (groupedby, )
