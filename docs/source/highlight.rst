@@ -24,59 +24,122 @@ The highlight module works on a pipeline:
 .. rubric:: Footnotes
 
 .. [#f1]
-    Some search systems, such as Lucene, can use term vectors to highlight text 
+    Some search systems, such as Lucene, can use term vectors to highlight text
     without retokenizing it. In my tests I found that using a Position/Character
     term vector didn't give any speed improvement in Whoosh over retokenizing
     the text. This probably needs further investigation.
 
 
+The easy way
+============
+
+The :class:`whoosh.searching.Hit` objects you get from a
+:class:`whoosh.searching.Results` object have a
+:meth:`~whoosh.searching.Hit.highlights` method which returns highlighted
+snippets from the document. The only required argument is the name of the field
+to highlight::
+
+    results = searcher.search(myquery)
+    for hit in results:
+        print hit["title"]
+        print hit.highlights("content")
+        
+This assumes the ``"content"`` field is marked ``stored`` in the schema so it is
+available in the stored fields for the document. If you don't store the contents
+of the field you want to highlight in the index, but have access to it another
+way (for example, reading from a file or a database), you can supply the text as
+an optional second argument::
+
+    results = searcher.search(myquery)
+    for hit in results:
+        print hit["title"]
+        
+        # Instead of storing the contents in the index, I stored a file path
+        # so I could retrieve the contents from the original file
+        path = hit["path"]
+        text = open(path).read()
+        print hit.highlight("content", text)
+
+You can customize the creation of the snippets by setting certain attributes on
+the :class:`Results` object. Set the ``Results.fragmenter`` attribute to a
+:class:`whoosh.highlight.Fragmenter` object (see "Fragmenters" below) and/or
+the ``Results.formatter`` attribute to a :class:`whoosh.highlight.Formatter`
+object (see "Formatters" below).
+
+For example, to return larger fragments and highlight them by converting to
+upper-case instead of with HTML tags::
+
+    from whoosh import highlight
+
+    r = searcher.search(myquery)
+    r.fragmenter = highlight.ContextFragmenter(surround=40)
+    r.formatter = highlight.UppercaseFormatter()
+    for hit in r:
+        print hit["title"]
+        print hit.highlights("content")
+
+You can use the ``top`` keyword argument to control the number of fragments
+returned in each snippet::
+
+    # Show a maximum of 5 fragments from the document
+    print hit.highlight("content", top=5)
+
+You can control the order of the fragments in the snippet with the ``order``
+keyword argument. The value of the argument should be a sorting function for
+fragments. The :mod:`whoosh.highlight` module contains several sorting functions
+such as :func:`whoosh.highlight.SCORE`, :func:`whoosh.highlight.FIRST`,
+:func:`whoosh.highlight.LONGER`, :func:`whoosh.highlight.SHORTER`. The default
+is ``highlight.FIRST``, which is usually best.
+
+
+Using the low-level API
+=======================
+
 Usage
-=====
+-----
 
 The high-level interface is the highlight function::
 
-    excerpts = highlight(text, terms, analyzer,
-                         fragmenter, formatter, top=3,
-                         scorer=BasicFragmentScorer, minscore=1,
-                         order=FIRST)
+    excerpts = highlight(text, terms, analyzer, fragmenter, formatter, top=3,
+                         scorer=BasicFragmentScorer, minscore=1, order=FIRST)
 
 text
     The original text of the document.
 
 terms
-    An iterable containing the query words to match, e.g.
-    ("render", "shader").
+    A sequence or set containing the query words to match, e.g. ("render",
+    "shader").
 
 analyzer
-    The analyzer to use to break the document text into tokens for
-    matching against the query terms. This is usually the analyzer
-    for the field the query terms are in.
+    The analyzer to use to break the document text into tokens for matching
+    against the query terms. This is usually the analyzer for the field the
+    query terms are in.
 
 fragmenter
-    A fragmeter callable, see below.
+    A :class:`whoosh.highlight.Fragmenter` object, see below.
 
 formatter
-    A formatter callable, see below.
+    A :class:`whoosh.highlight.Formatter` object, see below.
 
 top
     The number of fragments to include in the output.
 
 scorer
-    A scorer callable. The only scorer currently included with Whoosh
-    is BasicFragmentScorer, the default.
+    A :class:`whoosh.highlight.FragmentScorer` object. The only scorer currently
+    included with Whoosh is :class:`~whoosh.highlight.BasicFragmentScorer`, the
+    default.
 
 minscore
-    The minimum score a fragment must have to be considered for
-    inclusion.
+    The minimum score a fragment must have to be considered for inclusion.
 
 order
-    An ordering function that determines the order of the "top"
-    fragments in the output text. This will usually be either
-    SCORE (highest scoring fragments first) or FIRST (highest
-    scoring fragments in their original order). (Whoosh also
-    includes LONGER (longer fragments first) and SHORTER (shorter
-    fragments first) as examples of scoring functions, but they
-    probably aren't as generally useful.)
+    An ordering function that determines the order of the "top" fragments in the
+    output text. This will usually be either SCORE (highest scoring fragments
+    first) or FIRST (highest scoring fragments in their original order). (Whoosh
+    also includes LONGER (longer fragments first) and SHORTER (shorter fragments
+    first) as examples of scoring functions, but they probably aren't as
+    generally useful.)
+
 
 Example
 -------
@@ -125,7 +188,7 @@ Example
     # Since we want to highlight the full title, not extract fragments,
     # we'll use NullFragmenter. See the docs for the highlight module
     # for which fragmenters are available.
-    fragmenter = highlight.NullFragmenter
+    fragmenter = highlight.NullFragmenter()
 
     # This object controls what the highlighted output looks like.
     # See the docs for its arguments.
@@ -139,11 +202,8 @@ Example
                                  fragmenter, formatter)
 
 
-How it works
-============
-
 Fragmenters
------------
+===========
 
 A fragmenter controls the policy of how to extract excerpts from the 
 original text. It is a callable that takes the original text, the set of 
@@ -171,15 +231,15 @@ ContextFragmenter
     in surround text to form fragments. This fragmenter only yields
     fragments that contain matched terms.
 
-(See the docstrings for how to instantiate these)
+See the :mod:`whoosh.highlight` docs for more information.
 
 
 Formatters
-----------
+==========
 
 A formatter contols how the highest scoring fragments are turned into a 
 formatted bit of text for display to the user. It can return anything 
-(e.g. plain text, HTML, a Genshi event stream, a SAX event generater, 
+(e.g. plain text, HTML, a Genshi event stream, a SAX event generator, 
 anything useful to the calling system).
 
 Whoosh currently includes only two formatters, because I wrote this 
@@ -198,14 +258,14 @@ GenshiFormatter
     Outputs a Genshi event stream, with the matched terms wrapped in a
     configurable element.
 
-(See the docstrings for how to instantiate these)
+See the :mod:`whoosh.highlight` docs for more information.
 
 
 Writing your own formatter
---------------------------
+==========================
 
-A formatter must be a callable (a function or an object with a __call__ 
-method). It is called with the following arguments::
+A Formatter subclass needs a __call__ method. It is called with the following
+arguments::
 
     formatter(text, fragments)
 
@@ -246,3 +306,6 @@ The basic work you need to do in the formatter is:
 The tricky part is that if you're adding text (e.g. inserting HTML tags 
 into the output), you have to be careful about keeping the character 
 indices straight.
+
+
+

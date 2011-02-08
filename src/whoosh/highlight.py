@@ -20,8 +20,11 @@ query terms highlighted.
 """
 
 from __future__ import division
+from collections import deque
 from heapq import nlargest
 from cgi import escape as htmlescape
+
+from whoosh import analysis
 
 
 # Fragment object
@@ -83,21 +86,27 @@ def copyandmatchfilter(termset, tokens):
 
 # Fragmenters
 
-def NullFragmenter(text, tokens):
-    """Doesn't fragment the token stream. This object just returns the entire
-    stream as one "fragment". This is useful if you want to highlight the
-    entire text.
-    """
+class Fragmenter(object):
+    def __call__(self, text, tokens):
+        raise NotImplementedError
     
-    tokens = list(tokens)
-    before = after = 0
-    if tokens:
-        before = tokens[0].startchar
-        after = len(text) - tokens[-1].endchar
-    return [Fragment(tokens, charsbefore=before, charsafter=after)]
+
+class NullFragmenter(Fragmenter):
+    def __call__(self, text, tokens):
+        """Doesn't fragment the token stream. This object just returns the
+        entire stream as one "fragment". This is useful if you want to
+        highlight the entire text.
+        """
+        
+        tokens = list(tokens)
+        before = after = 0
+        if tokens:
+            before = tokens[0].startchar
+            after = len(text) - tokens[-1].endchar
+        return [Fragment(tokens, charsbefore=before, charsafter=after)]
 
 
-class SimpleFragmenter(object):
+class SimpleFragmenter(Fragmenter):
     """Simply splits the text into roughly equal sized chunks.
     """
     
@@ -107,7 +116,7 @@ class SimpleFragmenter(object):
             tokens, so the fragments will usually be smaller.
         """
         self.size = size
-        
+    
     def __call__(self, text, tokens):
         size = self.size
         first = None
@@ -129,7 +138,7 @@ class SimpleFragmenter(object):
             yield Fragment(frag)
 
 
-class SentenceFragmenter(object):
+class SentenceFragmenter(Fragmenter):
     """Breaks the text up on sentence end punctuation characters
     (".", "!", or "?"). This object works by looking in the original text for a
     sentence end as the next character after each token's 'endchar'.
@@ -180,17 +189,15 @@ class SentenceFragmenter(object):
             yield Fragment(frag)
 
 
-class ContextFragmenter(object):
+class ContextFragmenter(Fragmenter):
     """Looks for matched terms and aggregates them with their surrounding
     context.
     
     This fragmenter only yields fragments that contain matched terms.
     """
     
-    def __init__(self, termset, maxchars=200, surround=20):
+    def __init__(self, maxchars=200, surround=20):
         """
-        :param termset: A collection (probably a set or frozenset) containing
-            the terms you want to match to token.text attributes.
         :param maxchars: The maximum number of characters allowed in a
             fragment.
         :param surround: The number of extra characters of context to add both
@@ -205,12 +212,14 @@ class ContextFragmenter(object):
         charsbefore = self.charsbefore
         charsafter = self.charsafter
         
-        current = []
+        current = deque()
         currentlen = 0
         countdown = -1
         for t in tokens:
             if t.matched:
                 countdown = charsafter
+                # Add on "unused" context length from the front
+                countdown += (charsbefore - currentlen)
             
             current.append(t)
             
@@ -222,19 +231,19 @@ class ContextFragmenter(object):
                 
                 if countdown < 0 or currentlen >= maxchars:
                     yield Fragment(current)
-                    current = []
+                    current = deque()
                     currentlen = 0
             
             else:
                 while current and currentlen > charsbefore:
-                    t = current.pop(0)
+                    t = current.popleft()
                     currentlen -= t.endchar - t.startchar
 
         if countdown >= 0:
             yield Fragment(current)
 
 
-#class VectorFragmenter(object):
+#class VectorFragmenter(Fragmenter):
 #    def __init__(self, termmap, maxchars=200, charsbefore=20, charsafter=20):
 #        """
 #        :param termmap: A dictionary mapping the terms you're looking for to
@@ -279,15 +288,20 @@ class ContextFragmenter(object):
 
 # Fragment scorers
 
-def BasicFragmentScorer(f):
-    # Add up the boosts for the matched terms in this passage
-    score = sum(t.boost for t in f.matches)
-    
-    # Favor diversity: multiply score by the number of separate
-    # terms matched
-    score *= len(f.matched_terms) * 100
-    
-    return score
+class FragmentScorer(object):
+    pass
+
+
+class BasicFragmentScorer(FragmentScorer):
+    def __call__(self, f):
+        # Add up the boosts for the matched terms in this passage
+        score = sum(t.boost for t in f.matches)
+        
+        # Favor diversity: multiply score by the number of separate
+        # terms matched
+        score *= len(f.matched_terms) * 100
+        
+        return score
 
 
 # Fragment sorters
@@ -314,7 +328,11 @@ def SHORTER(fragment):
 
 # Formatters
 
-class UppercaseFormatter(object):
+class Formatter(object):
+    pass
+
+
+class UppercaseFormatter(Formatter):
     """Returns a string in which the matched terms are in UPPERCASE.
     """
     
@@ -347,7 +365,7 @@ class UppercaseFormatter(object):
                                   for fragment in fragments))
 
 
-class HtmlFormatter(object):
+class HtmlFormatter(Formatter):
     """Returns a string containing HTML formatting around the matched terms.
     
     This formatter wraps matched terms in an HTML element with two class names.
@@ -435,7 +453,7 @@ class HtmlFormatter(object):
         self.seen = {}
 
 
-class GenshiFormatter(object):
+class GenshiFormatter(Formatter):
     """Returns a Genshi event stream containing HTML formatting around the
     matched terms.
     """
@@ -501,7 +519,10 @@ class GenshiFormatter(object):
 # Highlighting
 
 def top_fragments(text, terms, analyzer, fragmenter, top=3,
-                  scorer=BasicFragmentScorer, minscore=1):
+                  scorer=None, minscore=1):
+    if scorer is None:
+        scorer = BasicFragmentScorer()
+    
     termset = frozenset(terms)
     tokens = copyandmatchfilter(termset, analyzer(text, chars=True,
                                                   keeporiginal=True))
@@ -511,11 +532,19 @@ def top_fragments(text, terms, analyzer, fragmenter, top=3,
 
 
 def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
-              scorer=BasicFragmentScorer, minscore=1,
-              order=FIRST):
+              scorer=None, minscore=1, order=FIRST):
+    
+    if scorer is None:
+        scorer = BasicFragmentScorer()
+    
+    assert isinstance(analyzer, analysis.Analyzer), "%r is not an analyzer" % analyzer
+    assert isinstance(fragmenter, Fragmenter), "%r is not a fragmenter" % fragmenter
+    assert isinstance(formatter, Formatter), "%r is not a formatter" % formatter
+    assert isinstance(scorer, FragmentScorer), "%r is not a fragment scorer" % scorer
+    assert callable(order)
     
     fragments = top_fragments(text, terms, analyzer, fragmenter,
-                              top=top, minscore=minscore)
+                              top=top, scorer=scorer, minscore=minscore)
     fragments.sort(key=order)
     return formatter(text, fragments)
     

@@ -25,7 +25,7 @@ from collections import defaultdict
 from heapq import nlargest, nsmallest, heappush, heapreplace
 from math import ceil
 
-from whoosh import classify, query, scoring
+from whoosh import classify, highlight, query, scoring
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitSet
 from whoosh.util import now, lru_cache
@@ -981,7 +981,12 @@ class Results(object):
         self.docset = docset
         self._groups = groups or {}
         self.runtime = runtime
+        self._terms = None
         
+        self.fragmenter = highlight.ContextFragmenter()
+        self.fragment_scorer = highlight.BasicFragmentScorer()
+        self.formatter = highlight.HtmlFormatter(tagname="b")
+    
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
                                                        self.q,
@@ -1004,6 +1009,11 @@ class Results(object):
         if self.docset is None:
             self._load_docs()
         return len(self.docset)
+
+    def terms(self):
+        if self._terms is  None:
+            self._terms = self.q.existing_terms(self.searcher.reader())
+        return self._terms
 
     def fields(self, n):
         """Returns the stored fields for the document at the ``n`` th position
@@ -1029,17 +1039,17 @@ class Results(object):
     def __getitem__(self, n):
         if isinstance(n, slice):
             start, stop, step = n.indices(len(self.top_n))
-            return [Hit(self.searcher, self.top_n[i][1], i, self.top_n[i][0])
+            return [Hit(self, self.top_n[i][1], i, self.top_n[i][0])
                     for i in xrange(start, stop, step)]
         else:
-            return Hit(self.searcher, self.top_n[n][1], n, self.top_n[n][0])
+            return Hit(self, self.top_n[n][1], n, self.top_n[n][0])
 
     def __iter__(self):
         """Yields the stored fields of each result document in ranked order.
         """
         
         for i in xrange(len(self.top_n)):
-            yield Hit(self.searcher, self.top_n[i][1], i, self.top_n[i][0])
+            yield Hit(self, self.top_n[i][1], i, self.top_n[i][0])
     
     def __contains__(self, docnum):
         """Returns True if the given document number matched the query.
@@ -1121,6 +1131,28 @@ class Results(object):
         of ranked documents.
         """
         return self.top_n[n][1]
+
+    def highlights(self, n, fieldname, text=None, top=3, order=highlight.FIRST):
+        """Returns highlighted snippets for the document in the Nth position
+        in the results. It is usually more convenient to call this method on a
+        Hit object instead of the Results.
+        
+        See the docs for the :meth:`Hit.highlights` method.
+        """
+        
+        if text is None:
+            d = self.fields(n)
+            if fieldname not in d:
+                raise KeyError("Field %r is not in the stored fields.")
+            text = d[fieldname]
+        
+        analyzer = self.searcher.schema[fieldname].format.analyzer
+        
+        terms = set(ttext for fname, ttext in self.terms() if fname == fieldname)
+        return highlight.highlight(text, terms, analyzer, self.fragmenter,
+                                   self.formatter, top=top,
+                                   scorer=self.fragment_scorer,
+                                   order=order)
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -1246,7 +1278,7 @@ class Hit(object):
     ["title"]
     """
     
-    def __init__(self, searcher, docnum, pos=None, score=None):
+    def __init__(self, results, docnum, pos=None, score=None):
         """
         :param results: the Results object this hit belongs to.
         :param pos: the position in the results list of this hit, for example
@@ -1255,7 +1287,8 @@ class Hit(object):
         :param score: the score of this hit.
         """
         
-        self.searcher = searcher
+        self.results = results
+        self.searcher = results.searcher
         self.pos = self.rank = pos
         self.docnum = docnum
         self.score = score
@@ -1269,6 +1302,73 @@ class Hit(object):
         if self._fields is None:
             self._fields = self.searcher.stored_fields(self.docnum)
         return self._fields
+    
+    def highlights(self, fieldname, text=None, top=3, order=highlight.FIRST):
+        """Returns highlighted snippets from the given field::
+        
+            r = searcher.search(myquery)
+            for hit in r:
+                print hit["title"]
+                print hit.highlights("content")
+        
+        See :doc:`how to highlight terms in search results </highlight>` for
+        more information.
+        
+        You can customize the creation of the snippets by setting certain
+        attributes on the :class:`Results` object.
+        
+        ``fragmenter``
+            A :class:`whoosh.highlight.Fragmenter` object. This controls how
+            the text is broken in fragments. The default is
+            :class:`whoosh.highlight.ContextFragmenter`. For some applications
+            you may find that a different fragmenting algorithm, such as
+            :class:`whoosh.highlight.SentenceFragmenter` gives better results.
+            For short fields you could use
+            :class:`whoosh.highlight.NullFragmenter` which returns the entire
+            field as a single fragment.
+        
+        ``formatter``
+            A :class:`whoosh.highlight.Formatter` object. This controls how
+            the search terms are highlighted in the snippets. The default is
+            :class:`whoosh.highlight.HtmlFormatter` with ``tagname='b'``.
+            
+            Note that different formatters may return different objects, e.g.
+            plain text, HTML, a Genshi event stream, a SAX event generator,
+            etc.
+        
+        ``fragment_scorer``
+            A :class:`whoosh.highlight.FragmentScorer` object. You will not
+            need to change this attribute unless you write a custom function
+            for weighting fragments.
+        
+        For example, to return larger fragments and highlight them by
+        converting to upper-case instead of with HTML tags::
+        
+            from whoosh import highlight
+        
+            r = searcher.search(myquery)
+            r.fragmenter = highlight.ContextFragmenter(surround=40)
+            r.formatter = highlight.UppercaseFormatter()
+            for hit in r:
+                print hit["title"]
+                print hit.highlights("content")
+            
+        :param fieldname: the name of the field you want to highlight.
+        :param text: by default, the method will attempt to load the contents
+            of the field from the stored fields for the document. If the field
+            you want to highlight isn't stored in the index, but you have
+            access to the text another way (for example, loading from a file or
+            a database), you can supply it using the ``text`` parameter.
+        :param top: the maximum number of fragments to return.
+        :param order: the order of the fragments. This should be one of
+            :func:`whoosh.highlight.SCORE`, :func:`whoosh.highlight.FIRST`,
+            :func:`whoosh.highlight.LONGER`,
+            :func:`whoosh.highlight.SHORTER`, or a custom sorting function. The
+            default is ``highlight.FIRST``.
+        """
+        
+        return self.results.highlights(self.rank, fieldname, text=text,
+                                       top=top, order=order)
     
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())
