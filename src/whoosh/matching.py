@@ -1320,7 +1320,6 @@ class ConstantScoreMatcher(WrappingMatcher):
         return self._score
     
 
-
 #class PhraseMatcher(WrappingMatcher):
 #    """Matches postings where a list of sub-matchers occur next to each other
 #    in order.
