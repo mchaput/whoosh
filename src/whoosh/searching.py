@@ -20,6 +20,7 @@
 
 from __future__ import division
 import copy
+import threading
 from collections import defaultdict
 from heapq import nlargest, nsmallest, heappush, heapreplace
 from math import ceil
@@ -27,6 +28,10 @@ from math import ceil
 from whoosh import classify, query, scoring
 from whoosh.reading import TermNotFound
 from whoosh.util import now
+
+
+class TimeLimit(Exception):
+    pass
 
 
 # Searcher class
@@ -491,16 +496,16 @@ class Searcher(object):
         
 
 class Collector(object):
-    def __init__(self, limit=10, usequality=True, replace=10,
-                 groupedby=None, scored=True):
+    def __init__(self, limit=10, usequality=True, replace=10, groupedby=None,
+                 scored=True, timelimit=None, greedy=False):
         """A Collector finds the matching documents, scores them, collects them
         into a list, and produces a Results object from them.
         
         Normally you do not need to instantiate an instance of the base
         Collector class, the :meth:`Searcher.search` method does that for you.
         
-        If you create a custom Collector subclass you can pass it to the
-        :meth:`Searcher.search` method using the ``collector`` keyword
+        If you create a custom Collector instance or subclass you can pass it
+        to the :meth:`Searcher.search` method using the ``collector`` keyword
         argument::
         
             mycollector = MyCollector()
@@ -516,6 +521,23 @@ class Collector(object):
         
         **Do not** re-use or share Collector instances between searches. You
         should create a new Collector instance for each search.
+        
+        To limit the amount of time a search can take, pass the number of
+        seconds to the ``timelimit`` keyword argument::
+        
+            # Limit the search to 4.5 seconds
+            col = Collector(timelimit=4.5, greedy=False)
+            # If this call takes more than 4.5 seconds, it will raise a
+            # whoosh.searching.TimeLimit exception
+            try:
+                r = searcher.search(myquery, collector=col)
+            except TimeLimit:
+                # You can still retrieve partial results from the collector
+                # after a time limit exception
+                r = col.results()
+            
+        If the ``greedy`` keyword is ``True``, the collector will finish adding
+        the most recent hit before raising the ``TimeLimit`` exception.
         """
         
         self.limit = limit
@@ -523,6 +545,8 @@ class Collector(object):
         self.replace = replace
         self.groupedby = groupedby
         self.scored = scored
+        self.timelimit = timelimit
+        self.greedy = greedy
         
         self.groups = {}
         self._items = []
@@ -531,6 +555,8 @@ class Collector(object):
         self.done = False
         self.minquality = None
         self.doc_offset = 0
+        self.timesup = False
+        self.timer = None
     
     def search(self, searcher, q):
         """Top-level method call which uses the given :class:`Searcher` and
@@ -542,22 +568,42 @@ class Collector(object):
         this method on a top-level searcher.
         """
         
+        self._searcher = searcher
+        self._q = q
+        
         w = searcher.weighting
         self.final = w.final if w.use_final else None
         
         if self.limit and self.limit > searcher.doc_count_all():
             self.limit = None
         
+        if self.timelimit:
+            self.timer = threading.Timer(self.timelimit, self._timestop)
+            self.timer.start()
+        
         t = now()
         if not searcher.is_atomic():
             for s, offset in searcher.subsearchers:
+                if self.timesup:
+                    raise TimeLimit
                 self.doc_offset = offset
                 self.add_searcher(s, q)
         else:
             self.add_searcher(searcher, q)
+            
+        if self.timer:
+            self.timer.cancel()
+            
         runtime = now() - t
         
-        return self.results(searcher, q, runtime=runtime)
+        return self.results(runtime=runtime)
+    
+    def _timestop(self):
+        # Called by the Timer when the time limit expires. We could raise the
+        # TimeLimit exception here, but that would probably leave the collector
+        # in an inconsistent state. Instead, we'll set a flag, and check the
+        # flag inside the add_(all|top)_matches loops.
+        self.timesup = True
     
     def add_searcher(self, searcher, q):
         """Adds the documents from the given searcher with the given query to
@@ -621,8 +667,13 @@ class Collector(object):
         items = self._items
         usequality = self.usequality
         score = self.score
+        timelimited = bool(self.timelimit)
+        greedy = self.greedy
         
         for id, quality in self.pull_matches(matcher, usequality):
+            if timelimited and not greedy and self.timesup:
+                raise TimeLimit
+            
             id += offset
             
             if len(items) < limit:
@@ -638,6 +689,9 @@ class Collector(object):
                 if s > items[0][0]:
                     heapreplace(items, (s, id, quality))
                     self.minquality = items[0][2]
+                    
+            if timelimited and self.timesup:
+                raise TimeLimit
     
     def add_all_matches(self, searcher, matcher):
         """Adds the matched documents from the given matcher to the collector's
@@ -647,6 +701,8 @@ class Collector(object):
         offset = self.doc_offset
         scored = self.scored
         score = self.score
+        timelimited = bool(self.timelimit)
+        greedy = self.greedy
         
         keyfns = None
         if self.groupedby:
@@ -655,6 +711,9 @@ class Collector(object):
                 keyfns[name] = searcher.reader().key_fn(name)
         
         for id, _ in self.pull_matches(matcher, False):
+            if timelimited and not greedy and self.timesup:
+                raise TimeLimit
+            
             offsetid = id + offset
             
             if keyfns:
@@ -668,6 +727,9 @@ class Collector(object):
             if scored:
                 scr = score(searcher, matcher)
             self.collect(scr, offsetid)
+            
+            if timelimited and self.timesup:
+                raise TimeLimit
             
     def pull_matches(self, matcher, usequality):
         """Low-level method yields (docid, quality) pairs from the given
@@ -738,12 +800,12 @@ class Collector(object):
             items = sorted(self._items, key=lambda x: (0 - x[0], x[1]))
         return [(item[0], item[1]) for item in items]
     
-    def results(self, searcher, q, runtime=None):
+    def results(self, runtime=None):
         """Returns the collected hits as a :class:`Results` object.
         """
         
         docset = self.docset or None
-        return Results(searcher, q, self.items(), docset,
+        return Results(self._searcher, self._q, self.items(), docset,
                        groups=self.groups, runtime=runtime)
 
 
