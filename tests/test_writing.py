@@ -144,7 +144,7 @@ class TestWriting(unittest.TestCase):
                 domain = self.domain
                 for _ in xrange(10):
                     w.update_document(name=random.choice(domain))
-                    time.sleep(random.uniform(0.1, 0.3))
+                    time.sleep(random.uniform(0.01, 0.1))
         
         schema = fields.Schema(name=fields.ID(unique=True, stored=True))
         with TempIndex(schema, "buffthreads") as ix:
