@@ -941,7 +941,7 @@ class TestSearching(unittest.TestCase):
             q = And([Term("f", "delta"), Not(Term("f", "delta"))])
             r = s.search(q)
             self.assertEqual(len(r), 0)
-            
+    
     def test_trackingcollector(self):
         schema = fields.Schema(text=fields.TEXT(stored=True))
         ix = RamStorage().create_index(schema)

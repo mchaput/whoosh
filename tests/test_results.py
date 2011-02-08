@@ -180,6 +180,32 @@ class TestResults(unittest.TestCase):
             self.assertEqual(len(rp), 0)
             self.assertTrue(rp.is_last_page())
     
+    def test_snippets(self):
+        from whoosh import highlight
+        
+        ana = analysis.StemmingAnalyzer()
+        schema = fields.Schema(text=fields.TEXT(stored=True, analyzer=ana))
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(text=u"Lay out the rough animation by creating the important poses where they occur on the timeline.")
+        w.add_document(text=u"Set key frames on everything that's key-able. This is for control and predictability: you don't want to accidentally leave something un-keyed. This is also much faster than selecting the parameters to key.")
+        w.add_document(text=u"Use constant (straight) or sometimes linear transitions between keyframes in the channel editor. This makes the character jump between poses.")
+        w.add_document(text=u"Keying everything gives quick, immediate results, but it can become difficult to tweak the animation later, especially for complex characters.")
+        w.add_document(text=u"Copy the current pose to create the next one: pose the character, key everything, then copy the keyframe in the playbar to another frame, and key everything at that frame.")
+        w.commit()
+        
+        target = ["Set KEY frames on everything that's KEY-able. This is for control and predictability...leave something un-KEYED. This is also much faster than selecting...parameters to KEY",
+                  "next one: pose the character, KEY everything, then copy...playbar to another frame, and KEY everything at that frame",
+                  "KEYING everything gives quick, immediate results"]
+        
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("text", ix.schema)
+            q = qp.parse(u"key")
+            r = s.search(q)
+            r.formatter = highlight.UppercaseFormatter()
+            
+            self.assertEqual([hit.highlights("text") for hit in r], target)
+            
     def test_keyterms(self):
         ana = analysis.StandardAnalyzer()
         vectorformat = formats.Frequency(ana)

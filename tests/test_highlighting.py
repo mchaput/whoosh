@@ -11,7 +11,7 @@ class TestHighlighting(unittest.TestCase):
     def test_null_fragment(self):
         terms = frozenset(("bravo", "india"))
         sa = analysis.StandardAnalyzer()
-        nf = highlight.NullFragmenter
+        nf = highlight.NullFragmenter()
         uc = highlight.UppercaseFormatter()
         htext = highlight.highlight(self._doc, terms, sa, nf, uc)
         self.assertEqual(htext, "alfa BRAVO charlie delta echo foxtrot golf hotel INDIA juliet kilo lima")
@@ -36,15 +36,23 @@ class TestHighlighting(unittest.TestCase):
     def test_context_fragment(self):
         terms = frozenset(("bravo", "india"))
         sa = analysis.StandardAnalyzer()
-        cf = highlight.ContextFragmenter(terms, surround=6)
+        cf = highlight.ContextFragmenter(surround=6)
         uc = highlight.UppercaseFormatter()
         htext = highlight.highlight(self._doc, terms, sa, cf, uc)
         self.assertEqual(htext, "alfa BRAVO charlie...hotel INDIA juliet")
     
+    def test_context_at_start(self):
+        terms = frozenset(["alfa"])
+        sa = analysis.StandardAnalyzer()
+        cf = highlight.ContextFragmenter(surround=15)
+        uc = highlight.UppercaseFormatter()
+        htext = highlight.highlight(self._doc, terms, sa, cf, uc)
+        self.assertEqual(htext, "ALFA bravo charlie delta echo foxtrot")
+    
     def test_html_format(self):
         terms = frozenset(("bravo", "india"))
         sa = analysis.StandardAnalyzer()
-        cf = highlight.ContextFragmenter(terms, surround=6)
+        cf = highlight.ContextFragmenter(surround=6)
         hf = highlight.HtmlFormatter()
         htext = highlight.highlight(self._doc, terms, sa, cf, hf)
         self.assertEqual(htext, 'alfa <strong class="match term0">bravo</strong> charlie...hotel <strong class="match term1">india</strong> juliet')
@@ -52,7 +60,7 @@ class TestHighlighting(unittest.TestCase):
     def test_maxclasses(self):
         terms = frozenset(("alfa", "bravo", "charlie", "delta", "echo"))
         sa = analysis.StandardAnalyzer()
-        cf = highlight.ContextFragmenter(terms, surround=6)
+        cf = highlight.ContextFragmenter(surround=6)
         hf = highlight.HtmlFormatter(tagname="b", termclass="t", maxclasses=2)
         htext = highlight.highlight(self._doc, terms, sa, cf, hf)
         self.assertEqual(htext, '<b class="match t0">alfa</b> <b class="match t1">bravo</b> <b class="match t0">charlie</b>...<b class="match t1">delta</b> <b class="match t0">echo</b> foxtrot')
@@ -91,7 +99,7 @@ class TestHighlighting(unittest.TestCase):
             
             # Since we want to highlight the full title, not extract fragments,
             # we'll use NullFragmenter.
-            nf = highlight.NullFragmenter
+            nf = highlight.NullFragmenter()
             
             # In this example we'll simply uppercase the matched terms
             fmt = highlight.UppercaseFormatter()
