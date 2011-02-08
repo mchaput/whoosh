@@ -42,7 +42,7 @@ class Searcher(object):
     """
 
     def __init__(self, reader, weighting=scoring.BM25F, closereader=True,
-                 fromindex=None, schema=None, doccount=None, idf_cache=None):
+                 fromindex=None, parent=None):
         """
         :param reader: An :class:`~whoosh.reading.IndexReader` object for
             the index to search.
@@ -60,9 +60,16 @@ class Searcher(object):
         self._closereader = closereader
         self._ix = fromindex
         
-        self.schema = schema or self.ixreader.schema
-        self._doccount = doccount or self.ixreader.doc_count_all()
-        self._idf_cache = idf_cache or {}
+        if parent:
+            self.schema = parent.schema
+            self._doccount = parent._doccount
+            self._idf_cache = parent._idf_cache
+            self._filter_cache = parent._filter_cache
+        else:
+            self.schema = self.ixreader.schema
+            self._doccount = self.ixreader.doc_count_all()
+            self._idf_cache = {}
+            self._filter_cache = {}
 
         if type(weighting) is type:
             self.weighting = weighting()
@@ -91,9 +98,7 @@ class Searcher(object):
 
     def _subsearcher(self, reader):
         return self.__class__(reader, fromindex=self._ix,
-                              weighting=self.weighting, schema=self.schema,
-                              doccount=self._doccount,
-                              idf_cache=self._idf_cache)
+                              weighting=self.weighting, parent=self)
 
     def is_atomic(self):
         return self.reader().is_atomic()
@@ -305,6 +310,28 @@ class Searcher(object):
                 delset.add(docnum)
         return delset
 
+    def _query_to_comb(self, fq):
+        try:
+            return self._filter_cache[fq]
+        except KeyError:
+            docset = set(self.docs_for_query(fq))
+            self._filter_cache[fq] = docset
+            return docset
+
+    def _filter_to_comb(self, obj):
+        if isinstance(obj, set):
+            c = obj
+        elif isinstance(obj, Results):
+            c = obj.docset
+        elif isinstance(obj, ResultsPage):
+            c = obj.results.docset
+        elif isinstance(obj, query.Query):
+            c = self._query_to_comb(obj)
+        else:
+            raise Exception("Don't know what to do with filter object %r" % obj)
+        
+        return c
+    
     def docs_for_query(self, q, leafs=True):
         if self.subsearchers and leafs:
             for s, offset in self.subsearchers:
@@ -366,9 +393,13 @@ class Searcher(object):
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 
-    def sort_query(self, q, sortedby, limit=None, reverse=False):
+    def sort_query(self, q, sortedby, limit=None, reverse=False, filter=None):
         t = now()
         docset = set()
+        
+        comb = None
+        if filter:
+            comb = self._filter_to_comb(filter)
         
         if self.subsearchers:
             heap = []
@@ -382,7 +413,8 @@ class Searcher(object):
             for s, offset in self.subsearchers:
                 # This searcher is wrapping a MultiReader, so push the sorting
                 # down to the leaf readers and then combine the results.
-                docnums = list(q.docs(s))
+                docnums = [docnum for docnum in q.docs(s)
+                           if (not comb) or docnum + offset in comb]
                 
                 # Add the docnums to the docset
                 docset.update(docnums)
@@ -411,7 +443,8 @@ class Searcher(object):
             # the reader to sort the results.
             r = self.reader()
             top_n = [(None, docnum) for docnum
-                     in r.sort_docs_by(sortedby, q.docs(self), reverse=reverse)]
+                     in r.sort_docs_by(sortedby, q.docs(self), reverse=reverse)
+                     if (not comb) or docnum in comb]
             
             # I artificially enforce the limit here, even thought the current
             # implementation can't use it, so that the results don't change
@@ -450,7 +483,7 @@ class Searcher(object):
         return groups
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, scored=True, collector=None):
+               optimize=True, scored=True, filter=None, collector=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -471,6 +504,8 @@ class Searcher(object):
             "natural" order (the order in which they were added).
         :param collector: (expert) an instance of :class:`Collector` to use to
             collect the found documents.
+        :param filter: a query, Results object, or set of docnums. The results
+            will only contain documents that are also in the filter object.
         :rtype: :class:`Results`
         """
 
@@ -492,7 +527,7 @@ class Searcher(object):
             collector.groupedby = groupedby
             collector.scored = scored
         
-        return collector.search(self, q)
+        return collector.search(self, q, filter=filter)
         
 
 class Collector(object):
@@ -558,7 +593,7 @@ class Collector(object):
         self.timesup = False
         self.timer = None
     
-    def search(self, searcher, q):
+    def search(self, searcher, q, filter=None):
         """Top-level method call which uses the given :class:`Searcher` and
         :class:`whoosh.query.Query` objects to return a :class:`Results`
         object.
@@ -577,6 +612,10 @@ class Collector(object):
         if self.limit and self.limit > searcher.doc_count_all():
             self.limit = None
         
+        self._comb = None
+        if filter:
+            self.add_filter(filter)
+        
         if self.timelimit:
             self.timer = threading.Timer(self.timelimit, self._timestop)
             self.timer.start()
@@ -593,9 +632,8 @@ class Collector(object):
             
         if self.timer:
             self.timer.cancel()
-            
-        runtime = now() - t
         
+        runtime = now() - t
         return self.results(runtime=runtime)
     
     def _timestop(self):
@@ -604,6 +642,12 @@ class Collector(object):
         # in an inconsistent state. Instead, we'll set a flag, and check the
         # flag inside the add_(all|top)_matches loops.
         self.timesup = True
+    
+    def add_filter(self, obj):
+        c = self._searcher._filter_to_comb(obj)
+        if self._comb is None:
+            self._comb = set()
+        self._comb |= c
     
     def add_searcher(self, searcher, q):
         """Adds the documents from the given searcher with the given query to
@@ -667,6 +711,7 @@ class Collector(object):
         items = self._items
         usequality = self.usequality
         score = self.score
+        comb = self._comb
         timelimited = bool(self.timelimit)
         greedy = self.greedy
         
@@ -674,11 +719,13 @@ class Collector(object):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
             
-            id += offset
+            offsetid = id + offset
+            if comb and offsetid not in comb:
+                continue
             
             if len(items) < limit:
                 # The heap isn't full, so just add this document
-                heappush(items, (score(searcher, matcher), id, quality))
+                heappush(items, (score(searcher, matcher), offsetid, quality))
             
             elif quality > self.minquality:
                 # The heap is full, but the posting quality indicates
@@ -687,7 +734,7 @@ class Collector(object):
                 
                 s = score(searcher, matcher)
                 if s > items[0][0]:
-                    heapreplace(items, (s, id, quality))
+                    heapreplace(items, (s, offsetid, quality))
                     self.minquality = items[0][2]
                     
             if timelimited and self.timesup:
@@ -701,6 +748,7 @@ class Collector(object):
         offset = self.doc_offset
         scored = self.scored
         score = self.score
+        comb = self._comb
         timelimited = bool(self.timelimit)
         greedy = self.greedy
         
@@ -715,6 +763,8 @@ class Collector(object):
                 raise TimeLimit
             
             offsetid = id + offset
+            if comb and offsetid not in comb:
+                continue
             
             if keyfns:
                 for name, keyfn in keyfns.iteritems():

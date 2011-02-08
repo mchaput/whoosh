@@ -967,7 +967,35 @@ class TestSearching(unittest.TestCase):
                 words = s.stored_fields(docnum)["text"].split()
                 self.assertTrue("bravo" in words)
                 self.assertTrue("charlie" not in words)
+    
+    def test_filter(self):
+        schema = fields.Schema(id=fields.STORED, path=fields.ID, text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        w = ix.writer()
+        w.add_document(id=1, path=u"/a/1", text=u"alfa bravo charlie")
+        w.add_document(id=2, path=u"/b/1", text=u"bravo charlie delta")
+        w.add_document(id=3, path=u"/c/1", text=u"charlie delta echo")
+        w.commit(merge=False)
+        w = ix.writer()
+        w.add_document(id=4, path=u"/a/2", text=u"delta echo alfa")
+        w.add_document(id=5, path=u"/b/2", text=u"echo alfa bravo")
+        w.add_document(id=6, path=u"/c/2", text=u"alfa bravo charlie")
+        w.commit(merge=False)
+        w = ix.writer()
+        w.add_document(id=7, path=u"/a/3", text=u"bravo charlie delta")
+        w.add_document(id=8, path=u"/b/3", text=u"charlie delta echo")
+        w.add_document(id=9, path=u"/c/3", text=u"delta echo alfa")
+        w.commit(merge=False)
+        
+        with ix.searcher() as s:
+            fq = Or([Prefix("path", "/a"), Prefix("path", "/b")])
+            r = s.search(Term("text", "alfa"), scored=False, filter=fq)
+            self.assertEqual([d["id"] for d in r], [1, 4, 5])
             
+            r = s.search(Term("text", "bravo"), scored=False, filter=fq)
+            self.assertEqual([d["id"] for d in r], [1, 2, 5, 7,])
+        
+    
     def test_timelimit(self):
         schema = fields.Schema(text=fields.TEXT)
         ix = RamStorage().create_index(schema)
@@ -1009,7 +1037,6 @@ class TestSearching(unittest.TestCase):
             r = s.search(oq, limit=None, collector=col)
             self.assertTrue(r.runtime < 0.5)
             
-
 
 
 
