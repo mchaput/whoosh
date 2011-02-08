@@ -436,17 +436,15 @@ class CompoundQuery(Query):
                 everyfields.add(q.fieldname)
             i += 1
 
-        # Eliminate duplicate terms.
+        # Eliminate duplicate queries
         subqs = []
-        seenterms = set()
+        seenqs = set()
         for s in subqueries:
             if (not isinstance(s, Every) and s.field() in everyfields):
                 continue
-            if isinstance(s, Term):
-                term = (s.fieldname, s.text)
-                if term in seenterms:
-                    continue
-                seenterms.add(term)
+            if s in seenqs:
+                continue
+            seenqs.add(s)
             subqs.append(s)
 
         # Remove NullQuerys

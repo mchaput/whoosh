@@ -126,6 +126,23 @@ class TestQueries(unittest.TestCase):
         q = q.normalize()
         self.assertEqual(q, Or([Term("a", u"a"), Term("a", u"b")]))
     
+    def test_duplicates(self):
+        q = And([Term("a", u"b"), Term("a", u"b")])
+        self.assertEqual(q.normalize(), Term("a", u"b"))
+        
+        q = And([Prefix("a", u"b"), Prefix("a", u"b")])
+        self.assertEqual(q.normalize(), Prefix("a", u"b"))
+        
+        q = And([Variations("a", u"b"), And([Variations("a", u"b"), Term("a", u"b")])])
+        self.assertEqual(q.normalize(), And([Variations("a", u"b"), Term("a", u"b")]))
+        
+        q = And([Term("a", u"b"), Prefix("a", u"b"), Term("a", u"b", boost=1.1)])
+        self.assertEqual(q.normalize(), q)
+        
+        # Wildcard without * or ? normalizes to Term
+        q = And([Wildcard("a", u"b"), And([Wildcard("a", u"b"), Term("a", u"b")])])
+        self.assertEqual(q.normalize(), Term("a", u"b"))
+    
     def test_query_copy_hash(self):
         def do(q1, q2):
             q1a = q1.copy()
