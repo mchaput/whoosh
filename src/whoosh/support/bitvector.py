@@ -199,7 +199,7 @@ class BitSet(object):
         self.size = size
         
         self._back = ()
-        self._switch(size > 256)
+        self._switch(size < 256)
         
         if source:
             for num in source:
