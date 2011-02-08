@@ -1132,7 +1132,8 @@ class Results(object):
         """
         return self.top_n[n][1]
 
-    def highlights(self, n, fieldname, text=None, top=3, order=highlight.FIRST):
+    def highlights(self, n, fieldname, text=None, top=3, fragmenter=None,
+                   formatter=None, order=highlight.FIRST):
         """Returns highlighted snippets for the document in the Nth position
         in the results. It is usually more convenient to call this method on a
         Hit object instead of the Results.
@@ -1147,12 +1148,13 @@ class Results(object):
             text = d[fieldname]
         
         analyzer = self.searcher.schema[fieldname].format.analyzer
+        fragmenter = fragmenter or self.fragmenter
+        formatter = formatter or self.formatter
         
         terms = set(ttext for fname, ttext in self.terms() if fname == fieldname)
-        return highlight.highlight(text, terms, analyzer, self.fragmenter,
-                                   self.formatter, top=top,
-                                   scorer=self.fragment_scorer,
-                                   order=order)
+        return highlight.highlight(text, terms, analyzer, fragmenter,
+                                   formatter, top=top,
+                                   scorer=self.fragment_scorer, order=order)
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -1303,7 +1305,8 @@ class Hit(object):
             self._fields = self.searcher.stored_fields(self.docnum)
         return self._fields
     
-    def highlights(self, fieldname, text=None, top=3, order=highlight.FIRST):
+    def highlights(self, fieldname, text=None, top=3, fragmenter=None,
+                   formatter=None, order=highlight.FIRST):
         """Returns highlighted snippets from the given field::
         
             r = searcher.search(myquery)
@@ -1314,35 +1317,11 @@ class Hit(object):
         See :doc:`how to highlight terms in search results </highlight>` for
         more information.
         
-        You can customize the creation of the snippets by setting certain
-        attributes on the :class:`Results` object.
-        
-        ``fragmenter``
-            A :class:`whoosh.highlight.Fragmenter` object. This controls how
-            the text is broken in fragments. The default is
-            :class:`whoosh.highlight.ContextFragmenter`. For some applications
-            you may find that a different fragmenting algorithm, such as
-            :class:`whoosh.highlight.SentenceFragmenter` gives better results.
-            For short fields you could use
-            :class:`whoosh.highlight.NullFragmenter` which returns the entire
-            field as a single fragment.
-        
-        ``formatter``
-            A :class:`whoosh.highlight.Formatter` object. This controls how
-            the search terms are highlighted in the snippets. The default is
-            :class:`whoosh.highlight.HtmlFormatter` with ``tagname='b'``.
-            
-            Note that different formatters may return different objects, e.g.
-            plain text, HTML, a Genshi event stream, a SAX event generator,
-            etc.
-        
-        ``fragment_scorer``
-            A :class:`whoosh.highlight.FragmentScorer` object. You will not
-            need to change this attribute unless you write a custom function
-            for weighting fragments.
-        
-        For example, to return larger fragments and highlight them by
-        converting to upper-case instead of with HTML tags::
+        You can set the ``fragmenter`` and ``formatter`` attributes on the
+        ``Results`` object instead of specifying the ``fragmenter`` and
+        ``formatter`` arguments to this method. For example, to return larger
+        fragments and highlight them by converting to upper-case instead of
+        with HTML tags::
         
             from whoosh import highlight
         
@@ -1352,7 +1331,7 @@ class Hit(object):
             for hit in r:
                 print hit["title"]
                 print hit.highlights("content")
-            
+        
         :param fieldname: the name of the field you want to highlight.
         :param text: by default, the method will attempt to load the contents
             of the field from the stored fields for the document. If the field
@@ -1360,6 +1339,22 @@ class Hit(object):
             access to the text another way (for example, loading from a file or
             a database), you can supply it using the ``text`` parameter.
         :param top: the maximum number of fragments to return.
+        :param fragmenter: A :class:`whoosh.highlight.Fragmenter` object. This
+            controls how the text is broken in fragments. The default is
+            :class:`whoosh.highlight.ContextFragmenter`. For some applications
+            you may find that a different fragmenting algorithm, such as
+            :class:`whoosh.highlight.SentenceFragmenter` gives better results.
+            For short fields you could use
+            :class:`whoosh.highlight.WholeFragmenter` which returns the entire
+            field as a single fragment.
+        :param formatter: A :class:`whoosh.highlight.Formatter` object. This
+            controls how the search terms are highlighted in the snippets. The
+            default is :class:`whoosh.highlight.HtmlFormatter` with
+            ``tagname='b'``.
+            
+            Note that different formatters may return different objects, e.g.
+            plain text, HTML, a Genshi event stream, a SAX event generator,
+            etc.
         :param order: the order of the fragments. This should be one of
             :func:`whoosh.highlight.SCORE`, :func:`whoosh.highlight.FIRST`,
             :func:`whoosh.highlight.LONGER`,
@@ -1368,7 +1363,8 @@ class Hit(object):
         """
         
         return self.results.highlights(self.rank, fieldname, text=text,
-                                       top=top, order=order)
+                                       top=top, fragmenter=fragmenter,
+                                       formatter=formatter, order=order)
     
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())

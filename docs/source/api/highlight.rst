@@ -9,7 +9,7 @@ See :doc:`how to highlight terms in search results </highlight>`.
 Fragmenters
 ===========
 
-.. autoclass:: NullFragmenter
+.. autoclass:: WholeFragmenter
 .. autoclass:: SimpleFragmenter
 .. autoclass:: SentenceFragmenter
 .. autoclass:: ContextFragmenter
