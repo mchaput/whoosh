@@ -60,11 +60,13 @@ an optional second argument::
         text = open(path).read()
         print hit.highlight("content", text)
 
-You can customize the creation of the snippets by setting certain attributes on
-the :class:`Results` object. Set the ``Results.fragmenter`` attribute to a
-:class:`whoosh.highlight.Fragmenter` object (see "Fragmenters" below) and/or
-the ``Results.formatter`` attribute to a :class:`whoosh.highlight.Formatter`
-object (see "Formatters" below).
+You can customize the creation of the snippets by setting the ``fragmenter``
+and/or ``formatter`` attributes on the :class:`Results` object or using the
+``fragmenter`` and/or ``formatter`` keyword arguments to
+:meth:`~whoosh.searching.Hit.highlight`. Set the ``Results.fragmenter``
+attribute to a :class:`whoosh.highlight.Fragmenter` object (see "Fragmenters"
+below) and/or the ``Results.formatter`` attribute to a
+:class:`whoosh.highlight.Formatter` object (see "Formatters" below).
 
 For example, to return larger fragments and highlight them by converting to
 upper-case instead of with HTML tags::
@@ -74,9 +76,30 @@ upper-case instead of with HTML tags::
     r = searcher.search(myquery)
     r.fragmenter = highlight.ContextFragmenter(surround=40)
     r.formatter = highlight.UppercaseFormatter()
+    
     for hit in r:
         print hit["title"]
         print hit.highlights("content")
+
+Using the keyword argument(s) is useful when you want to alternate highlighting
+styles in the same results::
+
+    r = searcher.search(myquery)
+    
+    # Use this fragmenter for titles, just returns the entire field as a single
+    # fragment
+    tf = highlight.WholeFragmenter()
+    # Use this fragmenter for content
+    cf = highlight.SentenceFragmenter()
+    
+    # Use the same formatter for both
+    r.formatter = highlight.HtmlFormatter(tagname="span")
+    
+    for hit in r:
+        # Print the title with matched terms highlighted
+        print hit.highlights("title", fragmenter=tf)
+        # Print the content snippet
+        print hit.highlights("content", fragmenter=cf)
 
 You can use the ``top`` keyword argument to control the number of fragments
 returned in each snippet::
@@ -186,9 +209,9 @@ Example
     analyzer = schema["title"].format.analyzer
 
     # Since we want to highlight the full title, not extract fragments,
-    # we'll use NullFragmenter. See the docs for the highlight module
+    # we'll use WholeFragmenter. See the docs for the highlight module
     # for which fragmenters are available.
-    fragmenter = highlight.NullFragmenter()
+    fragmenter = highlight.WholeFragmenter()
 
     # This object controls what the highlighted output looks like.
     # See the docs for its arguments.
@@ -212,7 +235,7 @@ objects.
 
 The available fragmenters are:
 
-NullFragmenter
+WholeFragmenter
     Returns the entire text as one "fragment". This can be useful if you
     are highlighting a short bit of text and don't need to fragment it.
 

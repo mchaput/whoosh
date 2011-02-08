@@ -11,7 +11,7 @@ class TestHighlighting(unittest.TestCase):
     def test_null_fragment(self):
         terms = frozenset(("bravo", "india"))
         sa = analysis.StandardAnalyzer()
-        nf = highlight.NullFragmenter()
+        nf = highlight.WholeFragmenter()
         uc = highlight.UppercaseFormatter()
         htext = highlight.highlight(self._doc, terms, sa, nf, uc)
         self.assertEqual(htext, "alfa BRAVO charlie delta echo foxtrot golf hotel INDIA juliet kilo lima")
@@ -98,8 +98,8 @@ class TestHighlighting(unittest.TestCase):
             analyzer = schema["title"].format.analyzer
             
             # Since we want to highlight the full title, not extract fragments,
-            # we'll use NullFragmenter.
-            nf = highlight.NullFragmenter()
+            # we'll use WholeFragmenter.
+            nf = highlight.WholeFragmenter()
             
             # In this example we'll simply uppercase the matched terms
             fmt = highlight.UppercaseFormatter()

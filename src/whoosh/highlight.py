@@ -91,7 +91,7 @@ class Fragmenter(object):
         raise NotImplementedError
     
 
-class NullFragmenter(Fragmenter):
+class WholeFragmenter(Fragmenter):
     def __call__(self, text, tokens):
         """Doesn't fragment the token stream. This object just returns the
         entire stream as one "fragment". This is useful if you want to
