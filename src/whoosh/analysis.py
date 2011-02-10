@@ -60,7 +60,7 @@ from itertools import chain
 
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
-from whoosh.util import lru_cache
+from whoosh.util import lru_cache, unbound_cache
 
 
 # Default list of stop words (words so common it's usually wasteful to index
@@ -781,11 +781,15 @@ class StemFilter(Filter):
         self.clear()
     
     def clear(self):
-        self._stem = (self.stemfn if self.cachesize == 1
-                      else lru_cache(self.cachesize)(self.stemfn))
-    
+        if self.cachesize is None:
+            self._stem = unbound_cache(self.stemfn)
+        elif self.cachesize == 1:
+            self._stem = self.stemfn
+        else:
+            self._stem = lru_cache(self.cachesize)(self.stemfn)
+        
     def cache_info(self):
-        if self.cachesize == 1:
+        if self.cachesize <= 1:
             return None
         return self._stem.cache_info()
     

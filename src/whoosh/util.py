@@ -398,6 +398,25 @@ def synchronized(func):
 
     return synchronized_wrapper
 
+
+def unbound_cache(func):
+    """Caching decorator with an unbounded cache size.
+    """
+    
+    cache = {}
+    
+    @wraps(func)
+    def caching_wrapper(*args):
+        try:
+            return cache[args]
+        except KeyError:
+            result = func(*args)
+            cache[args] = result
+            return result
+        
+    return caching_wrapper
+
+
 def lru_cache(maxsize=100):
     """Least-recently-used cache decorator.
 
@@ -415,8 +434,7 @@ def lru_cache(maxsize=100):
     Access the underlying function with f.__wrapped__.
     """
     
-    def decorating_function(user_function, tuple=tuple, sorted=sorted,
-                            len=len, KeyError=KeyError):
+    def decorating_function(user_function):
 
         stats = [0, 0, 0]  # hits, misses
         data = {}
