@@ -22,7 +22,7 @@ from array import array
 from collections import defaultdict
 from heapq import heapify, heappop, heapreplace
 from marshal import load, dump
-import sqlite3 as sqlite
+#import sqlite3 as sqlite
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte
@@ -282,6 +282,8 @@ class SqlitePool(PoolBase):
         return self._filename("%s.sqlite" % name)
     
     def _con(self, name):
+        import sqlite3 as sqlite
+        
         filename = self._field_filename(name)
         con = sqlite.connect(filename)
         if name not in self.fieldnames:
