@@ -65,11 +65,36 @@ class TestHighlighting(unittest.TestCase):
         htext = highlight.highlight(self._doc, terms, sa, cf, hf)
         self.assertEqual(htext, '<b class="match t0">alfa</b> <b class="match t1">bravo</b> <b class="match t0">charlie</b>...<b class="match t1">delta</b> <b class="match t0">echo</b> foxtrot')
 
-    def test_workflow(self):
-        st = RamStorage()
+    def test_workflow_easy(self):
         schema = fields.Schema(id=fields.ID(stored=True),
                                title=fields.TEXT(stored=True))
-        ix = st.create_index(schema)
+        ix = RamStorage().create_index(schema)
+        
+        w = ix.writer()
+        w.add_document(id=u"1", title=u"The man who wasn't there")
+        w.add_document(id=u"2", title=u"The dog who barked at midnight")
+        w.add_document(id=u"3", title=u"The invisible man")
+        w.add_document(id=u"4", title=u"The girl with the dragon tattoo")
+        w.add_document(id=u"5", title=u"The woman who disappeared")
+        w.commit()
+        
+        with ix.searcher() as s:
+            # Parse the user query
+            parser = qparser.QueryParser("title", schema=ix.schema)
+            q = parser.parse(u"man")
+            r = s.search(q)
+            self.assertEqual(len(r), 2)
+            
+            r.fragmenter = highlight.WholeFragmenter()
+            r.formatter = highlight.UppercaseFormatter()
+            outputs = [hit.highlights("title") for hit in r]
+            self.assertEqual(outputs, ["The invisible MAN",
+                                       "The MAN who wasn't there"])
+
+    def test_workflow_manual(self):
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               title=fields.TEXT(stored=True))
+        ix = RamStorage().create_index(schema)
         
         w = ix.writer()
         w.add_document(id=u"1", title=u"The man who wasn't there")

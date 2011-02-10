@@ -537,11 +537,12 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     if scorer is None:
         scorer = BasicFragmentScorer()
     
-    assert isinstance(analyzer, analysis.Analyzer), "%r is not an analyzer" % analyzer
-    assert isinstance(fragmenter, Fragmenter), "%r is not a fragmenter" % fragmenter
-    assert isinstance(formatter, Formatter), "%r is not a formatter" % formatter
-    assert isinstance(scorer, FragmentScorer), "%r is not a fragment scorer" % scorer
-    assert callable(order)
+    if type(fragmenter) is type:
+        fragmenter = fragmenter()
+    if type(formatter) is type:
+        formatter = formatter()
+    if type(scorer) is type:
+        scorer = scorer()
     
     fragments = top_fragments(text, terms, analyzer, fragmenter,
                               top=top, scorer=scorer, minscore=minscore)
