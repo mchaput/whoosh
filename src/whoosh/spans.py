@@ -367,7 +367,7 @@ class SpanNear(SpanQuery):
                                         mindist=self.mindist)
     
     @classmethod
-    def phrase_matcher(cls, fieldname, words, slop=1, ordered=True):
+    def phrase(cls, fieldname, words, slop=1, ordered=True):
         """Returns a tree of SpanNear queries to match a list of terms.
         
         This class method is a convenience for constructing a phrase query
