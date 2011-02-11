@@ -594,11 +594,15 @@ class TestQueryParser(unittest.TestCase):
         q = qp.parse("a:b:")
         self.assertEqual(q, query.Term("a", u"b:"))
         
-        q = qp.parse("a:b:c:d:e")
-        self.assertEqual(q, query.Term("a", u"b:c:d:e"))
-        
+    def test_paren_fieldname(self):
+        schema = fields.Schema(kind=fields.ID, content=fields.TEXT) 
     
-        
+        qp = qparser.QueryParser("content", schema)
+        q = qp.parse(u"(kind:1d565 OR kind:7c584) AND (stuff)")
+        self.assertEqual(unicode(q), "((kind:1d565 OR kind:7c584) AND content:stuff)")
+
+        q = qp.parse(u"kind:(1d565 OR 7c584) AND (stuff)")
+        self.assertEqual(unicode(q), "((kind:1d565 OR kind:7c584) AND content:stuff)")
 
 
 if __name__ == '__main__':
