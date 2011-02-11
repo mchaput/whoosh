@@ -20,7 +20,9 @@ objects are composable to form complex query trees.
 
 from __future__ import division
 
+import copy
 import fnmatch
+import operator
 import re
 from array import array
 
@@ -29,7 +31,7 @@ from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
                              WrappingMatcher, ConstantScoreMatcher,
-    AndNotMatcher)
+                             AndNotMatcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.levenshtein import relative
 from whoosh.support.times import datetime_to_long
@@ -105,9 +107,6 @@ class Query(object):
     def __hash__(self):
         raise NotImplementedError
 
-    def copy(self):
-        raise NotImplementedError(self.__class__.__name__)
-
     def is_leaf(self):
         """Returns True if this is a leaf node in the query tree, or False if
         this query has sub-queries.
@@ -134,9 +133,60 @@ class Query(object):
                      Or([Term("f", "bravo"),
                          Not(Term("f", "charlie"))])])
             q = term2var(q)
+            
+        Note that this method does not automatically create copies of nodes.
+        To avoid modifying the original tree, your function should call the
+        :meth:`Query.copy` method on nodes before changing their attributes.
         """
         
         return self
+
+    def accept(self, fn):
+        """Applies the given function to this query's subqueries (if any) and
+        then to this query itself::
+        
+            def boost_phrases(q):
+                if isintance(q, Phrase):
+                    q.boost *= 2.0
+                return q
+            
+            myquery = myquery.accept(boost_phrases)
+        
+        This method automatically creates copies of the nodes in the original
+        tree before passing them to your function, so your function can change
+        attributes on nodes without altering the original tree.
+        
+        This method is less flexible than using :meth:`Query.apply` (in fact
+        it's implemented using that method) but is often more straightforward.
+        """
+        
+        def fn_wrapper(q):
+            q = q.apply(fn_wrapper)
+            return fn(q)
+        
+        return fn_wrapper(self)
+
+    def copy(self):
+        """Returns a copy of this query tree.
+        """
+        
+        if self.is_leaf():
+            return copy.copy(self)
+        else:
+            return self.apply(operator.methodcaller("copy"))
+
+    def replace(self, oldtext, newtext):
+        """Returns a copy of this query with oldtext replaced by newtext (if
+        oldtext was anywhere in this query).
+        
+        Note that this returns a *new* query with the given text replaced. It
+        *does not* modify the original query "in place".
+        """
+        
+        if self.is_leaf():
+            return self.copy()
+        else:
+            return self.apply(operator.methodcaller("replace", oldtext, newtext))
 
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
@@ -261,15 +311,6 @@ class Query(object):
         """
         return self
 
-    def replace(self, oldtext, newtext):
-        """Returns a copy of this query with oldtext replaced by newtext (if
-        oldtext was anywhere in this query).
-        
-        Note that this returns a *new* query with the given text replaced. It
-        *does not* modify the original query "in place".
-        """
-        return self
-
 
 class WrappingQuery(Query):
     def __init__(self, child):
@@ -281,14 +322,11 @@ class WrappingQuery(Query):
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.child)
     
-    def copy(self):
-        return self.__class__(self.child.copy())
-    
     def is_leaf(self):
         return False
     
     def apply(self, fn):
-        return self.__class__(fn(self.child.copy()))
+        return self.__class__(fn(self.child))
     
     def all_terms(self, termset=None, phrases=True):
         return self.child.all_terms(termset=termset, phrases=phrases)
@@ -309,9 +347,6 @@ class WrappingQuery(Query):
     
     def matcher(self, searcher):
         return self.child.matcher(searcher)
-    
-    def replace(self, oldtext, newtext):
-        return self.__class__(self.child.replace(oldtext, newtext))
     
 
 class CompoundQuery(Query):
@@ -356,15 +391,12 @@ class CompoundQuery(Query):
             h ^= hash(q)
         return h
 
-    def copy(self):
-        subqs = [subq.copy() for subq in self.subqueries]
-        return self.__class__(subqs, boost=self.boost)
-
     def is_leaf(self):
         return False
-    
+
     def apply(self, fn):
-        return self.__class__([fn(q) for q in self.subqueries], boost=self.boost)
+        return self.__class__([fn(q) for q in self.subqueries],
+                              boost=self.boost)
 
     def field(self):
         if self.subqueries:
@@ -382,10 +414,6 @@ class CompoundQuery(Query):
             nots_sum = sum(q.estimate_size(ixreader) for q in nots)
             subs_min = max(0, subs_min - nots_sum)
         return subs_min
-
-    def replace(self, oldtext, newtext):
-        return self.__class__([q.replace(oldtext, newtext)
-                               for q in self.subqueries], boost=self.boost)
 
     def _all_terms(self, termset, phrases=True):
         for q in self.subqueries:
@@ -644,14 +672,11 @@ class Term(Query):
         if contains:
             termset.add((fieldname, text))
 
-    def copy(self):
-        return self.__class__(self.fieldname, self.text, boost=self.boost)
-
     def replace(self, oldtext, newtext):
-        if self.text == oldtext:
-            return Term(self.fieldname, newtext, boost=self.boost)
-        else:
-            return self
+        q = self.copy()
+        if q.text == oldtext:
+            q.text = newtext
+        return q
 
     def estimate_size(self, ixreader):
         return ixreader.doc_frequency(self.fieldname, self.text)
@@ -788,12 +813,9 @@ class Not(Query):
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.query) ^ hash(self.boost)
 
-    def copy(self):
-        return self.__class__(self.query.copy())
-    
     def is_leaf(self):
         return False
-    
+
     def apply(self, fn):
         return self.__class__(fn(self.query))
 
@@ -803,9 +825,6 @@ class Not(Query):
             return NullQuery
         else:
             return self.__class__(query, boost=self.boost)
-
-    def replace(self, oldtext, newtext):
-        return Not(self.query.replace(oldtext, newtext), boost=self.boost)
 
     def _all_terms(self, termset, phrases=True):
         self.query.all_terms(termset, phrases=phrases)
@@ -860,10 +879,7 @@ class PatternQuery(MultiTerm):
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
                 ^ hash(self.constantscore))
-        
-    def copy(self):
-        return self.__class__(self.fieldname, self.text, boost=self.boost,
-                              constantscore=self.constantscore)
+    
 
 class Prefix(PatternQuery):
     """Matches documents that contain any terms that start with the given text.
@@ -987,12 +1003,6 @@ class FuzzyTerm(MultiTerm):
                 ^ hash(self.minsimilarity) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
-    def copy(self):
-        return self.__class__(self.fieldname, self.text, boost=self.boost,
-                              minsimilarity=self.minsimilarity,
-                              prefixlength=self.prefixlength,
-                              constantscore=self.constantscore)
-
     def _all_terms(self, termset, phrases=True):
         termset.add((self.fieldname, self.text))
 
@@ -1037,11 +1047,6 @@ class RangeMixin(object):
         return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl)
                 ^ hash(self.end) ^ hash(self.endexcl) ^ hash(self.boost))
     
-    def copy(self):
-        return self.__class__(self.fieldname, self.start, self.end,
-                              startexcl=self.startexcl, endexcl=self.endexcl,
-                              boost=self.boost)
-
     def _comparable_start(self):
         if self.start is None:
             return (Lowest, 0)
@@ -1148,10 +1153,12 @@ class TermRange(RangeMixin, MultiTerm):
                              boost=self.boost)
 
     def replace(self, oldtext, newtext):
-        start = newtext if self.start == oldtext else self.start
-        end = newtext if self.end == oldtext else self.end
-        return self.__class__(self.fieldname, start, end, self.startexcl,
-                              self.endexcl, boost=self.boost)
+        q = self.copy()
+        if q.start == oldtext:
+            q.start = newtext
+        if q.end == oldtext:
+            q.end = newtext
+        return q
     
     def _words(self, ixreader):
         fieldname = self.fieldname
@@ -1300,7 +1307,6 @@ class Variations(MultiTerm):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
-        self.words = variations(self.text)
 
     def __repr__(self):
         r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
@@ -1317,14 +1323,11 @@ class Variations(MultiTerm):
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
-    def copy(self):
-        return self.__class__(self.fieldname, self.text, boost=self.boost)
-
     def _all_terms(self, termset, phrases=True):
         termset.add(self.text)
 
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        for word in self.words:
+        for word in variations(self.text):
             t = (self.fieldname, word)
             contains = t in ixreader
             if reverse:
@@ -1334,16 +1337,17 @@ class Variations(MultiTerm):
 
     def _words(self, ixreader):
         fieldname = self.fieldname
-        return [word for word in self.words if (fieldname, word) in ixreader]
+        return [word for word in variations(self.text)
+                if (fieldname, word) in ixreader]
 
     def __unicode__(self):
         return u"%s:<%s>" % (self.fieldname, self.text)
 
     def replace(self, oldtext, newtext):
-        if oldtext == self.text:
-            return Variations(self.fieldname, newtext, boost=self.boost)
-        else:
-            return self
+        q = self.copy()
+        if q.text == oldtext:
+            q.text = newtext
+        return q
 
 
 class Phrase(Query):
@@ -1384,6 +1388,8 @@ class Phrase(Query):
         return h
 
     def copy(self):
+        # Need to override the default shallow copy here to do a copy of the
+        # self.words list
         return self.__class__(self.fieldname, self.words[:], boost=self.boost)
 
     def _all_terms(self, termset, phrases=True):
@@ -1413,14 +1419,11 @@ class Phrase(Query):
                               boost=self.boost)
 
     def replace(self, oldtext, newtext):
-        def rep(w):
-            if w == oldtext:
-                return newtext
-            else:
-                return w
-
-        return Phrase(self.fieldname, [rep(w) for w in self.words],
-                      slop=self.slop, boost=self.boost)
+        q = self.copy()
+        for i in xrange(len(q.words)):
+            if q.words[i] == oldtext:
+                q.words[i] = newtext
+        return q
 
     def _and_query(self):
         fn = self.fieldname
@@ -1530,9 +1533,6 @@ class Every(Query):
     def __hash__(self):
         return hash(self.fieldname)
 
-    def copy(self):
-        return self.__class__(self.fieldname, boost=self.boost)
-
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
@@ -1614,9 +1614,6 @@ class ConstantScoreQuery(WrappingQuery):
     def __hash__(self):
         return hash(self.child) ^ hash(self.score)
     
-    def copy(self):
-        return self.__class__(self.child.copy(), self.score)
-    
     def apply(self, fn):
         return self.__class__(fn(self.child), self.score)
     
@@ -1627,9 +1624,6 @@ class ConstantScoreQuery(WrappingQuery):
         else:
             ids = array("I", m.all_ids())
             return ListMatcher(ids, all_weights=self.score)
-    
-    def replace(self, oldtext, newtext):
-        return self.__class__(self.child.replace(oldtext, newtext), self.score)
     
 
 class WeightingQuery(WrappingQuery):
@@ -1655,10 +1649,6 @@ class WeightingQuery(WrappingQuery):
     def __hash__(self):
         return hash(self.child) ^ hash(self.fieldname) ^ hash(self.text)
     
-    def copy(self):
-        return self.__class__(self.child.copy(), self.model, self.fieldname,
-                              self.text)
-        
     def apply(self, fn):
         return self.__class__(fn(self.child), self.model, self.fieldname,
                               self.text)
@@ -1717,8 +1707,8 @@ class BinaryQuery(CompoundQuery):
         return (hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b)
                 ^ hash(self.boost))
     
-    def copy(self):
-        return self.__class__(self.a.copy(), self.b.copy(), boost=self.boost)
+    def apply(self, fn):
+        return self.__class__(fn(self.a), fn(self.b), boost=self.boost)
     
     def field(self):
         f = self.a.field()
@@ -1763,11 +1753,6 @@ class Require(BinaryQuery):
         if a is NullQuery or b is NullQuery:
             return NullQuery
         return self.__class__(a, b, boost=self.boost)
-    
-    def replace(self, oldtext, newtext):
-        return self.__class__(self.a.replace(oldtext, newtext),
-                              self.b.replace(oldtext, newtext),
-                              boost=self.boost)
     
     def docs(self, searcher):
         return And(self.subqueries).docs(searcher)

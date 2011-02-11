@@ -262,8 +262,11 @@ class SpanFirst(SpanQuery):
     def __hash__(self):
         return hash(self.q) ^ hash(self.limit)
     
-    def copy(self):
-        return self.__class__(self.q.copy(), limit=self.limit)
+    def is_leaf(self):
+        return False
+    
+    def apply(self, fn):
+        return self.__class__(fn(self.q), limit=self.limit)
     
     def matcher(self, searcher):
         return SpanFirst.SpanFirstMatcher(self._subm(searcher),
@@ -349,8 +352,11 @@ class SpanNear(SpanQuery):
         return (hash(self.a) ^ hash(self.b) ^ hash(self.slop)
                 ^ hash(self.ordered) ^ hash(self.mindist))
     
-    def copy(self):
-        return self.__class__(self.a.copy(), self.b.copy(), slop=self.slop,
+    def is_leaf(self):
+        return False
+    
+    def apply(self, fn):
+        return self.__class__(fn(self.a), fn(self.b), slop=self.slop,
                               ordered=self.ordered, mindist=self.mindist)
     
     def matcher(self, searcher):
@@ -442,8 +448,11 @@ class SpanOr(SpanQuery):
         self.q = Or(subqs)
         self.subqs = subqs
     
-    def copy(self):
-        return self.__class__([sq.copy() for sq in self.subqs])
+    def is_leaf(self):
+        return False
+    
+    def apply(self, fn):
+        return self.__class__([fn(sq) for sq in self.subqs])
     
     def matcher(self, searcher):
         matchers = [q.matcher(searcher) for q in self.subqs]
@@ -470,8 +479,11 @@ class SpanOr(SpanQuery):
 class SpanBiQuery(SpanQuery):
     # Intermediate base class for methods common to "a/b" span query types
 
-    def copy(self):
-        return self.__class__(self.a.copy(), self.b.copy())
+    def is_leaf(self):
+        return False
+
+    def apply(self, fn):
+        return self.__class__(fn(self.a), fn(self.b))
     
     def matcher(self, searcher):
         ma = self.a.matcher(searcher)

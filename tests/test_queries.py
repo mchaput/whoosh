@@ -66,7 +66,21 @@ class TestQueries(unittest.TestCase):
         q = And([Term("f", "alfa"), Or([Term("f", "bravo"), Not(Term("f", "charlie"))])])
         q = term2var(q)
         self.assertEqual(q, And([Variations('f', 'alfa'), Or([Variations('f', 'bravo'), Not(Variations('f', 'charlie'))])]))
+    
+    def test_accept(self):
+        def boost_phrases(q):
+            if isinstance(q, Phrase):
+                q.boost *= 2.0
+            return q
         
+        before = And([Term("a", u"b"), Or([Term("c", u"d"), Phrase("a", [u"e", u"f"])]), Phrase("a", [u"g", u"h"], boost=0.25)])
+        after = before.accept(boost_phrases)
+        self.assertEqual(after, And([Term("a", u"b"), Or([Term("c", u"d"), Phrase("a", [u"e", u"f"], boost=2.0)]), Phrase("a", [u"g", u"h"], boost=0.5)]))
+    
+        before = Phrase("a", [u"b", u"c"], boost=2.5)
+        after = before.accept(boost_phrases)
+        self.assertEqual(after, Phrase("a", [u"b", u"c"], boost=5.0))
+    
     def test_simplify(self):
         s = fields.Schema(k=fields.ID, v=fields.TEXT)
         ix = RamStorage().create_index(s)
