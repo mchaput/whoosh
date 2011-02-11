@@ -1452,8 +1452,7 @@ class Phrase(Query):
         # Construct a tree of SpanNear queries representing the words in the
         # phrase and return its matcher
         from whoosh.spans import SpanNear
-        q = SpanNear.phrase(fieldname, self.words, slop=self.slop,
-                            boost=self.boost)
+        q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
         m = q.matcher(searcher)
         if self.boost != 1.0:
             m = WrappingMatcher(m, boost=self.boost)
