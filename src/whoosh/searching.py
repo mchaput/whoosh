@@ -316,6 +316,8 @@ class Searcher(object):
         return BitSet(self.doc_count_all(), source=self.docs_for_query(fq))
 
     def _filter_to_comb(self, obj):
+        if obj is None:
+            return None
         if isinstance(obj, set):
             c = obj
         elif isinstance(obj, Results):
@@ -390,71 +392,16 @@ class Searcher(object):
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 
-    def sort_query(self, q, sortedby, limit=None, reverse=False, filter=None):
-        t = now()
-        docset = set()
+    def sorter(self, *args, **kwargs):
+        """Returns a :class:`whoosh.sorting.Sorter` object for this searcher.
+        See the documentation for ``Sorter`` for how to use the sorter object
+        to get sorted search results.
+        """
         
-        comb = None
-        if filter:
-            comb = self._filter_to_comb(filter)
+        from whoosh.sorting import Sorter
         
-        if self.subsearchers:
-            heap = []
-            
-            # I wish I could actually do a heap thing here, but the Python heap
-            # queue only works with greater-than, and I haven't thought of a
-            # smart way to get around that yet, so I'm being dumb and using
-            # nlargest/nsmallest on the heap + each subreader list :(
-            op = nlargest if reverse else nsmallest
-            
-            for s, offset in self.subsearchers:
-                # This searcher is wrapping a MultiReader, so push the sorting
-                # down to the leaf readers and then combine the results.
-                docnums = [docnum for docnum in q.docs(s)
-                           if (not comb) or docnum + offset in comb]
-                
-                # Add the docnums to the docset
-                docset.update(docnums)
-                
-                # Ask the reader to return a list of (key, docnum) pairs to
-                # sort by. If limit=None, the returned list is not sorted. If
-                # limit=True, it is sorted.
-                r = s.reader()
-                srt = r.key_docs_by(sortedby, docnums, limit, reverse=reverse,
-                                    offset=offset)
-                if limit:
-                    # Pick the "limit" smallest/largest items from the current
-                    # and new list
-                    heap = op(limit, heap + srt)
-                else:
-                    # If limit=None, we'll just add everything to the "heap"
-                    # and sort it at the end.
-                    heap.extend(srt)
-            
-            # Sort the heap and add a None in the place of a score
-            top_n = [(None, docnum) for _, docnum in sorted(heap, reverse=reverse)]
-            
-        else:
-            # This searcher is wrapping an atomic reader, so we don't need to
-            # get tricky combining the results of multiple readers, just ask
-            # the reader to sort the results.
-            r = self.reader()
-            top_n = [(None, docnum) for docnum
-                     in r.sort_docs_by(sortedby, q.docs(self), reverse=reverse)
-                     if (not comb) or docnum in comb]
-            
-            # Create the docset from top_n
-            docset = set(docnum for _, docnum in top_n)
-            
-            # I artificially enforce the limit here, even thought the current
-            # implementation can't use it, so that the results don't change
-            # based on single- vs- multi-segment.
-            top_n = top_n[:limit]
-        
-        runtime = now() - t
-        
-        return Results(self, q, top_n, docset, runtime=runtime)
-    
+        return Sorter(self, *args, **kwargs)
+
     def define_facets(self, name, qs, save=False):
         def doclists_for_searcher(s):
             return dict((key, q.docs(s)) for key, q in qs.iteritems())
@@ -469,6 +416,9 @@ class Searcher(object):
     
     def categorize_query(self, q, fieldname, counts=False):
         groups = {}
+        if isinstance(fieldname, basestring):
+            fieldname = (fieldname, )
+        
         if self.subsearchers:
             for s, offset in self.subsearchers:
                 r = s.reader()
@@ -489,7 +439,11 @@ class Searcher(object):
             interested in the top N documents, you can set limit=N to limit the
             scoring for a faster search.
         :param sortedby: the name of a field to sort by, or a tuple of field
-            names to sort by multiple fields.
+            names to sort by multiple fields. This is a shortcut for using a
+            :class:`whoosh.sorting.Sorter` object to do a simple sort. To do
+            complex sorts (where different fields are sorted in different
+            directions), use :meth:`Searcher.sorter` to get a sorter and use
+            it to perform the sorted search.
         :param reverse: if ``sortedby`` is not None, this reverses the
             direction of the sort.
         :param groupedby: a list of field names or facet names. If this
@@ -510,8 +464,9 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         if sortedby is not None:
-            return self.sort_query(q, sortedby, limit=limit, reverse=reverse,
-                                   filter=filter)
+            return self.sorter(sortedby=sortedby).sort_query(q, limit=limit,
+                                                             reverse=reverse,
+                                                             filter=filter)
         
         if isinstance(groupedby, basestring):
             groupedby = (groupedby, )
