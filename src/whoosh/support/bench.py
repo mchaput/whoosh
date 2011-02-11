@@ -18,7 +18,6 @@ from __future__ import division
 import os.path
 from optparse import OptionParser
 from shutil import rmtree
-from zlib import compress, decompress
 
 from whoosh import index, qparser, query
 from whoosh.util import now, find_object
@@ -64,6 +63,16 @@ class Module(object):
     def finish(self, **kwargs):
         pass
     
+    def _process_result(self, d):
+        attrname = "process_result_%s" % self.options.lib
+        if hasattr(self.bench.spec, attrname):
+            method = getattr(self.bench.spec, attrname)
+            self._process_result = method
+            return method(d)
+        else:
+            self._process_result = lambda x: x
+            return d
+    
     def searcher(self):
         pass
     
@@ -77,13 +86,13 @@ class Module(object):
         raise NotImplementedError
     
     def results(self, r):
-        return r
+        for hit in r:
+            yield self._process_result(hit)
 
 
 class Spec(object):
     headline_field = "title"
     main_field = "body"
-    whoosh_compress_main = False
     
     def __init__(self, options, args):
         self.options = options
@@ -97,14 +106,17 @@ class Spec(object):
     
     def print_results(self, ls):
         showbody = self.options.showbody
+        snippets = self.options.snippets
         limit = self.options.limit
         for i, hit in enumerate(ls):
             if i >= limit:
                 break
             
             print "%d. %s" % (i + 1, hit.get(self.headline_field))
+            if snippets:
+                print self.show_snippet(hit)
             if showbody:
-                print hit.get(self.bench.spec.main_field)
+                print hit.get(self.main_field)
 
 
 class WhooshModule(Module):
@@ -132,13 +144,15 @@ class WhooshModule(Module):
             self.writer = MultiSegmentWriter(ix, **kwargs)
         else:
             self.writer = ix.writer(**kwargs)
+        
+        self._procdoc = None
+        if hasattr(self.bench.spec, "process_document_whoosh"):
+            self._procdoc = self.bench.spec.process_document_whoosh
 
     def index_document(self, d):
-        if hasattr(self.bench, "process_document_whoosh"):
-            self.bench.process_document_whoosh(d)
-        if not self.options.nobody and self.bench.spec.whoosh_compress_main:
-            mf = self.bench.spec.main_field
-            d["_stored_%s" % mf] = compress(d[mf], 9)
+        _procdoc = self._procdoc
+        if _procdoc:
+            _procdoc(d)
         self.writer.add_document(**d)
 
     def finish(self, merge=True, optimize=False):
@@ -157,14 +171,6 @@ class WhooshModule(Module):
     def find(self, q):
         return self.srch.search(q, limit=int(self.options.limit))
     
-    def results(self, r):
-        mf = self.bench.spec.main_field
-        for hit in r:
-            fs = hit.fields()
-            if self.bench.spec.whoosh_compress_main:
-                fs[mf] = decompress(fs[mf])
-            yield fs
-    
     def findterms(self, terms):
         limit = int(self.options.limit)
         s = self.srch
@@ -172,7 +178,7 @@ class WhooshModule(Module):
         for term in terms:
             q.text = term
             yield s.search(q, limit=limit)
-    
+            
 
 class XappyModule(Module):
     def indexer(self, **kwargs):
@@ -214,7 +220,7 @@ class XappyModule(Module):
         hf = self.bench.spec.headline_field
         mf = self.bench.spec.main_field
         for hit in r:
-            yield {hf: hit.data[hf], mf: hit.data[mf]}
+            yield self._process_result({hf: hit.data[hf], mf: hit.data[mf]})
         
 
 class XapianModule(Module):
@@ -261,7 +267,8 @@ class XapianModule(Module):
         hf = self.bench.spec.headline_field
         mf = self.bench.spec.main_field
         for m in matches:
-            yield {hf: m.document.get_value(0), mf: m.document.get_data()}
+            yield self._process_result({hf: m.document.get_value(0),
+                                        mf: m.document.get_data()})
 
 
 class SolrModule(Module):
@@ -367,7 +374,8 @@ class ZcatalogModule(Module):
         mf = self.bench.spec.main_field
         for hit in r:
             # Have to access the attributes for them to be retrieved
-            yield {hf: getattr(hit, hf), mf: getattr(hit, mf)}
+            yield self._process_result({hf: getattr(hit, hf),
+                                        mf: getattr(hit, mf)})
 
 
 class NucularModule(Module):
@@ -467,7 +475,8 @@ class Bench(object):
         committime = now()
         print "Commit time:", committime - spooltime
         totaltime = committime - starttime
-        print "Total time to index %d documents: %0.3f secs, %0.3f docs/s" % (count, totaltime, count / totaltime)
+        print "Total time to index %d documents: %0.3f secs (%0.3f minutes)" % (count, totaltime, totaltime / 60.0)
+        print "Indexed %0.3f docs/s" % (count / totaltime)
     
     def search(self, lib):
         lib.searcher()
@@ -547,8 +556,10 @@ class Bench(object):
                      help="Whoosh pool class", default=None)
         p.add_option("-X", "--expw", dest="expw", action="store_true",
                      help="Use experimental whoosh writer", default=False)
-        p.add_option("-N", "--nobody", dest="nobody", action="store_true",
-                     help="Don't store body text in index", default=False)
+        p.add_option("-Z", "--storebody", dest="storebody", action="store_true",
+                     help="Store the body text in index", default=False)
+        p.add_option("-q", "--snippets", dest="snippets", action="store_true",
+                     help="Show highlighted snippets", default=False)
         
         return p
     
