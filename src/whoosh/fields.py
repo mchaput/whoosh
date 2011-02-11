@@ -796,7 +796,7 @@ class Schema(object):
             if expr.match(name):
                 return fieldtype
         
-        raise KeyError("No field named %r" % name)
+        raise KeyError("No field named %r" % (name, ))
         
     def __len__(self):
         """Returns the number of fields in this schema.

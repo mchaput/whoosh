@@ -383,26 +383,25 @@ class SegmentReader(IndexReader):
 
     def unload_fieldcache(self, name):
         self.caching_policy.delete(self._fieldkey(name))
-        
+    
     # Sorting and faceting methods
     
-    def key_fn(self, fieldname):
-        if isinstance(fieldname, (tuple, list)):
-            # The "fieldname" is actually a sequence of field names to sort by
-            fcs = [self.fieldcache(fn) for fn in fieldname]
-            keyfn = lambda docnum: tuple(fc.key_for(docnum) for fc in fcs)
+    def key_fn(self, fields):
+        if isinstance(fields, basestring):
+            fields = (fields, )
+        
+        if len(fields) > 1:
+            fcs = [self.fieldcache(fn) for fn in fields]
+            return lambda docnum: tuple(fc.key_for(docnum) for fc in fcs)
         else:
-            fc = self.fieldcache(fieldname)
-            keyfn = fc.key_for
-            
-        return keyfn
+            return self.fieldcache(fields[0]).key_for
     
-    def sort_docs_by(self, fieldname, docnums, reverse=False):
-        keyfn = self.key_fn(fieldname)
+    def sort_docs_by(self, fields, docnums, reverse=False):
+        keyfn = self.key_fn(fields)
         return sorted(docnums, key=keyfn, reverse=reverse)
     
-    def key_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
-        keyfn = self.key_fn(fieldname)
+    def key_docs_by(self, fields, docnums, limit, reverse=False, offset=0):
+        keyfn = self.key_fn(fields)
         
         if limit is None:
             # Don't bother sorting, the caller will do that
