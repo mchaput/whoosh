@@ -942,6 +942,32 @@ class TestSearching(unittest.TestCase):
             r = s.search(q)
             self.assertEqual(len(r), 0)
     
+    def test_boost_phrase(self):
+        schema = fields.Schema(title=fields.TEXT(field_boost=5.0, stored=True), text=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        domain = u"alfa bravo charlie delta".split()
+        w = ix.writer()
+        for ls in permutations(domain):
+            t = u" ".join(ls)
+            w.add_document(title=t, text=t)
+        w.commit()
+        
+        q = Or([Term("title", u"alfa"), Term("title", u"bravo"), Phrase("text", [u"bravo", u"charlie", u"delta"])])
+        
+        def boost_phrases(q):
+            if isinstance(q, Phrase):
+                q.boost *= 1000.0
+                return q
+            else:
+                return q.apply(boost_phrases)
+        q = boost_phrases(q)
+        
+        with ix.searcher() as s:
+            r = s.search(q, limit=None)
+            for hit in r:
+                if "bravo charlie delta" in hit["title"]:
+                    self.assertTrue(hit.score > 100.0)
+    
     def test_trackingcollector(self):
         schema = fields.Schema(text=fields.TEXT(stored=True))
         ix = RamStorage().create_index(schema)
@@ -995,7 +1021,6 @@ class TestSearching(unittest.TestCase):
             r = s.search(Term("text", "bravo"), scored=False, filter=fq)
             self.assertEqual([d["id"] for d in r], [1, 2, 5, 7,])
         
-    
     def test_timelimit(self):
         schema = fields.Schema(text=fields.TEXT)
         ix = RamStorage().create_index(schema)

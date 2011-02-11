@@ -1452,7 +1452,8 @@ class Phrase(Query):
         # Construct a tree of SpanNear queries representing the words in the
         # phrase and return its matcher
         from whoosh.spans import SpanNear
-        q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
+        q = SpanNear.phrase(fieldname, self.words, slop=self.slop,
+                            boost=self.boost)
         return q.matcher(searcher)
 
 
@@ -1625,6 +1626,29 @@ class ConstantScoreQuery(WrappingQuery):
             ids = array("I", m.all_ids())
             return ListMatcher(ids, all_weights=self.score)
     
+
+class BoostQuery(WrappingQuery):
+    def __init__(self, child, boost):
+        super(BoostQuery, self).__init__(child)
+        self.boost = boost
+        
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.child == other.child and self.boost == other.boost)
+        
+    def __hash__(self):
+        return hash(self.child) ^ hash(self.boost)
+    
+    def apply(self, fn):
+        return self.__class__(fn(self.child), self.boost)
+    
+    def matcher(self, searcher):
+        m = self.child.matcher(searcher)
+        if self.boost == 1.0 or isinstance(m, NullMatcher):
+            return m
+        else:
+            return WrappingMatcher(m, self.boost)
+
 
 class WeightingQuery(WrappingQuery):
     """Wraps a query and specifies a custom weighting model to apply to the

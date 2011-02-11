@@ -34,7 +34,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
                              IntersectionMatcher, NullMatcher)
-from whoosh.query import And, AndMaybe, Or, Query, Term
+from whoosh.query import Query, And, AndMaybe, Or, Term, BoostQuery
 from whoosh.util import make_binary_tree
 
 
@@ -367,7 +367,7 @@ class SpanNear(SpanQuery):
                                         mindist=self.mindist)
     
     @classmethod
-    def phrase(cls, fieldname, words, slop=1, ordered=True):
+    def phrase(cls, fieldname, words, slop=1, ordered=True, boost=1.0):
         """Returns a tree of SpanNear queries to match a list of terms.
         
         This class method is a convenience for constructing a phrase query
@@ -385,7 +385,10 @@ class SpanNear(SpanQuery):
         """
         
         terms = [Term(fieldname, word) for word in words]
-        return make_binary_tree(cls, terms, slop=slop, ordered=ordered)
+        q = make_binary_tree(cls, terms, slop=slop, ordered=ordered)
+        if boost != 1.0:
+            q = BoostQuery(q, boost)
+        return q
     
     class SpanNearMatcher(SpanWrappingMatcher):
         def __init__(self, a, b, slop=1, ordered=True, mindist=1):
