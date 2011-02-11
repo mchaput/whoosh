@@ -367,7 +367,7 @@ class SpanNear(SpanQuery):
                                         mindist=self.mindist)
     
     @classmethod
-    def phrase(cls, fieldname, words, slop=1, ordered=True, boost=1.0):
+    def phrase_matcher(cls, fieldname, words, slop=1, ordered=True):
         """Returns a tree of SpanNear queries to match a list of terms.
         
         This class method is a convenience for constructing a phrase query
@@ -385,10 +385,7 @@ class SpanNear(SpanQuery):
         """
         
         terms = [Term(fieldname, word) for word in words]
-        q = make_binary_tree(cls, terms, slop=slop, ordered=ordered)
-        if boost != 1.0:
-            q = BoostQuery(q, boost)
-        return q
+        return make_binary_tree(cls, terms, slop=slop, ordered=ordered)
     
     class SpanNearMatcher(SpanWrappingMatcher):
         def __init__(self, a, b, slop=1, ordered=True, mindist=1):
