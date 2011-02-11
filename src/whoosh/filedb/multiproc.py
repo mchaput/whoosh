@@ -22,7 +22,7 @@ from cPickle import dump, load
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filewriting import SegmentWriter
-from whoosh.filedb.pools import (imerge, PoolBase, read_run, TempfilePool)
+from whoosh.filedb.pools import (imerge, read_run, PoolBase, TempfilePool)
 from whoosh.filedb.structfile import StructFile
 from whoosh.writing import IndexWriter
 
@@ -230,7 +230,7 @@ class MultiPool(PoolBase):
         
         self.procs = procs
         self.limitmb = limitmb
-        self.jobqueue = Queue()
+        self.jobqueue = Queue(self.procs * 4)
         self.resultqueue = Queue()
         self.tasks = []
         self.buffer = []
@@ -317,6 +317,18 @@ class MultiPool(PoolBase):
             os.remove(lenfilename)
         lw.close()
         lengths = lw.reader()
+        
+#        if len(runs) >= self.procs * 2:
+#            pool = Pool(self.procs)
+#            tempname = lambda: tempfile.mktemp(suffix=".run", dir=self.dir)
+#            while len(runs) >= self.procs * 2:
+#                runs2 = [(runs[i:i+4], tempname())
+#                         for i in xrange(0, len(runs), 4)]
+#                if len(runs) % 4:
+#                    last = runs2.pop()[0]
+#                    runs2[-1][0].extend(last)
+#                runs = pool.map(merge_runs, runs2)
+#            pool.close()
         
         iterator = imerge([read_run(runname, count) for runname, count in runs])
         total = sum(count for runname, count in runs)
