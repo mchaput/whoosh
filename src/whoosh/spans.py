@@ -34,7 +34,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
                              IntersectionMatcher, NullMatcher)
-from whoosh.query import Query, And, AndMaybe, Or, Term, BoostQuery
+from whoosh.query import Query, And, AndMaybe, Or, Term
 from whoosh.util import make_binary_tree
 
 
