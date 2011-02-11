@@ -13,6 +13,29 @@ of documents at once (batch indexing).
 The following settings and alternate workflows can make batch indexing faster.
 
 
+StemmingAnalyzer cache
+======================
+
+The stemming analyzer by default uses a least-recently-used (LRU) cache to limit
+the amount of memory it uses, to prevent the cache from growing very large if
+the analyzer is reused for a long period of time. However, the LRU cache can
+slow down indexing by almost 200% compared to a stemming analyzer with an
+"unbounded" cache.
+
+When you're indexing in large batches with a one-shot instance of the
+analyzer, consider using an unbounded cache::
+
+    w = myindex.writer()
+    # Get the analyzer object from a text field
+    stem_ana = w.schema["content"].format.analyzer
+    # Set the cachesize to -1 to indicate unbounded caching
+    stem_ana.cachesize = -1
+    # Reset the analyzer to pick up the changed attribute
+    stem_ana.clear()
+    
+    # Use the writer to index documents...
+
+
 The ``limitmb`` parameter
 =========================
 

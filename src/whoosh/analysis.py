@@ -744,8 +744,8 @@ class StemFilter(Filter):
     
     By default, this class wraps an LRU cache around the stemming function. The
     ``cachesize`` keyword argument sets the size of the cache. To make the
-    cache unbounded (the class caches every input), use ``cachesize=None``. To
-    disable caching, use ``cachesize=1``.
+    cache unbounded (the class caches every input), use ``cachesize=-1``. To
+    disable caching, use ``cachesize=None``.
     
     If you compile and install the py-stemmer library, the
     :class:`PyStemmerFilter` provides slightly easier access to the language
@@ -760,7 +760,8 @@ class StemFilter(Filter):
         :param ignore: a set/list of words that should not be stemmed. This is
             converted into a frozenset. If you omit this argument, all tokens
             are stemmed.
-        :param cachesize: the maximum number of words to cache.
+        :param cachesize: the maximum number of words to cache. Use ``-1`` for
+            an unbounded cache, or ``None`` for no caching.
         """
         
         self.stemfn = stemfn
@@ -781,13 +782,13 @@ class StemFilter(Filter):
         self.clear()
     
     def clear(self):
-        if self.cachesize is None:
+        if self.cachesize < 0:
             self._stem = unbound_cache(self.stemfn)
-        elif self.cachesize == 1:
-            self._stem = self.stemfn
-        else:
+        elif self.cachesize > 1:
             self._stem = lru_cache(self.cachesize)(self.stemfn)
-        
+        else:
+            self._stem = self.stemfn
+    
     def cache_info(self):
         if self.cachesize <= 1:
             return None
