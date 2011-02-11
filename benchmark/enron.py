@@ -3,6 +3,7 @@ import os.path, tarfile
 from email import message_from_string
 from marshal import dump, load
 from urllib import urlretrieve
+from zlib import compress, decompress
 
 try:
     import xappy
@@ -31,7 +32,7 @@ class Enron(Spec):
     
     field_order = ("subject", "date", "from", "to", "cc", "bcc", "body")
     
-    whoosh_compress_main = True
+    cachefile = None
 
     # Functions for downloading and then reading the email archive and caching
     # the messages in an easier-to-digest format
@@ -111,6 +112,7 @@ class Enron(Spec):
         f = open(self.cache_filename, "rb")
         try:
             while True:
+                self.filepos = f.tell()
                 d = load(f)
                 yield d
         except EOFError:
@@ -118,9 +120,10 @@ class Enron(Spec):
         f.close()
     
     def whoosh_schema(self):
-        ana = analysis.StemmingAnalyzer(maxsize=40)
-        storebody = not self.options.nobody
+        ana = analysis.StemmingAnalyzer(maxsize=40, cachesize=None)
+        storebody = self.options.storebody
         schema = fields.Schema(body=fields.TEXT(analyzer=ana, stored=storebody),
+                               filepos=fields.STORED,
                                date=fields.ID(stored=True),
                                frm=fields.ID(stored=True),
                                to=fields.IDLIST(stored=True),
@@ -132,7 +135,7 @@ class Enron(Spec):
     def xappy_indexer_connection(self, path):
         conn = xappy.IndexerConnection(path)
         conn.add_field_action('body', xappy.FieldActions.INDEX_FREETEXT, language='en')
-        if not self.options.nobody:
+        if self.options.storebody:
             conn.add_field_action('body', xappy.FieldActions.STORE_CONTENT)
         conn.add_field_action('date', xappy.FieldActions.INDEX_EXACT)
         conn.add_field_action('date', xappy.FieldActions.STORE_CONTENT)
@@ -153,6 +156,25 @@ class Enron(Spec):
         for name in ("to", "subject", "cc", "bcc", "body"):
             cat[name] = indexes.TextIndex(field_name=name)
     
+    def process_document_whoosh(self, d):
+        d["filepos"] = self.filepos
+        if self.options.storebody:
+            mf = self.main_field
+            d["_stored_%s" % mf] = compress(d[mf], 9)
+    
+    def process_result_whoosh(self, d):
+        mf = self.main_field
+        if mf in d:
+            d.fields()[mf] = decompress(d[mf])
+        else:
+            if not self.cachefile:
+                self.cachefile = open(self.cache_filename, "rb")
+            filepos = d["filepos"]
+            self.cachefile.seek(filepos)
+            dd = load(self.cachefile)
+            d.fields()[mf] = dd[mf]
+        return d
+            
     def process_document_xapian(self, d):
         d[self.main_field] = " ".join([d.get(name, "") for name
                                        in self.field_order])
