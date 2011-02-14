@@ -17,10 +17,13 @@ Searching classes
 .. autoclass:: TermTrackingCollector
 
 
-Results class
-=============
+Results classes
+===============
 
 .. autoclass:: Results
+    :members:
+
+.. autoclass:: Hit
     :members:
 
 .. autoclass:: ResultsPage
