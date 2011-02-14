@@ -4,10 +4,11 @@
 
 .. automodule:: whoosh.sorting
 
+
 Sorter object
 =============
 
-..autoclass:: Sorter
+.. autoclass:: Sorter
     :members:
 
 
