@@ -824,7 +824,7 @@ class TermTrackingCollector(Collector):
     dictionary was not entirely clear. The current implementation uses the
     unicode representation of the query object, which usually returns something
     at least recognizable (for example, ``unicode(Term("f", u"a")) == u"f:a"``
-    and ``unicode(Prefix("f", "b")) == u"f:b*"`).
+    and ``unicode(Prefix("f", "b")) == u"f:b*"``).
     
     >>> myparser = qparser.QueryParser("content", myindex.schema)
     >>> myquery = myparser.parse(u"apple OR bear NOT camel")

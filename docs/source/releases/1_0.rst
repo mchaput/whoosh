@@ -2,6 +2,80 @@
 Whoosh 1.x release notes
 ========================
 
+Whoosh 1.7
+==========
+
+You can once again perform complex sorting of search results (that is, a sort
+with some fields ascending and some fields descending).
+
+You can still use the ``sortedby`` keyword argument to
+:meth:`whoosh.searching.Searcher.search` to do a simple sort (where all fields
+are sorted in the same direction), or you can use the new
+:class:`~whoosh.sorting.Sorter` class to do a simple or complex sort::
+
+    searcher = myindex.searcher()
+    sorter = searcher.sorter()
+    # Sort first by the group field, ascending
+    sorter.add_field("group")
+    # Then by the price field, descending
+    sorter.add_field("price", reverse=True)
+    # Get the Results
+    results = sorter.sort_query(myquery)
+    
+See the documentation for the :class:`~whoosh.sorting.Sorter` class for more
+information. Bear in mind that complex sorts will be much slower on large
+indexes because they can't use the per-segment field caches.
+
+You can now get highlighted snippets for a hit automatically using
+:meth:`whoosh.searching.Hit.highlights`::
+
+    results = searcher.search(myquery, limit=20)
+    for hit in results:
+        print hit["title"]
+        print hit.highlights("content")
+
+See :meth:`whoosh.searching.Hit.highlights` for more information.
+
+Added the ability to filter search results so that only hits in a Results
+set, a set of docnums, or matching a query are returned. The filter is
+cached on the searcher.
+
+    # Search within previous results
+    newresults = searcher.search(newquery, filter=oldresults)
+    
+    # Search within the "basics" chapter
+    results = searcher.search(userquery, filter=query.Term("chapter", "basics"))
+
+You can now specify a time limit for a search. If the search does not finish
+in the given time, a :class:`whoosh.searching.TimeLimit` exception is raised,
+but you can still retrieve the partial results from the collector. See the
+``timelimit`` and ``greedy`` arguments in the
+:class:`whoosh.searching.Collector` documentation.
+
+Added back the ability to set :class:`whoosh.analysis.StemFilter` to use an
+unlimited cache. This is useful for one-shot batch indexing (see
+:doc:`../batch`).
+
+The ``normalize()`` method of the ``And`` and ``Or`` queries now merges
+overlapping range queries for more efficient queries.
+
+Query objects now have ``__hash__`` methods allowing them to be used as
+dictionary keys.
+
+The API of the highlight module has changed slightly. Most of the functions
+in the module have been converted to classes. However, most old code should
+still work. The ``NullFragmeter`` is now called ``WholeFragmenter``, but the
+old name is still available as an alias.
+
+Fixed MultiPool so it won't fill up the temp directory with job files.
+
+Fixed a bug where Phrase query objects did not use their boost factor.
+
+Fixed a bug where a fieldname after an open parenthesis wasn't parsed
+correctly. The change alters the semantics of certain parsing "corner cases"
+(such as ``a:b:c:d``).
+
+
 Whoosh 1.6
 ==========
 

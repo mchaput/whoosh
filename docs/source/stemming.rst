@@ -176,12 +176,12 @@ both separate terms and perform character folding. This tokenizer is slower
 than the :class:`whoosh.analysis.RegexTokenizer` because it loops over each
 character in Python. If the language(s) you're indexing can be tokenized using
 regular expressions, it will be much faster to use ``RegexTokenizer`` and
-``CharsetFilter`` in combination instead of using ``CharsetTokenizer``::
+``CharsetFilter`` in combination instead of using ``CharsetTokenizer``.
 
 The :mod:`whoosh.support.charset` module contains an accent folding map useful
 for most Western languages, as well as a much more extensive Sphinx charset
 table and a function to convert Sphinx charset tables into the character maps
-required by ``CharsetTokenizer`` and ``CharsetFilter`` ::
+required by ``CharsetTokenizer`` and ``CharsetFilter``::
 
     # To create a filter using an enourmous character map for most languages
     # generated from a Sphinx charset table

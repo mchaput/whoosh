@@ -24,8 +24,6 @@ from collections import deque
 from heapq import nlargest
 from cgi import escape as htmlescape
 
-from whoosh import analysis
-
 
 # Fragment object
 
@@ -104,6 +102,10 @@ class WholeFragmenter(Fragmenter):
             before = tokens[0].startchar
             after = len(text) - tokens[-1].endchar
         return [Fragment(tokens, charsbefore=before, charsafter=after)]
+
+
+# Backwards compatiblity
+NullFragmeter = WholeFragmenter
 
 
 class SimpleFragmenter(Fragmenter):
