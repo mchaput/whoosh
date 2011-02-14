@@ -96,9 +96,26 @@ class Sorter(object):
         self.arrays = None
 
     def add_field(self, fieldname, reverse=False):
+        """Adds a field to the sorting criteria. Results are sorted by the
+        fields in the order you add them. For example, if you do::
+        
+            sorter.add_field("group")
+            sorter.add_field("price")
+            
+        ...the results are sorted by ``group``, and for results with the same
+        value of ``group``, are then sorted by ``price``.
+        
+        :param fieldname: the name of the field to sort by.
+        :param reverse: if True, reverses the natural ordering of the field.
+        """
+        
         self.criteria.append(fieldname, reverse)
     
     def is_simple(self):
+        """Returns ``True`` if this is a "simple" sort (all the fields are
+        sorted in the same direction).
+        """
+        
         if len(self.criteria) < 2:
             return True
         
@@ -220,6 +237,14 @@ class Sorter(object):
         return self._results(q, docnums, docset, runtime)
 
     def sort_query(self, q, limit=None, reverse=False, filter=None):
+        """Returns a :class:`whoosh.searching.Results` object for the given
+        query, sorted according to the fields set up using the
+        :meth:`Sorter.add_field` method.
+        
+        The parameters have the same meaning as for the
+        :meth:`whoosh.searching.Searcher.search` method.
+        """
+        
         if self.is_simple():
             meth = self._simple_sort_query
         else:
