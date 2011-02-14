@@ -817,7 +817,7 @@ class GtLtPlugin(Plugin):
     def __init__(self, expr=r"(?P<rel>(<=|>=|<|>|=<|=>))"):
         """
         :param expr: a regular expression that must capture a "rel" group
-        (which contains <, >, >=, <=, =>, or =<)
+            (which contains <, >, >=, <=, =>, or =<)
         """
         
         self.expr = rcompile(expr)

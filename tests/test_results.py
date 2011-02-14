@@ -253,8 +253,41 @@ class TestResults(unittest.TestCase):
             self.assertEqual(r.estimated_min_length(), 3)
             self.assertEqual(r.scored_length(), 2)
             self.assertEqual(len(r), 6)
+    
+    def test_lengths2(self):
+        schema = fields.Schema(text=fields.TEXT(stored=True))
+        ix = RamStorage().create_index(schema)
+        count = 0
+        for _ in xrange(3):
+            w = ix.writer()
+            for ls in permutations(u"alfa bravo charlie".split()):
+                if "bravo" in ls and "charlie" in ls:
+                    count += 1
+                w.add_document(text=u" ".join(ls))
+            w.commit(merge=False)
         
-        
+        with ix.searcher() as s:
+            q = query.Or([query.Term("text", u"bravo"), query.Term("text", u"charlie")])
+            r = s.search(q, limit=None)
+            self.assertEqual(len(r), count)
+            
+            r = s.search(q, limit=3)
+            self.assertEqual(len(r), count)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
