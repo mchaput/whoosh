@@ -107,6 +107,9 @@ class Query(object):
     def __hash__(self):
         raise NotImplementedError
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
     def is_leaf(self):
         """Returns True if this is a leaf node in the query tree, or False if
         this query has sub-queries.
@@ -868,11 +871,11 @@ class PatternQuery(MultiTerm):
                 and self.fieldname == other.fieldname
                 and self.text == other.text and self.boost == other.boost
                 and self.constantscore == other.constantscore)
-        
+    
     def __repr__(self):
         r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
         if self.boost != 1:
-            r += ", boost=" + self.boost
+            r += ", boost=%s" % self.boost
         r += ")"
         return r
     
@@ -1037,11 +1040,11 @@ class RangeMixin(object):
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
-                and self.start == other.start
-                and self.end == other.end
+                and self.start == other.start and self.end == other.end
                 and self.startexcl == other.startexcl
                 and self.endexcl == other.endexcl
-                and self.boost == other.boost)
+                and self.boost == other.boost
+                and self.constantscore == other.constantscore)
     
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl)
@@ -1570,6 +1573,9 @@ class NullQuery(Query):
     
     def __repr__(self):
         return "<%s>" % (self.__class__.__name__, )
+    
+    def __eq__(self, other):
+        return other is self
     
     def __hash__(self):
         return id(self)
