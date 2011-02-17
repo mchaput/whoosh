@@ -41,9 +41,6 @@ class FileStorage(Storage):
         if not os.path.exists(path):
             raise IOError("Directory %s does not exist" % path)
 
-    def __iter__(self):
-        return iter(self.list())
-
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
         if self.readonly:
             raise ReadOnlyError
@@ -136,9 +133,6 @@ class RamStorage(FileStorage):
         self.files = {}
         self.locks = {}
         self.folder = ''
-
-    def __iter__(self):
-        return iter(self.list())
 
     def list(self):
         return self.files.keys()

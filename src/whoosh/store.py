@@ -25,6 +25,9 @@ class Storage(object):
     
     readonly = False
     
+    def __iter__(self):
+        return iter(self.list())
+    
     def create_index(self, schema, indexname=None):
         raise NotImplementedError
     
@@ -44,6 +47,9 @@ class Storage(object):
         raise NotImplementedError
     
     def file_modified(self, name):
+        raise NotImplementedError
+    
+    def file_length(self, name):
         raise NotImplementedError
     
     def delete_file(self, name):
