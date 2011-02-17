@@ -6,6 +6,12 @@ from whoosh import analysis, fields, qparser, query
 
 
 class TestQueryParser(unittest.TestCase):
+    def test_empty_querystring(self):
+        s = fields.Schema(content=fields.TEXT, title=fields.TEXT, id=fields.ID)
+        qp = qparser.QueryParser("content", s)
+        q = qp.parse(u"")
+        self.assertEqual(q, query.NullQuery)
+    
     def test_fields(self):
         s = fields.Schema(content=fields.TEXT, title=fields.TEXT, id=fields.ID)
         qp = qparser.QueryParser("content", s)
