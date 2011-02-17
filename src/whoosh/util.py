@@ -60,6 +60,15 @@ except ImportError:
                 return
 
 
+try:
+    from operator import methodcaller
+except ImportError:
+    def methodcaller(name, *args, **kwargs):
+        def caller(obj):
+            return getattr(obj, name)(*args, **kwargs)
+        return caller
+
+
 if sys.platform == 'win32':
     now = time.clock
 else:
