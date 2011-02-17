@@ -22,7 +22,6 @@ from __future__ import division
 
 import copy
 import fnmatch
-import operator
 import re
 from array import array
 
@@ -35,7 +34,7 @@ from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
 from whoosh.reading import TermNotFound
 from whoosh.support.levenshtein import relative
 from whoosh.support.times import datetime_to_long
-from whoosh.util import make_binary_tree
+from whoosh.util import make_binary_tree, methodcaller
 
 
 # Exceptions
@@ -176,7 +175,7 @@ class Query(object):
         if self.is_leaf():
             return copy.copy(self)
         else:
-            return self.apply(operator.methodcaller("copy"))
+            return self.apply(methodcaller("copy"))
 
     def replace(self, oldtext, newtext):
         """Returns a copy of this query with oldtext replaced by newtext (if
@@ -189,7 +188,7 @@ class Query(object):
         if self.is_leaf():
             return self.copy()
         else:
-            return self.apply(operator.methodcaller("replace", oldtext, newtext))
+            return self.apply(methodcaller("replace", oldtext, newtext))
 
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
