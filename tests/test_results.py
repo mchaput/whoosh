@@ -274,11 +274,35 @@ class TestResults(unittest.TestCase):
             r = s.search(q, limit=3)
             self.assertEqual(len(r), count)
 
+    def test_more_like_this_stored(self):
+        docs = [u"alfa bravo charlie delta echo foxtrot golf",
+                u"delta echo foxtrot golf hotel india juliet",
+                u"echo foxtrot golf hotel india juliet kilo",
+                u"foxtrot golf hotel india juliet kilo lima",
+                u"golf hotel india juliet kilo lima mike",
+                u"foxtrot golf hotel india alfa bravo charlie"]
+        
+        def _check(schema, **kwargs):
+            ix = RamStorage().create_index(schema)
+            with ix.writer() as w:
+                for i, text in enumerate(docs):
+                    w.add_document(id=unicode(i + 1), text=text)
+    
+            with ix.searcher() as s:
+                docnum = s.document_number(id=u"1")
+                r = s.more_like(docnum, "text", **kwargs)
+                self.assertEqual([hit["id"] for hit in r], ["6", "2", "3"])
+                
+        schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT(stored=True))
+        _check(schema)
 
-
-
-
-
+        ana = analysis.StandardAnalyzer()
+        schema = fields.Schema(id=fields.ID(stored=True),
+                               text=fields.TEXT(analyzer=ana, vector=formats.Frequency(ana)))
+        _check(schema)
+        
+        schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
+        _check(schema, text=docs[0])
 
 
 

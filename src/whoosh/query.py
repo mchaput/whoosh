@@ -1565,7 +1565,7 @@ class Every(Query):
         
         return ListMatcher(doclist, all_weights=self.boost)
 
-            
+
 class NullQuery(Query):
     "Represents a query that won't match anything."
     def __call__(self):

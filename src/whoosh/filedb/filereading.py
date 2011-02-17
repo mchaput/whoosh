@@ -151,8 +151,11 @@ class SegmentReader(IndexReader):
 
     @protected
     def has_vector(self, docnum, fieldname):
-        self._open_vectors()
-        return (docnum, fieldname) in self.vectorindex
+        if self.schema[fieldname].vector:
+            self._open_vectors()
+            return (docnum, fieldname) in self.vectorindex
+        else:
+            return False
 
     @protected
     def __iter__(self):
