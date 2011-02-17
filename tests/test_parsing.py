@@ -60,7 +60,6 @@ class TestQueryParser(unittest.TestCase):
     
     def test_colonspace(self):
         s = fields.Schema(content=fields.TEXT, url=fields.ID)
-        
         qp = qparser.QueryParser("content", s)
         q = qp.parse(u"url:test")
         self.assertEqual(q.__class__, query.Term)
@@ -81,9 +80,11 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.fieldname, "content")
         self.assertEqual(q.text, "url")
         
+        s = fields.Schema(foo=fields.KEYWORD)
+        qp = qparser.QueryParser("foo", s)
         q = qp.parse(u"blah:")
         self.assertEqual(q.__class__, query.Term)
-        self.assertEqual(q.fieldname, "content")
+        self.assertEqual(q.fieldname, "foo")
         self.assertEqual(q.text, "blah:")
     
     def test_andor(self):
