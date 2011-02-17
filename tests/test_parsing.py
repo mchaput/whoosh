@@ -8,7 +8,6 @@ from whoosh import analysis, fields, qparser, query
 class TestQueryParser(unittest.TestCase):
     def test_fields(self):
         s = fields.Schema(content=fields.TEXT, title=fields.TEXT, id=fields.ID)
-        
         qp = qparser.QueryParser("content", s)
         q = qp.parse(u"test")
         self.assertEqual(q.__class__, query.Term)
@@ -29,6 +28,29 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.fieldname, "title")
         self.assertEqual(q.text, "test")
+        
+    def test_fieldname_chars(self):
+        s = fields.Schema(abc123=fields.TEXT, nisbah=fields.KEYWORD)
+        qp = qparser.QueryParser("content", s)
+        fieldmap = {'nisbah': [u'\u0646\u0633\u0628\u0629'],
+                    'abc123': ['xyz']}
+        qp.add_plugin(qparser.FieldAliasPlugin(fieldmap))
+        
+        q = qp.parse(u"abc123:456")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, u'abc123')
+        self.assertEqual(q.text, u'456')
+        
+        q = qp.parse(u"abc123:456 def")
+        self.assertEqual(unicode(q), u"(abc123:456 AND content:def)")
+        
+        q = qp.parse(u'\u0646\u0633\u0628\u0629:\u0627\u0644\u0641\u0644\u0633\u0637\u064a\u0646\u064a')
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, u'nisbah')
+        self.assertEqual(q.text, u'\u0627\u0644\u0641\u0644\u0633\u0637\u064a\u0646\u064a')
+        
+        q = qp.parse(u"abc123 (xyz:123 OR qrs)")
+        self.assertEqual(unicode(q), "(content:abc123 AND (abc123:123 OR content:qrs))")
     
     def test_colonspace(self):
         s = fields.Schema(content=fields.TEXT, url=fields.ID)
@@ -52,6 +74,11 @@ class TestQueryParser(unittest.TestCase):
         self.assertEqual(q.__class__, query.Term)
         self.assertEqual(q.fieldname, "content")
         self.assertEqual(q.text, "url")
+        
+        q = qp.parse(u"blah:")
+        self.assertEqual(q.__class__, query.Term)
+        self.assertEqual(q.fieldname, "content")
+        self.assertEqual(q.text, "blah:")
     
     def test_andor(self):
         qp  = qparser.QueryParser("a", None)

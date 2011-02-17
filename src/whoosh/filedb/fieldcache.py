@@ -93,6 +93,9 @@ class FieldCache(object):
                 and self.order == other.order
                 and self.texts == other.texts)
     
+    def __ne__(self, other):
+        return not self.__eq__(other)
+    
     def size(self):
         """Returns the size in bytes (or as accurate an estimate as is
         practical, anyway) of this cache.

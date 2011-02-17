@@ -218,6 +218,8 @@ class QueryParser(object):
             print "Stream=", stream
         stream = self._filterize(stream, debug)
         
+        if debug:
+            print "Final stream=", stream
         q = stream.query(self)
         if debug:
             print "Pre-normalized query=", q
