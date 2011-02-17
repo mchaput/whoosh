@@ -80,19 +80,6 @@ class RangePlugin(Plugin):
             self.endexcl = endexcl
             self.boost = boost
         
-        def set_boost(self, b):
-            return self.__class__(self.start, self.end, self.startexcl,
-                                  self.endexcl, fieldname=self.fieldname,
-                                  boost=b)
-        
-        def set_fieldname(self, name, force=False):
-            if force or self.fieldname is None:
-                return self.__class__(self.start, self.end, self.startexcl,
-                                      self.endexcl, fieldname=name,
-                                      boost=self.boost)
-            else:
-                return self
-        
         def __repr__(self):
             r = "%s:(%r, %r, %s, %s)" % (self.fieldname, self.start, self.end,
                                          self.startexcl, self.endexcl)
@@ -343,17 +330,42 @@ class FieldsPlugin(Plugin):
     This plugin is included in the default parser configuration.
     """
     
+    def __init__(self, remove_unknown=True):
+        self.remove_unknown = remove_unknown
+    
     def tokens(self, parser):
         return ((FieldsPlugin.Field, 0), )
     
     def filters(self, parser):
-        return ((FieldsPlugin.do_fieldnames, 100), )
+        return ((self.do_fieldnames, 100), )
 
-    @staticmethod
-    def do_fieldnames(parser, stream):
+    def do_fieldnames(self, parser, stream):
         fieldtoken = FieldsPlugin.Field
-        newstream = stream.empty()
         
+        # Look for field tokens that aren't in the schema and convert them to
+        # text
+        if self.remove_unknown and parser.schema is not None:
+            newstream = stream.empty()
+            text = None
+            for token in stream:
+                if (isinstance(token, fieldtoken)
+                    and token.fieldname not in parser.schema):
+                    text = token.original
+                else:
+                    if text:
+                        try:
+                            token = token.prepend_text(text)
+                        except NotImplementedError:
+                            newstream.append(Word(text))
+                        text = None
+                    newstream.append(token)
+            
+            if text:
+                newstream.append(Word(text))
+            
+            stream = newstream
+        
+        newstream = stream.empty()
         i = len(stream)
         # Iterate backwards through the stream, looking for field-able objects
         # with field tokens in front of them
@@ -367,7 +379,7 @@ class FieldsPlugin(Plugin):
                 # Word token
                 t = Word(t.original)
             elif isinstance(t, Group):
-                t = FieldsPlugin.do_fieldnames(parser, t)
+                t = self.do_fieldnames(parser, t)
             
             # If this is a field-able object (not whitespace or a field token)
             # and it has a field token in front of it, apply the field token
@@ -384,7 +396,7 @@ class FieldsPlugin(Plugin):
         return newstream
     
     class Field(Token):
-        expr = rcompile(r"(?P<fieldname>\w[\w\d]*):")
+        expr = rcompile(r"(?P<fieldname>\w+):")
         
         def __init__(self, fieldname, original):
             self.fieldname = fieldname
@@ -393,14 +405,10 @@ class FieldsPlugin(Plugin):
         def __repr__(self):
             return "<%s:>" % self.fieldname
         
-        def set_fieldname(self, fieldname, force=False):
-            return self.__class__(fieldname, self.original)
-        
         @classmethod
         def create(cls, parser, match):
             fieldname = match.group("fieldname")
-            if not parser.schema or fieldname == "*" or (fieldname in parser.schema):
-                return cls(fieldname, match.group(0))
+            return cls(fieldname, match.group(0))
     
 
 class OperatorsPlugin(Plugin):
@@ -475,7 +483,9 @@ class OperatorsPlugin(Plugin):
         return ((self.do_operators, 600), )
     
     def do_operators(self, parser, stream, level=0):
+        #print "  " * level, "In=", stream
         for op, _ in self.ops:
+            #print "  " * level, ":", op
             if op.left_assoc:
                 i = 0
                 while i < len(stream):
@@ -491,15 +501,16 @@ class OperatorsPlugin(Plugin):
                     if t is op:
                         i = t.make_group(parser, stream, i)
                     i -= 1
-        
-        #print " " * level, ">stream=", stream
+            #print "  " * level, "=", stream
+                    
+        #print "  " * level, ">stream=", stream
         newstream = stream.empty()
         for t in stream:
             if isinstance(t, Group):
                 t = self.do_operators(parser, t, level + 1)
             newstream.append(t)
         
-        #print " " * level, "<stream=", newstream
+        #print "  " * level, "<stream=", newstream
         return newstream
 
 CompoundsPlugin = OperatorsPlugin
@@ -703,7 +714,7 @@ class FieldAliasPlugin(Plugin):
     """Adds the ability to use "aliases" of fields in the query string.
     
     >>> # Allow users to use 'body' or 'text' to refer to the 'content' field
-    >>> parser.add_plugin(FieldAliasPlugin({"content": ("body", "text")}))
+    >>> parser.add_plugin(FieldAliasPlugin({"content": ["body", "text"]}))
     >>> parser.parse("text:hello")
     Term("content", "hello")
     """
@@ -726,10 +737,11 @@ class FieldAliasPlugin(Plugin):
     def do_aliases(self, parser, stream):
         newstream = stream.empty()
         for t in stream:
-            if (not isinstance(t, Group)
-                  and t.fieldname is not None
+            if isinstance(t, Group):
+                t = self.do_aliases(parser, t)
+            elif (t.fieldname is not None
                   and t.fieldname in self.reverse):
-                    t = t.set_fieldname(self.reverse[t.fieldname])
+                t = t.set_fieldname(self.reverse[t.fieldname], force=True)
             newstream.append(t)
         return newstream
 

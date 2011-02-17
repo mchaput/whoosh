@@ -21,6 +21,8 @@ tranlsated into a query tree by calling ``SyntaxObject.query()`` on the object
 at the top of the tree.
 """
 
+import copy
+
 from whoosh import query
 from whoosh.qparser.common import rcompile
 
@@ -45,6 +47,28 @@ class SyntaxObject(object):
         syntax objects that didn't have an explicit field name set by the user.
         """
         
+        if force or self.fieldname is None:
+            t = copy.copy(self)
+            t.fieldname = name
+            return t
+        else:
+            return self
+        
+    def set_boost(self, b):
+        if b != self.boost:
+            t = copy.copy(self)
+            t.boost = b
+            return t
+        else:
+            return self
+        
+    def set_text(self, text):
+        raise NotImplementedError
+    
+    def prepend_text(self, text):
+        raise NotImplementedError
+    
+    def append_text(self, text):
         raise NotImplementedError
     
     def query(self, parser):
@@ -235,12 +259,6 @@ class Token(SyntaxObject):
     fieldname = None
     endpos = None
     
-    def set_boost(self, b):
-        return self
-    
-    def set_fieldname(self, name, force=False):
-        return self
-    
     @classmethod
     def match(cls, text, pos):
         return cls.expr.match(text, pos)
@@ -276,6 +294,12 @@ class Operator(Token):
     
     def __repr__(self):
         return "%s<%s>" % (self.__class__.__name__, self.expr.pattern)
+    
+    def set_boost(self, b):
+        return self
+    
+    def set_fieldname(self, name, force=False):
+        return self
     
     def make_group(self, parser, stream, position):
         raise NotImplementedError
@@ -368,6 +392,12 @@ class Singleton(Token):
     def __repr__(self):
         return self.__class__.__name__
     
+    def set_boost(self, b):
+        return self
+    
+    def set_fieldname(self, name, force=False):
+        return self
+    
     @classmethod
     def create(cls, parser, match):
         if not cls.me:
@@ -420,14 +450,16 @@ class BasicSyntax(Token):
         self.text = text
         self.boost = boost
     
-    def set_boost(self, b):
-        return self.__class__(self.text, fieldname=self.fieldname, boost=b)
+    def set_text(self, text):
+        t = copy.copy(self)
+        t.text = text
+        return t
     
-    def set_fieldname(self, name, force=False):
-        if force or self.fieldname is None:
-            return self.__class__(self.text, fieldname=name, boost=self.boost)
-        else:
-            return self
+    def prepend_text(self, text):
+        return self.set_text(text + self.text)
+    
+    def append_text(self, text):
+        return self.set_text(self.text + text)
     
     def __repr__(self):
         r = "%s:%r" % (self.fieldname, self.text)
