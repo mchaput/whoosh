@@ -117,19 +117,19 @@ class DatastoreStorage(Storage):
     def delete_file(self, name):
         return DatastoreFile.get_by_key_name(name).delete()
 
-    def rename_file(self, name, newname):
+    def rename_file(self, name, newname, safe=False):
         file = DatastoreFile.get_by_key_name(name)
-        newfile = DatastoreFile(key_name=name)
+        newfile = DatastoreFile(key_name=newname)
         newfile.value = file.value
         newfile.put()
         file.delete()
 
-    def create_file(self, name):
+    def create_file(self, name, **kwargs):
         f = StructFile(DatastoreFile(key_name=name), name=name,
                        onclose=lambda sfile: sfile.file.close())
         return f
 
-    def open_file(self, name):
+    def open_file(self, name, *args, **kwargs):
         return StructFile(DatastoreFile.loadfile(name))
 
     def lock(self, name):
@@ -137,10 +137,12 @@ class DatastoreStorage(Storage):
             self.locks[name] = Lock()
         if not self.locks[name].acquire(False):
             raise LockError("Could not lock %r" % name)
-        return True
+        return self.locks[name]
 
     def unlock(self, name):
         if name in self.locks:
             self.locks[name].release()
+        else:
+            raise LockError("No lock named %r" % name)
 
 
