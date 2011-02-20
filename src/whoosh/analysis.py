@@ -777,6 +777,13 @@ class StemFilter(Filter):
                       if k != "_stem"])
     
     def __setstate__(self, state):
+        # Check for old instances of StemFilter class, which didn't have a
+        # cachesize attribute and pickled the cache attribute
+        if "cachesize" not in state:
+            self.cachesize = 50000
+        if "cache" in state:
+            del state["cache"]
+        
         self.__dict__.update(state)
         # Set the _stem attribute
         self.clear()
