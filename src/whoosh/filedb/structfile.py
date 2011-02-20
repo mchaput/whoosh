@@ -14,7 +14,6 @@
 # limitations under the License.
 #===============================================================================
 
-import mmap
 import os
 from array import array
 from copy import copy
@@ -69,6 +68,8 @@ class StructFile(object):
             fd = fileobj.fileno()
             self.size = os.fstat(fd).st_size
             if self.size > 0:
+                import mmap
+                
                 try:
                     self.map = mmap.mmap(fd, self.size, access=mmap.ACCESS_READ)
                 except OSError:

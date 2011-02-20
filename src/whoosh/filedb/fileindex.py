@@ -74,7 +74,6 @@ def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
             storage.delete_file(filename)
     
     schema = ensure_schema(schema)
-    
     # Write a TOC file with an empty list of segments
     _write_toc(storage, schema, indexname, 0, 0, [])
 
