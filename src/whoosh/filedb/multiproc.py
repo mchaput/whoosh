@@ -282,6 +282,9 @@ class MultiPool(PoolBase):
         self._clean_temp_dir()
     
     def finish(self, termswriter, doccount, lengthfile):
+        if self.buffer:
+            self._enqueue()
+        
         _fieldlength_totals = self._fieldlength_totals
         if not self.tasks:
             return
