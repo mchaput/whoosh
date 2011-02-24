@@ -1,5 +1,4 @@
-import os
-import unittest
+from nose.tools import assert_equal
 
 from whoosh import fields
 from whoosh.filedb import pools, filestore
@@ -48,32 +47,29 @@ class FakePostWriter(object):
         raise Exception("FPW name=%s" % name)
 
 
-#class TestPool(unittest.TestCase):
-#    def test_addpostings(self):
-#        s = fields.Schema(text=fields.TEXT)
-#        st = filestore.RamStorage()
-#        
-#        p = pools.TempfilePool(s)
-#        p.add_posting("text", u"alfa", 0, 1.0, "\x00\x00\x00\x01")
-#        p.add_posting("text", u"bravo", 0, 2.0, "\x00\x00\x00\x02")
-#        p.add_posting("text", u"charlie", 0, 3.0, "\x00\x00\x00\x03")
-#        p.add_field_length(0, "text", 6)
-#        p.add_posting("text", u"bravo", 1, 4.0, "\x00\x00\x00\x04")
-#        p.add_posting("text", u"charlie", 1, 5.0, "\x00\x00\x00\x05")
-#        p.add_posting("text", u"delta", 1, 6.0, "\x00\x00\x00\x06")
-#        p.add_field_length(1, "text", 15)
-#        
-#        p.dump_run()
-#        
-#        doccount = 2
-#        lengthfile = st.create_file("test.len")
-#        termtable = FakeTermIndex()
-#        postwriter = FakePostWriter()
-#        
-#        p.finish(doccount, lengthfile, termtable, postwriter)
+#def test_addpostings():
+#    s = fields.Schema(text=fields.TEXT)
+#    st = filestore.RamStorage()
+#    
+#    p = pools.TempfilePool(s)
+#    p.add_posting("text", u"alfa", 0, 1.0, "\x00\x00\x00\x01")
+#    p.add_posting("text", u"bravo", 0, 2.0, "\x00\x00\x00\x02")
+#    p.add_posting("text", u"charlie", 0, 3.0, "\x00\x00\x00\x03")
+#    p.add_field_length(0, "text", 6)
+#    p.add_posting("text", u"bravo", 1, 4.0, "\x00\x00\x00\x04")
+#    p.add_posting("text", u"charlie", 1, 5.0, "\x00\x00\x00\x05")
+#    p.add_posting("text", u"delta", 1, 6.0, "\x00\x00\x00\x06")
+#    p.add_field_length(1, "text", 15)
+#    
+#    p.dump_run()
+#    
+#    doccount = 2
+#    lengthfile = st.create_file("test.len")
+#    termtable = FakeTermIndex()
+#    postwriter = FakePostWriter()
+#    
+#    p.finish(doccount, lengthfile, termtable, postwriter)
 
 
 
-if __name__ == '__main__':
-    unittest.main()
 
