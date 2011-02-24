@@ -57,10 +57,11 @@ def _check_writer(name, writer_fn):
         with ix.searcher() as s:
             for word in domain:
                 print word
-                print docs[word]
-                print list(s.postings("text", word).all_ids())
-                rset = [hit["id"] for hit in s.search(query.Term("text", word), limit=None)]
+                rset = sorted([hit["id"] for hit in s.search(query.Term("text", word), limit=None)])
                 assert_equal(rset, docs[word])
+
+def test_simple():
+    _check_writer("simplew", lambda ix: ix.writer())
 
 @skip_if_unavailable("multiprocessing")
 def test_multipool():

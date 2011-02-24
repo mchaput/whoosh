@@ -72,7 +72,7 @@ class SegmentWritingTask(Process):
         else:
             writer.pool.finish(writer.termswriter, writer.docnum,
                                writer.lengthfile)
-            writer.termswriter.close()
+            writer._close_all()
             self.jobqueue.put(writer._getsegment())
     
     def cancel(self):
