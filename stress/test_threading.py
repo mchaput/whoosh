@@ -1,17 +1,13 @@
-import unittest
+from __future__ import with_statement
+import random, threading, time
 
-import random, shutil, tempfile, threading, time
+from whoosh import fields, query
+from whoosh.support.testing import TempStorage
 
-from whoosh import fields, index, query
 
-
-class TestThreading(unittest.TestCase):
-    def test_readwrite(self):
-        dir = tempfile.mkdtemp(prefix="threading", suffix=".tmpix")
-        
-        ixname = "threading"
-        schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
-        
+def test_readwrite():
+    schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
+    with TempStorage("threading") as st:
         domain = ("alfa", "bravo", "charlie", "delta", "echo", "foxtrot",
                   "golf", "hotel", "india", "juliet", "kilo", "lima", "mike",
                   "november", "oscar", "papa", "quebec", "romeo", "sierra",
@@ -20,7 +16,7 @@ class TestThreading(unittest.TestCase):
         
         class WriterThread(threading.Thread):
             def run(self):
-                ix = index.create_in(dir, schema, indexname=ixname)
+                ix = st.create_index(dir, schema)
                 num = 0
                 
                 for i in xrange(50):
@@ -38,7 +34,7 @@ class TestThreading(unittest.TestCase):
             def run(self):
                 print self.name + " starting"
                 for _ in xrange(10):
-                    ix = index.open_dir(dir, indexname=ixname)
+                    ix = st.open_index()
                     s = ix.searcher()
                     q = query.Term("content", random.choice(domain))
                     s.search(q, limit=10)
@@ -54,8 +50,5 @@ class TestThreading(unittest.TestCase):
             SearcherThread().start()
             time.sleep(0.5)
         wt.join()
-        
-        shutil.rmtree(dir)
+    
 
-if __name__ == '__main__':
-    unittest.main()

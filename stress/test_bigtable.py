@@ -1,16 +1,15 @@
-import unittest
+from __future__ import with_statement
 
-import os.path, shutil, tempfile
 from random import randint, shuffle
 
-from whoosh.filedb.filestore import FileStorage
-from whoosh.filedb.filetables import HashWriter, HashReader, dump_hash
+from nose.tools import assert_equal
 
-class Test(unittest.TestCase):
-    def test_bigtable(self):
-        dir = tempfile.mkdtemp(prefix="bigtable", suffix=".tmpix")
-        st = FileStorage(dir)
-        
+from whoosh.filedb.filetables import HashWriter, HashReader
+from whoosh.support.testing import TempStorage
+
+
+def test_bigtable():
+    with TempStorage("bigtable") as st:
         def randstring(min, max):
             return "".join(chr(randint(1, 255))
                            for _ in xrange(randint(min, max)))
@@ -27,16 +26,12 @@ class Test(unittest.TestCase):
         keys = samp.keys()
         shuffle(keys)
         for key in keys:
-            self.assertEqual(samp[key], fhr[key])
+            assert_equal(samp[key], fhr[key])
         
         set1 = set(samp.iteritems())
         set2 = set(fhr.items())
-        self.assertEqual(set1, set2)
+        assert_equal(set1, set2)
         
         fhr.close()
-        shutil.rmtree(dir)
 
 
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-    unittest.main()
