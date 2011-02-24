@@ -109,7 +109,7 @@ class Sorter(object):
         :param reverse: if True, reverses the natural ordering of the field.
         """
         
-        self.criteria.append(fieldname, reverse)
+        self.criteria.append((fieldname, reverse))
     
     def is_simple(self):
         """Returns ``True`` if this is a "simple" sort (all the fields are
@@ -194,31 +194,20 @@ class Sorter(object):
         self.arrays = []
         r = self.searcher.reader()
         for name, reverse in self.criteria:
-            if r.is_atomic() and r.supports_caches():
-                # If this is an atomic file reader, we can re-use the field
-                # cache's order
-                order = r.fieldcache().order
+            arry = array("i", [0] * r.doc_count_all())
+            field = self.searcher.schema[name]
+            for i, (t, _) in enumerate(field.sortable_values(r, name)):
                 if reverse:
-                    order = order[:]
-                    order.reverse()
-                self.arrays.append(order)
-            else:
-                arry = array("i", [0] * r.doc_count_all())
-                field = self.searcher.schema[name]
-                for i, (t, _) in enumerate(field.sortable_values(r, name)):
-                    if reverse:
-                        i = 0 - i
-                    postings = r.postings(name, t)
-                    for docid in postings.all_ids():
-                        arry[docid] = i
-                self.arrays.append(arry)
+                    i = 0 - i
+                postings = r.postings(name, t)
+                for docid in postings.all_ids():
+                    arry[docid] = i
+            self.arrays.append(arry)
 
     def _complex_key_fn(self, docnum):
         return tuple(arry[docnum] for arry in self.arrays)
 
     def _complex_sort_query(self, q, limit=None, reverse=False, filter=None):
-        # If 
-        
         t = now()
         if self.arrays is None:
             self._complex_cache()
