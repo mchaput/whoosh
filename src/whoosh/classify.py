@@ -140,7 +140,7 @@ class Expander(object):
         
         :param number: The number of terms to return.
         :param normalize: Whether to normalize the weights.
-        :*returns*: A list of ("term", weight) tuples.
+        :returns: A list of ("term", weight) tuples.
         """
         
         model = self.model
@@ -160,7 +160,7 @@ class Expander(object):
         else:
             norm = maxweight
         tlist = [(weight / norm, t) for weight, t in tlist]
-        tlist.sort(reverse=True)
+        tlist.sort(key=lambda x: (0 - x[0], x[1]))
         
         return [(t, weight) for weight, t in tlist[:number]]
 
