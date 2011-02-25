@@ -777,6 +777,24 @@ class UnionMatcher(AdditiveBiMatcher):
         else:
             return sorted(set(self.a.spans()) | set(self.b.spans()))
     
+    def weight(self):
+        a = self.a
+        b = self.b
+        
+        if not a.is_active():
+            return b.weight()
+        if not b.is_active():
+            return a.weight()
+        
+        id_a = a.id()
+        id_b = b.id()
+        if id_a < id_b:
+            return a.weight()
+        elif id_b < id_a:
+            return b.weight()
+        else:
+            return (a.weight() + b.weight())
+    
     def score(self):
         a = self.a
         b = self.b

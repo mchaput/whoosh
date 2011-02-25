@@ -686,9 +686,8 @@ class Term(Query):
     def matcher(self, searcher):
         try:
             m = searcher.postings(self.fieldname, self.text)
-            if self.boost != 1:
+            if self.boost != 1.0:
                 m = WrappingMatcher(m, boost=self.boost)
-                
             return m
         except TermNotFound:
             return NullMatcher()

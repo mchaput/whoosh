@@ -1060,9 +1060,39 @@ def test_timelimit():
         r = s.search(oq, limit=None, collector=col)
         assert r.runtime < 0.5
             
-
-
-
+def test_fieldboost():
+    schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, a=u"alfa bravo charlie", b=u"echo foxtrot india")
+    w.add_document(id=2, a=u"delta bravo charlie", b=u"alfa alfa alfa")
+    w.add_document(id=3, a=u"alfa alfa alfa", b=u"echo foxtrot india")
+    w.add_document(id=4, a=u"alfa sierra romeo", b=u"alfa tango echo")
+    w.add_document(id=5, a=u"bravo charlie delta", b=u"alfa foxtrot india")
+    w.add_document(id=6, a=u"alfa alfa echo", b=u"tango tango tango")
+    w.add_document(id=7, a=u"alfa bravo echo", b=u"alfa alfa tango")
+    w.commit()
+    
+    def field_booster(fieldname, factor=2.0):
+        "Returns a function which will boost the given field in a query tree"
+        def booster_fn(obj):
+            if obj.is_leaf() and obj.field() == fieldname:
+                obj = obj.copy()
+                obj.boost *= factor
+                return obj
+            else:
+                return obj
+        return booster_fn
+    
+    with ix.searcher() as s:
+        q = Or([Term("a", u"alfa"), Term("b", u"alfa")])
+        
+        q = q.accept(field_booster("a", 10.0))
+        r = s.search(q)
+        for hit in r:
+            print hit.score, hit["id"]
+        assert_equal([hit["id"] for hit in r], [3, 6, 7, 4, 1, 2, 5])
+    
 
 
 
