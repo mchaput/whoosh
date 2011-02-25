@@ -22,12 +22,12 @@ from __future__ import division
 import copy
 import threading
 from collections import defaultdict
-from heapq import nlargest, nsmallest, heappush, heapreplace
+from heapq import heappush, heapreplace
 from math import ceil
 
 from whoosh import classify, highlight, query, scoring
 from whoosh.reading import TermNotFound
-from whoosh.support.bitvector import BitSet
+from whoosh.support.bitvector import BitSet, BitVector
 from whoosh.util import now, lru_cache
 
 
@@ -318,7 +318,7 @@ class Searcher(object):
     def _filter_to_comb(self, obj):
         if obj is None:
             return None
-        if isinstance(obj, set):
+        if isinstance(obj, (set, BitVector, BitSet)):
             c = obj
         elif isinstance(obj, Results):
             c = obj.docset
@@ -379,6 +379,53 @@ class Searcher(object):
         expander = classify.Expander(self.ixreader, fieldname, model=model)
         expander.add_text(text)
         return expander.expanded_terms(numterms, normalize=normalize)
+
+    def more_like(self, docnum, fieldname, text=None, top=10, numterms=5,
+                  model=classify.Bo1Model, normalize=False):
+        """Returns a :class:`Results` object containing documents similar to
+        the given document, based on "key terms" in the given field::
+        
+            # Get the ID for the document you're interested in
+            docnum = search.document_number(path=u"/a/b/c")
+            
+            r = searcher.more_like(docnum)
+        
+            print "Documents like", searcher.stored_fields(docnum)["title"]
+            for hit in r:
+                print hit["title"]
+        
+        :param fieldname: the name of the field to use to test similarity.
+        :param text: by default, the method will attempt to load the contents
+            of the field from the stored fields for the document, or from a
+            term vector. If the field isn't stored or vectored in the index,
+            but you have access to the text another way (for example, loading
+            from a file or a database), you can supply it using the ``text``
+            parameter.
+        :param top: the number of results to return.
+        :param numterms: the number of "key terms" to extract from the hit and
+            search for. Using more terms is slower but gives potentially more
+            and more accurate results.
+        :param model: (expert) a :class:`whoosh.classify.ExpansionModel` to use
+            to compute "key terms".
+        :param normalize: whether to normalize term weights.
+        """
+        
+        if text:
+            kts = self.key_terms_from_text(fieldname, text, numterms=numterms,
+                                           model=model, normalize=normalize)
+        else:
+            kts = self.key_terms([docnum], fieldname, numterms=numterms,
+                                 model=model, normalize=normalize)
+        # Create an Or query from the key terms
+        q = query.Or([query.Term(fieldname, word, boost=weight)
+                      for word, weight in kts])
+        
+        # Filter the original document out of the results using a bit vector
+        # with every bit set except the one for this document
+        size = self.doc_count_all()
+        comb = BitVector(size, [n for n in xrange(self.doc_count_all())
+                                if n != docnum])
+        return self.search(q, limit=top, filter=comb)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
         if pagenum < 1:
@@ -1320,6 +1367,38 @@ class Hit(object):
         return self.results.highlights(self.rank, fieldname, text=text,
                                        top=top, fragmenter=fragmenter,
                                        formatter=formatter, order=order)
+    
+    def more_like_this(self, fieldname, text=None, top=10, numterms=5,
+                       model=classify.Bo1Model, normalize=True):
+        """Returns a new Results object containing documents similar to this
+        hit, based on "key terms" in the given field::
+        
+            r = searcher.search(myquery)
+            for hit in r:
+                print hit["title"]
+                print "Top 3 similar documents:"
+                for subhit in hit.more_like_this("content", top=3):
+                  print "  ", subhit["title"]
+                  
+        :param fieldname: the name of the field to use to test similarity.
+        :param text: by default, the method will attempt to load the contents
+            of the field from the stored fields for the document, or from a
+            term vector. If the field isn't stored or vectored in the index,
+            but you have access to the text another way (for example, loading
+            from a file or a database), you can supply it using the ``text``
+            parameter.
+        :param top: the number of results to return.
+        :param numterms: the number of "key terms" to extract from the hit and
+            search for. Using more terms is slower but gives potentially more
+            and more accurate results.
+        :param model: (expert) a :class:`whoosh.classify.ExpansionModel` to use
+            to compute "key terms".
+        :param normalize: whether to normalize term weights.
+        """
+        
+        return self.searcher.more_like(self.docnum, text=text, top=top,
+                                       numterms=numterms, model=model,
+                                       normalize=normalize)
     
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())
