@@ -631,4 +631,16 @@ def test_paren_fieldname():
     q = qp.parse(u"kind:(1d565 OR 7c584) AND (stuff)")
     assert_equal(unicode(q), "((kind:1d565 OR kind:7c584) AND content:stuff)")
 
+def test_star_paren():
+    qp = qparser.QueryParser("content", None)
+    q = qp.parse(u"(*john*) AND (title:blog)")
+    
+    assert_equal(q.__class__, query.And)
+    assert_equal(q[0].__class__, query.Wildcard)
+    assert_equal(q[1].__class__, query.Term)
+    assert_equal(q[0].fieldname, "content")
+    assert_equal(q[1].fieldname, "title")
+    assert_equal(q[0].text, "*john*")
+    assert_equal(q[1].text, "blog")
+
 
