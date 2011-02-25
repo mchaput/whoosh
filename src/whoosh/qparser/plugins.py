@@ -238,10 +238,12 @@ class WildcardPlugin(Plugin):
         return ((WildcardPlugin.Wild, 1), )
     
     class Wild(BasicSyntax):
+        # Any number of word chars, followed by at least one question mark or
+        # star, followed by any number of word chars, question marks, or stars
         # \u055E = Armenian question mark
         # \u061F = Arabic question mark
         # \u1367 = Ethiopic question mark
-        expr = rcompile(u"[^ \t\r\n*?\u055E\u061F\u1367]*[*?\u055E\u061F\u1367]\\S*")
+        expr = rcompile(u"\\w*[*?\u055E\u061F\u1367](\\w|[*?\u055E\u061F\u1367])*")
         qclass = query.Wildcard
         
         def __repr__(self):
