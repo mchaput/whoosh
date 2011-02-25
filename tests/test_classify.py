@@ -46,7 +46,7 @@ def test_keyterms():
     with ix.searcher() as s:
         docnum = s.document_number(path="/a")
         keys = list(s.key_terms([docnum], "content", numterms=3))
-        assert_equal([t[0] for t in keys], ["collision", "volume", "used"])
+        assert_equal([t[0] for t in keys], [u"collision", u"calculations", u"damped"])
 
 def test_keyterms_from_text():
     ix = create_index()
