@@ -23,7 +23,7 @@ setup(
 	url = "http://bitbucket.org/mchaput/whoosh",
 	
 	zip_safe = True,
-	test_suite = "tests",
+	test_suite = "nose.collector",
 	
 	classifiers = [
 	"Development Status :: 5 - Production/Stable",
