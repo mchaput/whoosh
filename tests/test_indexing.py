@@ -8,7 +8,21 @@ from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length, permutations
 from whoosh.writing import IndexingError
-from whoosh.support.testing import skip_if_unavailable, TempIndex
+from whoosh.support.testing import skip_if_unavailable, TempIndex, skip_if
+
+def no_queue_support():
+    try:
+        import multiprocessing.synchronize
+    except ImportError:
+        return True
+    else:
+        try:
+            from multiprocessing import Queue
+            Queue()
+        except OSError:
+            return True
+        else:
+            return False
 
 
 def test_creation():
@@ -64,10 +78,12 @@ def test_simple():
     _check_writer("simplew", lambda ix: ix.writer())
 
 @skip_if_unavailable("multiprocessing")
+@skip_if(no_queue_support)
 def test_multipool():
     _check_writer("multipool", lambda ix: ix.writer(procs=4))
 
 @skip_if_unavailable("multiprocessing")
+@skip_if(no_queue_support)
 def test_multisegwriter():
     from whoosh.filedb.multiproc import MultiSegmentWriter
     _check_writer("multisegw", lambda ix: MultiSegmentWriter(ix, procs=4))
