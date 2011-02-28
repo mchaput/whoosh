@@ -173,7 +173,7 @@ class BitVector(object):
         self.bits[index >> 3] &= ~(1 << (index & 7))
         self.bcount = None
     
-    def set_from(self, iterable):
+    def update(self, iterable):
         """Takes an iterable of integers representing positions, and turns
         on the bits at those positions.
         """
@@ -218,6 +218,8 @@ class BitSet(object):
             self.add = self._back.set
             self.remove = self._vec_remove
             
+        self.update = self._back.update
+    
     def __contains__(self, n):
         return n in self._back
 
