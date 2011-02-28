@@ -970,7 +970,7 @@ class Results(object):
         :param searcher: the :class:`Searcher` object that produced these
             results.
         :param query: the original query that created these results.
-        :param top_n: a list of (docnum, score) tuples representing the top
+        :param top_n: a list of (score, docnum) tuples representing the top
             N search results.
         :param scores: a list of scores corresponding to the document
             numbers in top_n, or None if the results do not have scores.
@@ -1012,6 +1012,36 @@ class Results(object):
             self._load_docs()
         return len(self.docset)
 
+    def __getitem__(self, n):
+        if isinstance(n, slice):
+            start, stop, step = n.indices(len(self.top_n))
+            return [Hit(self, self.top_n[i][1], i, self.top_n[i][0])
+                    for i in xrange(start, stop, step)]
+        else:
+            return Hit(self, self.top_n[n][1], n, self.top_n[n][0])
+
+    def __iter__(self):
+        """Yields a :class:`Hit` object for each result in ranked order.
+        """
+        
+        for i in xrange(len(self.top_n)):
+            yield Hit(self, self.top_n[i][1], i, self.top_n[i][0])
+    
+    def __contains__(self, docnum):
+        """Returns True if the given document number matched the query.
+        """
+        
+        if self.docset is None:
+            self._load_docs()
+        return docnum in self.docset
+
+    def items(self):
+        """Returns an iterator of (docnum, score) pairs for the scored
+        documents in the results.
+        """
+        
+        return ((docnum, score) for score, docnum in self.top_n)
+
     def terms(self):
         if self._terms is  None:
             self._terms = self.q.existing_terms(self.searcher.reader())
@@ -1038,29 +1068,6 @@ class Results(object):
         
         return self._groups[name]
     
-    def __getitem__(self, n):
-        if isinstance(n, slice):
-            start, stop, step = n.indices(len(self.top_n))
-            return [Hit(self, self.top_n[i][1], i, self.top_n[i][0])
-                    for i in xrange(start, stop, step)]
-        else:
-            return Hit(self, self.top_n[n][1], n, self.top_n[n][0])
-
-    def __iter__(self):
-        """Yields the stored fields of each result document in ranked order.
-        """
-        
-        for i in xrange(len(self.top_n)):
-            yield Hit(self, self.top_n[i][1], i, self.top_n[i][0])
-    
-    def __contains__(self, docnum):
-        """Returns True if the given document number matched the query.
-        """
-        
-        if self.docset is None:
-            self._load_docs()
-        return docnum in self.docset
-
     def _load_docs(self):
         self.docset = set(self.searcher.docs_for_query(self.q))
 
@@ -1194,13 +1201,11 @@ class Results(object):
         """
         
         docs = self.docs()
-        items = results.items()
-        for docnum, score in items:
-            if docnum not in docs:
-                self.top_n.append(docnum)
-                self.scores.append(score)
+        for item in results.top_n:
+            if item[1] not in docs:
+                self.top_n.append(item)
         self.docset = docs | results.docs()
-        
+    
     def filter(self, results):
         """Removes any hits that are not also in the other results object.
         """
@@ -1208,10 +1213,10 @@ class Results(object):
         if not len(results):
             return
 
-        docs = self.docs() & results.docs()
-        items = [item for item in self.top_n if item[1] in docs]
+        otherdocs = results.docs()
+        items = [item for item in self.top_n if item[1] not in otherdocs]
+        self.docset = self.docs() - otherdocs
         self.top_n = items
-        self.docset = docs
         
     def upgrade(self, results, reverse=False):
         """Re-sorts the results so any hits that are also in 'results' appear

@@ -49,8 +49,7 @@ def test_resultcopy():
 def test_resultslength():
     schema = fields.Schema(id=fields.ID(stored=True),
                            value=fields.TEXT)
-    st = RamStorage()
-    ix = st.create_index(schema)
+    ix = RamStorage().create_index(schema)
     
     w = ix.writer()
     w.add_document(id=u"1", value=u"alfa alfa alfa alfa alfa")
@@ -66,6 +65,40 @@ def test_resultslength():
         assert_equal(len(r), 5)
         assert_equal(r.scored_length(), 3)
         assert_equal(r[10:], [])
+
+def test_combine():
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           value=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=u"1", value=u"alfa bravo charlie all")
+    w.add_document(id=u"2", value=u"bravo charlie echo all")
+    w.add_document(id=u"3", value=u"charlie echo foxtrot all")
+    w.add_document(id=u"4", value=u"echo foxtrot india all")
+    w.add_document(id=u"5", value=u"foxtrot india juliet all")
+    w.add_document(id=u"6", value=u"india juliet alfa all")
+    w.add_document(id=u"7", value=u"juliet alfa bravo all")
+    w.add_document(id=u"8", value=u"charlie charlie charlie all")
+    w.commit()
+    
+    with ix.searcher() as s:
+        def idsof(r):
+            return "".join(hit["id"] for hit in r)
+        
+        def check(r1, methodname, r2, ids):
+            getattr(r1, methodname)(r2)
+            assert_equal(idsof(r1), ids)
+        
+        def rfor(t):
+            return s.search(query.Term("value", t))
+        
+        assert_equal(idsof(rfor(u"foxtrot")), "345")
+        check(rfor(u"foxtrot"), "extend", rfor("charlie"), "345812")
+        check(rfor(u"foxtrot"), "filter", rfor("juliet"), "34")
+        check(rfor(u"foxtrot"), "filter", rfor("alfa"), "345")
+        check(rfor(u"all"), "filter", rfor("foxtrot"), "12678")
+        check(rfor(u"all"), "upgrade", rfor("india"), "45612378")
+        check(rfor(u"charlie"), "upgrade_and_extend", rfor("echo"), "23814")
 
 def test_pages():
     from whoosh.scoring import Frequency
