@@ -4,6 +4,7 @@ import random
 from nose.tools import assert_equal
 
 from whoosh import fields, query
+from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import skip_if_unavailable, TempIndex
 
 
@@ -363,6 +364,36 @@ def test_custom_sort():
             r = cs.sort_query(query.Every(), limit=None)
             assert_equal([hit["name"] for hit in r], list(u"DCAFBE"))
             
+def test_sorting_function():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True, vector=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    domain = ("alfa", "bravo", "charlie")
+    count = 1
+    for w1 in domain:
+        for w2 in domain:
+            for w3 in domain:
+                for w4 in domain:
+                    w.add_document(id=count, text=u" ".join((w1, w2, w3, w4)))
+                    count += 1
+    w.commit()
+    
+    def fn(searcher, docnum):
+        v = dict(searcher.vector_as("frequency", docnum, "text"))
+        # Give high score to documents that have equal number of "alfa"
+        # and "bravo"
+        return 1.0 / (abs(v.get("alfa", 0) - v.get("bravo", 0)) + 1.0)
+    
+    with ix.searcher() as s:
+        q = query.And([query.Term("text", u"alfa"), query.Term("text", u"bravo")])
+        
+        r = [hit["text"] for hit in s.sort_query_using(q, fn)]
+        for t in r[:10]:
+            tks = t.split()
+            assert_equal(tks.count("alfa"), tks.count("bravo"))
+        
+    
+
 
 #def test_custom_sort2():
 #    from array import array

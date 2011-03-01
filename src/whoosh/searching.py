@@ -449,6 +449,49 @@ class Searcher(object):
         
         return Sorter(self, *args, **kwargs)
 
+    def sort_query_using(self, q, fn, filter=None):
+        """Returns a :class:`Results` object with the documents matching the
+        given query ordered according score returned by the given function.
+        
+        The function is called for each matching document with two arguments:
+        this searcher and the document number. The function can usually only
+        work with information that can be accessed based on the document
+        number, such as stored fields, term vectors, and field caches.
+        
+        For example, assume an index where the "text" field was indexed with
+        term vectors. The following function loads the term vector for each
+        document and ranks documents containing equal occurrences of the terms
+        "science" and "religion" highest::
+        
+            with myindex.searcher() as s:
+                def fn(docnum):
+                    # Create a dictionary of term text to frequency
+                    v = dict(s.vector_as("frequency", docnum, "text"))
+                    # Give highest scores to documents that have equal numbers
+                    # of the two terms
+                    return 1.0 / (abs(v["science"] - v["religion"]) + 1.0)
+                
+                q = And([Term("text", u"science"), Term("text", u"religion")])
+                results = s.sort_query_using(q, fn)
+        
+        (Note that the "function" can be an object with a ``__call__`` method.
+        This can be useful for sharing information between calls.)
+        
+        :param q: the query to run.
+        :param fn: a function to run on each document number to determine the
+            document's "score". Higher values appear earlier in the results.
+        :param filter: a query, Results object, or set of docnums. The results
+            will only contain documents that are also in the filter object.
+        """
+        
+        t = now()
+        comb = self._filter_to_comb(filter)
+        ls = [(fn(self, docnum), docnum) for docnum in self.docs_for_query(q)
+              if not(comb) or docnum in comb]
+        docset = set(docnum for _, docnum in ls)
+        ls.sort(key=lambda x: (0 - x[0], x[1]))
+        return Results(self, q, ls, docset, runtime=now() - t)
+
     def define_facets(self, name, qs, save=False):
         def doclists_for_searcher(s):
             return dict((key, q.docs(s)) for key, q in qs.iteritems())
