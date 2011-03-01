@@ -596,7 +596,7 @@ class TEXT(FieldType):
     searching. This field type is always scorable.
     """
     
-    __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=Format,
+    __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=object,
                          stored=bool, field_boost=float)
     
     def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
@@ -608,7 +608,9 @@ class TEXT(FieldType):
         :param phrase: Whether the store positional information to allow phrase
             searching.
         :param vector: A :class:`whoosh.formats.Format` object to use to store
-            term vectors. By default, fields do not store term vectors.
+            term vectors, or ``True`` to store vectors using the same format as
+            the inverted index, or ``None`` or ``False`` to not store vectors.
+            By default, fields do not store term vectors.
         :param stored: Whether to store the value of this field with the
             document. Since this field type generally contains a lot of text,
             you should avoid storing it with the document unless you need to,
@@ -621,8 +623,20 @@ class TEXT(FieldType):
             formatclass = Positions
         else:
             formatclass = Frequency
+            
         self.format = formatclass(analyzer=ana, field_boost=field_boost)
+        
+        if vector:
+            if type(vector) is type:
+                vector = vector(ana)
+            elif isinstance(vector, Format):
+                pass
+            else:
+                vector = formatclass(ana)
+        else:
+            vector = None
         self.vector = vector
+        
         self.multitoken_query = multitoken_query
         self.scorable = True
         self.stored = stored
