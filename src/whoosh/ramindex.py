@@ -218,10 +218,9 @@ class RamIndex(IndexReader, IndexWriter):
         storedvalues = {}
         
         for name in fieldnames:
+            field = schema[name]
             value = fields.get(name)
             if value:
-                field = schema[name]
-                
                 fielddict = invindex[name]
                 
                 # If the field is indexed, add the words in the value to the
@@ -245,15 +244,15 @@ class RamIndex(IndexReader, IndexWriter):
                     if field.scorable:
                         fieldlengths[self.docnum, name] = count
                         usage += 36
-                    
-            vector = field.vector
-            if vector:
-                vlist = sorted((w, weight, valuestring) for w, freq, weight, valuestring
-                               in vector.word_values(value))
-                self.vectors[self.docnum, name] = vlist
-                usage += 28
-                for x in vlist:
-                    usage += 44 + len(x[2])
+                
+                vector = field.vector
+                if vector:
+                    vlist = sorted((w, weight, valuestring) for w, freq, weight, valuestring
+                                   in vector.word_values(value))
+                    self.vectors[self.docnum, name] = vlist
+                    usage += 28
+                    for x in vlist:
+                        usage += 44 + len(x[2])
             
             if field.stored:
                 storedname = "_stored_" + name
