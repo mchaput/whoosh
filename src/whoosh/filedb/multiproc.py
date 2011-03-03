@@ -31,13 +31,14 @@ from whoosh.writing import IndexWriter
 
 class SegmentWritingTask(Process):
     def __init__(self, storage, indexname, segname, kwargs, jobqueue,
-                 firstjob=None):
+                 resultqueue, firstjob=None):
         Process.__init__(self)
         self.storage = storage
         self.indexname = indexname
         self.segname = segname
         self.kwargs = kwargs
         self.jobqueue = jobqueue
+        self.resultqueue = resultqueue
         self.firstjob = firstjob
         
         self.segment = None
@@ -73,7 +74,7 @@ class SegmentWritingTask(Process):
             writer.pool.finish(writer.termswriter, writer.docnum,
                                writer.lengthfile)
             writer._close_all()
-            self.jobqueue.put(writer._getsegment())
+            self.resultqueue.put(writer._getsegment())
     
     def cancel(self):
         self.running = False
@@ -90,7 +91,8 @@ class MultiSegmentWriter(IndexWriter):
         
         self.segnames = []
         self.tasks = []
-        self.jobqueue = Queue()
+        self.jobqueue = Queue(self.procs * 4)
+        self.resultqueue = Queue()
         self.docbuffer = []
         
         self.writelock = ix.lock("WRITELOCK")
@@ -108,7 +110,8 @@ class MultiSegmentWriter(IndexWriter):
         self.segment_number += 1
         segmentname = Segment.basename(ix.indexname, self.segment_number)
         task = SegmentWritingTask(ix.storage, ix.indexname, segmentname,
-                                  self.kwargs, self.jobqueue, firstjob)
+                                  self.kwargs, self.jobqueue,
+                                  self.resultqueue, firstjob)
         self.tasks.append(task)
         task.start()
         return task
@@ -150,10 +153,12 @@ class MultiSegmentWriter(IndexWriter):
                 task.join()
             
             for task in self.tasks:
-                taskseg = self.jobqueue.get()
+                taskseg = self.resultqueue.get()
+                assert isinstance(taskseg, Segment), type(taskseg)
                 self.segments.append(taskseg)
             
             self.jobqueue.close()
+            self.resultqueue.close()
             
             from whoosh.filedb.fileindex import _write_toc, _clean_files
             _write_toc(self.storage, self.schema, self.index.indexname,
