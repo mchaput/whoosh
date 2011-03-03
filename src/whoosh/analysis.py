@@ -781,6 +781,10 @@ class StemFilter(Filter):
         # cachesize attribute and pickled the cache attribute
         if "cachesize" not in state:
             self.cachesize = 50000
+        if "ignores" in state:
+            self.ignore = state["ignores"]
+        elif "ignore" not in state:
+            self.ignore = frozenset()
         if "cache" in state:
             del state["cache"]
         
