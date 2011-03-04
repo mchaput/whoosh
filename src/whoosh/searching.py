@@ -21,7 +21,7 @@
 from __future__ import division
 import copy
 import threading
-from collections import defaultdict
+from collections import defaultdict, deque
 from heapq import heappush, heapreplace
 from math import ceil
 
@@ -461,21 +461,21 @@ class Searcher(object):
         For example, assume an index where the "text" field was indexed with
         term vectors. The following function loads the term vector for each
         document and ranks documents containing equal occurrences of the terms
-        "science" and "religion" highest::
+        "love" and "hate" highest::
         
+            def fn(searcher, docnum):
+                # Create a dictionary of term text to frequency
+                v = dict(searcher.vector_as("frequency", docnum, "text"))
+                # Give highest scores to documents that have equal numbers
+                # of the two terms
+                return 1.0 / (abs(v["love"] - v["hate"]) + 1.0)
+            
             with myindex.searcher() as s:
-                def fn(docnum):
-                    # Create a dictionary of term text to frequency
-                    v = dict(s.vector_as("frequency", docnum, "text"))
-                    # Give highest scores to documents that have equal numbers
-                    # of the two terms
-                    return 1.0 / (abs(v["science"] - v["religion"]) + 1.0)
-                
-                q = And([Term("text", u"science"), Term("text", u"religion")])
+                q = And([Term("text", u"love"), Term("text", u"hate")])
                 results = s.sort_query_using(q, fn)
         
         (Note that the "function" can be an object with a ``__call__`` method.
-        This can be useful for sharing information between calls.)
+        This may be useful for sharing information between calls.)
         
         :param q: the query to run.
         :param fn: a function to run on each document number to determine the
@@ -487,7 +487,7 @@ class Searcher(object):
         t = now()
         comb = self._filter_to_comb(filter)
         ls = [(fn(self, docnum), docnum) for docnum in self.docs_for_query(q)
-              if not(comb) or docnum in comb]
+              if (not comb) or docnum in comb]
         docset = set(docnum for _, docnum in ls)
         ls.sort(key=lambda x: (0 - x[0], x[1]))
         return Results(self, q, ls, docset, runtime=now() - t)
@@ -532,17 +532,16 @@ class Searcher(object):
             names to sort by multiple fields. This is a shortcut for using a
             :class:`whoosh.sorting.Sorter` object to do a simple sort. To do
             complex sorts (where different fields are sorted in different
-            directions), use :meth:`Searcher.sorter` to get a sorter and use
-            it to perform the sorted search.
-        :param reverse: if ``sortedby`` is not None, this reverses the
-            direction of the sort.
+            directions), use :meth:`Searcher.sorter` to get a sorter and use it
+            to perform the sorted search.
+        :param reverse: Reverses the direction of the sort.
         :param groupedby: a list of field names or facet names. If this
             argument is not None, you can use the :meth:`Results.groups` method
             on the results object to retrieve a dictionary mapping field/facet
             values to document numbers.
         :param optimize: use optimizations to get faster results when possible.
         :param scored: if False, the results are not scored and are returned in
-            "natural" order (the order in which they were added).
+            "natural" order.
         :param collector: (expert) an instance of :class:`Collector` to use to
             collect the found documents.
         :param filter: a query, Results object, or set of docnums. The results
@@ -554,28 +553,30 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         if sortedby is not None:
-            return self.sorter(sortedby=sortedby).sort_query(q, limit=limit,
-                                                             reverse=reverse,
-                                                             filter=filter)
+            sorter = self.sorter(sortedby=sortedby)
+            return sorter.sort_query(q, limit=limit, reverse=reverse,
+                                     filter=filter)
         
         if isinstance(groupedby, basestring):
             groupedby = (groupedby, )
         
         if collector is None:
             collector = Collector(limit=limit, usequality=optimize,
-                                  groupedby=groupedby, scored=scored)
+                                  groupedby=groupedby, scored=scored,
+                                  reverse=reverse)
         else:
             collector.limit = limit
             collector.usequality = optimize
             collector.groupedby = groupedby
             collector.scored = scored
+            collector.reverse = reverse
         
         return collector.search(self, q, filter=filter)
         
 
 class Collector(object):
     def __init__(self, limit=10, usequality=True, replace=10, groupedby=None,
-                 scored=True, timelimit=None, greedy=False):
+                 scored=True, timelimit=None, greedy=False, reverse=False):
         """A Collector finds the matching documents, scores them, collects them
         into a list, and produces a Results object from them.
         
@@ -625,10 +626,16 @@ class Collector(object):
         self.scored = scored
         self.timelimit = timelimit
         self.greedy = greedy
+        self.reverse = reverse
         
+        self.reset()
+        
+    def reset(self):
+        if self.should_add_all():
+            self._items = deque()
+        else:
+            self._items = []
         self.groups = {}
-        self._items = []
-        self._groups = {}
         self.docset = set()
         self.done = False
         self.minquality = None
@@ -646,6 +653,7 @@ class Collector(object):
         this method on a top-level searcher.
         """
         
+        self.reset()
         self._searcher = searcher
         self._q = q
         
@@ -669,7 +677,9 @@ class Collector(object):
                 if self.timesup:
                     raise TimeLimit
                 self.doc_offset = offset
-                self.add_searcher(s, q)
+                done = self.add_searcher(s, q)
+                if done:
+                    break
         else:
             self.add_searcher(searcher, q)
             
@@ -697,7 +707,7 @@ class Collector(object):
         the collector. This is called by the :meth:`Collector.search` method.
         """
         
-        self.add_matches(searcher, q.matcher(searcher))
+        return self.add_matches(searcher, q.matcher(searcher))
     
     def score(self, searcher, matcher):
         """Called to compute the score for the current document in the given
@@ -734,9 +744,6 @@ class Collector(object):
         """Calls either :meth:Collector.add_top_matches` or
         :meth:`Collector.add_all_matches` depending on whether this collector
         needs to examine all documents.
-        
-        This method should record the current document as a hit for later
-        retrieval with :meth:`Collector.items`.
         """
         
         if self.should_add_all():
@@ -789,14 +796,18 @@ class Collector(object):
         """
         
         offset = self.doc_offset
+        limit = self.limit
+        items = self._items
         scored = self.scored
         score = self.score
         comb = self._comb
         timelimited = bool(self.timelimit)
         greedy = self.greedy
+        reverse = self.reverse
         
         keyfns = None
         if self.groupedby:
+            limit = None
             keyfns = {}
             for name in self.groupedby:
                 keyfns[name] = searcher.reader().key_fn(name)
@@ -816,10 +827,16 @@ class Collector(object):
                     key = keyfn(id)
                     self.groups[name][key].append(id)
             
-            scr = None
+            scr = 0
             if scored:
                 scr = score(searcher, matcher)
             self.collect(scr, offsetid)
+            
+            if limit:
+                if reverse and len(items) > limit:
+                    items.popleft()
+                elif (not reverse) and len(items) >= limit:
+                    return True
             
             if timelimited and self.timesup:
                 raise TimeLimit
@@ -889,9 +906,10 @@ class Collector(object):
         # from 0 to put highest scores first) and then by document number (to
         # enforce a consistent ordering of documents with equal score)
         items = self._items
-        if self.scored:
-            items = sorted(self._items, key=lambda x: (0 - x[0], x[1]))
-        return [(item[0], item[1]) for item in items]
+        if self.scored or self.reverse:
+            items = sorted(self._items, key=lambda x: (0 - x[0], x[1]),
+                           reverse=self.reverse)
+        return items
     
     def results(self, runtime=None):
         """Returns the collected hits as a :class:`Results` object.
