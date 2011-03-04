@@ -30,6 +30,16 @@ These methods can be useful for providing the following features to users:
 Usage
 =====
 
+* Get more documents like a certain search hit. *This requires that the field
+  you want to match on is vectored or stored, or that you have access to the
+  original text (such as from a database)*.
+
+  Use :meth:`~whoosh.searching.Hit.more_like_this`::
+
+        results = mysearcher.search(myquery)
+        first_hit = results[0]
+        more_results = first_hit.more_like_this("content")
+
 * Extract keywords for the top N documents in a
   :class:`whoosh.searching.Results` object. *This requires that the field is
   either vectored or stored*.
@@ -42,7 +52,7 @@ Usage
   *ten* documents of a results object::
     
         keywords = list(results.key_terms("content", docs=10, numterms=5))
-        
+
 * Extract keywords for an arbitrary set of documents. *This requires that the
   field is either vectored or stored*.
 

@@ -68,11 +68,37 @@ def OPTIMIZE(writer, segments):
     """
 
     from whoosh.filedb.filereading import SegmentReader
+    
     for seg in segments:
         reader = SegmentReader(writer.storage, writer.schema, seg)
         writer.add_reader(reader)
         reader.close()
     return []
+
+
+def MERGE_SQUARES(writer, segments):
+    """This is an alternative merge policy similar to Lucene's. It is less
+    optimal than the default MERGE_SMALL.
+    """
+    
+    from whoosh.filedb.filereading import SegmentReader
+    
+    sizedsegs = [(s.doc_count_all(), s) for s in segments]
+    tomerge = []
+    for size in (10, 100, 1000, 10000, 100000):
+        smaller = [seg for segsize, seg in sizedsegs
+                   if segsize < size - 1 and segsize >= size//10]
+        if len(smaller) >= 10:
+            tomerge.extend(smaller)
+            for seg in smaller:
+                segments.remove(seg)
+    
+    for seg in tomerge:
+        reader = SegmentReader(writer.storage, writer.schema, seg)
+        writer.add_reader(reader)
+        reader.close()
+    
+    return segments
 
 
 # Writer object
@@ -375,10 +401,10 @@ class SegmentWriter(IndexWriter):
             # Use a custom merge function
             writer.commit(mergetype=my_merge_function)
         
-        :param mergetype: a custom merge function taking an Index object,
-            Writer object, and segment list as arguments, and returning a
-            new segment list. If you supply a ``mergetype`` function,
-            the values of the ``optimize`` and ``merge`` arguments are ignored.
+        :param mergetype: a custom merge function taking a Writer object and
+            segment list as arguments, and returning a new segment list. If you
+            supply a ``mergetype`` function, the values of the ``optimize`` and
+            ``merge`` arguments are ignored.
         :param optimize: if True, all existing segments are merged with the
             documents you've added to this writer (and the value of the
             ``merge`` argument is ignored).

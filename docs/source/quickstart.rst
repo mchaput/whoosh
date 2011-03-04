@@ -22,10 +22,11 @@ A quick introduction
 ...                     content=u"The second one is even more interesting!")
 >>> writer.commit()
 >>> from whoosh.qparser import QueryParser
->>> searcher = ix.searcher()
->>> query = QueryParser("content").parse("first")
->>> results = searcher.search(query)
->>> results[0]
+>>> with ix.searcher() as searcher:
+...     query = QueryParser("content", ix.schema).parse("first")
+...     results = searcher.search(query)
+...     results[0]
+... 
 {"title": u"First document", "path": u"/a"}
 
 
@@ -157,7 +158,7 @@ Calling commit() on the ``IndexWriter`` saves the added documents to the index::
 
 See :doc:`indexing` for more information.
 
-Once your documents are commited to the index, you can search for them.
+Once your documents are committed to the index, you can search for them.
 
 
 The ``Searcher`` object
@@ -166,6 +167,22 @@ The ``Searcher`` object
 To begin searching the index, we'll need a Searcher object::
 
     searcher = ix.searcher()
+
+You'll usually want to open the searcher using a ``with`` statement so the
+searcher is automatically closed when you're done with it (searcher objects
+represent a number of open files, so if you don't explicitly close them and the
+system is slow to collect them, you can run out of file handles)::
+
+    with ix.searcher() as searcher:
+        ...
+        
+This is of course equivalent to::
+
+    try:
+        searcher = ix.searcher()
+        ...
+    finally:
+        searcher.close()
 
 The Searcher's ``search()`` method takes a *Query object*. You can construct
 query objects directly or use a query parser to parse a query string.
@@ -186,7 +203,7 @@ argument is a schema to use to understand how to parse the fields::
     # Parse a query string
     
     from whoosh.qparser import QueryParser
-    parser = QueryParser("content", schema = ix.schema)
+    parser = QueryParser("content", ix.schema)
     myquery = parser.parse(querystring)
     
 Once you have a ``Searcher`` and a query object, you can use the ``Searcher``'s

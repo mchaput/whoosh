@@ -231,5 +231,31 @@ def test_threaded():
     with ix.searcher() as s:
         assert_equal(len(list(s.documents(key="a"))), 1)
 
-        
+def test_empty_field():
+    schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
+    ix = RamIndex(schema)
+    ix.add_document(id=u"alfa", text=u"bravo")
+    ix.add_document(id=u"charlie")
+    ix.add_document(text=u"delta")
+    ix.add_document(id=u"echo", text=None)
+    ix.add_document(id=None, text=u"foxtrot")
+    ix.add_document(id=u"golf", text=u"")
+    ix.add_document(id=u"", text=u"hotel")
+    ix.add_document(id=u"", text=u"")
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
