@@ -1093,6 +1093,49 @@ def test_fieldboost():
             print hit.score, hit["id"]
         assert_equal([hit["id"] for hit in r], [3, 6, 7, 4, 1, 2, 5])
     
+def test_andmaybe_quality():
+    schema = fields.Schema(id=fields.STORED, title=fields.TEXT(stored=True),
+                           year=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    
+    domain = [(u'Alpha Bravo Charlie Delta', 2000),
+              (u'Echo Bravo Foxtrot', 2000), (u'Bravo Golf Hotel', 2002),
+              (u'Bravo India', 2002), (u'Juliet Kilo Bravo', 2004),
+              (u'Lima Bravo Mike', 2004)]
+    w = ix.writer()
+    for title, year in domain:
+        w.add_document(title=title, year=year)
+    w.commit()
+    
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("title", ix.schema)
+        q = qp.parse(u"title:bravo ANDMAYBE year:2004")
+        
+        titles = [hit["title"] for hit in s.search(q, limit=None)[:2]]
+        print "titles1=", titles
+        assert "Juliet Kilo Bravo" in titles
+        
+        titles = [hit["title"] for hit in s.search(q, limit=2)]
+        print "titles2=", titles
+        assert "Juliet Kilo Bravo" in titles
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

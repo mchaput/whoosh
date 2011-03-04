@@ -980,6 +980,8 @@ class IntersectionMatcher(AdditiveBiMatcher):
                 skipped += a.skip_to_quality(minquality - bq)
             else:
                 skipped += b.skip_to_quality(minquality - aq)
+            if not a.is_active() or not b.is_active():
+                break
             if a.id() != b.id():
                 self._find_next()
             aq = a.block_quality()
@@ -1294,6 +1296,12 @@ class AndMaybeMatcher(AdditiveBiMatcher):
                 bq = b.block_quality()
         
         return skipped
+    
+    def quality(self):
+        if self.a.id() == self.b.id():
+            return self.a.quality() + self.b.quality()
+        else:
+            return self.a.quality()
     
     def weight(self):
         if self.a.id() == self.b.id():
