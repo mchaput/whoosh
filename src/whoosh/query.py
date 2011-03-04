@@ -600,7 +600,7 @@ class MultiTerm(Query):
             # If there's only one term, just use it
             q = qs[0]
         
-        elif len(qs) > self.TOO_MANY_CLAUSES:
+        elif self.constantscore or len(qs) > self.TOO_MANY_CLAUSES:
             # If there's so many clauses that an Or search would take forever,
             # trade memory for time and just put all the matching docs in a set
             # and serve it up as a ListMatcher
@@ -613,15 +613,7 @@ class MultiTerm(Query):
             # The default case: Or the terms together
             q = Or(qs)
         
-        m = q.matcher(searcher)
-        
-        # Multiterm queries such as Prefix are usually just about finding
-        # matching documents, not contributing to the score, so most of them
-        # have constantscore set to True by default
-        if self.constantscore:
-            m = ConstantScoreMatcher(m, score=self.boost)
-        
-        return m
+        return q.matcher(searcher)
         
 
 # Concrete classes
