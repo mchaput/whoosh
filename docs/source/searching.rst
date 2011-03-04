@@ -13,12 +13,28 @@ Index objdct::
 
     searcher = myindex.searcher()
 
+You'll usually want to open the searcher using a ``with`` statement so the
+searcher is automatically closed when you're done with it (searcher objects
+represent a number of open files, so if you don't explicitly close them and the
+system is slow to collect them, you can run out of file handles)::
+
+    with ix.searcher() as searcher:
+        ...
+        
+This is of course equivalent to::
+
+    try:
+        searcher = ix.searcher()
+        ...
+    finally:
+        searcher.close()
+
 The Searcher object is the main high-level interface for reading the index. It
 has lots of useful methods for getting information about the index, such as
-``most_frequent_terms()``.
+``lexicon(fieldname)``.
 
->>> list(searcher.most_frequent_terms("content", 3))
-[(u"whoosh", 32), (u"index", 24), (u"document", 18)]
+>>> list(searcher.lexicon("content"))
+[u"document", u"index", u"whoosh]
 
 However, the most important method on the Searcher object is
 :meth:`~whoosh.searching.Searcher.search`, which takes a
@@ -27,10 +43,11 @@ However, the most important method on the Searcher object is
 
     from whoosh.qparser import QueryParser
     
-    qp = QueryParser("content", schema=myindex.schema)
-    q = queryparser.parse(u"hello world")
-    s = myindex.searcher()
-    results = s.search(q)
+    with myindex.searcher() as s:
+        qp = QueryParser("content", schema=myindex.schema)
+        q = queryparser.parse(u"hello world")
+        
+        results = s.search(q)
 
 By default the results contains at most the first 10 matching documents. To get
 more results, use the ``limit`` keyword::
@@ -41,7 +58,7 @@ If you want all results, use ``limit=None``. However, setting the limit
 whenever possible makes searches faster because Whoosh doesn't need to examine
 and score every document.
 
-Since display a page of results at a time is a common pattern, the
+Since displaying a page of results at a time is a common pattern, the
 ``search_page`` method lets you conveniently retrieve only the results on a
 given page::
 
@@ -113,8 +130,17 @@ To reverse the sort order::
 
     results = s.search(myquery, sortedby="path", reverse=True)
 
+To do more complex sorts (with different fields sorted in different directions)
+use a Sorter object. See :doc:`api/sorting`.
+
 Sorting relies on field caches. See :doc:`fieldcaches` for information about
 field caches.
+
+
+Highlighting snippets and More Like This
+========================================
+
+See :doc:`highlight` and :doc:`keywords` for information on these topics.
 
 
 Convenience functions
