@@ -89,8 +89,15 @@ class RamIndex(IndexReader, IndexWriter):
         return (sf for i, sf in enumerate(self.storedfields)
                 if i not in deleted)
     
+    def _test_field(self, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No field %r" % fieldname)
+        if self.schema[fieldname].format is None:
+            raise TermNotFound("Field %r is not indexed" % fieldname)
+    
     @synchronized
     def field_length(self, fieldname):
+        self._test_field(fieldname)
         if fieldname not in self.schema or not self.schema[fieldname].scorable:
             return 0
         return sum(l for docnum_fieldname, l in self.fieldlengths.iteritems()
@@ -98,12 +105,14 @@ class RamIndex(IndexReader, IndexWriter):
     
     @synchronized
     def max_field_length(self, fieldname):
+        self._test_field(fieldname)
         if fieldname not in self.schema or not self.schema[fieldname].scorable:
             return 0
         return max(l for docnum_fieldname, l in self.fieldlengths.iteritems()
                    if docnum_fieldname[1] == fieldname)
     
     def doc_field_length(self, docnum, fieldname, default=0):
+        self._test_field(fieldname)
         return self.fieldlengths.get((docnum, fieldname), default)
     
     def has_vector(self, docnum, fieldname):
@@ -111,18 +120,30 @@ class RamIndex(IndexReader, IndexWriter):
     
     @synchronized
     def vector(self, docnum, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No  field %r" % fieldname)
+        vformat = self.schema[fieldname].vector
+        if not vformat:
+            raise Exception("No vectors are stored for field %r" % fieldname)
+        
         vformat = self.schema[fieldname].vector
         ids, weights, values = zip(*self.vectors[docnum, fieldname])
         return ListMatcher(ids, weights, values, format=vformat)
     
     def doc_frequency(self, fieldname, text):
-        return len(self.invindex[fieldname][text])
+        self._test_field(fieldname)
+        try:
+            return len(self.invindex[fieldname][text])
+        except KeyError:
+            return 0
     
     def frequency(self, fieldname, text):
+        self._test_field(fieldname)
         return self.indexfreqs[fieldname, text]
     
     @synchronized
     def iter_from(self, fieldname, text):
+        self._test_field(fieldname)
         invindex = self.invindex
         indexfreqs = self.indexfreqs
         
@@ -137,6 +158,7 @@ class RamIndex(IndexReader, IndexWriter):
                 yield (fn, t, docfreq, indexfreq)
     
     def lexicon(self, fieldname):
+        self._test_field(fieldname)
         return sorted(self.invindex[fieldname].keys())
     
     @synchronized
@@ -151,6 +173,9 @@ class RamIndex(IndexReader, IndexWriter):
     
     @synchronized
     def first_id(self, fieldname, text):
+        # Override to not construct a posting reader, just pull the first
+        # non-deleted docnum out of the list directly
+        self._test_field(fieldname)
         try:
             plist = self.invindex[fieldname][text]
         except KeyError:
@@ -164,6 +189,7 @@ class RamIndex(IndexReader, IndexWriter):
     
     @synchronized
     def postings(self, fieldname, text, scorer=None):
+        self._test_field(fieldname)
         try:
             postings = self.invindex[fieldname][text]
         except KeyError:
