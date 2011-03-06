@@ -240,25 +240,6 @@ class SegmentReader(IndexReader):
                     break
                 yield t
 
-#    def first_id(self, fieldname, text):
-#        id = None
-#        try:
-#            offset = self.termsindex[fieldname, text][1]
-#        except KeyError:
-#            raise TermNotFound((fieldname, text))
-#        else:
-#            if isinstance(offset, (int, long)):
-#                format = self.schema[fieldname].format
-#                pr = FilePostingReader(self.postfile, offset, format)
-#                if pr.is_active():
-#                    id = pr.id()
-#            else:
-#                id = offset[0][0]
-#        
-#        if id is not None and not self.is_deleted(id):
-#            return id
-#        raise TermNotFound((fieldname, text))
-
     def postings(self, fieldname, text, scorer=None):
         self._test_field(fieldname)
         format = self.schema[fieldname].format

@@ -1,9 +1,10 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal, assert_raises
 
 from whoosh import analysis, fields, formats, query
 from whoosh.ramindex import RamIndex
+from whoosh.reading import TermNotFound
 from whoosh.support.testing import TempIndex
 
 
@@ -243,7 +244,14 @@ def test_empty_field():
     ix.add_document(id=u"", text=u"hotel")
     ix.add_document(id=u"", text=u"")
     
-
+def test_missing_term_docfreq():
+    schema = fields.Schema(id=fields.ID)
+    ix = RamIndex(schema)
+    ix.add_document(id=u"alfa bravo charlie")
+    ix.add_document(id=u"charlie delta echo")
+    ix.add_document(id=u"sierra tango xray")
+    assert_raises(TermNotFound, ix.doc_frequency, "content", "foo")
+    assert_equal(ix.doc_frequency("id", "foo"), 0)
 
 
 
