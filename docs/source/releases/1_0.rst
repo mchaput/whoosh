@@ -2,6 +2,42 @@
 Whoosh 1.x release notes
 ========================
 
+Whoosh 1.7.7
+============
+
+Setting a TEXT field to store term vectors is now much easier. Instead of
+having to pass an instantiated whoosh.formats.Format object to the vector=
+keyword argument, you can pass True to automatically use the same format and
+analyzer as the inverted index. Alternatively, you can pass a Format subclass
+and Whoosh will instantiate it for you.
+
+For example, to store term vectors using the same settings as the inverted
+index (Positions format and StandardAnalyzer)::
+
+    from whoosh.fields import Schema, TEXT
+
+    schema = Schema(content=TEXT(vector=True))
+
+To store term vectors that use the same analyzer as the inverted index
+(StandardAnalyzer by default) but only store term frequency::
+
+    from whoosh.formats import Frequency
+
+    schema = Schema(content=TEXT(vector=Frequency))
+
+Note that currently the only place term vectors are used in Whoosh is keyword
+extraction/more like this, but they can be useful for expert users with custom
+code.
+
+Added :meth:`whoosh.searching.Searcher.more_like` and
+:meth:`whoosh.searching.Hit.more_like_this` methods, as shortcuts for doing
+keyword extraction yourself. Return a Results object.
+
+"python setup.py test" works again, as long as you have nose installed.
+
+The :meth:`whoosh.searching.Searcher.sort_query_using` method lets you sort documents matching a given query using an arbitrary function. Note that like "complex" searching with the Sorter object, this can be slow on large multi-segment indexes.
+
+
 Whoosh 1.7
 ==========
 
