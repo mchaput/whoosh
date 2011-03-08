@@ -94,9 +94,9 @@ def test_combine():
         
         assert_equal(idsof(rfor(u"foxtrot")), "345")
         check(rfor(u"foxtrot"), "extend", rfor("charlie"), "345812")
-        check(rfor(u"foxtrot"), "filter", rfor("juliet"), "34")
-        check(rfor(u"foxtrot"), "filter", rfor("alfa"), "345")
-        check(rfor(u"all"), "filter", rfor("foxtrot"), "12678")
+        check(rfor(u"foxtrot"), "filter", rfor("juliet"), "5")
+        check(rfor(u"charlie"), "filter", rfor("foxtrot"), "3")
+        check(rfor(u"all"), "filter", rfor("foxtrot"), "345")
         check(rfor(u"all"), "upgrade", rfor("india"), "45612378")
         check(rfor(u"charlie"), "upgrade_and_extend", rfor("echo"), "23814")
 
