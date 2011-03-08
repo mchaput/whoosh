@@ -1298,10 +1298,12 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         return skipped
     
     def quality(self):
-        if self.a.id() == self.b.id():
-            return self.a.quality() + self.b.quality()
-        else:
-            return self.a.quality()
+        q = 0.0
+        if self.a.is_active():
+            q += self.a.quality()
+            if b.is_active() and self.a.id() == self.b.id():
+                q += self.b.quality()
+        return q
     
     def weight(self):
         if self.a.id() == self.b.id():
