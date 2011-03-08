@@ -1275,7 +1275,7 @@ class Results(object):
             return
 
         otherdocs = results.docs()
-        items = [item for item in self.top_n if item[1] not in otherdocs]
+        items = [item for item in self.top_n if item[1] in otherdocs]
         self.docset = self.docs() & otherdocs
         self.top_n = items
         
