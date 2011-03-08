@@ -1276,7 +1276,7 @@ class Results(object):
 
         otherdocs = results.docs()
         items = [item for item in self.top_n if item[1] not in otherdocs]
-        self.docset = self.docs() - otherdocs
+        self.docset = self.docs() & otherdocs
         self.top_n = items
         
     def upgrade(self, results, reverse=False):

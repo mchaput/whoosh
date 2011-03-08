@@ -100,6 +100,28 @@ def test_combine():
         check(rfor(u"all"), "upgrade", rfor("india"), "45612378")
         check(rfor(u"charlie"), "upgrade_and_extend", rfor("echo"), "23814")
 
+def test_results_filter():
+    schema = fields.Schema(id=fields.STORED, words=fields.KEYWORD(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id="1", words=u"bravo top")
+    w.add_document(id="2", words=u"alfa top")
+    w.add_document(id="3", words=u"alfa top")
+    w.add_document(id="4", words=u"alfa bottom")
+    w.add_document(id="5", words=u"bravo bottom")
+    w.add_document(id="6", words=u"charlie bottom")
+    w.add_document(id="7", words=u"charlie bottom")
+    w.commit()
+    
+    with ix.searcher() as s:
+        def check(r, target):
+            result = "".join(s.stored_fields(d)["id"] for d in r.docs())
+            assert_equal(result, target)
+        
+        r = s.search(query.Term("words", u"alfa"))
+        r.filter(s.search(query.Term("words", u"bottom")))
+        check(r, "4")
+    
 def test_pages():
     from whoosh.scoring import Frequency
     
