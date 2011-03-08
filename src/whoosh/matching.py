@@ -1301,7 +1301,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         q = 0.0
         if self.a.is_active():
             q += self.a.quality()
-            if b.is_active() and self.a.id() == self.b.id():
+            if self.b.is_active() and self.a.id() == self.b.id():
                 q += self.b.quality()
         return q
     
