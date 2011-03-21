@@ -2,6 +2,13 @@
 Whoosh 1.x release notes
 ========================
 
+Whoosh 1.8
+==========
+
+This release relicensed the Whoosh source code under the Simplified BSD (A.K.A.
+"two-clause" or "FreeBSD") license. See LICENSE.txt for more information.
+
+
 Whoosh 1.7.7
 ============
 
