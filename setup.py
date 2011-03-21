@@ -18,7 +18,7 @@ setup(
 	description = "Fast, pure-Python full text indexing, search, and spell checking library.",
     long_description = open("README.txt").read(),
 
-	license = "Apache 2.0",
+	license = "LICENSE.txt",
 	keywords = "index search text spell",
 	url = "http://bitbucket.org/mchaput/whoosh",
 	
@@ -28,7 +28,7 @@ setup(
 	classifiers = [
 	"Development Status :: 5 - Production/Stable",
 	"Intended Audience :: Developers",
-	"License :: OSI Approved :: Apache Software License",
+	"License :: OSI Approved :: BSD License",
 	"Natural Language :: English",
 	"Operating System :: OS Independent",
 	"Programming Language :: Python :: 2.5",

@@ -32,8 +32,8 @@ for use in the online help system of Side Effects Software's 3D animation
 software Houdini. Side Effects Software Inc. graciously agreed to open-source
 the code.
 
-This software is licensed under the terms of the Apache License version 2.
-See LICENSE.txt for information.
+This software is licensed under the terms of the simplified BSD (A.K.A. "two
+clause" or "FreeBSD") license. See LICENSE.txt for information.
 
 Installing Whoosh
 =================
