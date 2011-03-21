@@ -18,7 +18,7 @@ setup(
 	description = "Fast, pure-Python full text indexing, search, and spell checking library.",
     long_description = open("README.txt").read(),
 
-	license = "LICENSE.txt",
+	license = "Two-clause BSD license",
 	keywords = "index search text spell",
 	url = "http://bitbucket.org/mchaput/whoosh",
 	
