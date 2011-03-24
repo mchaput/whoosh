@@ -236,4 +236,16 @@ def test_query_copy_hash():
     # do(SpanBefore)
     # do(SpanCondition)
 
+def test_requires():
+    a = Term("f", u"a")
+    b = Term("f", u"b")
+    assert_equal(And([a, b]).requires(), set([a, b]))
+    assert_equal(Or([a, b]).requires(), set())
+    assert_equal(AndMaybe(a, b).requires(), set([a]))
+    assert_equal(a.requires(), set([a]))
+
+
+
+
+
 
