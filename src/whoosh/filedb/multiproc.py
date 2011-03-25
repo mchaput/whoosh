@@ -67,7 +67,7 @@ class SegmentWritingTask(Process):
     def run(self):
         jobqueue = self.jobqueue
         ix = self.storage.open_index(self.indexname)
-        writer = self.writer = SegmentWriter(ix, lock=False, name=self.segname,
+        writer = self.writer = SegmentWriter(ix, _lk=False, name=self.segname,
                                              **self.kwargs)
         
         if self.firstjob:

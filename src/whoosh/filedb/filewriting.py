@@ -116,10 +116,10 @@ def MERGE_SQUARES(writer, segments):
 
 class SegmentWriter(IndexWriter):
     def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
-                 timeout=0.0, delay=0.1, name=None, lock=True, **poolargs):
+                 timeout=0.0, delay=0.1, name=None, _l=True, **poolargs):
         
         self.writelock = None
-        if lock:
+        if _l:
             self.writelock = ix.lock("WRITELOCK")
             if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
                 raise LockError
