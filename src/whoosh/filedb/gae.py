@@ -131,6 +131,7 @@ class DatastoreStorage(Storage):
         return len(DatastoreFile.get_by_key_name(name).value)
 
     def delete_file(self, name):
+        memcache.delete(name, namespace="DatastoreFile")
         return DatastoreFile.get_by_key_name(name).delete()
 
     def rename_file(self, name, newname, safe=False):
