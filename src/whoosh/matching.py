@@ -309,6 +309,7 @@ class ListMatcher(Matcher):
         self._i += 1
         while self._i < len(self._ids) and self.quality() <= minquality:
             self._i += 1
+        return 0
     
     def id(self):
         return self._ids[self._i]
@@ -832,8 +833,7 @@ class UnionMatcher(AdditiveBiMatcher):
         
         # Short circuit if one matcher is inactive
         if not a.is_active():
-            sk = b.skip_to_quality(minquality)
-            return sk
+            return b.skip_to_quality(minquality)
         elif not b.is_active():
             return a.skip_to_quality(minquality)
         
