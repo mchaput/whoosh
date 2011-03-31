@@ -1473,8 +1473,8 @@ class Hit(object):
         :param normalize: whether to normalize term weights.
         """
         
-        return self.searcher.more_like(self.docnum, text=text, top=top,
-                                       numterms=numterms, model=model,
+        return self.searcher.more_like(self.docnum, fieldname, text=text,
+                                       top=top, numterms=numterms, model=model,
                                        normalize=normalize)
     
     def __repr__(self):
