@@ -1010,7 +1010,7 @@ class FuzzyTerm(MultiTerm):
     """
 
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float,
-                         minsimilarity=float, prefixlength=int)
+                         maxdist=float, prefixlength=int)
 
     def __init__(self, fieldname, text, boost=1.0, maxdist=1,
                  prefixlength=1, constantscore=True):
@@ -1037,15 +1037,15 @@ class FuzzyTerm(MultiTerm):
         return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
                 and self.text == other.text
-                and self.minsimilarity == other.minsimilarity
+                and self.maxdist == other.maxdist
                 and self.prefixlength == other.prefixlength
                 and self.boost == other.boost
                 and self.constantscore == other.constantscore)
 
     def __repr__(self):
-        r = "%s(%r, %r, boost=%f, minsimilarity=%f, prefixlength=%d)"
+        r = "%s(%r, %r, boost=%f, maxdist=%d, prefixlength=%d)"
         return r % (self.__class__.__name__, self.fieldname, self.text,
-                    self.boost, self.minsimilarity, self.prefixlength)
+                    self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
         r = u"~" + self.text
@@ -1055,7 +1055,7 @@ class FuzzyTerm(MultiTerm):
 
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
-                ^ hash(self.minsimilarity) ^ hash(self.prefixlength)
+                ^ hash(self.maxdist) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
     def _all_terms(self, termset, phrases=True):
