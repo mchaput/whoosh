@@ -291,7 +291,7 @@ class AsyncWriter(threading.Thread, IndexWriter):
         writer = self.writer
         while writer is None:
             try:
-                writer = self.writerfn(**self.writerargs)
+                writer = self.index.writer(**self.writerargs)
             except LockError:
                 time.sleep(self.delay)
         for method, args, kwargs in self.events:
