@@ -47,70 +47,6 @@ class DawgNode:
         return self._edges
 
 
-class DiskNode(object):
-    caching = True
-    
-    def __init__(self, f, offset, usebytes=True):
-        self.f = f
-        self.offset = offset
-        self._edges = {}
-        
-        f.seek(offset)
-        flags = f.read_byte()
-        
-        lentype = flags & 3
-        if lentype != 0:
-            if lentype == 1:
-                count = flags >> 4
-            elif lentype == 2:
-                count = f.read_byte()
-            else:
-                count = f.read_ushort()
-            
-            for _ in xrange(count):
-                if usebytes:
-                    cnum = f.read_byte()
-                else:
-                    cnum = f.read_ushort()
-                char = unichr(cnum)
-                
-                self._edges[char] = f.read_uint()
-        
-        self.final = flags & 4
-    
-    @classmethod
-    def open(cls, dbfile):
-        dbfile.seek(0)
-        usebytes = bool(dbfile.read_int())
-        ptr = dbfile.read_uint()
-        return cls(dbfile, ptr, usebytes=usebytes)
-    
-    def __repr__(self):
-        return "<%s:%s %s>" % (self.offset, "".join(self.ptrs.keys()), self.final)
-    
-    def __contains__(self, key):
-        return key in self._edges
-    
-    def edge(self, key):
-        v = self._edges[key]
-        if not isinstance(v, DiskNode):
-            # Convert pointer to disk node
-            v = DiskNode(self.f, v)
-            #if self.caching:
-            self._edges[key] = v
-        return v
-    
-    def all_edges(self):
-        e = self.edge
-        return dict((key, e(key)) for key in self._edges.iterkeys())
-    
-    def load(self, depth=1):
-        for key in self._keys:
-            node = self.edge(key)
-            if depth:
-                node.load(depth - 1)
-
-
 class DawgWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
@@ -119,9 +55,28 @@ class DawgWriter(object):
         self.unchecked = []
         # List of unique nodes that have been checked for duplication.
         self.minimized = {}
+        
+        # Maps fieldnames to node starts
+        self.fields = {}
+        self._reset()
+        
+        dbfile.write_int(0)  # File flags
+        dbfile.write_uint(0)  # Pointer to field index
+    
+    def _reset(self):
+        self.fieldname = None
         self.root = DawgNode()
         self.offsets = {}
-        self.usebytes = True
+    
+    def add(self, fieldname, text):
+        if fieldname != self.fieldname:
+            if fieldname in self.fields:
+                raise Exception("I already wrote %r!" % fieldname)
+            if self.fieldname is not None:
+                self._write_field()
+            self.fieldname = fieldname
+        
+        self.insert(text)
     
     def insert(self, word):
         if word < self.lastword:
@@ -147,8 +102,6 @@ class DawgWriter(object):
             node = self.unchecked[-1][2]
 
         for letter in word[prefixlen:]:
-            if ord(letter) > 255: 
-                self.usebytes = False
             nextnode = DawgNode()
             node.put(letter, nextnode)
             self.unchecked.append((node, letter, nextnode))
@@ -169,38 +122,26 @@ class DawgWriter(object):
                 self.minimized[child] = child;
             self.unchecked.pop()
 
-    def lookup(self, word):
-        node = self.root
-        for letter in word:
-            if letter not in node._edges: return False
-            node = node._edges[letter]
-
-        return node.final
-
-    def node_count(self):
-        return len(self.minimized)
-
-    def edge_count(self):
-        count = 0
-        for node in self.minimized:
-            count += len(node._edges)
-        return count
-    
     def close(self):
-        self._minimize(0);
-        
+        if self.fieldname is not None:
+            self._write_field()
         dbfile = self.dbfile
-        dbfile.write_int(self.usebytes)  # File flags
-        dbfile.write_uint(0)  # Pointer
-        start = self._write(self.root)
+        
+        self.indexpos = dbfile.tell()
+        dbfile.write_pickle(self.fields)
         dbfile.flush()
         dbfile.seek(_INT_SIZE)
-        dbfile.write_uint(start)
+        dbfile.write_uint(self.indexpos)
         dbfile.close()
     
+    def _write_field(self):
+        self._minimize(0);
+        self.fields[self.fieldname] = self._write(self.root)
+        self._reset()
+        
     def _write(self, node):
         dbfile = self.dbfile
-        keys = sorted(node._edges.keys())
+        keys = node._edges.keys()
         nkeys = len(keys)
         ptrs = []
         for key in keys:
@@ -230,10 +171,15 @@ class DawgWriter(object):
             # Otherwise, write count as an unsigned short
             flags |= 3
         
+        if nkeys:
+            # Fourth lowest bit indicates whether the keys are 1 or 2 bytes
+            singlebytes = all(ord(key) <= 255 for key in keys)
+            flags |= singlebytes << 3
+        
         # Third lowest bit indicates whether this node ends a word
         flags |= node.final << 2
-        dbfile.write_byte(flags)
         
+        dbfile.write_byte(flags)
         if nkeys:
             # If number of keys is < 16, it's stashed in the flags byte
             if nkeys >= 16 and nkeys <= 255:
@@ -242,37 +188,127 @@ class DawgWriter(object):
                 dbfile.write_ushort(nkeys)
             
             for i in xrange(nkeys):
-                if self.usebytes:
-                    dbfile.write(keys[i])
+                charnum = ord(keys[i])
+                if singlebytes: 
+                    dbfile.write_byte(charnum)
                 else:
-                    dbfile.write_ushort(ord(keys[i]))
+                    dbfile.write_ushort(charnum)
                 dbfile.write_uint(ptrs[i])
         
         return start
 
 
-def suggest(node, word, rset, k=1, i=0, sofar="", prefix=0):
+class DiskNode(object):
+    caching = True
+    
+    def __init__(self, f, offset):
+        self.f = f
+        self.offset = offset
+        self._edges = {}
+        
+        f.seek(offset)
+        flags = f.read_byte()
+        
+        lentype = flags & 3
+        if lentype != 0:
+            if lentype == 1:
+                count = flags >> 4
+            elif lentype == 2:
+                count = f.read_byte()
+            else:
+                count = f.read_ushort()
+            
+            singlebytes = flags & 8
+            for _ in xrange(count):
+                if singlebytes:
+                    char = unichr(f.read_byte())
+                else:
+                    char = unichr(f.read_ushort())
+                
+                self._edges[char] = f.read_uint()
+        
+        self.final = flags & 4
+    
+    def __repr__(self):
+        return "<%s:%s %s>" % (self.offset, "".join(self._edges.keys()), bool(self.final))
+    
+    def __contains__(self, key):
+        return key in self._edges
+    
+    def edge(self, key):
+        v = self._edges[key]
+        if not isinstance(v, DiskNode):
+            # Convert pointer to disk node
+            v = DiskNode(self.f, v)
+            #if self.caching:
+            self._edges[key] = v
+        return v
+    
+    def all_edges(self):
+        e = self.edge
+        return dict((key, e(key)) for key in self._edges.iterkeys())
+    
+    def load(self, depth=1):
+        for key in self._keys:
+            node = self.edge(key)
+            if depth:
+                node.load(depth - 1)
+
+class DawgReader(object):
+    def __init__(self, dbfile):
+        self.dbfile = dbfile
+        
+        dbfile.seek(0)
+        self.fileflags = dbfile.read_int()
+        self.indexpos = dbfile.read_uint()
+        dbfile.seek(self.indexpos)
+        self.fields = dbfile.read_pickle()
+        
+    def field_root(self, fieldname):
+        v = self.fields[fieldname]
+        if not isinstance(v, DiskNode):
+            v = DiskNode(self.dbfile, v)
+            self.fields[fieldname] = v
+        return v
+    
+    def within(self, fieldname, text, k=1, prefix=0, seen=None):
+        if seen is None:
+            seen = set()
+        
+        node = self.field_root(fieldname)
+        sofar = ""
+        if prefix:
+            node = skip_prefix(node, text, prefix)
+            if node is None:
+                return
+            sofar, text = text[:prefix], text[prefix:]
+        
+        for sug in within(node, text, k, sofar=sofar):
+            if sug in seen:
+                continue
+            yield sug
+            seen.add(sug)
+            
+
+def within(node, word, k=1, i=0, sofar=""):
     assert k >= 0
-    if prefix:
-        node = advance_through(node, word[:prefix])
-        if node is None:
-            return
-        sofar, word = word[:prefix], word[prefix:]
     
     if i == len(word) and node.final:
-        rset.add(sofar)
+        yield sofar
     
     # Match
     if i < len(word) and word[i] in node:
-        suggest(node.edge(word[i]), word, rset, k, i + 1, sofar + word[i])
+        for w in within(node.edge(word[i]), word, k, i + 1, sofar + word[i]):
+            yield w
     
     if k > 0:
         dk = k - 1
         ii = i + 1
         edges = node.all_edges()
         # Insertions
-        for label in edges:
-            suggest(edges[label], word, rset, dk, i, sofar + label)
+        for key in edges:
+            for w in within(edges[key], word, dk, i, sofar + key):
+                yield w
         
         if i < len(word):
             char = word[i]
@@ -281,26 +317,29 @@ def suggest(node, word, rset, k=1, i=0, sofar="", prefix=0):
             if i < len(word) - 1 and word[ii] in edges:
                 second = edges[word[i+1]]
                 if char in second:
-                    suggest(second.edge(char), word, rset, dk, i + 2,
-                            sofar + word[ii] + char)
+                    for w in within(second.edge(char), word, dk, i + 2,
+                                     sofar + word[ii] + char):
+                        yield w
             
             # Deletion
-            suggest(node, word, rset, dk, ii, sofar)
+            for w in within(node, word, dk, ii, sofar):
+                yield w
             
             # Replacements
-            for label in edges:
-                if label != char:
-                    suggest(edges[label], word, rset, dk, ii, sofar + label)
+            for key in edges:
+                if key != char:
+                    for w in within(edges[key], word, dk, ii, sofar + key):
+                        yield w
 
 
-def advance_through(node, prefix):
-    for key in prefix:
+def skip_prefix(node, text, prefix):
+    for key in text[:prefix]:
         if key in node:
             node = node.edge(key)
         else:
             return None
     return node
-    
+
 
 def find_nearest(node, prefix):
     sofar = []
@@ -318,7 +357,7 @@ def find_nearest(node, prefix):
 def run_out(node, sofar):
     sofar = []
     while not node.final:
-        first = node.keys()[0]
+        first = min(node.keys())
         sofar.append(first)
         node = node.edge(first)
     return sofar

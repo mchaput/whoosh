@@ -1048,7 +1048,9 @@ class FuzzyTerm(MultiTerm):
                     self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = u"~" + self.text
+        r = self.text + "~"
+        if self.maxdist > 1:
+            r += "%d" % self.maxdist
         if self.boost != 1.0:
             r += "^%f" % self.boost
         return r
@@ -1062,14 +1064,8 @@ class FuzzyTerm(MultiTerm):
         termset.add((self.fieldname, self.text))
 
     def _words(self, ixreader):
-        text = self.text
-        maxdist = self.maxdist
-        for term in ixreader.expand_prefix(self.fieldname,
-                                           text[:self.prefixlength]):
-            if text == term:
-                yield term
-            elif distance(text, term) <= maxdist:
-                yield term
+        return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
+                                     prefix=self.prefixlength)
 
 
 class RangeMixin(object):

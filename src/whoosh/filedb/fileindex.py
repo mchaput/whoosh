@@ -365,9 +365,13 @@ class Segment(object):
     along the way).
     """
 
-    EXTENSIONS = {"fieldlengths": "fln", "storedfields": "sto",
-                  "termsindex": "trm", "termposts": "pst",
-                  "vectorindex": "vec", "vectorposts": "vps"}
+    EXTENSIONS = {"dawg": "dag",
+                  "fieldlengths": "fln",
+                  "storedfields": "sto",
+                  "termsindex": "trm",
+                  "termposts": "pst",
+                  "vectorindex": "vec",
+                  "vectorposts": "vps"}
     
     generation = 0
     

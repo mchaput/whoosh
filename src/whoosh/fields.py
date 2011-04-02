@@ -96,6 +96,7 @@ class FieldType(object):
     multitoken_query = "first"
     sortable_type = unicode
     sortable_typecode = None
+    spelling=False
     
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
@@ -218,13 +219,15 @@ class ID(FieldType):
     
     __inittypes__ = dict(stored=bool, unique=bool, field_boost=float)
     
-    def __init__(self, stored=False, unique=False, field_boost=1.0):
+    def __init__(self, stored=False, unique=False, field_boost=1.0,
+                 spelling=False):
         """
         :param stored: Whether the value of this field is stored with the document.
         """
         self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
         self.stored = stored
         self.unique = unique
+        self.spelling = spelling
 
 
 class IDLIST(FieldType):
@@ -234,7 +237,8 @@ class IDLIST(FieldType):
     
     __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
     
-    def __init__(self, stored=False, unique=False, expression=None, field_boost=1.0):
+    def __init__(self, stored=False, unique=False, expression=None,
+                 field_boost=1.0, spelling=False):
         """
         :param stored: Whether the value of this field is stored with the
             document.
@@ -249,6 +253,7 @@ class IDLIST(FieldType):
         self.format = Existence(analyzer=analyzer, field_boost=field_boost)
         self.stored = stored
         self.unique = unique
+        self.spelling = spelling
 
 
 class NUMERIC(FieldType):
@@ -585,7 +590,7 @@ class KEYWORD(FieldType):
                          unique=bool, field_boost=float)
     
     def __init__(self, stored=False, lowercase=False, commas=False,
-                 scorable=False, unique=False, field_boost=1.0):
+                 scorable=False, unique=False, field_boost=1.0, spelling=True):
         """
         :param stored: Whether to store the value of the field with the
             document.
@@ -599,6 +604,7 @@ class KEYWORD(FieldType):
         self.scorable = scorable
         self.stored = stored
         self.unique = unique
+        self.spelling = spelling
 
 
 class TEXT(FieldType):
@@ -611,7 +617,7 @@ class TEXT(FieldType):
                          stored=bool, field_boost=float)
     
     def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
-                 field_boost=1.0, multitoken_query="first"):
+                 field_boost=1.0, multitoken_query="first", spelling=False):
         """
         :param analyzer: The analysis.Analyzer to use to index the field
             contents. See the analysis module for more information. If you omit
@@ -651,6 +657,7 @@ class TEXT(FieldType):
         self.multitoken_query = multitoken_query
         self.scorable = True
         self.stored = stored
+        self.spelling = spelling
 
 
 class NGRAM(FieldType):
