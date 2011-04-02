@@ -16,7 +16,8 @@ class Reuters(Spec):
         ana = analysis.StandardAnalyzer()
         schema = fields.Schema(id=fields.ID(stored=True),
                                headline=fields.STORED,
-                               text=fields.TEXT(analyzer=ana, stored=True))
+                               text=fields.TEXT(analyzer=ana, stored=True,
+                                                spelling=True))
         return schema
     
     def zcatalog_setup(self, cat):

@@ -35,6 +35,8 @@ from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
+from whoosh.spelling import suggest
+from whoosh.support.dawg import DawgReader
 from whoosh.util import protected
 
 SAVE_BY_DEFAULT = True
@@ -83,6 +85,13 @@ class SegmentReader(IndexReader):
         # Postings file
         self.postfile = self.storage.open_file(segment.termposts_filename,
                                                mapped=False)
+        
+        # Dawg file
+        self.dawg = None
+        if any(field.spelling for field in self.schema):
+            dawgfile = self.storage.open_file(segment.dawg_filename,
+                                              mapped=False)
+            self.dawg = DawgReader(dawgfile)
         
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
@@ -289,6 +298,28 @@ class SegmentReader(IndexReader):
         
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
+    # DAWG methods
+
+    def has_word_graph(self, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No field %r" % fieldname)
+        if not self.schema[fieldname].spelling:
+            return False
+        if self.dawg:
+            return fieldname in self.dawg.fields
+
+    def terms_within(self, fieldname, word, maxdist, prefix=0):
+        if not self.has_word_graph(fieldname):
+            raise Exception("No word graph for field %r" % fieldname)
+        
+        return self.dawg.within(fieldname, word, maxdist, prefix=prefix)
+    
+    def _field_root(self, fieldname):
+        if not self.has_word_graph(fieldname):
+            raise Exception("No word graph for field %r" % fieldname)
+        
+        return self.dawg.field_root(fieldname)
+    
     # Field cache methods
 
     def supports_caches(self):

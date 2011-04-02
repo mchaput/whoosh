@@ -19,8 +19,10 @@ def levenshtein(seq1, seq2, limit=None):
             addcost = thisrow[y - 1] + 1
             subcost = oneago[y - 1] + (seq1[x] != seq2[y])
             thisrow[y] = min(delcost, addcost, subcost)
-        if limit and thisrow[x] > limit:
-            return thisrow[x]
+        
+        if limit and x > limit and min(thisrow) > limit:
+            return limit + 1
+        
     return thisrow[len(seq2) - 1]
 
 
@@ -44,8 +46,10 @@ def damerau_levenshtein(seq1, seq2, limit=None):
             if (x > 0 and y > 0 and seq1[x] == seq2[y - 1]
                 and seq1[x-1] == seq2[y] and seq1[x] != seq2[y]):
                 thisrow[y] = min(thisrow[y], twoago[y - 2] + 1)
-        if limit and thisrow[x] > limit:
-            return thisrow[x]
+        
+        if limit and x > limit and min(thisrow) > limit:
+            return limit + 1
+        
     return thisrow[len(seq2) - 1]
 
 

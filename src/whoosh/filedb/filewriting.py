@@ -36,6 +36,7 @@ from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
+from whoosh.support.dawg import DawgWriter
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -151,6 +152,12 @@ class SegmentWriter(IndexWriter):
         # Create a temporary segment to use its .*_filename attributes
         segment = Segment(self.name, self.generation, 0, None, None)
         
+        # DAWG file
+        dawg = None
+        if any(field.spelling for field in self.schema):
+            df = self.storage.create_file(segment.dawg_filename)
+            dawg = DawgWriter(df)
+        
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
         ti = TermIndexWriter(tf)
@@ -158,7 +165,7 @@ class SegmentWriter(IndexWriter):
         pf = self.storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw)
+        self.termswriter = TermsWriter(self.schema, ti, pw, dawg)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -478,17 +485,20 @@ class SegmentWriter(IndexWriter):
 
 
 class TermsWriter(object):
-    def __init__(self, schema, termsindex, postwriter, inlinelimit=1):
+    def __init__(self, schema, termsindex, postwriter, dawg, inlinelimit=1):
         self.schema = schema
         self.termsindex = termsindex
         self.postwriter = postwriter
+        self.dawg = dawg
         self.inlinelimit = inlinelimit
         
+        self.hasdawg = set(fieldname for fieldname, field in self.schema.items()
+                           if field.spelling)
         self.lastfn = None
         self.lasttext = None
         self.format = None
         self.offset = None
-    
+        
     def _new_term(self, fieldname, text):
         lastfn = self.lastfn
         lasttext = self.lasttext
@@ -496,9 +506,12 @@ class TermsWriter(object):
             raise Exception("Postings are out of order: %r:%s .. %r:%s" %
                             (lastfn, lasttext, fieldname, text))
     
+        if fieldname in self.hasdawg:
+            self.dawg.add(fieldname, text)
+    
         if fieldname != lastfn:
             self.format = self.schema[fieldname].format
-    
+        
         if fieldname != lastfn or text != lasttext:
             self._finish_term()
             # Reset the term attributes
@@ -559,6 +572,8 @@ class TermsWriter(object):
         self._finish_term()
         self.termsindex.close()
         self.postwriter.close()
+        if self.dawg:
+            self.dawg.close()
         
         
         

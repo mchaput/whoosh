@@ -25,18 +25,86 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""This module contains functions/classes using a Whoosh index as a backend for
-a spell-checking engine.
+"""This module contains helper functions for correcting typos in user queries.
 """
 
 from collections import defaultdict
+from heapq import heappush, heapreplace
 
 from whoosh import analysis, fields, query, scoring
-from whoosh.support.levenshtein import relative, distance
+from whoosh.support.levenshtein import distance
 
+
+def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0):
+    """Returns a sorted list of suggested corrections for the given
+    mis-typed word based on the contents of the given field.
+    
+    This method ranks suggestions first by lowest Damerau-Levenshtein edit
+    distance, then by highest term frequency, so more common words will be
+    suggested first.
+    
+    >>> r = ix.reader()
+    >>> suggest(r, "text", "specail")
+    [u'special']
+    
+    :param reader: an object which implements the ``terms_within`` and
+        ``frequency`` methods.
+    :param fieldname: the field to use for words. This may be None if the
+        "reader" does not support fields.
+    :param limit: only return up to this many suggestions. If there are not
+        enough terms in the field within ``maxdist`` of the given word, the
+        returned list will be shorter than this number.
+    :param maxdist: the largest edit distance from the given word to look
+        at. Numbers higher than 2 are not very effective or efficient.
+    :param prefix: require suggestions to share a prefix of this length
+        with the given word. This is often justifiable since most misspellings
+        do not involve the first letter of the word. Using a prefix
+        dramatically decreases the time it takes to generate the list of words.
+    """
+    
+    heap = []
+    seen = set()
+    for k in xrange(1, maxdist+1):
+        for sug in reader.terms_within(fieldname, text, k, prefix=prefix):
+            if sug in seen:
+                continue
+            seen.add(sug)
+            
+            item = (k, 0 - reader.frequency(sug), sug)
+            if len(heap) < limit:
+                heappush(heap, item)
+            elif item < heap[0]:
+                heapreplace(heap, item)
+        
+        if len(heap) >= limit:
+            break
+    
+    print sorted(heap)
+    return [sug for _, _, sug in sorted(heap)]
+
+
+class Corrector(object):
+    """This class allows you to generate suggested corrections for mis-typed
+    words based on a word list. Note that if you want to generate suggestions
+    based on the content of a field in an index, you should turn spelling on
+    for the field and use :meth:`whoosh.searching.Searcher.suggest` instead of
+    this object.
+    
+    """
+    
+    def __init__(self):
+        pass
+    
+    
+
+
+# Old, obsolete spell checker
 
 class SpellChecker(object):
-    """Implements a spell-checking engine using a search index for the backend
+    """This feature is obsolete. Instead use either a field with spelling
+    turned on or a :class:`Corrector`.
+    
+    Implements a spell-checking engine using a search index for the backend
     storage and lookup. This class is based on the Lucene contributed spell-
     checker code.
     
