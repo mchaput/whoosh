@@ -96,7 +96,7 @@ class FieldType(object):
     multitoken_query = "first"
     sortable_type = unicode
     sortable_typecode = None
-    spelling=False
+    spelling = False
     
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
@@ -590,7 +590,7 @@ class KEYWORD(FieldType):
                          unique=bool, field_boost=float)
     
     def __init__(self, stored=False, lowercase=False, commas=False,
-                 scorable=False, unique=False, field_boost=1.0, spelling=True):
+                 scorable=False, unique=False, field_boost=1.0, spelling=False):
         """
         :param stored: Whether to store the value of the field with the
             document.

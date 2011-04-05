@@ -902,6 +902,20 @@ def test_fuzzyterm():
     with ix.searcher() as s:
         q = FuzzyTerm("f", "brave")
         assert_equal([d["id"] for d in s.search(q)], [1, 2])
+        
+def test_fuzzyterm2():
+    schema = fields.Schema(id=fields.STORED, f=fields.TEXT(spelling=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, f=u"alfa bravo charlie delta")
+    w.add_document(id=2, f=u"bravo charlie delta echo")
+    w.add_document(id=3, f=u"charlie delta echo foxtrot")
+    w.add_document(id=4, f=u"delta echo foxtrot golf")
+    w.commit()
+    
+    with ix.searcher() as s:
+        q = FuzzyTerm("f", "brave")
+        assert_equal([d["id"] for d in s.search(q)], [1, 2])
     
 def test_multireader_not():
     schema = fields.Schema(id=fields.STORED, f=fields.TEXT)

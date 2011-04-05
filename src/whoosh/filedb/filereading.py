@@ -89,8 +89,12 @@ class SegmentReader(IndexReader):
         # Dawg file
         self.dawg = None
         if any(field.spelling for field in self.schema):
-            dawgfile = self.storage.open_file(segment.dawg_filename,
-                                              mapped=False)
+            fname = segment.dawg_filename
+            if not self.storage.file_exists(fname):
+                spelled = [fn for fn, field in self.schema.items() if field.spelling]
+                raise Exception("Field(s) %r have spelling=True but DAWG file %r not found" % (spelled, fname))
+            
+            dawgfile = self.storage.open_file(fname, mapped=False)
             self.dawg = DawgReader(dawgfile)
         
         self.dc = segment.doc_count_all()
@@ -310,7 +314,8 @@ class SegmentReader(IndexReader):
 
     def terms_within(self, fieldname, word, maxdist, prefix=0):
         if not self.has_word_graph(fieldname):
-            raise Exception("No word graph for field %r" % fieldname)
+            sup = super(SegmentReader, self)
+            return sup.terms_within(fieldname, word, maxdist, prefix=prefix)
         
         return self.dawg.within(fieldname, word, maxdist, prefix=prefix)
     

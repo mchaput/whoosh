@@ -1,79 +1,96 @@
-==============================
-Using the Whoosh spell checker
-==============================
+=====================================================
+"Did you mean... ?" Correcting errors in user queries
+=====================================================
+
+.. note::
+
+    In Whoosh 1.9 the old spelling system based on a separate N-gram index was
+    replaced with this significantly more convenient and powerful
+    implementation.
 
 
 Overview
 ========
 
-Whoosh includes pure-Python spell-checking library functions that use the Whoosh
-search engine for back-end storage.
+Whoosh can quickly suggest replacements for mis-typed words by returning a
+list of words from the index (or a dictionary) that are close to the mis-typed
+word::
 
-To create a :class:`~whoosh.spelling.SpellChecker` object::
+    with ix.searcher() as s:
+        for mistyped_word in mistyped_words:
+            print s.suggest("text", mistyped_word, limit=3)
 
-    from whoosh.filedb.filestore import FileStorage
-    from whoosh.spelling import SpellChecker
+Currently the suggestion engine is more like a "typo corrector" than a real
+"spell checker" since it doesn't do the kind of sophisticated phonetic
+matching or semantic/contextual analysis a good spell checker would. However,
+it is still very useful.
+
+There are a two main strategies for where to get the correct words:
+
+*   Use the terms from an index field.
+
+*   Use words from a word list file.
+
+
+Pulling suggestions from an indexed field
+=========================================
+
+To enable spell checking on the contents of a field, use the ``spelling=True``
+keyword argument on the field in the schema definition::
+
+    schema = Schema(text=TEXT(spelling=True))
+
+(If you have an existing index you want to enable spelling for, you can alter
+the schema in-place and use the :func:`whoosh.filedb.filewriting.add_spelling`
+function to create the missing word graph files.)
+
+The advantage of using the contents of an index field is that when you are
+spell checking queries on that index, the suggestions are tailored to the
+contents of the index. The disadvantage is that if the indexed documents
+contain spelling errors, then the spelling suggestions will also be
+erroneous.
+
+Note that if you're stemming the content field, the spelling suggestions will
+be stemmed and so may appear strange (for example, "rend" instead of
+"render"). One solution is to create a second spelling field with the same
+content as the main field with an unstemmed analyzer::
+
+    # Stemming analyzer for the main field
+    s_ana = RegexTokenizer() | LowercaseFilter() | StemmingFilter()
+    # Similar analyzer for the unstemmed field w/out the stemming filter
+    u_ana = RegexTokenizer() | LowercaseFilter()
     
-    # FileStorage object based on the directory "spelldict"
-    st = FileStorage("spelldict")
-    
-    # SpellChecker object needs a Storage object in which to put its index.
-    speller = SpellChecker(st)
+    schema = Schema(content=TEXT(analyzer=s_ana),
+                    unstemmed=TEXT(analyzer=u_ana, spelling=True))
 
-If you have a Whoosh ``Index`` object and you want to open the spelling
-dictionary in the same directory as the index, you can re-use the ``Index``
-object's ``Storage``::
+Then you can offer spelling suggestions based on the unstemmed field. You may
+even find it useful to let users search the unstemmed field when they know
+they want a specific form of a word.
 
-    from whoosh import index
-    
-    # Open the "main" index
-    ix = index.open_dir("index")
 
-    # Start/open a spelling dictionary in the same directory
-    speller = SpellChecer(ix.storage)
+Pulling suggestions from a word file
+====================================
 
-Whoosh lets you keep multiple indexes in the same directory by assigning the
-indexes different names. The default name for a regular index is ``_MAIN``. The
-default name for the index created by the SpellChecker object is ``SPELL`` (so
-you can keep your main index and a spelling index in the same directory by
-default). You can pass an ``indexname`` argument to the SpellChecker constructor
-to choose a different index name (for example, if you want to keep multiple
-spelling dictionaries in the same directory)::
+There are plenty of word lists available on the internet you can use to
+populate the spelling dictionary.
 
-    speller = SpellChecker(st, indexname="COMMON_WORDS")
+
+
+
+
+
 
 
 Creating the spelling dictionary
 ================================
 
-You need to populate the spell-checking dictionary with (properly spelled) words
-to check against. There are a few strategies for doing this:
 
-*   Add all the words that appear in a certain field in a Whoosh index.
- 
-    For example, if you've created an index for a collection of documents with
-    the contents indexed in a field named ``content``, you can automatically add
-    all the words from that field::
-    
-        from whoosh import index
-    
-        # Open the main index
-        ix = index.open_dir("index")
         
-        # Populate the spelling dictionary with the words from the
-        # main index's 'content' field.
-        speller.add_field(ix, "content")
-        
-    The advantage of using the contents of an index field is that when you are
-    spell checking queries on that index, the suggestions are tailored to the
-    contents of the index. The disadvantage is that if the indexed documents
-    contain spelling errors, then the spelling suggestions will also be
-    erroneous.
+    
  
 *   Use a preset list of words. The ``add_words`` method lets you add words from any iterable.
  
-    There are plenty of word lists available on the internet you can use to
-    populate the spelling dictionary. ::
+     ::
     
         speller.add_words(["custom", "word", "list"])
     
