@@ -35,20 +35,25 @@ from whoosh import analysis, fields, query, scoring
 from whoosh.support.levenshtein import distance
 
 
-def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0):
-    """Returns a sorted list of suggested corrections for the given
-    mis-typed word based on the contents of the given field.
-    
-    This method ranks suggestions first by lowest Damerau-Levenshtein edit
+def default_ranking(reader, fieldname, word, k):
+    """This function ranks suggestions first by lowest Damerau-Levenshtein edit
     distance, then by highest term frequency, so more common words will be
     suggested first.
+    """
+    
+    return (k, 0 - reader.frequency(fieldname, word))
+
+
+def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0,
+            ranking=None):
+    """Returns a sorted list of suggested corrections for the given
+    mis-typed word based on the contents of the given field.
     
     >>> r = ix.reader()
     >>> suggest(r, "text", "specail")
     [u'special']
     
-    :param reader: an object which implements the ``terms_within`` and
-        ``frequency`` methods.
+    :param reader: an object which implements the ``terms_within`` method.
     :param fieldname: the field to use for words. This may be None if the
         "reader" does not support fields.
     :param limit: only return up to this many suggestions. If there are not
@@ -60,7 +65,15 @@ def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0):
         with the given word. This is often justifiable since most misspellings
         do not involve the first letter of the word. Using a prefix
         dramatically decreases the time it takes to generate the list of words.
+    :param ranking: a custom ranking function. If this argument is ``None``,
+        :func:`default_ranking` is used. The custom function should accept the
+        arguments ``reader, fieldname, word, k`` (where k is the edit
+        distance) and return a ranking value, where lower values mean a better
+        suggestion.
     """
+    
+    if ranking is None:
+        ranking = default_ranking
     
     heap = []
     seen = set()
@@ -70,7 +83,7 @@ def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0):
                 continue
             seen.add(sug)
             
-            item = (k, 0 - reader.frequency(sug), sug)
+            item = (ranking(reader, fieldname, sug, k), sug)
             if len(heap) < limit:
                 heappush(heap, item)
             elif item < heap[0]:
@@ -79,8 +92,7 @@ def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0):
         if len(heap) >= limit:
             break
     
-    print sorted(heap)
-    return [sug for _, _, sug in sorted(heap)]
+    return [sug for _, sug in sorted(heap)]
 
 
 class Corrector(object):
@@ -95,8 +107,6 @@ class Corrector(object):
     def __init__(self):
         pass
     
-    
-
 
 # Old, obsolete spell checker
 

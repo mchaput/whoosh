@@ -576,9 +576,45 @@ class TermsWriter(object):
             self.dawg.close()
         
         
+def add_spelling(ix, fieldnames, force=False):
+    """Adds spelling files to an existing index that was created without
+    them, and modifies the schema so the given fields have the ``spelling``
+    attribute. Only works on filedb indexes.
+    
+    >>> ix = index.open_dir("testindex")
+    >>> add_spelling(ix, ["content", "tags"])
+    
+    :param ix: a :class:`whoosh.filedb.fileindex.FileIndex` object.
+    :param fieldnames: a list of field names to create word graphs for.
+    :param force: if True, overwrites existing word graph files. This is only
+        useful for debugging.
+    """
+    
+    from whoosh.filedb.filereading import SegmentReader
+    
+    writer = ix.writer()
+    storage = writer.storage
+    schema = writer.schema
+    segments = writer.segments
+    
+    for fieldname in fieldnames:
+        schema[fieldname].spelling = True
+    
+    for segment in segments:
+        filename = segment.dawg_filename
+        if storage.file_exists(filename) and not force:
+            continue
         
-        
-            
+        r = SegmentReader(storage, schema, segment)
+        f = storage.create_file(filename)
+        dw = DawgWriter(f)
+        for fieldname in fieldnames:
+            for word in r.lexicon(fieldname):
+                dw.add(fieldname, word)
+        dw.close()
+    writer.commit()
+
+
         
 
 

@@ -351,7 +351,8 @@ class Searcher(object):
             for docnum in q.docs(self):
                 yield docnum
 
-    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0):
+    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0,
+                ranking=None):
         """Returns a sorted list of suggested corrections for the given
         mis-typed word based on the contents of the given field.
         
@@ -359,7 +360,7 @@ class Searcher(object):
         """
         
         return suggest(self.reader(), fieldname, text, limit=limit,
-                       maxdist=maxdist, prefix=prefix)
+                       maxdist=maxdist, prefix=prefix, ranking=ranking)
 
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
