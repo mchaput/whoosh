@@ -26,12 +26,41 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 
-from whoosh.store import LockError
 from whoosh.system import _INT_SIZE
 
 
+class BaseNode(object):
+    """This is the base class for objects representing nodes in a directed
+    acyclic word graph (DAWG).
+    
+    * ``final`` is a property which is True if this node represents the end of
+      a word.
+    * ``__contains__(label)`` returns True if the node has an edge with the
+      given
+      label.
+    * ``__iter__()`` returns an iterator of the labels for the node's outgoing
+      edges.
+    * ``edge(label)`` returns the Node connected to the edge with the given
+      label.
+    * ``all_edges()`` returns a dictionary of the node's outgoing edges, where
+      the keys are the edge labels and the values are the connected nodes.
+    """
+    
+    def __contains__(self, key):
+        raise NotImplementedError
+    
+    def __iter__(self):
+        raise NotImplementedError
+    
+    def edge(self, key):
+        raise NotImplementedError
+    
+    def all_edges(self):
+        e = self.edge
+        return dict((key, e(key)) for key in self)
 
-class DawgNode:
+
+class DawgNode(object):
     def __init__(self):
         self.final = False
         self._edges = {}
@@ -66,6 +95,9 @@ class DawgNode:
     def __contains__(self, key):
         return key in self._edges
     
+    def __iter__(self):
+        return iter(self._edges)
+    
     def put(self, key, node):
         self._hash = None  # Invalidate the cached hash value
         self._edges[key] = node
@@ -74,7 +106,7 @@ class DawgNode:
         return self._edges[key]
     
     def all_edges(self):
-        return self._edges
+        return self._dict
 
 
 class DawgWriter(object):
@@ -228,7 +260,7 @@ class DawgWriter(object):
         return start
 
 
-class DiskNode(object):
+class DiskNode(BaseNode):
     caching = True
     
     def __init__(self, f, offset):
@@ -262,9 +294,6 @@ class DiskNode(object):
     def __repr__(self):
         return "<%s:%s %s>" % (self.offset, "".join(self._edges.keys()), bool(self.final))
     
-    def __contains__(self, key):
-        return key in self._edges
-    
     def edge(self, key):
         v = self._edges[key]
         if not isinstance(v, DiskNode):
@@ -274,15 +303,51 @@ class DiskNode(object):
             self._edges[key] = v
         return v
     
-    def all_edges(self):
-        e = self.edge
-        return dict((key, e(key)) for key in self._edges.iterkeys())
-    
     def load(self, depth=1):
         for key in self._keys:
             node = self.edge(key)
             if depth:
                 node.load(depth - 1)
+
+
+class ComboNode(BaseNode):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def __repr__(self):
+        return "<%s %r %r>" % (self.__class__.__name__, self.a, self.b)
+    
+    def __contains__(self, key):
+        return key in self.a or key in self.b
+    
+    def __iter__(self):
+        return iter(set(self.a) | set(self.b))
+    
+    @property
+    def final(self):
+        return self.a.final or self.b.final
+
+
+class PriorityNode(ComboNode):
+    def edge(self, key):
+        if key in self.a:
+            return self.a.edge(key)
+        else:
+            return self.b.edge(key)
+
+
+class MixedNode(ComboNode):
+    def edge(self, key):
+        a = self.a
+        b = self.b
+        if key in a and key in b:
+            return MixedNode(a.edge(key), b.edge(key))
+        elif key in a:
+            return a.edge(key)
+        else:
+            return b.edge(key)
+    
 
 class DawgReader(object):
     def __init__(self, dbfile):
@@ -300,27 +365,29 @@ class DawgReader(object):
             v = DiskNode(self.dbfile, v)
             self.fields[fieldname] = v
         return v
+
+
+# Functions
+
+def within(node, text, k=1, prefix=0, seen=None):
+    if seen is None:
+        seen = set()
     
-    def within(self, fieldname, text, k=1, prefix=0, seen=None):
-        if seen is None:
-            seen = set()
-        
-        node = self.field_root(fieldname)
-        sofar = ""
-        if prefix:
-            node = skip_prefix(node, text, prefix)
-            if node is None:
-                return
-            sofar, text = text[:prefix], text[prefix:]
-        
-        for sug in within(node, text, k, sofar=sofar):
-            if sug in seen:
-                continue
-            yield sug
-            seen.add(sug)
+    sofar = ""
+    if prefix:
+        node = skip_prefix(node, text, prefix)
+        if node is None:
+            return
+        sofar, text = text[:prefix], text[prefix:]
+    
+    for sug in _within(node, text, k, sofar=sofar):
+        if sug in seen:
+            continue
+        yield sug
+        seen.add(sug)
             
 
-def within(node, word, k=1, i=0, sofar=""):
+def _within(node, word, k=1, i=0, sofar=""):
     assert k >= 0
     
     if i == len(word) and node.final:
@@ -334,18 +401,17 @@ def within(node, word, k=1, i=0, sofar=""):
     if k > 0:
         dk = k - 1
         ii = i + 1
-        edges = node.all_edges()
         # Insertions
-        for key in edges:
-            for w in within(edges[key], word, dk, i, sofar + key):
+        for key in node:
+            for w in within(node.edge(key), word, dk, i, sofar + key):
                 yield w
         
         if i < len(word):
             char = word[i]
             
             # Transposition
-            if i < len(word) - 1 and char != word[ii] and word[ii] in edges:
-                second = edges[word[i+1]]
+            if i < len(word) - 1 and char != word[ii] and word[ii] in node:
+                second = node.edge(word[i+1])
                 if char in second:
                     for w in within(second.edge(char), word, dk, i + 2,
                                      sofar + word[ii] + char):
@@ -356,9 +422,9 @@ def within(node, word, k=1, i=0, sofar=""):
                 yield w
             
             # Replacements
-            for key in edges:
+            for key in node:
                 if key != char:
-                    for w in within(edges[key], word, dk, ii, sofar + key):
+                    for w in within(node.edge(key), word, dk, ii, sofar + key):
                         yield w
 
 

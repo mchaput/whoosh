@@ -301,7 +301,16 @@ class IndexReader(ClosableMixin):
         
         return False
     
-    def terms_within(self, fieldname, text, maxdist, prefix=0):
+    def word_graph(self, fieldname):
+        """Returns the root :class:`whoosh.support.dawg.BaseNode` for the given
+        field, if the field has a stored word graph (otherwise raises an
+        exception). You can check whether a field has a word graph using
+        :meth:`IndexReader.has_word_graph`.
+        """
+        
+        raise NotImplementedError
+    
+    def terms_within(self, fieldname, text, maxdist, prefix=0, seen=None):
         """Returns a generator of words in the given field within ``maxdist``
         Damerau-Levenshtein edit distance of the given text.
         
