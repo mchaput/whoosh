@@ -211,15 +211,6 @@ class HashReader(object):
         return unpack_header_entry(self.read((keyhash & 255) * header_entry_size,
                                              header_entry_size))
 
-    def _key_position(self, key):
-        keyhash = _hash(key)
-        hpos, hslots = self._hashtable_info(keyhash)
-        if not hslots:
-            raise KeyError(key)
-        slotpos = hpos + (((keyhash >> 8) % hslots) * header_entry_size)
-        
-        return self.dbfile.get_long(slotpos + _INT_SIZE)
-
     def _key_at(self, pos):
         keylen = self.dbfile.get_uint(pos)
         return self.read(pos + lengths_size, keylen)
