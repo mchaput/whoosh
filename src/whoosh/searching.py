@@ -441,7 +441,13 @@ class Searcher(object):
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
         if pagenum < 1:
             raise ValueError("pagenum must be >= 1")
-        results = self.search(query, limit=pagenum * pagelen, **kwargs)
+        
+        # Turn off optimized to prevent items from jumping around in the order
+        # as the limit is increased (optimized results are not stable)
+        if "optimized" in kwargs:
+            del kwargs["optimized"]
+        results = self.search(query, limit=pagenum * pagelen, optimized=False,
+                              **kwargs)
         return ResultsPage(results, pagenum, pagelen)
 
     def find(self, defaultfield, querystring, **kwargs):
@@ -534,6 +540,11 @@ class Searcher(object):
                optimize=True, scored=True, filter=None, collector=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
+        
+        When using optimizations, the order of results with very similar scores
+        can change as the limit changes. To ensure a stable ordering of
+        documents no matter what the value of ``limit``, use
+        ``optimize=False``.
         
         :param query: a :class:`whoosh.query.Query` object.
         :param limit: the maximum number of documents to score. If you're only
@@ -739,8 +750,9 @@ class Collector(object):
         :param id: the document number of the document.
         """
         
-        # This method is only called by add_all_matches
-        self._items.append((score, id))
+        # This method is only called by add_all_matches. Note: the document
+        # number is negated to match the output of add_top_matches
+        self._items.append((score, 0 - id))
         self.docset.add(id)
     
     def should_add_all(self):
@@ -776,6 +788,10 @@ class Collector(object):
         timelimited = bool(self.timelimit)
         greedy = self.greedy
         
+        # Note that document numbers are negated before putting them in the
+        # heap so that higher document numbers have lower "priority" in the
+        # queue. Lower document numbers should always come before higher
+        # document numbers with the same score to keep the order stable.
         for id, quality in self.pull_matches(matcher, usequality):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
@@ -786,16 +802,16 @@ class Collector(object):
             
             if len(items) < limit:
                 # The heap isn't full, so just add this document
-                heappush(items, (score(searcher, matcher), offsetid, quality))
+                heappush(items, (score(searcher, matcher), 0 - offsetid, quality))
             
-            elif quality > self.minquality:
+            elif not usequality or quality > self.minquality:
                 # The heap is full, but the posting quality indicates
                 # this document is good enough to make the top N, so
                 # calculate its true score and add it to the heap
                 
                 s = score(searcher, matcher)
                 if s > items[0][0]:
-                    heapreplace(items, (s, offsetid, quality))
+                    heapreplace(items, (s, 0 - offsetid, quality))
                     self.minquality = items[0][2]
                     
             if timelimited and self.timesup:
@@ -913,13 +929,16 @@ class Collector(object):
         """Returns the collected hits as a list of (score, docid) pairs.
         """
         
-        # Turn the heap into a sorted list by sorting by score first (subtract
-        # from 0 to put highest scores first) and then by document number (to
-        # enforce a consistent ordering of documents with equal score)
-        items = self._items
+        # Docnums are stored as negative for reasons too obscure to go into
+        # here, re-negate them before returning
+        items = [(x[0], 0 - x[1]) for x in self._items]
+        
+        # Sort by negated scores so that higher scores go first, then by
+        # document number to keep the order stable when documents have the same
+        # score
         if self.scored or self.reverse:
-            items = sorted(self._items, key=lambda x: (0 - x[0], x[1]),
-                           reverse=self.reverse)
+            items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+        
         return items
     
     def results(self, runtime=None):
