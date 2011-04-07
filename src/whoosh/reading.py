@@ -31,6 +31,7 @@
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
+from whoosh.support.dawg import within
 from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
@@ -321,15 +322,16 @@ class IndexReader(ClosableMixin):
             the list of words.
         """
         
-        # The default implementation uses brute force to scan the entire word
-        # list and calculate the edit distance for each word. Backends that
-        # store a word graph can override this with something more elegant.
-        
-        for word in self.expand_prefix(fieldname, text[:prefix]):
-            if word == text:
-                yield text
-            elif distance(word, text, limit=maxdist) <= maxdist:
+        if self.has_word_graph(fieldname):
+            node = self.word_graph(fieldname)
+            for word in within(node, word, maxdist, prefix=prefix, seen=seen):
                 yield word
+        else:
+            for word in self.expand_prefix(fieldname, text[:prefix]):
+                if word == text:
+                    yield text
+                elif distance(word, text, limit=maxdist) <= maxdist:
+                    yield word
     
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
@@ -355,7 +357,7 @@ class IndexReader(ClosableMixin):
         is atomic.
         """
         
-        return False
+        return None
     
     #
     
