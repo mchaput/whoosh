@@ -32,6 +32,7 @@ from collections import defaultdict
 from heapq import heappush, heapreplace
 
 from whoosh import analysis, fields, query, scoring
+from whoosh.support.dawg import within
 from whoosh.support.levenshtein import distance
 
 
@@ -77,12 +78,9 @@ def suggest(reader, fieldname, text, limit=5, maxdist=2, prefix=0,
     
     heap = []
     seen = set()
+    root = reader.word_graph(fieldname)
     for k in xrange(1, maxdist+1):
-        for sug in reader.terms_within(fieldname, text, k, prefix=prefix):
-            if sug in seen:
-                continue
-            seen.add(sug)
-            
+        for sug in within(root, text, k, prefix=prefix, seen=seen):
             item = (ranking(reader, fieldname, sug, k), sug)
             if len(heap) < limit:
                 heappush(heap, item)
@@ -99,8 +97,7 @@ class Corrector(object):
     """This class allows you to generate suggested corrections for mis-typed
     words based on a word list. Note that if you want to generate suggestions
     based on the content of a field in an index, you should turn spelling on
-    for the field and use :meth:`whoosh.searching.Searcher.suggest` instead of
-    this object.
+    for the field and use :func:`suggest` instead of this object.
     
     """
     

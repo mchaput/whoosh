@@ -35,7 +35,7 @@ from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
-from whoosh.support.dawg import DawgReader, within
+from whoosh.support.dawg import DawgReader
 from whoosh.util import protected
 
 SAVE_BY_DEFAULT = True
@@ -317,14 +317,6 @@ class SegmentReader(IndexReader):
             raise Exception("No word graph for field %r" % fieldname)
         return self.dawg.field_root(fieldname)
 
-    def terms_within(self, fieldname, word, maxdist, prefix=0, seen=None):
-        if not self.has_word_graph(fieldname):
-            sup = super(SegmentReader, self)
-            return sup.terms_within(fieldname, word, maxdist, prefix=prefix)
-        
-        node = self.word_graph(fieldname)
-        return within(node, word, maxdist, prefix=prefix, seen=seen)
-    
     def _field_root(self, fieldname):
         if not self.has_word_graph(fieldname):
             raise Exception("No word graph for field %r" % fieldname)
