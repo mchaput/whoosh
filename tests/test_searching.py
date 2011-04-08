@@ -914,6 +914,7 @@ def test_fuzzyterm2():
     w.commit()
     
     with ix.searcher() as s:
+        assert_equal(list(s.reader().terms_within("f", u"brave", 1)), ["bravo"])
         q = FuzzyTerm("f", "brave")
         assert_equal([d["id"] for d in s.search(q)], [1, 2])
     

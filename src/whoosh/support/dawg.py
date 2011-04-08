@@ -478,7 +478,7 @@ def _within(node, word, k=1, i=0, sofar=""):
     
     # Match
     if i < len(word) and word[i] in node:
-        for w in within(node.edge(word[i]), word, k, i + 1, sofar + word[i]):
+        for w in _within(node.edge(word[i]), word, k, i + 1, sofar + word[i]):
             yield w
     
     if k > 0:
@@ -486,7 +486,7 @@ def _within(node, word, k=1, i=0, sofar=""):
         ii = i + 1
         # Insertions
         for key in node:
-            for w in within(node.edge(key), word, dk, i, sofar + key):
+            for w in _within(node.edge(key), word, dk, i, sofar + key):
                 yield w
         
         if i < len(word):
@@ -496,18 +496,18 @@ def _within(node, word, k=1, i=0, sofar=""):
             if i < len(word) - 1 and char != word[ii] and word[ii] in node:
                 second = node.edge(word[i+1])
                 if char in second:
-                    for w in within(second.edge(char), word, dk, i + 2,
+                    for w in _within(second.edge(char), word, dk, i + 2,
                                      sofar + word[ii] + char):
                         yield w
             
             # Deletion
-            for w in within(node, word, dk, ii, sofar):
+            for w in _within(node, word, dk, ii, sofar):
                 yield w
             
             # Replacements
             for key in node:
                 if key != char:
-                    for w in within(node.edge(key), word, dk, ii, sofar + key):
+                    for w in _within(node.edge(key), word, dk, ii, sofar + key):
                         yield w
 
 
