@@ -329,7 +329,24 @@ def test_lengths2():
         r = s.search(q, limit=3)
         assert_equal(len(r), count)
 
-
+def test_stability():
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    domain = u"alfa bravo charlie delta".split()
+    w = ix.writer()
+    for ls in permutations(domain, 3):
+        w.add_document(text=u" ".join(ls))
+    w.commit()
+    
+    with ix.searcher() as s:
+        q = query.Term("text", u"bravo")
+        last = []
+        for i in xrange(s.doc_frequency("text", u"bravo")):
+            # Only un-optimized results are stable
+            r = s.search(q, limit=i + 1, optimize=False)
+            docnums = [hit.docnum for hit in r]
+            assert_equal(docnums[:-1], last)
+            last = docnums
 
 
 

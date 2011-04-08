@@ -324,7 +324,7 @@ class IndexReader(ClosableMixin):
         
         if self.has_word_graph(fieldname):
             node = self.word_graph(fieldname)
-            for word in within(node, word, maxdist, prefix=prefix, seen=seen):
+            for word in within(node, text, maxdist, prefix=prefix, seen=seen):
                 yield word
         else:
             for word in self.expand_prefix(fieldname, text[:prefix]):
