@@ -446,7 +446,7 @@ class Searcher(object):
         # as the limit is increased (optimized results are not stable)
         if "optimized" in kwargs:
             del kwargs["optimized"]
-        results = self.search(query, limit=pagenum * pagelen, optimized=False,
+        results = self.search(query, limit=pagenum * pagelen, optimize=False,
                               **kwargs)
         return ResultsPage(results, pagenum, pagelen)
 
