@@ -3,6 +3,7 @@
 from nose.tools import assert_equal
 
 from whoosh import analysis, fields, qparser, query
+from whoosh.qparser import dateparse
 
 
 def test_empty_querystring():
@@ -33,6 +34,15 @@ def test_fields():
     assert_equal(q.__class__, query.Term)
     assert_equal(q.fieldname, "title")
     assert_equal(q.text, "test")
+
+def test_multifield():
+    schema = fields.Schema(content=fields.TEXT, title=fields.TEXT,
+                           cat=fields.KEYWORD, date=fields.DATETIME)
+    
+    qs = u"time (cinema muza cat:place) OR (cinema muza cat:event)"
+    qp = qparser.MultifieldParser(['content', 'title'], schema)
+    q = qp.parse(qs)
+    assert_equal(unicode(q), "((content:time OR title:time) AND (((content:cinema OR title:cinema) AND (content:muza OR title:muza) AND cat:place) OR ((content:cinema OR title:cinema) AND (content:muza OR title:muza) AND cat:event)))")
     
 def test_fieldname_chars():
     s = fields.Schema(abc123=fields.TEXT, nisbah=fields.KEYWORD)
@@ -642,5 +652,10 @@ def test_star_paren():
     assert_equal(q[1].fieldname, "title")
     assert_equal(q[0].text, "*john*")
     assert_equal(q[1].text, "blog")
+
+    
+
+
+
 
 

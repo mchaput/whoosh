@@ -18,12 +18,11 @@ To open an existing index::
 """
 
 from cStringIO import StringIO
-from threading import Lock
 
 from google.appengine.api import memcache
 from google.appengine.ext import db
 
-from whoosh.store import Storage, LockError
+from whoosh.store import Storage
 from whoosh.filedb.fileindex import _create_index, FileIndex, _DEF_INDEX_NAME
 from whoosh.filedb.filestore import ReadOnlyError
 from whoosh.filedb.structfile import StructFile
@@ -77,13 +76,30 @@ class DatastoreFile(db.Model):
         return self.data.getvalue()
 
 
+class MemcacheLock(object):
+    def __init__(self, name):
+        self.name = name
+        
+    def acquire(self, blocking=False):
+        val = memcache.add(self.name, "L", 360, namespace="whooshlocks")
+        
+        if blocking and not val:
+            # Simulate blocking by retrying the acquire over and over
+            import time
+            while not val:
+                time.sleep(0.1)
+                val = memcache.add(self.name, "", 360, namespace="whooshlocks")
+        
+        return val
+    
+    def release(self):
+        memcache.delete(self.name, namespace="whooshlocks")
+
+
 class DatastoreStorage(Storage):
     """An implementation of :class:`whoosh.store.Storage` that stores files in
     the app engine datastore as blob properties.
     """
-
-    def __init__(self):
-        self.locks = {}
 
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
         if self.readonly:
@@ -115,6 +131,7 @@ class DatastoreStorage(Storage):
         return len(DatastoreFile.get_by_key_name(name).value)
 
     def delete_file(self, name):
+        memcache.delete(name, namespace="DatastoreFile")
         return DatastoreFile.get_by_key_name(name).delete()
 
     def rename_file(self, name, newname, safe=False):
@@ -133,16 +150,7 @@ class DatastoreStorage(Storage):
         return StructFile(DatastoreFile.loadfile(name))
 
     def lock(self, name):
-        if name not in self.locks:
-            self.locks[name] = Lock()
-        if not self.locks[name].acquire(False):
-            raise LockError("Could not lock %r" % name)
-        return self.locks[name]
+        return MemcacheLock(name)
 
-    def unlock(self, name):
-        if name in self.locks:
-            self.locks[name].release()
-        else:
-            raise LockError("No lock named %r" % name)
 
 

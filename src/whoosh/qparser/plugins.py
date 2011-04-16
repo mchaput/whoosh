@@ -688,7 +688,9 @@ class MultifieldPlugin(Plugin):
     def do_multifield(self, parser, stream):
         newstream = stream.empty()
         for t in stream:
-            if isinstance(t, BasicSyntax) and t.fieldname is None:
+            if isinstance(t, Group):
+                t = self.do_multifield(parser, t)
+            elif isinstance(t, BasicSyntax) and t.fieldname is None:
                 t = OrGroup([t.set_fieldname(fn).set_boost(self.boosts.get(fn, 1.0))
                              for fn in self.fieldnames])
             newstream.append(t)
