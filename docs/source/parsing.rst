@@ -239,7 +239,7 @@ termclass
     object) that accepts a fieldname string and term text unicode string in its
     ``__init__`` method. The default is :class:`whoosh.query.Term`.
 
-    This is useful if you want to chnage the default term class to
+    This is useful if you want to change the default term class to
     :class:`whoosh.query.Variations`, or if you've written a custom term class
     you want the parser to use instead of the ones shipped with Whoosh.
 

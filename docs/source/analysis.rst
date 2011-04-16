@@ -69,7 +69,7 @@ tokenizers and filters together using the ``|`` character::
 	my_analyzer = RegexTokenizer() | LowercaseFilter() | StopFilter()
 	
 The first item must be a tokenizer and the rest must be filters (you can't put a
-filter first or a tokenizer after the first item). Note that is only works if at
+filter first or a tokenizer after the first item). Note that this only works if at
 least the tokenizer is a subclass of ``whoosh.analysis.Composable``, as all the
 tokenizers and filters that ship with Whoosh are.
 
@@ -193,7 +193,7 @@ filters to use based on the mode setting::
 Stop words
 ----------
 
-"Stop" words are words that are so common it's often counter-productive to index
+"Stop" words are words that are so common that it's often counter-productive to index
 them, such as "and", "or", "if", etc. The provided analysis.StopFilter lets you
 filter out stop words, and includes a default list of common stop words.
 
@@ -313,7 +313,7 @@ objects.
 
 The mixing of persistent "setting" and transient "information" attributes on the
 Token object is not especially elegant. If I ever have a better idea I might
-change it ;) Nothing requires that an Analyzer be implemented by calling a
+change it. ;) Nothing requires that an Analyzer be implemented by calling a
 tokenizer and filters. Tokenizers and filters are simply a convenient way to
 structure the code. You're free to write an analyzer any way you want, as long
 as it implements ``__call__``.
