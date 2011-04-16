@@ -45,7 +45,7 @@ from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
 from whoosh.reading import TermNotFound
 from whoosh.support.levenshtein import relative
 from whoosh.support.times import datetime_to_long
-from whoosh.util import make_binary_tree, methodcaller
+from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
 
 
 # Exceptions
@@ -254,6 +254,28 @@ class Query(object):
                              phrases=phrases)
         return termset
 
+    def requires(self):
+        """Returns a set of queries that are *known* to be required to match
+        for the entire query to match. Note that other queries might also turn
+        out to be required but not be determinable by examining the static
+        query.
+        
+        >>> a = Term("f", u"a")
+        >>> b = Term("f", u"b")
+        >>> And([a, b]).requires()
+        set([Term("f", u"a"), Term("f", u"b")])
+        >>> Or([a, b]).requires()
+        set([])
+        >>> AndMaybe(a, b).requires()
+        set([Term("f", u"a")])
+        >>> a.requires()
+        set([Term("f", u"a")])
+        """
+        
+        # Subclasses should implement the _add_required_to(qset) method
+        
+        return set([self])
+    
     def field(self):
         """Returns the field this query matches in, or None if this query does
         not match in a single field.
@@ -348,6 +370,9 @@ class WrappingQuery(Query):
                        phrases=True):
         return self.child.existing_terms(ixreader, termset=termset,
                                          reverse=reverse, phrases=phrases)
+    
+    def requires(self):
+        return self.child.requires()
     
     def field(self):
         return self.child.field()
@@ -522,40 +547,44 @@ class CompoundQuery(Query):
         else:
             return NullQuery
 
-    def _matcher(self, matchercls, searcher, **kwargs):
+    def _matcher(self, matchercls, q_weight_fn, searcher, **kwargs):
+        # q_weight_fn is a function which is called on each query and returns a
+        # "weight" value which is used to build a huffman-like matcher tree. If
+        # q_weight_fn is None, an order-preserving binary tree is used instead.
+        
         # Pull any queries inside a Not() out into their own list
         subs, nots = self._split_queries()
         
         if not subs:
             return NullMatcher()
         
-        # Sort the list of subqueries by their estimated size
-        r = searcher.reader()
-        subs.sort(key=lambda q: q.estimate_size(r))
-        
         # Create a matcher from the list of subqueries
-        subms = [subq.matcher(searcher) for subq in subs]
-        if len(subms) == 1:
-            m = subms[0]
-        else:
+        if len(subs) == 1:
+            m = subs[0].matcher(searcher)
+        elif q_weight_fn is None:
+            subms = [q.matcher(searcher) for q in subs]
             m = make_binary_tree(matchercls, subms)
+        else:
+            subms = [(q_weight_fn(q), q.matcher(searcher)) for q in subs]
+            m = make_weighted_tree(matchercls, subms)
         
         # If there were queries inside Not(), make a matcher for them and
         # wrap the matchers in an AndNotMatcher
         if nots:
-            notms = [subq.matcher(searcher) for subq in nots]
-            if len(notms) == 1:
-                notm = notms[0]
+            if len(nots) == 1:
+                notm = nots[0].matcher(searcher)
             else:
-                notm = make_binary_tree(UnionMatcher, notms)
-                
+                notms = [(q.estimate_size(), q.matcher(searcher))
+                         for q in nots]
+                notm = make_weighted_tree(UnionMatcher, notms)
+            
             if notm.is_active():
                 m = AndNotMatcher(m, notm)
         
         # If this query had a boost, add a wrapping matcher to apply the boost
         if self.boost != 1.0:
             m = WrappingMatcher(m, self.boost)
-            
+        
         return m
 
 
@@ -710,11 +739,19 @@ class And(CompoundQuery):
     JOINT = " AND "
     intersect_merge = True
 
+    def requires(self):
+        s = set()
+        for q in self.subqueries:
+            s |= q.requires()
+        return s
+        
     def estimate_size(self, ixreader):
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
     def matcher(self, searcher):
-        return self._matcher(IntersectionMatcher, searcher)
+        r = searcher.reader()
+        return self._matcher(IntersectionMatcher,
+                             lambda q: 0 - q.estimate_size(r), searcher)
 
 
 class Or(CompoundQuery):
@@ -749,8 +786,16 @@ class Or(CompoundQuery):
             norm.minmatch = self.minmatch
         return norm
 
+    def requires(self):
+        if len(self.subqueries) == 1:
+            return self.subqueries[0].requires()
+        else:
+            return set()
+
     def matcher(self, searcher):
-        return self._matcher(UnionMatcher, searcher)
+        r = searcher.reader()
+        return self._matcher(UnionMatcher, lambda q: q.estimate_size(r),
+                             searcher)
 
 
 class DisjunctionMax(CompoundQuery):
@@ -776,8 +821,16 @@ class DisjunctionMax(CompoundQuery):
             norm.tiebreak = self.tiebreak
         return norm
     
+    def requires(self):
+        if len(self.subqueries) == 1:
+            return self.subqueries[0].requires()
+        else:
+            return set()
+    
     def matcher(self, searcher):
-        return self._matcher(DisjunctionMaxMatcher, searcher,
+        r = searcher.reader()
+        return self._matcher(DisjunctionMaxMatcher,
+                             lambda q: q.estimate_size(r), searcher,
                              tiebreak=self.tiebreak)
 
 
@@ -1471,7 +1524,8 @@ class Ordered(And):
     
     def matcher(self, searcher):
         from spans import SpanBefore
-        return self._matcher(SpanBefore._Matcher, searcher)
+        
+        return self._matcher(SpanBefore._Matcher, None, searcher)
 
 
 class Every(Query):
@@ -1751,6 +1805,9 @@ class Require(BinaryQuery):
     JOINT = " REQUIRE "
     matcherclass = RequireMatcher
 
+    def requires(self):
+        return self.a.requires() | self.b.requires()
+
     def estimate_size(self, ixreader):
         return self.b.estimate_size(ixreader)
     
@@ -1786,6 +1843,9 @@ class AndMaybe(BinaryQuery):
             return a
         return self.__class__(a, b, boost=self.boost)
 
+    def requires(self):
+        return self.a.requires()
+
     def estimate_min_size(self, ixreader):
         return self.subqueries[0].estimate_min_size(ixreader)
 
@@ -1818,6 +1878,9 @@ class AndNot(BinaryQuery):
     def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
         self.a.existing_terms(ixreader, termset, reverse=reverse,
                               phrases=phrases)
+        
+    def requires(self):
+        return self.a.requires()
 
 
 class Otherwise(BinaryQuery):

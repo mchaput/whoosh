@@ -439,9 +439,62 @@ class Searcher(object):
         return self.search(q, limit=top, filter=comb)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
+        """This method is Like the :meth:`Searcher.search` method, but returns
+        a :class:`ResultsPage` object. This is a convenience function for
+        getting a certain "page" of the results for the given query, which is
+        often useful in web search interfaces.
+        
+        For example::
+        
+            querystring = request.get("q")
+            query = queryparser.parse("content", querystring)
+            
+            pagenum = int(request.get("page", 1))
+            pagelen = int(request.get("perpage", 10))
+            
+            results = searcher.search_page(query, pagenum, pagelen=pagelen)
+            print "Page %d of %d" % (results.pagenum, results.pagecount)
+            print ("Showing results %d-%d of %d" 
+                   % (results.offset + 1, results.offset + results.pagelen + 1,
+                      len(results)))
+            for hit in results:
+                print "%d: %s" % (hit.rank + 1, hit["title"])
+        
+        (Note that results.pagelen might be less than the pagelen argument if
+        there aren't enough results to fill a page.)
+        
+        Any additional keyword arguments you supply are passed through to
+        :meth:`Searcher.search`. For example, you can get paged results of a
+        sorted search::
+        
+            results = searcher.search_page(q, 2, sortedby="date", reverse=True)
+        
+        Currently, searching for page 100 with pagelen of 10 takes the same
+        amount of time as using :meth:`Searcher.search` to find the first 1000
+        results. That is, this method does not have any special optimizations
+        or efficiencies for getting a page from the middle of the full results
+        list. (A future enhancement may allow using previous page results to
+        improve the efficiency of finding the next page.)
+        
+        This method will raise a ``ValueError`` if you ask for a page number
+        higher than the number of pages in the resulting query.
+        
+        :param query: the :class:`whoosh.query.Query` object to match.
+        :param pagenum: the page number to retrieve, starting at ``1`` for the
+            first page.
+        :param pagelen: the number of results per page.
+        :returns: :class:`ResultsPage`
+        """
+        
         if pagenum < 1:
             raise ValueError("pagenum must be >= 1")
-        results = self.search(query, limit=pagenum * pagelen, **kwargs)
+        
+        # Turn off optimized to prevent items from jumping around in the order
+        # as the limit is increased (optimized results are not stable)
+        if "optimized" in kwargs:
+            del kwargs["optimized"]
+        results = self.search(query, limit=pagenum * pagelen, optimize=False,
+                              **kwargs)
         return ResultsPage(results, pagenum, pagelen)
 
     def find(self, defaultfield, querystring, **kwargs):
@@ -534,6 +587,11 @@ class Searcher(object):
                optimize=True, scored=True, filter=None, collector=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
+        
+        When using optimizations, the order of results with very similar scores
+        can change as the limit changes. To ensure a stable ordering of
+        documents no matter what the value of ``limit``, use
+        ``optimize=False``.
         
         :param query: a :class:`whoosh.query.Query` object.
         :param limit: the maximum number of documents to score. If you're only
@@ -739,8 +797,9 @@ class Collector(object):
         :param id: the document number of the document.
         """
         
-        # This method is only called by add_all_matches
-        self._items.append((score, id))
+        # This method is only called by add_all_matches. Note: the document
+        # number is negated to match the output of add_top_matches
+        self._items.append((score, 0 - id))
         self.docset.add(id)
     
     def should_add_all(self):
@@ -776,6 +835,10 @@ class Collector(object):
         timelimited = bool(self.timelimit)
         greedy = self.greedy
         
+        # Note that document numbers are negated before putting them in the
+        # heap so that higher document numbers have lower "priority" in the
+        # queue. Lower document numbers should always come before higher
+        # document numbers with the same score to keep the order stable.
         for id, quality in self.pull_matches(matcher, usequality):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
@@ -786,16 +849,16 @@ class Collector(object):
             
             if len(items) < limit:
                 # The heap isn't full, so just add this document
-                heappush(items, (score(searcher, matcher), offsetid, quality))
+                heappush(items, (score(searcher, matcher), 0 - offsetid, quality))
             
-            elif quality > self.minquality:
+            elif not usequality or quality > self.minquality:
                 # The heap is full, but the posting quality indicates
                 # this document is good enough to make the top N, so
                 # calculate its true score and add it to the heap
                 
                 s = score(searcher, matcher)
                 if s > items[0][0]:
-                    heapreplace(items, (s, offsetid, quality))
+                    heapreplace(items, (s, 0 - offsetid, quality))
                     self.minquality = items[0][2]
                     
             if timelimited and self.timesup:
@@ -913,13 +976,16 @@ class Collector(object):
         """Returns the collected hits as a list of (score, docid) pairs.
         """
         
-        # Turn the heap into a sorted list by sorting by score first (subtract
-        # from 0 to put highest scores first) and then by document number (to
-        # enforce a consistent ordering of documents with equal score)
-        items = self._items
+        # Docnums are stored as negative for reasons too obscure to go into
+        # here, re-negate them before returning
+        items = [(x[0], 0 - x[1]) for x in self._items]
+        
+        # Sort by negated scores so that higher scores go first, then by
+        # document number to keep the order stable when documents have the same
+        # score
         if self.scored or self.reverse:
-            items = sorted(self._items, key=lambda x: (0 - x[0], x[1]),
-                           reverse=self.reverse)
+            items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+        
         return items
     
     def results(self, runtime=None):
@@ -1473,8 +1539,8 @@ class Hit(object):
         :param normalize: whether to normalize term weights.
         """
         
-        return self.searcher.more_like(self.docnum, text=text, top=top,
-                                       numterms=numterms, model=model,
+        return self.searcher.more_like(self.docnum, fieldname, text=text,
+                                       top=top, numterms=numterms, model=model,
                                        normalize=normalize)
     
     def __repr__(self):

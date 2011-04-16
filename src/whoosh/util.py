@@ -34,6 +34,7 @@ import re
 import sys
 import time
 from array import array
+from bisect import insort
 from copy import copy
 from functools import wraps
 from math import log
@@ -112,7 +113,7 @@ def string_to_array(typecode, s):
 
 def make_binary_tree(fn, args, **kwargs):
     """Takes a function/class that takes two positional arguments and a list of
-    arguments and returns a binary tree of instances.
+    arguments and returns a binary tree of results/instances.
     
     >>> make_binary_tree(UnionMatcher, [matcher1, matcher2, matcher3])
     UnionMatcher(matcher1, UnionMatcher(matcher2, matcher3))
@@ -130,6 +131,23 @@ def make_binary_tree(fn, args, **kwargs):
     half = count // 2
     return fn(make_binary_tree(fn, args[:half], **kwargs),
               make_binary_tree(fn, args[half:], **kwargs), **kwargs)
+
+
+def make_weighted_tree(fn, ls, **kwargs):
+    """Takes a function/class that takes two positional arguments and a list of
+    (weight, argument) tuples and returns a huffman-like weighted tree of
+    results/instances.
+    """
+    
+    if not ls:
+        raise ValueError("Called make_weighted_tree with empty list")
+    
+    ls.sort()
+    while len(ls) > 1:
+        a = ls.pop(0)
+        b = ls.pop(0)
+        insort(ls, (a[0] + b[0], fn(a[1], b[1])))
+    return ls[0][1]
 
 
 # Varint cache
