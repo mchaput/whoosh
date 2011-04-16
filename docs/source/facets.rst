@@ -36,8 +36,9 @@ work on Mac OS X.
 
 .. tip::
     Whoosh currently only supports **non-overlapping** categories. A document
-    cannot belong to facets at the same time. (It is not an error if the facets
-    overlap; each document will simply be sorted into one category arbitrarily.)
+    cannot belong to multiple facets at the same time. (It is not an error if
+    the facets overlap; each document will simply be sorted into one category
+    arbitrarily.)
 
 Faceting relies on field caches. See :doc:`fieldcaches` for information about
 field caches.

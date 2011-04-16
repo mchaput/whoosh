@@ -30,7 +30,7 @@ object's ``Storage``::
     ix = index.open_dir("index")
 
     # Start/open a spelling dictionary in the same directory
-    speller = SpellChecer(ix.storage)
+    speller = SpellChecker(ix.storage)
 
 Whoosh lets you keep multiple indexes in the same directory by assigning the
 indexes different names. The default name for a regular index is ``_MAIN``. The
