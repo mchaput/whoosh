@@ -371,6 +371,8 @@ class Searcher(object):
         :param numterms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify
             module.
+        :param normalize: Whether to normalize the weights.
+        :returns: A list of ("term", weight) tuples.
         """
 
         expander = classify.Expander(self.ixreader, fieldname, model=model)
