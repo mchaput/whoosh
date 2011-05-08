@@ -833,7 +833,7 @@ class StemFilter(Filter):
 
 
 class PyStemmerFilter(StemFilter):
-    """This is a simple sublcass of StemFilter that works with the py-stemmer
+    """This is a simple subclass of StemFilter that works with the py-stemmer
     third-party library. You must have the py-stemmer library installed to use
     this filter.
     
@@ -1545,7 +1545,7 @@ class DoubleMetaphoneFilter(Filter):
                 
 
 class SubstitutionFilter(Filter):
-    """Performas a regular expression substitution on the token text.
+    """Performs a regular expression substitution on the token text.
     
     This is especially useful for removing text from tokens, for example
     hyphens::
