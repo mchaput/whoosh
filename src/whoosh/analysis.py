@@ -1659,14 +1659,14 @@ IDAnalyzer.__inittypes__ = dict(lowercase=bool)
 
 
 def KeywordAnalyzer(lowercase=False, commas=False):
-    """Parses space-separated tokens.
+    """Parses whitespace- or comma-separated tokens.
     
     >>> ana = KeywordAnalyzer()
     >>> [token.text for token in ana(u"Hello there, this is a TEST")]
     [u"Hello", u"there,", u"this", u"is", u"a", u"TEST"]
     
     :param lowercase: whether to lowercase the tokens.
-    :param commas: if True, items are separated by commas rather than spaces.
+    :param commas: if True, items are separated by commas rather than whitespace.
     """
     
     if commas:
