@@ -682,7 +682,7 @@ class StopFilter(Filter):
         """
         :param stoplist: A collection of words to remove from the stream.
             This is converted to a frozenset. The default is a list of
-            common stop words.
+            common English stop words.
         :param minsize: The minimum length of token texts. Tokens with
             text smaller than this will be stopped.
         :param maxsize: The maximum length of token texts. Tokens with text

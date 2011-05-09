@@ -657,6 +657,7 @@ class NGRAM(FieldType):
     """Configured field that indexes text as N-grams. For example, with a field
     type NGRAM(3,4), the value "hello" will be indexed as tokens
     "hel", "hell", "ell", "ello", "llo". This field chops the entire 
+    XXX text missing at the end of the previous line XXX
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
@@ -772,7 +773,7 @@ class Schema(object):
     """
     
     def __init__(self, **fields):
-        """ All keyword arguments to the constructor are treated as fieldname =
+        """All keyword arguments to the constructor are treated as fieldname =
         fieldtype pairs. The fieldtype can be an instantiated FieldType object,
         or a FieldType sub-class (in which case the Schema will instantiate it
         with the default constructor before adding it).
