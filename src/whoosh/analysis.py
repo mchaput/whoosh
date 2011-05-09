@@ -670,7 +670,7 @@ class StopFilter(Filter):
     >>> rext = RegexTokenizer()
     >>> stream = rext(u"this is a test")
     >>> stopper = StopFilter()
-    >>> [token.text for token in sopper(stream)]
+    >>> [token.text for token in stopper(stream)]
     [u"this", u"test"]
     
     """
