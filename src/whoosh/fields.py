@@ -229,7 +229,7 @@ class ID(FieldType):
 
 class IDLIST(FieldType):
     """Configured field type for fields containing IDs separated by whitespace
-    and/or puntuation.
+    and/or punctuation (or anything else, using the expression param).
     """
     
     __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
