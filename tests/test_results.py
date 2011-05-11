@@ -137,11 +137,20 @@ def test_extend_empty():
         r1 = s.search(query.Term("words", u"hotel"))
         assert_equal(len(r1), 0)
         
+        r1c = r1.copy()
+        assert_equal(len(r1c), 0)
+        
         r2 = s.search(query.Term("words", u"delta"))
         assert_equal(len(r2), 3)
         
+        r2c = r2.copy()
+        assert_equal(len(r2c), 3)
+        
         r1.extend(r2)
         assert_equal(len(r1), 3)
+        
+        r1c.extend(r2c)
+        assert_equal(len(r1c), 3)
 
 def test_pages():
     from whoosh.scoring import Frequency
