@@ -200,14 +200,12 @@ class SegmentReader(IndexReader):
             raise TermNotFound("%s:%r" % (fieldname, text))
 
     def doc_frequency(self, fieldname, text):
-        self._test_field(fieldname)
         try:
             return self._term_info(fieldname, text)[2]
         except TermNotFound:
             return 0
 
     def frequency(self, fieldname, text):
-        self._test_field(fieldname)
         try:
             return self._term_info(fieldname, text)[0]
         except TermNotFound:
@@ -252,13 +250,12 @@ class SegmentReader(IndexReader):
                 yield t
 
     def postings(self, fieldname, text, scorer=None):
-        self._test_field(fieldname)
-        format = self.schema[fieldname].format
         try:
             offset = self.termsindex[fieldname, text][1]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
+        format = self.schema[fieldname].format
         if isinstance(offset, (int, long)):
             postreader = FilePostingReader(self.postfile, offset, format,
                                            scorer=scorer, fieldname=fieldname,
