@@ -41,11 +41,11 @@ Installing Whoosh
 If you have ``setuptools`` or ``pip`` installed, you can use ``easy_install``
 or ``pip`` to download and install Whoosh automatically::
 
-	$ easy_install Whoosh
-	
-	or
-	
-	$ pip install Whoosh
+    $ easy_install Whoosh
+
+    or
+
+    $ pip install Whoosh
 
 Learning more
 =============
@@ -64,4 +64,5 @@ Download source releases from PyPI at http://pypi.python.org/pypi/Whoosh/
 
 You can check out the latest version of the source code using Mercurial::
 
-	hg clone http://bitbucket.org/mchaput/whoosh
+    hg clone http://bitbucket.org/mchaput/whoosh
+

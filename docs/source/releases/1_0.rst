@@ -2,6 +2,33 @@
 Whoosh 1.x release notes
 ========================
 
+Whoosh 1.8.2
+============
+
+Whoosh 1.8.2 fixes some bugs, including a mistyped signature in
+Searcher.more_like and a bad bug in Collector that could screw up the
+ordering of results given certain parameters. 
+
+
+Whoosh 1.8.1
+============
+
+Whoosh 1.8.1 includes a few recent bugfixes/improvements:
+
+- ListMatcher.skip_to_quality() wasn't returning an integer, resulting
+  in a "None + int" error.
+
+- Fixed locking and memcache sync bugs in the Google App Engine storage
+  object.
+
+- MultifieldPlugin wasn't working correctly with groups.
+
+  - The binary matcher trees of Or and And are now generated using a
+    Huffman-like algorithm instead perfectly balanced. This gives a
+    noticeable speed improvement because less information has to be passed
+    up/down the tree.
+
+
 Whoosh 1.8
 ==========
 

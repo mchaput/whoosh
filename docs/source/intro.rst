@@ -55,8 +55,6 @@ documents based on simple or complex search criteria.
 Getting help with Whoosh
 ------------------------
 
-You can view outstanding issues and file bugs on the `Whoosh Trac <http://trac.whoosh.ca>`_.
-You can ask for help on the `Whoosh mailing list <http://groups.google.com/group/whoosh>`_.
-
-
-
+You can view outstanding issues on the
+`Whoosh Bitbucket page <http://bitbucket.org/mchaput/whoosh>`_
+and get help on the `Whoosh mailing list <http://groups.google.com/group/whoosh>`_.

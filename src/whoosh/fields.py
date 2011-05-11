@@ -232,7 +232,7 @@ class ID(FieldType):
 
 class IDLIST(FieldType):
     """Configured field type for fields containing IDs separated by whitespace
-    and/or puntuation.
+    and/or punctuation (or anything else, using the expression param).
     """
     
     __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
@@ -663,7 +663,10 @@ class TEXT(FieldType):
 class NGRAM(FieldType):
     """Configured field that indexes text as N-grams. For example, with a field
     type NGRAM(3,4), the value "hello" will be indexed as tokens
-    "hel", "hell", "ell", "ello", "llo". This field chops the entire 
+    "hel", "hell", "ell", "ello", "llo". This field type chops the entire text
+    into N-grams, including whitespace and punctuation. See :class:`NGRAMWORDS`
+    for a field type that breaks the text into words first before chopping the
+    words into N-grams.
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
@@ -708,8 +711,8 @@ class NGRAM(FieldType):
 
 
 class NGRAMWORDS(NGRAM):
-    """Configured field that breaks text into words, lowercases, and then chops
-    the words into N-grams.
+    """Configured field that chops text into words using a tokenizer,
+    lowercases the words, and then chops the words into N-grams.
     """
     
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,

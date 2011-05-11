@@ -51,7 +51,8 @@ Usage
   For example, to extract *five* key terms from the ``content`` field of the top
   *ten* documents of a results object::
     
-        keywords = list(results.key_terms("content", docs=10, numterms=5))
+        keywords = [keyword for keyword, score
+                    in results.key_terms("content", docs=10, numterms=5)
 
 * Extract keywords for an arbitrary set of documents. *This requires that the
   field is either vectored or stored*.
@@ -71,7 +72,8 @@ Usage
     
         searcher = email_index.searcher()
         docnums = searcher.document_numbers(emailto=u"matt@whoosh.ca")
-        keywords = list(searcher.key_terms(docnums, "body"))
+        keywords = [keyword for keyword, score
+                    in searcher.key_terms(docnums, "body")]
 
 * Extract keywords from arbitrary text not in the index.
 
@@ -79,7 +81,8 @@ Usage
   :class:`whoosh.searching.Searcher` to extract the keywords, given the text::
   
         searcher = email_index.searcher()
-        keywords = list(searcher.key_terms_from_text("body", mytext))
+        keywords = [keyword for keyword, score
+                    in searcher.key_terms_from_text("body", mytext)]
 
 
 Expansion models
