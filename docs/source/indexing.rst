@@ -73,8 +73,25 @@ Once you've created an Index object, you can add documents to the index with an
     ix = index.open_dir("index")
     writer = ix.writer()
 
-Creating a writer locks the index, so only one thread/process at once can have a
-writer open.
+Creating a writer locks the index for writing, so only one thread/process at
+a time can have a writer open.
+
+.. NOTE::
+    Because opening a writer locks the index for writing, in a multi-threaded
+    or multi-process environment your code needs to be aware than opening a
+    writer may raise an exception (``whoosh.store.LockError``) if a writer is
+    already open. Whoosh includes a couple of example implementations
+    (:class:`whoosh.writing.AsyncWriter` and
+    :class:`whoosh.writing.BufferedWriter`) of ways to work around the write
+    lock.
+
+.. NOTE::
+    While the writer is open and during the commit, the index is still
+    available for reading. Existing readers are unaffected and new readers can
+    open the current index normally. Once the commit is finished, existing
+    readers continue to see the previous version of the index (that is, they
+    do not automatically see the newly committed changes). New readers will see
+    the updated index.
 
 The IndexWriter's ``add_document(**kwargs)`` method accepts keyword arguments
 where the field name is mapped to a value::
@@ -163,11 +180,15 @@ To prevent Whoosh from merging segments during a commit, use the ``merge``
 keyword argument::
 
     writer.commit(merge=False)
-    
+
 To merge all segments together, optimizing the index into a single segment,
 use the ``optimize`` keyword argument::
 
     writer.commit(optimize=True)
+
+Since optimizing rewrites all the information in the index, it can be slow on
+a large index. It's generally better to rely on Whoosh's merging algorithm than
+to optimize all the time.
 
 (The Index object also has an ``optimize()`` method that lets you optimize the
 index (merge all the segments together). It simply creates a writer and calls
@@ -368,15 +389,19 @@ The incremental_index function:
 
 * Loops through all the paths that are currently indexed.
 
-  * If any of the files no longer exist, delete the corresponding document from the index.
+  * If any of the files no longer exist, delete the corresponding document from
+    the index.
   
-  * If the file still exists, but has been modified, add it to the list of paths to be re-indexed.
+  * If the file still exists, but has been modified, add it to the list of paths
+    to be re-indexed.
   
-  * If the file exists, whether it's been modified or not, add it to the list of all indexed paths.
+  * If the file exists, whether it's been modified or not, add it to the list of
+    all indexed paths.
   
 * Loops through all the paths of the files on disk.
 
-  * If a path is not in the set of all indexed paths, the file is new and we need to index it.
+  * If a path is not in the set of all indexed paths, the file is new and we
+    need to index it.
   
   * If a path is in the set of paths to re-index, we need to index it.
   

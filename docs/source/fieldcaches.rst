@@ -2,13 +2,13 @@
 Field caches
 ============
 
-The default (``filedb``) backend uses *field caches*. The field cache basically
-pre-computes the order of documents in the index to speed up sorting and
-faceting.
+The default (``filedb``) backend uses *field caches* in certain circumstances.
+The field cache basically pre-computes the order of documents in the index to
+speed up sorting and faceting.
 
 Generating field caches can take time the first time you sort/facet on a large
-index. The field cache is kept in memory and written to disk so subsequent
-sorted/faceted searches should be faster.
+index. The field cache is kept in memory (and by default written to disk when it
+is generated) so subsequent sorted/faceted searches should be faster.
 
 The default caching policy never expires field caches, so reused searchers and/or
 sorting a lot of different fields could use up quite a bit of memory with large
