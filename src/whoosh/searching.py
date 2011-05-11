@@ -808,7 +808,6 @@ class Collector(object):
         # This method is only called by add_all_matches. Note: the document
         # number is negated to match the output of add_top_matches
         self._items.append((score, 0 - id))
-        self.docset.add(id)
     
     def should_add_all(self):
         """Returns True if this collector needs to add all found documents (for
@@ -847,11 +846,10 @@ class Collector(object):
         # heap so that higher document numbers have lower "priority" in the
         # queue. Lower document numbers should always come before higher
         # document numbers with the same score to keep the order stable.
-        for id, quality in self.pull_matches(matcher, usequality):
+        for offsetid, quality in self.pull_matches(matcher, usequality, offset):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
             
-            offsetid = id + offset
             if comb and offsetid not in comb:
                 continue
             
@@ -894,11 +892,10 @@ class Collector(object):
             for name in self.groupedby:
                 keyfns[name] = searcher.reader().key_fn(name)
         
-        for id, _ in self.pull_matches(matcher, False):
+        for offsetid, _ in self.pull_matches(matcher, False, offset):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
             
-            offsetid = id + offset
             if comb and offsetid not in comb:
                 continue
             
@@ -906,8 +903,8 @@ class Collector(object):
                 for name, keyfn in keyfns.iteritems():
                     if name not in self.groups:
                         self.groups[name] = defaultdict(list)
-                    key = keyfn(id)
-                    self.groups[name][key].append(id)
+                    key = keyfn(offsetid - offset)
+                    self.groups[name][key].append(offsetid)
             
             scr = 0
             if scored:
@@ -923,7 +920,7 @@ class Collector(object):
             if timelimited and self.timesup:
                 raise TimeLimit
             
-    def pull_matches(self, matcher, usequality):
+    def pull_matches(self, matcher, usequality, offset):
         """Low-level method yields (docid, quality) pairs from the given
         matcher. Called by :meth:`Collector.add_top_matches` and
         :meth:`Collector.add_all_matches`. If ``usequality`` is False or the
@@ -955,18 +952,19 @@ class Collector(object):
             
             # The current document ID 
             id = matcher.id()
+            offsetid = id + offset
             
             if not usequality:
-                docset.add(id)
+                docset.add(offsetid)
             
             # If we're using quality optimizations, check whether the current
             # posting has higher quality than the minimum before yielding it.
             if usequality:
                 postingquality = matcher.quality()
                 if postingquality > self.minquality:
-                    yield (id, postingquality)
+                    yield (offsetid, postingquality)
             else:
-                yield (id, None)
+                yield (offsetid, None)
             
             # Move to the next document. This method returns True if the
             # matcher has entered a new block, so we should check block quality
