@@ -341,14 +341,20 @@ class FileIndex(Index):
         # Lock the index so nobody can delete a segment while we're in the
         # middle of creating the reader
         lock = self.lock("READLOCK")
-        lock.acquire(True)
+        # Try to acquire the "reader" lock, which prevents a writer from
+        # deleting segments out from under us. If another reader already has
+        # the lock, just pray.
+        #
+        # TODO: replace this with a re-entrant file lock, if possible.
+        gotit = lock.acquire(False)
         try:
             # Read the information from the TOC file
             info = self._read_toc()
             return self._reader(self.storage, info.schema, info.segments,
                                 info.generation, reuse=reuse)
         finally:
-            lock.release()    
+            if gotit:
+                lock.release()    
 
 
 class Segment(object):
