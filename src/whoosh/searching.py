@@ -369,11 +369,17 @@ class Searcher(object):
         documents your interested in with the document_number() and
         document_numbers() methods.
         
-        >>> docnum = searcher.document_number(path=u"/a/b")
-        >>> keywords = list(searcher.key_terms([docnum], "content"))
-        
         "Most important" is generally defined as terms that occur frequently in
         the top hits but relatively infrequently in the collection as a whole.
+        
+        >>> docnum = searcher.document_number(path=u"/a/b")
+        >>> keywords_and_scores = searcher.key_terms([docnum], "content")
+        
+        This method returns a list of ("term", score) tuples. The score may be
+        useful if you want to know the "strength" of the key terms, however to
+        just get the terms themselves you can just do this:
+        
+        >>> kws = [kw for kw, score in searcher.key_terms([docnum], "content")]
         
         :param fieldname: Look at the terms in this field. This field must
             store vectors.
@@ -382,6 +388,8 @@ class Searcher(object):
         :param numterms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify
             module.
+        :param normalize: normalize the scores.
+        :returns: a list of ("term", score) tuples.
         """
 
         expander = classify.Expander(self.ixreader, fieldname, model=model)
@@ -450,6 +458,53 @@ class Searcher(object):
         return self.search(q, limit=top, filter=comb)
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
+        """This method is Like the :meth:`Searcher.search` method, but returns
+        a :class:`ResultsPage` object. This is a convenience function for
+        getting a certain "page" of the results for the given query, which is
+        often useful in web search interfaces.
+        
+        For example::
+        
+            querystring = request.get("q")
+            query = queryparser.parse("content", querystring)
+            
+            pagenum = int(request.get("page", 1))
+            pagelen = int(request.get("perpage", 10))
+            
+            results = searcher.search_page(query, pagenum, pagelen=pagelen)
+            print "Page %d of %d" % (results.pagenum, results.pagecount)
+            print ("Showing results %d-%d of %d" 
+                   % (results.offset + 1, results.offset + results.pagelen + 1,
+                      len(results)))
+            for hit in results:
+                print "%d: %s" % (hit.rank + 1, hit["title"])
+        
+        (Note that results.pagelen might be less than the pagelen argument if
+        there aren't enough results to fill a page.)
+        
+        Any additional keyword arguments you supply are passed through to
+        :meth:`Searcher.search`. For example, you can get paged results of a
+        sorted search::
+        
+            results = searcher.search_page(q, 2, sortedby="date", reverse=True)
+        
+        Currently, searching for page 100 with pagelen of 10 takes the same
+        amount of time as using :meth:`Searcher.search` to find the first 1000
+        results. That is, this method does not have any special optimizations
+        or efficiencies for getting a page from the middle of the full results
+        list. (A future enhancement may allow using previous page results to
+        improve the efficiency of finding the next page.)
+        
+        This method will raise a ``ValueError`` if you ask for a page number
+        higher than the number of pages in the resulting query.
+        
+        :param query: the :class:`whoosh.query.Query` object to match.
+        :param pagenum: the page number to retrieve, starting at ``1`` for the
+            first page.
+        :param pagelen: the number of results per page.
+        :returns: :class:`ResultsPage`
+        """
+        
         if pagenum < 1:
             raise ValueError("pagenum must be >= 1")
         

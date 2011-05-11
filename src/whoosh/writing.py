@@ -159,6 +159,38 @@ class IndexWriter(object):
     def update_document(self, **fields):
         """The keyword arguments map field names to the values to index/store.
         
+        This method adds a new document to the index, and automatically deletes
+        any documents with the same values in any fields marked "unique" in the
+        schema::
+        
+            schema = fields.Schema(path=fields.ID(unique=True, stored=True),
+                                   content=fields.TEXT)
+            myindex = index.create_in("index", schema)
+        
+            w = myindex.writer()
+            w.add_document(path=u"/", content=u"Mary had a lamb")
+            w.commit()
+            
+            w = myindex.writer()
+            w.update_document(path=u"/", content=u"Mary had a little lamb")
+            w.commit()
+            
+            assert myindex.doc_count() == 1
+        
+        It is safe to use ``update_document`` in place of ``add_document``; if
+        there is no existing document to replace, it simply does an add.
+        
+        Because this method has to search for documents with the same unique
+        fields and delete them before adding the new document, it is slower
+        than using ``add_document``.
+        
+        * Marking more fields "unique" in the schema will make each
+          ``update_document`` call slightly slower.
+        
+        * When you are updating multiple documents, it is faster to batch
+          delete all changed documents and then use ``add_document`` to add
+          the replacements instead of using ``update_document``.
+        
         Note that this method will only replace a *committed* document;
         currently it cannot replace documents you've added to the IndexWriter
         but haven't yet committed. For example, if you do this:

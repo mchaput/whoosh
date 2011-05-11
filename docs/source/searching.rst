@@ -9,7 +9,7 @@ The Searcher object
 ===================
 
 To get a :class:`whoosh.searching.Searcher` object, call ``searcher()`` on your
-Index objdct::
+Index object::
 
     searcher = myindex.searcher()
 
