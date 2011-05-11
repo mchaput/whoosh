@@ -400,7 +400,7 @@ class Searcher(object):
         return expander.expanded_terms(numterms, normalize=normalize)
 
     def more_like(self, docnum, fieldname, text=None, top=10, numterms=5,
-                  model=classify.Bo1Model, normalize=False):
+                  model=classify.Bo1Model, normalize=False, filter=None):
         """Returns a :class:`Results` object containing documents similar to
         the given document, based on "key terms" in the given field::
         
@@ -427,6 +427,8 @@ class Searcher(object):
         :param model: (expert) a :class:`whoosh.classify.ExpansionModel` to use
             to compute "key terms".
         :param normalize: whether to normalize term weights.
+        :param filter: a query, Results object, or set of docnums. The results
+            will only contain documents that are also in the filter object.
         """
         
         if text:
@@ -439,12 +441,7 @@ class Searcher(object):
         q = query.Or([query.Term(fieldname, word, boost=weight)
                       for word, weight in kts])
         
-        # Filter the original document out of the results using a bit vector
-        # with every bit set except the one for this document
-        size = self.doc_count_all()
-        comb = BitVector(size, [n for n in xrange(self.doc_count_all())
-                                if n != docnum])
-        return self.search(q, limit=top, filter=comb)
+        return self.search(q, limit=top, filter=filter, mask=set([docnum]))
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
         """This method is Like the :meth:`Searcher.search` method, but returns
@@ -592,7 +589,8 @@ class Searcher(object):
         return groups
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, scored=True, filter=None, collector=None):
+               optimize=True, scored=True, filter=None, mask=None,
+               collector=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -623,6 +621,9 @@ class Searcher(object):
             collect the found documents.
         :param filter: a query, Results object, or set of docnums. The results
             will only contain documents that are also in the filter object.
+        :param mask: a query, Results object, or set of docnums. The
+            results will not contain documents that are also in the mask
+            object.
         :rtype: :class:`Results`
         """
 
@@ -648,7 +649,7 @@ class Searcher(object):
             collector.scored = scored
             collector.reverse = reverse
         
-        return collector.search(self, q, filter=filter)
+        return collector.search(self, q, allow=filter, restrict=mask)
         
 
 class Collector(object):
@@ -720,7 +721,7 @@ class Collector(object):
         self.timesup = False
         self.timer = None
     
-    def search(self, searcher, q, filter=None):
+    def search(self, searcher, q, allow=None, restrict=None):
         """Top-level method call which uses the given :class:`Searcher` and
         :class:`whoosh.query.Query` objects to return a :class:`Results`
         object.
@@ -740,10 +741,13 @@ class Collector(object):
         if self.limit and self.limit > searcher.doc_count_all():
             self.limit = None
         
-        self._comb = None
-        if filter:
-            self.add_filter(filter)
-        
+        self._allow = None
+        self._restrict = None
+        if allow:
+            self._allow = self._searcher._filter_to_comb(allow)
+        if restrict:
+            self._restrict = self._searcher._filter_to_comb(restrict)
+            
         if self.timelimit:
             self.timer = threading.Timer(self.timelimit, self._timestop)
             self.timer.start()
@@ -772,12 +776,6 @@ class Collector(object):
         # in an inconsistent state. Instead, we'll set a flag, and check the
         # flag inside the add_(all|top)_matches loops.
         self.timesup = True
-    
-    def add_filter(self, obj):
-        c = self._searcher._filter_to_comb(obj)
-        if self._comb is None:
-            self._comb = set()
-        self._comb |= c
     
     def add_searcher(self, searcher, q):
         """Adds the documents from the given searcher with the given query to
@@ -838,7 +836,8 @@ class Collector(object):
         items = self._items
         usequality = self.usequality
         score = self.score
-        comb = self._comb
+        allow = self._allow
+        restrict = self._restrict
         timelimited = bool(self.timelimit)
         greedy = self.greedy
         
@@ -850,7 +849,9 @@ class Collector(object):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
             
-            if comb and offsetid not in comb:
+            if allow and offsetid not in allow:
+                continue
+            if restrict and offsetid in restrict:
                 continue
             
             if len(items) < limit:
@@ -880,7 +881,8 @@ class Collector(object):
         items = self._items
         scored = self.scored
         score = self.score
-        comb = self._comb
+        allow = self._allow
+        restrict = self._restrict
         timelimited = bool(self.timelimit)
         greedy = self.greedy
         reverse = self.reverse
@@ -896,7 +898,9 @@ class Collector(object):
             if timelimited and not greedy and self.timesup:
                 raise TimeLimit
             
-            if comb and offsetid not in comb:
+            if allow and offsetid not in allow:
+                continue
+            if restrict and offsetid in restrict:
                 continue
             
             if keyfns:
@@ -1518,7 +1522,7 @@ class Hit(object):
                                        formatter=formatter, order=order)
     
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
-                       model=classify.Bo1Model, normalize=True):
+                       model=classify.Bo1Model, normalize=True, filter=None):
         """Returns a new Results object containing documents similar to this
         hit, based on "key terms" in the given field::
         
@@ -1547,7 +1551,7 @@ class Hit(object):
         
         return self.searcher.more_like(self.docnum, fieldname, text=text,
                                        top=top, numterms=numterms, model=model,
-                                       normalize=normalize)
+                                       normalize=normalize, filter=filter)
     
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())
