@@ -84,6 +84,33 @@ def test_more_like_this():
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
     _check(schema, text=docs[0])
 
+def test_more_like():
+    schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=u"1", text=u"alfa bravo charlie")
+    w.add_document(id=u"2", text=u"bravo charlie delta")
+    w.add_document(id=u"3", text=u"echo")
+    w.add_document(id=u"4", text=u"delta echo foxtrot")
+    w.add_document(id=u"5", text=u"echo echo echo")
+    w.add_document(id=u"6", text=u"foxtrot golf hotel")
+    w.add_document(id=u"7", text=u"golf hotel india")
+    w.commit()
+    
+    with ix.searcher() as s:
+        docnum = s.document_number(id="3")
+        r = s.more_like(docnum, "text")
+        assert_equal([hit["id"] for hit in r], ["5", "4"])
+        
+
+
+
+
+
+
+
+
+
 
 
 
