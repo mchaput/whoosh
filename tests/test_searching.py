@@ -4,7 +4,7 @@ from nose.tools import assert_equal, assert_raises
 
 from datetime import datetime, timedelta
 
-from whoosh import analysis, fields, index, qparser, searching, scoring
+from whoosh import analysis, fields, index, qparser, query, searching, scoring
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import *
 from whoosh.util import permutations
@@ -1119,9 +1119,40 @@ def test_andmaybe_quality():
         print "titles2=", titles
         assert "Juliet Kilo Bravo" in titles
 
-        
-
-
+def test_collect_limit():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id="a", text=u"alfa bravo charlie delta echo")
+    w.add_document(id="b", text=u"bravo charlie delta echo foxtrot")
+    w.add_document(id="c", text=u"charlie delta echo foxtrot golf")
+    w.add_document(id="d", text=u"delta echo foxtrot golf hotel")
+    w.add_document(id="e", text=u"echo foxtrot golf hotel india")
+    w.commit()
+    
+    with ix.searcher() as s:
+        r = s.search(query.Term("text", u"golf"), limit=10)
+        assert_equal(len(r), 3)
+        count = 0
+        for _ in r:
+            count += 1
+        assert_equal(count, 3)
+    
+    w = ix.writer()
+    w.add_document(id="f", text=u"foxtrot golf hotel india juliet")
+    w.add_document(id="g", text=u"golf hotel india juliet kilo")
+    w.add_document(id="h", text=u"hotel india juliet kilo lima")
+    w.add_document(id="i", text=u"india juliet kilo lima mike")
+    w.add_document(id="j", text=u"juliet kilo lima mike november")
+    w.commit(merge=False)
+    
+    with ix.searcher() as s:
+        r = s.search(query.Term("text", u"golf"), limit=20)
+        assert_equal(len(r), 5)
+        count = 0
+        for _ in r:
+            count += 1
+        assert_equal(count, 5)
 
 
 
