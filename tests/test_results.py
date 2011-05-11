@@ -121,7 +121,28 @@ def test_results_filter():
         r = s.search(query.Term("words", u"alfa"))
         r.filter(s.search(query.Term("words", u"bottom")))
         check(r, "4")
+
+def test_extend_empty():
+    schema = fields.Schema(id=fields.STORED, words=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, words=u"alfa bravo charlie")
+    w.add_document(id=1, words=u"bravo charlie delta")
+    w.add_document(id=1, words=u"charlie delta echo")
+    w.add_document(id=1, words=u"delta echo foxtrot")
+    w.add_document(id=1, words=u"echo foxtrot golf")
+    w.commit()
     
+    with ix.searcher() as s:
+        r1 = s.search(query.Term("words", u"hotel"))
+        assert_equal(len(r1), 0)
+        
+        r2 = s.search(query.Term("words", u"delta"))
+        assert_equal(len(r2), 3)
+        
+        r1.extend(r2)
+        assert_equal(len(r1), 3)
+
 def test_pages():
     from whoosh.scoring import Frequency
     
