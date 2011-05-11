@@ -35,6 +35,12 @@ separation.
 u'erin', u'rin', u'ring', u'ing', u'sha', u'shad', u'had', u'hade', u'ade',
 u'ader', u'der', u'ders', u'ers']
 
+Whoosh includes two pre-configured field types for N-grams:
+:class:`whoosh.fields.NGRAM` and :class:`whoosh.fields.NGRAMWORDS`. The only
+difference is that ``NGRAM`` runs all text through the N-gram filter, including
+whitespace and punctuation, while ``NGRAMWORDS`` extracts words from the text
+using a tokenizer, then runs each word through the N-gram filter.
+
 TBD.
 
 

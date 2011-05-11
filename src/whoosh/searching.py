@@ -358,11 +358,17 @@ class Searcher(object):
         documents your interested in with the document_number() and
         document_numbers() methods.
         
-        >>> docnum = searcher.document_number(path=u"/a/b")
-        >>> keywords = list(searcher.key_terms([docnum], "content"))
-        
         "Most important" is generally defined as terms that occur frequently in
         the top hits but relatively infrequently in the collection as a whole.
+        
+        >>> docnum = searcher.document_number(path=u"/a/b")
+        >>> keywords_and_scores = searcher.key_terms([docnum], "content")
+        
+        This method returns a list of ("term", score) tuples. The score may be
+        useful if you want to know the "strength" of the key terms, however to
+        just get the terms themselves you can just do this:
+        
+        >>> kws = [kw for kw, score in searcher.key_terms([docnum], "content")]
         
         :param fieldname: Look at the terms in this field. This field must
             store vectors.
@@ -371,6 +377,8 @@ class Searcher(object):
         :param numterms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify
             module.
+        :param normalize: normalize the scores.
+        :returns: a list of ("term", score) tuples.
         """
 
         expander = classify.Expander(self.ixreader, fieldname, model=model)
