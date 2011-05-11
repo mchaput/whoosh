@@ -34,6 +34,7 @@ Contents
     spelling
     fieldcaches
     batch
+    threads
     api/api
     tech/index
 
