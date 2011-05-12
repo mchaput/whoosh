@@ -99,7 +99,8 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "lexicon", "frequency", "doc_frequency", 
-                     "field_length", "doc_field_length", "max_field_length"):
+                     "field_length", "doc_field_length", "max_field_length",
+                     "corrector"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -351,17 +352,36 @@ class Searcher(object):
             for docnum in q.docs(self):
                 yield docnum
 
-    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0,
-                ranking=None):
+    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0):
         """Returns a sorted list of suggested corrections for the given
-        mis-typed word based on the contents of the given field.
+        mis-typed word ``text`` based on the contents of the given field::
         
-        See :meth:`whoosh.spelling.suggest` for more information.
+            >>> searcher.suggest("content", "specail")
+            ["special"]
+        
+        This is a convenience method. If you are planning to get suggestions
+        for multiple words in the same field, it is more efficient to get a
+        :class:`~whoosh.spelling.Corrector` object and use it directly::
+        
+            corrector = searcher.corrector("fieldname")
+            for word in words:
+                print corrector.suggest(word)
+        
+        :param limit: only return up to this many suggestions. If there are not
+            enough terms in the field within ``maxdist`` of the given word, the
+            returned list will be shorter than this number.
+        :param maxdist: the largest edit distance from the given word to look
+            at. Numbers higher than 2 are not very effective or efficient.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word. Using a
+            prefix dramatically decreases the time it takes to generate the
+            list of words.
         """
         
-        return suggest(self.reader(), fieldname, text, limit=limit,
-                       maxdist=maxdist, prefix=prefix, ranking=ranking)
-
+        c = self.reader().corrector(fieldname)
+        return c.suggest(text, limit=limit, maxdist=maxdist, prefix=prefix)
+    
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
         """Returns the 'numterms' most important terms from the documents

@@ -94,7 +94,7 @@ class SegmentReader(IndexReader):
                 raise Exception("Field(s) %r have spelling=True but DAWG file %r not found" % (spelled, fname))
             
             dawgfile = self.storage.open_file(fname, mapped=False)
-            self.dawg = DawgReader(dawgfile)
+            self.dawg = DawgReader(dawgfile).root
         
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
@@ -306,19 +306,13 @@ class SegmentReader(IndexReader):
         if not self.schema[fieldname].spelling:
             return False
         if self.dawg:
-            return fieldname in self.dawg.fields
+            return fieldname in self.dawg
         return False
 
     def word_graph(self, fieldname):
         if not self.has_word_graph(fieldname):
             raise Exception("No word graph for field %r" % fieldname)
-        return self.dawg.field_root(fieldname)
-
-    def _field_root(self, fieldname):
-        if not self.has_word_graph(fieldname):
-            raise Exception("No word graph for field %r" % fieldname)
-        
-        return self.dawg.field_root(fieldname)
+        return self.dawg.edge(fieldname)
     
     # Field cache methods
 
