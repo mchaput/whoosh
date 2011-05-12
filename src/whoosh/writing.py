@@ -135,7 +135,37 @@ class IndexWriter(object):
         raise NotImplementedError
     
     def add_document(self, **fields):
-        """The keyword arguments map field names to the values to index/store.
+        """The keyword arguments map field names to the values to index/store::
+        
+            w = myindex.writer()
+            w.add_document(path=u"/a", title=u"First doc", text=u"Hello")
+            w.commit()
+        
+        Depending on the field type, some fields may take objects other than
+        unicode strings. For example, NUMERIC fields take numbers, and DATETIME
+        fields take ``datetime.datetime`` objects::
+        
+            from datetime import datetime, timedelta
+            from whoosh import index
+            from whoosh.fields import *
+            
+            schema = Schema(date=DATETIME, size=NUMERIC(float), content=TEXT)
+            myindex = index.create_in("indexdir", schema)
+            
+            w = myindex.writer()
+            w.add_document(date=datetime.now(), size=5.5, content=u"Hello")
+            w.commit()
+        
+        Instead of a single object (i.e., unicode string, number, or datetime),
+        you can supply a list or tuple of objects. For unicode strings, this
+        bypasses the field's analyzer. For numbers and dates, this lets you add
+        multiple values for the given field.
+        
+            date1 = datetime.now()
+            date2 = datetime(2005, 12, 25)
+            date3 = datetime(1999, 1, 1)
+            w.add_document(date=[date1, date2, date3], size=[9.5, 10],
+                           content=[u"alfa", u"bravo", u"charlie"])
         
         For fields that are both indexed and stored, you can specify an
         alternate value to store using a keyword argument in the form
@@ -144,7 +174,10 @@ class IndexWriter(object):
         keyword arguments like this::
         
             writer.add_document(title=u"a b c", _stored_title=u"e f g")
+            
+        See also :meth:`Writer.update_document`.
         """
+        
         raise NotImplementedError
     
     def _unique_fields(self, fields):
@@ -179,6 +212,8 @@ class IndexWriter(object):
         
         It is safe to use ``update_document`` in place of ``add_document``; if
         there is no existing document to replace, it simply does an add.
+        
+        You cannot currently pass a list or tuple of values to a "unique" field.
         
         Because this method has to search for documents with the same unique
         fields and delete them before adding the new document, it is slower

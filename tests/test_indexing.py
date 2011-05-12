@@ -2,6 +2,7 @@ from __future__ import with_statement
 from nose.tools import assert_equal, assert_raises
 import random
 from collections import defaultdict
+from datetime import datetime
 
 from whoosh import fields, query
 from whoosh.filedb.filestore import RamStorage
@@ -466,7 +467,25 @@ def test_indentical_fields():
             assert_equal(list(s.documents(f2="alfa")), [{"id": 1}])
             assert_equal(list(s.documents(f3="alfa")), [{"id": 1}])
         
-            
-                
+def test_multivalue():
+    schema = fields.Schema(id=fields.STORED, date=fields.DATETIME, num=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, date=datetime(2001, 1, 1), num=5)
+    w.add_document(id=2, date=[datetime(2002, 2, 2), datetime(2003, 3, 3)],
+                   num=[1, 2, 3, 12])
+    w.commit()
+    
+    nfield = schema["num"]
+    dfield = schema["date"]
+    with ix.reader() as r:
+        assert ("num", nfield.to_text(3)) in r
+        assert ("date", dfield.to_text(datetime(2003, 3, 3))) in r
+
+
+
+
+
+
 
 
