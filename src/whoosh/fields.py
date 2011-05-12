@@ -338,6 +338,13 @@ class NUMERIC(FieldType):
             yield self.to_text(num, shift=shift)
     
     def index(self, num):
+        # If the user gave us a list of numbers, recurse on the list
+        if isinstance(num, (list, tuple)):
+            items = []
+            for n in num:
+                items.extend(self.index(n))
+            return items
+        
         # word, freq, weight, valuestring
         if self.shift_step:
             return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
@@ -541,6 +548,8 @@ class BOOLEAN(FieldType):
         return self.strings[int(bit)]
     
     def index(self, bit):
+        
+        
         bit = bool(bit)
         # word, freq, weight, valuestring
         return [(self.strings[int(bit)], 1, 1.0, '')]

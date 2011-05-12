@@ -181,6 +181,28 @@ def test_name_field():
     r = s.search(q)
     assert_equal(len(r), 1)
 
+def test_start_pos():
+    from whoosh import formats
+    ana = RegexTokenizer(r"\S+") | LowercaseFilter()
+    kw = {"positions": True}
+    assert_equal([t.pos for t in formats.tokens(u"alfa bravo charlie delta", ana, kw)], [0, 1, 2, 3])
+    
+    kw["start_pos"] = 3
+    ts = [t.copy() for t in formats.tokens(u"A B C D".split(), ana, kw)]
+    assert_equal(" ".join([t.text for t in ts]), "A B C D")
+    assert_equal([t.pos for t in ts], [3, 4, 5, 6])
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

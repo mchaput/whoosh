@@ -107,6 +107,34 @@ def unstopped(tokenstream):
     return (t for t in tokenstream if not t.stopped)
 
 
+def entoken(textstream, positions=False, chars=False, start_pos=0,
+            start_char=0, **kwargs):
+    """Takes a sequence of unicode strings and yields a series of Token objects
+    (actually the same Token object over and over, for performance reasons),
+    with the attributes filled in with reasonable values (for example, if
+    ``positions`` or ``chars`` is True, the function assumes each token was
+    separated by one space).
+    """
+    
+    pos = start_pos
+    char = start_char
+    t = Token(positions=positions, chars=chars, **kwargs)
+    
+    for text in textstream:
+        t.text = text
+        
+        if positions:
+            t.pos = pos
+            pos += 1
+        
+        if chars:
+            t.startchar = char
+            char = char + len(text)
+            t.endchar = char
+        
+        yield t
+
+
 # Token object
 
 class Token(object):
