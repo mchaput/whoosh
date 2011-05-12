@@ -2,10 +2,8 @@
 ``spelling`` module
 ===================
 
-See :doc:`how to use the Whoosh spell checker <../spelling>`.
+See :doc:`correcting errors in user queries <../spelling>`.
 
 .. automodule:: whoosh.spelling
 
-.. autoclass:: SpellChecker
-    :inherited-members:
-    :members:
+

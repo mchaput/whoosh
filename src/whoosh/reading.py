@@ -311,15 +311,26 @@ class IndexReader(ClosableMixin):
         
         raise NotImplementedError
     
+    def corrector(self, fieldname):
+        """Returns a :class:`whoosh.spelling.Corrector` object that suggests
+        corrections based on the terms in the given field.
+        """
+        
+        from whoosh.spelling import ReaderCorrector
+        return ReaderCorrector(self, fieldname)
+    
     def terms_within(self, fieldname, text, maxdist, prefix=0, seen=None):
         """Returns a generator of words in the given field within ``maxdist``
         Damerau-Levenshtein edit distance of the given text.
         
+        :param maxdist: the maximum edit distance.
         :param prefix: require suggestions to share a prefix of this length
             with the given word. This is often justifiable since most
             misspellings do not involve the first letter of the word.
             Using a prefix dramatically decreases the time it takes to generate
             the list of words.
+        :param seen: an optional set object. Words that appear in the set will
+            not be yielded.
         """
         
         if self.has_word_graph(fieldname):

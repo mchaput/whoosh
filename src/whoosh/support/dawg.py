@@ -126,7 +126,7 @@ class BuildNode(object):
     
 
 class DawgWriter(object):
-    def __init__(self, dbfile, reduced=True):
+    def __init__(self, dbfile=None, reduced=True):
         self.dbfile = dbfile
         self.reduced = reduced
         
@@ -136,27 +136,8 @@ class DawgWriter(object):
         # List of unique nodes that have been checked for duplication.
         self.minimized = {}
         
-        # Maps fieldnames to node starts
-        self.fields = {}
-        self._reset()
-        
-        dbfile.write_int(0)  # File flags
-        dbfile.write_uint(0)  # Pointer to field index
-    
-    def _reset(self):
-        self.fieldname = None
         self.root = BuildNode()
         self.offsets = {}
-    
-    def add(self, fieldname, text):
-        if fieldname != self.fieldname:
-            if fieldname in self.fields:
-                raise Exception("I already wrote %r!" % fieldname)
-            if self.fieldname is not None:
-                self._write_field()
-            self.fieldname = fieldname
-        
-        self.insert(text)
     
     def insert(self, word):
         if word < self.lastword:
@@ -201,26 +182,23 @@ class DawgWriter(object):
                 self.minimized[child] = child;
             self.unchecked.pop()
 
-    def close(self):
-        if self.fieldname is not None:
-            self._write_field()
-        dbfile = self.dbfile
+    def write(self, dbfile=None):
+        dbfile = self.dbfile or dbfile
+        dbfile.write_int(0)  # File flags
+        dbfile.write_uint(0)  # Pointer to root node
         
-        self.indexpos = dbfile.tell()
-        dbfile.write_pickle(self.fields)
-        dbfile.flush()
-        dbfile.seek(_INT_SIZE)
-        dbfile.write_uint(self.indexpos)
-        dbfile.close()
-    
-    def _write_field(self):
         self._minimize(0)
         root = self.root
         if self.reduced:
             reduce(root)
-        self.fields[self.fieldname] = self._write_node(root)
+        offset = self._write_node(root)
         self._reset()
         
+        dbfile.flush()
+        dbfile.seek(_INT_SIZE)
+        dbfile.write_uint(offset)
+        dbfile.close()
+    
     def _write_node(self, node):
         dbfile = self.dbfile
         keys = node._edges.keys()
@@ -367,6 +345,12 @@ class PatNode(BaseNode):
 
 
 class ComboNode(BaseNode):
+    """Base class for DAWG nodes that blend the nodes of two different graphs.
+    
+    Concrete subclasses need to implement the ``edge()`` method and possibly
+    the ``final`` property.
+    """
+    
     def __init__(self, a, b):
         self.a = a
         self.b = b
@@ -388,25 +372,33 @@ class ComboNode(BaseNode):
         return self.a.final or self.b.final
     
 
-class PriorityNode(ComboNode):
-    def edge(self, key):
-        if key in self.a:
-            return self.a.edge(key)
-        else:
-            return self.b.edge(key)
-        
-
-class MixedNode(ComboNode):
+class UnionNode(ComboNode):
+    """Makes two graphs appear to be the union of the two graphs.
+    """
+    
     def edge(self, key):
         a = self.a
         b = self.b
         if key in a and key in b:
-            return MixedNode(a.edge(key), b.edge(key))
+            return UnionNode(a.edge(key), b.edge(key))
         elif key in a:
             return a.edge(key)
         else:
             return b.edge(key)
         
+
+class IntersectionNode(ComboNode):
+    """Makes two graphs appear to be the intersection of the two graphs.
+    """
+    
+    def edge(self, key):
+        a = self.a
+        b = self.b
+        if key in a and key in b:
+            return IntersectionNode(a.edge(key), b.edge(key))
+
+
+# Reader for disk-based graph files
 
 class DawgReader(object):
     def __init__(self, dbfile):
@@ -414,17 +406,8 @@ class DawgReader(object):
         
         dbfile.seek(0)
         self.fileflags = dbfile.read_int()
-        self.indexpos = dbfile.read_uint()
-        dbfile.seek(self.indexpos)
-        self.fields = dbfile.read_pickle()
-        
-    def field_root(self, fieldname):
-        v = self.fields[fieldname]
-        if not isinstance(v, BaseNode):
-            v = DiskNode(self, v)
-            self.fields[fieldname] = v
-        return v
-
+        self.root = DiskNode(self, dbfile.read_uint())
+    
 
 # Functions
 

@@ -507,8 +507,8 @@ class TermsWriter(object):
                             (lastfn, lasttext, fieldname, text))
     
         if fieldname in self.hasdawg:
-            self.dawg.add(fieldname, text)
-    
+            self.dawg.insert((fieldname, ) + tuple(text))
+        
         if fieldname != lastfn:
             self.format = self.schema[fieldname].format
         
@@ -573,9 +573,9 @@ class TermsWriter(object):
         self.termsindex.close()
         self.postwriter.close()
         if self.dawg:
-            self.dawg.close()
+            self.dawg.write()
         
-        
+
 def add_spelling(ix, fieldnames, force=False):
     """Adds spelling files to an existing index that was created without
     them, and modifies the schema so the given fields have the ``spelling``
@@ -609,8 +609,9 @@ def add_spelling(ix, fieldnames, force=False):
         f = storage.create_file(filename)
         dw = DawgWriter(f)
         for fieldname in fieldnames:
+            ft = (fieldname, )
             for word in r.lexicon(fieldname):
-                dw.add(fieldname, word)
+                dw.insert(ft + tuple(word))
         dw.close()
     writer.commit()
 
