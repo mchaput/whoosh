@@ -34,7 +34,7 @@ occurance of a term.
 from collections import defaultdict
 from cPickle import dumps, loads
 
-from whoosh.analysis import unstopped
+from whoosh.analysis import unstopped, entoken
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint,
                            pack_float, unpack_float)
 from whoosh.util import float_to_byte, byte_to_float
@@ -139,6 +139,14 @@ class Format(object):
 # postreader.value_as("weight") will not match postreader.weight()
 
 
+def tokens(value, analyzer, kwargs):
+    if isinstance(value, (tuple, list)):
+        gen = entoken(value, **kwargs)
+    else:
+        gen = analyzer(value, **kwargs)
+    return unstopped(gen)
+
+
 class Existence(Format):
     """Only indexes whether a given term occurred in a given document; it does
     not store frequencies or positions. This is useful for fields that should
@@ -157,8 +165,7 @@ class Existence(Format):
     
     def word_values(self, value, **kwargs):
         fb = self.field_boost
-        wordset = set(t.text for t
-                      in unstopped(self.analyzer(value, **kwargs)))
+        wordset = set(t.text for t in tokens(value, self.analyzer, kwargs))
         return ((w, 1, fb, '') for w in wordset)
     
     def encode(self, value):
@@ -200,7 +207,8 @@ class Frequency(Format):
         freqs = defaultdict(int)
         weights = defaultdict(float)
         
-        for t in unstopped(self.analyzer(value, boosts=True, **kwargs)):
+        kwargs["boosts"] = True
+        for t in tokens(value, self.analyzer, kwargs):
             freqs[t.text] += 1
             weights[t.text] += t.boost
         
@@ -232,7 +240,9 @@ class DocBoosts(Frequency):
         fb = self.field_boost
         freqs = defaultdict(int)
         weights = defaultdict(float)
-        for t in unstopped(self.analyzer(value, boosts=True, **kwargs)):
+        
+        kwargs["boosts"] = True
+        for t in tokens(value, self.analyzer, kwargs):
             weights[t.text] += t.boost
             freqs[t.text] += 1
         
@@ -268,13 +278,14 @@ class Positions(Format):
     position boost = 1.0).
     """
     
-    def word_values(self, value, start_pos=0, **kwargs):
+    def word_values(self, value, **kwargs):
         fb = self.field_boost
         poses = defaultdict(list)
         weights = defaultdict(float)
-        for t in unstopped(self.analyzer(value, positions=True, boosts=True,
-                                         start_pos=start_pos, **kwargs)):
-            poses[t.text].append(start_pos + t.pos)
+        kwargs["positions"] = True
+        kwargs["boosts"] = True
+        for t in tokens(value, self.analyzer, kwargs):
+            poses[t.text].append(t.pos)
             weights[t.text] += t.boost
         
         encode = self.encode
@@ -316,16 +327,16 @@ class Characters(Positions):
     position boost = 1.0), characters.
     """
     
-    def word_values(self, value, start_pos=0, start_char=0, **kwargs):
+    def word_values(self, value, **kwargs):
         fb = self.field_boost
         seen = defaultdict(list)
         weights = defaultdict(float)
         
-        for t in unstopped(self.analyzer(value, positions=True, chars=True,
-                                         boosts=True, start_pos=start_pos,
-                                         start_char=start_char, **kwargs)):
-            seen[t.text].append((t.pos, start_char + t.startchar,
-                                 start_char + t.endchar))
+        kwargs["positions"] = True
+        kwargs["chars"] = True
+        kwargs["boosts"] = True
+        for t in tokens(value, self.analyzer, kwargs):
+            seen[t.text].append((t.pos, t.startchar, t.endchar))
             weights[t.text] += t.boost
         
         encode = self.encode
@@ -372,12 +383,13 @@ class PositionBoosts(Positions):
     Supports: frequency, weight, positions, position_boosts.
     """
     
-    def word_values(self, value, start_pos=0, **kwargs):
+    def word_values(self, value, **kwargs):
         fb = self.field_boost
         seen = defaultdict(iter)
         
-        for t in unstopped(self.analyzer(value, positions=True, boosts=True,
-                                         start_pos=start_pos, **kwargs)):
+        kwargs["positions"] = True
+        kwargs["boosts"] = True
+        for t in tokens(value, self.analyzer, kwargs):
             pos = t.pos
             boost = t.boost
             seen[t.text].append((pos, boost))
@@ -430,18 +442,15 @@ class CharacterBoosts(Characters):
     character_boosts.
     """
     
-    def word_values(self, value, start_pos=0, start_char=0, **kwargs):
+    def word_values(self, value, **kwargs):
         fb = self.field_boost
         seen = defaultdict(iter)
         
-        for t in unstopped(self.analyzer(value, positions=True,
-                                         characters=True, boosts=True,
-                                         start_pos=start_pos,
-                                         start_char=start_char, **kwargs)):
-            seen[t.text].append((t.pos,
-                                 start_char + t.startchar,
-                                 start_char + t.endchar,
-                                 t.boost))
+        kwargs["positions"] = True
+        kwargs["chars"] = True
+        kwargs["boosts"] = True
+        for t in tokens(value, self.analyzer, kwargs):
+            seen[t.text].append((t.pos, t.startchar, t.endchar, t.boost))
         
         encode = self.encode
         return ((w, len(poslist), sum(p[3] for p in poslist) * fb, encode(poslist))
