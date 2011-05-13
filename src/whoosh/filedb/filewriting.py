@@ -156,7 +156,7 @@ class SegmentWriter(IndexWriter):
         dawg = None
         if any(field.spelling for field in self.schema):
             df = self.storage.create_file(segment.dawg_filename)
-            dawg = DawgWriter(df)
+            dawg = DawgWriter(df, reduce_root=False)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -574,9 +574,9 @@ class TermsWriter(object):
         self.postwriter.close()
         if self.dawg:
             self.dawg.write()
-        
 
-def add_spelling(ix, fieldnames, force=False):
+
+def add_spelling(ix, fieldnames, commit=True):
     """Adds spelling files to an existing index that was created without
     them, and modifies the schema so the given fields have the ``spelling``
     attribute. Only works on filedb indexes.
@@ -597,25 +597,24 @@ def add_spelling(ix, fieldnames, force=False):
     schema = writer.schema
     segments = writer.segments
     
-    for fieldname in fieldnames:
-        schema[fieldname].spelling = True
-    
     for segment in segments:
         filename = segment.dawg_filename
-        if storage.file_exists(filename) and not force:
-            continue
-        
         r = SegmentReader(storage, schema, segment)
         f = storage.create_file(filename)
-        dw = DawgWriter(f)
+        dw = DawgWriter(reduce_root=False)
         for fieldname in fieldnames:
             ft = (fieldname, )
             for word in r.lexicon(fieldname):
                 dw.insert(ft + tuple(word))
-        dw.close()
-    writer.commit()
+        dw.write(f)
+    
+    for fieldname in fieldnames:
+        schema[fieldname].spelling = True
+    
+    if commit:
+        writer.commit(merge=False)
 
-
+    
         
 
 
