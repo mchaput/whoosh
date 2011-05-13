@@ -42,7 +42,7 @@ def simple_scorer(word, cost):
     """Ranks suggestions by the edit distance.
     """
     
-    return cost
+    return (cost, 0)
 
 
 class Corrector(object):
@@ -52,13 +52,6 @@ class Corrector(object):
     for the field and use :func:`suggest` instead of this object.
     """
     
-    def score(self, word, cost):
-        """Returns a rank value (where lower values are better suggestions)
-        for the given word and "cost" (usually edit distance).
-        """
-        
-        return cost
-        
     def suggest(self, text, limit=5, maxdist=2, prefix=0):
         """
         :param text: the text to check.
@@ -74,14 +67,12 @@ class Corrector(object):
             list of words.
         """
         
-        score = self.score
         suggestions = self.suggestions
         
         heap = []
         seen = set()
         for k in xrange(1, maxdist+1):
-            for sug in suggestions(text, k, prefix, seen):
-                item = (score(sug, k), sug)
+            for item in suggestions(text, k, prefix, seen):
                 if len(heap) < limit:
                     heappush(heap, item)
                 elif item < heap[0]:
@@ -95,7 +86,8 @@ class Corrector(object):
         return [sug for _, sug in sorted(heap)]
         
     def suggestions(self, text, maxdist, prefix, seen):
-        """Low-level method that yields a series of ("suggestion", cost) tuples.
+        """Low-level method that yields a series of (score, "suggestion")
+        tuples.
         
         :param text: the text to check.
         :param maxdist: the maximum edit distance.
@@ -118,13 +110,60 @@ class ReaderCorrector(Corrector):
         self.reader = reader
         self.fieldname = fieldname
     
-    def score(self, word, cost):
-        return (cost, 0 - self.reader.frequency(self.fieldname, word))
+    def suggestions(self, text, maxdist, prefix, seen):
+        fieldname = self.fieldname
+        freq = self.reader.frequency
+        for sug in self.reader.terms_within(self.fieldname, text, maxdist,
+                                            prefix=prefix, seen=seen):
+            yield ((maxdist, 0 - freq(fieldname, sug)), sug)
+
+
+class GraphCorrector(Corrector):
+    """Suggests corrections based on the content of a word list.
+    
+    By default ranks suggestions based on the edit distance.
+    """
+
+    def __init__(self, word_graph, ranking=None):
+        self.word_graph = word_graph
+        self.ranking = ranking or simple_scorer
     
     def suggestions(self, text, maxdist, prefix, seen):
-        return self.reader.terms_within(self.fieldname, text, maxdist,
-                                        prefix=prefix, seen=seen)
+        ranking = self.ranking
+        for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
+                               seen=seen):
+            yield (ranking(sug, maxdist), sug)
+    
+    def save(self, filename):
+        f = open(filename, "wb")
+        self.word_graph.write(f)
+        f.close()
+    
+    @classmethod
+    def from_word_list(cls, wordlist, ranking=None, fieldname=""):
+        dw = dawg.DawgWriter()
+        for word in wordlist:
+            dw.insert(word)
+        return cls(dw.root, ranking=ranking)
+    
+    @classmethod
+    def from_graph_file(cls, dbfile, ranking=None, fieldname=""):
+        dr = dawg.DawgReader(dbfile)
+        return cls(dr.root, ranking=ranking)
+    
+
+class MultiCorrector(Corrector):
+    """Merges suggestions from a list of sub-correctors.
+    """
+    
+    def __init__(self, correctors):
+        self.correctors = correctors
         
+    def suggestions(self, text, maxdist, prefix, seen):
+        for corr in self.correctors:
+            for item in corr.suggestions(text, maxdist, prefix, seen):
+                yield item
+
 
 def wordlist_to_graph_file(wordlist, dbfile):
     """Writes a word graph file from a list of words.
@@ -155,39 +194,7 @@ def wordlist_to_graph_file(wordlist, dbfile):
     dbfile.close()
 
 
-class GraphCorrector(Corrector):
-    """Suggests corrections based on the content of a word list.
-    
-    By default ranks suggestions based on the edit distance.
-    """
-
-    def __init__(self, word_graph, ranking=None):
-        self.word_graph = word_graph
-        self.score = ranking or simple_scorer
-    
-    def suggestions(self, text, maxdist, prefix, seen):
-        return dawg.within(self.word_graph, text, maxdist, prefix=prefix,
-                           seen=seen)
-    
-    def save(self, filename):
-        f = open(filename, "wb")
-        self.word_graph.write(f)
-        f.close()
-    
-    @classmethod
-    def from_word_list(cls, wordlist, ranking=None, fieldname=""):
-        dw = dawg.DawgWriter()
-        for word in wordlist:
-            dw.add(fieldname, word)
-        return cls(dw.root, ranking=ranking)
-    
-    @classmethod
-    def from_graph_file(cls, dbfile, ranking=None, fieldname=""):
-        dr = dawg.DawgReader(dbfile)
-        return cls(dr.field_root(fieldname), ranking=ranking)
-    
-
-# Old, obsolete spell checker
+# Old, obsolete spell checker - DO NOT USE
 
 class SpellChecker(object):
     """This feature is obsolete.

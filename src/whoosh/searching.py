@@ -38,7 +38,6 @@ from math import ceil
 
 from whoosh import classify, highlight, query, scoring
 from whoosh.reading import TermNotFound
-from whoosh.spelling import suggest
 from whoosh.support.bitvector import BitSet, BitVector
 from whoosh.util import now, lru_cache
 

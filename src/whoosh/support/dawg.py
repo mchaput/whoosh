@@ -62,7 +62,10 @@ class BaseNode(object):
     def __len__(self):
         raise NotImplementedError
     
-    def edge(self, key):
+    def keys(self):
+        return list(self)
+    
+    def edge(self, key, expand=True):
         raise NotImplementedError
     
     def all_edges(self):
@@ -71,6 +74,31 @@ class BaseNode(object):
     
     def edge_count(self):
         return len(self) + sum(self.edge(key).edge_count() for key in self)
+
+
+class NullNode(BaseNode):
+    """An empty node. This is sometimes useful for representing an empty graph.
+    """
+    
+    final = False
+    
+    def __containts__(self, key):
+        return False
+    
+    def __iter__(self):
+        return iter([])
+    
+    def __len__(self):
+        return 0
+    
+    def edge(self, key, expand=True):
+        raise KeyError(key)
+    
+    def all_edges(self):
+        return {}
+    
+    def edge_count(self):
+        return 0
 
 
 class BuildNode(object):
@@ -118,7 +146,7 @@ class BuildNode(object):
         self._hash = None  # Invalidate the cached hash value
         self._edges[key] = node
     
-    def edge(self, key):
+    def edge(self, key, expand=True):
         return self._edges[key]
     
     def all_edges(self):
@@ -126,9 +154,10 @@ class BuildNode(object):
     
 
 class DawgWriter(object):
-    def __init__(self, dbfile=None, reduced=True):
+    def __init__(self, dbfile=None, reduced=True, reduce_root=True):
         self.dbfile = dbfile
         self.reduced = reduced
+        self.reduce_root = reduce_root
         
         self.lastword = ""
         # List of nodes that have not been checked for duplication.
@@ -184,23 +213,28 @@ class DawgWriter(object):
 
     def write(self, dbfile=None):
         dbfile = self.dbfile or dbfile
+        dbfile.write("GR01")  # Magic number
         dbfile.write_int(0)  # File flags
         dbfile.write_uint(0)  # Pointer to root node
         
         self._minimize(0)
         root = self.root
         if self.reduced:
-            reduce(root)
-        offset = self._write_node(root)
-        self._reset()
+            if self.reduce_root:
+                reduce(root)
+            else:
+                for key in root:
+                    v = root.edge(key)
+                    reduce(v)
+        offset = self._write_node(dbfile, root)
         
+        # Seek back and write the pointer to the root node
         dbfile.flush()
-        dbfile.seek(_INT_SIZE)
+        dbfile.seek(_INT_SIZE * 2)
         dbfile.write_uint(offset)
         dbfile.close()
     
-    def _write_node(self, node):
-        dbfile = self.dbfile
+    def _write_node(self, dbfile, node):
         keys = node._edges.keys()
         ptrs = array("I")
         for key in keys:
@@ -208,7 +242,7 @@ class DawgWriter(object):
             if id(sn) in self.offsets:
                 ptrs.append(self.offsets[id(sn)])
             else:
-                ptr = self._write_node(sn)
+                ptr = self._write_node(dbfile, sn)
                 self.offsets[id(sn)] = ptr
                 ptrs.append(ptr)
         
@@ -245,7 +279,7 @@ class DawgWriter(object):
 
 
 class DiskNode(BaseNode):
-    def __init__(self, dr, offset):
+    def __init__(self, dr, offset, expand=True):
         self.dr = dr
         self.id = offset
         
@@ -271,13 +305,13 @@ class DiskNode(BaseNode):
                     self._edges[unichr(charnum)] = ptr
                 else:
                     key = utf8decode(dbfile.read_string())[0]
-                    if len(key) > 1:
+                    if len(key) > 1 and expand:
                         self._edges[key[0]] = PatNode(dr, key[1:], ptr)
                     else:
                         self._edges[key] = ptr
-            
+    
     def __repr__(self):
-        return "<%s:%s %s>" % (self.id, "".join(self._edges.keys()), self.final)
+        return "<%s %s:%s %s>" % (self.__class__.__name__, self.id, ",".join(self._edges.keys()), self.final)
     
     def __contains__(self, key):
         return key in self._edges
@@ -288,11 +322,11 @@ class DiskNode(BaseNode):
     def __len__(self):
         return len(self._edges)
     
-    def edge(self, key):
+    def edge(self, key, expand=True):
         v = self._edges[key]
         if not isinstance(v, BaseNode):
             # Convert pointer to disk node
-            v = DiskNode(self.dr, v)
+            v = DiskNode(self.dr, v, expand=expand)
             #if self.caching:
             self._edges[key] = v
         return v
@@ -328,7 +362,7 @@ class PatNode(BaseNode):
         else:
             return 0
     
-    def edge(self, key):
+    def edge(self, key, expand=True):
         label = self.label
         i = self.i
         if i < len(label) and key == label[i]:
@@ -376,7 +410,7 @@ class UnionNode(ComboNode):
     """Makes two graphs appear to be the union of the two graphs.
     """
     
-    def edge(self, key):
+    def edge(self, key, expand=True):
         a = self.a
         b = self.b
         if key in a and key in b:
@@ -391,7 +425,7 @@ class IntersectionNode(ComboNode):
     """Makes two graphs appear to be the intersection of the two graphs.
     """
     
-    def edge(self, key):
+    def edge(self, key, expand=True):
         a = self.a
         b = self.b
         if key in a and key in b:
@@ -401,13 +435,15 @@ class IntersectionNode(ComboNode):
 # Reader for disk-based graph files
 
 class DawgReader(object):
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, expand=True):
         self.dbfile = dbfile
         
         dbfile.seek(0)
+        magic = dbfile.read(4)
+        assert magic == "GR01"
         self.fileflags = dbfile.read_int()
-        self.root = DiskNode(self, dbfile.read_uint())
-    
+        self.root = DiskNode(self, dbfile.read_uint(), expand=expand)
+
 
 # Functions
 
@@ -426,6 +462,14 @@ def reduce(node):
 def edge_count(node):
     c = len(node)
     return c + sum(edge_count(node.edge(key)) for key in node)
+
+
+def flatten(node, sofar=""):
+    if node.final:
+        yield sofar
+    for key in sorted(node):
+        for word in flatten(node.edge(key, expand=False), sofar + key):
+            yield word
 
 
 def dump_dawg(node, tab=0):
@@ -525,6 +569,8 @@ def run_out(node, sofar):
     return sofar
 
 
+
+    
 
 
 

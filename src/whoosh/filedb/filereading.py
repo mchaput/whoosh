@@ -89,12 +89,9 @@ class SegmentReader(IndexReader):
         self.dawg = None
         if any(field.spelling for field in self.schema):
             fname = segment.dawg_filename
-            if not self.storage.file_exists(fname):
-                spelled = [fn for fn, field in self.schema.items() if field.spelling]
-                raise Exception("Field(s) %r have spelling=True but DAWG file %r not found" % (spelled, fname))
-            
-            dawgfile = self.storage.open_file(fname, mapped=False)
-            self.dawg = DawgReader(dawgfile).root
+            if self.storage.file_exists(fname):
+                dawgfile = self.storage.open_file(fname, mapped=False)
+                self.dawg = DawgReader(dawgfile, expand=False).root
         
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length

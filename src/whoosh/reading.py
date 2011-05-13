@@ -338,11 +338,14 @@ class IndexReader(ClosableMixin):
             for word in within(node, text, maxdist, prefix=prefix, seen=seen):
                 yield word
         else:
+            if seen is None:
+                seen = set()
             for word in self.expand_prefix(fieldname, text[:prefix]):
-                if word == text:
-                    yield text
-                elif distance(word, text, limit=maxdist) <= maxdist:
+                if word in seen:
+                    continue
+                if word == text or distance(word, text, limit=maxdist) <= maxdist:
                     yield word
+                    seen.add(word)
     
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
@@ -706,6 +709,21 @@ class MultiReader(IndexReader):
     def vector_as(self, astype, docnum, fieldname):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldname)
+
+    def has_word_graph(self, fieldname):
+        return any(r.has_word_graph(fieldname) for r in self.readers)
+    
+    def word_graph(self, fieldname):
+        from whoosh.support.dawg import NullNode, UnionNode
+        from whoosh.util import make_binary_tree
+        
+        graphs = [r.word_graph(fieldname) for r in self.readers
+                  if r.has_word_graph(fieldname)]
+        if not graphs:
+            return NullNode()
+        if len(graphs) == 1:
+            return graphs[0]
+        return make_binary_tree(UnionNode, graphs)
 
     def format(self, fieldname):
         for r in self.readers:
