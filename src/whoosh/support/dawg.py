@@ -159,7 +159,7 @@ class DawgWriter(object):
         self.reduced = reduced
         self.reduce_root = reduce_root
         
-        self.lastword = ""
+        self.lastword = None
         # List of nodes that have not been checked for duplication.
         self.unchecked = []
         # List of unique nodes that have been checked for duplication.
@@ -174,9 +174,10 @@ class DawgWriter(object):
 
         # find common prefix between word and previous word
         prefixlen = 0
-        for i in xrange(min(len(word), len(self.lastword))):
-            if word[i] != self.lastword[i]: break
-            prefixlen += 1
+        if self.lastword:
+            for i in xrange(min(len(word), len(self.lastword))):
+                if word[i] != self.lastword[i]: break
+                prefixlen += 1
 
         # Check the unchecked for redundant nodes, proceeding from last
         # one down to the common prefix size. Then truncate the list at that
@@ -452,11 +453,10 @@ def reduce(node):
     if edges:
         for key, sn in edges.items():
             reduce(sn)
-            if len(sn) == 1:
+            if len(sn) == 1 and not sn.final:
                 skey, ssn = sn._edges.items()[0]
-                if sn.final == ssn.final or (ssn.final and len(ssn) == 0):
-                    del edges[key]
-                    edges[key + skey] = ssn
+                del edges[key]
+                edges[key + skey] = ssn
                 
 
 def edge_count(node):
@@ -473,7 +473,7 @@ def flatten(node, sofar=""):
 
 
 def dump_dawg(node, tab=0):
-    print "  " * tab, id(node), node.final
+    print "  " * tab, hex(id(node)), node.final
     for key in node:
         print "  " * tab, key, ":"
         dump_dawg(node.edge(key), tab + 1)
