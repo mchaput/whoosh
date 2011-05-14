@@ -3,6 +3,8 @@ from nose.tools import assert_equal, assert_not_equal
 
 from whoosh import fields, spelling
 from whoosh.filedb.filestore import RamStorage
+from whoosh.support.dawg import flatten
+from whoosh.support.testing import TempStorage
 
 
 def test_graph_corrector():
@@ -81,9 +83,21 @@ def test_add_spelling():
         sp = spelling.ReaderCorrector(r, "text2")
         assert_equal(sp.suggest(u"alfo", maxdist=1), [u"alfa", u"olfo"])
 
-def test_multi():
-    from whoosh.support.dawg import flatten
+def test_dawg():
+    from whoosh.support.dawg import DawgWriter
     
+    with TempStorage() as st:
+        df = st.create_file("test.dawg")
+        
+        dw = DawgWriter(reduce_root=False)
+        dw.insert(["test"] + list("special"))
+        dw.insert(["test"] + list("specials"))
+        dw.write(df)
+        
+        assert_equal(list(flatten(dw.root.edge("test"))), ["special", "specials"])
+    
+
+def test_multi():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
     ix = RamStorage().create_index(schema)
     domain = u"special specious spectacular spongy spring specials".split()
@@ -100,5 +114,19 @@ def test_multi():
         corr = r.corrector("text")
         assert_equal(corr.suggest("specail", maxdist=2), ["special", "specials"])
 
+    ix.optimize()
+    with ix.reader() as r:
+        assert r.is_atomic()
+        
+        assert_equal(list(r.lexicon("text")), sorted(domain))
+        
+        from whoosh.support.dawg import dump_dawg
+        dump_dawg(r.word_graph("text"))
+        words = list(flatten(r.word_graph("text")))
+        assert_equal(words, sorted(domain))
 
+        corr = r.corrector("text")
+        assert_equal(corr.suggest("specail", maxdist=2), ["special", "specials"])
+        
+        
 
