@@ -127,30 +127,25 @@ def test_extend_empty():
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(id=1, words=u"alfa bravo charlie")
-    w.add_document(id=1, words=u"bravo charlie delta")
-    w.add_document(id=1, words=u"charlie delta echo")
-    w.add_document(id=1, words=u"delta echo foxtrot")
-    w.add_document(id=1, words=u"echo foxtrot golf")
+    w.add_document(id=2, words=u"bravo charlie delta")
+    w.add_document(id=3, words=u"charlie delta echo")
+    w.add_document(id=4, words=u"delta echo foxtrot")
+    w.add_document(id=5, words=u"echo foxtrot golf")
     w.commit()
     
     with ix.searcher() as s:
+        # Get an empty results object
         r1 = s.search(query.Term("words", u"hotel"))
-        assert_equal(len(r1), 0)
-        
+        # Copy it
         r1c = r1.copy()
-        assert_equal(len(r1c), 0)
-        
+        # Get a non-empty results object
         r2 = s.search(query.Term("words", u"delta"))
-        assert_equal(len(r2), 3)
-        
+        # Copy it
         r2c = r2.copy()
-        assert_equal(len(r2c), 3)
-        
-        r1.extend(r2)
-        assert_equal(len(r1), 3)
-        
+        # Extend r1 with r2
         r1c.extend(r2c)
-        assert_equal(len(r1c), 3)
+        assert_equal([hit["id"] for hit in r1c], [2, 3, 4])
+        assert_equal(r1c.scored_length(), 3)
 
 def test_pages():
     from whoosh.scoring import Frequency
