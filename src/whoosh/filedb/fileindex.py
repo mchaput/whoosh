@@ -312,7 +312,7 @@ class FileIndex(Index):
             
             # Make a function to open readers, which reuses reusable readers.
             # It removes any readers it reuses from the "reusable" dictionary,
-            # so later we can close any remaining readers.
+            # so later we can close any readers left in the dictionary.
             def segreader(segment):
                 gen = segment.generation
                 if gen in reusable:
@@ -338,15 +338,21 @@ class FileIndex(Index):
                 r.close()
 
     def reader(self, reuse=None):
-        # Lock the index so nobody can delete a segment while we're in the
-        # middle of creating the reader
+        # Get a lock for the index so nobody can delete a segment while we're
+        # in the middle of creating the reader
         lock = self.lock("READLOCK")
+        
         # Try to acquire the "reader" lock, which prevents a writer from
         # deleting segments out from under us. If another reader already has
         # the lock, just pray.
         #
         # TODO: replace this with a re-entrant file lock, if possible.
-        gotit = lock.acquire(False)
+        gotit = False
+        try:
+            gotit = lock.acquire(False)
+        except:
+            pass
+        
         try:
             # Read the information from the TOC file
             info = self._read_toc()
