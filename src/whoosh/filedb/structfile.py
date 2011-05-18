@@ -72,10 +72,13 @@ class StructFile(object):
             if hasattr(fileobj, attr):
                 setattr(self, attr, getattr(fileobj, attr))
 
+        self.is_real = not gzip and hasattr(fileobj, "fileno")
+
         # If mapped is True, set the 'map' attribute to a memory-mapped
         # representation of the file. Otherwise, the fake 'map' that set up by
         # the base class will be used.
-        if not gzip and mapped and hasattr(fileobj, "mode") and "r" in fileobj.mode:
+        if (mapped and self.is_real
+            and hasattr(fileobj, "mode") and "r" in fileobj.mode):
             fd = fileobj.fileno()
             self.size = os.fstat(fd).st_size
             if self.size > 0:
@@ -88,8 +91,6 @@ class StructFile(object):
         else:
             self._setup_fake_map()
             
-        self.is_real = not gzip and hasattr(fileobj, "fileno")
-
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
 
