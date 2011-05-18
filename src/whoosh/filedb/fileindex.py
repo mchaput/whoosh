@@ -343,13 +343,12 @@ class FileIndex(Index):
         lock = self.lock("READLOCK")
         
         # Try to acquire the "reader" lock, which prevents a writer from
-        # deleting segments out from under us. If another reader already has
-        # the lock, just pray.
+        # deleting segments out from under us.
         #
         # TODO: replace this with a re-entrant file lock, if possible.
         gotit = False
         try:
-            gotit = lock.acquire(False)
+            gotit = lock.acquire(True)
         except:
             pass
         
