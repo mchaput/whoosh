@@ -349,7 +349,7 @@ class FileIndex(Index):
         gotit = False
         try:
             gotit = lock.acquire(True)
-        except:
+        except OSError:
             pass
         
         try:
