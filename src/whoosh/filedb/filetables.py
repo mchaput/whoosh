@@ -35,9 +35,12 @@ from collections import defaultdict
 from cPickle import loads, dumps
 from struct import Struct
 
-from whoosh.system import (_INT_SIZE, _LONG_SIZE, pack_ushort, pack_uint,
-                           pack_long, unpack_ushort, unpack_uint, unpack_long)
-from whoosh.util import byte_to_length, utf8encode, utf8decode
+from whoosh.matching import ListMatcher
+from whoosh.reading import TermStats
+from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
+                           pack_uint, pack_long, unpack_ushort, unpack_uint,
+                           unpack_long)
+from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 
 
 _4GB = 4 * 1024 * 1024 * 1024
@@ -236,11 +239,11 @@ class HashReader(object):
 
     def all(self, key):
         read = self.read
-        for datapos, datalen in self._get_ranges(key):
+        for datapos, datalen in self.ranges_for_key(key):
             yield read(datapos, datalen)
 
     def __contains__(self, key):
-        for _ in self._get_ranges(key):
+        for _ in self.ranges_for_key(key):
             return True
         return False
 
@@ -261,7 +264,7 @@ class HashReader(object):
         keylen = self.dbfile.get_uint(pos)
         return self.read(pos + lengths_size, keylen)
 
-    def _get_ranges(self, key):
+    def ranges_for_key(self, key):
         read = self.read
         pointer_size = self.pointer_size
         keyhash = self.hash_func(key)
@@ -285,7 +288,11 @@ class HashReader(object):
                 if keylen == len(key):
                     if key == read(pos + lengths_size, keylen):
                         yield (pos + lengths_size + keylen, datalen)
-                        
+    
+    def range_for_key(self, key):
+        for item in self.ranges_for_key(key):
+            return item
+    
     def end_of_hashes(self):
         if self.old_format:
             lastpos, lastnum = self.buckets[255]
@@ -778,6 +785,84 @@ class StoredFieldReader(object):
         
         return values
 
+
+# TermInfo
+
+class TermInfo(TermStats):
+    struct = Struct("!IIBBff")
+    
+    def __init__(self, freq, docfreq, minlength, maxlength, maxweight, maxwol,
+                 postings):
+        self._freq = freq
+        self._docfreq = docfreq
+        self._minlength = minlength
+        self._maxlength = maxlength
+        self._maxweight = maxweight
+        self._maxwol = maxwol
+        self._postings = postings
+    
+    def to_string(self):
+        ml = length_to_byte(self._minlength)
+        xl = length_to_byte(self._maxlength)
+        st = self.struct.pack(self._freq, self._docfreq, ml, xl, self._maxweight,
+                              self._maxwol)
+        
+        if isinstance(self._postings, tuple):
+            magic = 1
+            st += dumps(self._postings, -1)[2:-1]
+        else:
+            magic = 0
+            st += pack_long(self._postings)
+        return chr(magic) + st
+
+    def postings(self, postfile, format, scorer=None):
+        p = self._postings
+        if isinstance(p, tuple):
+            docids, weights, values = p
+            pr = ListMatcher(docids, weights, values, format)
+
+    @classmethod
+    def from_string(cls, s):
+        hbyte = ord(s[0])
+        if hbyte < 2:
+            # Freq, Doc freq, min length, max length, max weight, max WOL
+            f, df, ml, xl, xw, xwol = cls.struct.unpack(s[1:])
+            ml = byte_to_length(ml)
+            xl = byte_to_length(xl)
+            # Postings
+            pstr = s[cls.struct.size + 1:]
+            if hbyte == 0:
+                p = unpack_long(pstr)
+            else:
+                p = loads(pstr + ".")
+        else:
+            raise Exception("Unknown struct header %s" % hbyte)
+        
+        return cls(f, df, ml, xl, xw, xwol, p)
+    
+    @classmethod
+    def read_frequency(cls, dbfile, datapos):
+        return dbfile.get_uint(datapos + 1)
+    
+    @classmethod
+    def read_doc_freq(cls, dbfile, datapos):
+        return dbfile.get_uint(datapos + 1 + _INT_SIZE)
+    
+    @classmethod
+    def read_min_and_max_length(cls, dbfile, datapos):
+        lenpos = datapos + 1 + (_INT_SIZE * 2)
+        ml = byte_to_length(dbfile.get_byte(lenpos))
+        xl = byte_to_length(dbfile.get_byte(lenpos + 1))
+        return ml, xl
+    
+    @classmethod
+    def read_max_weight(cls, dbfile, datapos):
+        return dbfile.get_float(datapos + 1 + (_INT_SIZE * 2) + 2)
+    
+    @classmethod
+    def read_max_wol(cls, dbfile, datapos):
+        return dbfile.get_float(datapos + 1 + (_INT_SIZE * 2) + 2 + _FLOAT_SIZE)
+    
 
 # Utility functions
 

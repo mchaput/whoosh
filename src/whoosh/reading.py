@@ -684,7 +684,27 @@ class MultiReader(IndexReader):
             r.set_caching_policy(*args, **kwargs)
 
         
+# Term stats class
 
+class TermStats(object):
+    def frequency(self):
+        return self._freq
+    
+    def doc_frequency(self):
+        return self._doc_freq
+    
+    def min_length(self):
+        return self._minlength
+    
+    def max_length(self):
+        return self._maxlength
+    
+    def max_weight(self):
+        return self._maxweight
+    
+    def max_wol(self):
+        return self._maxwol
+    
 
 
 

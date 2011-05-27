@@ -286,17 +286,20 @@ class FilePostingReader(Matcher):
             return 0
         return self._skip_to_block(lambda: bq() <= minquality)
     
-    def block_maxweight(self):
-        return self.block.maxweight
+    def block_min_length(self):
+        return self.block.min_length()
     
-    def block_maxwol(self):
-        return self.block.maxwol
+    def block_max_length(self):
+        return self.block.max_length()
     
-    def block_maxid(self):
-        return self.block.maxid
+    def block_max_weight(self):
+        return self.block.max_weight()
     
-    def block_minlength(self):
-        return self.block.minlength
+    def block_max_wol(self):
+        return self.block.max_wol()
+    
+    def block_max_id(self):
+        return self.block.max_id()
     
     def score(self):
         return self.scorer.score(self)
