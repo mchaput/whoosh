@@ -25,6 +25,19 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+This module contains classes and functions for working with Directed Acyclic
+Word Graphs (DAWGs). This structure is used to efficiently store a list of
+words.
+
+This code should be considered an implementation detail and may change in
+future releases.
+
+TODO: try to find a way to traverse the term index efficiently to do within()
+instead of storing a DAWG separately.
+"""
+
+import re
 from array import array
 
 from whoosh.system import _INT_SIZE
@@ -42,7 +55,7 @@ class BaseNode(object):
       given label.
       
     * ``__iter__()`` returns an iterator of the labels for the node's outgoing
-      edges.
+      edges. ``keys()`` is available as a convenient shortcut to get a list.
       
     * ``__len__()`` returns the number of outgoing edges.
     
@@ -63,16 +76,29 @@ class BaseNode(object):
         raise NotImplementedError
     
     def keys(self):
+        """Returns a list of the outgoing edge labels.
+        """
+        
         return list(self)
     
     def edge(self, key, expand=True):
+        """Returns the node connected to the outgoing edge with the given label.
+        """
+        
         raise NotImplementedError
     
     def all_edges(self):
+        """Returns a dictionary mapping outgoing edge labels to nodes.
+        """
+        
         e = self.edge
         return dict((key, e(key)) for key in self)
     
     def edge_count(self):
+        """Returns the recursive count of edges in this node and the tree under
+        it.
+        """
+        
         return len(self) + sum(self.edge(key).edge_count() for key in self)
 
 
@@ -102,13 +128,16 @@ class NullNode(BaseNode):
 
 
 class BuildNode(object):
+    """Node type used by DawgBuilder when constructing a graph from scratch.
+    """
+    
     def __init__(self):
         self.final = False
         self._edges = {}
         self._hash = None
 
     def __repr__(self):
-        return "<%s:%s %s>" % (self.id, "".join(self._edges.keys()), self.final)
+        return "<%s:%s %s>" % (self.__class__.__name__, ",".join(self._edges.keys()), self.final)
 
     def __hash__(self):
         if self._hash is not None:
@@ -150,11 +179,35 @@ class BuildNode(object):
         return self._edges[key]
     
     def all_edges(self):
-        return self._dict
+        return self._edges
     
 
-class DawgWriter(object):
+class DawgBuilder(object):
+    """Class for building a graph from scratch.
+    
+    >>> db = DawgBuilder()
+    >>> db.insert(u"alfa")
+    >>> db.insert(u"bravo")
+    >>> db.write(dbfile)
+    
+    This class does not have the cleanest API, because it was cobbled together
+    to support the spelling correction system.
+    """
+    
     def __init__(self, dbfile=None, reduced=True, reduce_root=True):
+        """
+        :param dbfile: an optional StructFile. If you pass this argument to the
+            initializer, you don't have to pass a file to the ``write()``
+            method after you construct the graph.
+        :param reduced: when the graph is finished, branches of single-edged
+            nodes will be collapsed into single nodes to form a Patricia tree.
+        :param reduce_root: when ``reduce`` is True and this argument is True,
+            reduction will include the root node. If the root node edges are
+            special (as in an index segment's term DAWG, where it has the field
+            names), you can turn this off to keep the root edges "safe" from
+            reduction.
+        """
+        
         self.dbfile = dbfile
         self.reduced = reduced
         self.reduce_root = reduce_root
@@ -169,6 +222,10 @@ class DawgWriter(object):
         self.offsets = {}
     
     def insert(self, word):
+        """Add the given "word" (a string or list of strings) to the graph.
+        Words must be inserted in sorted order.
+        """
+        
         if word < self.lastword:
             raise Exception("Out of order %r..%r." % (self.lastword, word))
 
@@ -212,11 +269,12 @@ class DawgWriter(object):
                 self.minimized[child] = child;
             self.unchecked.pop()
 
-    def write(self, dbfile=None):
-        dbfile = self.dbfile or dbfile
-        dbfile.write("GR01")  # Magic number
-        dbfile.write_int(0)  # File flags
-        dbfile.write_uint(0)  # Pointer to root node
+    def finish(self):
+        """Minimize the graph by merging duplicates, and reduce branches of
+        single-edged nodes. You can call this explicitly if you are building
+        a graph to use in memory. Otherwise it is automatically called by
+        the write() method.
+        """
         
         self._minimize(0)
         root = self.root
@@ -227,7 +285,19 @@ class DawgWriter(object):
                 for key in root:
                     v = root.edge(key)
                     reduce(v)
-        offset = self._write_node(dbfile, root)
+
+    def write(self, dbfile=None):
+        """Write the graph to the given StructFile. If you passed a file to
+        the initializer, you don't have to pass it here.
+        """
+        
+        dbfile = self.dbfile or dbfile
+        dbfile.write("GR01")  # Magic number
+        dbfile.write_int(0)  # File flags
+        dbfile.write_uint(0)  # Pointer to root node
+        
+        self.finish()
+        offset = self._write_node(dbfile, self.root)
         
         # Seek back and write the pointer to the root node
         dbfile.flush()
@@ -280,11 +350,10 @@ class DawgWriter(object):
 
 
 class DiskNode(BaseNode):
-    def __init__(self, dr, offset, expand=True):
-        self.dr = dr
+    def __init__(self, dbfile, offset, expand=True):
         self.id = offset
+        self.dbfile = dbfile
         
-        dbfile = dr.dbfile
         dbfile.seek(offset)
         flags = dbfile.read_byte()
         self.final = bool(flags & 1)
@@ -307,12 +376,13 @@ class DiskNode(BaseNode):
                 else:
                     key = utf8decode(dbfile.read_string())[0]
                     if len(key) > 1 and expand:
-                        self._edges[key[0]] = PatNode(dr, key[1:], ptr)
+                        self._edges[key[0]] = PatNode(dbfile, key[1:], ptr)
                     else:
                         self._edges[key] = ptr
     
     def __repr__(self):
-        return "<%s %s:%s %s>" % (self.__class__.__name__, self.id, ",".join(self._edges.keys()), self.final)
+        return "<%s %s:%s %s>" % (self.__class__.__name__, self.id,
+                                  ",".join(self._edges.keys()), self.final)
     
     def __contains__(self, key):
         return key in self._edges
@@ -327,17 +397,25 @@ class DiskNode(BaseNode):
         v = self._edges[key]
         if not isinstance(v, BaseNode):
             # Convert pointer to disk node
-            v = DiskNode(self.dr, v, expand=expand)
+            v = DiskNode(self.dbfile, v, expand=expand)
             #if self.caching:
             self._edges[key] = v
         return v
+    
+    @classmethod
+    def load(cls, dbfile, expand=True):
+        dbfile.seek(0)
+        magic = dbfile.read(4)
+        assert magic == "GR01"
+        fileflags = dbfile.read_int()
+        return DiskNode(dbfile, dbfile.read_uint(), expand=expand)
     
 
 class PatNode(BaseNode):
     final = False
     
-    def __init__(self, dr, label, nextptr, i=0):
-        self.dr = dr
+    def __init__(self, dbfile, label, nextptr, i=0):
+        self.dbfile = dbfile
         self.label = label
         self.nextptr = nextptr
         self.i = i
@@ -369,14 +447,14 @@ class PatNode(BaseNode):
         if i < len(label) and key == label[i]:
             i += 1
             if i < len(self.label):
-                return PatNode(self.dr, label, self.nextptr, i)
+                return PatNode(self.dbfile, label, self.nextptr, i)
             else:
-                return DiskNode(self.dr, self.nextptr)
+                return DiskNode(self.dbfile, self.nextptr)
         else:
             raise KeyError(key)
         
     def edge_count(self):
-        return DiskNode(self.dr, self.nextptr).edge_count()
+        return DiskNode(self.dbfile, self.nextptr).edge_count()
 
 
 class ComboNode(BaseNode):
@@ -431,19 +509,6 @@ class IntersectionNode(ComboNode):
         b = self.b
         if key in a and key in b:
             return IntersectionNode(a.edge(key), b.edge(key))
-
-
-# Reader for disk-based graph files
-
-class DawgReader(object):
-    def __init__(self, dbfile, expand=True):
-        self.dbfile = dbfile
-        
-        dbfile.seek(0)
-        magic = dbfile.read(4)
-        assert magic == "GR01"
-        self.fileflags = dbfile.read_int()
-        self.root = DiskNode(self, dbfile.read_uint(), expand=expand)
 
 
 # Functions

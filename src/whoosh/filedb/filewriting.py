@@ -36,7 +36,7 @@ from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgWriter
+from whoosh.support.dawg import DawgBuilder
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -156,7 +156,7 @@ class SegmentWriter(IndexWriter):
         dawg = None
         if any(field.spelling for field in self.schema):
             df = self.storage.create_file(segment.dawg_filename)
-            dawg = DawgWriter(df, reduce_root=False)
+            dawg = DawgBuilder(df, reduce_root=False)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -601,12 +601,12 @@ def add_spelling(ix, fieldnames, commit=True):
         filename = segment.dawg_filename
         r = SegmentReader(storage, schema, segment)
         f = storage.create_file(filename)
-        dw = DawgWriter(reduce_root=False)
+        dawg = DawgBuilder(reduce_root=False)
         for fieldname in fieldnames:
             ft = (fieldname, )
             for word in r.lexicon(fieldname):
-                dw.insert(ft + tuple(word))
-        dw.write(f)
+                dawg.insert(ft + tuple(word))
+        dawg.write(f)
     
     for fieldname in fieldnames:
         schema[fieldname].spelling = True

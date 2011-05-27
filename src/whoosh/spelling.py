@@ -141,14 +141,14 @@ class GraphCorrector(Corrector):
     
     @classmethod
     def from_word_list(cls, wordlist, ranking=None, fieldname=""):
-        dw = dawg.DawgWriter()
+        dw = dawg.DawgBuilder()
         for word in wordlist:
             dw.insert(word)
         return cls(dw.root, ranking=ranking)
     
     @classmethod
     def from_graph_file(cls, dbfile, ranking=None, fieldname=""):
-        dr = dawg.DawgReader(dbfile)
+        dr = dawg.DiskNode.load(dbfile)
         return cls(dr.root, ranking=ranking)
     
 
@@ -182,7 +182,7 @@ def wordlist_to_graph_file(wordlist, dbfile):
     
     from whoosh.filedb.structfile import StructFile
     
-    dw = dawg.DawgWriter()
+    dw = dawg.DawgBuilder()
     for word in wordlist:
         dw.insert(word)
     
