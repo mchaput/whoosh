@@ -35,7 +35,7 @@ from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
-from whoosh.support.dawg import DawgReader
+from whoosh.support.dawg import DiskNode
 from whoosh.util import protected
 
 SAVE_BY_DEFAULT = True
@@ -91,7 +91,7 @@ class SegmentReader(IndexReader):
             fname = segment.dawg_filename
             if self.storage.file_exists(fname):
                 dawgfile = self.storage.open_file(fname, mapped=False)
-                self.dawg = DawgReader(dawgfile, expand=False).root
+                self.dawg = DiskNode.load(dawgfile, expand=False)
         
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
