@@ -173,7 +173,7 @@ _varint_cache = tuple(_varint_cache)
 
 
 def varint(i):
-    """Encodes the given integer into a string of the minimum number  of bytes.
+    """Encodes the given integer into a string of the minimum number of bytes.
     """
     if i < len(_varint_cache):
         return _varint_cache[i]

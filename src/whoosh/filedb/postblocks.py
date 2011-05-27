@@ -64,6 +64,24 @@ class BlockBase(object):
     def __nonzero__(self):
         return bool(self.ids)
     
+    def min_length(self):
+        if self.lengths:
+            return min(self.lengths)
+        return self._minlength
+    
+    def max_length(self):
+        if self.lengths:
+            return max(self.lengths)
+        return self._maxlength
+    
+    def max_weight(self):
+        return max(self.weights)
+    
+    def max_wol(self):
+        if self.lengths:
+            return max(w / l for w, l in zip(self.weights, self.lengths))
+        return 0.0
+    
     def stats(self):
         # Calculate block statistics
         maxweight = max(self.weights)
@@ -399,4 +417,5 @@ class Block1(BlockBase):
 
 
 current = Block2
-magic_map = {Block1.magic: Block1, Block2.magic: Block2}
+block_types = (Block1, Block2)
+magic_map = dict((b.magic, b) for b in block_types)

@@ -75,7 +75,7 @@ class Matcher(object):
         
         raise NotImplementedError
     
-    def replace(self):
+    def replace(self, minquality=0):
         """Returns a possibly-simplified version of this matcher. For example,
         if one of the children of a UnionMatcher is no longer active, calling
         this method on the UnionMatcher will return the other child.
@@ -261,8 +261,7 @@ class ListMatcher(Matcher):
     """
     
     def __init__(self, ids, weights=None, values=None, format=None,
-                 scorer=None, position=0, all_weights=None,
-                 maxwol=0.0, minlength=0):
+                 scorer=None, position=0, all_weights=None, termstats=None):
         """
         :param ids: a list of doc IDs.
         :param weights: a list of weights corresponding to the list of IDs.
@@ -282,8 +281,7 @@ class ListMatcher(Matcher):
         self._i = position
         self._format = format
         self._scorer = scorer
-        self._maxwol = maxwol
-        self._minlength = minlength
+        self._stats = termstats
     
     def __repr__(self):
         return "<%s>" % self.__class__.__name__
@@ -348,7 +346,13 @@ class ListMatcher(Matcher):
         else:
             return 1.0
     
-    def block_maxweight(self):
+    def block_min_length(self):
+        return self._stats.min_length()
+    
+    def block_max_length(self):
+        return self._stats.max_length()
+    
+    def block_max_weight(self):
         if self._all_weights:
             return self._all_weights
         elif self._weights:
@@ -356,14 +360,11 @@ class ListMatcher(Matcher):
         else:
             return 1.0
     
-    def block_maxwol(self):
-        return self._maxwol
+    def block_max_wol(self):
+        return self._stats.max_wol()
     
-    def block_maxid(self):
+    def block_max_id(self):
         return max(self._ids)
-    
-    def block_minlength(self):
-        return self._minlength
     
     def score(self):
         if self._scorer:
@@ -395,18 +396,26 @@ class WrappingMatcher(Matcher):
     def _replacement(self, newchild):
         return self.__class__(newchild, boost=self.boost)
     
-    def replace(self):
-        r = self.child.replace()
+    def replace(self, minquality=0):
+        # Replace the child matcher
+        r = self.child.replace(minquality)
         if not r.is_active():
+            # If the replaced child is inactive, return an inactive matcher
             return NullMatcher()
-        if r is not self.child:
+        elif r is not self.child:
+            # If the child changed, return a new wrapper on the new child
             try:
+                # Subclasses of WrappingMatcher can override _replacement() to
+                # get the __init__ signature they need
                 return self._replacement(r)
             except TypeError, e:
                 raise TypeError("Class %s got exception %s trying "
                                 "to replace itself" % (self.__class__, e))
         else:
             return self
+    
+    def max_quality(self):
+        return self.child.max_quality()
     
     def id(self):
         return self.child.id()
@@ -493,13 +502,24 @@ class MultiMatcher(Matcher):
         else:
             return 0
     
-    def replace(self):
+    def replace(self, minquality=0):
+        if minquality:
+            # Skip sub-matchers that don't have a high enough max quality to
+            # contribute
+            while (self.is_active()
+                   and self.matchers[self.current].max_quality() < minquality):
+                self._next_matcher()
+        
         if not self.is_active():
             return NullMatcher()
+        
         # TODO: Possible optimization: if the last matcher is current, replace
         # this with the last matcher, but wrap it with a matcher that adds the
         # offset. Have to check whether that's actually faster, though.
         return self
+    
+    def max_quality(self):
+        return self.matchers[self.current].max_quality()
     
     def id(self):
         current = self.current
@@ -678,6 +698,14 @@ class AdditiveBiMatcher(BiMatcher):
     added together.
     """
     
+    def max_quality(self):
+        q = 0.0
+        if self.a.is_active():
+            q += self.a.max_quality()
+        if self.b.is_active():
+            q += self.b.max_quality()
+        return q
+    
     def quality(self):
         q = 0.0
         if self.a.is_active():
@@ -705,22 +733,34 @@ class UnionMatcher(AdditiveBiMatcher):
     """Matches the union (OR) of the postings in the two sub-matchers.
     """
     
-    def replace(self):
-        a = self.a.replace()
-        b = self.b.replace()
-        
+    def replace(self, minquality=0):
+        a = self.a
+        b = self.b
         a_active = a.is_active()
         b_active = b.is_active()
+        
+        # If neither sub-matcher on its own has a high enough max quality to
+        # contribute, convert to an intersection matcher
+        if (minquality and a_active and b_active
+            and a.max_quality() < minquality and b.max_quality() < minquality):
+            return IntersectionMatcher(a, b).replace(minquality)
+        
+        # If one or both of the sub-matchers are inactive, convert
         if not (a_active or b_active):
             return NullMatcher()
-        if not a_active:
-            return b
-        if not b_active:
-            return a
+        elif not a_active:
+            return b.replace(minquality)
+        elif not b_active:
+            return a.replace(minquality)
         
+        # Can't pass minquality down here
+        a = a.replace()
+        b = b.replace()
+        # If one of the sub-matchers changed, return a new union
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
-        return self
+        else:
+            return self
     
     def is_active(self):
         return self.a.is_active() or self.b.is_active()
@@ -870,6 +910,60 @@ class DisjunctionMaxMatcher(UnionMatcher):
         return self.__class__(self.a.copy(), self.b.copy(),
                               tiebreak=self.tiebreak)
     
+    def replace(self, minquality=0):
+        a = self.a
+        b = self.b
+        a_active = a.is_active()
+        b_active = b.is_active()
+        
+        # DisMax takes the max of the sub-matcher qualities instead of adding
+        # them, so we need special logic here
+        if minquality and a_active and b_active:
+            a_max = a.max_quality()
+            b_max = b.max_quality()
+            
+            if a_max < minquality and b_max < minquality:
+                # If neither sub-matcher has a high enough max quality to
+                # contribute, return an inactive matcher
+                return NullMatcher()
+            elif b_max < minquality:
+                # If the b matcher can't contribute, return a
+                return a.replace(minquality)
+            elif a_max < minquality:
+                # If the a matcher can't contribute, return b
+                return b.replace(minquality)
+        
+        if not (a_active or b_active):
+            return NullMatcher()
+        elif not a_active:
+            return b.replace(minquality)
+        elif not b_active:
+            return a.replace(minquality)
+        
+        # We CAN pass the minquality down here, since we don't add the two
+        # scores together
+        a = a.replace(minquality)
+        b = b.replace(minquality)
+        a_active = a.is_active()
+        b_active = b.is_active()
+        # It's kind of tedious to check for inactive sub-matchers all over
+        # again here after we replace them, but it's probably better than
+        # returning a replacement with an inactive sub-matcher
+        if not (a_active and b_active):
+            return NullMatcher()
+        elif not a_active:
+            return b
+        elif not b_active:
+            return a
+        elif a is not self.a or b is not self.b:
+            # If one of the sub-matchers changed, return a new DisMax
+            return self.__class__(a, b)
+        else:
+            return self
+    
+    def max_quality(self):
+        return max(self.a.max_quality(), self.b.max_quality())
+    
     def score(self):
         if not self.a.is_active():
             return self.b.score()
@@ -887,7 +981,6 @@ class DisjunctionMaxMatcher(UnionMatcher):
     def skip_to_quality(self, minquality):
         a = self.a
         b = self.b
-        minquality = minquality
         
         # Short circuit if one matcher is inactive
         if not a.is_active():
@@ -920,18 +1013,27 @@ class IntersectionMatcher(AdditiveBiMatcher):
             and self.a.id() != self.b.id()):
             self._find_next()
     
-    def replace(self):
-        a = self.a.replace()
-        b = self.b.replace()
-        
-        a_active = a
+    def replace(self, minquality=0):
+        a = self.a
+        b = self.b
+        a_active = a.is_active()
         b_active = b.is_active()
+        
         if not (a_active and b_active):
+            # Intersection matcher requires that both sub-matchers be active
+            return NullMatcher()
+        elif minquality and a.max_quality() + b.max_quality() < minquality:
+            # If the combined quality of the sub-matchers can't contribute,
+            # return an inactive matcher
             return NullMatcher()
         
+        # Can't pass the minquality down here
+        a = a.replace()
+        b = b.replace()
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
-        return self
+        else:
+            return self
     
     def is_active(self):
         return self.a.is_active() and self.b.is_active()
@@ -1051,12 +1153,31 @@ class AndNotMatcher(BiMatcher):
         
         return r
     
-    def replace(self):
+    def replace(self, minquality=0):
         if not self.a.is_active():
+            # The a matcher is required, so if it's inactive, return an
+            # inactive matcher
             return NullMatcher()
-        if not self.b.is_active():
-            return self.a.replace()
-        return self
+        elif (minquality
+              and self.a.max_quality() < minquality):
+            # If the quality of the required matcher isn't high enough to
+            # contribute, return an inactive matcher
+            return NullMatcher()
+        elif not self.b.is_active():
+            # If the prohibited matcher is inactive, convert to just the
+            # required matcher
+            return self.a.replace(minquality)
+        
+        a = self.a.replace(minquality)
+        b = self.b.replace()
+        if a is not self.a or b is not self.b:
+            # If one of the sub-matchers was replaced, return a new AndNot
+            return self.__class__(a, b)
+        else:
+            return self
+    
+    def max_quality(self):
+        return self.a.max_quality()
     
     def quality(self):
         return self.a.quality()
@@ -1204,10 +1325,27 @@ class RequireMatcher(WrappingMatcher):
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
     
-    def replace(self):
+    def replace(self, minquality=0):
         if not self.child.is_active():
+            # If one of the sub-matchers is inactive, go inactive
             return NullMatcher()
-        return self
+        elif minquality and self.a.max_quality() < minquality:
+            # If the required matcher doesn't have a high enough max quality
+            # to possibly contribute, return an inactive matcher
+            return NullMatcher()
+        
+        new_a = self.a.replace(minquality)
+        new_b = self.b.replace()
+        if not new_a.is_active():
+            return NullMatcher()
+        elif new_a is not self.a or new_b is not self.b:
+            # If one of the sub-matchers changed, return a new Require
+            return self.__class__(new_a, self.b)
+        else:
+            return self
+    
+    def max_quality(self):
+        return self.a.max_quality()
     
     def quality(self):
         return self.a.quality()
@@ -1274,16 +1412,30 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             rb = self.b.skip_to(id)
         return ra or rb
     
-    def replace(self):
-        ar = self.a.replace()
-        br = self.b.replace()
-        if not ar.is_active():
+    def replace(self, minquality=0):
+        a = self.a
+        b = self.b
+        a_active = a.is_active()
+        b_active = b.is_active()
+        
+        if not a_active:
             return NullMatcher()
-        if not br.is_active():
-            return ar
-        if ar is not self.a or br is not self.b:
-            return self.__class__(ar, br)
-        return self
+        elif (minquality and b_active
+              and a.max_quality() + b.max_quality() < minquality):
+            # If the combined max quality of the sub-matchers isn't high
+            # enough to possibly contribute, return an inactive matcher
+            return NullMatcher()
+        elif not b_active:
+            return a.replace(minquality)
+        
+        # Can't pass the minquality down here
+        new_a = a.replace()
+        new_b = b.replace()
+        if new_a is not a or new_b is not b:
+            # If one of the sub-matchers changed, return a new AndMaybe
+            return self.__class__(new_a, new_b)
+        else:
+            return self
     
     def skip_to_quality(self, minquality):
         a = self.a
@@ -1375,7 +1527,7 @@ class ConstantScoreMatcher(WrappingMatcher):
 #    def copy(self):
 #        return self.__class__(self.wordmatchers[:], slop=self.slop, boost=self.boost)
 #    
-#    def replace(self):
+#    def replace(self, minquality=0):
 #        if not self.is_active():
 #            return NullMatcher()
 #        return self
