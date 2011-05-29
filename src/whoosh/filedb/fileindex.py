@@ -304,10 +304,7 @@ class FileIndex(Index):
             if reuse:
                 # Put all atomic readers in a dictionary keyed by their
                 # generation, so we can re-use them if them if possible
-                if reuse.is_atomic():
-                    readers = [reuse]
-                else:
-                    readers = [r for r, offset in reuse.leaf_readers()]
+                readers = [r for r, offset in reuse.leaf_readers()]
                 reusable = dict((r.generation(), r) for r in readers)
             
             # Make a function to open readers, which reuses reusable readers.
@@ -383,15 +380,19 @@ class Segment(object):
     generation = 0
     
     def __init__(self, name, generation, doccount, fieldlength_totals,
-                 fieldlength_maxes, deleted=None):
+                 fieldlength_mins, fieldlength_maxes, deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
             from its name and the generation).
         :param doccount: The maximum document number in the segment.
         :param term_count: Total count of all terms in all documents.
-        :param fieldlength_totals: A dictionary mapping field numbers to the
+        :param fieldlength_totals: A dictionary mapping field names to the
             total number of terms in that field across all documents in the
             segment.
+        :param fieldlength_mins: A dictionary mapping field names to the
+            minimum length of that field across all documents.
+        :param fieldlength_maxes: A dictionary mapping field names to the
+            maximum length of that field across all documents.
         :param deleted: A set of deleted document numbers, or None if no
             deleted documents exist in this segment.
         """
@@ -399,12 +400,14 @@ class Segment(object):
         assert isinstance(name, basestring)
         assert isinstance(doccount, (int, long))
         assert fieldlength_totals is None or isinstance(fieldlength_totals, dict), "fl_totals=%r" % fieldlength_totals
+        assert fieldlength_maxes is None or isinstance(fieldlength_mins, dict), "fl_mins=%r" % fieldlength_maxes
         assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
         
         self.name = name
         self.generation = generation
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
+        self.fieldlength_mins = fieldlength_mins
         self.fieldlength_maxes = fieldlength_maxes
         self.deleted = deleted
         self.uuid = uuid.uuid4()
@@ -426,8 +429,8 @@ class Segment(object):
 
     def copy(self):
         return Segment(self.name, self.generation, self.doccount,
-                       self.fieldlength_totals, self.fieldlength_maxes,
-                       self.deleted)
+                       self.fieldlength_totals, self.fieldlength_mins,
+                       self.fieldlength_maxes, self.deleted)
 
     def make_filename(self, ext):
         return "%s.%s" % (self.name, ext)
@@ -469,10 +472,18 @@ class Segment(object):
         """
         return self.fieldlength_totals.get(fieldname, default)
 
+    def min_field_length(self, fieldname, default=0):
+        """Returns the maximum length of the given field in any of the
+        documents in the segment.
+        """
+        
+        return self.fieldlength_mins.get(fieldname, default)
+
     def max_field_length(self, fieldname, default=0):
         """Returns the maximum length of the given field in any of the
         documents in the segment.
         """
+        
         return self.fieldlength_maxes.get(fieldname, default)
 
     def delete_document(self, docnum, delete=True):

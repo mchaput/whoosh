@@ -275,10 +275,8 @@ def test_read_inline():
         w.commit()
         
         tr = TermIndexReader(ix.storage.open_file("_readinline_1.trm"))
-        for i, item in enumerate(tr.items()):
-            assert_equal(item[1][1], ((i,), (1.0,),
-                                          ('\x00\x00\x00\x01]q\x01K\x00a',),
-                                          1.0, 1))
+        for i, (term, terminfo) in enumerate(tr.items()):
+            assert_equal(terminfo.postings, ((i,), (1.0,), ('\x00\x00\x00\x01]q\x01K\x00a',)))
         tr.close()
         
         with ix.reader() as r:

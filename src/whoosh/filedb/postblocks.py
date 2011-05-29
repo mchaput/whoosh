@@ -40,17 +40,23 @@ from whoosh.util import utf8decode, length_to_byte, byte_to_length
 
 
 class BlockBase(object):
-    def __init__(self, postfile, stringids=False):
+    def __init__(self, postfile, postingsize, stringids=False, minlength=None,
+                 maxlength=0, maxweight=0, maxwol=0):
         self.postfile = postfile
+        self.postingsize = postingsize
         self.stringids = stringids
         
-        if stringids:
-            self.ids = []
-        else:
-            self.ids = array("I")
+        # Create lists/arrays to hold the ids and weights
+        self.ids = [] if stringids else array("I")
         self.weights = array("f")
-        self.lengths = array("i")
+        # Start off not storing values... if append() is called with a valid
+        # value, we'll replace this with a list
         self.values = None
+        
+        self._minlength = minlength  # (as byte)
+        self._maxlength = maxlength  # (as byte)
+        self._maxweight = maxweight
+        self._maxwol = maxwol
     
     def __del__(self):
         try:
@@ -65,43 +71,37 @@ class BlockBase(object):
         return bool(self.ids)
     
     def min_length(self):
-        if self.lengths:
-            return min(self.lengths)
-        return self._minlength
+        return byte_to_length(self._minlength or 0)
     
     def max_length(self):
-        if self.lengths:
-            return max(self.lengths)
-        return self._maxlength
+        return byte_to_length(self._maxlength)
     
     def max_weight(self):
-        return max(self.weights)
+        return self._maxweight
     
     def max_wol(self):
-        if self.lengths:
-            return max(w / l for w, l in zip(self.weights, self.lengths))
-        return 0.0
-    
-    def stats(self):
-        # Calculate block statistics
-        maxweight = max(self.weights)
-        maxwol = 0.0
-        minlength = 0
-        if self.lengths:
-            minlength = min(self.lengths)
-            maxwol = max(w / l for w, l in zip(self.weights, self.lengths))
-        
-        return (maxweight, maxwol, minlength)
+        return self._maxwol
     
     def append(self, id, weight, valuestring, dfl):
-        if self.values is None:
-            self.values = []
-        
         self.ids.append(id)
         self.weights.append(weight)
-        self.values.append(valuestring)
+        if weight > self._maxweight:
+            self._maxweight = weight
+        
+        if valuestring:
+            if self.values is None:
+                self.values = []
+            self.values.append(valuestring)
+        
         if dfl:
-            self.lengths.append(dfl)
+            length_byte = length_to_byte(dfl)
+            if self._minlength is None or length_byte < self._minlength:
+                self._minlength = length_byte
+            if dfl > self._maxlength:
+                self._maxlength = length_byte
+            wol = weight / byte_to_length(length_byte)
+            if wol > self._maxwol:
+                self._maxwol = wol
 
 
 # Current block format
@@ -120,34 +120,43 @@ class Block2(BlockBase):
     # 12      i     Weights length
     # 16      f     Maximum weight
     # 20      f     Max weight-over-length
-    # 24      f     -Unused
+    # 24      H     -Unused
+    # 26      B     -Unused
+    # 27      B     Maximum length, encoded as byte
     # 28      B     Minimum length, encoded as byte
     #
     # Followed by either an unsigned int or string indicating the last ID in
     # this block
-    _struct = Struct("<iBBcBiifffB")
+    _struct = Struct("<iBBcBiiffHBBB")
     
     @classmethod
-    def from_file(cls, postfile, stringids=False):
+    def from_file(cls, postfile, postingsize, stringids=False):
         start = postfile.tell()
-        block = cls(postfile, stringids=stringids)
+        
+        # Read the block header information from the posting file
         header = cls._struct.unpack(postfile.read(cls._struct.size))
         
+        # Create the base block object
+        block = cls(postfile, postingsize, stringids=stringids,
+                    maxweight=header[7], maxwol=header[8],
+                    maxlength=header[11], minlength=header[12])
+        
+        # Fill in the attributes needed by this block implementation
         block.nextoffset = start + header[0]
         block.compression = header[1]
         block.postcount = header[2]
         block.typecode = header[3]
         block.idslen = header[5]
         block.weightslen = header[6]
-        block.maxweight = header[7]
-        block.maxwol = header[8]
-        block.minlen = byte_to_length(header[10])
         
+        # Read the "maximum ID" part of the header, based on whether we're
+        # using string IDs
         if stringids:
             block.maxid = load(postfile)
         else:
             block.maxid = postfile.read_uint()
         
+        # The position after the header
         block.dataoffset = postfile.tell()
         return block
 
@@ -184,30 +193,31 @@ class Block2(BlockBase):
         self.weights = weights
         return weights
     
-    def read_values(self, posting_size):
-        if posting_size == 0:
+    def read_values(self):
+        postingsize = self.postingsize
+        if postingsize == 0:
             values = [None] * self.postcount
         else:
             offset = self.dataoffset + self.idslen + self.weightslen
             values_string = self.postfile.map[offset:self.nextoffset]
             if self.compression:
                 values_string = decompress(values_string)
-            if posting_size < 0:
+            if postingsize < 0:
                 values = loads(values_string)
             else:
-                values = [values_string[i:i + posting_size]
-                          for i in xrange(0, len(values_string), posting_size)]
+                values = [values_string[i:i + postingsize]
+                          for i in xrange(0, len(values_string), postingsize)]
         
         self.values = values
         return values
     
-    def to_file(self, postfile, posting_size, compression=3):
+    def write(self, compression=3):
+        postfile = self.postfile
         stringids = self.stringids
         ids = self.ids
         weights = self.weights
         values = self.values
         postcount = len(ids)
-        maxweight, maxwol, minlength = self.stats()
         
         if postcount <= 4 or not can_compress:
             compression = 0
@@ -248,9 +258,10 @@ class Block2(BlockBase):
             weights_string = compress(weights_string, compression)
         
         # Values
-        if posting_size < 0:
+        postingsize = self.postingsize
+        if postingsize < 0:
             values_string = dumps(values, -1)[2:]
-        elif posting_size == 0:
+        elif postingsize == 0:
             values_string = ''
         else:
             values_string = "".join(values)
@@ -259,12 +270,12 @@ class Block2(BlockBase):
         
         # Header
         flags = 1 if compression else 0
-        minlen_byte = length_to_byte(minlength)
         blocksize = sum((self._struct.size, len(maxid_string), len(ids_string),
                          len(weights_string), len(values_string)))
         header = self._struct.pack(blocksize, flags, postcount, typecode,
                                    0, len(ids_string), len(weights_string),
-                                   maxweight, maxwol, 0, minlen_byte)
+                                   self.max_weight(), self.max_wol(), 0, 0,
+                                   self._maxlength, self._minlength or 0)
         
         postfile.write(header)
         postfile.write(maxid_string)
@@ -375,30 +386,31 @@ class Block1(BlockBase):
         self.values_offset = newoffset
         return weights
 
-    def read_values(self, posting_size):
+    def read_values(self):
         postfile = self.postfile
         startoffset = self.values_offset
         endoffset = self.nextoffset
         postcount = self.postcount
 
-        if posting_size != 0:
+        postingsize = self.postingsize
+        if postingsize != 0:
             values_string = postfile.map[startoffset:endoffset]
             
             if self.weightslen:
                 # Values string is compressed
                 values_string = decompress(values_string)
             
-            if posting_size < 0:
+            if postingsize < 0:
                 # Pull the array of value lengths off the front of the string
                 lengths = array("i")
                 lengths.fromstring(values_string[:_INT_SIZE * postcount])
                 values_string = values_string[_INT_SIZE * postcount:]
                 
             # Chop up the block string into individual valuestrings
-            if posting_size > 0:
+            if postingsize > 0:
                 # Format has a fixed posting size, just chop up the values
                 # equally
-                values = [values_string[i * posting_size: i * posting_size + posting_size]
+                values = [values_string[i * postingsize: i * postingsize + postingsize]
                           for i in xrange(postcount)]
             else:
                 # Format has a variable posting size, use the array of lengths

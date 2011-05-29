@@ -1736,8 +1736,8 @@ class WeightingQuery(WrappingQuery):
         def _replacement(self, newchild):
             return self.__class__(newchild, self.scorer)
         
-        def supports_quality(self):
-            return self.scorer.supports_quality()
+        def supports_block_quality(self):
+            return self.scorer.supports_block_quality()
         
         def quality(self):
             return self.scorer.quality(self)

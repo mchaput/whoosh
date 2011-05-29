@@ -46,8 +46,8 @@ appropriate matcher to implement the query (for example, the ``Or`` query's
 Certain backends support "quality" optimizations. These backends have the
 ability to skip ahead if it knows the current block of postings can't
 contribute to the top N documents. If the matcher tree and backend support
-these optimizations, the matcher's ``supports_quality()`` method will return
-``True``.
+these optimizations, the matcher's ``supports_block_quality()`` method will
+return ``True``.
 """
 
 
@@ -96,7 +96,7 @@ class Matcher(object):
         
         return 0
     
-    def supports_quality(self):
+    def supports_block_quality(self):
         """Returns True if this matcher supports the use of ``quality`` and
         ``block_quality``.
         """
@@ -261,7 +261,7 @@ class ListMatcher(Matcher):
     """
     
     def __init__(self, ids, weights=None, values=None, format=None,
-                 scorer=None, position=0, all_weights=None, termstats=None):
+                 scorer=None, position=0, all_weights=None):
         """
         :param ids: a list of doc IDs.
         :param weights: a list of weights corresponding to the list of IDs.
@@ -281,7 +281,6 @@ class ListMatcher(Matcher):
         self._i = position
         self._format = format
         self._scorer = scorer
-        self._stats = termstats
     
     def __repr__(self):
         return "<%s>" % self.__class__.__name__
@@ -292,10 +291,20 @@ class ListMatcher(Matcher):
     def copy(self):
         return self.__class__(self._ids, self._weights, self._values,
                               self._format, self._scorer, self._i,
-                              self._all_weights, self._maxwol, self._minlength)
+                              self._all_weights)
     
-    def supports_quality(self):
-        return self._scorer is not None and self._scorer.supports_quality()
+    def replace(self, minquality=0):
+        if not self.is_active() or (minquality
+                                    and self.max_quality() < minquality):
+            return NullMatcher()
+        else:
+            return self
+    
+    def max_quality(self):
+        return self._scorer.max_quality()
+    
+    def supports_block_quality(self):
+        return self._scorer is not None and self._scorer.supports_block_quality()
     
     def quality(self):
         return self._scorer.quality(self)
@@ -347,10 +356,10 @@ class ListMatcher(Matcher):
             return 1.0
     
     def block_min_length(self):
-        return self._stats.min_length()
+        return self._minlength
     
     def block_max_length(self):
-        return self._stats.max_length()
+        return self._maxlength
     
     def block_max_weight(self):
         if self._all_weights:
@@ -361,10 +370,7 @@ class ListMatcher(Matcher):
             return 1.0
     
     def block_max_wol(self):
-        return self._stats.max_wol()
-    
-    def block_max_id(self):
-        return max(self._ids)
+        return self.block_max_weight() / self.block_min_length()
     
     def score(self):
         if self._scorer:
@@ -444,8 +450,8 @@ class WrappingMatcher(Matcher):
     def next(self):
         self.child.next()
     
-    def supports_quality(self):
-        return self.child.supports_quality()
+    def supports_block_quality(self):
+        return self.child.supports_block_quality()
     
     def skip_to_quality(self, minquality):
         return self.child.skip_to_quality(minquality / self.boost)
@@ -572,8 +578,8 @@ class MultiMatcher(Matcher):
             
         return r
     
-    def supports_quality(self):
-        return all(mr.supports_quality() for mr in self.matchers[self.current:])
+    def supports_block_quality(self):
+        return all(mr.supports_block_quality() for mr in self.matchers[self.current:])
     
     def quality(self):
         return self.matchers[self.current].quality()
@@ -686,8 +692,8 @@ class BiMatcher(Matcher):
         rb = self.b.skip_to(id)
         return ra or rb
         
-    def supports_quality(self):
-        return self.a.supports_quality() and self.b.supports_quality()
+    def supports_block_quality(self):
+        return self.a.supports_block_quality() and self.b.supports_block_quality()
     
     def supports(self, astype):
         return self.a.supports(astype) and self.b.supports(astype)
@@ -753,9 +759,8 @@ class UnionMatcher(AdditiveBiMatcher):
         elif not b_active:
             return a.replace(minquality)
         
-        # Can't pass minquality down here
-        a = a.replace()
-        b = b.replace()
+        a = a.replace(minquality - b.max_quality() if minquality else 0)
+        b = b.replace(minquality - a.max_quality() if minquality else 0)
         # If one of the sub-matchers changed, return a new union
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
@@ -1027,9 +1032,8 @@ class IntersectionMatcher(AdditiveBiMatcher):
             # return an inactive matcher
             return NullMatcher()
         
-        # Can't pass the minquality down here
-        a = a.replace()
-        b = b.replace()
+        a = a.replace(minquality - b.max_quality() if minquality else 0)
+        b = b.replace(minquality - a.max_quality() if minquality else 0)
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
         else:
@@ -1153,6 +1157,9 @@ class AndNotMatcher(BiMatcher):
         
         return r
     
+    def supports_block_quality(self):
+        return self.a.supports_block_quality()
+    
     def replace(self, minquality=0):
         if not self.a.is_active():
             # The a matcher is required, so if it's inactive, return an
@@ -1256,7 +1263,7 @@ class InverseMatcher(WrappingMatcher):
     def is_active(self):
         return self._id < self.limit
     
-    def supports_quality(self):
+    def supports_block_quality(self):
         return False
     
     def _find_next(self):
@@ -1324,6 +1331,9 @@ class RequireMatcher(WrappingMatcher):
     
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
+    
+    def supports_block_quality(self):
+        return self.a.supports_block_quality()
     
     def replace(self, minquality=0):
         if not self.child.is_active():
@@ -1428,9 +1438,8 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         elif not b_active:
             return a.replace(minquality)
         
-        # Can't pass the minquality down here
-        new_a = a.replace()
-        new_b = b.replace()
+        new_a = a.replace(minquality - b.max_quality())
+        new_b = b.replace(minquality - a.max_quality())
         if new_a is not a or new_b is not b:
             # If one of the sub-matchers changed, return a new AndMaybe
             return self.__class__(new_a, new_b)

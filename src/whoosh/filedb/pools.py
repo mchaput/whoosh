@@ -36,7 +36,7 @@ from marshal import load, dump
 #import sqlite3 as sqlite
 
 from whoosh.filedb.filetables import LengthWriter, LengthReader
-from whoosh.util import length_to_byte
+from whoosh.util import length_to_byte, byte_to_length
 
 
 try:
@@ -118,6 +118,7 @@ class PoolBase(object):
         
         self.length_arrays = {}
         self._fieldlength_totals = defaultdict(int)
+        self._fieldlength_mins = {}
         self._fieldlength_maxes = {}
     
     def _make_dir(self):
@@ -154,6 +155,9 @@ class PoolBase(object):
     def fieldlength_totals(self):
         return dict(self._fieldlength_totals)
     
+    def fieldlength_mins(self):
+        return self._fieldlength_mins
+    
     def fieldlength_maxes(self):
         return self._fieldlength_maxes
     
@@ -162,8 +166,15 @@ class PoolBase(object):
     
     def add_field_length(self, docnum, fieldname, length):
         self._fieldlength_totals[fieldname] += length
-        if length > self._fieldlength_maxes.get(fieldname, 0):
-            self._fieldlength_maxes[fieldname] = length
+        
+        bytelength = length_to_byte(length)
+        normalized = byte_to_length(bytelength)
+        
+        if normalized < self._fieldlength_mins.get(fieldname, 999999999):
+            self._fieldlength_mins[fieldname] = normalized
+        
+        if normalized > self._fieldlength_maxes.get(fieldname, 0):
+            self._fieldlength_maxes[fieldname] = normalized
         
         if fieldname not in self.length_arrays:
             self.length_arrays[fieldname] = array("B")
@@ -172,7 +183,7 @@ class PoolBase(object):
         if len(arry) <= docnum:
             for _ in xrange(docnum - len(arry) + 1):
                 arry.append(0)
-        arry[docnum] = length_to_byte(length)
+        arry[docnum] = bytelength
     
     def _fill_lengths(self, doccount):
         for fieldname in self.length_arrays.keys():
@@ -362,6 +373,7 @@ class SqlitePool(PoolBase):
 class NullPool(PoolBase):
     def __init__(self, *args, **kwargs):
         self._fieldlength_totals = {}
+        self._fieldlength_mins = {}
         self._fieldlength_maxes = {}
     
     def add_content(self, *args):

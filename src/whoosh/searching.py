@@ -98,7 +98,9 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "lexicon", "frequency", "doc_frequency", 
-                     "field_length", "doc_field_length", "max_field_length",
+                     "min_length", "max_length", "max_weight", "max_wol",
+                     "field_length", "doc_field_length",
+                     "min_field_length", "max_field_length",
                      ):
             setattr(self, name, getattr(self.ixreader, name))
 
@@ -935,7 +937,7 @@ class Collector(object):
         docset = self.docset
         
         # Can't use quality optimizations if the matcher doesn't support them
-        usequality = usequality and matcher.supports_quality()
+        usequality = usequality and matcher.supports_block_quality()
         replace = self.replace
         
         # A flag to indicate whether we should check block quality at the start

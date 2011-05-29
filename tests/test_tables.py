@@ -6,7 +6,7 @@ import random
 from nose.tools import assert_equal
 
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filetables import (HashReader, HashWriter,
+from whoosh.filedb.filetables import (HashReader, HashWriter, TermInfo,
                                       OrderedHashWriter, OrderedHashReader,
                                       StoredFieldWriter, StoredFieldReader,
                                       TermIndexWriter, TermIndexReader)
@@ -20,9 +20,9 @@ def randstring(domain, minlen, maxlen):
 def test_termkey():
     with TempStorage("termkey") as st:
         tw = TermIndexWriter(st.create_file("test.trm"))
-        tw.add(("alfa", u"bravo"), (1.0, 2, 3))
-        tw.add((u"alfa", u"Ã¦Ã¯Å�Ãº"), (4.0, 5, 6))
-        tw.add((u"text", u"æ—¥æœ¬èªž"), (7.0, 8, 9))
+        tw.add(("alfa", u"bravo"), TermInfo(1.0, 3))
+        tw.add((u"alfa", u"Ã¦Ã¯Å�Ãº"), TermInfo(4.0, 6))
+        tw.add((u"text", u"æ—¥æœ¬èªž"), TermInfo(7.0, 9))
         tw.close()
         
         tr = TermIndexReader(st.open_file("test.trm"))
@@ -43,7 +43,7 @@ def test_random_termkeys():
     st = RamStorage()
     tw = TermIndexWriter(st.create_file("test.trm"))
     for term in domain:
-        tw.add(term, (1.0, 0, 1))
+        tw.add(term, TermInfo(1.0, 1))
     tw.close()
     
     tr = TermIndexReader(st.open_file("test.trm"))
@@ -172,13 +172,15 @@ def test_termindex():
     
     tw = TermIndexWriter(st.create_file("test.trm"))
     for i, t in enumerate(terms):
-        tw.add(t, (1.0, i * 1000, 1))
+        tw.add(t, TermInfo(1.0, i))
     tw.close()
     
     tr = TermIndexReader(st.open_file("test.trm"))
     for i, (t1, t2) in enumerate(zip(tr.keys(), terms)):
         assert_equal(t1, t2)
-        assert_equal(tr.get(t1), (1.0, i * 1000, 1))
+        ti = tr.get(t1)
+        assert_equal(ti.frequency(), 1.0)
+        assert_equal(ti.doc_frequency(), i)
         
     
 

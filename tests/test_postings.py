@@ -26,6 +26,7 @@ def test_readwrite():
         fpw.start(format)
         for id, freq in postings:
             fpw.write(id, float(freq), format.encode(freq), 0)
+        fpw.finish()
         fpw.close()
         
         postfile = st.open_file("readwrite")
@@ -43,6 +44,7 @@ def test_skip():
         fpw.start(format)
         for id, freq in postings:
             fpw.write(id, float(freq), format.encode(freq), 0)
+        fpw.finish()
         fpw.close()
         
         postfile = st.open_file("skip")
@@ -60,6 +62,7 @@ def roundtrip(postings, format, astype):
         for id, value in postings:
             v = format.encode(value)
             fpw.write(id, getweight(v), v, 0)
+        fpw.finish()
         fpw.close()
         
         postfile = st.open_file(astype)

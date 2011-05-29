@@ -89,15 +89,15 @@ def test_term_inspection():
                     ('content', u'ee'), ('title', u'document'), ('title', u'my'),
                     ('title', u'other')]))
     # (text, doc_freq, index_freq)
-    assert (list(reader.iter_field("content"))
-            == [(u'aa', 2, 6), (u'ab', 1, 1), (u'ax', 1, 2), (u'bb', 2, 5),
-                (u'cc', 2, 3), (u'dd', 2, 2), (u'ee', 2, 4)])
-    assert (list(reader.iter_field("content", prefix="c"))
-             == [(u'cc', 2, 3), (u'dd', 2, 2), (u'ee', 2, 4)])
-    assert (list(reader.most_frequent_terms("content"))
-            == [(6, u'aa'), (5, u'bb'), (4, u'ee'), (3, u'cc'), (2, u'dd')])
-    assert (list(reader.most_frequent_terms("content", prefix="a"))
-            == [(6, u'aa'), (2, u'ax'), (1, u'ab')])
+    assert_equal(list(reader.iter_field("content")),
+                 [(u'aa', 2, 6), (u'ab', 1, 1), (u'ax', 1, 2), (u'bb', 2, 5),
+                  (u'cc', 2, 3), (u'dd', 2, 2), (u'ee', 2, 4)])
+    assert_equal(list(reader.iter_field("content", prefix="c")),
+                 [(u'cc', 2, 3), (u'dd', 2, 2), (u'ee', 2, 4)])
+    assert_equal(list(reader.most_frequent_terms("content")),
+                 [(6, u'aa'), (5, u'bb'), (4, u'ee'), (3, u'cc'), (2, u'dd')])
+    assert_equal(list(reader.most_frequent_terms("content", prefix="a")),
+                 [(6, u'aa'), (2, u'ax'), (1, u'ab')])
 
 def test_vector_postings():
     s = fields.Schema(id=fields.ID(stored=True, unique=True),
