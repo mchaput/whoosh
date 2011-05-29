@@ -175,20 +175,56 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def doc_frequency(self, fieldname, text):
-        """Returns how many documents the given term appears in.
-        """
-        raise NotImplementedError
-
     def frequency(self, fieldname, text):
         """Returns the total number of instances of the given term in the
         collection.
         """
         raise NotImplementedError
 
+    def doc_frequency(self, fieldname, text):
+        """Returns how many documents the given term appears in.
+        """
+        raise NotImplementedError
+
+    def min_length(self, fieldname, text):
+        """Returns the minimum length of any documents the given term appears
+        in.
+        """
+        raise NotImplementedError
+    
+    def max_length(self, fieldname, text):
+        """Returns the maximum length of any documents the given term appears
+        in.
+        """
+        raise NotImplementedError
+    
+    def max_weight(self, fieldname, text):
+        """Returns the maximum weight of the given term in any documents it
+        appears in.
+        """
+        raise NotImplementedError
+    
+    def max_wol(self, fieldname, text):
+        """Returns the maximum (weight / length) of the given term in any
+        documents it appears in.
+        """
+        raise NotImplementedError
+
     def field_length(self, fieldname):
         """Returns the total number of terms in the given field. This is used
         by some scoring algorithms.
+        """
+        raise NotImplementedError
+
+    def min_field_length(self, fieldname):
+        """Returns the minimum length of the field across all documents. This
+        is used by some scoring algorithms.
+        """
+        raise NotImplementedError
+    
+    def max_field_length(self, fieldname):
+        """Returns the minimum length of the field across all documents. This
+        is used by some scoring algorithms.
         """
         raise NotImplementedError
 
@@ -208,11 +244,6 @@ class IndexReader(ClosableMixin):
             if length:
                 yield (fieldname, length)
     
-    def max_field_length(self, fieldname, default=0):
-        """Returns the maximum length of the field across all documents.
-        """
-        raise NotImplementedError
-
     def first_id(self, fieldname, text):
         """Returns the first ID in the posting list for the given term. This
         may be optimized in certain backends.
@@ -312,11 +343,11 @@ class IndexReader(ClosableMixin):
     
     def leaf_readers(self):
         """Returns a list of (IndexReader, docbase) pairs for the child readers
-        of this reader if it is a composite reader, or None if this reader
-        is atomic.
+        of this reader if it is a composite reader. If this is not a composite
+        reader, it returns `[(self, 0)]`.
         """
         
-        return False
+        return [(self, 0)]
     
     #
     
@@ -447,13 +478,19 @@ class EmptyReader(IndexReader):
     def doc_count(self):
         return 0
     
-    def doc_frequency(self, fieldname, text):
-        return 0
-    
     def frequency(self, fieldname, text):
         return 0
     
+    def doc_frequency(self, fieldname, text):
+        return 0
+    
     def field_length(self, fieldname):
+        return 0
+
+    def min_field_length(self, fieldname):
+        return 0
+    
+    def max_field_length(self, fieldname):
         return 0
 
     def doc_field_length(self, docnum, fieldname, default=0):
@@ -461,9 +498,6 @@ class EmptyReader(IndexReader):
 
     def doc_field_lengths(self, docnum):
         raise ValueError
-
-    def max_field_length(self, fieldname, default=0):
-        return 0
 
     def postings(self, fieldname, text, scorer=None):
         raise TermNotFound("%s:%r" % (fieldname, text))
@@ -603,6 +637,12 @@ class MultiReader(IndexReader):
     def field_length(self, fieldname):
         return sum(dr.field_length(fieldname) for dr in self.readers)
 
+    def min_field_length(self, fieldname):
+        return min(r.min_field_length(fieldname) for r in self.readers)
+    
+    def max_field_length(self, fieldname):
+        return max(r.max_field_length(fieldname) for r in self.readers)
+
     def doc_field_length(self, docnum, fieldname, default=0):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         reader = self.readers[segmentnum]
@@ -667,12 +707,24 @@ class MultiReader(IndexReader):
             if vfmt is not None:
                 return vfmt
 
-    def doc_frequency(self, fieldname, text):
-        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
-
     def frequency(self, fieldname, text):
         return sum(r.frequency(fieldname, text) for r in self.readers)
 
+    def doc_frequency(self, fieldname, text):
+        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
+
+    def min_length(self, fieldname, text):
+        return min(r.min_length(fieldname, text) for r in self.readers)
+    
+    def max_length(self, fieldname, text):
+        return max(r.max_length(fieldname, text) for r in self.readers)
+    
+    def max_weight(self, fieldname, text):
+        return max(r.max_weight(fieldname, text) for r in self.readers)
+
+    def max_wol(self, fieldname, text):
+        return max(r.max_wol(fieldname, text) for r in self.readers)
+    
     # most_frequent_terms
     # most_distinctive_terms
     
@@ -684,26 +736,6 @@ class MultiReader(IndexReader):
             r.set_caching_policy(*args, **kwargs)
 
         
-# Term stats class
-
-class TermStats(object):
-    def frequency(self):
-        return self._freq
-    
-    def doc_frequency(self):
-        return self._doc_freq
-    
-    def min_length(self):
-        return self._minlength
-    
-    def max_length(self):
-        return self._maxlength
-    
-    def max_weight(self):
-        return self._maxweight
-    
-    def max_wol(self):
-        return self._maxwol
     
 
 
