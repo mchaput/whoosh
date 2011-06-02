@@ -209,6 +209,25 @@ class QueryParser(object):
         
         return self._priorized("filters")
     
+    def to_tree(self, text, debug=False):
+        """Parses the input string and returns an object representing the
+        parsed syntax tree of the query.
+        
+        :rtype: :class:`whoosh.qparser.syntax.SyntaxObject`
+        """
+        
+        if debug:
+            print "Tokenizing %r" % text
+        stream = self._tokenize(text, debug=debug)
+        if debug:
+            print "Stream=", stream
+        stream = self._filterize(stream, debug)
+        
+        if debug:
+            print "Final stream=", stream
+        
+        return stream
+    
     def parse(self, text, normalize=True, debug=False):
         """Parses the input string and returns a Query object/tree.
         
@@ -222,18 +241,12 @@ class QueryParser(object):
         :rtype: :class:`whoosh.query.Query`
         """
         
-        if debug:
-            print "Tokenizing %r" % text
-        stream = self._tokenize(text, debug=debug)
-        if debug:
-            print "Stream=", stream
-        stream = self._filterize(stream, debug)
+        stream = self.to_tree(text, debug=debug)
+        q = stream.query(self)
         
         if debug:
-            print "Final stream=", stream
-        q = stream.query(self)
-        if debug:
             print "Pre-normalized query=", q
+        
         if normalize:
             q = q.normalize()
         return q
