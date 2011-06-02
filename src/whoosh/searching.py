@@ -73,11 +73,13 @@ class Searcher(object):
         self._ix = fromindex
         
         if parent:
+            self.parent = parent
             self.schema = parent.schema
             self._doccount = parent._doccount
             self._idf_cache = parent._idf_cache
             self._filter_cache = parent._filter_cache
         else:
+            self.parent = None
             self.schema = self.ixreader.schema
             self._doccount = self.ixreader.doc_count_all()
             self._idf_cache = {}
@@ -98,8 +100,7 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "lexicon", "frequency", "doc_frequency", 
-                     "field_length", "doc_field_length", "max_field_length",
-                     ):
+                     "doc_field_length"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -127,6 +128,18 @@ class Searcher(object):
         """
         
         return self._doccount
+
+    def field_length(self, fieldname):
+        if self.parent:
+            return self.parent.field_length(fieldname)
+        else:
+            return self.reader().field_length(fieldname)
+        
+    def max_field_length(self, fieldname):
+        if self.parent:
+            return self.parent.max_field_length(fieldname)
+        else:
+            return self.reader().max_field_length(fieldname)
 
     def up_to_date(self):
         """Returns True if this Searcher represents the latest version of the
@@ -168,9 +181,9 @@ class Searcher(object):
         self.is_closed = True
 
     def avg_field_length(self, fieldname, default=None):
-        if not self.ixreader.schema[fieldname].scorable:
+        if not self.schema[fieldname].scorable:
             return default
-        return self.ixreader.field_length(fieldname) / (self._doccount or 1)
+        return self.field_length(fieldname) / (self._doccount or 1)
 
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`.
@@ -342,15 +355,6 @@ class Searcher(object):
         
         return c
     
-    def docs_for_query(self, q, leafs=True):
-        if self.subsearchers and leafs:
-            for s, offset in self.subsearchers:
-                for docnum in q.docs(s):
-                    yield docnum + offset
-        else:
-            for docnum in q.docs(self):
-                yield docnum
-
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
         """Returns the 'numterms' most important terms from the documents
@@ -559,7 +563,7 @@ class Searcher(object):
               if (not comb) or docnum in comb]
         docset = set(docnum for _, docnum in ls)
         ls.sort(key=lambda x: (0 - x[0], x[1]))
-        return Results(self, q, ls, docset, runtime=now() - t)
+        return Results(self, q, ls, docset, runtime=now() - t, filter=filter)
 
     def define_facets(self, name, qs, save=False):
         def doclists_for_searcher(s):
@@ -587,6 +591,15 @@ class Searcher(object):
             self.ixreader.group_docs_by(fieldname, q.docs(self), groups,
                                         counts=counts)
         return groups
+    
+    def docs_for_query(self, q, leafs=True):
+        if self.subsearchers and leafs:
+            for s, offset in self.subsearchers:
+                for docnum in q.docs(s):
+                    yield docnum + offset
+        else:
+            for docnum in q.docs(self):
+                yield docnum
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
                optimize=True, scored=True, filter=None, mask=None,
@@ -648,6 +661,11 @@ class Searcher(object):
             collector.groupedby = groupedby
             collector.scored = scored
             collector.reverse = reverse
+        
+        if filter:
+            filter = self._filter_to_comb(filter)
+        if mask:
+            mask = self._filter_to_comb(mask)
         
         return collector.search(self, q, allow=filter, restrict=mask)
         
@@ -741,12 +759,8 @@ class Collector(object):
         if self.limit and self.limit > searcher.doc_count_all():
             self.limit = None
         
-        self._allow = None
-        self._restrict = None
-        if allow:
-            self._allow = self._searcher._filter_to_comb(allow)
-        if restrict:
-            self._restrict = self._searcher._filter_to_comb(restrict)
+        self._allow = allow
+        self._restrict = restrict
             
         if self.timelimit:
             self.timer = threading.Timer(self.timelimit, self._timestop)
@@ -876,6 +890,7 @@ class Collector(object):
         list of matched documents.
         """
         
+        docset = self.docset
         offset = self.doc_offset
         limit = self.limit
         items = self._items
@@ -902,6 +917,8 @@ class Collector(object):
                 continue
             if restrict and offsetid in restrict:
                 continue
+            
+            docset.add(offsetid)
             
             if keyfns:
                 for name, keyfn in keyfns.iteritems():
@@ -932,8 +949,6 @@ class Collector(object):
         ``None``.
         """
         
-        docset = self.docset
-        
         # Can't use quality optimizations if the matcher doesn't support them
         usequality = usequality and matcher.supports_quality()
         replace = self.replace
@@ -957,9 +972,6 @@ class Collector(object):
             # The current document ID 
             id = matcher.id()
             offsetid = id + offset
-            
-            if not usequality:
-                docset.add(offsetid)
             
             # If we're using quality optimizations, check whether the current
             # posting has higher quality than the minimum before yielding it.
@@ -1004,7 +1016,8 @@ class Collector(object):
         
         docset = self.docset or None
         return Results(self._searcher, self._q, self.items(), docset,
-                       groups=self.groups, runtime=runtime)
+                       groups=self.groups, runtime=runtime, filter=self._allow,
+                       mask=self._restrict)
 
 
 class TermTrackingCollector(Collector):
@@ -1113,7 +1126,8 @@ class Results(object):
     that position in the results.
     """
 
-    def __init__(self, searcher, q, top_n, docset, groups=None, runtime=-1):
+    def __init__(self, searcher, q, top_n, docset, groups=None, runtime=-1,
+                 filter=None, mask=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -1131,6 +1145,8 @@ class Results(object):
         self.docset = docset
         self._groups = groups or {}
         self.runtime = runtime
+        self._filter = filter
+        self._mask = mask
         self._terms = None
         
         self.fragmenter = highlight.ContextFragmenter()
@@ -1217,7 +1233,20 @@ class Results(object):
         return self._groups[name]
     
     def _load_docs(self):
-        self.docset = set(self.searcher.docs_for_query(self.q))
+        filter = self._filter
+        mask = self._mask
+        gen = self.searcher.docs_for_query(self.q)
+        if filter or mask:
+            docset = set()
+            for docnum in gen:
+                if filter and docnum not in filter:
+                    continue
+                if mask and docnum in mask:
+                    continue
+                docset.add(docnum)
+        else:
+            docset = set(gen)
+        self.docset = docset
 
     def has_exact_length(self):
         """True if this results object already knows the exact number of
@@ -1274,7 +1303,8 @@ class Results(object):
         """
         
         return self.__class__(self.searcher, self.q, self.top_n[:],
-                              copy.copy(self.docset), runtime=self.runtime)
+                              copy.copy(self.docset), runtime=self.runtime,
+                              filter=self._filter, mask=self._mask)
 
     def score(self, n):
         """Returns the score for the document at the Nth position in the list

@@ -147,6 +147,35 @@ def test_extend_empty():
         assert_equal([hit["id"] for hit in r1c], [2, 3, 4])
         assert_equal(r1c.scored_length(), 3)
 
+def test_extend_filtered():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, text=u"alfa bravo charlie")
+    w.add_document(id=2, text=u"bravo charlie delta")
+    w.add_document(id=3, text=u"juliet delta echo")
+    w.add_document(id=4, text=u"delta bravo alfa")
+    w.add_document(id=5, text=u"foxtrot sierra tango")
+    w.commit()
+    
+    hits = lambda result: [hit["id"] for hit in result]
+    
+    with ix.searcher() as s:
+        r1 = s.search(query.Term("text", u"alfa"), filter=set([1, 4]))
+        assert_equal(r1._filter, set([1, 4]))
+        assert_equal(len(r1.top_n), 0)
+        
+        r2 = s.search(query.Term("text", u"bravo"))
+        assert_equal(len(r2.top_n), 3)
+        assert_equal(hits(r2), [1, 2, 4])
+        
+        r3 = r1.copy()
+        assert_equal(r3._filter, set([1, 4]))
+        assert_equal(len(r3.top_n), 0)
+        r3.extend(r2)
+        assert_equal(len(r3.top_n), 3)
+        assert_equal(hits(r3), [1, 2, 4])
+
 def test_pages():
     from whoosh.scoring import Frequency
     
