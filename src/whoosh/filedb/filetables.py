@@ -33,6 +33,7 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 from array import array
 from collections import defaultdict
 from cPickle import loads, dumps
+from hashlib import md5
 from struct import Struct
 
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, pack_ushort, pack_uint,
@@ -45,8 +46,11 @@ _4GB = 4 * 1024 * 1024 * 1024
 def cdb_hash(key):
     h = 5381L
     for c in key:
-        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
+        h = (h + (h << 5)) & 0xffffffff ^ ord(c)
     return h
+
+def md5_hash(key):
+    return int(md5(key).hexdigest(), 16) & 0xffffffff
 
 _header_entry_struct = Struct("!qI")  # Position, number of slots
 header_entry_size = _header_entry_struct.size
@@ -62,15 +66,19 @@ unpack_lengths = _lengths_struct.unpack
 # Table classes
 
 class HashWriter(object):
-    def __init__(self, dbfile, old_format=False):
+    def __init__(self, dbfile, format=2):
         self.dbfile = dbfile
-        self.old_format = old_format
+        self.format = format
         
-        if not old_format:
+        if format:
             self.header_size = 16 + 256 * header_entry_size
             _pointer_struct = Struct("!Iq")  # Hash value, position
-            self.hash_func = cdb_hash
+            if format == 1:
+                self.hash_func = cdb_hash
+            else:
+                self.hash_func = md5_hash
         else:
+            # Old format
             self.header_size = 256 * header_entry_size
             _pointer_struct = Struct("!qq")  # Hash value, position
             self.hash_func = hash
@@ -135,9 +143,10 @@ class HashWriter(object):
         directory = self.directory
 
         dbfile.seek(0)
-        if not self.old_format:
+        if self.format:
             dbfile.write("HASH")
-            dbfile.write_int(0)  # Unused
+            dbfile.write_byte(self.format)
+            dbfile.write("\x00\x00\x00")  # Unused
             dbfile.write_long(self._end_of_hashes)
         
         for position, numslots in directory:
@@ -160,15 +169,19 @@ class HashReader(object):
         dbfile.seek(0)
         magic = dbfile.read(4)
         if magic == "HASH":
-            self.old_format = False
             self.header_size = 16 + 256 * header_entry_size
             _pointer_struct = Struct("!Iq")  # Hash value, position
-            dbfile.read_int()  # Unused
+            self.format = dbfile.read_byte()
+            dbfile.read(3)  # Unused
             self._end_of_hashes = dbfile.read_long()
             assert self._end_of_hashes >= self.header_size, "%s < %s" % (self._end_of_hashes, self.header_size)
-            self.hash_func = cdb_hash
+            
+            if self.format == 1:
+                self.hash_func = cdb_hash
+            else:
+                self.hash_func = md5_hash
         else:
-            self.old_format = True
+            self.format = 0
             self.header_size = 256 * header_entry_size
             _pointer_struct = Struct("!qq")  # Hash value, position
             self.hash_func = hash
@@ -287,11 +300,11 @@ class HashReader(object):
                         yield (pos + lengths_size + keylen, datalen)
                         
     def end_of_hashes(self):
-        if self.old_format:
+        if self.format:
+            return self._end_of_hashes
+        else:
             lastpos, lastnum = self.buckets[255]
             return lastpos + lastnum * self.pointer_size
-        else:
-            return self._end_of_hashes
 
 
 class OrderedHashWriter(HashWriter):
