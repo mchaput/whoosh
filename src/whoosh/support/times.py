@@ -29,6 +29,7 @@ import calendar
 import copy
 from datetime import date, datetime, timedelta
 
+from whoosh.compat import iteritems
 
 class TimeError(Exception):
     pass
@@ -101,7 +102,7 @@ class adatetime(object):
             self.hour, self.minute, self.second = year.hour, year.minute, year.second
             self.microsecond = year.microsecond
         else:
-            if month is not None and month < 1 or month > 12:
+            if month is not None and (month < 1 or month > 12):
                 raise TimeError("month must be in 1..12")
             
             if day is not None and  day < 1:
@@ -110,13 +111,13 @@ class adatetime(object):
                 and day > calendar.monthrange(year, month)[1]):
                 raise TimeError("day is out of range for month")
             
-            if hour is not None and hour < 0 or hour > 23:
+            if hour is not None and (hour < 0 or hour > 23):
                 raise TimeError("hour must be in 0..23")
-            if minute is not None and minute < 0 or minute > 59:
+            if minute is not None and (minute < 0 or minute > 59):
                 raise TimeError("minute must be in 0..59")
-            if second is not None and second < 0 or second > 59:
+            if second is not None and (second < 0 or second > 59):
                 raise TimeError("second must be in 0..59")
-            if microsecond is not None and microsecond < 0 or microsecond > 999999:
+            if microsecond is not None and (microsecond < 0 or microsecond > 999999):
                 raise TimeError("microsecond must be in 0..999999")
                 
             self.year, self.month, self.day = year, month, day
@@ -161,7 +162,7 @@ class adatetime(object):
         """
         
         newadatetime = self.copy()
-        for key, value in kwargs.iteritems():
+        for key, value in iteritems(kwargs):
             if key in self.units:
                 setattr(newadatetime, key, value)
             else:

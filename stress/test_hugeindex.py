@@ -4,6 +4,7 @@ import struct
 from nose.tools import assert_equal
 
 from whoosh import formats
+from whoosh.compat import next, xrange
 from whoosh.filedb.filepostings import FilePostingReader, FilePostingWriter
 from whoosh.support.testing import TempStorage
 
@@ -33,7 +34,7 @@ def test_huge_postfile():
             assert_equal(pfr.id(), i)
             assert_equal(pfr.weight(), float(i))
             assert_equal(pfr.value(), struct.pack("!I", i))
-            pfr.next()
+            next(pfr)
             i += 1
         pf.close()
     

@@ -26,7 +26,6 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from array import array
-from cPickle import dumps, load, loads
 from struct import Struct
 
 try:
@@ -35,6 +34,7 @@ try:
 except ImportError:
     can_compress = False
 
+from whoosh.compat import dumps, load, loads, xrange, b, u, PY3
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, pack_uint, IS_LITTLE
 from whoosh.util import utf8decode, length_to_byte, byte_to_length
 
@@ -63,7 +63,9 @@ class BlockBase(object):
     
     def __nonzero__(self):
         return bool(self.ids)
-    
+
+    __bool__ = __nonzero__
+
     def stats(self):
         # Calculate block statistics
         maxweight = max(self.weights)
@@ -125,6 +127,8 @@ class Block2(BlockBase):
         block.maxwol = header[8]
         block.minlen = byte_to_length(header[10])
         
+        if PY3:
+            block.typecode = block.typecode.decode('latin-1')
         if stringids:
             block.maxid = load(postfile)
         else:
@@ -221,7 +225,7 @@ class Block2(BlockBase):
         
         # Weights
         if all(w == 1.0 for w in weights):
-            weights_string = ''
+            weights_string = b('')
         else:
             if not IS_LITTLE:
                 weights.byteswap()
@@ -233,9 +237,9 @@ class Block2(BlockBase):
         if posting_size < 0:
             values_string = dumps(values, -1)[2:]
         elif posting_size == 0:
-            values_string = ''
+            values_string = b('')
         else:
-            values_string = "".join(values)
+            values_string = b("").join(values)
         if values_string and compression:
             values_string = compress(values_string, compression)
         
@@ -244,7 +248,7 @@ class Block2(BlockBase):
         minlen_byte = length_to_byte(minlength)
         blocksize = sum((self._struct.size, len(maxid_string), len(ids_string),
                          len(weights_string), len(values_string)))
-        header = self._struct.pack(blocksize, flags, postcount, typecode,
+        header = self._struct.pack(blocksize, flags, postcount, typecode.encode('latin-1'),
                                    0, len(ids_string), len(weights_string),
                                    maxweight, maxwol, 0, minlen_byte)
         

@@ -25,8 +25,10 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from itertools import izip, repeat
+from itertools import repeat
+import sys
 
+from whoosh.compat import izip, next, xrange
 
 """
 This module contains "matcher" classes. Matchers deal with posting lists. The
@@ -138,7 +140,7 @@ class Matcher(object):
         i = 0
         while self.is_active():
             yield self.id()
-            self.next()
+            next(self)
             i += 1
             if i == 10:
                 self = self.replace()
@@ -156,7 +158,7 @@ class Matcher(object):
         i = 0
         while self.is_active():
             yield (self.id(), self.value())
-            self.next()
+            next(self)
             i += 1
             if i == 10:
                 self = self.replace()
@@ -214,7 +216,7 @@ class Matcher(object):
         """
         
         while self.is_active() and self.id() < id:
-            self.next()
+            next(self)
     
     def skip_to_quality(self, minquality):
         """Moves this matcher to the next block with greater than the given
@@ -228,7 +230,9 @@ class Matcher(object):
         """
         
         raise NotImplementedError(self.__class__.__name__)
-    
+
+    __next__ = next
+
     def weight(self):
         """Returns the weight of the current posting.
         """
@@ -241,6 +245,8 @@ class Matcher(object):
         
         raise NotImplementedError(self.__class__.__name__)
     
+    def __lt__(self, other):
+        return id(self) < id(other)
 
 class NullMatcher(Matcher):
     """Matcher with no postings which is never active.
@@ -339,7 +345,9 @@ class ListMatcher(Matcher):
     
     def next(self):
         self._i += 1
-    
+
+    __next__ = next
+
     def weight(self):
         if self._all_weights:
             return self._all_weights
@@ -402,7 +410,8 @@ class WrappingMatcher(Matcher):
         if r is not self.child:
             try:
                 return self._replacement(r)
-            except TypeError, e:
+            except TypeError:
+                e = sys.exc_info()[1]
                 raise TypeError("Class %s got exception %s trying "
                                 "to replace itself" % (self.__class__, e))
         else:
@@ -433,8 +442,10 @@ class WrappingMatcher(Matcher):
         return self.child.skip_to(id)
     
     def next(self):
-        self.child.next()
-    
+        next(self.child)
+
+    __next__ = next
+
     def supports_quality(self):
         return self.child.supports_quality()
     
@@ -527,10 +538,12 @@ class MultiMatcher(Matcher):
         if not self.is_active():
             raise ReadTooFar
         
-        self.matchers[self.current].next()
+        next(self.matchers[self.current])
         if not self.matchers[self.current].is_active():
             self._next_matcher()
-        
+
+    __next__ = next
+
     def skip_to(self, id):
         if not self.is_active():
             raise ReadTooFar
@@ -611,16 +624,18 @@ class FilterMatcher(WrappingMatcher):
         
         if self._exclude:
             while child.is_active() and child.id() in ids:
-                r = child.next() or r
+                r = next(child) or r
         else:
             while child.is_active() and child.id() not in ids:
-                r = child.next() or r
+                r = next(child) or r
         return r
     
     def next(self):
-        self.child.next()
+        next(self.child)
         self._find_next()
-        
+
+    __next__ = next
+
     def skip_to(self, id):
         self.child.skip_to(id)
         self._find_next()
@@ -759,9 +774,9 @@ class UnionMatcher(AdditiveBiMatcher):
         if not (a_active or b_active):
             raise ReadTooFar
         elif not a_active:
-            return b.next()
+            return next(b)
         elif not b_active:
-            return a.next()
+            return next(a)
         
         a_id = a.id()
         b_id = b.id()
@@ -769,11 +784,13 @@ class UnionMatcher(AdditiveBiMatcher):
         
         # After all that, here's the actual implementation
         if a_id <= b_id:
-            ar = a.next()
+            ar = next(a)
         if b_id <= a_id:
-            br = b.next()
+            br = next(b)
         return ar or br
-    
+
+    __next__ = next
+
     def spans(self):
         if not self.a.is_active():
             return self.b.spans()
@@ -1005,11 +1022,13 @@ class IntersectionMatcher(AdditiveBiMatcher):
         
         # We must assume that the ids are equal whenever next() is called (they
         # should have been made equal by _find_next), so advance them both
-        ar = self.a.next()
+        ar = next(self.a)
         if self.is_active():
             nr = self._find_next()
             return ar or nr
-    
+
+    __next__ = next
+
     def spans(self):
         return sorted(set(self.a.spans()) | set(self.b.spans()))
     
@@ -1041,7 +1060,7 @@ class AndNotMatcher(BiMatcher):
             neg.skip_to(pos_id)
         
         while pos.is_active() and neg.is_active() and pos_id == neg.id():
-            nr = pos.next()
+            nr = next(pos)
             if not pos.is_active():
                 break
             
@@ -1078,12 +1097,14 @@ class AndNotMatcher(BiMatcher):
     def next(self):
         if not self.a.is_active():
             raise ReadTooFar
-        ar = self.a.next()
+        ar = next(self.a)
         nr = False
         if self.b.is_active():
             nr = self._find_next()
         return ar or nr
-        
+
+    __next__ = next
+
     def skip_to(self, id):
         if not self.a.is_active():
             raise ReadTooFar
@@ -1156,7 +1177,7 @@ class InverseMatcher(WrappingMatcher):
 
             if self._id == child.id():
                 self._id += 1
-                child.next()
+                next(child)
                 continue
             
             break
@@ -1175,7 +1196,9 @@ class InverseMatcher(WrappingMatcher):
             raise ReadTooFar
         self._id += 1
         self._find_next()
-        
+
+    __next__ = next
+ 
     def skip_to(self, id):
         if self._id >= self.limit:
             raise ReadTooFar
@@ -1258,11 +1281,13 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         if not self.a.is_active():
             raise ReadTooFar
         
-        ar = self.a.next()
+        ar = next(self.a)
         br = False
         if self.a.is_active() and self.b.is_active():
             br = self.b.skip_to(self.a.id())
         return ar or br
+
+    __next__ = next
     
     def skip_to(self, id):
         if not self.a.is_active():

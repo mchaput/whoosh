@@ -28,11 +28,12 @@
 import os
 from array import array
 from copy import copy
-from cPickle import dump as dump_pickle
-from cPickle import load as load_pickle
 from struct import calcsize
 from gzip import GzipFile
 
+from whoosh.compat import dump as dump_pickle
+from whoosh.compat import load as load_pickle
+from whoosh.compat import integer_types, b
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_sbyte, pack_ushort, pack_int, pack_uint,
                            pack_long, pack_float,
@@ -90,7 +91,7 @@ class StructFile(object):
                     self._setup_fake_map()
         else:
             self._setup_fake_map()
-            
+
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
 
@@ -123,7 +124,7 @@ class StructFile(object):
         
         class fakemap(object):
             def __getitem__(self, slice):
-                if isinstance(slice, (int, long)):
+                if isinstance(slice, integer_types):
                     _self.seek(slice)
                     return _self.read(1)
                 else:
@@ -180,7 +181,7 @@ class StructFile(object):
         """Writes a single byte to the wrapped file, shortcut for
         ``file.write(chr(n))``.
         """
-        self.file.write(chr(n))
+        self.file.write(b(chr(n)))
 
     def read_byte(self):
         return ord(self.file.read(1))

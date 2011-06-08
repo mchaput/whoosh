@@ -28,8 +28,8 @@
 import os
 import tempfile
 from multiprocessing import Process, Queue, cpu_count
-from cPickle import dump, load
 
+from whoosh.compat import dump, load, xrange, iteritems
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filewriting import SegmentWriter
@@ -320,9 +320,9 @@ class MultiPool(PoolBase):
             taskruns, flentotals, flenmaxes, lenfilename = rqueue.get()
             runs.extend(taskruns)
             lenfilenames.append(lenfilename)
-            for fieldnum, total in flentotals.iteritems():
+            for fieldnum, total in iteritems(flentotals):
                 _fieldlength_totals[fieldnum] += total
-            for fieldnum, length in flenmaxes.iteritems():
+            for fieldnum, length in iteritems(flenmaxes):
                 if length > self._fieldlength_maxes.get(fieldnum, 0):
                     self._fieldlength_maxes[fieldnum] = length
         

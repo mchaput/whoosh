@@ -35,6 +35,7 @@ from heapq import heapify, heappop, heapreplace
 from marshal import load, dump
 #import sqlite3 as sqlite
 
+from whoosh.compat import long_type, iteritems, xrange, text_type, PY3
 from whoosh.filedb.filetables import LengthWriter, LengthReader
 from whoosh.util import length_to_byte
 
@@ -47,15 +48,15 @@ except ImportError:
         if obj is None:
             return 8
         t = type(obj)
-        if t is int:
+        if t is int and not PY3:
             return 12
         elif t is float:
             return 16
-        elif t is long:
+        elif t is long_type:
             return 16
         elif t is str:
             return 21 + len(obj)
-        elif t is unicode:
+        elif t is text_type:
             return 26 + 2 * len(obj)
 
 
@@ -99,7 +100,9 @@ def read_run(filename, count, atatime=100):
             buff = []
             take = min(atatime, count)
             for _ in xrange(take):
+                #print('*** before', f.tell())
                 buff.append(load(f))
+                #print('*** after', f.tell())
             count -= take
             for item in buff:
                 yield item
@@ -304,7 +307,7 @@ class SqlitePool(PoolBase):
         return con
     
     def flush(self):
-        for fieldname, lst in self.postbuf.iteritems():
+        for fieldname, lst in iteritems(self.postbuf):
             con = self._con(fieldname)
             con.executemany("insert into postings values (?, ?, ?, ?)", lst)
             con.commit()
@@ -312,7 +315,7 @@ class SqlitePool(PoolBase):
         self.postbuf = defaultdict(list)
         self.bufsize = 0
         self._flushed = True
-        print "flushed"
+        print("flushed")
     
     def add_posting(self, fieldname, text, docnum, weight, valuestring):
         self.postbuf[fieldname].append((text, docnum, weight, valuestring))

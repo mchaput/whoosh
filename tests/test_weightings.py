@@ -1,10 +1,12 @@
 from __future__ import with_statement
 import inspect
 from random import choice, randint
+import sys
 
 from nose.tools import assert_equal
 
 from whoosh import query, scoring
+from whoosh.compat import u, xrange
 from whoosh.fields import *
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util import permutations
@@ -16,13 +18,13 @@ def _weighting_classes(ignore):
             if scoring.Weighting in c.__bases__ and c not in ignore]
     
 def test_all():
-    domain = [u"alfa", u"bravo", u"charlie", u"delta", u"echo", u"foxtrot"]
+    domain = [u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot")]
     schema = Schema(text=TEXT)
     storage = RamStorage()
     ix = storage.create_index(schema)
     w = ix.writer()
     for _ in xrange(100):
-        w.add_document(text=u" ".join(choice(domain)
+        w.add_document(text=u(" ").join(choice(domain)
                                       for _ in xrange(randint(10, 20))))
     w.commit()
     
@@ -39,14 +41,16 @@ def test_all():
                 weighting = wclass(*args, **kwargs)
             else:
                 weighting = wclass()
-        except TypeError, e:
+        except TypeError:
+            e = sys.exc_info()[1]
             raise TypeError("Error instantiating %r: %s" % (wclass, e))
         
         with ix.searcher(weighting=weighting) as s:
             try:
                 for word in domain:
                     s.search(query.Term("text", word))
-            except Exception, e:
+            except Exception:
+                e = sys.exc_info()[1]
                 e.msg = "Error searching with %r: %s" % (wclass, e)
                 raise
 
@@ -69,11 +73,11 @@ def test_compatibility():
     w = ix.writer()
     domain = "alfa bravo charlie delta".split()
     for ls in permutations(domain, 3):
-        w.add_document(text=u" ".join(ls))
+        w.add_document(text=u(" ").join(ls))
     w.commit()
     
     s = ix.searcher(weighting=LegacyWeighting())
-    r = s.search(query.Term("text", u"bravo"))
+    r = s.search(query.Term("text", u("bravo")))
     assert_equal(r.score(0), 2.25)
         
 
