@@ -305,20 +305,15 @@ def test_datetime():
     ix = st.create_index(schema)
     
     w = ix.writer()
-    if PY3:
-        w.add_document(id=u("%s-%s") % (5, 23),
-                       date=datetime(2010, 5, 23, 14, 00, 00))
-    else:
-        for month in xrange(1, 12):
-            for day in xrange(1, 28):
-                w.add_document(id=u("%s-%s") % (month, day),
-                               date=datetime(2010, month, day, 14, 00, 00))
+    for month in xrange(1, 12):
+        for day in xrange(1, 28):
+            w.add_document(id=u("%s-%s") % (month, day),
+                           date=datetime(2010, month, day, 14, 00, 00))
     w.commit()
 
     with ix.searcher() as s:
         qp = qparser.QueryParser("id", schema)
         
-        #import pdb; pdb.set_trace()
         r = s.search(qp.parse("date:20100523"))
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "5-23")

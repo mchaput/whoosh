@@ -337,7 +337,7 @@ class NUMERIC(FieldType):
     
     def _tiers(self, num):
         t = self.type
-        if t is int:
+        if t is int and not PY3:
             bitlen = 32
         else:
             bitlen = 64
