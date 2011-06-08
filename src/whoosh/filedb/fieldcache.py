@@ -33,6 +33,7 @@ from collections import defaultdict
 from heapq import heappush, heapreplace
 from struct import Struct
 
+from whoosh.compat import u, b, xrange
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 from whoosh.util import utf8encode
 
@@ -83,7 +84,7 @@ class FieldCache(object):
     each document with a value through the array.
     """
     
-    def __init__(self, order=None, texts=None, hastexts=True, default=u"",
+    def __init__(self, order=None, texts=None, hastexts=True, default=u(""),
                  typecode="I"):
         """
         :param order: an array of ints.
@@ -130,7 +131,7 @@ class FieldCache(object):
     # Class constructor for building a field cache from a reader
     
     @classmethod
-    def from_field(cls, ixreader, fieldname, default=u""):
+    def from_field(cls, ixreader, fieldname, default=u("")):
         """Creates an in-memory field cache from a reader.
         
         >>> r = ix.reader()
@@ -189,7 +190,7 @@ class FieldCache(object):
     # Class constructor for defining a field cache using arbitrary queries
     
     @classmethod
-    def from_lists(cls, doclists, doccount, default=u""):
+    def from_lists(cls, doclists, doccount, default=u("")):
         texts = sorted(doclists.keys())
         order = array("I", [0] * doccount)
         
@@ -240,7 +241,7 @@ class FieldCache(object):
         # Write a tag at the start of the file indicating the file write is in
         # progress, to warn other processes that might open the file. We'll
         # seek back and change this when the file is done.
-        dbfile.write("-")
+        dbfile.write(b("-"))
         
         dbfile.write_uint(len(self.order))  # Number of documents
         
@@ -260,13 +261,13 @@ class FieldCache(object):
         else:
             dbfile.write_uint(0)  # No texts
         
-        dbfile.write(self.typecode)
+        dbfile.write(b(self.typecode))
         write_qsafe_array(self.typecode, self.order, dbfile)
         dbfile.flush()
         
         # Seek back and change the tag byte at the start of the file
         dbfile.seek(0)
-        dbfile.write("+")
+        dbfile.write(b("+"))
     
     # Field cache operations
     
@@ -363,7 +364,7 @@ class FieldCache(object):
 # Streaming cache file writer
 
 class FieldCacheWriter(object):
-    def __init__(self, dbfile, size=0, hastexts=True, code="I", default=u""):
+    def __init__(self, dbfile, size=0, hastexts=True, code="I", default=u("")):
         self.dbfile = dbfile
         self.order = array(self.code, [0] * size)
         self.hastexts = hastexts
@@ -373,14 +374,14 @@ class FieldCacheWriter(object):
         self.keycount = 1
         
         self.tagpos = dbfile.tell()
-        dbfile.write("-")
+        dbfile.write(b("-"))
         self.start = dbfile.tell()
         dbfile.write_uint(0)  # Number of docs
         dbfile.write_uint(0)  # Number of texts
         
         if self.hastexts:
             # Start the pickled list of texts
-            dbfile.write("(" + pickled_unicode(default))
+            dbfile.write(b("(") + pickled_unicode(default))
     
     def add_key(self, value):
         if self.hastexts:
@@ -402,7 +403,7 @@ class FieldCacheWriter(object):
         keycount = self.keycount
         
         # Finish the pickled list of texts
-        dbfile.write("l.")
+        dbfile.write(b("l."))
         
         # Compact the order array if possible
         if self.hastexts:
@@ -427,7 +428,7 @@ class FieldCacheWriter(object):
         
         # Seek back and write the finished file tag
         dbfile.seek(self.tagpos)
-        dbfile.write("+")
+        dbfile.write(b("+"))
         
         dbfile.close()
     

@@ -2,6 +2,7 @@ from __future__ import with_statement
 import random, threading, time
 
 from whoosh import fields, query
+from whoosh.compat import xrange, u, text_type
 from whoosh.support.testing import TempStorage
 
 
@@ -20,11 +21,11 @@ def test_readwrite():
                 num = 0
                 
                 for i in xrange(50):
-                    print i
+                    print(i)
                     w = ix.writer()
                     for _ in xrange(random.randint(1, 100)):
-                        content = u" ".join(random.sample(domain, random.randint(5, 20)))
-                        w.add_document(id=unicode(num), content=content)
+                        content = u(" ").join(random.sample(domain, random.randint(5, 20)))
+                        w.add_document(id=text_type(num), content=content)
                         num += 1
                     w.commit()
                     
@@ -32,7 +33,7 @@ def test_readwrite():
         
         class SearcherThread(threading.Thread):
             def run(self):
-                print self.name + " starting"
+                print(self.name + " starting")
                 for _ in xrange(10):
                     ix = st.open_index()
                     s = ix.searcher()
@@ -41,7 +42,7 @@ def test_readwrite():
                     s.close()
                     ix.close()
                     time.sleep(0.1)
-                print self.name + " done"
+                print(self.name + " done")
         
         wt = WriterThread()
         wt.start()

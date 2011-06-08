@@ -17,11 +17,10 @@ To open an existing index::
     ix = DataStoreStorage().open_index()
 """
 
-from cStringIO import StringIO
-
 from google.appengine.api import memcache
 from google.appengine.ext import db
 
+from whoosh.compat import BytesIO
 from whoosh.store import Storage
 from whoosh.filedb.fileindex import _create_index, FileIndex, _DEF_INDEX_NAME
 from whoosh.filedb.filestore import ReadOnlyError
@@ -29,7 +28,7 @@ from whoosh.filedb.structfile import StructFile
 
 
 class DatastoreFile(db.Model):
-    """A file-like object that is backed by a StringIO() object whose contents
+    """A file-like object that is backed by a BytesIO() object whose contents
     is loaded from a BlobProperty in the app engine datastore.
     """
     
@@ -37,7 +36,7 @@ class DatastoreFile(db.Model):
 
     def __init__(self, *args, **kwargs):
         super(DatastoreFile, self).__init__(*args, **kwargs)
-        self.data = StringIO()
+        self.data = BytesIO()
 
     @classmethod
     def loadfile(cls, name):
@@ -47,7 +46,7 @@ class DatastoreFile(db.Model):
             memcache.set(name, file.value, namespace="DatastoreFile")
         else:
             file = cls(value=value)
-        file.data = StringIO(file.value)
+        file.data = BytesIO(file.value)
         return file
 
     def close(self):

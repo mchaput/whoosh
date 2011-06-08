@@ -25,13 +25,13 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import cPickle
 import re
 import uuid
 from time import time
 from threading import Lock
 
 from whoosh import __version__
+from whoosh.compat import pickle, integer_types, string_type, iteritems
 from whoosh.fields import ensure_schema
 from whoosh.index import Index, EmptyIndexError, IndexVersionError, _DEF_INDEX_NAME
 from whoosh.reading import EmptyReader, MultiReader
@@ -107,7 +107,7 @@ def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
     for num in __version__[:3]:
         stream.write_varint(num)
 
-    stream.write_string(cPickle.dumps(schema, -1))
+    stream.write_string(pickle.dumps(schema, -1))
     stream.write_int(gen)
     stream.write_int(segment_counter)
     stream.write_pickle(segments)
@@ -119,7 +119,7 @@ def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
 
 class Toc(object):
     def __init__(self, **kwargs):
-        for name, value in kwargs.iteritems():
+        for name, value in iteritems(kwargs):
             setattr(self, name, value)
         
 
@@ -155,7 +155,7 @@ def _read_toc(storage, schema, indexname):
     if schema:
         stream.skip_string()
     else:
-        schema = cPickle.loads(stream.read_string())
+        schema = pickle.loads(stream.read_string())
     schema = ensure_schema(schema)
     
     # Generation
@@ -223,7 +223,7 @@ class FileIndex(Index):
     def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
         if not isinstance(storage, Storage):
             raise ValueError("%r is not a Storage object" % storage)
-        if not isinstance(indexname, (str, unicode)):
+        if not isinstance(indexname, string_type):
             raise ValueError("indexname %r is not a string" % indexname)
         
         if schema:
@@ -396,8 +396,8 @@ class Segment(object):
             deleted documents exist in this segment.
         """
 
-        assert isinstance(name, basestring)
-        assert isinstance(doccount, (int, long))
+        assert isinstance(name, string_type)
+        assert isinstance(doccount, integer_types)
         assert fieldlength_totals is None or isinstance(fieldlength_totals, dict), "fl_totals=%r" % fieldlength_totals
         assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
         
@@ -496,6 +496,9 @@ class Segment(object):
         if self.deleted is None:
             return False
         return docnum in self.deleted
+
+    def __lt__(self, other):
+        return id(self) < id(other)
 
 
 

@@ -31,11 +31,14 @@
 import datetime
 import fnmatch
 import re
+import sys
 from decimal import Decimal
 
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,
                              NgramWordAnalyzer, Analyzer)
+from whoosh.compat import (with_metaclass, itervalues, string_type, u,
+                           integer_types, long_type, text_type, xrange, PY3)
 from whoosh.formats import Format, Existence, Frequency, Positions
 from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
                                     text_to_long, float_to_text, text_to_float,
@@ -94,7 +97,7 @@ class FieldType(object):
     format = vector = scorable = stored = unique = None
     indexed = True
     multitoken_query = "first"
-    sortable_type = unicode
+    sortable_type = text_type
     sortable_typecode = None
     
     __inittypes__ = dict(format=Format, vector=Format,
@@ -152,7 +155,7 @@ class FieldType(object):
         
         if not self.format:
             raise Exception("%s field cannot index without a format" % self.__class__)
-        if not isinstance(value, unicode):
+        if not isinstance(value, text_type):
             raise ValueError("%r is not unicode" % value)
         return self.format.word_values(value, mode="index", **kwargs)
     
@@ -300,14 +303,19 @@ class NUMERIC(FieldType):
         
         self.type = type
         if self.type is int:
-            self._to_text = int_to_text
-            self._from_text = text_to_int
             self.sortable_type = int
-            self.sortable_typecode = "i" if signed else "I"
-        elif self.type is long:
+            if PY3:
+                self._to_text = long_to_text
+                self._from_text = text_to_long
+                self.sortable_typecode = "q" if signed else "Q"
+            else:
+                self._to_text = int_to_text
+                self._from_text = text_to_int
+                self.sortable_typecode = "i" if signed else "I"
+        elif self.type is long_type:
             self._to_text = long_to_text
             self._from_text = text_to_long
-            self.sortable_type = long
+            self.sortable_type = long_type
             self.sortable_typecode = "q" if signed else "Q"
         elif self.type is float:
             self._to_text = float_to_text
@@ -388,7 +396,8 @@ class NUMERIC(FieldType):
         
         try:
             text = self.to_text(qstring)
-        except Exception, e:
+        except Exception:
+            e = sys.exc_info()[1]
             raise QueryParserError(e)
         
         return query.Term(fieldname, text, boost=boost)
@@ -402,7 +411,8 @@ class NUMERIC(FieldType):
                 start = self.from_text(self.to_text(start))
             if end is not None:
                 end = self.from_text(self.to_text(end))
-        except Exception, e:
+        except Exception:
+            e = sys.exc_info()[1]
             raise QueryParserError(e)
         
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
@@ -446,13 +456,13 @@ class DATETIME(NUMERIC):
         :param unique: Whether the value of this field is unique per-document.
         """
         
-        super(DATETIME, self).__init__(type=long, stored=stored, unique=unique,
-                                       shift_step=8)
+        super(DATETIME, self).__init__(type=long_type, stored=stored,
+                                       unique=unique, shift_step=8)
     
     def to_text(self, x, shift=0):
         if isinstance(x, datetime.datetime):
             x = datetime_to_long(x)
-        elif not isinstance(x, (int, long)):
+        elif not isinstance(x, integer_types):
             raise ValueError("DATETIME.to_text field doesn't know what to do "
                              "with %r" % x)
         
@@ -524,10 +534,10 @@ class BOOLEAN(FieldType):
     >>> w.add_document(path="/a", done=False)
     >>> w.commit()
     """
-    
-    strings = (u"f", u"t")
-    trues = frozenset((u"t", u"true", u"yes", u"1"))
-    falses = frozenset((u"f", u"false", u"no", u"0"))
+
+    strings = (u("f"), u("t"))    
+    trues = frozenset((u("t"), u("true"), u("yes"), u("1")))
+    falses = frozenset((u("f"), u("false"), u("no"), u("0")))
     
     __inittypes__ = dict(stored=bool)
     
@@ -541,7 +551,7 @@ class BOOLEAN(FieldType):
         self.format = Existence(None)
     
     def to_text(self, bit):
-        if isinstance(bit, basestring):
+        if isinstance(bit, string_type):
             bit = bit in self.trues
         elif not isinstance(bit, bool):
             raise ValueError("%r is not a boolean")
@@ -757,7 +767,7 @@ class MetaSchema(type):
         
         # Create the class
         special_attrs = {}
-        for key in attrs.keys():
+        for key in list(attrs.keys()):
             if key.startswith("__"):
                 special_attrs[key] = attrs.pop(key)
         new_class = super_new(cls, name, bases, special_attrs)
@@ -811,7 +821,7 @@ class Schema(object):
     
     def __eq__(self, other):
         return (other.__class__ is self.__class__
-                and self.items() == other.items())
+                and list(self.items()) == list(other.items()))
     
     def __repr__(self):
         return "<%s: %r>" % (self.__class__.__name__, self.names())
@@ -820,7 +830,7 @@ class Schema(object):
         """Returns the field objects in this schema.
         """
         
-        return self._fields.itervalues()
+        return iter(itervalues(self._fields))
     
     def __getitem__(self, name):
         """Returns the field associated with the given field name.
@@ -829,7 +839,7 @@ class Schema(object):
         if name in self._fields:
             return self._fields[name]
         
-        for expr, fieldtype in self._dyn_fields.itervalues():
+        for expr, fieldtype in itervalues(self._dyn_fields):
             if expr.match(name):
                 return fieldtype
         
@@ -893,7 +903,8 @@ class Schema(object):
         if type(fieldtype) is type:
             try:
                 fieldtype = fieldtype()
-            except Exception, e:
+            except Exception:
+                e = sys.exc_info()[1]
                 raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
         
         if not isinstance(fieldtype, FieldType):
@@ -953,8 +964,7 @@ class Schema(object):
             return field.format.analyzer
 
 
-class SchemaClass(Schema):
-    __metaclass__ = MetaSchema
+class SchemaClass(with_metaclass(MetaSchema, Schema)):
     
     """Allows you to define a schema using declarative syntax, similar to
     Django models::

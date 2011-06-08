@@ -28,6 +28,7 @@
 import struct
 from array import array
 
+from whoosh.compat import long_type, xrange, PY3
 
 _istruct = struct.Struct(">i")
 _qstruct = struct.Struct(">q")
@@ -36,8 +37,8 @@ _ipack, _iunpack = _istruct.pack, _istruct.unpack
 _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
-_max_sortable_int = 4294967295L
-_max_sortable_long = 18446744073709551615L
+_max_sortable_int = long_type(4294967295)
+_max_sortable_long = long_type(18446744073709551615)
 
 
 # Functions for converting numbers to and from sortable representations
@@ -204,16 +205,19 @@ def split_range(valsize, step, start, end):
 
 def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
     # First, convert the start and end of the range to sortable representations
-    
-    valsize = 32 if numtype is int else 64
-    
+
+    if PY3:
+        valsize = 64
+    else:
+        valsize = 32 if numtype is int else 64
+
     # Convert start and end values to sortable ints
     if start is None:
         start = 0
     else:
-        if numtype is int:
+        if numtype is int and not PY3:
             start = int_to_sortable_int(start, signed)
-        elif numtype is long:
+        elif numtype is long_type:
             start = long_to_sortable_long(start, signed)
         elif numtype is float:
             start = float_to_sortable_long(start, signed)
@@ -223,16 +227,16 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
     if end is None:
         end = _max_sortable_int if valsize == 32 else _max_sortable_long
     else:
-        if numtype is int:
+        if numtype is int and not PY3:
             end = int_to_sortable_int(end, signed)
-        elif numtype is long:
+        elif numtype is long_type:
             end = long_to_sortable_long(end, signed)
         elif numtype is float:
             end = float_to_sortable_long(end, signed)
         if endexcl:
             end -= 1
     
-    if numtype is int:
+    if numtype is int and not PY3:
         to_text = sortable_int_to_text
     else:
         to_text = sortable_long_to_text

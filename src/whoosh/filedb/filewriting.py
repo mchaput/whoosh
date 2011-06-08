@@ -29,6 +29,7 @@ from __future__ import with_statement
 from bisect import bisect_right
 from collections import defaultdict
 
+from whoosh.compat import iteritems, next, text_type
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
@@ -269,7 +270,7 @@ class SegmentWriter(IndexWriter):
         for docnum in reader.all_doc_ids():
             if (not has_deletions) or (not reader.is_deleted(docnum)):
                 d = dict(item for item
-                         in reader.stored_fields(docnum).iteritems()
+                         in iteritems(reader.stored_fields(docnum))
                          if item[0] in fieldnames)
                 # We have to append a dictionary for every document, even if
                 # it's empty.
@@ -303,7 +304,7 @@ class SegmentWriter(IndexWriter):
                     
                     self.pool.add_posting(fieldname, text, newdoc,
                                           postreader.weight(), valuestring)
-                    postreader.next()
+                    next(postreader)
                     
         self._added = True
     
@@ -360,7 +361,7 @@ class SegmentWriter(IndexWriter):
         vpostwriter = self.vpostwriter
         offset = vpostwriter.start(self.schema[fieldname].vector)
         for text, weight, valuestring in vlist:
-            assert isinstance(text, unicode), "%r is not unicode" % text
+            assert isinstance(text, text_type), "%r is not unicode" % text
             vpostwriter.write(text, weight, valuestring, 0)
         vpostwriter.finish()
         
@@ -372,7 +373,7 @@ class SegmentWriter(IndexWriter):
         while vreader.is_active():
             # text, weight, valuestring, fieldlen
             vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(), 0)
-            vreader.next()
+            next(vreader)
         vpostwriter.finish()
         
         self.vectorindex.add((docnum, fieldname), offset)
@@ -490,8 +491,8 @@ class TermsWriter(object):
         self.offset = None
     
     def _new_term(self, fieldname, text):
-        lastfn = self.lastfn
-        lasttext = self.lasttext
+        lastfn = self.lastfn or ''
+        lasttext = self.lasttext or ''
         if fieldname < lastfn or (fieldname == lastfn and text < lasttext):
             raise Exception("Postings are out of order: %r:%s .. %r:%s" %
                             (lastfn, lasttext, fieldname, text))
@@ -535,7 +536,7 @@ class TermsWriter(object):
                 newdoc = offset + docnum
             totalweight += weight
             postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
-            matcher.next()
+            next(matcher)
         self.weight += totalweight
     
     def add_iter(self, postiter, getlen, offset=0, docmap=None):

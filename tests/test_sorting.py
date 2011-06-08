@@ -4,6 +4,7 @@ import random
 from nose.tools import assert_equal
 
 from whoosh import fields, query
+from whoosh.compat import u, xrange, long_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import skip_if_unavailable, TempIndex
 
@@ -27,17 +28,17 @@ else:
                 assert_equal(result, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
 
-docs = ({"id": u"zulu", "num": 100, "tag": u"one", "frac": 0.75},
-        {"id": u"xray", "num": -5, "tag": u"three", "frac": 2.0},
-        {"id": u"yankee", "num": 3, "tag": u"two", "frac": 5.5},
+docs = ({"id": u("zulu"), "num": 100, "tag": u("one"), "frac": 0.75},
+        {"id": u("xray"), "num": -5, "tag": u("three"), "frac": 2.0},
+        {"id": u("yankee"), "num": 3, "tag": u("two"), "frac": 5.5},
         
-        {"id": u"alfa", "num": 7, "tag": u"three", "frac": 2.25},
-        {"id": u"tango", "num": 2, "tag": u"two", "frac": 1.75},
-        {"id": u"foxtrot", "num": -800, "tag": u"two", "frac": 3.25},
+        {"id": u("alfa"), "num": 7, "tag": u("three"), "frac": 2.25},
+        {"id": u("tango"), "num": 2, "tag": u("two"), "frac": 1.75},
+        {"id": u("foxtrot"), "num": -800, "tag": u("two"), "frac": 3.25},
         
-        {"id": u"sierra", "num": 1, "tag": u"one", "frac": 4.75},
-        {"id": u"whiskey", "num": 0, "tag": u"three", "frac": 5.25},
-        {"id": u"bravo", "num": 582045, "tag": u"three", "frac": 1.25},
+        {"id": u("sierra"), "num": 1, "tag": u("one"), "frac": 4.75},
+        {"id": u("whiskey"), "num": 0, "tag": u("three"), "frac": 5.25},
+        {"id": u("bravo"), "num": 582045, "tag": u("three"), "frac": 1.25},
         )
 
 def get_schema():
@@ -51,18 +52,18 @@ def get_schema():
 def make_single_index(ix):
     w = ix.writer()
     for doc in docs:
-        w.add_document(ev=u"a", **doc)
+        w.add_document(ev=u("a"), **doc)
     w.commit()
 
 def make_multi_index(ix):
     for i in xrange(0, len(docs), 3):
         w = ix.writer()
         for doc in docs[i:i+3]:
-            w.add_document(ev=u"a", **doc)
+            w.add_document(ev=u("a"), **doc)
         w.commit(merge=False)
 
 def try_sort(sortedby, key, q=None, limit=None, reverse=False):
-    if q is None: q = query.Term("ev", u"a")
+    if q is None: q = query.Term("ev", u("a"))
     
     correct = [d["id"] for d in sorted(docs, key=key, reverse=reverse)][:limit]
     
@@ -79,10 +80,10 @@ def test_cached_lexicon():
     schema = fields.Schema(tag=fields.ID)
     with TempIndex(schema, "cachedlexicon") as ix:
         w = ix.writer()
-        w.add_document(tag=u"sierra")
-        w.add_document(tag=u"alfa")
-        w.add_document(tag=u"juliet")
-        w.add_document(tag=u"romeo")
+        w.add_document(tag=u("sierra"))
+        w.add_document(tag=u("alfa"))
+        w.add_document(tag=u("juliet"))
+        w.add_document(tag=u("romeo"))
         w.commit()
         
         with ix.reader() as r:
@@ -111,7 +112,7 @@ def test_float_cache():
             assert_equal(list(fc.order), [1.5, -8.25, 0.75])
 
 def test_long_cache():
-    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=long))
+    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=long_type))
     with TempIndex(schema, "longcache") as ix:
         w = ix.writer()
         w.add_document(id=1, num=2858205080241)
@@ -186,7 +187,7 @@ def test_empty_field():
 def test_page_sorted():
     schema = fields.Schema(key=fields.ID(stored=True))
     with TempIndex(schema, "pagesorted") as ix:
-        domain = list(u"abcdefghijklmnopqrstuvwxyz")
+        domain = list(u("abcdefghijklmnopqrstuvwxyz"))
         random.shuffle(domain)
         
         w = ix.writer()
@@ -207,7 +208,7 @@ def test_page_sorted():
 def test_mp_fieldcache():
     schema = fields.Schema(key=fields.KEYWORD(stored=True))
     with TempIndex(schema, "mpfieldcache") as ix:
-        domain = list(u"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        domain = list(u("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"))
         random.shuffle(domain)
         w = ix.writer()
         for char in domain:
@@ -228,8 +229,10 @@ def test_field_facets():
                 q = query.Every()
                 groups = s.categorize_query(q, "tag")
                 assert (sorted(groups.items())
-                        == [(u'one', [0L, 6L]), (u'three', [1L, 3L, 7L, 8L]),
-                            (u'two', [2L, 4L, 5L])])
+                        == [(u('one'), [long_type(0), long_type(6)]), (u('three'),
+                            [long_type(1), long_type(3),
+                             long_type(7), long_type(8)]),
+                            (u('two'), [long_type(2), long_type(4), long_type(5)])])
     
     check(make_single_index)
     check(make_multi_index)
@@ -238,7 +241,7 @@ def test_query_facets():
     schema = fields.Schema(value=fields.ID(stored=True))
     with TempIndex(schema, "queryfacets") as ix:
         w = ix.writer()
-        alphabet = list(u"abcdefghijklmnopqrstuvwxyz")
+        alphabet = list(u("abcdefghijklmnopqrstuvwxyz"))
         random.shuffle(alphabet)
         
         for letter in alphabet:
@@ -246,9 +249,9 @@ def test_query_facets():
         w.commit()
         
         with ix.searcher() as s:
-            q1 = query.TermRange("value", u"a", u"i")
-            q2 = query.TermRange("value", u"j", u"r")
-            q3 = query.TermRange("value", u"s", u"z")
+            q1 = query.TermRange("value", u("a"), u("i"))
+            q2 = query.TermRange("value", u("j"), u("r"))
+            q3 = query.TermRange("value", u("s"), u("z"))
             s.define_facets("range", {"a-i": q1, "j-r": q2, "s-z": q3},
                             save=False)
             
@@ -256,8 +259,8 @@ def test_query_facets():
                 for key in groups.keys():
                     groups[key] = "".join(sorted([s.stored_fields(id)["value"]
                                                   for id in groups[key]]))
-                assert_equal(groups, {'a-i': u'abcdefghi', 'j-r': u'jklmnopqr',
-                                      's-z': u'stuvwxyz'})
+                assert_equal(groups, {'a-i': u('abcdefghi'), 'j-r': u('jklmnopqr'),
+                                      's-z': u('stuvwxyz')})
             
             check(s.categorize_query(query.Every(), "range"))
 
@@ -272,17 +275,17 @@ def test_multifacet():
                            size=fields.ID(stored=True))
     with TempIndex(schema, "multifacet") as ix:
         w = ix.writer()
-        w.add_document(tag=u"alfa", size=u"small")
-        w.add_document(tag=u"bravo", size=u"medium")
-        w.add_document(tag=u"alfa", size=u"large")
-        w.add_document(tag=u"bravo", size=u"small")
-        w.add_document(tag=u"alfa", size=u"medium")
-        w.add_document(tag=u"bravo", size=u"medium")
+        w.add_document(tag=u("alfa"), size=u("small"))
+        w.add_document(tag=u("bravo"), size=u("medium"))
+        w.add_document(tag=u("alfa"), size=u("large"))
+        w.add_document(tag=u("bravo"), size=u("small"))
+        w.add_document(tag=u("alfa"), size=u("medium"))
+        w.add_document(tag=u("bravo"), size=u("medium"))
         w.commit()
         
-        correct = {(u'bravo', u'medium'): [1, 5], (u'alfa', u'large'): [2],
-                   (u'alfa', u'medium'): [4], (u'alfa', u'small'): [0],
-                   (u'bravo', u'small'): [3]}
+        correct = {(u('bravo'), u('medium')): [1, 5], (u('alfa'), u('large')): [2],
+                   (u('alfa'), u('medium')): [4], (u('alfa'), u('small')): [0],
+                   (u('bravo'), u('small')): [3]}
         
         with ix.searcher() as s:
             cats = s.categorize_query(query.Every(), ("tag", "size"))
@@ -294,8 +297,8 @@ def test_multifacet():
 
 def test_sort_filter():
     schema = fields.Schema(group=fields.ID(stored=True), key=fields.ID(stored=True))
-    groups = u"alfa bravo charlie".split()
-    keys = u"abcdefghijklmnopqrstuvwxyz"
+    groups = u("alfa bravo charlie").split()
+    keys = u("abcdefghijklmnopqrstuvwxyz")
     source = []
     for i in xrange(100):
         key = keys[i % len(keys)]
@@ -316,14 +319,14 @@ def test_sort_filter():
                 w = ix.writer()
         w.commit()
         
-        fq = query.Term("group", u"bravo")
+        fq = query.Term("group", u("bravo"))
         
         with ix.searcher() as s:
             r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=20)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"][:20])
             
-            fq = query.Term("group", u"bravo")
+            fq = query.Term("group", u("bravo"))
             r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=None)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"])
@@ -335,7 +338,7 @@ def test_sort_filter():
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"][:20])
             
-            fq = query.Term("group", u"bravo")
+            fq = query.Term("group", u("bravo"))
             r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=None)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"])
@@ -347,22 +350,22 @@ def test_custom_sort():
     
     with TempIndex(schema, "customsort") as ix:
         w = ix.writer()
-        w.add_document(name=u"A", price=200, quant=9)
-        w.add_document(name=u"E", price=300, quant=4)
-        w.add_document(name=u"F", price=200, quant=8)
-        w.add_document(name=u"D", price=150, quant=5)
-        w.add_document(name=u"B", price=250, quant=11)
-        w.add_document(name=u"C", price=200, quant=10)
+        w.add_document(name=u("A"), price=200, quant=9)
+        w.add_document(name=u("E"), price=300, quant=4)
+        w.add_document(name=u("F"), price=200, quant=8)
+        w.add_document(name=u("D"), price=150, quant=5)
+        w.add_document(name=u("B"), price=250, quant=11)
+        w.add_document(name=u("C"), price=200, quant=10)
         w.commit()
         
         with ix.searcher() as s:
             cs = s.sorter()
             cs.add_field("price")
             cs.add_field("quant", reverse=True)
-            print "crit=", cs.criteria
-            print "is_simple=", cs.is_simple()
+            print("crit=", cs.criteria)
+            print("is_simple=", cs.is_simple())
             r = cs.sort_query(query.Every(), limit=None)
-            assert_equal([hit["name"] for hit in r], list(u"DCAFBE"))
+            assert_equal([hit["name"] for hit in r], list(u("DCAFBE")))
             
 def test_sorting_function():
     schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True, vector=True))
@@ -374,7 +377,7 @@ def test_sorting_function():
         for w2 in domain:
             for w3 in domain:
                 for w4 in domain:
-                    w.add_document(id=count, text=u" ".join((w1, w2, w3, w4)))
+                    w.add_document(id=count, text=u(" ").join((w1, w2, w3, w4)))
                     count += 1
     w.commit()
     
@@ -385,7 +388,7 @@ def test_sorting_function():
         return 1.0 / (abs(v.get("alfa", 0) - v.get("bravo", 0)) + 1.0)
     
     with ix.searcher() as s:
-        q = query.And([query.Term("text", u"alfa"), query.Term("text", u"bravo")])
+        q = query.And([query.Term("text", u("alfa")), query.Term("text", u("bravo"))])
         
         r = [hit["text"] for hit in s.sort_query_using(q, fn)]
         for t in r[:10]:
@@ -398,47 +401,47 @@ def test_natural_order():
     # Single segment
     
     ix = RamStorage().create_index(schema)
-    domain = u"one two three four five six seven eight nine".split()
+    domain = u("one two three four five six seven eight nine").split()
     w = ix.writer()
     for word in domain:
-        w.add_document(id=word, tag=u"tag")
+        w.add_document(id=word, tag=u("tag"))
     w.commit(merge=False)
     
     with ix.searcher() as s:
-        r = s.search(query.Term("tag", u"tag"), scored=False)
+        r = s.search(query.Term("tag", u("tag")), scored=False)
         assert_equal([hit["id"] for hit in r], domain)
         
-        r = s.search(query.Term("tag", u"tag"), scored=False, reverse=True)
+        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True)
         assert_equal([hit["id"] for hit in r], list(reversed(domain)))
         
-        r = s.search(query.Term("tag", u"tag"), scored=False, limit=3)
-        assert_equal([hit["id"] for hit in r], u"one two three".split())
+        r = s.search(query.Term("tag", u("tag")), scored=False, limit=3)
+        assert_equal([hit["id"] for hit in r], u("one two three").split())
         
-        r = s.search(query.Term("tag", u"tag"), scored=False, reverse=True, limit=3)
-        assert_equal([hit["id"] for hit in r], u"nine eight seven".split())
+        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True, limit=3)
+        assert_equal([hit["id"] for hit in r], u("nine eight seven").split())
     
     # Multiple segments
     
     ix = RamStorage().create_index(schema)
-    domain = u"one two three four five six seven eight nine".split()
+    domain = u("one two three four five six seven eight nine").split()
     for i in xrange(0, len(domain), 3):
         w = ix.writer()
         for j in xrange(3):
-            w.add_document(id=domain[i+j], tag=u"tag")
+            w.add_document(id=domain[i+j], tag=u("tag"))
         w.commit(merge=False)
     
     with ix.searcher() as s:
-        r = s.search(query.Term("tag", u"tag"), scored=False)
+        r = s.search(query.Term("tag", u("tag")), scored=False)
         assert_equal([hit["id"] for hit in r], domain)
         
-        r = s.search(query.Term("tag", u"tag"), scored=False, reverse=True)
+        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True)
         assert_equal([hit["id"] for hit in r], list(reversed(domain)))
         
-        r = s.search(query.Term("tag", u"tag"), scored=False, limit=3)
-        assert_equal([hit["id"] for hit in r], u"one two three".split())
+        r = s.search(query.Term("tag", u("tag")), scored=False, limit=3)
+        assert_equal([hit["id"] for hit in r], u("one two three").split())
         
-        r = s.search(query.Term("tag", u"tag"), scored=False, reverse=True, limit=3)
-        assert_equal([hit["id"] for hit in r], u"nine eight seven".split())
+        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True, limit=3)
+        assert_equal([hit["id"] for hit in r], u("nine eight seven").split())
 
 
 
@@ -492,12 +495,12 @@ def test_natural_order():
 #    
 #    with TempIndex(schema, "customsort") as ix:
 #        w = ix.writer()
-#        w.add_document(name=u"A", price=200, quant=9)
-#        w.add_document(name=u"E", price=300, quant=4)
-#        w.add_document(name=u"F", price=200, quant=8)
-#        w.add_document(name=u"D", price=150, quant=5)
-#        w.add_document(name=u"B", price=250, quant=11)
-#        w.add_document(name=u"C", price=200, quant=10)
+#        w.add_document(name=u("A"), price=200, quant=9)
+#        w.add_document(name=u("E"), price=300, quant=4)
+#        w.add_document(name=u("F"), price=200, quant=8)
+#        w.add_document(name=u("D"), price=150, quant=5)
+#        w.add_document(name=u("B"), price=250, quant=11)
+#        w.add_document(name=u("C"), price=200, quant=10)
 #        w.commit()
 #        
 #        cs = CustomSort(("price", False), ("quant", True))

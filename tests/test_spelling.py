@@ -1,6 +1,7 @@
 from nose.tools import assert_equal, assert_not_equal
 
 from whoosh import spelling
+from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
 
 
@@ -21,11 +22,11 @@ def test_spelling():
                 "vale", "brown", "neat", "meat", "reduction",
                 "blunder", "preaction"]
     
-    sp.add_words([unicode(w) for w in wordlist])
+    sp.add_words([text_type(w) for w in wordlist])
     
-    sugs = sp.suggest(u"reoction")
+    sugs = sp.suggest(u("reoction"))
     assert_not_equal(len(sugs), 0)
-    assert_equal(sugs, [u"reaction", u"reduction", u"preaction"])
+    assert_equal(sugs, [u("reaction"), u("reduction"), u("preaction")])
     
 def test_suggestionsandscores():
     st = RamStorage()
@@ -34,20 +35,20 @@ def test_suggestionsandscores():
     words = [("alfa", 10), ("bravo", 9), ("charlie", 8), ("delta", 7),
              ("echo", 6), ("foxtrot", 5), ("golf", 4), ("hotel", 3),
              ("india", 2), ("juliet", 1)]
-    sp.add_scored_words((unicode(w), s) for w, s in words)
+    sp.add_scored_words((text_type(w), s) for w, s in words)
     
     from whoosh.scoring import Frequency
-    sugs = sp.suggestions_and_scores(u"alpha", weighting=Frequency())
-    assert_equal(sugs, [(u"alfa", 10, 3.0), (u"charlie", 8, 1.0)])
+    sugs = sp.suggestions_and_scores(u("alpha"), weighting=Frequency())
+    assert_equal(sugs, [(u("alfa"), 10, 3.0), (u("charlie"), 8, 1.0)])
 
 def test_minscore():
     st = RamStorage()
     sp = spelling.SpellChecker(st, mingram=2, minscore=2.0)
     
-    sp.add_words([u'charm', u'amour'])
+    sp.add_words([u('charm'), u('amour')])
     
-    sugs = sp.suggest(u"armor")
-    assert_equal(sugs, [u'charm'])
+    sugs = sp.suggest(u("armor"))
+    assert_equal(sugs, [u('charm')])
 
 
 

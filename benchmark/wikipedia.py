@@ -62,7 +62,7 @@ class WPHandler(xml.sax.handler.ContentHandler):
             if not self.pagecount % 1000:
                 n = now()
                 t = n - self.stime
-                print self.pagecount, self.textcount, n - self.stime_block, t/60
+                print(self.pagecount, self.textcount, n - self.stime_block, t/60)
                 self.stime_block = n
         elif name == "title":
             self.intitle = False
@@ -80,6 +80,6 @@ class WPHandler(xml.sax.handler.ContentHandler):
 t = now()
 h = WPHandler()
 parser = xml.sax.parse(f, h)
-print now() - t
-print h.pagecount
+print(now() - t)
+print(h.pagecount)
 

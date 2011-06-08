@@ -43,6 +43,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
+from whoosh.compat import next
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
                              IntersectionMatcher, NullMatcher)
 from whoosh.query import Query, And, AndMaybe, Or, Term
@@ -117,9 +118,21 @@ class Span(object):
         return spans
     
     def to(self, span):
+        if self.startchar is None:
+            minchar = span.startchar
+        elif span.startchar is None:
+            minchar = self.startchar
+        else:
+            minchar = min(self.startchar, span.startchar)
+        if self.endchar is None:
+            maxchar = span.endchar
+        elif span.endchar is None:
+            maxchar = self.endchar
+        else:
+            maxchar = max(self.endchar, span.endchar)
         return self.__class__(min(self.start, span.start), max(self.end, span.end),
-                              min(self.startchar, span.startchar), max(self.endchar, span.endchar))
-    
+                              minchar, maxchar)
+
     def overlaps(self, span):
         return ((self.start >= span.start and self.start <= span.end)
                 or (self.end >= span.start and self.end <= span.end)
@@ -184,7 +197,7 @@ class SpanWrappingMatcher(WrappingMatcher):
         
         spans = self._get_spans()
         while child.is_active() and not spans:
-            r = child.next() or r
+            r = next(child) or r
             if not child.is_active():
                 return True
             spans = self._get_spans()
@@ -196,9 +209,11 @@ class SpanWrappingMatcher(WrappingMatcher):
         return self._spans
     
     def next(self):
-        self.child.next()
+        next(self.child)
         self._find_next()
-        
+
+    __next__ = next
+
     def skip_to(self, id):
         self.child.skip_to(id)
         self._find_next()
@@ -207,7 +222,7 @@ class SpanWrappingMatcher(WrappingMatcher):
         while self.is_active():
             if self.spans():
                 yield self.id()
-            self.next()
+            next(self)
 
 
 class SpanBiMatcher(SpanWrappingMatcher):

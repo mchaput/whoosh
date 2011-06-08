@@ -2,7 +2,6 @@ from __future__ import division
 import os.path, tarfile
 from email import message_from_string
 from marshal import dump, load
-from urllib import urlretrieve
 from zlib import compress, decompress
 
 try:
@@ -11,6 +10,7 @@ except ImportError:
     pass
 
 from whoosh import analysis, fields
+from whoosh.compat import urlretrieve, next
 from whoosh.support.bench import Bench, Spec
 from whoosh.util import now
 
@@ -38,16 +38,16 @@ class Enron(Spec):
     # the messages in an easier-to-digest format
     
     def download_archive(self, archive):
-        print "Downloading Enron email archive to %r..." % archive
+        print("Downloading Enron email archive to %r..." % archive)
         t = now()
         urlretrieve(self.enron_archive_url, archive)
-        print "Downloaded in ", now() - t, "seconds"
+        print("Downloaded in ", now() - t, "seconds")
     
     @staticmethod
     def get_texts(archive):
         archive = tarfile.open(archive, "r:gz")
         while True:
-            entry = archive.next()
+            entry = next(archive)
             archive.members = []
             if entry is None:
                 break
@@ -76,7 +76,7 @@ class Enron(Spec):
             yield d
     
     def cache_messages(self, archive, cache):
-        print "Caching messages in %s..." % cache
+        print("Caching messages in %s..." % cache)
         
         if not os.path.exists(archive):
             raise Exception("Archive file %r does not exist" % archive)
@@ -87,9 +87,9 @@ class Enron(Spec):
         for d in self.get_messages(archive):
             c += 1
             dump(d, f)
-            if not c % 1000: print c
+            if not c % 1000: print(c)
         f.close()
-        print "Cached messages in ", now() - t, "seconds"
+        print("Cached messages in ", now() - t, "seconds")
 
     def setup(self):
         archive = os.path.abspath(os.path.join(self.options.dir, self.enron_archive_filename))
@@ -98,12 +98,12 @@ class Enron(Spec):
         if not os.path.exists(archive):
             self.download_archive(archive)
         else:
-            print "Archive is OK"
+            print("Archive is OK")
         
         if not os.path.exists(cache):
             self.cache_messages(archive, cache)
         else:
-            print "Cache is OK"
+            print("Cache is OK")
     
     def documents(self):
         if not os.path.exists(self.cache_filename):
