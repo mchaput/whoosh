@@ -4,6 +4,7 @@ from random import randint, choice, sample
 from nose.tools import assert_equal, assert_not_equal
 
 from whoosh import fields
+from whoosh.compat import xrange, next, u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.matching import *
 from whoosh.query import And, Term
@@ -61,7 +62,7 @@ def test_wrapper():
     assert_equal(list(wm.all_ids()), ids)
 
 def test_filter():
-    lm = lambda: ListMatcher(range(2, 10))
+    lm = lambda: ListMatcher(list(range(2, 10)))
     
     fm = FilterMatcher(lm(), frozenset([3, 9]))
     assert_equal(list(fm.all_ids()), [3, 9])
@@ -232,29 +233,29 @@ def test_intersection():
     ix = st.create_index(schema)
     
     w = ix.writer()
-    w.add_document(key=u"a", value=u"alpha bravo charlie delta")
-    w.add_document(key=u"b", value=u"echo foxtrot alpha bravo")
-    w.add_document(key=u"c", value=u"charlie delta golf hotel")
+    w.add_document(key=u("a"), value=u("alpha bravo charlie delta"))
+    w.add_document(key=u("b"), value=u("echo foxtrot alpha bravo"))
+    w.add_document(key=u("c"), value=u("charlie delta golf hotel"))
     w.commit()
     
     w = ix.writer()
-    w.add_document(key=u"d", value=u"india alpha bravo charlie")
-    w.add_document(key=u"e", value=u"delta bravo india bravo")
+    w.add_document(key=u("d"), value=u("india alpha bravo charlie"))
+    w.add_document(key=u("e"), value=u("delta bravo india bravo"))
     w.commit()
     
     with ix.searcher() as s:
-        q = And([Term("value", u"bravo"), Term("value", u"delta")])
+        q = And([Term("value", u("bravo")), Term("value", u("delta"))])
         m = q.matcher(s)
         assert_equal(_keys(s, m.all_ids()), ["a", "e"])
         
-        q = And([Term("value", u"bravo"), Term("value", u"alpha")])
+        q = And([Term("value", u("bravo")), Term("value", u("alpha"))])
         m = q.matcher(s)
         assert_equal(_keys(s, m.all_ids()), ["a", "b", "d"])
     
 def test_random_intersections():
-    domain = [u"alpha", u"bravo", u"charlie", u"delta", u"echo",
-              u"foxtrot", u"golf", u"hotel", u"india", u"juliet", u"kilo",
-              u"lima", u"mike"]
+    domain = [u("alpha"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+              u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"), u("kilo"),
+              u("lima"), u("mike")]
     segments = 5
     docsperseg = 50
     fieldlimits = (3, 10)
@@ -272,7 +273,7 @@ def test_random_intersections():
         for j in xrange(docsperseg):
             docnum = i * docsperseg + j
             # Create a string of random words
-            doc = u" ".join(choice(domain)
+            doc = u(" ").join(choice(domain)
                             for _ in xrange(randint(*fieldlimits)))
             # Add the string to the index
             w.add_document(key=docnum, value=doc)
@@ -344,7 +345,7 @@ def test_random_union():
     rangelimits = (2, 10)
     clauselimits = (2, 10)
     
-    vals = range(100)
+    vals = list(range(100))
     
     for _ in xrange(testcount):
         target = set()
@@ -394,7 +395,7 @@ def test_random_andnot():
     testcount = 100
     rangesize = 100
     
-    rng = range(rangesize)
+    rng = list(range(rangesize))
     
     for _ in xrange(testcount):
         negs = sorted(sample(rng, randint(0, rangesize-1)))

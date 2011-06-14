@@ -29,6 +29,7 @@ from collections import defaultdict
 from bisect import bisect_left
 from threading import RLock
 
+from whoosh.compat import iteritems, zip_
 from whoosh.fields import UnknownFieldError
 from whoosh.matching import ListMatcher, NullMatcher
 from whoosh.reading import IndexReader, TermNotFound
@@ -111,7 +112,7 @@ class RamIndex(IndexReader, IndexWriter):
         self._test_field(fieldname)
         if fieldname not in self.schema or not self.schema[fieldname].scorable:
             return 0
-        return sum(l for docnum_fieldname, l in self.fieldlengths.iteritems()
+        return sum(l for docnum_fieldname, l in iteritems(self.fieldlengths)
                    if docnum_fieldname[1] == fieldname)
     
     @synchronized
@@ -119,7 +120,7 @@ class RamIndex(IndexReader, IndexWriter):
         self._test_field(fieldname)
         if fieldname not in self.schema or not self.schema[fieldname].scorable:
             return 0
-        return max(l for docnum_fieldname, l in self.fieldlengths.iteritems()
+        return max(l for docnum_fieldname, l in iteritems(self.fieldlengths)
                    if docnum_fieldname[1] == fieldname)
     
     def doc_field_length(self, docnum, fieldname, default=0):
@@ -138,7 +139,7 @@ class RamIndex(IndexReader, IndexWriter):
             raise Exception("No vectors are stored for field %r" % fieldname)
         
         vformat = self.schema[fieldname].vector
-        ids, weights, values = zip(*self.vectors[docnum, fieldname])
+        ids, weights, values = zip_(*self.vectors[docnum, fieldname])
         return ListMatcher(ids, weights, values, format=vformat)
     
     def doc_frequency(self, fieldname, text):
@@ -212,7 +213,7 @@ class RamIndex(IndexReader, IndexWriter):
             postings = [x for x in postings if x[0] not in excludeset]
             if not postings:
                 return NullMatcher()
-        ids, weights, values = zip(*postings)
+        ids, weights, values = zip_(*postings)
         return ListMatcher(ids, weights, values, format=format)
     
     def reader(self):

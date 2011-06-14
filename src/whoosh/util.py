@@ -41,6 +41,7 @@ from math import log
 from struct import pack, unpack
 from threading import Lock
 
+from whoosh.compat import xrange, u, b
 from whoosh.system import IS_LITTLE
 
 
@@ -157,12 +158,12 @@ def make_weighted_tree(fn, ls, **kwargs):
 # noticeable difference.
 
 def _varint(i):
-    s = ""
+    a = array("B")
     while (i & ~0x7F) != 0:
-        s += chr((i & 0x7F) | 0x80)
+        a.append((i & 0x7F) | 0x80)
         i = i >> 7
-    s += chr(i)
-    return s
+    a.append(i)
+    return a.tostring()
 
 
 _varint_cache_size = 512
@@ -263,20 +264,21 @@ def float_to_byte(value, mantissabits=5, zeroexp=2):
         # Map negative numbers and 0 to 0
         # Map underflow to next smallest non-zero number
         if bits <= 0:
-            return chr(0)
+            result = chr(0)
         else:
-            return chr(1)
+            result = chr(1)
     elif smallfloat >= fzero + 0x100:
         # Map overflow to largest number
-        return chr(255)
+        result = chr(255)
     else:
-        return chr(smallfloat - fzero)
-
+        result = chr(smallfloat - fzero)
+    return b(result)
 
 def byte_to_float(b, mantissabits=5, zeroexp=2):
     """Decodes a floating point number stored in a single byte.
     """
-    b = ord(b)
+    if type(b) is not int:
+        b = ord(b)
     if b == 0:
         return 0.0
 
@@ -387,7 +389,7 @@ def prefix_encode_all(ls):
     as UTF-8.
     """
 
-    last = u''
+    last = u('')
     for w in ls:
         i = first_diff(last, w)
         yield chr(i) + w[i:].encode("utf8")
@@ -398,7 +400,7 @@ def prefix_decode_all(ls):
     """Decompresses a list of strings compressed by prefix_encode().
     """
 
-    last = u''
+    last = u('')
     for w in ls:
         i = ord(w[0])
         decoded = last[:i] + w[1:].decode("utf8")

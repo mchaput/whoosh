@@ -29,6 +29,7 @@ from bisect import bisect_left
 from heapq import nlargest, nsmallest
 from threading import Lock
 
+from whoosh.compat import iteritems, string_type, integer_types, next, xrange
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
@@ -137,7 +138,7 @@ class SegmentReader(IndexReader):
     def stored_fields(self, docnum):
         schema = self.schema
         return dict(item for item
-                    in self.storedfields[docnum].iteritems()
+                    in iteritems(self.storedfields[docnum])
                     if item[0] in schema)
 
     @protected
@@ -254,7 +255,7 @@ class SegmentReader(IndexReader):
             fieldcache = self.fieldcache(fieldname)
             it = iter(fieldcache.texts)
             # The first value in fieldcache.texts is the default; throw it away
-            it.next()
+            next(it)
             return it
         
         return self.expand_prefix(fieldname, '')
@@ -287,7 +288,7 @@ class SegmentReader(IndexReader):
 
         format = self.schema[fieldname].format
         postings = terminfo.postings
-        if isinstance(postings, (int, long)):
+        if isinstance(postings, integer_types):
             postreader = FilePostingReader(self.postfile, postings, format,
                                            scorer=scorer, fieldname=fieldname,
                                            text=text)
@@ -410,7 +411,7 @@ class SegmentReader(IndexReader):
     # Sorting and faceting methods
     
     def key_fn(self, fields):
-        if isinstance(fields, basestring):
+        if isinstance(fields, string_type):
             fields = (fields, )
         
         if len(fields) > 1:

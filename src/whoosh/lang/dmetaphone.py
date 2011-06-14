@@ -8,6 +8,7 @@
 
 import re
 
+from whoosh.compat import u
 
 vowels = frozenset("AEIOUY")
 slavo_germ_exp = re.compile("W|K|CZ|WITZ")
@@ -110,7 +111,7 @@ def double_metaphone(text):
                         next = ('K', 2)
                     else:  # default for 'C'
                         next = ('K', 1)
-        elif ch == u'Ç':
+        elif ch == u('\xc7'):
             next = ('S', 1)
         elif ch == 'D':
             if text[pos:pos + 2] == 'DG':
@@ -248,7 +249,7 @@ def double_metaphone(text):
                 next = ('N', 2)
             else:
                 next = ('N', 1)
-        elif ch == u'Ñ':
+        elif ch == u('\xd1'):
             next = ('N', 1)
         elif ch == 'P':
             if text[pos + 1] == 'H':

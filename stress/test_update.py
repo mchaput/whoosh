@@ -4,6 +4,7 @@ import random
 from nose.tools import assert_equal
 
 from whoosh import fields, query
+from whoosh.compat import xrange, text_type
 from whoosh.support.testing import TempIndex
 
 
@@ -13,7 +14,7 @@ def test_many_updates():
         for _ in xrange(10000):
             num = random.randint(0, 5000)
             w = ix.writer()
-            w.update_document(key=unicode(num))
+            w.update_document(key=text_type(num))
             w.commit()
         
         with ix.searcher() as s:

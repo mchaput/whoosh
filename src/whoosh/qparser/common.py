@@ -32,6 +32,7 @@ parser modules.
 
 import re
 
+from whoosh.compat import string_type
 
 class QueryParserError(Exception):
     def __init__(self, cause, msg=None):
@@ -40,7 +41,7 @@ class QueryParserError(Exception):
 
 
 def rcompile(pattern, flags=0):
-    if not isinstance(pattern, basestring):
+    if not isinstance(pattern, string_type):
         # If it's not a string, assume it's already a compiled pattern
         return pattern
     return re.compile(pattern, re.UNICODE | flags)

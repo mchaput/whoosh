@@ -36,6 +36,7 @@ import fnmatch
 import re
 from array import array
 
+from whoosh.compat import u, xrange, text_type
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
@@ -65,6 +66,25 @@ class Lowest(object):
         if other.__class__ is Lowest:
             return 0
         return -1
+
+    def __eq__(self, other):
+        return self.__class__ is type(other)
+
+    def __lt__(self, other):
+        return type(other) is not self.__class__
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __gt__(self, other):
+        return not (self.__lt__(other) or self.__eq__(other))
+
+    def __le__(self, other):
+        return self.__eq__(other) or self.__lt__(other)
+
+    def __ge__(self, other):
+        return self.__eq__(other) or self.__gt__(other)
+
 Lowest = Lowest()
 
 class Highest(object):
@@ -74,6 +94,26 @@ class Highest(object):
         if other.__class__ is Highest:
             return 0
         return 1
+        
+    def __eq__(self, other):
+        return self.__class__ is type(other)
+
+    def __lt__(self, other):
+        return type(other) is self.__class__
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __gt__(self, other):
+        return not (self.__lt__(other) or self.__eq__(other))
+
+    def __le__(self, other):
+        return self.__eq__(other) or self.__lt__(other)
+
+    def __ge__(self, other):
+        return self.__eq__(other) or self.__gt__(other)
+
+        
 Highest = Highest()
 
 
@@ -404,10 +444,12 @@ class CompoundQuery(Query):
         return r
 
     def __unicode__(self):
-        r = u"("
-        r += (self.JOINT).join([unicode(s) for s in self.subqueries])
-        r += u")"
+        r = u("(")
+        r += (self.JOINT).join([text_type(s) for s in self.subqueries])
+        r += u(")")
         return r
+
+    __str__ = __unicode__
 
     def __eq__(self, other):
         return other and self.__class__ is other.__class__ and\
@@ -632,7 +674,8 @@ class MultiTerm(Query):
 
     def matcher(self, searcher):
         fieldname = self.fieldname
-        qs = [Term(fieldname, word) for word in self._words(searcher.reader())]
+        reader = searcher.reader()
+        qs = [Term(fieldname, word) for word in self._words(reader)]
         if not qs:
             return NullMatcher()
         
@@ -664,7 +707,7 @@ class Term(Query):
     >>> Term("content", u"render")
     """
 
-    __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
+    __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0):
         self.fieldname = fieldname
@@ -687,11 +730,13 @@ class Term(Query):
         return r
 
     def __unicode__(self):
-        t = u"%s:%s" % (self.fieldname, self.text)
+        t = u("%s:%s") % (self.fieldname, self.text)
         if self.boost != 1:
-            t += u"^" + unicode(self.boost)
+            t += u("^") + text_type(self.boost)
         return t
-    
+
+    __str__ = __unicode__
+
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
@@ -773,12 +818,14 @@ class Or(CompoundQuery):
         self.minmatch = minmatch
 
     def __unicode__(self):
-        r = u"("
-        r += (self.JOINT).join([unicode(s) for s in self.subqueries])
-        r += u")"
+        r = u("(")
+        r += (self.JOINT).join([text_type(s) for s in self.subqueries])
+        r += u(")")
         if self.minmatch:
-            r += u">%s" % self.minmatch
+            r += u(">%s") % self.minmatch
         return r
+
+    __str__ = __unicode__
 
     def normalize(self):
         norm = CompoundQuery.normalize(self)
@@ -808,12 +855,14 @@ class DisjunctionMax(CompoundQuery):
         self.tiebreak = tiebreak
 
     def __unicode__(self):
-        r = u"DisMax("
-        r += " ".join([unicode(s) for s in self.subqueries])
-        r += u")"
+        r = u("DisMax(")
+        r += " ".join([text_type(s) for s in self.subqueries])
+        r += u(")")
         if self.tiebreak:
-            s += u"~" + unicode(self.tiebreak)
+            s += u("~") + text_type(self.tiebreak)
         return r
+
+    __str__ = __unicode__
 
     def normalize(self):
         norm = CompoundQuery.normalize(self)
@@ -865,7 +914,9 @@ class Not(Query):
         return "%s(%s)" % (self.__class__.__name__, repr(self.query))
 
     def __unicode__(self):
-        return u"NOT " + unicode(self.query)
+        return u("NOT ") + text_type(self.query)
+
+    __str__ = __unicode__
 
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.query) ^ hash(self.boost)
@@ -912,7 +963,7 @@ class PatternQuery(MultiTerm):
     """An intermediate base class for common methods of Prefix and Wildcard.
     """
     
-    __inittypes__ = dict(fieldname=str, text=unicode, boost=float)
+    __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0, constantscore=True):
         self.fieldname = fieldname
@@ -948,6 +999,8 @@ class Prefix(PatternQuery):
     def __unicode__(self):
         return "%s:%s*" % (self.fieldname, self.text)
 
+    __str__ = __unicode__
+
     def _words(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
@@ -961,6 +1014,8 @@ class Wildcard(PatternQuery):
 
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
+
+    __str__ = __unicode__
 
     def _words(self, ixreader):
         exp = re.compile(fnmatch.translate(self.text))
@@ -1010,7 +1065,7 @@ class FuzzyTerm(MultiTerm):
     """Matches documents containing words similar to the given term.
     """
 
-    __inittypes__ = dict(fieldname=str, text=unicode, boost=float,
+    __inittypes__ = dict(fieldname=str, text=text_type, boost=float,
                          minsimilarity=float, prefixlength=int)
 
     def __init__(self, fieldname, text, boost=1.0, minsimilarity=0.5,
@@ -1050,10 +1105,12 @@ class FuzzyTerm(MultiTerm):
                     self.boost, self.minsimilarity, self.prefixlength)
 
     def __unicode__(self):
-        r = u"~" + self.text
+        r = u("~") + self.text
         if self.boost != 1.0:
-            r += "^%f" % self.boost
+            r += u("^%f") % self.boost
         return r
+
+    __str__ = __unicode__
 
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
@@ -1088,9 +1145,11 @@ class RangeMixin(object):
         endchar = "}" if self.endexcl else "]"
         start = '' if self.start is None else self.start
         end = '' if self.end is None else self.end
-        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
-                                     endchar)
+        return u("%s:%s%s TO %s%s") % (self.fieldname, startchar, start, end,
+                                       endchar)
     
+    __str__ = __unicode__
+
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
@@ -1198,7 +1257,7 @@ class TermRange(RangeMixin, MultiTerm):
         self.constantscore = constantscore
 
     def normalize(self):
-        if self.start in ('', None) and self.end in (u'\uffff', None):
+        if self.start in ('', None) and self.end in (u('\uffff'), None):
             return Every(self.fieldname, boost=self.boost)
         elif self.start == self.end:
             if self.startexcl or self.endexcl:
@@ -1220,7 +1279,7 @@ class TermRange(RangeMixin, MultiTerm):
     def _words(self, ixreader):
         fieldname = self.fieldname
         start = '' if self.start is None else self.start
-        end = u'\uFFFF' if self.end is None else self.end
+        end = u('\uFFFF') if self.end is None else self.end
         startexcl = self.startexcl
         endexcl = self.endexcl
 
@@ -1398,7 +1457,9 @@ class Variations(MultiTerm):
                 if (fieldname, word) in ixreader]
 
     def __unicode__(self):
-        return u"%s:<%s>" % (self.fieldname, self.text)
+        return u("%s:<%s>") % (self.fieldname, self.text)
+
+    __str__ = __unicode__
 
     def replace(self, oldtext, newtext):
         q = self.copy()
@@ -1436,7 +1497,7 @@ class Phrase(Query):
                                                   self.slop, self.boost)
 
     def __unicode__(self):
-        return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
+        return u('%s:"%s"') % (self.fieldname, u(" ").join(self.words))
 
     def __hash__(self):
         h = hash(self.fieldname) ^ hash(self.slop) ^ hash(self.boost)
@@ -1523,7 +1584,7 @@ class Ordered(And):
     JOINT = " BEFORE "
     
     def matcher(self, searcher):
-        from spans import SpanBefore
+        from whoosh.spans import SpanBefore
         
         return self._matcher(SpanBefore._Matcher, None, searcher)
 
@@ -1589,7 +1650,9 @@ class Every(Query):
                 and self.boost == other.boost)
 
     def __unicode__(self):
-        return u"%s:*" % self.fieldname
+        return u("%s:*") % self.fieldname
+
+    __str__ = __unicode__
 
     def __hash__(self):
         return hash(self.fieldname)
@@ -1602,7 +1665,7 @@ class Every(Query):
         reader = searcher.reader()
         
         if fieldname in (None, "", "*"):
-            doclist = list(searcher.reader().all_doc_ids())
+            doclist = list(reader.all_doc_ids())
         elif reader.supports_caches() and reader.fieldcache_available(self.fieldname):
             # If the reader has a field cache, use it to quickly get the list
             # of documents that have a value for this field
