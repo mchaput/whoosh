@@ -641,7 +641,7 @@ class Searcher(object):
         
 
 class Collector(object):
-    def __init__(self, limit=10, usequality=True, replace=5, groupedby=None,
+    def __init__(self, limit=10, usequality=True, replace=10, groupedby=None,
                  timelimit=None, greedy=False, reverse=False):
         """A Collector finds the matching documents, scores them, collects them
         into a list, and produces a Results object from them.
@@ -847,16 +847,22 @@ class Collector(object):
         replacecounter = 0
         timelimited = bool(self.timelimit)
         
-        # If we're replacing, do one at the beginning to start with the most
-        # efficient matcher possible
-        if replace:
-            matcher = matcher.replace(minscore or 0)
-        
         # A flag to indicate whether we should check block quality at the start
         # of the next loop
         checkquality = True
         
         while matcher.is_active():
+            # If the replacement counter has reached 0, try replacing the
+            # matcher with a more efficient version
+            if replace:
+                if replacecounter == 0 or self.minscore != minscore:
+                    matcher = matcher.replace(minscore or 0)
+                    if not matcher.is_active():
+                        break
+                    replacecounter = replace
+                    minscore = self.minscore
+                replacecounter -= 1
+            
             # Check whether the time limit expired since the last match
             if timelimited and self.timedout and not self.greedy:
                 raise TimeLimit
@@ -865,7 +871,8 @@ class Collector(object):
             # flag is true, try to skip ahead to the next block with the
             # minimum required quality
             if usequality and checkquality and minscore is not None:
-                matcher.skip_to_quality(minscore)
+                skipped = matcher.skip_to_quality(minscore)
+                #print "skipped=", skipped
                 # Skipping ahead might have moved the matcher to the end of the
                 # posting list
                 if not matcher.is_active():
@@ -887,22 +894,11 @@ class Collector(object):
             if self.timedout:
                 raise TimeLimit
             
-            # The method that called us might have changed self.minscore, so
-            # read it again
-            minscore = self.minscore
-            
             # Move to the next document. This method returns True if the
             # matcher has entered a new block, so we should check block quality
             # again.
             checkquality = matcher.next()
             
-            # Ask the matcher to replace itself with a more efficient version
-            # if possible
-            if replace and matcher.is_active():
-                replacecounter += 1
-                if replacecounter >= replace:
-                    matcher = matcher.replace(minscore or 0)
-                    replacecounter = 0
                     
     def results(self):
         """Returns the current results from the collector. This is useful for

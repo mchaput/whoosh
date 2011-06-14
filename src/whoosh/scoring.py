@@ -180,6 +180,9 @@ class WeightLengthScorer(BaseScorer):
                                      searcher.min_length(fieldname, text))
         return obj
     
+    def supports_block_quality(self):
+        return True
+    
     def score(self, matcher):
         return self._score(matcher.weight(), self.dfl(matcher.id()))
     
