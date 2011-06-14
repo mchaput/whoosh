@@ -285,13 +285,13 @@ class IndexReader(ClosableMixin):
         if astype == "weight":
             while vec.is_active():
                 yield (vec.id(), vec.weight())
-                next(vec)
+                vec.next()
         else:
             format = self.schema[fieldname].format
             decoder = format.decoder(astype)
             while vec.is_active():
                 yield (vec.id(), decoder(vec.value()))
-                next(vec)
+                vec.next()
 
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a

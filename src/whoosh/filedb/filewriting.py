@@ -304,7 +304,7 @@ class SegmentWriter(IndexWriter):
                     
                     self.pool.add_posting(fieldname, text, newdoc,
                                           postreader.weight(), valuestring)
-                    next(postreader)
+                    postreader.next()
                     
         self._added = True
     
@@ -373,7 +373,7 @@ class SegmentWriter(IndexWriter):
         while vreader.is_active():
             # text, weight, valuestring, fieldlen
             vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(), 0)
-            next(vreader)
+            vreader.next()
         vpostwriter.finish()
         
         self.vectorindex.add((docnum, fieldname), offset)
@@ -536,7 +536,7 @@ class TermsWriter(object):
                 newdoc = offset + docnum
             totalweight += weight
             postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
-            next(matcher)
+            matcher.next()
         self.weight += totalweight
     
     def add_iter(self, postiter, getlen, offset=0, docmap=None):

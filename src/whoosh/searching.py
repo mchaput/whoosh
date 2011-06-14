@@ -987,7 +987,7 @@ class Collector(object):
             # Move to the next document. This method returns True if the
             # matcher has entered a new block, so we should check block quality
             # again.
-            checkquality = next(matcher)
+            checkquality = matcher.next()
             
             # Ask the matcher to replace itself with a more efficient version
             # if possible

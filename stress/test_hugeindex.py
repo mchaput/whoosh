@@ -34,7 +34,7 @@ def test_huge_postfile():
             assert_equal(pfr.id(), i)
             assert_equal(pfr.weight(), float(i))
             assert_equal(pfr.value(), struct.pack("!I", i))
-            next(pfr)
+            pfr.next()
             i += 1
         pf.close()
     
