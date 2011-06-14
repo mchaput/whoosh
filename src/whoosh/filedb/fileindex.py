@@ -336,9 +336,9 @@ class FileIndex(Index):
     def reader(self, reuse=None):
         retries = 10
         while retries > 0:
+            # Read the information from the TOC file
+            info = self._read_toc()
             try:
-                # Read the information from the TOC file
-                info = self._read_toc()
                 return self._reader(self.storage, info.schema, info.segments,
                                     info.generation, reuse=reuse)
             except IOError:
