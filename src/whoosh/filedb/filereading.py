@@ -152,14 +152,17 @@ class SegmentReader(IndexReader):
     def field_length(self, fieldname):
         return self.segment.field_length(fieldname)
 
+    def min_field_length(self, fieldname):
+        return self.segment.min_field_length(fieldname)
+    
+    def max_field_length(self, fieldname):
+        return self.segment.max_field_length(fieldname)
+
     @protected
     def doc_field_length(self, docnum, fieldname, default=0):
         if self.fieldlengths is None:
             return default
         return self.fieldlengths.get(docnum, fieldname, default=default)
-
-    def max_field_length(self, fieldname):
-        return self.segment.max_field_length(fieldname)
 
     @protected
     def has_vector(self, docnum, fieldname):
@@ -172,10 +175,10 @@ class SegmentReader(IndexReader):
     @protected
     def __iter__(self):
         schema = self.schema
-        for (fieldname, t), (totalfreq, _, postcount) in self.termsindex:
+        for (fieldname, t), (freq, docfreq) in self.termsindex.terms_and_freqs():
             if fieldname not in schema:
                 continue
-            yield (fieldname, t, postcount, totalfreq)
+            yield (fieldname, t, docfreq, freq)
 
     def _test_field(self, fieldname):
         if fieldname not in self.schema:
@@ -187,10 +190,11 @@ class SegmentReader(IndexReader):
     def iter_from(self, fieldname, text):
         schema = self.schema
         self._test_field(fieldname)
-        for (fn, t), (totalfreq, _, postcount) in self.termsindex.items_from((fieldname, text)):
+        term = (fieldname, text)
+        for (fn, t), (freq, docfreq) in self.termsindex.terms_and_freqs(term):
             if fn not in schema:
                 continue
-            yield (fn, t, postcount, totalfreq)
+            yield (fn, t, docfreq, freq)
 
     @protected
     def _term_info(self, fieldname, text):
@@ -200,16 +204,42 @@ class SegmentReader(IndexReader):
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
-    def doc_frequency(self, fieldname, text):
+    def frequency(self, fieldname, text):
+        self._test_field(fieldname)
         try:
-            return self._term_info(fieldname, text)[2]
-        except TermNotFound:
+            return self.termsindex.frequency((fieldname, text))
+        except KeyError:
             return 0
 
-    def frequency(self, fieldname, text):
+    def doc_frequency(self, fieldname, text):
+        self._test_field(fieldname)
         try:
-            return self._term_info(fieldname, text)[0]
-        except TermNotFound:
+            return self.termsindex.doc_frequency((fieldname, text))
+        except KeyError:
+            return 0
+        
+    def min_length(self, fieldname, text):
+        try:
+            return self.termsindex.min_length((fieldname, text))
+        except KeyError:
+            return 0
+    
+    def max_length(self, fieldname, text):
+        try:
+            return self.termsindex.max_length((fieldname, text))
+        except KeyError:
+            return 0
+    
+    def max_weight(self, fieldname, text):
+        try:
+            return self.termsindex.max_weight((fieldname, text))
+        except KeyError:
+            return 0
+    
+    def max_wol(self, fieldname, text):
+        try:
+            return self.termsindex.max_wol((fieldname, text))
+        except KeyError:
             return 0
 
     def lexicon(self, fieldname):
@@ -252,19 +282,20 @@ class SegmentReader(IndexReader):
 
     def postings(self, fieldname, text, scorer=None):
         try:
-            offset = self.termsindex[fieldname, text][1]
+            terminfo = self.termsindex[fieldname, text]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
         format = self.schema[fieldname].format
-        if isinstance(offset, integer_types):
-            postreader = FilePostingReader(self.postfile, offset, format,
+        postings = terminfo.postings
+        if isinstance(postings, integer_types):
+            postreader = FilePostingReader(self.postfile, postings, format,
                                            scorer=scorer, fieldname=fieldname,
                                            text=text)
         else:
-            docids, weights, values, maxwol, minlength = offset
-            postreader = ListMatcher(docids, weights, values, format, scorer,
-                                     maxwol=maxwol, minlength=minlength)
+            docids, weights, values = postings
+            postreader = ListMatcher(docids, weights, values, format,
+                                     scorer=scorer)
         
         deleted = self.segment.deleted
         if deleted:

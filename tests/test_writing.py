@@ -99,8 +99,8 @@ def test_buffered_search():
         w.add_document(id=4, text=u("charlie delta echo"))
         
         with w.searcher() as s:
-            r = s.search(query.Term("text", u("tango")), scored=False)
-            assert_equal([d["id"] for d in r], [2, 3])
+            r = s.search(query.Term("text", u("tango")))
+            assert_equal(sorted([d["id"] for d in r]), [2, 3])
             
         w.add_document(id=5, text=u("foxtrot golf hotel"))
         w.add_document(id=6, text=u("india tango juliet"))
@@ -108,8 +108,8 @@ def test_buffered_search():
         w.add_document(id=8, text=u("mike november echo"))
         
         with w.searcher() as s:
-            r = s.search(query.Term("text", u("tango")), scored=False)
-            assert_equal([d["id"] for d in r], [2, 3, 6, 7])
+            r = s.search(query.Term("text", u("tango")))
+            assert_equal(sorted([d["id"] for d in r]), [2, 3, 6, 7])
             
         w.close()
 
@@ -275,20 +275,10 @@ def test_read_inline():
         w.add_document(a=u("charlie"))
         w.commit()
 
-        # The value to compare against is different for Python 2.x
-        # and Python 3.x because 2.x cPickle.dumps([0], -1) !=
-        # 3.x pickle.dumps([0], -1)
-        
-        if PY3:
-            COMPARE_VALUE = b('\x00\x00\x00\x01]q\x00K\x00a')
-        else:
-            COMPARE_VALUE = b('\x00\x00\x00\x01]q\x01K\x00a')
-
         tr = TermIndexReader(ix.storage.open_file("_readinline_1.trm"))
-        for i, item in enumerate(tr.items()):
-            assert_equal(item[1][1], ((i,), (1.0,),
-                                          (COMPARE_VALUE,),
-                                          1.0, 1))
+        for i, (term, terminfo) in enumerate(tr.items()):
+            assert_equal(terminfo.postings[0], (i,))
+            assert_equal(terminfo.postings[1], (1.0,))
         tr.close()
         
         with ix.reader() as r:

@@ -981,7 +981,7 @@ def test_trackingcollector():
                 Not(Term("text", "charlie"))])
         
         col = searching.TermTrackingCollector()
-        r = s.search(q, collector=col)
+        r = col.search(s, q)
         
         for docnum in col.catalog["text:alfa"]:
             words = s.stored_fields(docnum)["text"].split()
@@ -1014,10 +1014,10 @@ def test_filter():
     
     with ix.searcher() as s:
         fq = Or([Prefix("path", "/a"), Prefix("path", "/b")])
-        r = s.search(Term("text", "alfa"), scored=False, filter=fq)
+        r = s.search(Term("text", "alfa"), filter=fq)
         assert_equal([d["id"] for d in r], [1, 4, 5])
         
-        r = s.search(Term("text", "bravo"), scored=False, filter=fq)
+        r = s.search(Term("text", "bravo"), filter=fq)
         assert_equal([d["id"] for d in r], [1, 2, 5, 7,])
     
 def test_timelimit():
@@ -1044,34 +1044,35 @@ def test_timelimit():
         oq = Term("text", u("alfa"))
         sq = SlowQuery(oq)
         
-        col = searching.Collector(timelimit=0.1)
-        assert_raises(searching.TimeLimit, s.search, sq, limit=None, collector=col)
+        col = searching.Collector(timelimit=0.1, limit=None)
+        assert_raises(searching.TimeLimit, col.search, s, sq)
         
-        col = searching.Collector(timelimit=0.1)
-        assert_raises(searching.TimeLimit, s.search, sq, limit=40, collector=col)
+        col = searching.Collector(timelimit=0.1, limit=40)
+        assert_raises(searching.TimeLimit, col.search, s, sq)
         
-        col = searching.Collector(timelimit=0.25)
+        col = searching.Collector(timelimit=0.25, limit=None)
         try:
-            s.search(sq, limit=None, collector=col)
+            col.search(s, sq)
+            assert False  # Shouldn't get here
         except searching.TimeLimit:
             r = col.results()
             assert r.scored_length() > 0
         
-        col = searching.Collector(timelimit=0.5)
-        r = s.search(oq, limit=None, collector=col)
+        col = searching.Collector(timelimit=0.5, limit=None)
+        r = col.search(s, oq)
         assert r.runtime < 0.5
-            
+
 def test_fieldboost():
     schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
-    w.add_document(id=1, a=u("alfa bravo charlie"), b=u("echo foxtrot india"))
-    w.add_document(id=2, a=u("delta bravo charlie"), b=u("alfa alfa alfa"))
-    w.add_document(id=3, a=u("alfa alfa alfa"), b=u("echo foxtrot india"))
-    w.add_document(id=4, a=u("alfa sierra romeo"), b=u("alfa tango echo"))
-    w.add_document(id=5, a=u("bravo charlie delta"), b=u("alfa foxtrot india"))
-    w.add_document(id=6, a=u("alfa alfa echo"), b=u("tango tango tango"))
-    w.add_document(id=7, a=u("alfa bravo echo"), b=u("alfa alfa tango"))
+    w.add_document(id=0, a=u("alfa bravo charlie"), b=u("echo foxtrot india"))
+    w.add_document(id=1, a=u("delta bravo charlie"), b=u("alfa alfa alfa"))
+    w.add_document(id=2, a=u("alfa alfa alfa"), b=u("echo foxtrot india"))
+    w.add_document(id=3, a=u("alfa sierra romeo"), b=u("alfa tango echo"))
+    w.add_document(id=4, a=u("bravo charlie delta"), b=u("alfa foxtrot india"))
+    w.add_document(id=5, a=u("alfa alfa echo"), b=u("tango tango tango"))
+    w.add_document(id=6, a=u("alfa bravo echo"), b=u("alfa alfa tango"))
     w.commit()
     
     def field_booster(fieldname, factor=2.0):
@@ -1087,12 +1088,10 @@ def test_fieldboost():
     
     with ix.searcher() as s:
         q = Or([Term("a", u("alfa")), Term("b", u("alfa"))])
-        
-        q = q.accept(field_booster("a", 10.0))
+        q = q.accept(field_booster("a", 100.0))
+        assert_equal(unicode(q), u"(a:alfa^100.0 OR b:alfa)")
         r = s.search(q)
-        for hit in r:
-            print(hit.score, hit["id"])
-        assert_equal([hit["id"] for hit in r], [3, 6, 7, 4, 1, 2, 5])
+        assert_equal([hit["id"] for hit in r], [2, 5, 6, 3, 0, 1, 4])
     
 def test_andmaybe_quality():
     schema = fields.Schema(id=fields.STORED, title=fields.TEXT(stored=True),

@@ -175,13 +175,9 @@ class MultiSegmentWriter(IndexWriter):
             _write_toc(self.storage, self.schema, self.index.indexname,
                        self.generation, self.segment_number, self.segments)
             
-            readlock = self.index.lock("READLOCK")
-            readlock.acquire(True)
-            try:
-                _clean_files(self.storage, self.index.indexname,
-                             self.generation, self.segments)
-            finally:
-                readlock.release()
+            # Delete leftover files
+            _clean_files(self.storage, self.index.indexname,
+                         self.generation, self.segments)
         finally:
             self.writelock.release()
 
@@ -235,7 +231,8 @@ class PoolWritingTask(Process):
         subpool._write_lengths(StructFile(lenf), doccount)
         subpool.dump_run()
         rqueue.put((subpool.runs, subpool.fieldlength_totals(),
-                    subpool.fieldlength_maxes(), lenfilename))
+                    subpool.fieldlength_mins(), subpool.fieldlength_maxes(),
+                    lenfilename))
 
 
 class MultiPool(PoolBase):
@@ -317,14 +314,19 @@ class MultiPool(PoolBase):
         runs = []
         lenfilenames = []
         for task in self.tasks:
-            taskruns, flentotals, flenmaxes, lenfilename = rqueue.get()
+            taskruns, flentotals, flenmins, flenmaxes, lenfilename = rqueue.get()
             runs.extend(taskruns)
             lenfilenames.append(lenfilename)
-            for fieldnum, total in iteritems(flentotals):
-                _fieldlength_totals[fieldnum] += total
-            for fieldnum, length in iteritems(flenmaxes):
-                if length > self._fieldlength_maxes.get(fieldnum, 0):
-                    self._fieldlength_maxes[fieldnum] = length
+            for fieldname, total in iteritems(flentotals):
+                _fieldlength_totals[fieldname] += total
+            
+            for fieldname, length in iteritems(flenmins):
+                if length < self._fieldlength_maxes.get(fieldname, 9999999999):
+                    self._fieldlength_mins[fieldname] = length
+            
+            for fieldname, length in flenmaxes.iteritems():
+                if length > self._fieldlength_maxes.get(fieldname, 0):
+                    self._fieldlength_maxes[fieldname] = length
         
         jobqueue.close()
         rqueue.close()

@@ -1,10 +1,12 @@
 from __future__ import with_statement
+import random, threading, time
 
 from nose.tools import assert_equal
 
 from whoosh import analysis, fields, reading
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
+from whoosh.support.testing import TempIndex
 
 def _create_index():
     s = fields.Schema(f1 = fields.KEYWORD(stored = True),
@@ -90,15 +92,15 @@ def test_term_inspection():
                     ('content', u('ee')), ('title', u('document')), ('title', u('my')),
                     ('title', u('other'))]))
     # (text, doc_freq, index_freq)
-    assert (list(reader.iter_field("content"))
-            == [(u('aa'), 2, 6), (u('ab'), 1, 1), (u('ax'), 1, 2), (u('bb'), 2, 5),
-                (u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
-    assert (list(reader.iter_field("content", prefix="c"))
-             == [(u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
-    assert (list(reader.most_frequent_terms("content"))
-            == [(6, u('aa')), (5, u('bb')), (4, u('ee')), (3, u('cc')), (2, u('dd'))])
-    assert (list(reader.most_frequent_terms("content", prefix="a"))
-            == [(6, u('aa')), (2, u('ax')), (1, u('ab'))])
+    assert_equal(list(reader.iter_field("content")),
+                 [(u('aa'), 2, 6), (u('ab'), 1, 1), (u('ax'), 1, 2), (u('bb'), 2, 5),
+                  (u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
+    assert_equal(list(reader.iter_field("content", prefix="c")),
+                 [(u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
+    assert_equal(list(reader.most_frequent_terms("content")),
+                 [(6, u('aa')), (5, u('bb')), (4, u('ee')), (3, u('cc')), (2, u('dd'))])
+    assert_equal(list(reader.most_frequent_terms("content", prefix="a")),
+                 [(6, u('aa')), (2, u('ax')), (1, u('ab'))])
 
 def test_vector_postings():
     s = fields.Schema(id=fields.ID(stored=True, unique=True),
@@ -220,7 +222,58 @@ def test_first_id():
     docid = r.first_id("path", u("/e"))
     assert_equal(r.stored_fields(docid), {"path": "/e"})
 
+class RecoverReader(threading.Thread):
+    def __init__(self, ix):
+        threading.Thread.__init__(self)
+        self.ix = ix
+    
+    def run(self):
+        for _ in xrange(200):
+            r = self.ix.reader()
+            r.close()
 
+class RecoverWriter(threading.Thread):
+    domain = u("alfa bravo charlie deleta echo foxtrot golf hotel india").split()
+    
+    def __init__(self, ix):
+        threading.Thread.__init__(self)
+        self.ix = ix
+        
+    def run(self):
+        for _ in xrange(20):
+            w = self.ix.writer()
+            w.add_document(text=random.sample(self.domain, 4))
+            w.commit()
+            time.sleep(0.05)
+
+def test_delete_recovery():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempIndex(schema, "delrecover") as ix:
+        rw = RecoverWriter(ix)
+        rr = RecoverReader(ix)
+        rw.start()
+        rr.start()
+        rw.join()
+        rr.join()
+
+def test_nonexclusive_read():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempIndex(schema, "readlock") as ix:
+        for num in u("one two three four five").split():
+            w = ix.writer()
+            w.add_document(text=u("Test document %s") % num)
+            w.commit(merge=False)
+        
+        def fn():
+            for _ in xrange(10):
+                r = ix.reader()
+                r.close()
+        
+        ths = [threading.Thread(target=fn) for _ in xrange(10)]
+        for th in ths:
+            th.start()
+        for th in ths:
+            th.join()
 
 
 

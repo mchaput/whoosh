@@ -761,12 +761,12 @@ class Term(Query):
         return ixreader.doc_frequency(self.fieldname, self.text)
 
     def matcher(self, searcher):
-        try:
+        if (self.fieldname, self.text) in searcher.reader():
             m = searcher.postings(self.fieldname, self.text)
             if self.boost != 1.0:
                 m = WrappingMatcher(m, boost=self.boost)
             return m
-        except TermNotFound:
+        else:
             return NullMatcher()
 
 
@@ -1107,7 +1107,7 @@ class FuzzyTerm(MultiTerm):
     def __unicode__(self):
         r = u("~") + self.text
         if self.boost != 1.0:
-            r += "^%f" % self.boost
+            r += u("^%f") % self.boost
         return r
 
     __str__ = __unicode__
@@ -1287,14 +1287,12 @@ class TermRange(RangeMixin, MultiTerm):
         for fname, t, _, _ in ixreader.iter_from(fieldname, start):
             if fname != fieldname:
                 break
-            #print('_words: %r, %r, %r' % (start, t, end))
             if t == start and startexcl:
                 continue
             if t == end and endexcl:
                 break
             if t > end:
                 break
-            #print('yielding: %r' % t)
             yield t
 
 

@@ -124,7 +124,6 @@ class SegmentWriter(IndexWriter):
             self.writelock = ix.lock("WRITELOCK")
             if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
                 raise LockError
-        self.readlock = ix.lock("READLOCK")
         
         info = ix._read_toc()
         self.schema = info.schema
@@ -150,7 +149,7 @@ class SegmentWriter(IndexWriter):
         self._unique_cache = {}
     
         # Create a temporary segment to use its .*_filename attributes
-        segment = Segment(self.name, self.generation, 0, None, None)
+        segment = Segment(self.name, self.generation, 0, None, None, None)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -393,6 +392,7 @@ class SegmentWriter(IndexWriter):
     def _getsegment(self):
         return Segment(self.name, self.generation, self.docnum,
                        self.pool.fieldlength_totals(),
+                       self.pool.fieldlength_mins(),
                        self.pool.fieldlength_maxes())
     
     def commit(self, mergetype=None, optimize=False, merge=True):
@@ -458,11 +458,8 @@ class SegmentWriter(IndexWriter):
             _write_toc(self.storage, self.schema, self.indexname, self.generation,
                        self.segment_number, new_segments)
             
-            self.readlock.acquire(True)
-            try:
-                _clean_files(self.storage, self.indexname, self.generation, new_segments)
-            finally:
-                self.readlock.release()
+            # Delete leftover files
+            _clean_files(self.storage, self.indexname, self.generation, new_segments)
         
         finally:
             if self.writelock:
@@ -481,15 +478,20 @@ class SegmentWriter(IndexWriter):
 class TermsWriter(object):
     def __init__(self, schema, termsindex, postwriter, inlinelimit=1):
         self.schema = schema
+        # This file maps terms to TermInfo structures
         self.termsindex = termsindex
+        # This object writes postings to the posting file and keeps track of
+        # 
         self.postwriter = postwriter
+        # Posting lists with <= this number of postings will be inlined into
+        # the terms index instead of being written to the posting file
         self.inlinelimit = inlinelimit
         
         self.lastfn = None
         self.lasttext = None
         self.format = None
         self.offset = None
-    
+        
     def _new_term(self, fieldname, text):
         lastfn = self.lastfn or ''
         lasttext = self.lasttext or ''
@@ -502,8 +504,7 @@ class TermsWriter(object):
     
         if fieldname != lastfn or text != lasttext:
             self._finish_term()
-            # Reset the term attributes
-            self.weight = 0
+            
             self.offset = self.postwriter.start(self.format)
             self.lasttext = text
             self.lastfn = fieldname
@@ -511,21 +512,12 @@ class TermsWriter(object):
     def _finish_term(self):
         postwriter = self.postwriter
         if self.lasttext is not None:
-            postcount = postwriter.posttotal
-            if postcount <= self.inlinelimit and postwriter.blockcount < 1:
-                offset = postwriter.as_inline()
-                postwriter.cancel()
-            else:
-                offset = self.offset
-                postwriter.finish()
-            
-            self.termsindex.add((self.lastfn, self.lasttext),
-                                (self.weight, offset, postcount))
+            terminfo = postwriter.finish(self.inlinelimit)
+            self.termsindex.add((self.lastfn, self.lasttext), terminfo)
     
     def add_postings(self, fieldname, text, matcher, getlen, offset=0, docmap=None):
         self._new_term(fieldname, text)
         postwrite = self.postwriter.write
-        totalweight = 0
         while matcher.is_active():
             docnum = matcher.id()
             weight = matcher.weight()
@@ -534,10 +526,8 @@ class TermsWriter(object):
                 newdoc = docmap[docnum]
             else:
                 newdoc = offset + docnum
-            totalweight += weight
             postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
             matcher.next()
-        self.weight += totalweight
     
     def add_iter(self, postiter, getlen, offset=0, docmap=None):
         _new_term = self._new_term
@@ -548,12 +538,10 @@ class TermsWriter(object):
                 newdoc = docmap[docnum]
             else:
                 newdoc = offset + docnum
-            self.weight += weight
             postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
     
     def add(self, fieldname, text, docnum, weight, valuestring, fieldlen):
         self._new_term(fieldname, text)
-        self.weight += weight
         self.postwriter.write(docnum, weight, valuestring, fieldlen)
         
     def close(self):
