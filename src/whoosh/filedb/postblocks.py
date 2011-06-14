@@ -26,7 +26,6 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from array import array
-from cPickle import dumps, load, loads
 from struct import Struct
 
 try:
@@ -35,6 +34,7 @@ try:
 except ImportError:
     can_compress = False
 
+from whoosh.compat import dumps, load, loads, xrange, b, u, PY3
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, pack_uint, IS_LITTLE
 from whoosh.util import utf8decode, length_to_byte, byte_to_length
 
@@ -149,6 +149,9 @@ class Block2(BlockBase):
         block.idslen = header[5]
         block.weightslen = header[6]
         
+        if PY3:
+            block.typecode = block.typecode.decode('latin-1')
+        
         # Read the "maximum ID" part of the header, based on whether we're
         # using string IDs
         if stringids:
@@ -249,7 +252,7 @@ class Block2(BlockBase):
         
         # Weights
         if all(w == 1.0 for w in weights):
-            weights_string = ''
+            weights_string = b('')
         else:
             if not IS_LITTLE:
                 weights.byteswap()
@@ -262,9 +265,9 @@ class Block2(BlockBase):
         if postingsize < 0:
             values_string = dumps(values, -1)[2:]
         elif postingsize == 0:
-            values_string = ''
+            values_string = b('')
         else:
-            values_string = "".join(values)
+            values_string = b("").join(values)
         if values_string and compression:
             values_string = compress(values_string, compression)
         
@@ -272,7 +275,7 @@ class Block2(BlockBase):
         flags = 1 if compression else 0
         blocksize = sum((self._struct.size, len(maxid_string), len(ids_string),
                          len(weights_string), len(values_string)))
-        header = self._struct.pack(blocksize, flags, postcount, typecode,
+        header = self._struct.pack(blocksize, flags, postcount, typecode.encode('latin-1'),
                                    0, len(ids_string), len(weights_string),
                                    self.max_weight(), self.max_wol(), 0, 0,
                                    self._maxlength, self._minlength or 0)

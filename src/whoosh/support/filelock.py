@@ -35,6 +35,7 @@ cleaned up. Using OS-level file locks fixes this.
 
 import errno
 import os
+import sys
 import time
 
 
@@ -104,7 +105,8 @@ class FcntlLock(LockBase):
             fcntl.flock(self.fd, mode)
             self.locked = True
             return True
-        except IOError, e:
+        except IOError:
+            e = sys.exc_info()[1]
             if e.errno not in (errno.EAGAIN, errno.EACCES):
                 raise
             os.close(self.fd)
@@ -134,7 +136,8 @@ class MsvcrtLock(LockBase):
         try:
             msvcrt.locking(self.fd, mode, 1)
             return True
-        except IOError, e:
+        except IOError:
+            e = sys.exc_info()[1]
             if e.errno not in (errno.EAGAIN, errno.EACCES, errno.EDEADLK):
                 raise
             os.close(self.fd)

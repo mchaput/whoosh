@@ -5,6 +5,7 @@ import random
 
 from nose.tools import assert_equal
 
+from whoosh.compat import u, b, xrange, iteritems, unichr
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import (HashReader, HashWriter, TermInfo,
                                       OrderedHashWriter, OrderedHashReader,
@@ -20,15 +21,15 @@ def randstring(domain, minlen, maxlen):
 def test_termkey():
     with TempStorage("termkey") as st:
         tw = TermIndexWriter(st.create_file("test.trm"))
-        tw.add(("alfa", u"bravo"), TermInfo(1.0, 3))
-        tw.add((u"alfa", u"Ã¦Ã¯Å�Ãº"), TermInfo(4.0, 6))
-        tw.add((u"text", u"æ—¥æœ¬èªž"), TermInfo(7.0, 9))
+        tw.add(("alfa", u("bravo")), TermInfo(1.0, 3))
+        tw.add((u"alfa", u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')), TermInfo(4.0, 6))
+        tw.add((u"text", u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')), TermInfo(7.0, 9))
         tw.close()
         
         tr = TermIndexReader(st.open_file("test.trm"))
-        assert ("alfa", u"bravo") in tr
-        assert (u"alfa", u"Ã¦Ã¯Å�Ãº") in tr
-        assert (u"text", u"æ—¥æœ¬èªž") in tr
+        assert ("alfa", u("bravo")) in tr
+        assert (u("alfa"), u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')) in tr
+        assert (u("text"), u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')) in tr
         tr.close()
     
 def test_random_termkeys():
@@ -60,7 +61,7 @@ def test_hash():
         
         hrf = st.open_file("test.hsh")
         hr = HashReader(hrf)
-        assert_equal(hr.get("foo"), "bar")
+        assert_equal(hr.get("foo"), b("bar"))
         assert_equal(hr.get("baz"), None)
         hr.close()
 
@@ -94,17 +95,17 @@ def test_random_hash():
         
         hwf = st.create_file("test.hsh")
         hw = HashWriter(hwf)
-        for k, v in samp.iteritems():
+        for k, v in iteritems(samp):
             hw.add(k, v)
         hw.close()
         
-        keys = samp.keys()
+        keys = list(samp.keys())
         random.shuffle(keys)
         hrf = st.open_file("test.hsh")
         hr = HashReader(hrf)
         for k in keys:
             v = hr[k]
-            assert_equal(v, samp[k])
+            assert_equal(v, b(samp[k]))
         hr.close()
 
 def test_ordered_hash():
@@ -115,12 +116,12 @@ def test_ordered_hash():
         hw.add_all(("%08x" % x, str(x)) for x in xrange(times))
         hw.close()
         
-        keys = range(times)
+        keys = list(range(times))
         random.shuffle(keys)
         hrf = st.open_file("test.hsh")
         hr = HashReader(hrf)
         for x in keys:
-            assert_equal(hr["%08x" % x], str(x))
+            assert_equal(hr["%08x" % x], b(str(x)))
         hr.close()
     
 def test_ordered_closest():
@@ -137,16 +138,16 @@ def test_ordered_closest():
         hrf = st.open_file("test.hsh")
         hr = OrderedHashReader(hrf)
         ck = hr.closest_key
-        assert_equal(ck(''), 'alfa')
-        assert_equal(ck(' '), 'alfa')
-        assert_equal(ck('alfa'), 'alfa')
-        assert_equal(ck('bravot'), 'charlie')
-        assert_equal(ck('charlie'), 'charlie')
-        assert_equal(ck('kiloton'), 'lima')
+        assert_equal(ck(''), b('alfa'))
+        assert_equal(ck(' '), b('alfa'))
+        assert_equal(ck('alfa'), b('alfa'))
+        assert_equal(ck('bravot'), b('charlie'))
+        assert_equal(ck('charlie'), b('charlie'))
+        assert_equal(ck('kiloton'), b('lima'))
         assert_equal(ck('oskar'), None)
-        assert_equal(list(hr.keys()), keys)
-        assert_equal(list(hr.values()), values)
-        assert_equal(list(hr.keys_from('f')), keys[5:])
+        assert_equal(list(hr.keys()), [b(k) for k in keys])
+        assert_equal(list(hr.values()), [b(v) for v in values])
+        assert_equal(list(hr.keys_from('f')), [b(k) for k in keys[5:]])
         hr.close()
     
 def test_stored_fields():

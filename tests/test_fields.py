@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from nose.tools import assert_equal, assert_not_equal, assert_raises
 
 from whoosh import analysis, fields, qparser, query
+from whoosh.compat import long_type, u, b, xrange, PY3
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support import numeric, times
 
@@ -81,7 +82,7 @@ def test_badnames():
 
 def test_numeric_support():
     intf = fields.NUMERIC(int, shift_step=0)
-    longf = fields.NUMERIC(long, shift_step=0)
+    longf = fields.NUMERIC(long_type, shift_step=0)
     floatf = fields.NUMERIC(float, shift_step=0)
     
     def roundtrip(obj, num):
@@ -123,11 +124,11 @@ def test_numeric():
     ix = RamStorage().create_index(schema)
     
     w = ix.writer()
-    w.add_document(id=u"a", integer=5820, floating=1.2)
-    w.add_document(id=u"b", integer=22, floating=2.3)
-    w.add_document(id=u"c", integer=78, floating=3.4)
-    w.add_document(id=u"d", integer=13, floating=4.5)
-    w.add_document(id=u"e", integer=9, floating=5.6)
+    w.add_document(id=u("a"), integer=5820, floating=1.2)
+    w.add_document(id=u("b"), integer=22, floating=2.3)
+    w.add_document(id=u("c"), integer=78, floating=3.4)
+    w.add_document(id=u("d"), integer=13, floating=4.5)
+    w.add_document(id=u("e"), integer=9, floating=5.6)
     w.commit()
     
     with ix.searcher() as s:
@@ -159,10 +160,10 @@ def test_decimal_numeric():
     assert_equal(f.from_text(f.to_text(Decimal("123.56"))), Decimal("123.56"))
     
     w = ix.writer()
-    w.add_document(id=u"a", deci=Decimal("123.56"))
-    w.add_document(id=u"b", deci=Decimal("0.536255"))
-    w.add_document(id=u"c", deci=Decimal("2.5255"))
-    w.add_document(id=u"d", deci=Decimal("58"))
+    w.add_document(id=u("a"), deci=Decimal("123.56"))
+    w.add_document(id=u("b"), deci=Decimal("0.536255"))
+    w.add_document(id=u("c"), deci=Decimal("2.5255"))
+    w.add_document(id=u("d"), deci=Decimal("58"))
     w.commit()
     
     with ix.searcher() as s:
@@ -214,14 +215,14 @@ def test_numeric_ranges():
             assert_equal(result, target)
         
         # Note that range() is always inclusive-exclusive
-        check("[10 to 390]", range(10, 390+1))
-        check("[100 to]", range(100, 400))
-        check("[to 350]", range(0, 350+1))
-        check("[16 to 255]", range(16, 255+1))
-        check("{10 to 390]", range(11, 390+1))
-        check("[10 to 390}", range(10, 390))
-        check("{10 to 390}", range(11, 390))
-        check("{16 to 255}", range(17, 255))
+        check("[10 to 390]", list(range(10, 390+1)))
+        check("[100 to]", list(range(100, 400)))
+        check("[to 350]", list(range(0, 350+1)))
+        check("[16 to 255]", list(range(16, 255+1)))
+        check("{10 to 390]", list(range(11, 390+1)))
+        check("[10 to 390}", list(range(10, 390)))
+        check("{10 to 390}", list(range(11, 390)))
+        check("{16 to 255}", list(range(17, 255)))
     
 def test_decimal_ranges():
     from decimal import Decimal
@@ -275,7 +276,7 @@ def test_nontext_document():
         
         check({"num": 49}, [49])
         check({"date": dt + timedelta(days=30)}, [30])
-        check({"even": True}, range(0, 50, 2))
+        check({"even": True}, list(range(0, 50, 2)))
 
 def test_nontext_update():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(unique=True),
@@ -306,10 +307,10 @@ def test_datetime():
     w = ix.writer()
     for month in xrange(1, 12):
         for day in xrange(1, 28):
-            w.add_document(id=u"%s-%s" % (month, day),
+            w.add_document(id=u("%s-%s") % (month, day),
                            date=datetime(2010, month, day, 14, 00, 00))
     w.commit()
-    
+
     with ix.searcher() as s:
         qp = qparser.QueryParser("id", schema)
         
@@ -323,7 +324,7 @@ def test_datetime():
         r = s.search(qp.parse("date:'2010 02'"))
         assert_equal(len(r), 27)
         
-        q = qp.parse(u"date:[2010-05 to 2010-08]")
+        q = qp.parse(u("date:[2010-05 to 2010-08]"))
         startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
         enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
         assert q.__class__ is query.NumericRange
@@ -336,11 +337,11 @@ def test_boolean():
     ix = RamStorage().create_index(schema)
     
     w = ix.writer()
-    w.add_document(id=u"a", done=True)
-    w.add_document(id=u"b", done=False)
-    w.add_document(id=u"c", done=True)
-    w.add_document(id=u"d", done=False)
-    w.add_document(id=u"e", done=True)
+    w.add_document(id=u("a"), done=True)
+    w.add_document(id=u("b"), done=False)
+    w.add_document(id=u("c"), done=True)
+    w.add_document(id=u("d"), done=False)
+    w.add_document(id=u("e"), done=True)
     w.commit()
     
     with ix.searcher() as s:
@@ -371,15 +372,15 @@ def test_boolean2():
     schema = fields.Schema(t=fields.TEXT(stored=True), b=fields.BOOLEAN(stored=True))
     ix = RamStorage().create_index(schema)
     writer = ix.writer()
-    writer.add_document(t=u'some kind of text', b=False)
-    writer.add_document(t=u'some other kind of text', b=False)
-    writer.add_document(t=u'some more text', b=False)
-    writer.add_document(t=u'some again', b=True)
+    writer.add_document(t=u('some kind of text'), b=False)
+    writer.add_document(t=u('some other kind of text'), b=False)
+    writer.add_document(t=u('some more text'), b=False)
+    writer.add_document(t=u('some again'), b=True)
     writer.commit()
     
     with ix.searcher() as s:
-        qf = qparser.QueryParser('b', None).parse(u'f')
-        qt = qparser.QueryParser('b', None).parse(u't')
+        qf = qparser.QueryParser('b', None).parse(u('f'))
+        qt = qparser.QueryParser('b', None).parse(u('t'))
         r = s.search(qf)
         assert_equal(len(r), 3)
         
@@ -391,16 +392,16 @@ def test_missing_field():
     ix = RamStorage().create_index(schema)
     
     with ix.searcher() as s:
-        assert_raises(KeyError, s.document_numbers, id=u"test")
+        assert_raises(KeyError, s.document_numbers, id=u("test"))
 
 def test_token_boost():
     from whoosh.analysis import RegexTokenizer, DoubleMetaphoneFilter
     ana = RegexTokenizer() | DoubleMetaphoneFilter()
     field = fields.TEXT(analyzer=ana, phrase=False)
-    results = list(field.index(u"spruce view"))
-    assert_equal(results, [('SPRS', 1, 1.0, '\x00\x00\x00\x01'),
-                           ('FF', 1, 0.5, '\x00\x00\x00\x01'),
-                           ('F', 1, 1.0, '\x00\x00\x00\x01')])
+    results = list(field.index(u("spruce view")))
+    assert_equal(results, [('SPRS', 1, 1.0, b('\x00\x00\x00\x01')),
+                           ('FF', 1, 0.5, b('\x00\x00\x00\x01')),
+                           ('F', 1, 1.0, b('\x00\x00\x00\x01'))])
     
         
 

@@ -26,8 +26,10 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import re
+import sys
 from datetime import datetime, timedelta
 
+from whoosh.compat import string_type, iteritems
 from whoosh.qparser import BasicSyntax, ErrorToken, Plugin, RangePlugin, Group, Word
 from whoosh.support.relativedelta import relativedelta
 from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
@@ -49,7 +51,7 @@ def rcompile(pattern):
 
 def print_debug(level, msg, *args):
     if level > 0:
-        print ("  " * (level - 1)) + (msg % args)
+        print(("  " * (level - 1)) + (msg % args))
 
 
 # Parser element objects
@@ -75,7 +77,7 @@ class ParserBase(object):
     """
     
     def to_parser(self, e):
-        if isinstance(e, basestring):
+        if isinstance(e, string_type):
             return Regex(e)
         else:
             return e
@@ -451,7 +453,7 @@ class Regex(ParserBase):
     
     def extract(self, match):
         d = match.groupdict()
-        for key, value in d.iteritems():
+        for key, value in iteritems(d):
             try:
                 value = int(value)
                 d[key] = value
@@ -768,8 +770,9 @@ class DateParserPlugin(Plugin):
                             t = ErrorToken(t)
                         else:
                             t = DateToken(t.fieldname, dt, t.boost)
-                    except DateParseError, e:
+                    except DateParseError:
                         if self.callback:
+                            e = sys.exc_info()[1]
                             self.callback("%s (%r)" % (str(e), text))
                         t = ErrorToken(t)
                 

@@ -32,9 +32,9 @@ occurance of a term.
 """
 
 from collections import defaultdict
-from cPickle import dumps, loads
 
 from whoosh.analysis import unstopped, entoken
+from whoosh.compat import iteritems, dumps, loads, b
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint,
                            pack_float, unpack_float)
 from whoosh.util import (float_to_byte, byte_to_float)
@@ -214,7 +214,7 @@ class Frequency(Format):
         
         encode = self.encode
         return ((w, freq, weights[w] * fb, encode(freq))
-                for w, freq in freqs.iteritems())
+                for w, freq in iteritems(freqs))
 
     def encode(self, freq):
         return pack_uint(freq)
@@ -248,7 +248,7 @@ class DocBoosts(Frequency):
         
         encode = self.encode
         return ((w, freq, weights[w] * doc_boost * fb, encode((freq, doc_boost)))
-                for w, freq in freqs.iteritems())
+                for w, freq in iteritems(freqs))
     
     def encode(self, freq_docboost):
         freq, docboost = freq_docboost
@@ -290,7 +290,7 @@ class Positions(Format):
         
         encode = self.encode
         return ((w, len(poslist), weights[w] * fb, encode(poslist))
-                for w, poslist in poses.iteritems())
+                for w, poslist in iteritems(poses))
     
     def encode(self, positions):
         codes = []
@@ -301,7 +301,7 @@ class Positions(Format):
         return pack_uint(len(codes)) + dumps(codes, -1)[2:-1]
     
     def decode_positions(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE:] + ".")
+        codes = loads(valuestring[_INT_SIZE:] + b("."))
         position = 0
         positions = []
         for code in codes:
@@ -341,7 +341,7 @@ class Characters(Positions):
         
         encode = self.encode
         return ((w, len(ls), weights[w] * fb, encode(ls))
-                for w, ls in seen.iteritems())
+                for w, ls in iteritems(seen))
     
     def encode(self, posns_chars):
         # posns_chars = [(pos, startchar, endchar), ...]
@@ -355,7 +355,7 @@ class Characters(Positions):
         return pack_uint(len(posns_chars)) + dumps(codes, -1)[2:-1]
     
     def decode_characters(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE:] + ".")
+        codes = loads(valuestring[_INT_SIZE:] + b("."))
         position = 0
         endchar = 0
         posns_chars = []
@@ -367,7 +367,7 @@ class Characters(Positions):
         return posns_chars
     
     def decode_positions(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE:] + ".")
+        codes = loads(valuestring[_INT_SIZE:] + b("."))
         position = 0
         posns = []
         for code in codes:
@@ -396,7 +396,7 @@ class PositionBoosts(Positions):
         
         encode = self.encode
         return ((w, len(poslist), sum(p[1] for p in poslist) * fb, encode(poslist))
-                for w, poslist in seen.iteritems())
+                for w, poslist in iteritems(seen))
     
     def encode(self, posns_boosts):
         # posns_boosts = [(pos, boost), ...]
@@ -412,7 +412,7 @@ class PositionBoosts(Positions):
                 + dumps(codes, -1)[2:-1])
         
     def decode_position_boosts(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + ".")
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + b("."))
         position = 0
         posns_boosts = []
         for code in codes:
@@ -421,7 +421,7 @@ class PositionBoosts(Positions):
         return posns_boosts
     
     def decode_positions(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + ".")
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + b("."))
         position = 0
         posns = []
         for code in codes:
@@ -454,7 +454,7 @@ class CharacterBoosts(Characters):
         
         encode = self.encode
         return ((w, len(poslist), sum(p[3] for p in poslist) * fb, encode(poslist))
-                for w, poslist in seen.iteritems())
+                for w, poslist in iteritems(seen))
     
     def encode(self, posns_chars_boosts):
         # posns_chars_boosts = [(pos, startchar, endchar, boost), ...]
@@ -473,7 +473,7 @@ class CharacterBoosts(Characters):
                 + dumps(codes, -1)[2:-1])
         
     def decode_character_boosts(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + ".")
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + b("."))
         position = 0
         endchar = 0
         posn_char_boosts = []

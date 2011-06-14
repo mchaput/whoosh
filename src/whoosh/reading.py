@@ -31,6 +31,7 @@
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
+from whoosh.compat import xrange, zip_, next
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
 
@@ -560,10 +561,14 @@ class MultiReader(IndexReader):
 
         # Fill in the list with the head term from each iterator.
 
+        itermap = {}
+        for it in iterlist:
+            itermap[id(it)] = it
+
         current = []
         for it in iterlist:
-            fnum, text, docfreq, termcount = it.next()
-            current.append((fnum, text, docfreq, termcount, it))
+            fnum, text, docfreq, termcount = next(it)
+            current.append((fnum, text, docfreq, termcount, id(it)))
         heapify(current)
 
         # Number of active iterators
@@ -578,10 +583,10 @@ class MultiReader(IndexReader):
             while current and current[0][0] == fnum and current[0][1] == text:
                 docfreq += current[0][2]
                 termcount += current[0][3]
-                it = current[0][4]
+                it = itermap[current[0][4]]
                 try:
-                    fn, t, df, tc = it.next()
-                    heapreplace(current, (fn, t, df, tc, it))
+                    fn, t, df, tc = next(it)
+                    heapreplace(current, (fn, t, df, tc, id(it)))
                 except StopIteration:
                     heappop(current)
                     active -= 1
@@ -729,7 +734,7 @@ class MultiReader(IndexReader):
     # most_distinctive_terms
     
     def leaf_readers(self):
-        return zip(self.readers, self.doc_offsets)
+        return zip_(self.readers, self.doc_offsets)
 
     def set_caching_policy(self, *args, **kwargs):
         for r in self.readers:

@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from whoosh.compat import integer_types, xrange
 from whoosh.formats import Format
 from whoosh.writing import PostingWriter
 from whoosh.matching import Matcher, ReadTooFar
@@ -125,7 +126,7 @@ class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorer=None,
                  fieldname=None, text=None, stringids=False):
         
-        assert isinstance(offset, (int, long)), "offset is %r/%s" % (offset, type(offset))
+        assert isinstance(offset, integer_types), "offset is %r/%s" % (offset, type(offset))
         assert isinstance(format, Format), "format is %r/%s" % (format, type(format))
         
         self.postfile = postfile

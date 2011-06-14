@@ -223,17 +223,17 @@ class QueryParser(object):
         """
         
         if debug:
-            print "Tokenizing %r" % text
+            print("Tokenizing %r" % text)
         stream = self._tokenize(text, debug=debug)
         if debug:
-            print "Stream=", stream
+            print("Stream=", stream)
         stream = self._filterize(stream, debug)
         
         if debug:
-            print "Final stream=", stream
+            print("Final stream=", stream)
         q = stream.query(self)
         if debug:
-            print "Pre-normalized query=", q
+            print("Pre-normalized query=", q)
         if normalize:
             q = q.normalize()
         return q
@@ -248,15 +248,15 @@ class QueryParser(object):
             matched = False
             
             if debug:
-                print ".matching at %r" % text[i:]
+                print(".matching at %r" % text[i:])
             for tk in tokens:
                 if debug:
-                    print "..trying token %r" % tk
+                    print("..trying token %r" % tk)
                 m = tk.match(text, i)
                 if m:
                     item = tk.create(self, m)
                     if debug:
-                        print "...matched %r item %r" % (m.group(0), item)
+                        print("...matched %r item %r" % (m.group(0), item))
                     
                     if item:
                         if item.endpos is not None:
@@ -269,7 +269,7 @@ class QueryParser(object):
                         
                         if prev < i:
                             if debug:
-                                print "...Adding in-between %r as a term" % text[prev:i]
+                                print("...Adding in-between %r as a term" % text[prev:i])
                             stack.append(Word(text[prev:i]))
                         
                         stack.append(item)
@@ -278,7 +278,7 @@ class QueryParser(object):
                         break
             
             if debug:
-                print ".stack is now %r" % (stack, )
+                print(".stack is now %r" % (stack,))
             
             if not matched:
                 i += 1
@@ -287,20 +287,20 @@ class QueryParser(object):
             stack.append(Word(text[prev:]))
         
         if debug:
-            print "Final stack %r" % (stack, )
+            print("Final stack %r" % (stack, ))
         return self.group(stack)
     
     def _filterize(self, stream, debug=False):
         if debug:
-            print "Tokenized stream=", stream
+            print("Tokenized stream=", stream)
         
         for f in self.filters():
             if debug:
-                print "Applying filter", f
+                print("Applying filter", f)
             
             stream = f(self, stream)
             if debug:
-                print "Stream=", stream
+                print("Stream=", stream)
             
             if stream is None:
                 raise Exception("Function %s did not return a stream" % f)

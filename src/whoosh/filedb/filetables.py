@@ -32,9 +32,11 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 
 from array import array
 from collections import defaultdict
-from cPickle import loads, dumps
+from hashlib import md5
 from struct import Struct
 
+from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
+                           b, text_type)
 from whoosh.matching import ListMatcher
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
                            pack_uint, pack_long, unpack_ushort, unpack_uint,
@@ -45,10 +47,13 @@ from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 _4GB = 4 * 1024 * 1024 * 1024
 
 def cdb_hash(key):
-    h = 5381L
+    h = long_type(5381)
     for c in key:
-        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
+        h = (h + (h << 5)) & 0xffffffff ^ ord(c)
     return h
+
+def md5_hash(key):
+    return int(md5(key).hexdigest(), 16) & 0xffffffff
 
 _header_entry_struct = Struct("!qI")  # Position, number of slots
 header_entry_size = _header_entry_struct.size
@@ -64,15 +69,19 @@ unpack_lengths = _lengths_struct.unpack
 # Table classes
 
 class HashWriter(object):
-    def __init__(self, dbfile, old_format=False):
+    def __init__(self, dbfile, format=2):
         self.dbfile = dbfile
-        self.old_format = old_format
+        self.format = format
         
-        if not old_format:
+        if format:
             self.header_size = 16 + 256 * header_entry_size
             _pointer_struct = Struct("!Iq")  # Hash value, position
-            self.hash_func = cdb_hash
+            if format == 1:
+                self.hash_func = cdb_hash
+            else:
+                self.hash_func = md5_hash
         else:
+            # Old format
             self.header_size = 256 * header_entry_size
             _pointer_struct = Struct("!qq")  # Hash value, position
             self.hash_func = hash
@@ -94,6 +103,8 @@ class HashWriter(object):
         write = dbfile.write
 
         for key, value in items:
+            key = key.encode('latin-1')
+            value = value.encode('latin-1')
             write(pack_lengths(len(key), len(value)))
             write(key)
             write(value)
@@ -137,9 +148,10 @@ class HashWriter(object):
         directory = self.directory
 
         dbfile.seek(0)
-        if not self.old_format:
-            dbfile.write("HASH")
-            dbfile.write_int(0)  # Unused
+        if self.format:
+            dbfile.write(b("HASH"))
+            dbfile.write_byte(self.format)
+            dbfile.write(b("\x00\x00\x00"))  # Unused
             dbfile.write_long(self._end_of_hashes)
         
         for position, numslots in directory:
@@ -161,16 +173,20 @@ class HashReader(object):
         
         dbfile.seek(0)
         magic = dbfile.read(4)
-        if magic == "HASH":
-            self.old_format = False
+        if magic == b("HASH"):
             self.header_size = 16 + 256 * header_entry_size
             _pointer_struct = Struct("!Iq")  # Hash value, position
-            dbfile.read_int()  # Unused
+            self.format = dbfile.read_byte()
+            dbfile.read(3)  # Unused
             self._end_of_hashes = dbfile.read_long()
             assert self._end_of_hashes >= self.header_size, "%s < %s" % (self._end_of_hashes, self.header_size)
-            self.hash_func = cdb_hash
+            
+            if self.format == 1:
+                self.hash_func = cdb_hash
+            else:
+                self.hash_func = md5_hash
         else:
-            self.old_format = True
+            self.format = 0
             self.header_size = 256 * header_entry_size
             _pointer_struct = Struct("!qq")  # Hash value, position
             self.hash_func = hash
@@ -209,12 +225,14 @@ class HashReader(object):
             yield (keypos, keylen, datapos, datalen)
 
     def __iter__(self):
-        return self.items()
+        return iter(self.items())
 
     def items(self):
         read = self.read
         for keypos, keylen, datapos, datalen in self._ranges():
-            yield (read(keypos, keylen), read(datapos, datalen))
+            key = read(keypos, keylen).decode('latin-1')
+            value = read(datapos, datalen).decode('latin-1')
+            yield (key, value)
 
     def keys(self):
         read = self.read
@@ -251,7 +269,7 @@ class HashReader(object):
         return self.buckets[keyhash & 255]
 
     def _key_position(self, key):
-        keyhash = self.hash_func(key)
+        keyhash = self.hash_func(key.encode('latin-1'))
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
             raise KeyError(key)
@@ -266,6 +284,8 @@ class HashReader(object):
     def ranges_for_key(self, key):
         read = self.read
         pointer_size = self.pointer_size
+        if isinstance(key, text_type):
+            key = key.encode('latin-1')
         keyhash = self.hash_func(key)
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
@@ -294,11 +314,11 @@ class HashReader(object):
         raise KeyError(key)
     
     def end_of_hashes(self):
-        if self.old_format:
+        if self.format:
+            return self._end_of_hashes
+        else:
             lastpos, lastnum = self.buckets[255]
             return lastpos + lastnum * self.pointer_size
-        else:
-            return self._end_of_hashes
 
 
 class OrderedHashWriter(HashWriter):
@@ -315,9 +335,13 @@ class OrderedHashWriter(HashWriter):
         write = dbfile.write
 
         index = self.index
-        lk = self.lastkey
+        lk = self.lastkey or b('')
 
         for key, value in items:
+            if isinstance(key, text_type):
+                key = key.encode('latin-1')
+            if isinstance(value, text_type):
+                value = value.encode('latin-1')
             if key <= lk:
                 raise ValueError("Keys must increase: %r .. %r" % (lk, key))
             lk = key
@@ -359,6 +383,8 @@ class OrderedHashReader(HashReader):
         indexbase = self.indexbase
         lo = 0
         hi = self.length
+        if isinstance(key, text_type):
+            key = key.encode('latin-1')
         while lo < hi:
             mid = (lo + hi) // 2
             midkey = key_at(dbfile.get_long(indexbase + mid * _LONG_SIZE))
@@ -567,7 +593,7 @@ class TermIndexReader(CodedOrderedReader):
         dbfile.seek(self.indexbase + self.length * _LONG_SIZE)
         self.fieldmap = dbfile.read_pickle()
         self.names = [None] * len(self.fieldmap)
-        for name, num in self.fieldmap.iteritems():
+        for name, num in iteritems(self.fieldmap):
             self.names[num] = name
     
     def keycoder(self, key):
@@ -576,9 +602,13 @@ class TermIndexReader(CodedOrderedReader):
         return pack_ushort(fnum) + utf8encode(text)[0]
         
     def keydecoder(self, v):
+        if isinstance(v, text_type):
+            v = v.encode('latin-1')
         return (self.names[unpack_ushort(v[:2])[0]], utf8decode(v[2:])[0])
     
     def valuedecoder(self, v):
+        if isinstance(v, text_type):
+            v = v.encode('latin-1')
         return TermInfo.from_string(v)
     
     def items_from(self, key):
@@ -691,8 +721,8 @@ class LengthWriter(object):
     
     def close(self):
         self.dbfile.write_ushort(len(self.lengths))
-        for fieldname, arry in self.lengths.iteritems():
-            self.dbfile.write_string(fieldname)
+        for fieldname, arry in iteritems(self.lengths):
+            self.dbfile.write_string(fieldname.encode('utf-8'))
             self.dbfile.write_array(arry)
         self.dbfile.close()
         
@@ -707,7 +737,7 @@ class LengthReader(object):
             self.lengths = {}
             count = dbfile.read_ushort()
             for _ in xrange(count):
-                fieldname = dbfile.read_string()
+                fieldname = dbfile.read_string().decode('utf-8')
                 self.lengths[fieldname] = dbfile.read_array("B", self.doccount)
             dbfile.close()
     
@@ -749,7 +779,7 @@ class StoredFieldWriter(object):
         name_map = self.name_map
         
         vlist = [None] * len(name_map)
-        for k, v in values.iteritems():
+        for k, v in iteritems(values):
             if k in name_map:
                 vlist[name_map[k]] = v
             else:
@@ -786,7 +816,7 @@ class StoredFieldReader(object):
         dbfile.seek(pos)
         name_map = dbfile.read_pickle()
         self.names = [None] * len(name_map)
-        for name, pos in name_map.iteritems():
+        for name, pos in iteritems(name_map):
             self.names[pos] = name
         self.directory_offset = dbfile.tell()
         
@@ -804,7 +834,7 @@ class StoredFieldReader(object):
         if len(ptr) != stored_pointer_size:
             raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
         position, length = unpack_stored_pointer(ptr)
-        vlist = loads(dbfile.map[position:position + length] + ".")
+        vlist = loads(dbfile.map[position:position + length] + b("."))
         
         names = self.names
         # Recreate a dictionary by putting the field names and values back

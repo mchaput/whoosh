@@ -37,6 +37,8 @@ from heapq import heappush, heapreplace
 from math import ceil
 
 from whoosh import classify, highlight, query, scoring
+from whoosh.compat import (iteritems, itervalues, iterkeys, xrange, text_type,
+                           string_type, next, long_type)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitSet, BitVector
 from whoosh.util import now, lru_cache
@@ -273,13 +275,13 @@ class Searcher(object):
                 for docnum in self.document_numbers(**kw))
 
     def _kw_to_text(self, kw):
-        for k, v in kw.iteritems():
+        for k, v in iteritems(kw):
             field = self.schema[k]
             kw[k] = field.to_text(v)
 
     def _query_for_kw(self, kw):
         subqueries = []
-        for key, value in kw.iteritems():
+        for key, value in iteritems(kw):
             subqueries.append(query.Term(key, value))
         return query.And(subqueries).normalize()
 
@@ -303,7 +305,7 @@ class Searcher(object):
         
         self._kw_to_text(kw)
         if len(kw) == 1:
-            k, v = kw.items()[0]
+            k, v = list(kw.items())[0]
             try:
                 return self.reader().first_id(k, v)
             except TermNotFound:
@@ -563,7 +565,7 @@ class Searcher(object):
 
     def define_facets(self, name, qs, save=False):
         def doclists_for_searcher(s):
-            return dict((key, q.docs(s)) for key, q in qs.iteritems())
+            return dict((key, q.docs(s)) for key, q in iteritems(qs))
         
         if self.subsearchers:
             for s in self.subsearchers:
@@ -575,7 +577,7 @@ class Searcher(object):
     
     def categorize_query(self, q, fieldname, counts=False):
         groups = {}
-        if isinstance(fieldname, basestring):
+        if isinstance(fieldname, string_type):
             fieldname = (fieldname, )
         
         if self.subsearchers:
@@ -681,7 +683,7 @@ class Collector(object):
         self.reverse = reverse
         
         # The groupedby attribute is expected to be a sequence of field names
-        if isinstance(groupedby, basestring):
+        if isinstance(groupedby, string_type):
             groupedby = (groupedby, )
         self.groupedby = groupedby
     
@@ -802,7 +804,6 @@ class Collector(object):
         
         for offsetid, score in self.pull_matches(searcher, matcher, usequality,
                                                  offset):
-            print "oid=", offsetid, "score=", score
             if allow and offsetid not in allow:
                 continue
             if restrict and offsetid in restrict:
@@ -1013,7 +1014,7 @@ class TermTrackingCollector(Collector):
         
         def matcher(self, searcher):
             m = self.child.matcher(searcher)
-            self.tracker._tag_matcher(unicode(self.child), m)
+            self.tracker._tag_matcher(text_type(self.child), m)
             return m
 
 
@@ -1366,8 +1367,8 @@ class Hit(object):
     <Hit {title=u"Rendering the scene"}>
     >>> r[0].rank
     0
-    >>> r[0].docnum
-    4592L
+    >>> r[0].docnum == 4592
+    True
     >>> r[0].score
     2.52045682
     >>> r[0]["title"]
@@ -1509,7 +1510,7 @@ class Hit(object):
         return len(self.fields())
     
     def __iter__(self):
-        return self.fields().iterkeys()
+        return iterkeys(self.fields())
     
     def __getitem__(self, key):
         return self.fields().__getitem__(key)
@@ -1518,22 +1519,22 @@ class Hit(object):
         return key in self.fields()
     
     def items(self):
-        return self.fields().items()
+        return list(self.fields().items())
     
     def keys(self):
-        return self.fields().keys()
+        return list(self.fields().keys())
     
     def values(self):
-        return self.fields().values()
+        return list(self.fields().values())
     
     def iteritems(self):
-        return self.fields().iteritems()
-    
+        return iteritems(self.fields())
+
     def iterkeys(self):
-        return self.fields().iterkeys()
+        return iterkeys(self.fields())
     
     def itervalues(self):
-        return self.fields().itervalues()
+        return itervalues(self.fields())
     
     def get(self, key, default=None):
         return self.fields().get(key, default)
