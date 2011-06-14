@@ -175,13 +175,9 @@ class MultiSegmentWriter(IndexWriter):
             _write_toc(self.storage, self.schema, self.index.indexname,
                        self.generation, self.segment_number, self.segments)
             
-            readlock = self.index.lock("READLOCK")
-            readlock.acquire(True)
-            try:
-                _clean_files(self.storage, self.index.indexname,
-                             self.generation, self.segments)
-            finally:
-                readlock.release()
+            # Delete leftover files
+            _clean_files(self.storage, self.index.indexname,
+                         self.generation, self.segments)
         finally:
             self.writelock.release()
 

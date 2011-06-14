@@ -25,9 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import re
-import uuid
-from time import time
+import re, sys, uuid
+from time import time, sleep
 from threading import Lock
 
 from whoosh import __version__
@@ -335,28 +334,23 @@ class FileIndex(Index):
                 r.close()
 
     def reader(self, reuse=None):
-        # Get a lock for the index so nobody can delete a segment while we're
-        # in the middle of creating the reader
-        lock = self.lock("READLOCK")
-        
-        # Try to acquire the "reader" lock, which prevents a writer from
-        # deleting segments out from under us.
-        #
-        # TODO: replace this with a re-entrant file lock, if possible.
-        gotit = False
-        try:
-            gotit = lock.acquire(True)
-        except OSError:
-            pass
-        
-        try:
-            # Read the information from the TOC file
-            info = self._read_toc()
-            return self._reader(self.storage, info.schema, info.segments,
-                                info.generation, reuse=reuse)
-        finally:
-            if gotit:
-                lock.release()    
+        retries = 10
+        while retries > 0:
+            try:
+                # Read the information from the TOC file
+                info = self._read_toc()
+                return self._reader(self.storage, info.schema, info.segments,
+                                    info.generation, reuse=reuse)
+            except IOError:
+                # Presume that we got a "file not found error" because a writer
+                # deleted one of the files just as we were trying to open it,
+                # and so retry a few times before actually raising the
+                # exception
+                e = sys.exc_info()[1]
+                retries -= 1
+                if retries <= 0:
+                    raise e
+                sleep(0.05)
 
 
 class Segment(object):

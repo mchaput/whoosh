@@ -85,7 +85,7 @@ class FileStorage(Storage):
         try:
             f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
         except IOError:
-            print("Tried to open %r, files=%r" % (name, self.list()))
+            #print("Tried to open %r, files=%r" % (name, self.list()))
             raise
         return f
 
