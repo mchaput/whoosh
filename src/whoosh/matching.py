@@ -1409,11 +1409,16 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         
         if not a_active:
             return NullMatcher()
-        elif (minquality and b_active
-              and a.max_quality() + b.max_quality() < minquality):
-            # If the combined max quality of the sub-matchers isn't high
-            # enough to possibly contribute, return an inactive matcher
-            return NullMatcher()
+        elif minquality and b_active:
+            if a.max_quality() + b.max_quality() < minquality:
+                # If the combined max quality of the sub-matchers isn't high
+                # enough to possibly contribute, return an inactive matcher
+                return NullMatcher()
+            elif a.max_quality() < minquality:
+                # If the max quality of the main sub-matcher isn't high enough
+                # to ever contribute without the optional sub- matcher, change
+                # into an IntersectionMatcher
+                return IntersectionMatcher(self.a, self.b)
         elif not b_active:
             return a.replace(minquality)
         
