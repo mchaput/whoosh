@@ -210,8 +210,6 @@ def test_query_copy_hash():
     do(ConstantScoreQuery(Term("a", u("b"))), ConstantScoreQuery(Term("a", u("c"))))
     do(ConstantScoreQuery(Term("a", u("b")), score=2.0),
        ConstantScoreQuery(Term("a", u("c")), score=2.1))
-    do(WeightingQuery(Term("a", u("b")), scoring.Frequency()),
-       WeightingQuery(Term("a", u("c")), scoring.Frequency()))
     do(Require(Term("a", u("b")), Term("c", u("d"))),
        Require(Term("a", u("b"), boost=1.1), Term("c", u("d"))))
     # do(Require)
