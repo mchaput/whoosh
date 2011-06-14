@@ -51,6 +51,7 @@ class RamIndex(IndexReader, IndexWriter):
         self.indexfreqs = defaultdict(int)
         self.storedfields = []
         self.fieldlengths = defaultdict(int)
+        self.termstats = {}
         self.vectors = {}
         self.deleted = set()
         self.usage = 0
@@ -122,6 +123,14 @@ class RamIndex(IndexReader, IndexWriter):
             return 0
         return max(l for docnum_fieldname, l in iteritems(self.fieldlengths)
                    if docnum_fieldname[1] == fieldname)
+        
+    @synchronized
+    def min_field_length(self, fieldname):
+        self._test_field(fieldname)
+        if fieldname not in self.schema or not self.schema[fieldname].scorable:
+            return 0
+        return min(l for docnum_fieldname, l in iteritems(self.fieldlengths)
+                   if docnum_fieldname[1] == fieldname)
     
     def doc_field_length(self, docnum, fieldname, default=0):
         self._test_field(fieldname)
@@ -149,9 +158,40 @@ class RamIndex(IndexReader, IndexWriter):
         except KeyError:
             return 0
     
+    def min_length(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.termstats[fieldname, text][0]
+        except KeyError:
+            return 0
+        
+    def max_length(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.termstats[fieldname, text][1]
+        except KeyError:
+            return 0
+        
+    def max_weight(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.termstats[fieldname, text][2]
+        except KeyError:
+            return 0
+        
+    def max_wol(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.termstats[fieldname, text][3]
+        except KeyError:
+            return 0
+    
     def frequency(self, fieldname, text):
         self._test_field(fieldname)
-        return self.indexfreqs[fieldname, text]
+        try:
+            return self.indexfreqs[fieldname, text]
+        except KeyError:
+            return 0
     
     @synchronized
     def iter_from(self, fieldname, text):
@@ -242,6 +282,7 @@ class RamIndex(IndexReader, IndexWriter):
         invindex = self.invindex
         indexfreqs = self.indexfreqs
         fieldlengths = self.fieldlengths
+        termstats = self.termstats
         usage = 0
         
         fieldnames = [name for name in sorted(fields.keys())
@@ -278,6 +319,21 @@ class RamIndex(IndexReader, IndexWriter):
                         unique += 1
                         
                         usage += 44 + len(valuestring)
+                        
+                        # min_length, max_length, max_weight, max_wol
+                        wol = weight / count
+                        if (name, w) in termstats:
+                            ts = termstats[name, w]
+                            if count < ts[0]:
+                                ts[0] = count
+                            if count > ts[1]:
+                                ts[1] = count
+                            if weight > ts[2]:
+                                ts[2] = weight
+                            if wol > ts[3]:
+                                ts[3] = wol
+                        else:
+                            termstats[name, w] = [count, count, weight, wol]
                     
                     if field.scorable:
                         fieldlengths[self.docnum, name] = count
