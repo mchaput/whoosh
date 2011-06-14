@@ -2,6 +2,7 @@ import os.path, random, shutil
 from datetime import datetime
 
 from whoosh import fields, index, query
+from whoosh.compat import text_type, xrange
 from whoosh.util import now
 
 
@@ -17,14 +18,14 @@ def test_bigsort():
     os.mkdir(dirname)
     ix = index.create_in(dirname, schema)
     
-    print "Writing..."
+    print("Writing...")
     t = now()
     w = ix.writer(limitmb=512)
     for i in xrange(times):
         dt = datetime.fromtimestamp(random.randint(15839593, 1294102139))
-        w.add_document(id=unicode(i), date=dt)
+        w.add_document(id=text_type(i), date=dt)
     w.commit()
-    print "Writing took ", now() - t
+    print("Writing took ", now() - t)
     
     ix = index.open_dir(dirname)
     s = ix.searcher()
@@ -32,34 +33,34 @@ def test_bigsort():
     
     t = now()
     x = list(df.sortable_values(s.reader(), "date"))
-    print now() - t, len(x)
+    print(now() - t, len(x))
     
     t = now()
     for y in x:
         p = list(s.postings("date", y).all_ids())
-    print now() - t
+    print(now() - t)
     
     
     
     t = now()
     r = s.search(q, limit=25, sortedby="date", reverse=True)
-    print "Search 1 took", now() - t
-    print "len=", r.scored_length()
+    print("Search 1 took", now() - t)
+    print("len=", r.scored_length())
     
     t = now()
     r = s.search(q, limit=25, sortedby="date")
-    print "Search 2 took", now() - t
+    print("Search 2 took", now() - t)
     
     t = now()
     r = s.search(q, limit=25, sortedby="date")
-    print "Search 2 took", now() - t
+    print("Search 2 took", now() - t)
     
     from heapq import nlargest
     t = now()
     sf = s.stored_fields
     gen = ((sf(n)["date"], n) for n in q.docs(s))
     r = nlargest(25, gen)
-    print now() - t
+    print(now() - t)
         
     
     

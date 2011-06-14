@@ -32,6 +32,7 @@ This module contains classes for scoring (and sorting) search results.
 from __future__ import division
 from math import log, pi
 
+from whoosh.compat import iteritems
 
 # Base classes
 
@@ -182,7 +183,7 @@ class BM25F(WeightingModel):
         self.K1 = K1
         
         self._field_B = {}
-        for k, v in kwargs.iteritems():
+        for k, v in iteritems(kwargs):
             if k.endswith("_B"):
                 fieldname = k[:-2]
                 self._field_B[fieldname] = v

@@ -366,6 +366,8 @@ Here is the behavior of operations with relativedelta:
                     self.second is None and
                     self.microsecond is None)
 
+    __bool__ = __nonzero__
+
     def __mul__(self, other):
         f = float(other)
         return relativedelta(years=self.years * f,
