@@ -3,7 +3,7 @@ import random
 
 from nose.tools import assert_equal, assert_almost_equal, assert_not_equal
 
-from whoosh import analysis, fields, formats
+from whoosh import analysis, fields, formats, matching, scoring
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import TermInfo
@@ -190,5 +190,56 @@ def test_reader_methods():
         assert_equal(r.max_wol("t", u"alfa"), 1.0)
         assert_equal(r.min_field_length("t"), 1)
         assert_equal(r.max_field_length("t"), 7)
+        
+def test_replacements():
+    sc = scoring.WeightScorer(0.25)
+    a = matching.ListMatcher([1, 2, 3], [0.25, 0.25, 0.25], scorer=sc)
+    b = matching.ListMatcher([1, 2, 3], [0.25, 0.25, 0.25], scorer=sc)
+    um = matching.UnionMatcher(a, b)
+    
+    a2 = a.replace(0.5)
+    assert_equal(a2.__class__, matching.NullMatcher)
+    
+    um2 = um.replace(0.5)
+    assert_equal(um2.__class__, matching.IntersectionMatcher)
+    um2 = um.replace(0.6)
+    assert_equal(um2.__class__, matching.NullMatcher)
+
+    wm = matching.WrappingMatcher(um, boost=2.0)
+    wm = wm.replace(0.5)
+    assert_equal(wm.__class__, matching.WrappingMatcher)
+    assert_equal(wm.boost, 2.0)
+    assert_equal(wm.child.__class__, matching.IntersectionMatcher)
+
+    ls1 = matching.ListMatcher([1, 2, 3], [0.1, 0.1, 0.1], scorer=scoring.WeightScorer(0.1))
+    ls2 = matching.ListMatcher([1, 2, 3], [0.2, 0.2, 0.2], scorer=scoring.WeightScorer(0.2))
+    ls3 = matching.ListMatcher([1, 2, 3], [0.3, 0.3, 0.3], scorer=scoring.WeightScorer(0.3))
+    mm = matching.MultiMatcher([ls1, ls2, ls3], [0, 4, 8])
+    mm = mm.replace(0.25)
+    assert_equal(mm.current, 2)
+
+    dm = matching.DisjunctionMaxMatcher(ls1, ls2)
+    dm = dm.replace(0.15)
+    assert dm is ls2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

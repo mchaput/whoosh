@@ -98,8 +98,8 @@ def test_buffered_search():
         w.add_document(id=4, text=u"charlie delta echo")
         
         with w.searcher() as s:
-            r = s.search(query.Term("text", u"tango"), scored=False)
-            assert_equal([d["id"] for d in r], [2, 3])
+            r = s.search(query.Term("text", u"tango"))
+            assert_equal(sorted([d["id"] for d in r]), [2, 3])
             
         w.add_document(id=5, text=u"foxtrot golf hotel")
         w.add_document(id=6, text=u"india tango juliet")
@@ -107,8 +107,8 @@ def test_buffered_search():
         w.add_document(id=8, text=u"mike november echo")
         
         with w.searcher() as s:
-            r = s.search(query.Term("text", u"tango"), scored=False)
-            assert_equal([d["id"] for d in r], [2, 3, 6, 7])
+            r = s.search(query.Term("text", u"tango"))
+            assert_equal(sorted([d["id"] for d in r]), [2, 3, 6, 7])
             
         w.close()
 

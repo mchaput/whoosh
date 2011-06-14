@@ -58,7 +58,7 @@ class ReadTooFar(Exception):
 
 class NoQualityAvailable(Exception):
     """Raised when quality methods are called on a matcher that does not
-    support quality-based optimizations.
+    support block quality optimizations.
     """
 
 
@@ -102,14 +102,6 @@ class Matcher(object):
         """
         
         return False
-    
-    def quality(self):
-        """Returns a quality measurement of the current posting, according to
-        the current weighting algorithm. Raises ``NoQualityAvailable`` if the
-        matcher or weighting do not support quality measurements.
-        """
-        
-        raise NoQualityAvailable
     
     def block_quality(self):
         """Returns a quality measurement of the current block of postings,
@@ -301,13 +293,10 @@ class ListMatcher(Matcher):
             return self
     
     def max_quality(self):
-        return self._scorer.max_quality()
+        return self._scorer.max_quality
     
     def supports_block_quality(self):
         return self._scorer is not None and self._scorer.supports_block_quality()
-    
-    def quality(self):
-        return self._scorer.quality(self)
     
     def block_quality(self):
         return self._scorer.block_quality(self)
@@ -456,9 +445,6 @@ class WrappingMatcher(Matcher):
     def skip_to_quality(self, minquality):
         return self.child.skip_to_quality(minquality / self.boost)
     
-    def quality(self):
-        return self.child.quality() * self.boost
-    
     def block_quality(self):
         return self.child.block_quality() * self.boost
     
@@ -509,20 +495,22 @@ class MultiMatcher(Matcher):
             return 0
     
     def replace(self, minquality=0):
+        m = self
         if minquality:
             # Skip sub-matchers that don't have a high enough max quality to
             # contribute
-            while (self.is_active()
-                   and self.matchers[self.current].max_quality() < minquality):
-                self._next_matcher()
+            while (m.is_active()
+                   and m.matchers[m.current].max_quality() < minquality):
+                m = self.__class__(self.matchers, self.offsets, m.current + 1)
+                m._next_matcher()
         
-        if not self.is_active():
+        if not m.is_active():
             return NullMatcher()
         
         # TODO: Possible optimization: if the last matcher is current, replace
         # this with the last matcher, but wrap it with a matcher that adds the
         # offset. Have to check whether that's actually faster, though.
-        return self
+        return m
     
     def max_quality(self):
         return self.matchers[self.current].max_quality()
@@ -580,9 +568,6 @@ class MultiMatcher(Matcher):
     
     def supports_block_quality(self):
         return all(mr.supports_block_quality() for mr in self.matchers[self.current:])
-    
-    def quality(self):
-        return self.matchers[self.current].quality()
     
     def block_quality(self):
         return self.matchers[self.current].block_quality()
@@ -710,14 +695,6 @@ class AdditiveBiMatcher(BiMatcher):
             q += self.a.max_quality()
         if self.b.is_active():
             q += self.b.max_quality()
-        return q
-    
-    def quality(self):
-        q = 0.0
-        if self.a.is_active():
-            q += self.a.quality()
-        if self.b.is_active():
-            q += self.b.quality()
         return q
     
     def block_quality(self):
@@ -977,9 +954,6 @@ class DisjunctionMaxMatcher(UnionMatcher):
         else:
             return max(self.a.score(), self.b.score())
     
-    def quality(self):
-        return max(self.a.quality(), self.b.quality())
-    
     def block_quality(self):
         return max(self.a.block_quality(), self.b.block_quality())
     
@@ -1034,7 +1008,15 @@ class IntersectionMatcher(AdditiveBiMatcher):
         
         a = a.replace(minquality - b.max_quality() if minquality else 0)
         b = b.replace(minquality - a.max_quality() if minquality else 0)
-        if a is not self.a or b is not self.b:
+        a_active = a.is_active()
+        b_active = b.is_active()
+        if not (a_active or b_active):
+            return NullMatcher()
+        elif not a_active:
+            return b
+        elif not b_active:
+            return a
+        elif a is not self.a or b is not self.b:
             return self.__class__(a, b)
         else:
             return self
@@ -1185,9 +1167,6 @@ class AndNotMatcher(BiMatcher):
     
     def max_quality(self):
         return self.a.max_quality()
-    
-    def quality(self):
-        return self.a.quality()
     
     def block_quality(self):
         return self.a.block_quality()
@@ -1357,9 +1336,6 @@ class RequireMatcher(WrappingMatcher):
     def max_quality(self):
         return self.a.max_quality()
     
-    def quality(self):
-        return self.a.quality()
-    
     def block_quality(self):
         return self.a.block_quality()
     
@@ -1469,14 +1445,6 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         
         return skipped
     
-    def quality(self):
-        q = 0.0
-        if self.a.is_active():
-            q += self.a.quality()
-            if self.b.is_active() and self.a.id() == self.b.id():
-                q += self.b.quality()
-        return q
-    
     def weight(self):
         if self.a.id() == self.b.id():
             return self.a.weight() + self.b.weight()
@@ -1509,9 +1477,6 @@ class ConstantScoreMatcher(WrappingMatcher):
     
     def _replacement(self, newchild):
         return self.__class__(newchild, score=self._score)
-    
-    def quality(self):
-        return self._score
     
     def block_quality(self):
         return self._score

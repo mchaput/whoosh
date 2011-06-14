@@ -218,16 +218,28 @@ class SegmentReader(IndexReader):
             return 0
         
     def min_length(self, fieldname, text):
-        return self.termsindex.min_length((fieldname, text))
+        try:
+            return self.termsindex.min_length((fieldname, text))
+        except KeyError:
+            return 0
     
     def max_length(self, fieldname, text):
-        return self.termsindex.max_length((fieldname, text))
+        try:
+            return self.termsindex.max_length((fieldname, text))
+        except KeyError:
+            return 0
     
     def max_weight(self, fieldname, text):
-        return self.termsindex.max_weight((fieldname, text))
+        try:
+            return self.termsindex.max_weight((fieldname, text))
+        except KeyError:
+            return 0
     
     def max_wol(self, fieldname, text):
-        return self.termsindex.max_wol((fieldname, text))
+        try:
+            return self.termsindex.max_wol((fieldname, text))
+        except KeyError:
+            return 0
 
     def lexicon(self, fieldname):
         # The base class has a lexicon() implementation that uses iter_from()

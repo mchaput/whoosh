@@ -22,8 +22,8 @@ def test_score_retrieval():
     with ix.searcher() as s:
         results = s.search(query.Term("content", "white"))
         assert_equal(len(results), 2)
-        assert_equal(results[0]['title'], u"Miss Mary")
-        assert_equal(results[1]['title'], u"Snow White")
+        assert_equal(results[0]['title'], u"Snow White")
+        assert_equal(results[1]['title'], u"Miss Mary")
         assert_not_equal(results.score(0), None)
         assert_not_equal(results.score(0), 0)
         assert_not_equal(results.score(0), 1)
@@ -269,6 +269,7 @@ def test_resultspage():
         tops = list(r)
         
         rp = s.search_page(q, 1, pagelen=5)
+        assert_equal(rp.scored_length(), 5)
         assert_equal(list(rp), tops[0:5])
         assert_equal(rp[10:], [])
         
@@ -313,8 +314,8 @@ def test_snippets():
         r = s.search(q)
         r.formatter = highlight.UppercaseFormatter()
         
-        assert_equal([hit.highlights("text") for hit in r], target)
-        
+        assert_equal(sorted([hit.highlights("text") for hit in r]), sorted(target))
+
 def test_keyterms():
     ana = analysis.StandardAnalyzer()
     vectorformat = formats.Frequency(ana)
