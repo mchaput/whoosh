@@ -23,8 +23,8 @@ def test_score_retrieval():
     with ix.searcher() as s:
         results = s.search(query.Term("content", "white"))
         assert_equal(len(results), 2)
-        assert_equal(results[0]['title'], u("Miss Mary"))
-        assert_equal(results[1]['title'], u("Snow White"))
+        assert_equal(results[0]['title'], u("Snow White"))
+        assert_equal(results[1]['title'], u("Miss Mary"))
         assert_not_equal(results.score(0), None)
         assert_not_equal(results.score(0), 0)
         assert_not_equal(results.score(0), 1)
