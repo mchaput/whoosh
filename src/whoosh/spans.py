@@ -214,7 +214,8 @@ class SpanBiMatcher(SpanWrappingMatcher):
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
     
-    def replace(self):
+    def replace(self, minquality=0):
+        # TODO: fix this
         if not self.is_active():
             return NullMatcher()
         return self
@@ -412,7 +413,8 @@ class SpanNear(SpanQuery):
             return self.__class__(self.a.copy(), self.b.copy(), slop=self.slop,
                                   ordered=self.ordered, mindist=self.mindist)
         
-        def replace(self):
+        def replace(self, minquality=0):
+            # TODO: fix this
             if not self.is_active():
                 return NullMatcher()
             return self

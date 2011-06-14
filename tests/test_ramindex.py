@@ -46,11 +46,11 @@ def test_docs_method():
 def test_searching():
     with make_index().searcher() as s:
         def _runq(q, result, **kwargs):
-            r = s.search(q, scored=False, **kwargs)
+            r = s.search(q, **kwargs)
             assert_equal([d["id"] for d in r], result)
         
         _runq(query.Term("text", u"format"), ["format", "vector"])
-        _runq(query.Term("text", u"the"), ["fieldtype", "format", "vector", "stored", "const"])
+        _runq(query.Term("text", u"the"), ["fieldtype", "format", "vector", "const", "stored"])
         _runq(query.Prefix("text", u"st"), ["format", "vector", "stored"])
         _runq(query.Wildcard("id", u"*st*"), ["stored", "const"])
         _runq(query.TermRange("id", u"c", u"s"), ["fieldtype", "format", "const"])

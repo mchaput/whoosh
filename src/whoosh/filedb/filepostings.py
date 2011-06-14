@@ -285,7 +285,7 @@ class FilePostingReader(Matcher):
         return self.scorer and self.scorer.supports_block_quality()
     
     def max_quality(self):
-        return self.scorer.max_quality()
+        return self.scorer.max_quality
     
     def skip_to_quality(self, minquality):
         bq = self.block_quality
@@ -307,9 +307,6 @@ class FilePostingReader(Matcher):
     
     def score(self):
         return self.scorer.score(self)
-    
-    def quality(self):
-        return self.scorer.quality(self)
     
     def block_quality(self):
         return self.scorer.block_quality(self)
