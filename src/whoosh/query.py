@@ -1756,65 +1756,6 @@ class ConstantScoreQuery(WrappingQuery):
             return ListMatcher(ids, all_weights=self.score)
     
 
-class WeightingQuery(WrappingQuery):
-    """Wraps a query and specifies a custom weighting model to apply to the
-    wrapped branch of the query tree. This is useful when you want to score
-    parts of the query using criteria that don't apply to the rest of the
-    query.
-    """
-    
-    def __init__(self, child, model, fieldname=None, text=None):
-        super(WeightingQuery, self).__init__(child)
-        self.model = model
-        self.fieldname = fieldname
-        self.text = text
-    
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.child == other.child
-                and self.model == other.model
-                and self.fieldname == other.fieldname
-                and self.text == other.text)
-    
-    def __hash__(self):
-        return hash(self.child) ^ hash(self.fieldname) ^ hash(self.text)
-    
-    def apply(self, fn):
-        return self.__class__(fn(self.child), self.model, self.fieldname,
-                              self.text)
-    
-    def matcher(self, searcher):
-        m = self.child.matcher(searcher)
-        scorer = self.model.scorer(searcher, self.fieldname, self.text)
-        if isinstance(m, NullMatcher):
-            return m
-        else:
-            return WeightingQuery.CustomScorerMatcher(m, scorer)
-    
-    class CustomScorerMatcher(WrappingMatcher):
-        def __init__(self, child, scorer):
-            super(WeightingQuery, self).__init__(child)
-            self.scorer = scorer
-        
-        def copy(self):
-            return self.__class__(self.child.copy(), self.scorer)
-        
-        def _replacement(self, newchild):
-            return self.__class__(newchild, self.scorer)
-        
-        def supports_quality(self):
-            return self.scorer.supports_quality()
-        
-        def quality(self):
-            return self.scorer.quality(self)
-        
-        def block_quality(self):
-            return self.scorer.block_quality(self)
-        
-        def score(self):
-            return self.scorer.score(self)
-
-
 class BinaryQuery(CompoundQuery):
     """Base class for binary queries (queries which are composed of two
     sub-queries). Subclasses should set the ``matcherclass`` attribute or

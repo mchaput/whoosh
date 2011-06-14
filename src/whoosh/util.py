@@ -158,12 +158,12 @@ def make_weighted_tree(fn, ls, **kwargs):
 # noticeable difference.
 
 def _varint(i):
-    s = []
+    a = array("B")
     while (i & ~0x7F) != 0:
-        s.append(b(chr((i & 0x7F) | 0x80)))
+        a.append((i & 0x7F) | 0x80)
         i = i >> 7
-    s.append(b(chr(i)))
-    return b('').join(s)
+    a.append(i)
+    return a.tostring()
 
 
 _varint_cache_size = 512
