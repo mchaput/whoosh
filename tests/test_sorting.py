@@ -395,57 +395,6 @@ def test_sorting_function():
             tks = t.split()
             assert_equal(tks.count("alfa"), tks.count("bravo"))
 
-def test_natural_order():
-    schema = fields.Schema(id=fields.STORED, tag=fields.ID)
-    
-    # Single segment
-    
-    ix = RamStorage().create_index(schema)
-    domain = u("one two three four five six seven eight nine").split()
-    w = ix.writer()
-    for word in domain:
-        w.add_document(id=word, tag=u("tag"))
-    w.commit(merge=False)
-    
-    with ix.searcher() as s:
-        r = s.search(query.Term("tag", u("tag")), scored=False)
-        assert_equal([hit["id"] for hit in r], domain)
-        
-        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True)
-        assert_equal([hit["id"] for hit in r], list(reversed(domain)))
-        
-        r = s.search(query.Term("tag", u("tag")), scored=False, limit=3)
-        assert_equal([hit["id"] for hit in r], u("one two three").split())
-        
-        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True, limit=3)
-        assert_equal([hit["id"] for hit in r], u("nine eight seven").split())
-    
-    # Multiple segments
-    
-    ix = RamStorage().create_index(schema)
-    domain = u("one two three four five six seven eight nine").split()
-    for i in xrange(0, len(domain), 3):
-        w = ix.writer()
-        for j in xrange(3):
-            w.add_document(id=domain[i+j], tag=u("tag"))
-        w.commit(merge=False)
-    
-    with ix.searcher() as s:
-        r = s.search(query.Term("tag", u("tag")), scored=False)
-        assert_equal([hit["id"] for hit in r], domain)
-        
-        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True)
-        assert_equal([hit["id"] for hit in r], list(reversed(domain)))
-        
-        r = s.search(query.Term("tag", u("tag")), scored=False, limit=3)
-        assert_equal([hit["id"] for hit in r], u("one two three").split())
-        
-        r = s.search(query.Term("tag", u("tag")), scored=False, reverse=True, limit=3)
-        assert_equal([hit["id"] for hit in r], u("nine eight seven").split())
-
-
-
-
 
 #def test_custom_sort2():
 #    from array import array

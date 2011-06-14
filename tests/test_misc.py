@@ -71,22 +71,5 @@ def test_lru_cache():
     test.cache_clear()
     assert_equal(test.cache_info(), (0, 0, 5, 0))
 
-def test_readlock():
-    schema = fields.Schema(text=fields.TEXT)
-    with TempIndex(schema, "readlock") as ix:
-        for num in u("one two three four five").split():
-            w = ix.writer()
-            w.add_document(text=u("Test document %s") % num)
-            w.commit(merge=False)
-        
-        def fn():
-            for _ in xrange(10):
-                r = ix.reader()
-                r.close()
-        
-        ths = [threading.Thread(target=fn) for _ in xrange(10)]
-        for th in ths:
-            th.start()
-        for th in ths:
-            th.join()
+
 

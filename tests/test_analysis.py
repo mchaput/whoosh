@@ -179,6 +179,7 @@ def test_name_field():
     s = ix.searcher()
     qp = qparser.QueryParser("name", schema)
     q = qp.parse(u("leaf eriksen"), normalize=False)
+    print "q=", q
     r = s.search(q)
     assert_equal(len(r), 1)
 

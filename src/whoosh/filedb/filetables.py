@@ -37,9 +37,11 @@ from struct import Struct
 
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
                            b, text_type)
-from whoosh.system import (_INT_SIZE, _LONG_SIZE, pack_ushort, pack_uint,
-                           pack_long, unpack_ushort, unpack_uint, unpack_long)
-from whoosh.util import byte_to_length, utf8encode, utf8decode
+from whoosh.matching import ListMatcher
+from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
+                           pack_uint, pack_long, unpack_ushort, unpack_uint,
+                           unpack_long)
+from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 
 
 _4GB = 4 * 1024 * 1024 * 1024
@@ -254,11 +256,11 @@ class HashReader(object):
 
     def all(self, key):
         read = self.read
-        for datapos, datalen in self._get_ranges(key):
+        for datapos, datalen in self.ranges_for_key(key):
             yield read(datapos, datalen)
 
     def __contains__(self, key):
-        for _ in self._get_ranges(key):
+        for _ in self.ranges_for_key(key):
             return True
         return False
 
@@ -279,7 +281,7 @@ class HashReader(object):
         keylen = self.dbfile.get_uint(pos)
         return self.read(pos + lengths_size, keylen)
 
-    def _get_ranges(self, key):
+    def ranges_for_key(self, key):
         read = self.read
         pointer_size = self.pointer_size
         if isinstance(key, text_type):
@@ -305,7 +307,12 @@ class HashReader(object):
                 if keylen == len(key):
                     if key == read(pos + lengths_size, keylen):
                         yield (pos + lengths_size + keylen, datalen)
-                        
+    
+    def range_for_key(self, key):
+        for item in self.ranges_for_key(key):
+            return item
+        raise KeyError(key)
+    
     def end_of_hashes(self):
         if self.format:
             return self._end_of_hashes
@@ -498,6 +505,7 @@ class CodedOrderedReader(OrderedHashReader):
         self._get = sup.get
         self._getitem = sup.__getitem__
         self._contains = sup.__contains__
+        self._range_for_key = sup.range_for_key
 
     def __getitem__(self, key):
         k = self.keycoder(key)
@@ -536,6 +544,9 @@ class CodedOrderedReader(OrderedHashReader):
         kd = self.keydecoder
         for k in self._keys_from(self.keycoder(key)):
             yield kd(k)
+            
+    def range_for_key(self, key):
+        return self._range_for_key(self.keycoder(key))
 
 
 class TermIndexWriter(CodedOrderedWriter):
@@ -559,19 +570,9 @@ class TermIndexWriter(CodedOrderedWriter):
         key = pack_ushort(fieldnum) + utf8encode(text)[0]
         return key
     
-    def valuecoder(self, data):
-        w, offset, df = data
+    def valuecoder(self, terminfo):
+        return terminfo.to_string()
         
-        if w == 1 and df == 1:
-            v = dumps((offset, ), -1)
-        elif w == df:
-            v = dumps((offset, df), -1)
-        else:
-            v = dumps((w, offset, df), -1)
-            
-        # Strip off protocol at start and stack return command at end
-        return v[2:-1]
-            
     def close(self):
         self._write_hashes()
         dbfile = self.dbfile
@@ -608,14 +609,54 @@ class TermIndexReader(CodedOrderedReader):
     def valuedecoder(self, v):
         if isinstance(v, text_type):
             v = v.encode('latin-1')
-        v = loads(v + b("."))
-        if len(v) == 1:
-            return (1, v[0], 1)
-        elif len(v) == 2:
-            return (v[1], v[0], v[1])
-        else:
-            return v
+        return TermInfo.from_string(v)
     
+    def items_from(self, key):
+        fromkey = self.keycoder(key)
+        kd = self.keydecoder
+        vd = self.valuedecoder
+        for key, value in self._items_from(fromkey):
+            yield (kd(key), vd(value))
+            
+    def terms_and_freqs(self, fromkey=None):
+        dbfile = self.dbfile
+        read = self.read
+        kd = self.keydecoder
+        
+        if fromkey:
+            gen = self._ranges_from(self.keycoder(fromkey))
+        else:
+            gen = self._ranges()
+        
+        for keypos, keylen, datapos, datalen in gen:
+            yield (kd(read(keypos, keylen)),
+                   (TermInfo.read_frequency(dbfile, datapos),
+                    TermInfo.read_doc_freq(dbfile, datapos)))
+    
+    def frequency(self, key):
+        datapos = self.range_for_key(key)[0]
+        return TermInfo.read_frequency(self.dbfile, datapos)
+    
+    def doc_frequency(self, key):
+        datapos = self.range_for_key(key)[0]
+        return TermInfo.read_doc_freq(self.dbfile, datapos)
+    
+    def min_length(self, key):
+        datapos = self.range_for_key(key)[0]
+        return TermInfo.read_min_and_max_length(self.dbfile, datapos)[0]
+    
+    def max_length(self, key):
+        datapos = self.range_for_key(key)[0]
+        return TermInfo.read_min_and_max_length(self.dbfile, datapos)[1]
+    
+    def max_weight(self, key):
+        datapos = self.range_for_key(key)[0]
+        return TermInfo.read_max_weight(self.dbfile, datapos)
+    
+    def max_wol(self, key):
+        datapos = self.range_for_key(key)[0]
+        return TermInfo.read_max_wol(self.dbfile, datapos)
+            
 
 # docnum, fieldnum
 _vectorkey_struct = Struct("!IH")
@@ -808,6 +849,115 @@ class StoredFieldReader(object):
         
         return values
 
+
+# TermInfo
+
+class TermInfo(object):
+    struct = Struct("!fIBBff")
+    
+    def __init__(self, weight=0.0, docfreq=0, minlength=None, maxlength=0,
+                 maxweight=0.0, maxwol=0.0, postings=None):
+        self._weight = weight
+        self._docfreq = docfreq
+        self._minlength = minlength  # (as byte)
+        self._maxlength = maxlength  # (as byte)
+        self._maxweight = maxweight
+        self._maxwol = maxwol
+        self.postings = postings
+    
+    def frequency(self):
+        return self._weight
+    
+    def doc_frequency(self):
+        return self._docfreq
+    
+    def min_length(self):
+        return byte_to_length(self._minlength)
+    
+    def max_length(self):
+        return byte_to_length(self._maxlength)
+    
+    def max_weight(self):
+        return self._maxweight
+    
+    def max_wol(self):
+        return self._maxwol
+    
+    def add_block(self, block):
+        self._weight += sum(block.weights)
+        self._docfreq += len(block)
+        
+        ml = length_to_byte(block.min_length())
+        if self._minlength is None:
+            self._minlength = ml
+        else:
+            self._minlength = min(self._minlength, ml)
+        
+        xl = length_to_byte(block.max_length())
+        self._maxlength = max(self._maxlength, xl)
+        
+        self._maxweight = max(self._maxweight, block.max_weight())
+        self._maxwol = max(self._maxwol, block.max_wol())
+    
+    def to_string(self):
+        ml = length_to_byte(self._minlength)
+        xl = length_to_byte(self._maxlength)
+        st = self.struct.pack(self._weight, self._docfreq, ml, xl,
+                              self._maxweight, self._maxwol)
+        
+        if isinstance(self.postings, tuple):
+            magic = 1
+            st += dumps(self.postings, -1)[2:-1]
+        else:
+            magic = 0
+            p = -1 if self.postings is None else self.postings
+            st += pack_long(p)
+        return chr(magic) + st
+
+    @classmethod
+    def from_string(cls, s):
+        hbyte = ord(s[0:1])
+        if hbyte < 2:
+            # Freq, Doc freq, min length, max length, max weight, max WOL
+            f, df, ml, xl, xw, xwol = cls.struct.unpack(s[1:cls.struct.size+1])
+            ml = byte_to_length(ml)
+            xl = byte_to_length(xl)
+            # Postings
+            pstr = s[cls.struct.size + 1:]
+            if hbyte == 0:
+                p = unpack_long(pstr)[0]
+            else:
+                p = loads(pstr + ".")
+        else:
+            raise Exception("Unknown struct header %s" % hbyte)
+        
+        return cls(f, df, ml, xl, xw, xwol, p)
+    
+    @classmethod
+    def read_frequency(cls, dbfile, datapos):
+        return dbfile.get_float(datapos + 1)
+    
+    @classmethod
+    def read_doc_freq(cls, dbfile, datapos):
+        return dbfile.get_uint(datapos + 1 + _FLOAT_SIZE)
+    
+    @classmethod
+    def read_min_and_max_length(cls, dbfile, datapos):
+        lenpos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE
+        ml = byte_to_length(dbfile.get_byte(lenpos))
+        xl = byte_to_length(dbfile.get_byte(lenpos + 1))
+        return ml, xl
+    
+    @classmethod
+    def read_max_weight(cls, dbfile, datapos):
+        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
+        return dbfile.get_float(weightspos)
+    
+    @classmethod
+    def read_max_wol(cls, dbfile, datapos):
+        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
+        return dbfile.get_float(weightspos + _FLOAT_SIZE)
+    
 
 # Utility functions
 
