@@ -5,6 +5,8 @@ An implementation of an object that acts like a collection of on/off bits.
 import operator
 from array import array
 
+from whoosh.compat import xrange
+
 #: Table of the number of '1' bits in each byte (0-255)
 BYTE_COUNTS = array('B', [
     0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
@@ -104,7 +106,9 @@ class BitVector(object):
     
     def __nonzero__(self):
         return self.count() > 0
-    
+
+    __bool__ = __nonzero__
+
     def __getitem__(self, index):
         return self.bits[index >> 3] & (1 << (index & 7)) != 0
     
@@ -118,7 +122,7 @@ class BitVector(object):
         if self.size != bitv.size:
             raise ValueError("Can't combine bitvectors of different sizes")
         res = BitVector(size=self.size)
-        lpb = map(op, self.bits, bitv.bits)
+        lpb = list(map(op, self.bits, bitv.bits))
         res.bits = array('B', lpb)
         return res
     

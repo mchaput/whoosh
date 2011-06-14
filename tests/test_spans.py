@@ -3,6 +3,7 @@ from __future__ import with_statement
 from nose.tools import assert_equal
 
 from whoosh import analysis, fields, formats, query, spans
+from whoosh.compat import u, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import And, Or, Term
 from whoosh.util import permutations
@@ -26,7 +27,7 @@ def get_index():
     
     w = _ix.writer()
     for ls in permutations(domain, 4):
-        w.add_document(text=u" ".join(ls), _stored_text=ls)
+        w.add_document(text=u(" ").join(ls), _stored_text=ls)
     w.commit()
     
     return _ix
@@ -40,7 +41,7 @@ def test_multimatcher():
     for _ in xrange(3):
         w = ix.writer()
         for ls in permutations(domain):
-            w.add_document(content=u" ".join(ls))
+            w.add_document(content=u(" ").join(ls))
         w.commit(merge=False)
     
     q = Term("content", "bravo")
@@ -62,7 +63,7 @@ def test_excludematcher():
     for _ in xrange(3):
         w = ix.writer()
         for ls in permutations(domain):
-            w.add_document(content=u" ".join(ls))
+            w.add_document(content=u(" ").join(ls))
         w.commit(merge=False)
     
     w = ix.writer()
@@ -172,17 +173,17 @@ def test_near_unordered():
     st = RamStorage()
     ix = st.create_index(schema)
     w = ix.writer()
-    w.add_document(text=u"alfa bravo charlie delta echo")
-    w.add_document(text=u"alfa bravo delta echo charlie")
-    w.add_document(text=u"alfa charlie bravo delta echo")
-    w.add_document(text=u"echo delta alfa foxtrot")
+    w.add_document(text=u("alfa bravo charlie delta echo"))
+    w.add_document(text=u("alfa bravo delta echo charlie"))
+    w.add_document(text=u("alfa charlie bravo delta echo"))
+    w.add_document(text=u("echo delta alfa foxtrot"))
     w.commit()
     
     with ix.searcher() as s:
         q = spans.SpanNear(Term("text", "bravo"), Term("text", "charlie"), ordered=False)
         r = sorted(d["text"] for d in s.search(q))
-        assert_equal(r, [u'alfa bravo charlie delta echo',
-                             u'alfa charlie bravo delta echo'])
+        assert_equal(r, [u('alfa bravo charlie delta echo'),
+                             u('alfa charlie bravo delta echo')])
     
 def test_span_near2():
     ana = analysis.SimpleAnalyzer()
@@ -190,7 +191,7 @@ def test_span_near2():
     st = RamStorage()
     ix = st.create_index(schema)
     w = ix.writer()
-    w.add_document(text=u"The Lucene library is by Doug Cutting and Whoosh was made by Matt Chaput")
+    w.add_document(text=u("The Lucene library is by Doug Cutting and Whoosh was made by Matt Chaput"))
     w.commit()
     
     nq1 = spans.SpanNear(Term("text", "lucene"), Term("text", "doug"), slop=5)

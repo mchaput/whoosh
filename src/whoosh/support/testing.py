@@ -1,4 +1,5 @@
 import shutil
+import sys
 import tempfile
 from functools import wraps
 
@@ -23,12 +24,13 @@ class TempStorage(object):
         if not self.keepdir:
             try:
                 shutil.rmtree(self.dir)
-            except OSError, e:
-                print "Can't remove temp dir: " + str(e)
+            except OSError:
+                e = sys.exc_info()[1]
+                print("Can't remove temp dir: " + str(e))
         
         if exc_type is not None:
             if self.keepdir:
-                print "Temp dir=", self.dir
+                print("Temp dir=", self.dir)
             if exc_type not in self.suppress:
                 return False
 

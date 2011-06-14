@@ -3,10 +3,11 @@ from __future__ import with_statement
 from nose.tools import assert_equal
 
 from whoosh import analysis, highlight, fields, qparser
+from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 
 
-_doc = u"alfa bravo charlie delta echo foxtrot golf hotel india juliet kilo lima"
+_doc = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet kilo lima")
 
 
 def test_null_fragment():
@@ -26,7 +27,7 @@ def test_simple_fragment():
     assert_equal(htext, "alfa BRAVO charlie...hotel INDIA juliet kilo")
     
 def test_sentence_fragment():
-    text = u"This is the first sentence. This one doesn't have the word. This sentence is the second. Third sentence here."
+    text = u("This is the first sentence. This one doesn't have the word. This sentence is the second. Third sentence here.")
     terms = ("sentence", )
     sa = analysis.StandardAnalyzer(stoplist=None)
     sf = highlight.SentenceFragmenter()
@@ -72,17 +73,17 @@ def test_workflow_easy():
     ix = RamStorage().create_index(schema)
     
     w = ix.writer()
-    w.add_document(id=u"1", title=u"The man who wasn't there")
-    w.add_document(id=u"2", title=u"The dog who barked at midnight")
-    w.add_document(id=u"3", title=u"The invisible man")
-    w.add_document(id=u"4", title=u"The girl with the dragon tattoo")
-    w.add_document(id=u"5", title=u"The woman who disappeared")
+    w.add_document(id=u("1"), title=u("The man who wasn't there"))
+    w.add_document(id=u("2"), title=u("The dog who barked at midnight"))
+    w.add_document(id=u("3"), title=u("The invisible man"))
+    w.add_document(id=u("4"), title=u("The girl with the dragon tattoo"))
+    w.add_document(id=u("5"), title=u("The woman who disappeared"))
     w.commit()
     
     with ix.searcher() as s:
         # Parse the user query
         parser = qparser.QueryParser("title", schema=ix.schema)
-        q = parser.parse(u"man")
+        q = parser.parse(u("man"))
         r = s.search(q)
         assert_equal(len(r), 2)
         
@@ -97,17 +98,17 @@ def test_workflow_manual():
     ix = RamStorage().create_index(schema)
     
     w = ix.writer()
-    w.add_document(id=u"1", title=u"The man who wasn't there")
-    w.add_document(id=u"2", title=u"The dog who barked at midnight")
-    w.add_document(id=u"3", title=u"The invisible man")
-    w.add_document(id=u"4", title=u"The girl with the dragon tattoo")
-    w.add_document(id=u"5", title=u"The woman who disappeared")
+    w.add_document(id=u("1"), title=u("The man who wasn't there"))
+    w.add_document(id=u("2"), title=u("The dog who barked at midnight"))
+    w.add_document(id=u("3"), title=u("The invisible man"))
+    w.add_document(id=u("4"), title=u("The girl with the dragon tattoo"))
+    w.add_document(id=u("5"), title=u("The woman who disappeared"))
     w.commit()
     
     with ix.searcher() as s:
         # Parse the user query
         parser = qparser.QueryParser("title", schema=ix.schema)
-        q = parser.parse(u"man")
+        q = parser.parse(u("man"))
         
         # Extract the terms the user used in the field we're interested in
         terms = [text for fieldname, text in q.all_terms()

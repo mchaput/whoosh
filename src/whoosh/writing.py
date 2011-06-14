@@ -186,7 +186,7 @@ class IndexWriter(object):
                          if name in fields and field.unique]
         if not unique_fields:
             raise IndexingError("None of the fields in %r"
-                                " are unique" % fields.keys())
+                                " are unique" % list(fields.keys()))
         return unique_fields
     
     def update_document(self, **fields):

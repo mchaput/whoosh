@@ -4,6 +4,7 @@ import threading, time
 from nose.tools import assert_equal
 
 from whoosh import fields
+from whoosh.compat import u, xrange
 from whoosh.support.filelock import try_for
 from whoosh.util import length_to_byte, byte_to_length, now
 from whoosh.support.testing import TempStorage, TempIndex
@@ -52,7 +53,7 @@ def test_threaded_filelock():
         assert_equal(result, [True])
     
 def test_length_byte():
-    source = range(11)
+    source = list(range(11))
     xform = [length_to_byte(n) for n in source]
     result = [byte_to_length(n) for n in xform]
     assert_equal(source, result)
@@ -73,9 +74,9 @@ def test_lru_cache():
 def test_readlock():
     schema = fields.Schema(text=fields.TEXT)
     with TempIndex(schema, "readlock") as ix:
-        for num in u"one two three four five".split():
+        for num in u("one two three four five").split():
             w = ix.writer()
-            w.add_document(text=u"Test document %s" % num)
+            w.add_document(text=u("Test document %s") % num)
             w.commit(merge=False)
         
         def fn():

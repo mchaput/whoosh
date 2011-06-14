@@ -4,6 +4,7 @@ import struct
 from nose.tools import assert_equal
 
 from whoosh import formats
+from whoosh.compat import next, xrange
 from whoosh.filedb.filepostings import FilePostingReader, FilePostingWriter
 from whoosh.support.testing import TempStorage
 

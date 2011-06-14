@@ -84,6 +84,9 @@ class Fragment(object):
         return any(t.matched for t in self.tokens)
     
 
+    def __lt__(self, other):
+        return id(self) < id(other)
+
 # Filters
 
 def copyandmatchfilter(termset, tokens):
