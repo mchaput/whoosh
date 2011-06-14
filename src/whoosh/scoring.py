@@ -141,10 +141,39 @@ class WeightScorer(BaseScorer):
 class WeightLengthScorer(BaseScorer):
     """Base class for scorers where the only per-document variables are weight
     and length.
+    
+    Subclasses should follow this pattern:
+    
+    * Initializer should take ``searcher, fieldname, text`` as the first three
+      arguments. Additional arguments (such as tuning parameters) can be passed
+      after these.
+      
+    * Override the ``_score(weight, length)`` method to return the score for a
+      document with the given weight and length.
+      
+    * Create scorers by calling the ``using`` class method. This method creates
+      the scorer object and does routine setup of attributes before returning
+      it.
+    
+    >>> scorer = BM25FScorer.using(searcher, "text", "render", B=0.5)
+    >>> scorer.max_weight
+    1.25840242
     """
     
     @classmethod
     def using(cls, searcher, fieldname, text, *args, **kwargs):
+        """This class method is meant to be called to create and configure a
+        new scorer. It initializes the scorer and then does the busy work of
+        adding the ``dfl()`` function and ``max_quality`` attributes.
+        
+        This method assumes the initializers of WeightLengthScorer subclasses
+        always take ``searcher, fieldname, text`` as the first three arguments.
+        Any additional arguments given to this method are passed through to the
+        initializer.
+        
+        >>> w = BM25
+        """
+        
         obj = cls(searcher, fieldname, text, *args, **kwargs)
         obj.dfl = lambda docnum: searcher.doc_field_length(docnum, fieldname, 1)
         obj.max_quality = obj._score(searcher.max_weight(fieldname, text),
@@ -159,6 +188,7 @@ class WeightLengthScorer(BaseScorer):
                            matcher.block_min_length())
         
     def _score(self, weight, length):
+        # Override this method with the actual scoring function
         raise NotImplementedError(self.__class__.__name__)
     
 
