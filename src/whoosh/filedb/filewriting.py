@@ -124,7 +124,6 @@ class SegmentWriter(IndexWriter):
             self.writelock = ix.lock("WRITELOCK")
             if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
                 raise LockError
-        self.readlock = ix.lock("READLOCK")
         
         info = ix._read_toc()
         self.schema = info.schema
@@ -459,11 +458,8 @@ class SegmentWriter(IndexWriter):
             _write_toc(self.storage, self.schema, self.indexname, self.generation,
                        self.segment_number, new_segments)
             
-            self.readlock.acquire(True)
-            try:
-                _clean_files(self.storage, self.indexname, self.generation, new_segments)
-            finally:
-                self.readlock.release()
+            # Delete leftover files
+            _clean_files(self.storage, self.indexname, self.generation, new_segments)
         
         finally:
             if self.writelock:
