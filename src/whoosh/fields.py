@@ -155,8 +155,8 @@ class FieldType(object):
         
         if not self.format:
             raise Exception("%s field cannot index without a format" % self.__class__)
-        if not isinstance(value, text_type):
-            raise ValueError("%r is not unicode" % value)
+        if not isinstance(value, (text_type, list, tuple)):
+            raise ValueError("%r is not unicode or sequence" % value)
         return self.format.word_values(value, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
