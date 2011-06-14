@@ -916,7 +916,7 @@ class TermInfo(object):
 
     @classmethod
     def from_string(cls, s):
-        hbyte = ord(s[0])
+        hbyte = ord(s[0:1])
         if hbyte < 2:
             # Freq, Doc freq, min length, max length, max weight, max WOL
             f, df, ml, xl, xw, xwol = cls.struct.unpack(s[1:cls.struct.size+1])
