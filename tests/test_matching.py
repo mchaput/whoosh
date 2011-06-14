@@ -26,7 +26,7 @@ def test_listmatcher():
     ls = []
     while lm.is_active():
         ls.append((lm.id(), lm.score()))
-        next(lm)
+        lm.next()
     assert_equal(ls, [(1, 1.0), (2, 1.0), (5, 1.0), (9, 1.0), (10, 1.0)])
     
     lm = ListMatcher(ids)
@@ -36,17 +36,17 @@ def test_listmatcher():
     ls = []
     while lm.is_active():
         ls.append(lm.id())
-        next(lm)
+        lm.next()
     assert_equal(ls, [9, 10])
     
     lm = ListMatcher(ids)
     for _ in xrange(3):
-        next(lm)
+        lm.next()
     lm = lm.copy()
     ls = []
     while lm.is_active():
         ls.append(lm.id())
-        next(lm)
+        lm.next()
     assert_equal(ls, [9, 10])
 
 def test_wrapper():
@@ -54,7 +54,7 @@ def test_wrapper():
     ls = []
     while wm.is_active():
         ls.append((wm.id(), wm.score()))
-        next(wm)
+        wm.next()
     assert_equal(ls, [(1, 2.0), (2, 2.0), (5, 2.0), (9, 2.0), (10, 2.0)])
     
     ids = [1, 2, 5, 9, 10]
@@ -78,13 +78,13 @@ def test_exclude():
     assert_equal(list(em.all_ids()), [1, 5, 10])
     
     em = FilterMatcher(ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
-    next(em)
-    next(em)
+    em.next()
+    em.next()
     em = em.copy()
     ls = []
     while em.is_active():
         ls.append(em.id())
-        next(em)
+        em.next()
     assert_equal(ls, [10])
 
 def test_simple_union():
@@ -94,7 +94,7 @@ def test_simple_union():
     ls = []
     while um.is_active():
         ls.append((um.id(), um.score()))
-        next(um)
+        um.next()
     assert_equal(ls, [(0, 1.0), (1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0), (90, 1.0)])
     
     lm1 = ListMatcher([1, 4, 10, 20, 90])
@@ -105,13 +105,13 @@ def test_simple_union():
     lm1 = ListMatcher([1, 4, 10, 20, 90])
     lm2 = ListMatcher([0, 4, 20])
     um = UnionMatcher(lm1, lm2)
-    next(um)
-    next(um)
+    um.next()
+    um.next()
     um = um.copy()
     ls = []
     while um.is_active():
         ls.append(um.id())
-        next(um)
+        um.next()
     assert_equal(ls, [4, 10, 20, 90])
     
 def test_simple_intersection():
@@ -121,7 +121,7 @@ def test_simple_intersection():
     ls = []
     while im.is_active():
         ls.append((im.id(), im.score()))
-        next(im)
+        im.next()
     assert_equal(ls, [(4, 2.0), (20, 2.0)])
     
     lm1 = ListMatcher([1, 4, 10, 20, 90])
@@ -132,13 +132,13 @@ def test_simple_intersection():
     lm1 = ListMatcher([1, 4, 10, 20, 90])
     lm2 = ListMatcher([0, 4, 20])
     im = IntersectionMatcher(lm1, lm2)
-    next(im)
-    next(im)
+    im.next()
+    im.next()
     im = im.copy()
     ls = []
     while im.is_active():
         ls.append(im.id())
-        next(im)
+        im.next()
     assert_equal(ls, [])
 
 def test_andnot():
@@ -148,7 +148,7 @@ def test_andnot():
     ls = []
     while anm.is_active():
         ls.append((anm.id(), anm.score()))
-        next(anm)
+        anm.next()
     assert_equal(ls, [(1, 1.0), (10, 1.0), (90, 1.0)])
     
     echo_lm = ListMatcher([0, 1, 2, 3, 4])
@@ -164,13 +164,13 @@ def test_andnot():
     lm1 = ListMatcher([1, 4, 10, 20, 90])
     lm2 = ListMatcher([0, 4, 20])
     anm = AndNotMatcher(lm1, lm2)
-    next(anm)
-    next(anm)
+    anm.next()
+    anm.next()
     anm = anm.copy()
     ls = []
     while anm.is_active():
         ls.append(anm.id())
-        next(anm)
+        anm.next()
     assert_equal(ls, [90])
 
 def test_require():
@@ -180,7 +180,7 @@ def test_require():
     ls = []
     while rm.is_active():
         ls.append((rm.id(), rm.score()))
-        next(rm)
+        rm.next()
     assert_equal(ls, [(4, 1.0), (20, 1.0)])
     
     lm1 = ListMatcher([1, 4, 10, 20, 90])
@@ -191,13 +191,13 @@ def test_require():
     lm1 = ListMatcher([1, 4, 10, 20, 90])
     lm2 = ListMatcher([0, 4, 20])
     rm = RequireMatcher(lm1, lm2)
-    next(rm)
-    next(rm)
+    rm.next()
+    rm.next()
     rm = rm.copy()
     ls = []
     while rm.is_active():
         ls.append(rm.id())
-        next(rm)
+        rm.next()
     assert_equal(ls, [])
 
 def test_andmaybe():
@@ -207,7 +207,7 @@ def test_andmaybe():
     ls = []
     while amm.is_active():
         ls.append((amm.id(), amm.score()))
-        next(amm)
+        amm.next()
     assert_equal(ls, [(1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0), (90, 1.0)])
     
     lm1 = ListMatcher([1, 4, 10, 20, 90])
@@ -218,13 +218,13 @@ def test_andmaybe():
     lm1 = ListMatcher([1, 4, 10, 20, 90])
     lm2 = ListMatcher([0, 4, 20])
     amm = AndMaybeMatcher(lm1, lm2)
-    next(amm)
-    next(amm)
+    amm.next()
+    amm.next()
     amm = amm.copy()
     ls = []
     while amm.is_active():
         ls.append(amm.id())
-        next(amm)
+        amm.next()
     assert_equal(ls, [10, 20, 90])
 
 def test_intersection():
@@ -312,7 +312,7 @@ def test_random_intersections():
             ids2 = []
             while m2.is_active():
                 ids2.append(m2.id())
-                next(m2)
+                m2.next()
             
             # Check that the two methods return the same list
             assert_equal(ids1, ids2)
@@ -337,7 +337,7 @@ def test_union_scores():
     result = []
     while um.is_active():
         result.append((um.id(), um.score()))
-        next(um)
+        um.next()
     assert_equal(target, result)
 
 def test_random_union():
@@ -364,7 +364,7 @@ def test_inverse():
     ids = []
     while inv.is_active():
         ids.append(inv.id())
-        next(inv)
+        inv.next()
     assert_equal(ids, [0, 2, 3, 4, 6, 7, 8, 9, 12, 14])
     
 def test_inverse_skip():
@@ -375,7 +375,7 @@ def test_inverse_skip():
     ids = []
     while inv.is_active():
         ids.append(inv.id())
-        next(inv)
+        inv.next()
     assert_equal([8, 9, 12, 14], ids)
 
 def test_empty_andnot():

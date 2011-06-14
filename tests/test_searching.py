@@ -528,7 +528,7 @@ def test_phrase_score():
         assert_equal(m.id(), 0)
         score1 = m.weight()
         assert score1 > 0
-        next(m)
+        m.next()
         assert_equal(m.id(), 3)
         assert m.weight() > score1
 
@@ -1034,10 +1034,8 @@ def test_timelimit():
     class SlowMatcher(matching.WrappingMatcher):
         def next(self):
             time.sleep(0.02)
-            next(self.child)
+            self.child.next()
     
-        __next__ = next
-
     class SlowQuery(WrappingQuery):
         def matcher(self, searcher):
             return SlowMatcher(self.child.matcher(searcher))

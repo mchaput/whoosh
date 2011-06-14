@@ -213,8 +213,6 @@ class FilePostingReader(Matcher):
             self.i += 1
             return False
 
-    __next__ = next
-
     def skip_to(self, id):
         if not self.is_active():
             raise ReadTooFar
