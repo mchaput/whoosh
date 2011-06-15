@@ -32,6 +32,7 @@ This module contains classes for scoring (and sorting) search results.
 from __future__ import division
 from math import log, pi
 
+from whoosh.compat import iteritems
 
 # Base classes
 
@@ -93,7 +94,7 @@ class BaseScorer(object):
     a scorer instance.
     """
     
-    def supports_quality(self):
+    def supports_block_quality(self):
         """Returns True if this class supports quality optimizations.
         """
         
@@ -105,37 +106,15 @@ class BaseScorer(object):
         
         raise NotImplementedError(self.__class__.__name__)
     
-    def quality(self, matcher):
-        """Returns an approximate quality rating for the current document of
-        the matcher.
+    def block_quality(self, matcher):
+        """Returns the *maximum possible score* the matcher can give in its
+        current "block" (whatever concept of "block" the backend might use). If
+        this score is less than the minimum score required to make the "top N"
+        results, then we can tell the matcher to skip ahead to another block
+        with better "quality".
         """
         
         raise NotImplementedError(self.__class__.__name__)
-    
-    def block_quality(self, matcher):
-        """Returns an approximate quality rating for the matcher's current
-        block (whatever concept of block the matcher might use).
-        """
-        
-        raise NotImplementedError(self.__class__.__name__)
-
-
-class WOLScorer(BaseScorer):
-    """A "middleware" abstract base class for scorers that use
-    weight-over-length (WOL) -- that is, weight divided by field length -- as
-    the approximate quality rating. This class requires a method
-    ``dfl(docnum)`` which returns the length of the field in the given
-    document.
-    """
-    
-    def supports_quality(self):
-        return True
-    
-    def quality(self, matcher):
-        return matcher.weight() / self.dfl(matcher.id())
-    
-    def block_quality(self, matcher):
-        return matcher.block_maxwol()
 
 
 # WeightScorer
@@ -146,20 +125,94 @@ class WeightScorer(BaseScorer):
     scorer for fields that aren't scorable (don't store field lengths).
     """
     
-    def supports_quality(self):
+    def __init__(self, maxweight):
+        self.max_quality = maxweight
+    
+    def supports_block_quality(self):
         return True
     
     def score(self, matcher):
         return matcher.weight()
     
-    def quality(self, matcher):
-        return matcher.weight()
+    def block_quality(self, matcher):
+        return matcher.block_max_weight()
+
+
+class WeightLengthScorer(BaseScorer):
+    """Base class for scorers where the only per-document variables are weight
+    and length.
+    
+    Subclasses should follow this pattern:
+    
+    * Initializer should take ``searcher, fieldname, text`` as the first three
+      arguments. Additional arguments (such as tuning parameters) can be passed
+      after these.
+      
+    * Override the ``_score(weight, length)`` method to return the score for a
+      document with the given weight and length.
+      
+    * Create scorers by calling the ``using`` class method. This method creates
+      the scorer object and does routine setup of attributes before returning
+      it.
+    
+    >>> scorer = BM25FScorer.using(searcher, "text", "render", B=0.5)
+    >>> scorer.max_weight
+    1.25840242
+    """
+    
+    @classmethod
+    def using(cls, searcher, fieldname, text, *args, **kwargs):
+        """This class method is meant to be called to create and configure a
+        new scorer. It initializes the scorer and then does the busy work of
+        adding the ``dfl()`` function and ``max_quality`` attributes.
+        
+        This method assumes the initializers of WeightLengthScorer subclasses
+        always take ``searcher, fieldname, text`` as the first three arguments.
+        Any additional arguments given to this method are passed through to the
+        initializer.
+        
+        >>> w = BM25
+        """
+        
+        ti = searcher.term_info(fieldname, text)
+        
+        if not searcher.schema[fieldname].scorable:
+            return WeightScorer(ti.max_weight())
+        
+        obj = cls(searcher, fieldname, text, *args, **kwargs)
+        obj.dfl = lambda docnum: searcher.doc_field_length(docnum, fieldname, 1)
+        obj.max_quality = obj._score(ti.max_weight(), ti.min_length())
+        return obj
+    
+    def supports_block_quality(self):
+        return True
+    
+    def score(self, matcher):
+        return self._score(matcher.weight(), self.dfl(matcher.id()))
     
     def block_quality(self, matcher):
-        return matcher.block_maxweight()
-
+        return self._score(matcher.block_max_weight(),
+                           matcher.block_min_length())
+        
+    def _score(self, weight, length):
+        # Override this method with the actual scoring function
+        raise NotImplementedError(self.__class__.__name__)
+    
 
 # WeightingModel implementations
+
+
+# BM25F Model
+
+def bm25(idf, tf, fl, avgfl, B, K1):
+    # idf - inverse document frequency
+    # tf - term frequency in the current document
+    # fl - field length in the current document
+    # avgfl - average field length across documents in collection
+    # B, K1 - free paramters
+    score = idf * ((tf * K1 + 1) / (tf + K1 * (1 - B + B * fl / avgfl)))
+    return score
+
 
 class BM25F(WeightingModel):
     """Implements the BM25F scoring algorithm.
@@ -182,45 +235,95 @@ class BM25F(WeightingModel):
         self.K1 = K1
         
         self._field_B = {}
-        for k, v in kwargs.iteritems():
+        for k, v in iteritems(kwargs):
             if k.endswith("_B"):
                 fieldname = k[:-2]
                 self._field_B[fieldname] = v
     
+    def supports_block_quality(self):
+        return True
+    
     def scorer(self, searcher, fieldname, text, qf=1):
-        if not searcher.schema[fieldname].scorable:
-            return WeightScorer()
-        
-        idf = searcher.idf(fieldname, text)
-        avglength = searcher.avg_field_length(fieldname) or 1
-        
-        def dfl(docnum):
-            return searcher.doc_field_length(docnum, fieldname, 1)
-        
         if fieldname in self._field_B:
             B = self._field_B[fieldname]
         else:
             B = self.B
         
-        return BM25F.BM25FScorer(idf, avglength, dfl, B, self.K1, qf=qf)
-    
-    class BM25FScorer(WOLScorer):
-        def __init__(self, idf, avglength, dfl, B, K1, qf=1):
-            self.idf = idf
-            self.avglength = avglength
-            self.dfl = dfl
-            self.B = B
-            self.K1 = K1
-            self.qf = qf
-        
-        def score(self, matcher):
-            weight = matcher.weight()
-            length = self.dfl(matcher.id())
-            B = self.B
-            
-            w = weight / ((1 - B) + B * (length / self.avglength))
-            return self.idf * (w / (self.K1 + w))
+        return BM25FScorer.using(searcher, fieldname, text, B, self.K1, qf=qf)
 
+
+class BM25FScorer(WeightLengthScorer):
+    def __init__(self, searcher, fieldname, text, B, K1, qf=1):
+        self.idf = searcher.idf(fieldname, text)
+        self.avgfl = searcher.avg_field_length(fieldname) or 1
+        self.B = B
+        self.K1 = K1
+        self.qf = qf
+        
+    def _score(self, weight, length):
+        return bm25(self.idf, weight, length, self.avgfl, self.B, self.K1)
+            
+
+# DFree model
+
+def dfree(tf, cf, qf, dl, fl):
+    # tf - term frequency in current document
+    # cf - term frequency in collection
+    # qf - term frequency in query
+    # dl - field length in current document
+    # fl - total field length across all documents in collection
+    prior = tf / dl
+    post = (tf + 1.0) / (dl + 1.0)
+    invpriorcol = fl / cf
+    norm = tf * log(post / prior)
+    
+    return qf * norm * (tf * (log(prior * invpriorcol))
+                        + (tf + 1.0) * (log(post * invpriorcol))
+                        + 0.5 * log(post / prior))
+
+
+class DFree(WeightingModel):
+    """Implements the DFree scoring model from Terrier.
+    
+    See http://terrier.org/
+    """
+    
+    def supports_block_quality(self):
+        return True
+    
+    def scorer(self, searcher, fieldname, text, qf=1):
+        return DFreeScorer.using(searcher, fieldname, text, qf=qf)
+
+
+class DFreeScorer(WeightLengthScorer):
+    def __init__(self, searcher, fieldname, text, qf=1):
+        self.cf = searcher.weight(fieldname, text)
+        self.fl = searcher.field_length(fieldname)
+        self.qf = qf
+    
+    def _score(self, weight, length):
+        return dfree(weight, self.cf, self.qf, length, self.fl)
+        
+
+# PL2 model
+
+rec_log2_of_e = 1.0 / log(2)
+def pl2(tf, cf, qf, dc, fl, avgfl, c):
+    # tf - term frequency in the current document
+    # cf - term frequency in the collection
+    # qf - term frequency in the query
+    # dc - doc count
+    # fl - field length in the current document
+    # avgfl - average field length across all documents
+    # c -free parameter
+    
+    TF = tf * log(1.0 + (c * avgfl) / fl)
+    norm = 1.0 / (TF + 1.0)
+    f = cf / dc
+    return norm * qf * (TF * log(1.0 / f)
+                        + f * rec_log2_of_e
+                        + 0.5 * log(2 * pi * TF)
+                        + TF * (log(TF) - rec_log2_of_e))
 
 class PL2(WeightingModel):
     """Implements the PL2 scoring model from Terrier.
@@ -228,74 +331,56 @@ class PL2(WeightingModel):
     See http://terrier.org/
     """
     
-    rec_log2_of_e = 1.0 / log(2)
-    
     def __init__(self, c=1.0):
         self.c = c
         
     def scorer(self, searcher, fieldname, text, qf=1):
         if not searcher.schema[fieldname].scorable:
-            return WeightScorer()
+            return WeightScorer(searcher.max_weight(fieldname, text))
         
-        collfreq = searcher.frequency(fieldname, text)
-        doccount = searcher.doc_count_all()
-        avglength = searcher.avg_field_length(fieldname) or 1
+        return PL2Scorer.using(searcher, fieldname, text, self.c, qf=qf)
+
+
+class PL2Scorer(WeightLengthScorer):
+    def __init__(self, searcher, fieldname, text, c, qf=1):
+        self.cf = searcher.frequency(fieldname, text)
+        self.dc = searcher.doc_count_all()
+        self.avgfl = searcher.avg_field_length(fieldname) or 1
+        self.c = c
+        self.qf = qf
         
-        def dfl(docnum):
-            return searcher.doc_field_length(docnum, fieldname, 1)
-        
-        return PL2.PL2Scorer(collfreq, doccount, avglength, dfl, self.c, qf=qf)
-    
-    class PL2Scorer(WOLScorer):
-        def __init__(self, collfreq, doccount, avglength, dfl, c, qf=1):
-            self.collfreq = collfreq
-            self.doccount = doccount
-            self.avglength = avglength
-            self.dfl = dfl
-            self.c = c
-            self.qf = qf
-            
-        def score(self, matcher):
-            weight = matcher.weight()
-            length = self.dfl(matcher.id())
-            rec_log2_of_e = PL2.rec_log2_of_e
-            
-            tf = weight * log(1.0 + (self.c * self.avglength) / length)
-            norm = 1.0 / (weight + 1.0)
-            f = self.collfreq / self.doccount
-            return (norm * self.qf * (tf * log(1.0 / f, 2)
-                                      + f * rec_log2_of_e
-                                      + 0.5 * log(2 * pi * tf, 2)
-                                      + tf * (log(tf, 2) - rec_log2_of_e)))
+    def _score(self, weight, length):
+        return pl2(weight, self.cf, self.qf, self.dc, length, self.avgfl,
+                   self.c)
 
 
 # Simple models
 
 class Frequency(WeightingModel):
     def scorer(self, searcher, fieldname, text, qf=1):
-        return WeightScorer()
+        maxweight = searcher.term_info(fieldname, text).max_weight()
+        return WeightScorer(maxweight)
     
 
 class TF_IDF(WeightingModel):
     def scorer(self, searcher, fieldname, text, qf=1):
         idf = searcher.idf(fieldname, text)
-        return TF_IDF.TF_IDFScorer(idf)
+        maxweight = searcher.term_info(fieldname, text).max_weight()
+        return TF_IDF.TF_IDFScorer(maxweight, idf)
     
     class TF_IDFScorer(BaseScorer):
-        def __init__(self, idf):
+        def __init__(self, maxweight, idf):
+            self.max_quality = maxweight * idf
             self.idf = idf
         
-        def supports_quality(self):
+        def supports_block_quality(self):
             return True
         
         def score(self, matcher):
             return matcher.weight() * self.idf
         
-        def quality(self, matcher):
-            return matcher.weight()
-        
         def block_quality(self, matcher):
-            return matcher.block_maxweight()
+            return matcher.block_maxweight() * self.idf
 
 
 # Utility models
@@ -360,8 +445,8 @@ class MultiWeighting(WeightingModel):
     def scorer(self, searcher, fieldname, text, qf=1):
         w = self.weightings.get(fieldname, self.default)
         return w.scorer(searcher, fieldname, text, qf=qf)
-    
-    
+
+
 class ReverseWeighting(WeightingModel):
     """Wraps a weighting object and subtracts the wrapped model's scores from
     0, essentially reversing the weighting model.
@@ -369,7 +454,7 @@ class ReverseWeighting(WeightingModel):
     
     def __init__(self, weighting):
         self.weighting = weighting
-        
+    
     def scorer(self, searcher, fieldname, text, qf=1):
         subscorer = self.weighting.scorer(searcher, fieldname, text, qf=qf)
         return ReverseWeighting.ReverseScorer(subscorer)
@@ -377,15 +462,13 @@ class ReverseWeighting(WeightingModel):
     class ReverseScorer(BaseScorer):
         def __init__(self, subscorer):
             self.subscorer = subscorer
+            self.max_quality = 0 - subscorer.max_quality
         
-        def supports_quality(self):
-            return self.subscorer.supports_quality()
+        def supports_block_quality(self):
+            return self.subscorer.supports_block_quality()
         
         def score(self, matcher):
             return 0 - self.subscorer.score(matcher)
-        
-        def quality(self, matcher):
-            return 0 - self.subscorer.quality(matcher)
         
         def block_quality(self, matcher):
             return 0 - self.subscorer.block_quality(matcher)

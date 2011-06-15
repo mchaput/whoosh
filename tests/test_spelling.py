@@ -3,6 +3,7 @@ from nose.tools import assert_equal, assert_not_equal
 
 import whoosh.support.dawg as dawg
 from whoosh import fields, spelling
+from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempStorage
 
@@ -28,25 +29,25 @@ def test_reader_corrector_nograph():
     schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
-    w.add_document(text=u"render zorro kaori postal")
-    w.add_document(text=u"reader zebra koala pastry")
-    w.add_document(text=u"leader libra ooala paster")
-    w.add_document(text=u"feeder lorry zoala baster")
+    w.add_document(text=u("render zorro kaori postal"))
+    w.add_document(text=u("reader zebra koala pastry"))
+    w.add_document(text=u("leader libra ooala paster"))
+    w.add_document(text=u("feeder lorry zoala baster"))
     w.commit()
     
     with ix.reader() as r:
         sp = spelling.ReaderCorrector(r, "text")
-        assert_equal(sp.suggest(u"kaola", maxdist=1), [u'koala'])
-        assert_equal(sp.suggest(u"kaola", maxdist=2), [u'koala', u'kaori', u'ooala', u'zoala'])
+        assert_equal(sp.suggest(u"kaola", maxdist=1), [u('koala')])
+        assert_equal(sp.suggest(u"kaola", maxdist=2), [u('koala'), u('kaori'), u('ooala'), u('zoala')])
 
 def test_reader_corrector():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
     ix = RamStorage().create_index(schema)
     w = ix.writer()
-    w.add_document(text=u"render zorro kaori postal")
-    w.add_document(text=u"reader zebra koala pastry")
-    w.add_document(text=u"leader libra ooala paster")
-    w.add_document(text=u"feeder lorry zoala baster")
+    w.add_document(text=u("render zorro kaori postal"))
+    w.add_document(text=u("reader zebra koala pastry"))
+    w.add_document(text=u("leader libra ooala paster"))
+    w.add_document(text=u("feeder lorry zoala baster"))
     w.commit()
     
     with ix.reader() as r:

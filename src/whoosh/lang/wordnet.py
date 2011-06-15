@@ -34,6 +34,7 @@ http://wordnetcode.princeton.edu/3.0/WNprolog-3.0.tar.gz
 
 from collections import defaultdict
 
+from whoosh.compat import iterkeys, text_type
 from whoosh.fields import Schema, ID, STORED
 
 
@@ -74,9 +75,9 @@ def make_index(storage, indexname, word2nums, num2words):
     schema = Schema(word=ID, syns=STORED)
     ix = storage.create_index(schema, indexname=indexname)
     w = ix.writer()
-    for word in word2nums.iterkeys():
+    for word in iterkeys(word2nums):
         syns = synonyms(word2nums, num2words, word)
-        w.add_document(word=unicode(word), syns=syns)
+        w.add_document(word=text_type(word), syns=syns)
     w.commit()
     return ix
 
@@ -248,22 +249,22 @@ if __name__ == "__main__":
     
 #    t = clock()
 #    th = Thesaurus.from_filename("c:/wordnet/wn_s.pl")
-#    print clock() - t
+#    print(clock() - t)
 #    
 #    t = clock()
 #    th.to_storage(st)
-#    print clock() - t
+#    print(clock() - t)
 #    
 #    t = clock()
 #    print th.synonyms("light")
-#    print clock() - t
+#    print(clock() - t)
     
     t = clock()
     th = Thesaurus.from_storage(st)
-    print clock() - t
+    print(clock() - t)
     
     t = clock()
-    print th.synonyms("hail")
-    print clock() - t
+    print(th.synonyms("hail"))
+    print(clock() - t)
     
     

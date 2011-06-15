@@ -31,6 +31,7 @@
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
+from whoosh.compat import xrange
 import whoosh.support.dawg as dawg
 from whoosh import analysis, fields, query, scoring
 from whoosh.support.levenshtein import distance
@@ -235,7 +236,7 @@ class SpellChecker(object):
         didn't already exist).
         """
 
-        import index
+        from whoosh import index
         if create or not self._index:
             create = create or not index.exists(self.storage, indexname=self.indexname)
             if create:
@@ -247,8 +248,8 @@ class SpellChecker(object):
     def _schema(self):
         # Creates a schema given this object's mingram and maxgram attributes.
 
-        from fields import Schema, FieldType, Frequency, ID, STORED
-        from analysis import SimpleAnalyzer
+        from whoosh.fields import Schema, FieldType, Frequency, ID, STORED
+        from whoosh.analysis import SimpleAnalyzer
 
         idtype = ID()
         freqtype = FieldType(format=Frequency(SimpleAnalyzer()))
@@ -351,8 +352,8 @@ class SpellChecker(object):
 
         r = ix.reader()
         try:
-            self.add_scored_words((w, freq)
-                                  for w, _, freq in r.iter_field(fieldname))
+            self.add_scored_words((w, terminfo.weight())
+                                  for w, terminfo in r.iter_field(fieldname))
         finally:
             r.close()
 

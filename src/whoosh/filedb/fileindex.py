@@ -25,13 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import cPickle
-import re
-import uuid
-from time import time
+import re, sys, uuid
+from time import time, sleep
 from threading import Lock
 
 from whoosh import __version__
+from whoosh.compat import pickle, integer_types, string_type, iteritems
 from whoosh.fields import ensure_schema
 from whoosh.index import Index, EmptyIndexError, IndexVersionError, _DEF_INDEX_NAME
 from whoosh.reading import EmptyReader, MultiReader
@@ -107,7 +106,7 @@ def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
     for num in __version__[:3]:
         stream.write_varint(num)
 
-    stream.write_string(cPickle.dumps(schema, -1))
+    stream.write_string(pickle.dumps(schema, -1))
     stream.write_int(gen)
     stream.write_int(segment_counter)
     stream.write_pickle(segments)
@@ -119,7 +118,7 @@ def _write_toc(storage, schema, indexname, gen, segment_counter, segments):
 
 class Toc(object):
     def __init__(self, **kwargs):
-        for name, value in kwargs.iteritems():
+        for name, value in iteritems(kwargs):
             setattr(self, name, value)
         
 
@@ -155,7 +154,7 @@ def _read_toc(storage, schema, indexname):
     if schema:
         stream.skip_string()
     else:
-        schema = cPickle.loads(stream.read_string())
+        schema = pickle.loads(stream.read_string())
     schema = ensure_schema(schema)
     
     # Generation
@@ -223,7 +222,7 @@ class FileIndex(Index):
     def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
         if not isinstance(storage, Storage):
             raise ValueError("%r is not a Storage object" % storage)
-        if not isinstance(indexname, (str, unicode)):
+        if not isinstance(indexname, string_type):
             raise ValueError("indexname %r is not a string" % indexname)
         
         if schema:
@@ -304,15 +303,12 @@ class FileIndex(Index):
             if reuse:
                 # Put all atomic readers in a dictionary keyed by their
                 # generation, so we can re-use them if them if possible
-                if reuse.is_atomic():
-                    readers = [reuse]
-                else:
-                    readers = [r for r, offset in reuse.leaf_readers()]
+                readers = [r for r, offset in reuse.leaf_readers()]
                 reusable = dict((r.generation(), r) for r in readers)
             
             # Make a function to open readers, which reuses reusable readers.
             # It removes any readers it reuses from the "reusable" dictionary,
-            # so later we can close any remaining readers.
+            # so later we can close any readers left in the dictionary.
             def segreader(segment):
                 gen = segment.generation
                 if gen in reusable:
@@ -338,23 +334,23 @@ class FileIndex(Index):
                 r.close()
 
     def reader(self, reuse=None):
-        # Lock the index so nobody can delete a segment while we're in the
-        # middle of creating the reader
-        lock = self.lock("READLOCK")
-        # Try to acquire the "reader" lock, which prevents a writer from
-        # deleting segments out from under us. If another reader already has
-        # the lock, just pray.
-        #
-        # TODO: replace this with a re-entrant file lock, if possible.
-        gotit = lock.acquire(False)
-        try:
+        retries = 10
+        while retries > 0:
             # Read the information from the TOC file
-            info = self._read_toc()
-            return self._reader(self.storage, info.schema, info.segments,
-                                info.generation, reuse=reuse)
-        finally:
-            if gotit:
-                lock.release()    
+            try:
+                info = self._read_toc()
+                return self._reader(self.storage, info.schema, info.segments,
+                                    info.generation, reuse=reuse)
+            except IOError:
+                # Presume that we got a "file not found error" because a writer
+                # deleted one of the files just as we were trying to open it,
+                # and so retry a few times before actually raising the
+                # exception
+                e = sys.exc_info()[1]
+                retries -= 1
+                if retries <= 0:
+                    raise e
+                sleep(0.05)
 
 
 class Segment(object):
@@ -382,28 +378,34 @@ class Segment(object):
     generation = 0
     
     def __init__(self, name, generation, doccount, fieldlength_totals,
-                 fieldlength_maxes, deleted=None):
+                 fieldlength_mins, fieldlength_maxes, deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
             from its name and the generation).
         :param doccount: The maximum document number in the segment.
         :param term_count: Total count of all terms in all documents.
-        :param fieldlength_totals: A dictionary mapping field numbers to the
+        :param fieldlength_totals: A dictionary mapping field names to the
             total number of terms in that field across all documents in the
             segment.
+        :param fieldlength_mins: A dictionary mapping field names to the
+            minimum length of that field across all documents.
+        :param fieldlength_maxes: A dictionary mapping field names to the
+            maximum length of that field across all documents.
         :param deleted: A set of deleted document numbers, or None if no
             deleted documents exist in this segment.
         """
 
-        assert isinstance(name, basestring)
-        assert isinstance(doccount, (int, long))
+        assert isinstance(name, string_type)
+        assert isinstance(doccount, integer_types)
         assert fieldlength_totals is None or isinstance(fieldlength_totals, dict), "fl_totals=%r" % fieldlength_totals
+        assert fieldlength_maxes is None or isinstance(fieldlength_mins, dict), "fl_mins=%r" % fieldlength_maxes
         assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
         
         self.name = name
         self.generation = generation
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals
+        self.fieldlength_mins = fieldlength_mins
         self.fieldlength_maxes = fieldlength_maxes
         self.deleted = deleted
         self.uuid = uuid.uuid4()
@@ -425,8 +427,8 @@ class Segment(object):
 
     def copy(self):
         return Segment(self.name, self.generation, self.doccount,
-                       self.fieldlength_totals, self.fieldlength_maxes,
-                       self.deleted)
+                       self.fieldlength_totals, self.fieldlength_mins,
+                       self.fieldlength_maxes, self.deleted)
 
     def make_filename(self, ext):
         return "%s.%s" % (self.name, ext)
@@ -467,6 +469,13 @@ class Segment(object):
         documents in this segment.
         """
         return self.fieldlength_totals.get(fieldname, default)
+
+    def min_field_length(self, fieldname, default=0):
+        """Returns the maximum length of the given field in any of the
+        documents in the segment.
+        """
+        
+        return self.fieldlength_mins.get(fieldname, default)
 
     def max_field_length(self, fieldname, default=0):
         """Returns the maximum length of the given field in any of the

@@ -35,8 +35,9 @@ from heapq import heapify, heappop, heapreplace
 from marshal import load, dump
 #import sqlite3 as sqlite
 
+from whoosh.compat import long_type, iteritems, xrange, text_type, PY3
 from whoosh.filedb.filetables import LengthWriter, LengthReader
-from whoosh.util import length_to_byte
+from whoosh.util import length_to_byte, byte_to_length
 
 
 try:
@@ -47,15 +48,15 @@ except ImportError:
         if obj is None:
             return 8
         t = type(obj)
-        if t is int:
+        if t is int and not PY3:
             return 12
         elif t is float:
             return 16
-        elif t is long:
+        elif t is long_type:
             return 16
         elif t is str:
             return 21 + len(obj)
-        elif t is unicode:
+        elif t is text_type:
             return 26 + 2 * len(obj)
 
 
@@ -118,6 +119,7 @@ class PoolBase(object):
         
         self.length_arrays = {}
         self._fieldlength_totals = defaultdict(int)
+        self._fieldlength_mins = {}
         self._fieldlength_maxes = {}
     
     def _make_dir(self):
@@ -154,6 +156,9 @@ class PoolBase(object):
     def fieldlength_totals(self):
         return dict(self._fieldlength_totals)
     
+    def fieldlength_mins(self):
+        return self._fieldlength_mins
+    
     def fieldlength_maxes(self):
         return self._fieldlength_maxes
     
@@ -162,8 +167,15 @@ class PoolBase(object):
     
     def add_field_length(self, docnum, fieldname, length):
         self._fieldlength_totals[fieldname] += length
-        if length > self._fieldlength_maxes.get(fieldname, 0):
-            self._fieldlength_maxes[fieldname] = length
+        
+        bytelength = length_to_byte(length)
+        normalized = byte_to_length(bytelength)
+        
+        if normalized < self._fieldlength_mins.get(fieldname, 999999999):
+            self._fieldlength_mins[fieldname] = normalized
+        
+        if normalized > self._fieldlength_maxes.get(fieldname, 0):
+            self._fieldlength_maxes[fieldname] = normalized
         
         if fieldname not in self.length_arrays:
             self.length_arrays[fieldname] = array("B")
@@ -172,7 +184,7 @@ class PoolBase(object):
         if len(arry) <= docnum:
             for _ in xrange(docnum - len(arry) + 1):
                 arry.append(0)
-        arry[docnum] = length_to_byte(length)
+        arry[docnum] = bytelength
     
     def _fill_lengths(self, doccount):
         for fieldname in self.length_arrays.keys():
@@ -304,7 +316,7 @@ class SqlitePool(PoolBase):
         return con
     
     def flush(self):
-        for fieldname, lst in self.postbuf.iteritems():
+        for fieldname, lst in iteritems(self.postbuf):
             con = self._con(fieldname)
             con.executemany("insert into postings values (?, ?, ?, ?)", lst)
             con.commit()
@@ -312,7 +324,6 @@ class SqlitePool(PoolBase):
         self.postbuf = defaultdict(list)
         self.bufsize = 0
         self._flushed = True
-        print "flushed"
     
     def add_posting(self, fieldname, text, docnum, weight, valuestring):
         self.postbuf[fieldname].append((text, docnum, weight, valuestring))
@@ -362,6 +373,7 @@ class SqlitePool(PoolBase):
 class NullPool(PoolBase):
     def __init__(self, *args, **kwargs):
         self._fieldlength_totals = {}
+        self._fieldlength_mins = {}
         self._fieldlength_maxes = {}
     
     def add_content(self, *args):

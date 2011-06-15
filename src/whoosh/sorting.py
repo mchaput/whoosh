@@ -28,6 +28,7 @@
 from array import array
 from heapq import nlargest, nsmallest
 
+from whoosh.compat import string_type
 from whoosh.searching import Results
 from whoosh.util import now
 
@@ -99,7 +100,7 @@ class Sorter(object):
         self.searcher = searcher
         self.criteria = criteria or []
         if sortedby:
-            if isinstance(sortedby, basestring):
+            if isinstance(sortedby, string_type):
                 sortedby = [sortedby]
             for fieldname in sortedby:
                 self.criteria.append((fieldname, False))

@@ -3,6 +3,7 @@ from random import random, randint
 
 from nose.tools import assert_equal
 
+from whoosh.compat import xrange
 from whoosh.formats import (Characters, CharacterBoosts, DocBoosts, Existence,
                             Frequency, Positions, PositionBoosts)
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
@@ -26,6 +27,7 @@ def test_readwrite():
         fpw.start(format)
         for id, freq in postings:
             fpw.write(id, float(freq), format.encode(freq), 0)
+        fpw.finish()
         fpw.close()
         
         postfile = st.open_file("readwrite")
@@ -43,6 +45,7 @@ def test_skip():
         fpw.start(format)
         for id, freq in postings:
             fpw.write(id, float(freq), format.encode(freq), 0)
+        fpw.finish()
         fpw.close()
         
         postfile = st.open_file("skip")
@@ -60,6 +63,7 @@ def roundtrip(postings, format, astype):
         for id, value in postings:
             v = format.encode(value)
             fpw.write(id, getweight(v), v, 0)
+        fpw.finish()
         fpw.close()
         
         postfile = st.open_file(astype)
@@ -85,7 +89,7 @@ def test_docboost_postings():
         freq = randint(1, 1000)
         boost = byte_to_float(float_to_byte(random() * 2))
         postings.append((docnum, (freq, boost)))
-    
+
     assert_equal(postings, roundtrip(postings, DocBoosts(None), "docboosts"))
     
 def test_position_postings():

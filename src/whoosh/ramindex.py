@@ -29,9 +29,10 @@ from collections import defaultdict
 from bisect import bisect_left
 from threading import RLock
 
+from whoosh.compat import iteritems, zip_
 from whoosh.fields import UnknownFieldError
 from whoosh.matching import ListMatcher, NullMatcher
-from whoosh.reading import IndexReader, TermNotFound
+from whoosh.reading import IndexReader, TermInfo, TermNotFound
 from whoosh.writing import IndexWriter
 from whoosh.util import synchronized
 
@@ -50,6 +51,7 @@ class RamIndex(IndexReader, IndexWriter):
         self.indexfreqs = defaultdict(int)
         self.storedfields = []
         self.fieldlengths = defaultdict(int)
+        self.termstats = {}
         self.vectors = {}
         self.deleted = set()
         self.usage = 0
@@ -61,16 +63,6 @@ class RamIndex(IndexReader, IndexWriter):
             return True
         except KeyError:
             return False
-    
-    @synchronized
-    def __iter__(self):
-        invindex = self.invindex
-        indexfreqs = self.indexfreqs
-        for fn in sorted(invindex.keys()):
-            for text in sorted(self.invindex[fn].keys()):
-                docfreq = len(invindex[fn][text])
-                indexfreq = indexfreqs[fn, text]
-                yield (fn, text, docfreq, indexfreq)
     
     def close(self):
         pass
@@ -111,7 +103,7 @@ class RamIndex(IndexReader, IndexWriter):
         self._test_field(fieldname)
         if fieldname not in self.schema or not self.schema[fieldname].scorable:
             return 0
-        return sum(l for docnum_fieldname, l in self.fieldlengths.iteritems()
+        return sum(l for docnum_fieldname, l in iteritems(self.fieldlengths)
                    if docnum_fieldname[1] == fieldname)
     
     @synchronized
@@ -119,7 +111,15 @@ class RamIndex(IndexReader, IndexWriter):
         self._test_field(fieldname)
         if fieldname not in self.schema or not self.schema[fieldname].scorable:
             return 0
-        return max(l for docnum_fieldname, l in self.fieldlengths.iteritems()
+        return max(l for docnum_fieldname, l in iteritems(self.fieldlengths)
+                   if docnum_fieldname[1] == fieldname)
+        
+    @synchronized
+    def min_field_length(self, fieldname):
+        self._test_field(fieldname)
+        if fieldname not in self.schema or not self.schema[fieldname].scorable:
+            return 0
+        return min(l for docnum_fieldname, l in iteritems(self.fieldlengths)
                    if docnum_fieldname[1] == fieldname)
     
     def doc_field_length(self, docnum, fieldname, default=0):
@@ -138,8 +138,12 @@ class RamIndex(IndexReader, IndexWriter):
             raise Exception("No vectors are stored for field %r" % fieldname)
         
         vformat = self.schema[fieldname].vector
-        ids, weights, values = zip(*self.vectors[docnum, fieldname])
+        ids, weights, values = zip_(*self.vectors[docnum, fieldname])
         return ListMatcher(ids, weights, values, format=vformat)
+    
+    def frequency(self, fieldname, text):
+        self._test_field(fieldname)
+        return self.indexfreqs.get((fieldname, text), 0)
     
     def doc_frequency(self, fieldname, text):
         self._test_field(fieldname)
@@ -148,39 +152,22 @@ class RamIndex(IndexReader, IndexWriter):
         except KeyError:
             return 0
     
-    def frequency(self, fieldname, text):
-        self._test_field(fieldname)
-        return self.indexfreqs[fieldname, text]
-    
-    @synchronized
-    def iter_from(self, fieldname, text):
-        self._test_field(fieldname)
-        invindex = self.invindex
-        indexfreqs = self.indexfreqs
+    def term_info(self, fieldname, text):
+        w = self.frequency(fieldname, text)
+        df = self.doc_frequency(fieldname, text)
+        ml, xl, xw, xwol = self.termstats[fieldname, text]
         
-        for fn in sorted(key for key in self.invindex.keys() if key >= fieldname):
-            texts = sorted(invindex[fn])
-            start = 0
-            if fn == fieldname:
-                start = bisect_left(texts, text)
-            for t in texts[start:]:
-                docfreq = len(invindex[fn][t])
-                indexfreq = indexfreqs[fn, t]
-                yield (fn, t, docfreq, indexfreq)
+        plist = self.invindex[fieldname][text]
+        mid = plist[0][0]
+        xid = plist[-1][0]
+        
+        return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
     
-    def lexicon(self, fieldname):
-        self._test_field(fieldname)
-        return sorted(self.invindex[fieldname].keys())
-    
-    @synchronized
-    def expand_prefix(self, fieldname, prefix):
-        texts = self.lexicon(fieldname)
-        start = 0 if not prefix else bisect_left(texts, prefix)
-        for text in texts[start:]:
-            if text.startswith(prefix):
-                yield text
-            else:
-                break
+    def all_terms(self):
+        invindex = self.invindex
+        for fieldname in sorted(invindex):
+            for k in sorted(invindex[fieldname]):
+                yield (fieldname, k)
     
     @synchronized
     def first_id(self, fieldname, text):
@@ -212,7 +199,7 @@ class RamIndex(IndexReader, IndexWriter):
             postings = [x for x in postings if x[0] not in excludeset]
             if not postings:
                 return NullMatcher()
-        ids, weights, values = zip(*postings)
+        ids, weights, values = zip_(*postings)
         return ListMatcher(ids, weights, values, format=format)
     
     def reader(self):
@@ -241,6 +228,7 @@ class RamIndex(IndexReader, IndexWriter):
         invindex = self.invindex
         indexfreqs = self.indexfreqs
         fieldlengths = self.fieldlengths
+        termstats = self.termstats
         usage = 0
         
         fieldnames = [name for name in sorted(fields.keys())
@@ -277,6 +265,21 @@ class RamIndex(IndexReader, IndexWriter):
                         unique += 1
                         
                         usage += 44 + len(valuestring)
+                        
+                        # min_length, max_length, max_weight, max_wol
+                        wol = weight / count
+                        if (name, w) in termstats:
+                            ts = termstats[name, w]
+                            if count < ts[0]:
+                                ts[0] = count
+                            if count > ts[1]:
+                                ts[1] = count
+                            if weight > ts[2]:
+                                ts[2] = weight
+                            if wol > ts[3]:
+                                ts[3] = wol
+                        else:
+                            termstats[name, w] = [count, count, weight, wol]
                     
                     if field.scorable:
                         fieldlengths[self.docnum, name] = count
