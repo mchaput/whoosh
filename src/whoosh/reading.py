@@ -789,7 +789,7 @@ class MultiReader(IndexReader):
         # For min and max ID, we need to add the doc offsets
         tis_w_offsets = zip_(tis, self.doc_offsets)
         mid = min(ti.min_id() + offset for ti, offset in tis_w_offsets)
-        xid = min(ti.max_id() + offset for ti, offset in tis_w_offsets)
+        xid = max(ti.max_id() + offset for ti, offset in tis_w_offsets)
         
         return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
 

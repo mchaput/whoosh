@@ -4,6 +4,7 @@ import random
 from nose.tools import assert_equal, assert_almost_equal, assert_not_equal
 
 from whoosh import analysis, fields, formats, matching, scoring
+from whoosh.compat import u
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import FileTermInfo
@@ -147,9 +148,8 @@ def test_minmax_field_length():
             assert_equal(r.max_field_length("t"), _discreet(most))
 
 def test_term_stats():
-    st = RamStorage()
     schema = fields.Schema(t=fields.TEXT)
-    ix = st.create_index(schema)
+    ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(t=u"alfa bravo charlie delta echo")
     w.add_document(t=u"bravo charlie delta echo foxtrot")
@@ -196,7 +196,51 @@ def test_term_stats():
         
         assert_equal(r.min_field_length("t"), 1)
         assert_equal(r.max_field_length("t"), 7)
+
+def test_min_max_id():
+    schema = fields.Schema(id=fields.STORED, t=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, t=u("alfa bravo charlie"))
+    w.add_document(id=1, t=u("bravo charlie delta"))
+    w.add_document(id=2, t=u("charlie delta echo"))
+    w.add_document(id=3, t=u("delta echo foxtrot"))
+    w.add_document(id=4, t=u("echo foxtrot golf"))
+    w.commit()
+    
+    with ix.reader() as r:
+        ti = r.term_info("t", u("delta"))
+        assert_equal(ti.min_id(), 1)
+        assert_equal(ti.max_id(), 3)
         
+        ti = r.term_info("t", u("alfa"))
+        assert_equal(ti.min_id(), 0)
+        assert_equal(ti.max_id(), 0)
+        
+        ti = r.term_info("t", u("foxtrot"))
+        assert_equal(ti.min_id(), 3)
+        assert_equal(ti.max_id(), 4)
+        
+    w = ix.writer()
+    w.add_document(id=5, t=u("foxtrot golf hotel"))
+    w.add_document(id=6, t=u("golf hotel alfa"))
+    w.add_document(id=7, t=u("hotel alfa bravo"))
+    w.add_document(id=8, t=u("alfa bravo charlie"))
+    w.commit(merge=False)
+    
+    with ix.reader() as r:
+        ti = r.term_info("t", u("delta"))
+        assert_equal(ti.min_id(), 1)
+        assert_equal(ti.max_id(), 3)
+        
+        ti = r.term_info("t", u("alfa"))
+        assert_equal(ti.min_id(), 0)
+        assert_equal(ti.max_id(), 8)
+        
+        ti = r.term_info("t", u("foxtrot"))
+        assert_equal(ti.min_id(), 3)
+        assert_equal(ti.max_id(), 5)
+
 def test_replacements():
     sc = scoring.WeightScorer(0.25)
     a = matching.ListMatcher([1, 2, 3], [0.25, 0.25, 0.25], scorer=sc)
