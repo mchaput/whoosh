@@ -32,7 +32,7 @@ from whoosh.matching import Matcher, ReadTooFar
 from whoosh.spans import Span
 from whoosh.system import _INT_SIZE
 from whoosh.filedb import postblocks
-from whoosh.filedb.filetables import TermInfo
+from whoosh.filedb.filetables import FileTermInfo
 
 
 class FilePostingWriter(PostingWriter):
@@ -62,7 +62,7 @@ class FilePostingWriter(PostingWriter):
         self.format = format
         self.blockcount = 0
         self.startoffset = self.postfile.tell()
-        self.terminfo = TermInfo()
+        self.terminfo = FileTermInfo()
         
         # Magic number
         self.postfile.write_int(self.blockclass.magic)
@@ -84,7 +84,7 @@ class FilePostingWriter(PostingWriter):
         block = self.block
         terminfo = self.terminfo
         
-        if self.blockcount < 1 and len(block) <= inlinelimit:
+        if self.blockcount < 1 and block and len(block) <= inlinelimit:
             terminfo.add_block(block)
             vals = None if not block.values else tuple(block.values)
             postings = (tuple(block.ids), tuple(block.weights), vals)

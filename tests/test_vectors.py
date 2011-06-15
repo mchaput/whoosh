@@ -4,6 +4,7 @@ from nose.tools import assert_equal
 
 from whoosh import analysis, fields, formats
 from whoosh.compat import u
+from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempIndex
 
 
@@ -53,20 +54,20 @@ def test_vector_merge():
 def test_vector_unicode():
     a = analysis.StandardAnalyzer()
     schema = fields.Schema(content = fields.TEXT(vector=formats.Frequency(analyzer=a)))
+    ix = RamStorage().create_index(schema)
     
-    with TempIndex(schema, "vectorunicode") as ix:
-        writer = ix.writer()
-        writer.add_document(content=u("\u1234\u2345\u3456 \u4567\u5678\u6789"))
-        writer.add_document(content=u("\u0123\u1234\u4567 \u4567\u5678\u6789"))
-        writer.commit()
-        
-        writer = ix.writer()
-        writer.add_document(content=u("\u2345\u3456\u4567 \u789a\u789b\u789c"))
-        writer.add_document(content=u("\u0123\u1234\u4567 \u2345\u3456\u4567"))
-        writer.commit()
-        
-        with ix.reader() as r:
-            vec = list(r.vector_as("frequency", 0, "content"))
-            assert_equal(vec, [(u('\u3456\u4567'), 1), (u('\u789a\u789b\u789c'), 1)])
+    writer = ix.writer()
+    writer.add_document(content=u("\u1234\u2345\u3456 \u4567\u5678\u6789"))
+    writer.add_document(content=u("\u0123\u1234\u4567 \u4567\u5678\u6789"))
+    writer.commit()
+    
+    writer = ix.writer()
+    writer.add_document(content=u("\u2345\u3456\u4567 \u789a\u789b\u789c"))
+    writer.add_document(content=u("\u0123\u1234\u4567 \u2345\u3456\u4567"))
+    writer.commit()
+    
+    with ix.reader() as r:
+        vec = list(r.vector_as("frequency", 0, "content"))
+        assert_equal(vec, [(u('\u3456\u4567'), 1), (u('\u789a\u789b\u789c'), 1)])
 
 

@@ -6,7 +6,7 @@ from nose.tools import assert_equal, assert_almost_equal, assert_not_equal
 from whoosh import analysis, fields, formats, matching, scoring
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filetables import TermInfo
+from whoosh.filedb.filetables import FileTermInfo
 from whoosh.filedb.postblocks import current
 from whoosh.util import length_to_byte, byte_to_length
 
@@ -31,9 +31,9 @@ def test_block():
     assert_equal(b.max_weight(), 12.0)
     assert_equal(b.max_wol(), 2.0)
     
-    ti = TermInfo()
+    ti = FileTermInfo()
     ti.add_block(b)
-    assert_equal(ti.frequency(), 21.5)
+    assert_equal(ti.weight(), 21.5)
     assert_equal(ti.doc_frequency(), 4)
     assert_equal(ti.min_length(), 1)
     assert_equal(ti.max_length(), byte_to_length(length_to_byte(420)))
@@ -74,7 +74,7 @@ def test_lowlevel_block_writing():
     fpw.write(50, 8.0, fmt.encode(8.0), 1020)
     ti = fpw.finish()
     
-    assert_equal(ti.frequency(), 134.0)
+    assert_equal(ti.weight(), 134.0)
     assert_equal(ti.doc_frequency(), 8)
     assert_equal(ti.min_length(), 1)
     assert_equal(ti.max_length(), byte_to_length(length_to_byte(1020)))
@@ -91,7 +91,7 @@ def test_midlevel_writing():
     
     with ix.reader() as r:
         ti = r.termsindex["t", u"alfa"]
-        assert_equal(ti.frequency(), 3.0)
+        assert_equal(ti.weight(), 3.0)
         assert_equal(ti.doc_frequency(), 1)
         assert_equal(ti.min_length(), 7)
         assert_equal(ti.max_length(), 7)
@@ -105,7 +105,7 @@ def test_midlevel_writing():
     
     with ix.reader() as r:
         ti = r.termsindex["t", u"alfa"]
-        assert_equal(ti.frequency(), 5.0)
+        assert_equal(ti.weight(), 5.0)
         assert_equal(ti.doc_frequency(), 2)
         assert_equal(ti.min_length(), 3)
         assert_equal(ti.max_length(), 7)
@@ -146,7 +146,7 @@ def test_minmax_field_length():
             assert_equal(r.min_field_length("t"), _discreet(least))
             assert_equal(r.max_field_length("t"), _discreet(most))
 
-def test_reader_methods():
+def test_term_stats():
     st = RamStorage()
     schema = fields.Schema(t=fields.TEXT)
     ix = st.create_index(schema)
@@ -160,13 +160,16 @@ def test_reader_methods():
     w.commit()
 
     with ix.reader() as r:
-        assert_equal(r.frequency("t", u"alfa"), 4.0)
-        assert_equal(r.doc_frequency("t", u"alfa"), 2)
-        assert_equal(r.min_length("t", u"alfa"), 4)
-        assert_equal(r.min_length("t", u"echo"), 3)
-        assert_equal(r.max_length("t", u"alfa"), 5)
-        assert_equal(r.max_weight("t", u"alfa"), 3.0)
-        assert_equal(r.max_wol("t", u"alfa"), 3.0 / 4.0)
+        ti = r.term_info("t", u"alfa")
+        assert_equal(ti.weight(), 4.0)
+        assert_equal(ti.doc_frequency(), 2)
+        assert_equal(ti.min_length(), 4)
+        assert_equal(ti.max_length(), 5)
+        assert_equal(ti.max_weight(), 3.0)
+        assert_equal(ti.max_wol(), 3.0 / 4.0)
+        
+        assert_equal(r.term_info("t", u"echo").min_length(), 3)
+        
         assert_equal(r.doc_field_length(3, "t"), 3)
         assert_equal(r.min_field_length("t"), 3)
         assert_equal(r.max_field_length("t"), 6)
@@ -181,13 +184,16 @@ def test_reader_methods():
     w.commit(merge=False)
 
     with ix.reader() as r:
-        assert_equal(r.frequency("t", u"alfa"), 6.0)
-        assert_equal(r.doc_frequency("t", u"alfa"), 4)
-        assert_equal(r.min_length("t", u"alfa"), 1)
-        assert_equal(r.min_length("t", u"echo"), 3)
-        assert_equal(r.max_length("t", u"alfa"), 7)
-        assert_equal(r.max_weight("t", u"alfa"), 3.0)
-        assert_equal(r.max_wol("t", u"alfa"), 1.0)
+        ti = r.term_info("t", u"alfa")
+        assert_equal(ti.weight(), 6.0)
+        assert_equal(ti.doc_frequency(), 4)
+        assert_equal(ti.min_length(), 1)
+        assert_equal(ti.max_length(), 7)
+        assert_equal(ti.max_weight(), 3.0)
+        assert_equal(ti.max_wol(), 1.0)
+        
+        assert_equal(r.term_info("t", u"echo").min_length(), 3)
+        
         assert_equal(r.min_field_length("t"), 1)
         assert_equal(r.max_field_length("t"), 7)
         

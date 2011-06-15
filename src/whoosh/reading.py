@@ -42,7 +42,79 @@ class TermNotFound(Exception):
     pass
 
 
-# Base class
+# Term Info base class
+
+class TermInfo(object):
+    """Represents a set of statistics about a term. This object is returned by
+    :meth:`IndexReader.term_info`. These statistics may be useful for
+    optimizations and scoring algorithms.
+    """
+    
+    def __init__(self, weight=0, df=0, minlength=0, maxlength=0, maxweight=0,
+                 maxwol=0, minid=0, maxid=0):
+        self._weight = weight
+        self._df = df
+        self._minlength = minlength
+        self._maxlength = maxlength
+        self._maxweight = maxweight
+        self._maxwol = maxwol
+        self._minid = minid
+        self._maxid = maxid
+    
+    def weight(self):
+        """Returns the total frequency of the term across all documents.
+        """
+        
+        return self._weight
+
+    def doc_frequency(self):
+        """Returns the number of documents the term appears in.
+        """
+        
+        return self._df
+    
+    def min_length(self):
+        """Returns the length of the shortest field value the term appears
+        in.
+        """
+        
+        return self._minlength
+    
+    def max_length(self):
+        """Returns the length of the longest field value the term appears
+        in.
+        """
+        
+        return self._maxlength
+    
+    def max_weight(self):
+        """Returns the number of times the term appears in the document in
+        which it appears the most.
+        """
+        
+        return self._maxweight
+    
+    def max_wol(self):
+        """Returns the maximum "weight divided by length" value for the term
+        across all documents.
+        """
+        
+        return self._maxwol
+    
+    def min_id(self):
+        """Returns the lowest document ID this term appears in.
+        """
+        
+        return self._minid
+    
+    def max_id(self):
+        """Returns the highest document ID this term appears in.
+        """
+        
+        return self._maxid
+
+
+# Reader base class
 
 class IndexReader(ClosableMixin):
     """Do not instantiate this object directly. Instead use Index.reader().
@@ -187,28 +259,11 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def min_length(self, fieldname, text):
-        """Returns the minimum length of any documents the given term appears
-        in.
+    def term_info(self, fieldname, text):
+        """Returns a :class:`TermInfo` object allowing access to various
+        statistics about the given term.
         """
-        raise NotImplementedError
-    
-    def max_length(self, fieldname, text):
-        """Returns the maximum length of any documents the given term appears
-        in.
-        """
-        raise NotImplementedError
-    
-    def max_weight(self, fieldname, text):
-        """Returns the maximum weight of the given term in any documents it
-        appears in.
-        """
-        raise NotImplementedError
-    
-    def max_wol(self, fieldname, text):
-        """Returns the maximum (weight / length) of the given term in any
-        documents it appears in.
-        """
+        
         raise NotImplementedError
 
     def field_length(self, fieldname):
@@ -718,18 +773,26 @@ class MultiReader(IndexReader):
     def doc_frequency(self, fieldname, text):
         return sum(r.doc_frequency(fieldname, text) for r in self.readers)
 
-    def min_length(self, fieldname, text):
-        return min(r.min_length(fieldname, text) for r in self.readers)
-    
-    def max_length(self, fieldname, text):
-        return max(r.max_length(fieldname, text) for r in self.readers)
-    
-    def max_weight(self, fieldname, text):
-        return max(r.max_weight(fieldname, text) for r in self.readers)
+    def term_info(self, fieldname, text):
+        term = (fieldname, text)
+        
+        # Get the term infos for the sub-readers containing the term
+        tis = [r.term_info(fieldname, text) for r in self.readers if term in r]
+        # Combine the various statistics
+        w = sum(ti.weight() for ti in tis)
+        df = sum(ti.doc_frequency() for ti in tis)
+        ml = min(ti.min_length() for ti in tis)
+        xl = max(ti.max_length() for ti in tis)
+        xw = max(ti.max_weight() for ti in tis)
+        xwol = max(ti.max_wol() for ti in tis)
+        
+        # For min and max ID, we need to add the doc offsets
+        tis_w_offsets = zip_(tis, self.doc_offsets)
+        mid = min(ti.min_id() + offset for ti, offset in tis_w_offsets)
+        xid = min(ti.max_id() + offset for ti, offset in tis_w_offsets)
+        
+        return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
 
-    def max_wol(self, fieldname, text):
-        return max(r.max_wol(fieldname, text) for r in self.readers)
-    
     # most_frequent_terms
     # most_distinctive_terms
     
@@ -739,12 +802,11 @@ class MultiReader(IndexReader):
     def set_caching_policy(self, *args, **kwargs):
         for r in self.readers:
             r.set_caching_policy(*args, **kwargs)
-
-        
+            
     
 
-
-
+    
+    
 
 
 

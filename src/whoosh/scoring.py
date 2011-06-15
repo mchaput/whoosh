@@ -174,10 +174,14 @@ class WeightLengthScorer(BaseScorer):
         >>> w = BM25
         """
         
+        ti = searcher.term_info(fieldname, text)
+        
+        if not searcher.schema[fieldname].scorable:
+            return WeightScorer(ti.max_weight())
+        
         obj = cls(searcher, fieldname, text, *args, **kwargs)
         obj.dfl = lambda docnum: searcher.doc_field_length(docnum, fieldname, 1)
-        obj.max_quality = obj._score(searcher.max_weight(fieldname, text),
-                                     searcher.min_length(fieldname, text))
+        obj.max_quality = obj._score(ti.max_weight(), ti.min_length())
         return obj
     
     def supports_block_quality(self):
@@ -240,9 +244,6 @@ class BM25F(WeightingModel):
         return True
     
     def scorer(self, searcher, fieldname, text, qf=1):
-        if not searcher.schema[fieldname].scorable:
-            return WeightScorer(searcher.max_weight(fieldname, text))
-        
         if fieldname in self._field_B:
             B = self._field_B[fieldname]
         else:
@@ -296,7 +297,7 @@ class DFree(WeightingModel):
 
 class DFreeScorer(WeightLengthScorer):
     def __init__(self, searcher, fieldname, text, qf=1):
-        self.cf = searcher.frequency(fieldname, text)
+        self.cf = searcher.weight(fieldname, text)
         self.fl = searcher.field_length(fieldname)
         self.qf = qf
     
@@ -357,13 +358,15 @@ class PL2Scorer(WeightLengthScorer):
 
 class Frequency(WeightingModel):
     def scorer(self, searcher, fieldname, text, qf=1):
-        return WeightScorer(searcher.max_weight(fieldname, text))
+        maxweight = searcher.term_info(fieldname, text).max_weight()
+        return WeightScorer(maxweight)
     
 
 class TF_IDF(WeightingModel):
     def scorer(self, searcher, fieldname, text, qf=1):
         idf = searcher.idf(fieldname, text)
-        return TF_IDF.TF_IDFScorer(searcher.max_weight(fieldname, text), idf)
+        maxweight = searcher.term_info(fieldname, text).max_weight()
+        return TF_IDF.TF_IDFScorer(maxweight, idf)
     
     class TF_IDFScorer(BaseScorer):
         def __init__(self, maxweight, idf):

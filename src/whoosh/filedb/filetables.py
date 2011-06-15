@@ -38,6 +38,7 @@ from struct import Struct
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
                            b, text_type)
 from whoosh.matching import ListMatcher
+from whoosh.reading import TermInfo
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
                            pack_uint, pack_long, unpack_ushort, unpack_uint,
                            unpack_long)
@@ -609,7 +610,7 @@ class TermIndexReader(CodedOrderedReader):
     def valuedecoder(self, v):
         if isinstance(v, text_type):
             v = v.encode('latin-1')
-        return TermInfo.from_string(v)
+        return FileTermInfo.from_string(v)
     
     def items_from(self, key):
         fromkey = self.keycoder(key)
@@ -630,33 +631,17 @@ class TermIndexReader(CodedOrderedReader):
         
         for keypos, keylen, datapos, datalen in gen:
             yield (kd(read(keypos, keylen)),
-                   (TermInfo.read_frequency(dbfile, datapos),
-                    TermInfo.read_doc_freq(dbfile, datapos)))
+                   (FileTermInfo.read_weight(dbfile, datapos),
+                    FileTermInfo.read_doc_freq(dbfile, datapos)))
     
     def frequency(self, key):
         datapos = self.range_for_key(key)[0]
-        return TermInfo.read_frequency(self.dbfile, datapos)
+        return FileTermInfo.read_weight(self.dbfile, datapos)
     
     def doc_frequency(self, key):
         datapos = self.range_for_key(key)[0]
-        return TermInfo.read_doc_freq(self.dbfile, datapos)
+        return FileTermInfo.read_doc_freq(self.dbfile, datapos)
     
-    def min_length(self, key):
-        datapos = self.range_for_key(key)[0]
-        return TermInfo.read_min_and_max_length(self.dbfile, datapos)[0]
-    
-    def max_length(self, key):
-        datapos = self.range_for_key(key)[0]
-        return TermInfo.read_min_and_max_length(self.dbfile, datapos)[1]
-    
-    def max_weight(self, key):
-        datapos = self.range_for_key(key)[0]
-        return TermInfo.read_max_weight(self.dbfile, datapos)
-    
-    def max_wol(self, key):
-        datapos = self.range_for_key(key)[0]
-        return TermInfo.read_max_wol(self.dbfile, datapos)
-            
 
 # docnum, fieldnum
 _vectorkey_struct = Struct("!IH")
@@ -852,24 +837,24 @@ class StoredFieldReader(object):
 
 # TermInfo
 
-class TermInfo(object):
-    struct = Struct("!fIBBff")
+class FileTermInfo(TermInfo):
+    # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
+    struct = Struct("!fIBBffii")
     
     def __init__(self, weight=0.0, docfreq=0, minlength=None, maxlength=0,
-                 maxweight=0.0, maxwol=0.0, postings=None):
+                 maxweight=0.0, maxwol=0.0, minid=-1, maxid=-1,
+                 postings=None):
         self._weight = weight
-        self._docfreq = docfreq
+        self._df = docfreq
         self._minlength = minlength  # (as byte)
         self._maxlength = maxlength  # (as byte)
         self._maxweight = maxweight
         self._maxwol = maxwol
+        self._minid = minid
+        self._maxid = maxid
         self.postings = postings
     
-    def frequency(self):
-        return self._weight
-    
-    def doc_frequency(self):
-        return self._docfreq
+    # Override min_length and max_length to convert the encoded length bytes
     
     def min_length(self):
         return byte_to_length(self._minlength)
@@ -877,15 +862,9 @@ class TermInfo(object):
     def max_length(self):
         return byte_to_length(self._maxlength)
     
-    def max_weight(self):
-        return self._maxweight
-    
-    def max_wol(self):
-        return self._maxwol
-    
     def add_block(self, block):
         self._weight += sum(block.weights)
-        self._docfreq += len(block)
+        self._df += len(block)
         
         ml = length_to_byte(block.min_length())
         if self._minlength is None:
@@ -898,12 +877,17 @@ class TermInfo(object):
         
         self._maxweight = max(self._maxweight, block.max_weight())
         self._maxwol = max(self._maxwol, block.max_wol())
+        
+        if self._minid == -1:
+            self._minid = block.ids[0]
+        self._maxid = block.ids[-1]
     
     def to_string(self):
         ml = length_to_byte(self._minlength)
         xl = length_to_byte(self._maxlength)
-        st = self.struct.pack(self._weight, self._docfreq, ml, xl,
-                              self._maxweight, self._maxwol)
+        st = self.struct.pack(self._weight, self._df, ml, xl,
+                              self._maxweight, self._maxwol, self._minid,
+                              self._maxid)
         
         if isinstance(self.postings, tuple):
             magic = 1
@@ -918,8 +902,8 @@ class TermInfo(object):
     def from_string(cls, s):
         hbyte = ord(s[0:1])
         if hbyte < 2:
-            # Freq, Doc freq, min length, max length, max weight, max WOL
-            f, df, ml, xl, xw, xwol = cls.struct.unpack(s[1:cls.struct.size+1])
+            # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
+            f, df, ml, xl, xw, xwol, mid, xid = cls.struct.unpack(s[1:cls.struct.size+1])
             ml = byte_to_length(ml)
             xl = byte_to_length(xl)
             # Postings
@@ -929,12 +913,28 @@ class TermInfo(object):
             else:
                 p = loads(pstr + ".")
         else:
-            raise Exception("Unknown struct header %s" % hbyte)
-        
-        return cls(f, df, ml, xl, xw, xwol, p)
+            # Old format was encoded as a variable length pickled tuple
+            v = loads(s + b("."))
+            if len(v) == 1:
+                f = df = 1
+                p = v[0]
+            elif len(v) == 2:
+                f = df = v[1]
+                p = v[0]
+            else:
+                f, p, df = v
+            # Fake values for stats which weren't stored before
+            ml = 1
+            xl = 106374
+            xw = 999999999
+            xwol = 999999999
+            mid = -1
+            xid = -1
+            
+        return cls(f, df, ml, xl, xw, xwol, mid, xid, p)
     
     @classmethod
-    def read_frequency(cls, dbfile, datapos):
+    def read_weight(cls, dbfile, datapos):
         return dbfile.get_float(datapos + 1)
     
     @classmethod

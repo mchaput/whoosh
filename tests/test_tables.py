@@ -7,7 +7,7 @@ from nose.tools import assert_equal
 
 from whoosh.compat import u, b, xrange, iteritems, unichr
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filetables import (HashReader, HashWriter, TermInfo,
+from whoosh.filedb.filetables import (HashReader, HashWriter, FileTermInfo,
                                       OrderedHashWriter, OrderedHashReader,
                                       StoredFieldWriter, StoredFieldReader,
                                       TermIndexWriter, TermIndexReader)
@@ -21,9 +21,9 @@ def randstring(domain, minlen, maxlen):
 def test_termkey():
     with TempStorage("termkey") as st:
         tw = TermIndexWriter(st.create_file("test.trm"))
-        tw.add(("alfa", u("bravo")), TermInfo(1.0, 3))
-        tw.add((u"alfa", u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')), TermInfo(4.0, 6))
-        tw.add((u"text", u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')), TermInfo(7.0, 9))
+        tw.add(("alfa", u("bravo")), FileTermInfo(1.0, 3))
+        tw.add((u"alfa", u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')), FileTermInfo(4.0, 6))
+        tw.add((u"text", u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')), FileTermInfo(7.0, 9))
         tw.close()
         
         tr = TermIndexReader(st.open_file("test.trm"))
@@ -44,7 +44,7 @@ def test_random_termkeys():
     st = RamStorage()
     tw = TermIndexWriter(st.create_file("test.trm"))
     for term in domain:
-        tw.add(term, TermInfo(1.0, 1))
+        tw.add(term, FileTermInfo(1.0, 1))
     tw.close()
     
     tr = TermIndexReader(st.open_file("test.trm"))
@@ -173,14 +173,14 @@ def test_termindex():
     
     tw = TermIndexWriter(st.create_file("test.trm"))
     for i, t in enumerate(terms):
-        tw.add(t, TermInfo(1.0, i))
+        tw.add(t, FileTermInfo(1.0, i))
     tw.close()
     
     tr = TermIndexReader(st.open_file("test.trm"))
     for i, (t1, t2) in enumerate(zip(tr.keys(), terms)):
         assert_equal(t1, t2)
         ti = tr.get(t1)
-        assert_equal(ti.frequency(), 1.0)
+        assert_equal(ti.weight(), 1.0)
         assert_equal(ti.doc_frequency(), i)
         
     

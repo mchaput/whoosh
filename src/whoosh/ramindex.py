@@ -32,7 +32,7 @@ from threading import RLock
 from whoosh.compat import iteritems, zip_
 from whoosh.fields import UnknownFieldError
 from whoosh.matching import ListMatcher, NullMatcher
-from whoosh.reading import IndexReader, TermNotFound
+from whoosh.reading import IndexReader, TermInfo, TermNotFound
 from whoosh.writing import IndexWriter
 from whoosh.util import synchronized
 
@@ -151,12 +151,30 @@ class RamIndex(IndexReader, IndexWriter):
         ids, weights, values = zip_(*self.vectors[docnum, fieldname])
         return ListMatcher(ids, weights, values, format=vformat)
     
+    def frequency(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.indexfreqs[fieldname, text]
+        except KeyError:
+            return 0
+    
     def doc_frequency(self, fieldname, text):
         self._test_field(fieldname)
         try:
             return len(self.invindex[fieldname][text])
         except KeyError:
             return 0
+    
+    def term_info(self, fieldname, text):
+        w = self.frequency(fieldname, text)
+        df = self.doc_frequency(fieldname, text)
+        ml, xl, xw, xwol = self.termstats[fieldname, text]
+        
+        plist = self.invindex[fieldname][text]
+        mid = plist[0][0]
+        xid = plist[-1][0]
+        
+        return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
     
     def min_length(self, fieldname, text):
         self._test_field(fieldname)
@@ -183,13 +201,6 @@ class RamIndex(IndexReader, IndexWriter):
         self._test_field(fieldname)
         try:
             return self.termstats[fieldname, text][3]
-        except KeyError:
-            return 0
-    
-    def frequency(self, fieldname, text):
-        self._test_field(fieldname)
-        try:
-            return self.indexfreqs[fieldname, text]
         except KeyError:
             return 0
     
