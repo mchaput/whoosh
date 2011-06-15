@@ -33,6 +33,7 @@ from __future__ import division
 from collections import defaultdict
 from math import log, sqrt
 
+from whoosh.compat import xrange, iteritems
 
 # Expansion models
 
@@ -108,8 +109,8 @@ class Expander(object):
         # Cache the collection frequency of every term in this field. This
         # turns out to be much faster than reading each individual weight
         # from the term index as we add words.
-        self.collection_freq = dict((word, freq) for word, _, freq
-                                      in self.ixreader.iter_field(self.fieldname))
+        self.collection_freq = dict((word, ti.weight()) for word, ti
+                                    in self.ixreader.iter_field(self.fieldname))
         
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)
@@ -159,7 +160,7 @@ class Expander(object):
         maxweight = 0
         collection_freq = self.collection_freq
         
-        for word, weight in self.topN_weight.iteritems():
+        for word, weight in iteritems(self.topN_weight):
             if word in collection_freq:
                 score = model.score(weight, collection_freq[word], self.top_total)
                 if score > maxweight:
@@ -266,12 +267,12 @@ class Cluster(object):
                 yield item
                 
     def dump(self, tab=0):
-        print "%s-" % (" " * tab, )
+        print("%s-" % (" " * tab, ))
         for item in self.items:
             if isinstance(item, Cluster):
                 item.dump(tab + 2)
             else:
-                print "%s%r" % (" " * tab, item)
+                print("%s%r" % (" " * tab, item))
     
 
 class HierarchicalClustering(object):
@@ -387,7 +388,7 @@ def shingles(input, size=2):
     for shingle in (input[i:i + size]
                     for i in xrange(len(input) - (size - 1))):
         d[shingle] += 1
-    return d.iteritems()
+    return iteritems(d)
 
 
 def simhash(features, hashbits=32):

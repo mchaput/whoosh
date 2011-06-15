@@ -32,6 +32,7 @@ of the default query parser is actually provided by plugins.
 
 import re
 
+from whoosh.compat import iteritems, u
 from whoosh.qparser.syntax import *
 from whoosh.qparser.common import get_single_text, rcompile, QueryParserError
 
@@ -127,7 +128,7 @@ class RangePlugin(Plugin):
                                                    boost=self.boost)
                         if rangeq is not None:
                             return rangeq
-                    except QueryParserError, e:
+                    except QueryParserError:
                         return query.NullQuery
                 
                 if start:
@@ -254,7 +255,7 @@ class WildcardPlugin(Plugin):
         # \u055E = Armenian question mark
         # \u061F = Arabic question mark
         # \u1367 = Ethiopic question mark
-        expr = rcompile(u"\\w*[*?\u055E\u061F\u1367](\\w|[*?\u055E\u061F\u1367])*")
+        expr = rcompile(u("\\w*[*?\u055E\u061F\u1367](\\w|[*?\u055E\u061F\u1367])*"))
         qclass = query.Wildcard
         
         def __repr__(self):
@@ -708,7 +709,7 @@ class DisMaxPlugin(Plugin):
             for that in the DisjuctionMax query.
         """
         
-        self.fieldboosts = fieldboosts.items()
+        self.fieldboosts = list(fieldboosts.items())
         self.tiebreak = tiebreak
     
     def filters(self, parser):
@@ -742,7 +743,7 @@ class FieldAliasPlugin(Plugin):
         
         self.fieldmap = fieldmap
         self.reverse = {}
-        for key, values in fieldmap.iteritems():
+        for key, values in iteritems(fieldmap):
             for value in values:
                 self.reverse[value] = key
         
@@ -801,7 +802,7 @@ class CopyFieldPlugin(Plugin):
         map = self.map
         if mirror:
             # Add in reversed mappings
-            map.update(dict((v, k) for k, v in map.iteritems()))
+            map.update(dict((v, k) for k, v in iteritems(map)))
         
         newstream = stream.empty()
         for t in stream:

@@ -31,6 +31,7 @@
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
+from whoosh.compat import text_type, xrange, zip_, next
 from whoosh.support.dawg import within
 from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
@@ -43,7 +44,79 @@ class TermNotFound(Exception):
     pass
 
 
-# Base class
+# Term Info base class
+
+class TermInfo(object):
+    """Represents a set of statistics about a term. This object is returned by
+    :meth:`IndexReader.term_info`. These statistics may be useful for
+    optimizations and scoring algorithms.
+    """
+    
+    def __init__(self, weight=0, df=0, minlength=0,
+                 maxlength=0, maxweight=0, maxwol=0, minid=0, maxid=0):
+        self._weight = weight
+        self._df = df
+        self._minlength = minlength
+        self._maxlength = maxlength
+        self._maxweight = maxweight
+        self._maxwol = maxwol
+        self._minid = minid
+        self._maxid = maxid
+    
+    def weight(self):
+        """Returns the total frequency of the term across all documents.
+        """
+        
+        return self._weight
+
+    def doc_frequency(self):
+        """Returns the number of documents the term appears in.
+        """
+        
+        return self._df
+    
+    def min_length(self):
+        """Returns the length of the shortest field value the term appears
+        in.
+        """
+        
+        return self._minlength
+    
+    def max_length(self):
+        """Returns the length of the longest field value the term appears
+        in.
+        """
+        
+        return self._maxlength
+    
+    def max_weight(self):
+        """Returns the number of times the term appears in the document in
+        which it appears the most.
+        """
+        
+        return self._maxweight
+    
+    def max_wol(self):
+        """Returns the maximum "weight divided by length" value for the term
+        across all documents.
+        """
+        
+        return self._maxwol
+    
+    def min_id(self):
+        """Returns the lowest document ID this term appears in.
+        """
+        
+        return self._minid
+    
+    def max_id(self):
+        """Returns the highest document ID this term appears in.
+        """
+        
+        return self._maxid
+
+
+# Reader base class
 
 class IndexReader(ClosableMixin):
     """Do not instantiate this object directly. Instead use Index.reader().
@@ -55,12 +128,6 @@ class IndexReader(ClosableMixin):
     def __contains__(self, term):
         """Returns True if the given term tuple (fieldname, text) is
         in this reader.
-        """
-        raise NotImplementedError
-
-    def __iter__(self):
-        """Yields (fieldname, text, docfreq, indexfreq) tuples for each term in
-        the reader, in lexical order.
         """
         raise NotImplementedError
 
@@ -77,9 +144,26 @@ class IndexReader(ClosableMixin):
         
         return -1
 
-    def iter_from(self, fieldname, text):
-        """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
-        in the reader, starting at the given term.
+    def all_terms(self):
+        """Yields (fieldname, text) tuples for every term in the index.
+        """
+
+        raise NotImplementedError
+
+    def terms_from(self, fieldname, prefix):
+        """Yields (fieldname, text) tuples for every term in the index starting
+        at the given prefix.
+        """
+        
+        # The default implementation just scans the whole list of terms
+        for fname, text in self.all_terms():
+            if fname < fieldname or text < prefix:
+                continue
+            yield (fname, text)
+
+    def term_info(self, fieldname, text):
+        """Returns a :class:`TermInfo` object allowing access to various
+        statistics about the given term.
         """
         raise NotImplementedError
 
@@ -87,44 +171,56 @@ class IndexReader(ClosableMixin):
         """Yields terms in the given field that start with the given prefix.
         """
 
-        for fn, t, _, _ in self.iter_from(fieldname, prefix):
-            if fn != fieldname or not t.startswith(prefix):
+        for fn, text in self.terms_from(fieldname, prefix):
+            if fn != fieldname or not text.startswith(prefix):
                 return
-            yield t
-
-    def all_terms(self):
-        """Yields (fieldname, text) tuples for every term in the index.
-        """
-
-        for fn, t, _, _ in self:
-            yield (fn, t)
-
-    def iter_field(self, fieldname, prefix=''):
-        """Yields (text, doc_freq, index_freq) tuples for all terms in the
-        given field.
-        """
-
-        for fn, t, docfreq, freq in self.iter_from(fieldname, prefix):
-            if fn != fieldname:
-                return
-            yield t, docfreq, freq
-
-    def iter_prefix(self, fieldname, prefix):
-        """Yields (field_num, text, doc_freq, index_freq) tuples for all terms
-        in the given field with a certain prefix.
-        """
-
-        for fn, t, docfreq, colfreq in self.iter_from(fieldname, prefix):
-            if fn != fieldname or not t.startswith(prefix):
-                return
-            yield (t, docfreq, colfreq)
+            yield text
 
     def lexicon(self, fieldname):
         """Yields all terms in the given field.
         """
 
-        for t, _, _ in self.iter_field(fieldname):
-            yield t
+        for fn, text in self.terms_from(fieldname, ''):
+            if fn != fieldname:
+                return
+            yield text
+
+    def __iter__(self):
+        """Yields ((fieldname, text), terminfo) tuples for each term in the
+        reader, in lexical order.
+        """
+        
+        term_info = self.term_info
+        for term in self.all_terms():
+            yield (term, term_info(*term))
+
+    def iter_from(self, fieldname, text):
+        """Yields ((fieldname, text), terminfo) tuples for all terms in the
+        reader, starting at the given term.
+        """
+
+        term_info = self.term_info
+        for term in self.terms_from(fieldname, text):
+            yield (term, term_info(*term))
+
+    def iter_field(self, fieldname, prefix=''):
+        """Yields (text, terminfo) tuples for all terms in the given field.
+        """
+
+        for (fn, text), terminfo in self.iter_from(fieldname, prefix):
+            if fn != fieldname:
+                return
+            yield text, terminfo
+
+    def iter_prefix(self, fieldname, prefix):
+        """Yields (text, terminfo) tuples for all terms in the given field with
+        a certain prefix.
+        """
+
+        for text, terminfo in self.iter_field(fieldname, prefix):
+            if not text.startswith(prefix):
+                return
+            yield (text, terminfo)
 
     def has_deletions(self):
         """Returns True if the underlying index/segment has deleted
@@ -177,14 +273,14 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def doc_frequency(self, fieldname, text):
-        """Returns how many documents the given term appears in.
-        """
-        raise NotImplementedError
-
     def frequency(self, fieldname, text):
         """Returns the total number of instances of the given term in the
         collection.
+        """
+        raise NotImplementedError
+
+    def doc_frequency(self, fieldname, text):
+        """Returns how many documents the given term appears in.
         """
         raise NotImplementedError
 
@@ -194,24 +290,21 @@ class IndexReader(ClosableMixin):
         """
         raise NotImplementedError
 
-    def doc_field_length(self, docnum, fieldname, default=0):
-        """Returns the number of terms in the given field in the given
-        document. This is used by some scoring algorithms.
+    def min_field_length(self, fieldname):
+        """Returns the minimum length of the field across all documents. This
+        is used by some scoring algorithms.
         """
         raise NotImplementedError
 
-    def doc_field_lengths(self, docnum):
-        """Returns an iterator of (fieldname, length) pairs for the given
-        document. This is used internally.
+    def max_field_length(self, fieldname):
+        """Returns the minimum length of the field across all documents. This
+        is used by some scoring algorithms.
         """
+        raise NotImplementedError
         
-        for fieldname in self.schema.scorable_names():
-            length = self.doc_field_length(docnum, fieldname)
-            if length:
-                yield (fieldname, length)
-    
-    def max_field_length(self, fieldname, default=0):
-        """Returns the maximum length of the field across all documents.
+    def doc_field_length(self, docnum, fieldname, default=0):
+        """Returns the number of terms in the given field in the given
+        document. This is used by some scoring algorithms.
         """
         raise NotImplementedError
 
@@ -352,8 +445,8 @@ class IndexReader(ClosableMixin):
         list of (frequency, text) tuples.
         """
 
-        return nlargest(number, ((tf, token)
-                                 for token, _, tf
+        return nlargest(number, ((terminfo.weight(), text)
+                                 for text, terminfo
                                  in self.iter_prefix(fieldname, prefix)))
 
     def most_distinctive_terms(self, fieldname, number=5, prefix=None):
@@ -361,17 +454,17 @@ class IndexReader(ClosableMixin):
         a list of (score, text) tuples.
         """
 
-        return nlargest(number, ((tf * (1.0 / df), token)
-                                 for token, df, tf
+        return nlargest(number, ((terminfo.weight() * (1.0 / terminfo.doc_frequency()), text)
+                                 for text, terminfo
                                  in self.iter_prefix(fieldname, prefix)))
     
     def leaf_readers(self):
         """Returns a list of (IndexReader, docbase) pairs for the child readers
-        of this reader if it is a composite reader, or None if this reader
-        is atomic.
+        of this reader if it is a composite reader. If this is not a composite
+        reader, it returns `[(self, 0)]`.
         """
         
-        return None
+        return [(self, 0)]
     
     #
     
@@ -502,23 +595,23 @@ class EmptyReader(IndexReader):
     def doc_count(self):
         return 0
     
-    def doc_frequency(self, fieldname, text):
+    def frequency(self, fieldname, text):
         return 0
     
-    def frequency(self, fieldname, text):
+    def doc_frequency(self, fieldname, text):
         return 0
     
     def field_length(self, fieldname):
         return 0
 
+    def min_field_length(self, fieldname):
+        return 0
+    
+    def max_field_length(self, fieldname):
+        return 0
+
     def doc_field_length(self, docnum, fieldname, default=0):
         return default
-
-    def doc_field_lengths(self, docnum):
-        raise ValueError
-
-    def max_field_length(self, fieldname, default=0):
-        return 0
 
     def postings(self, fieldname, text, scorer=None):
         raise TermNotFound("%s:%r" % (fieldname, text))
@@ -563,9 +656,6 @@ class MultiReader(IndexReader):
     def __contains__(self, term):
         return any(r.__contains__(term) for r in self.readers)
 
-    def __iter__(self):
-        return self._merge_iters([iter(r) for r in self.readers])
-
     def _document_segment(self, docnum):
         return max(0, bisect_right(self.doc_offsets, docnum) - 1)
 
@@ -573,42 +663,6 @@ class MultiReader(IndexReader):
         segmentnum = self._document_segment(docnum)
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
-
-    def _merge_iters(self, iterlist):
-        # Merge-sorts terms coming from a list of
-        # term iterators (IndexReader.__iter__() or
-        # IndexReader.iter_from()).
-
-        # Fill in the list with the head term from each iterator.
-
-        current = []
-        for it in iterlist:
-            fnum, text, docfreq, termcount = it.next()
-            current.append((fnum, text, docfreq, termcount, it))
-        heapify(current)
-
-        # Number of active iterators
-        active = len(current)
-        while active > 0:
-            # Peek at the first term in the sorted list
-            fnum, text = current[0][:2]
-            docfreq = 0
-            termcount = 0
-
-            # Add together all terms matching the first term in the list.
-            while current and current[0][0] == fnum and current[0][1] == text:
-                docfreq += current[0][2]
-                termcount += current[0][3]
-                it = current[0][4]
-                try:
-                    fn, t, df, tc = it.next()
-                    heapreplace(current, (fn, t, df, tc, it))
-                except StopIteration:
-                    heappop(current)
-                    active -= 1
-
-            # Yield the term with the summed doc frequency and term count.
-            yield (fnum, text, docfreq, termcount)
 
     def add_reader(self, reader):
         self.readers.append(reader)
@@ -623,15 +677,78 @@ class MultiReader(IndexReader):
     def generation(self):
         return self._gen
 
-    def iter_from(self, fieldname, text):
-        return self._merge_iters([r.iter_from(fieldname, text)
+    def _merge_terms(self, iterlist):
+        # Merge-sorts terms coming from a list of term iterators.
+
+        # Create a map so we can look up each iterator by its id() value
+        itermap = {}
+        for it in iterlist:
+            itermap[id(it)] = it
+
+        # Fill in the list with the head term from each iterator.
+
+        current = []
+        for it in iterlist:
+            term = next(it)
+            current.append((term, id(it)))
+        heapify(current)
+
+        # Number of active iterators
+        active = len(current)
+        while active:
+            # Peek at the first term in the sorted list
+            term = current[0][0]
+
+            # Re-iterate on all items in the list that have that term
+            while active and current[0][0] == term:
+                it = itermap[current[0][1]]
+                try:
+                    nextterm = next(it)
+                    heapreplace(current, (nextterm, id(it)))
+                except StopIteration:
+                    heappop(current)
+                    active -= 1
+
+            # Yield the term
+            yield term
+
+    def all_terms(self):
+        return self._merge_terms([r.all_terms() for r in self.readers])
+    
+    def terms_from(self, fieldname, prefix):
+        return self._merge_terms([r.terms_from(fieldname, prefix)
                                   for r in self.readers])
 
-    # expand_prefix
-    # all_terms
-    # iter_field
-    # iter_prefix
-    # lexicon
+    def term_info(self, fieldname, text):
+        term = (fieldname, text)
+
+        # Get the term infos for the sub-readers containing the term
+        tis = [(r.term_info(fieldname, text), offset) for r, offset
+               in zip_(self.readers, self.doc_offsets) if term in r]
+
+        # If only one reader had the term, return its terminfo with the offset
+        # added
+        if not tis:
+            raise TermNotFound(term)
+        elif len(tis) == 0:
+            ti, offset = tis[0]
+            ti._minid += offset
+            ti._maxid += offset
+            return ti
+
+        # Combine the various statistics
+        w = sum(ti.weight() for ti, _ in tis)
+        df = sum(ti.doc_frequency() for ti, _ in tis)
+        ml = min(ti.min_length() for ti, _ in tis)
+        xl = max(ti.max_length() for ti, _ in tis)
+        xw = max(ti.max_weight() for ti, _ in tis)
+        xwol = max(ti.max_wol() for ti, _ in tis)
+
+        # For min and max ID, we need to add the doc offsets
+        mid = min(ti.min_id() + offset for ti, offset in tis)
+        xid = max(ti.max_id() + offset for ti, offset in tis)
+
+        return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
 
     def has_deletions(self):
         return any(r.has_deletions() for r in self.readers)
@@ -657,6 +774,12 @@ class MultiReader(IndexReader):
 
     def field_length(self, fieldname):
         return sum(dr.field_length(fieldname) for dr in self.readers)
+
+    def min_field_length(self, fieldname):
+        return min(r.min_field_length(fieldname) for r in self.readers)
+    
+    def max_field_length(self, fieldname):
+        return max(r.max_field_length(fieldname) for r in self.readers)
 
     def doc_field_length(self, docnum, fieldname, default=0):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
@@ -737,17 +860,17 @@ class MultiReader(IndexReader):
             if vfmt is not None:
                 return vfmt
 
-    def doc_frequency(self, fieldname, text):
-        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
-
     def frequency(self, fieldname, text):
         return sum(r.frequency(fieldname, text) for r in self.readers)
+
+    def doc_frequency(self, fieldname, text):
+        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
 
     # most_frequent_terms
     # most_distinctive_terms
     
     def leaf_readers(self):
-        return zip(self.readers, self.doc_offsets)
+        return zip_(self.readers, self.doc_offsets)
 
     def set_caching_policy(self, *args, **kwargs):
         for r in self.readers:

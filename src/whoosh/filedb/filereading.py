@@ -29,6 +29,7 @@ from bisect import bisect_left
 from heapq import nlargest, nsmallest
 from threading import Lock
 
+from whoosh.compat import iteritems, string_type, integer_types, next, xrange
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
@@ -121,7 +122,6 @@ class SegmentReader(IndexReader):
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
 
-    @protected
     def __contains__(self, term):
         return term in self.termsindex
 
@@ -142,14 +142,12 @@ class SegmentReader(IndexReader):
     def doc_count_all(self):
         return self.dc
 
-    @protected
     def stored_fields(self, docnum):
         schema = self.schema
         return dict(item for item
-                    in self.storedfields[docnum].iteritems()
+                    in iteritems(self.storedfields[docnum])
                     if item[0] in schema)
 
-    @protected
     def all_stored_fields(self):
         is_deleted = self.segment.is_deleted
         sf = self.stored_fields
@@ -160,16 +158,17 @@ class SegmentReader(IndexReader):
     def field_length(self, fieldname):
         return self.segment.field_length(fieldname)
 
-    @protected
+    def min_field_length(self, fieldname):
+        return self.segment.min_field_length(fieldname)
+    
+    def max_field_length(self, fieldname):
+        return self.segment.max_field_length(fieldname)
+
     def doc_field_length(self, docnum, fieldname, default=0):
         if self.fieldlengths is None:
             return default
         return self.fieldlengths.get(docnum, fieldname, default=default)
 
-    def max_field_length(self, fieldname):
-        return self.segment.max_field_length(fieldname)
-
-    @protected
     def has_vector(self, docnum, fieldname):
         if self.schema[fieldname].vector:
             self._open_vectors()
@@ -177,102 +176,106 @@ class SegmentReader(IndexReader):
         else:
             return False
 
-    @protected
-    def __iter__(self):
-        schema = self.schema
-        for (fieldname, t), (totalfreq, _, postcount) in self.termsindex:
-            if fieldname not in schema:
-                continue
-            yield (fieldname, t, postcount, totalfreq)
-
     def _test_field(self, fieldname):
         if fieldname not in self.schema:
             raise TermNotFound("No field %r" % fieldname)
         if self.schema[fieldname].format is None:
             raise TermNotFound("Field %r is not indexed" % fieldname)
 
-    @protected
-    def iter_from(self, fieldname, text):
+    def all_terms(self):
         schema = self.schema
+        return ((fieldname, text) for fieldname, text
+                in self.termsindex.keys()
+                if fieldname in schema)
+    
+    def terms_from(self, fieldname, prefix):
         self._test_field(fieldname)
-        for (fn, t), (totalfreq, _, postcount) in self.termsindex.items_from((fieldname, text)):
-            if fn not in schema:
-                continue
-            yield (fn, t, postcount, totalfreq)
+        schema = self.schema
+        return ((fname, text) for fname, text
+                in self.termsindex.keys_from((fieldname, prefix))
+                if fname in schema)
 
-    @protected
-    def _term_info(self, fieldname, text):
+    def term_info(self, fieldname, text):
         self._test_field(fieldname)
         try:
             return self.termsindex[fieldname, text]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
-    def doc_frequency(self, fieldname, text):
-        try:
-            return self._term_info(fieldname, text)[2]
-        except TermNotFound:
-            return 0
-
-    def frequency(self, fieldname, text):
-        try:
-            return self._term_info(fieldname, text)[0]
-        except TermNotFound:
-            return 0
-
-    def lexicon(self, fieldname):
-        # The base class has a lexicon() implementation that uses iter_from()
-        # and throws away the value, but overriding to use
-        # FileTableReader.keys_from() is much, much faster.
-
-        self._test_field(fieldname)
-        
-        # If a field cache happens to already be loaded for this field, use it
-        # instead of loading the field values from disk
-        if self.fieldcache_loaded(fieldname):
-            fieldcache = self.fieldcache(fieldname)
-            it = iter(fieldcache.texts)
-            # The first value in fieldcache.texts is the default; throw it away
-            it.next()
-            return it
-        
-        return self.expand_prefix(fieldname, '')
-
-    @protected
-    def expand_prefix(self, fieldname, prefix):
-        # The base class has an expand_prefix() implementation that uses
-        # iter_from() and throws away the value, but overriding to use
-        # FileTableReader.keys_from() is much, much faster.
-
-        self._test_field(fieldname)
-
-        if self.fieldcache_loaded(fieldname):
-            texts = self.fieldcache(fieldname).texts
+    def _texts_in_fieldcache(self, fieldname, prefix=''):
+        # The first value in a fieldcache is the default
+        texts = self.fieldcache(fieldname).texts[1:]
+        if prefix:
             i = bisect_left(texts, prefix)
             while i < len(texts) and texts[i].startswith(prefix):
                 yield texts[i]
                 i += 1
         else:
-            for fn, t in self.termsindex.keys_from((fieldname, prefix)):
-                if fn != fieldname or not t.startswith(prefix):
-                    break
-                yield t
+            for text in texts:
+                yield text
+
+    def expand_prefix(self, fieldname, prefix):
+        self._test_field(fieldname)
+        # If a fieldcache for the field is already loaded, we already have the
+        # values for the field in memory, so just yield them from there
+        if self.fieldcache_loaded(fieldname):
+            return self._texts_in_fieldcache(fieldname, prefix)
+        else:
+            return IndexReader.expand_prefix(self, fieldname, prefix)
+
+    def lexicon(self, fieldname):
+        self._test_field(fieldname)
+        # If a fieldcache for the field is already loaded, we already have the
+        # values for the field in memory, so just yield them from there
+        if self.fieldcache_loaded(fieldname):
+            return self._texts_in_fieldcache(fieldname)
+        else:
+            return IndexReader.lexicon(self, fieldname)
+        
+    def __iter__(self):
+        schema = self.schema
+        return ((term, terminfo) for term, terminfo
+                in self.termsindex.items()
+                if term[0] in schema)
+
+    def iter_from(self, fieldname, text):
+        schema = self.schema
+        self._test_field(fieldname)
+        for term, terminfo in self.termsindex.items_from((fieldname, text)):
+            if term[0] not in schema:
+                continue
+            yield (term, terminfo)
+
+    def frequency(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.termsindex.frequency((fieldname, text))
+        except KeyError:
+            return 0
+
+    def doc_frequency(self, fieldname, text):
+        self._test_field(fieldname)
+        try:
+            return self.termsindex.doc_frequency((fieldname, text))
+        except KeyError:
+            return 0
 
     def postings(self, fieldname, text, scorer=None):
         try:
-            offset = self.termsindex[fieldname, text][1]
+            terminfo = self.termsindex[fieldname, text]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
         format = self.schema[fieldname].format
-        if isinstance(offset, (int, long)):
-            postreader = FilePostingReader(self.postfile, offset, format,
+        postings = terminfo.postings
+        if isinstance(postings, integer_types):
+            postreader = FilePostingReader(self.postfile, postings, format,
                                            scorer=scorer, fieldname=fieldname,
                                            text=text)
         else:
-            docids, weights, values, maxwol, minlength = offset
-            postreader = ListMatcher(docids, weights, values, format, scorer,
-                                     maxwol=maxwol, minlength=minlength)
+            docids, weights, values = postings
+            postreader = ListMatcher(docids, weights, values, format,
+                                     scorer=scorer)
         
         deleted = self.segment.deleted
         if deleted:
@@ -404,7 +407,7 @@ class SegmentReader(IndexReader):
     # Sorting and faceting methods
     
     def key_fn(self, fields):
-        if isinstance(fields, basestring):
+        if isinstance(fields, string_type):
             fields = (fields, )
         
         if len(fields) > 1:
@@ -434,10 +437,6 @@ class SegmentReader(IndexReader):
             
             
         
-
-#    def collapse_docs_by(self, fieldname, scores_and_docnums):
-#        fieldcache = self.caches.get_cache(self, fieldname)
-#        return fieldcache.collapse(scores_and_docnums)
 
 
 

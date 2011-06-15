@@ -2,6 +2,37 @@
 Whoosh 1.x release notes
 ========================
 
+Whoosh 1.8.3
+============
+
+Whoosh 1.8.3 contains important bugfixes and new functionality. Thanks to all
+the mailing list and BitBucket users who helped with the fixes!
+
+Fixed a bad ``Collector`` bug where the docset of a Results object did not match
+the actual results.
+
+You can now pass a sequence of objects to a keyword argument in ``add_document``
+and ``update_document`` (currently this will not work for unique fields in
+``update_document``). This is useful for non-text fields such as ``DATETIME``
+and ``NUMERIC``, allowing you to index multiple dates/numbers for a document::
+
+    writer.add_document(shoe=u"Saucony Kinvara", sizes=[10.0, 9.5, 12])
+
+This version reverts to using the CDB hash function for hash files instead of
+Python's ``hash()`` because the latter is not meant to be stored externally.
+This change maintains backwards compatibility with old files.
+
+The ``Searcher.search`` method now takes a ``mask`` keyword argument. This is
+the opposite of the ``filter`` argument. Where the ``filter`` specifies the
+set of documents that can appear in the results, the ``mask`` specifies a
+set of documents that must not appear in the results.
+
+Fixed performance problems in ``Searcher.more_like``. This method now also
+takes a ``filter`` keyword argument like ``Searcher.search``.
+
+Improved documentation.
+
+
 Whoosh 1.8.2
 ============
 

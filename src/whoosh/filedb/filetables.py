@@ -31,22 +31,36 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
 from array import array
+from binascii import crc32
 from collections import defaultdict
-from cPickle import loads, dumps
+from hashlib import md5
 from struct import Struct
 
-from whoosh.system import (_INT_SIZE, _LONG_SIZE, pack_ushort, pack_uint,
-                           pack_long, unpack_ushort, unpack_uint, unpack_long)
-from whoosh.util import byte_to_length, utf8encode, utf8decode
+from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
+                           b, string_type, text_type)
+from whoosh.matching import ListMatcher
+from whoosh.reading import TermInfo
+from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
+                           pack_uint, pack_long, unpack_ushort, unpack_uint,
+                           unpack_long)
+from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 
 
 _4GB = 4 * 1024 * 1024 * 1024
 
-#def cdb_hash(key):
-#    h = 5381L
-#    for c in key:
-#        h = (h + (h << 5)) & 0xffffffffL ^ ord(c)
-#    return h
+def cdb_hash(key):
+    h = long_type(5381)
+    for c in key:
+        h = (h + (h << 5)) & 0xffffffff ^ ord(c)
+    return h
+
+def md5_hash(key):
+    return int(md5(key).hexdigest(), 16) & 0xffffffff
+
+def crc_hash(key):
+    return crc32(key) & 0xffffffff
+
+hash_functions = (hash, cdb_hash, md5_hash, crc_hash)
 
 _header_entry_struct = Struct("!qI")  # Position, number of slots
 header_entry_size = _header_entry_struct.size
@@ -58,41 +72,50 @@ lengths_size = _lengths_struct.size
 pack_lengths = _lengths_struct.pack
 unpack_lengths = _lengths_struct.unpack
 
-_pointer_struct = Struct("!qq")  # Hash value, position
-pointer_size = _pointer_struct.size
-pack_pointer = _pointer_struct.pack
-unpack_pointer = _pointer_struct.unpack
-
-HEADER_SIZE = 256 * header_entry_size
-
-#def _hash(value):
-#    return abs(hash(value))
-_hash = hash
-
 
 # Table classes
 
 class HashWriter(object):
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, format=1, hashtype=2):
         self.dbfile = dbfile
-        # Seek past the first 2048 bytes of the file... we'll come back here
-        # to write the header later
-        dbfile.seek(HEADER_SIZE)
+        self.format = format
+        self.hashtype = hashtype
+        
+        if format:
+            dbfile.write(b("HASH"))
+            self.header_size = 16 + 256 * header_entry_size
+            _pointer_struct = Struct("!Iq")  # Hash value, position
+        else:
+            # Old format
+            self.header_size = 256 * header_entry_size
+            _pointer_struct = Struct("!qq")  # Hash value, position
+            self.hashtype = 0
+        
+        self.hash_func = hash_functions[self.hashtype]
+        self.pointer_size = _pointer_struct.size
+        self.pack_pointer = _pointer_struct.pack
+        
+        # Seek past the first "header_size" bytes of the file... we'll come
+        # back here to write the header later
+        dbfile.seek(self.header_size)
         # Store the directory of hashed values
         self.hashes = defaultdict(list)
 
     def add_all(self, items):
         dbfile = self.dbfile
+        hash_func = self.hash_func
         hashes = self.hashes
         pos = dbfile.tell()
         write = dbfile.write
 
         for key, value in items:
+            key = key.encode('latin-1')
+            value = value.encode('latin-1')
             write(pack_lengths(len(key), len(value)))
             write(key)
             write(value)
 
-            h = _hash(key)
+            h = hash_func(key)
             hashes[h & 255].append((h, pos))
             pos += lengths_size + len(key) + len(value)
 
@@ -120,20 +143,27 @@ class HashWriter(object):
 
             write = dbfile.write
             for hashval, position in hashtable:
-                write(pack_pointer(hashval, position))
-                pos += pointer_size
+                write(self.pack_pointer(hashval, position))
+                pos += self.pointer_size
 
         dbfile.flush()
+        self._end_of_hashes = dbfile.tell()
 
     def _write_directory(self):
         dbfile = self.dbfile
         directory = self.directory
 
-        dbfile.seek(0)
+        dbfile.seek(4)
+        if self.format:
+            dbfile.write_byte(self.hashtype)
+            dbfile.write(b("\x00\x00\x00"))  # Unused
+            dbfile.write_long(self._end_of_hashes)
+        
         for position, numslots in directory:
             dbfile.write(pack_header_entry(position, numslots))
-        assert dbfile.tell() == HEADER_SIZE
+        
         dbfile.flush()
+        assert dbfile.tell() == self.header_size
 
     def close(self):
         self._write_hashes()
@@ -145,7 +175,33 @@ class HashReader(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
         self.map = dbfile.map
-        self.end_of_data = dbfile.get_long(0)
+        
+        dbfile.seek(0)
+        magic = dbfile.read(4)
+        if magic == b("HASH"):
+            self.format = 1
+            self.header_size = 16 + 256 * header_entry_size
+            _pointer_struct = Struct("!Iq")  # Hash value, position
+            self.hashtype = dbfile.read_byte()
+            dbfile.read(3)  # Unused
+            self._end_of_hashes = dbfile.read_long()
+            assert self._end_of_hashes >= self.header_size
+        else:
+            # Old format
+            self.format = self.hashtype = 0
+            self.header_size = 256 * header_entry_size
+            _pointer_struct = Struct("!qq")  # Hash value, position
+        
+        self.hash_func = hash_functions[self.hashtype]
+        self.buckets = []
+        for _ in xrange(256):
+            he = unpack_header_entry(dbfile.read(header_entry_size))
+            self.buckets.append(he)
+        self._start_of_hashes = self.buckets[0][0]
+        
+        self.pointer_size = _pointer_struct.size
+        self.unpack_pointer = _pointer_struct.unpack
+
         self.is_closed = False
 
     def close(self):
@@ -158,8 +214,10 @@ class HashReader(object):
     def read(self, position, length):
         return self.map[position:position + length]
 
-    def _ranges(self, pos=HEADER_SIZE):
-        eod = self.end_of_data
+    def _ranges(self, pos=None):
+        if pos is None:
+            pos = self.header_size
+        eod = self._start_of_hashes
         read = self.read
         while pos < eod:
             keylen, datalen = unpack_lengths(read(pos, lengths_size))
@@ -169,12 +227,14 @@ class HashReader(object):
             yield (keypos, keylen, datapos, datalen)
 
     def __iter__(self):
-        return self.items()
+        return iter(self.items())
 
     def items(self):
         read = self.read
         for keypos, keylen, datapos, datalen in self._ranges():
-            yield (read(keypos, keylen), read(datapos, datalen))
+            key = read(keypos, keylen).decode('latin-1')
+            value = read(datapos, datalen).decode('latin-1')
+            yield (key, value)
 
     def keys(self):
         read = self.read
@@ -198,33 +258,44 @@ class HashReader(object):
 
     def all(self, key):
         read = self.read
-        for datapos, datalen in self._get_ranges(key):
+        for datapos, datalen in self.ranges_for_key(key):
             yield read(datapos, datalen)
 
     def __contains__(self, key):
-        for _ in self._get_ranges(key):
+        for _ in self.ranges_for_key(key):
             return True
         return False
 
     def _hashtable_info(self, keyhash):
         # Return (directory_position, number_of_hash_entries)
-        return unpack_header_entry(self.read((keyhash & 255) * header_entry_size,
-                                             header_entry_size))
+        return self.buckets[keyhash & 255]
+
+    def _key_position(self, key):
+        keyhash = self.hash_func(key.encode('latin-1'))
+        hpos, hslots = self._hashtable_info(keyhash)
+        if not hslots:
+            raise KeyError(key)
+        slotpos = hpos + (((keyhash >> 8) % hslots) * header_entry_size)
+        
+        return self.dbfile.get_long(slotpos + _INT_SIZE)
 
     def _key_at(self, pos):
         keylen = self.dbfile.get_uint(pos)
         return self.read(pos + lengths_size, keylen)
 
-    def _get_ranges(self, key):
+    def ranges_for_key(self, key):
         read = self.read
-        keyhash = _hash(key)
+        pointer_size = self.pointer_size
+        if isinstance(key, text_type):
+            key = key.encode('latin-1')
+        keyhash = self.hash_func(key)
         hpos, hslots = self._hashtable_info(keyhash)
         if not hslots:
             return
 
         slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
         for _ in xrange(hslots):
-            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
+            slothash, pos = self.unpack_pointer(read(slotpos, pointer_size))
             if not pos:
                 return
 
@@ -238,11 +309,18 @@ class HashReader(object):
                 if keylen == len(key):
                     if key == read(pos + lengths_size, keylen):
                         yield (pos + lengths_size + keylen, datalen)
-                        
+    
+    def range_for_key(self, key):
+        for item in self.ranges_for_key(key):
+            return item
+        raise KeyError(key)
+    
     def end_of_hashes(self):
-        lastpos, lastnum = unpack_header_entry(self.read(255 * header_entry_size,
-                                                         header_entry_size))
-        return lastpos + lastnum * pointer_size
+        if self.format:
+            return self._end_of_hashes
+        else:
+            lastpos, lastnum = self.buckets[255]
+            return lastpos + lastnum * self.pointer_size
 
 
 class OrderedHashWriter(HashWriter):
@@ -254,13 +332,18 @@ class OrderedHashWriter(HashWriter):
     def add_all(self, items):
         dbfile = self.dbfile
         hashes = self.hashes
+        hash_func = self.hash_func
         pos = dbfile.tell()
         write = dbfile.write
 
         index = self.index
-        lk = self.lastkey
+        lk = self.lastkey or b('')
 
         for key, value in items:
+            if isinstance(key, text_type):
+                key = key.encode('latin-1')
+            if isinstance(value, text_type):
+                value = value.encode('latin-1')
             if key <= lk:
                 raise ValueError("Keys must increase: %r .. %r" % (lk, key))
             lk = key
@@ -270,7 +353,7 @@ class OrderedHashWriter(HashWriter):
             write(key)
             write(value)
 
-            h = _hash(key)
+            h = hash_func(key)
             hashes[h & 255].append((h, pos))
             
             pos += lengths_size + len(key) + len(value)
@@ -302,6 +385,8 @@ class OrderedHashReader(HashReader):
         indexbase = self.indexbase
         lo = 0
         hi = self.length
+        if isinstance(key, text_type):
+            key = key.encode('latin-1')
         while lo < hi:
             mid = (lo + hi) // 2
             midkey = key_at(dbfile.get_long(indexbase + mid * _LONG_SIZE))
@@ -412,54 +497,53 @@ class CodedOrderedReader(OrderedHashReader):
     # and valuedecoder
     
     def __init__(self, dbfile):
-        sup = super(CodedOrderedReader, self)
-        sup.__init__(dbfile)
-
-        self._items = sup.items
-        self._items_from = sup.items_from
-        self._keys = sup.keys
-        self._keys_from = sup.keys_from
-        self._get = sup.get
-        self._getitem = sup.__getitem__
-        self._contains = sup.__contains__
+        OrderedHashReader.__init__(self, dbfile)
 
     def __getitem__(self, key):
         k = self.keycoder(key)
-        return self.valuedecoder(self._getitem(k))
+        return self.valuedecoder(OrderedHashReader.__getitem__(self, k))
 
     def __contains__(self, key):
         try:
             codedkey = self.keycoder(key)
         except KeyError:
             return False
-        return self._contains(codedkey)
+        return OrderedHashReader.__contains__(self, codedkey)
 
     def get(self, key, default=None):
         k = self.keycoder(key)
-        return self.valuedecoder(self._get(k, default))
+        return self.valuedecoder(OrderedHashReader.get(self, k, default))
 
     def items(self):
         kd = self.keydecoder
         vd = self.valuedecoder
-        for key, value in self._items():
+        for key, value in OrderedHashReader.items(self):
             yield (kd(key), vd(value))
 
     def items_from(self, key):
         fromkey = self.keycoder(key)
         kd = self.keydecoder
         vd = self.valuedecoder
-        for key, value in self._items_from(fromkey):
+        for key, value in OrderedHashReader.items_from(self, fromkey):
             yield (kd(key), vd(value))
 
     def keys(self):
         kd = self.keydecoder
-        for k in self._keys():
+        for k in OrderedHashReader.keys(self):
             yield kd(k)
 
     def keys_from(self, key):
         kd = self.keydecoder
-        for k in self._keys_from(self.keycoder(key)):
+        for k in OrderedHashReader.keys_from(self, self.keycoder(key)):
             yield kd(k)
+    
+    def range_for_key(self, key):
+        return OrderedHashReader.range_for_key(self, self.keycoder(key))
+    
+    def values(self):
+        vd = self.valuedecoder
+        for v in OrderedHashReader.values(self):
+            yield vd(v)
 
 
 class TermIndexWriter(CodedOrderedWriter):
@@ -483,19 +567,9 @@ class TermIndexWriter(CodedOrderedWriter):
         key = pack_ushort(fieldnum) + utf8encode(text)[0]
         return key
     
-    def valuecoder(self, data):
-        w, offset, df = data
+    def valuecoder(self, terminfo):
+        return terminfo.to_string()
         
-        if w == 1 and df == 1:
-            v = dumps((offset, ), -1)
-        elif w == df:
-            v = dumps((offset, df), -1)
-        else:
-            v = dumps((w, offset, df), -1)
-            
-        # Strip off protocol at start and stack return command at end
-        return v[2:-1]
-            
     def close(self):
         self._write_hashes()
         dbfile = self.dbfile
@@ -516,7 +590,7 @@ class TermIndexReader(CodedOrderedReader):
         dbfile.seek(self.indexbase + self.length * _LONG_SIZE)
         self.fieldmap = dbfile.read_pickle()
         self.names = [None] * len(self.fieldmap)
-        for name, num in self.fieldmap.iteritems():
+        for name, num in iteritems(self.fieldmap):
             self.names[num] = name
     
     def keycoder(self, key):
@@ -525,16 +599,22 @@ class TermIndexReader(CodedOrderedReader):
         return pack_ushort(fnum) + utf8encode(text)[0]
         
     def keydecoder(self, v):
+        if isinstance(v, text_type):
+            v = v.encode('latin-1')
         return (self.names[unpack_ushort(v[:2])[0]], utf8decode(v[2:])[0])
     
     def valuedecoder(self, v):
-        v = loads(v + ".")
-        if len(v) == 1:
-            return (1, v[0], 1)
-        elif len(v) == 2:
-            return (v[1], v[0], v[1])
-        else:
-            return v
+        if isinstance(v, text_type):
+            v = v.encode('latin-1')
+        return FileTermInfo.from_string(v)
+    
+    def frequency(self, key):
+        datapos = self.range_for_key(key)[0]
+        return FileTermInfo.read_weight(self.dbfile, datapos)
+    
+    def doc_frequency(self, key):
+        datapos = self.range_for_key(key)[0]
+        return FileTermInfo.read_doc_freq(self.dbfile, datapos)
     
 
 # docnum, fieldnum
@@ -600,8 +680,8 @@ class LengthWriter(object):
     
     def close(self):
         self.dbfile.write_ushort(len(self.lengths))
-        for fieldname, arry in self.lengths.iteritems():
-            self.dbfile.write_string(fieldname)
+        for fieldname, arry in iteritems(self.lengths):
+            self.dbfile.write_string(fieldname.encode('utf-8'))
             self.dbfile.write_array(arry)
         self.dbfile.close()
         
@@ -616,7 +696,7 @@ class LengthReader(object):
             self.lengths = {}
             count = dbfile.read_ushort()
             for _ in xrange(count):
-                fieldname = dbfile.read_string()
+                fieldname = dbfile.read_string().decode('utf-8')
                 self.lengths[fieldname] = dbfile.read_array("B", self.doccount)
             dbfile.close()
     
@@ -658,7 +738,7 @@ class StoredFieldWriter(object):
         name_map = self.name_map
         
         vlist = [None] * len(name_map)
-        for k, v in values.iteritems():
+        for k, v in iteritems(values):
             if k in name_map:
                 vlist[name_map[k]] = v
             else:
@@ -695,7 +775,7 @@ class StoredFieldReader(object):
         dbfile.seek(pos)
         name_map = dbfile.read_pickle()
         self.names = [None] * len(name_map)
-        for name, pos in name_map.iteritems():
+        for name, pos in iteritems(name_map):
             self.names[pos] = name
         self.directory_offset = dbfile.tell()
         
@@ -713,7 +793,7 @@ class StoredFieldReader(object):
         if len(ptr) != stored_pointer_size:
             raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
         position, length = unpack_stored_pointer(ptr)
-        vlist = loads(dbfile.map[position:position + length] + ".")
+        vlist = loads(dbfile.map[position:position + length] + b("."))
         
         names = self.names
         # Recreate a dictionary by putting the field names and values back
@@ -722,167 +802,178 @@ class StoredFieldReader(object):
         values = dict((names[i], vlist[i]) for i in xrange(len(names))
                       if vlist[i] is not None)
         
-        # Pull out an extra stored dynamic field values off the end of the list
+        # Pull any extra stored dynamic field values off the end of the list
         if len(vlist) > len(names):
             values.update(dict(vlist[len(names):]))
         
         return values
 
 
+# TermInfo
+
+NO_ID = 0xffffffff
+
+class FileTermInfo(TermInfo):
+    # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
+    struct = Struct("!fIBBffII")
+    
+    def __init__(self, weight=0.0, docfreq=0, minlength=None, maxlength=0,
+                 maxweight=0.0, maxwol=0.0, minid=None, maxid=None,
+                 postings=None):
+        self._weight = weight
+        self._df = docfreq
+        self._minlength = minlength  # (as byte)
+        self._maxlength = maxlength  # (as byte)
+        self._maxweight = maxweight
+        self._maxwol = maxwol
+        self._minid = minid
+        self._maxid = maxid
+        self.postings = postings
+    
+    # Override min_length and max_length to convert the encoded length bytes
+    
+    def min_length(self):
+        return byte_to_length(self._minlength)
+    
+    def max_length(self):
+        return byte_to_length(self._maxlength)
+    
+    # filedb specific methods
+    
+    def add_block(self, block):
+        self._weight += sum(block.weights)
+        self._df += len(block)
+        
+        ml = length_to_byte(block.min_length())
+        if self._minlength is None:
+            self._minlength = ml
+        else:
+            self._minlength = min(self._minlength, ml)
+        
+        xl = length_to_byte(block.max_length())
+        self._maxlength = max(self._maxlength, xl)
+        
+        self._maxweight = max(self._maxweight, block.max_weight())
+        self._maxwol = max(self._maxwol, block.max_wol())
+        
+        if self._minid is None:
+            self._minid = block.ids[0]
+        self._maxid = block.ids[-1]
+    
+    def to_string(self):
+        ml = length_to_byte(self._minlength)
+        xl = length_to_byte(self._maxlength)
+        mid = NO_ID if self._minid is None else self._minid
+        xid = NO_ID if self._maxid is None else self._maxid
+        
+        st = self.struct.pack(self._weight, self._df, ml, xl,
+                              self._maxweight, self._maxwol, mid, xid)
+        
+        if isinstance(self.postings, tuple):
+            magic = 1
+            st += dumps(self.postings, -1)[2:-1]
+        else:
+            magic = 0
+            p = -1 if self.postings is None else self.postings
+            st += pack_long(p)
+        return chr(magic) + st
+
+    @classmethod
+    def from_string(cls, s):
+        hbyte = ord(s[0:1])
+        if hbyte < 2:
+            # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
+            f, df, ml, xl, xw, xwol, mid, xid = cls.struct.unpack(s[1:cls.struct.size+1])
+            ml = byte_to_length(ml)
+            xl = byte_to_length(xl)
+            mid = None if mid == NO_ID else mid
+            xid = None if xid == NO_ID else xid
+            # Postings
+            pstr = s[cls.struct.size + 1:]
+            if hbyte == 0:
+                p = unpack_long(pstr)[0]
+            else:
+                p = loads(pstr + ".")
+        else:
+            # Old format was encoded as a variable length pickled tuple
+            v = loads(s + b("."))
+            if len(v) == 1:
+                f = df = 1
+                p = v[0]
+            elif len(v) == 2:
+                f = df = v[1]
+                p = v[0]
+            else:
+                f, p, df = v
+            # Fake values for stats which weren't stored before
+            ml = 1
+            xl = 106374
+            xw = 999999999
+            xwol = 999999999
+            mid = -1
+            xid = -1
+            
+        return cls(f, df, ml, xl, xw, xwol, mid, xid, p)
+    
+    @classmethod
+    def read_weight(cls, dbfile, datapos):
+        return dbfile.get_float(datapos + 1)
+    
+    @classmethod
+    def read_doc_freq(cls, dbfile, datapos):
+        return dbfile.get_uint(datapos + 1 + _FLOAT_SIZE)
+    
+    @classmethod
+    def read_min_and_max_length(cls, dbfile, datapos):
+        lenpos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE
+        ml = byte_to_length(dbfile.get_byte(lenpos))
+        xl = byte_to_length(dbfile.get_byte(lenpos + 1))
+        return ml, xl
+    
+    @classmethod
+    def read_max_weight(cls, dbfile, datapos):
+        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
+        return dbfile.get_float(weightspos)
+    
+    @classmethod
+    def read_max_wol(cls, dbfile, datapos):
+        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
+        return dbfile.get_float(weightspos + _FLOAT_SIZE)
+    
+
 # Utility functions
 
-def dump_hash(hashreader):
-    dbfile = hashreader.dbfile
-    read = hashreader.read
-    eod = hashreader.end_of_data
-
-    print "HEADER_SIZE=", HEADER_SIZE, "eod=", eod
-
-    # Dump hashtables
-    for bucketnum in xrange(0, 256):
-        pos, numslots = unpack_header_entry(read(bucketnum * header_entry_size, header_entry_size))
-        if numslots:
-            print "Bucket %d: %d slots" % (bucketnum, numslots)
-
-            dbfile.seek(pos)
-            for _ in xrange(0, numslots):
-                print "  %X : %d" % unpack_pointer(read(pos, pointer_size))
-                pos += pointer_size
-        else:
-            print "Bucket %d empty: %s, %s" % (bucketnum, pos, numslots)
-
-    # Dump keys and values
-    print "-----"
-    pos = HEADER_SIZE
-    dbfile.seek(pos)
-    while pos < eod:
-        keylen, datalen = unpack_lengths(read(pos, lengths_size))
-        keypos = pos + lengths_size
-        datapos = pos + lengths_size + keylen
-        key = read(keypos, keylen)
-        data = read(datapos, datalen)
-        print "%d +%d,%d:%r->%r" % (pos, keylen, datalen, key, data)
-        pos = datapos + datalen
-
-
-##
+#def dump_hash(hashreader):
+#    dbfile = hashreader.dbfile
+#    read = hashreader.read
+#    eod = hashreader._start_of_hashes
 #
-#class FixedHashWriter(HashWriter):
-#    def __init__(self, dbfile, keysize, datasize):
-#        self.dbfile = dbfile
-#        dbfile.seek(HEADER_SIZE)
-#        self.hashes = defaultdict(list)
-#        self.keysize = keysize
-#        self.datasize = datasize
-#        self.recordsize = keysize + datasize
+#    print "HEADER_SIZE=", hashreader.header_size, "eod=", eod
 #
-#    def add_all(self, items):
-#        dbfile = self.dbfile
-#        hashes = self.hashes
-#        recordsize = self.recordsize
-#        pos = dbfile.tell()
-#        write = dbfile.write
+#    # Dump hashtables
+#    for bucketnum in xrange(256):
+#        pos, numslots = unpack_header_entry(read(bucketnum * header_entry_size, header_entry_size))
+#        if numslots:
+#            print "Bucket %d: %d slots" % (bucketnum, numslots)
 #
-#        for key, value in items:
-#            write(key + value)
+#            dbfile.seek(pos)
+#            for _ in xrange(0, numslots):
+#                print "  %X : %d" % hashreader.unpack_pointer(read(pos, pointer_size))
+#                pos += pointer_size
+#        else:
+#            print "Bucket %d empty: %s, %s" % (bucketnum, pos, numslots)
 #
-#            h = _hash(key)
-#            hashes[h & 255].append((h, pos))
-#            pos += recordsize
-#
-#
-#class FixedHashReader(HashReader):
-#    def __init__(self, dbfile, keysize, datasize):
-#        self.dbfile = dbfile
-#        self.keysize = keysize
-#        self.datasize = datasize
-#        self.recordsize = keysize + datasize
-#        
-#        self.map = dbfile.map
-#        self.end_of_data = dbfile.get_uint(0)
-#        self.is_closed = False
-#
-#    def read(self, position, length):
-#        return self.map[position:position + length]
-#
-#    def _ranges(self, pos=HEADER_SIZE):
-#        keysize = self.keysize
-#        recordsize = self.recordsize
-#        eod = self.end_of_data
-#        while pos < eod:
-#            yield (pos, pos + keysize)
-#            pos += recordsize
-#
-#    def __iter__(self):
-#        return self.items()
-#
-#    def __contains__(self, key):
-#        for _ in self._get_data_poses(key):
-#            return True
-#        return False
-#
-#    def items(self):
-#        keysize = self.keysize
-#        datasize = self.datasize
-#        read = self.read
-#        for keypos, datapos in self._ranges():
-#            yield (read(keypos, keysize), read(datapos, datasize))
-#
-#    def keys(self):
-#        keysize = self.keysize
-#        read = self.read
-#        for keypos, _ in self._ranges():
-#            yield read(keypos, keysize)
-#
-#    def values(self):
-#        datasize = self.datasize
-#        read = self.read
-#        for _, datapos in self._ranges():
-#            yield read(datapos, datasize)
-#
-#    def __getitem__(self, key):
-#        for data in self.all(key):
-#            return data
-#        raise KeyError(key)
-#
-#    def get(self, key, default=None):
-#        for data in self.all(key):
-#            return data
-#        return default
-#
-#    def all(self, key):
-#        datasize = self.datasize
-#        read = self.read
-#        for datapos in self._get_data_poses(key):
-#            yield read(datapos, datasize)
-#
-#    def _key_at(self, pos):
-#        return self.read(pos, self.keysize)
-#
-#    def _get_ranges(self, key):
-#        raise NotImplementedError
-#
-#    def _get_data_poses(self, key):
-#        keysize = self.keysize
-#        read = self.read
-#        keyhash = _hash(key)
-#        hpos, hslots = self._hashtable_info(keyhash)
-#        if not hslots:
-#            return
-#
-#        slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
-#        for _ in xrange(hslots):
-#            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
-#            if not pos:
-#                return
-#
-#            slotpos += pointer_size
-#            # If we reach the end of the hashtable, wrap around
-#            if slotpos == hpos + (hslots * pointer_size):
-#                slotpos = hpos
-#
-#            if slothash == keyhash:
-#                if key == read(pos, keysize):
-#                    yield pos + keysize
+#    # Dump keys and values
+#    print "-----"
+#    pos = hashreader.header_size
+#    dbfile.seek(pos)
+#    while pos < eod:
+#        keylen, datalen = unpack_lengths(read(pos, lengths_size))
+#        keypos = pos + lengths_size
+#        datapos = pos + lengths_size + keylen
+#        key = read(keypos, keylen)
+#        data = read(datapos, datalen)
+#        print "%d +%d,%d:%r->%r" % (pos, keylen, datalen, key, data)
+#        pos = datapos + datalen
 
 

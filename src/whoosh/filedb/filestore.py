@@ -26,9 +26,9 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import os
-from cStringIO import StringIO
 from threading import Lock
 
+from whoosh.compat import BytesIO
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import Storage
 from whoosh.support.filelock import FileLock
@@ -85,7 +85,7 @@ class FileStorage(Storage):
         try:
             f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
         except IOError:
-            print "Tried to open %r, files=%r" % (name, self.list())
+            #print("Tried to open %r, files=%r" % (name, self.list()))
             raise
         return f
 
@@ -146,7 +146,7 @@ class RamStorage(FileStorage):
         self.folder = ''
 
     def list(self):
-        return self.files.keys()
+        return list(self.files.keys())
 
     def clean(self):
         self.files = {}
@@ -180,13 +180,13 @@ class RamStorage(FileStorage):
     def create_file(self, name, **kwargs):
         def onclose_fn(sfile):
             self.files[name] = sfile.file.getvalue()
-        f = StructFile(StringIO(), name=name, onclose=onclose_fn)
+        f = StructFile(BytesIO(), name=name, onclose=onclose_fn)
         return f
 
     def open_file(self, name, *args, **kwargs):
         if name not in self.files:
             raise NameError("No such file %r" % name)
-        return StructFile(StringIO(self.files[name]), name=name, *args, **kwargs)
+        return StructFile(BytesIO(self.files[name]), name=name, *args, **kwargs)
 
     def lock(self, name):
         if name not in self.locks:
