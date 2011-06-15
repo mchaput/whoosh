@@ -101,8 +101,7 @@ class Searcher(object):
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
-                     "lexicon", "frequency", "doc_frequency",
-                     "min_length", "max_length", "max_weight", "max_wol", 
+                     "lexicon", "frequency", "doc_frequency", "term_info",
                      "doc_field_length"):
             setattr(self, name, getattr(self.ixreader, name))
 
@@ -834,7 +833,7 @@ class Collector(object):
                 if score > items[0][0]:
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
-                    
+    
     def pull_matches(self, searcher, matcher, usequality, offset):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.

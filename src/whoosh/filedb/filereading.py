@@ -113,7 +113,6 @@ class SegmentReader(IndexReader):
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
 
-    @protected
     def __contains__(self, term):
         return term in self.termsindex
 
@@ -134,14 +133,12 @@ class SegmentReader(IndexReader):
     def doc_count_all(self):
         return self.dc
 
-    @protected
     def stored_fields(self, docnum):
         schema = self.schema
         return dict(item for item
                     in iteritems(self.storedfields[docnum])
                     if item[0] in schema)
 
-    @protected
     def all_stored_fields(self):
         is_deleted = self.segment.is_deleted
         sf = self.stored_fields
@@ -158,13 +155,11 @@ class SegmentReader(IndexReader):
     def max_field_length(self, fieldname):
         return self.segment.max_field_length(fieldname)
 
-    @protected
     def doc_field_length(self, docnum, fieldname, default=0):
         if self.fieldlengths is None:
             return default
         return self.fieldlengths.get(docnum, fieldname, default=default)
 
-    @protected
     def has_vector(self, docnum, fieldname):
         if self.schema[fieldname].vector:
             self._open_vectors()
@@ -172,7 +167,6 @@ class SegmentReader(IndexReader):
         else:
             return False
 
-    @protected
     def __iter__(self):
         schema = self.schema
         for (fieldname, t), (freq, docfreq) in self.termsindex.terms_and_freqs():
@@ -186,7 +180,6 @@ class SegmentReader(IndexReader):
         if self.schema[fieldname].format is None:
             raise TermNotFound("Field %r is not indexed" % fieldname)
 
-    @protected
     def iter_from(self, fieldname, text):
         schema = self.schema
         self._test_field(fieldname)
@@ -196,8 +189,7 @@ class SegmentReader(IndexReader):
                 continue
             yield (fn, t, docfreq, freq)
 
-    @protected
-    def _term_info(self, fieldname, text):
+    def term_info(self, fieldname, text):
         self._test_field(fieldname)
         try:
             return self.termsindex[fieldname, text]
@@ -217,31 +209,7 @@ class SegmentReader(IndexReader):
             return self.termsindex.doc_frequency((fieldname, text))
         except KeyError:
             return 0
-        
-    def min_length(self, fieldname, text):
-        try:
-            return self.termsindex.min_length((fieldname, text))
-        except KeyError:
-            return 0
     
-    def max_length(self, fieldname, text):
-        try:
-            return self.termsindex.max_length((fieldname, text))
-        except KeyError:
-            return 0
-    
-    def max_weight(self, fieldname, text):
-        try:
-            return self.termsindex.max_weight((fieldname, text))
-        except KeyError:
-            return 0
-    
-    def max_wol(self, fieldname, text):
-        try:
-            return self.termsindex.max_wol((fieldname, text))
-        except KeyError:
-            return 0
-
     def lexicon(self, fieldname):
         # The base class has a lexicon() implementation that uses iter_from()
         # and throws away the value, but overriding to use
@@ -260,7 +228,6 @@ class SegmentReader(IndexReader):
         
         return self.expand_prefix(fieldname, '')
 
-    @protected
     def expand_prefix(self, fieldname, prefix):
         # The base class has an expand_prefix() implementation that uses
         # iter_from() and throws away the value, but overriding to use

@@ -715,6 +715,62 @@ class AdditiveBiMatcher(BiMatcher):
         return (self.a.score() + self.b.score())
     
 
+class BooleanOrMatcher(Matcher):
+    def __init__(self, matchers, ids=None, pos=0, weight=2.0):
+        self.matchers = matchers
+        if ids:
+            self._ids = ids
+        else:
+            s = set()
+            for m in matchers:
+                s.update(m.all_ids())
+            from array import array
+            self._ids = array("i", sorted(s))
+        self._i = pos
+        self._weight = weight
+        
+    def is_active(self):
+        return self._i < len(self._ids)
+    
+    def copy(self):
+        return BooleanOrMatcher([m.copy() for m in self.matchers],
+                                self._ids, self._i)
+    
+    def depth(self):
+        return 1 + max(m.depth() for m in self.matchers)
+    
+    def supports_block_quality(self):
+        return True
+    
+    def block_quality(self):
+        return self.score()
+    
+    def id(self):
+        return self._ids[self._i]
+    
+    def all_ids(self):
+        return iter(self._ids)
+    
+    def skip_to(self, id):
+        ids = self._ids
+        i = self._i
+        while i < len(ids) and ids[i] < id:
+            i += 1
+        self._i = i
+        
+    def skip_to_quality(self, minquality):
+        return False
+    
+    def next(self):
+        self._i += 1
+        
+    def weight(self):
+        return self._weight
+    
+    def score(self):
+        return self._weight
+
+
 class UnionMatcher(AdditiveBiMatcher):
     """Matches the union (OR) of the postings in the two sub-matchers.
     """
