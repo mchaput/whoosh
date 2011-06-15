@@ -205,8 +205,8 @@ class SpellChecker(object):
 
         r = ix.reader()
         try:
-            self.add_scored_words((w, freq)
-                                  for w, _, freq in r.iter_field(fieldname))
+            self.add_scored_words((w, terminfo.weight())
+                                  for w, terminfo in r.iter_field(fieldname))
         finally:
             r.close()
 
