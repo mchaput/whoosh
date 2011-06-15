@@ -109,8 +109,8 @@ class Expander(object):
         # Cache the collection frequency of every term in this field. This
         # turns out to be much faster than reading each individual weight
         # from the term index as we add words.
-        self.collection_freq = dict((word, freq) for word, _, freq
-                                      in self.ixreader.iter_field(self.fieldname))
+        self.collection_freq = dict((word, ti.weight()) for word, ti
+                                    in self.ixreader.iter_field(self.fieldname))
         
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)

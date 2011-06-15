@@ -46,6 +46,14 @@ def _multi_segment_index():
     
     return ix
 
+def _stats(r):
+    return [(fname, text, ti.doc_frequency(), ti.weight())
+            for (fname, text), ti in r]
+    
+def _fstats(r):
+    return [(text, ti.doc_frequency(), ti.weight())
+            for text, ti in r]
+
 def test_readers():
     target = [("f1", u('A'), 4, 6), ("f1", u('B'), 2, 2), ("f1", u('C'), 2, 2),
               ("f1", u('D'), 1, 1), ("f1", u('E'), 2, 2), ("f1", u('F'), 1, 1),
@@ -61,7 +69,7 @@ def test_readers():
     def t(ix):
         r = ix.reader()
         assert_equal(list(r.all_stored_fields()), stored)
-        assert_equal(sorted(r), target)
+        assert_equal(sorted(_stats(r)), target)
     
     ix = _one_segment_index()
     assert_equal(len(ix._segments()), 1)
@@ -92,10 +100,10 @@ def test_term_inspection():
                     ('content', u('ee')), ('title', u('document')), ('title', u('my')),
                     ('title', u('other'))]))
     # (text, doc_freq, index_freq)
-    assert_equal(list(reader.iter_field("content")),
+    assert_equal(_fstats(reader.iter_field("content")),
                  [(u('aa'), 2, 6), (u('ab'), 1, 1), (u('ax'), 1, 2), (u('bb'), 2, 5),
                   (u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
-    assert_equal(list(reader.iter_field("content", prefix="c")),
+    assert_equal(_fstats(reader.iter_field("content", prefix="c")),
                  [(u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
     assert_equal(list(reader.most_frequent_terms("content")),
                  [(6, u('aa')), (5, u('bb')), (4, u('ee')), (3, u('cc')), (2, u('dd'))])

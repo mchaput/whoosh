@@ -64,16 +64,6 @@ class RamIndex(IndexReader, IndexWriter):
         except KeyError:
             return False
     
-    @synchronized
-    def __iter__(self):
-        invindex = self.invindex
-        indexfreqs = self.indexfreqs
-        for fn in sorted(invindex.keys()):
-            for text in sorted(self.invindex[fn].keys()):
-                docfreq = len(invindex[fn][text])
-                indexfreq = indexfreqs[fn, text]
-                yield (fn, text, docfreq, indexfreq)
-    
     def close(self):
         pass
     
@@ -153,10 +143,7 @@ class RamIndex(IndexReader, IndexWriter):
     
     def frequency(self, fieldname, text):
         self._test_field(fieldname)
-        try:
-            return self.indexfreqs[fieldname, text]
-        except KeyError:
-            return 0
+        return self.indexfreqs.get((fieldname, text), 0)
     
     def doc_frequency(self, fieldname, text):
         self._test_field(fieldname)
@@ -176,63 +163,11 @@ class RamIndex(IndexReader, IndexWriter):
         
         return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
     
-    def min_length(self, fieldname, text):
-        self._test_field(fieldname)
-        try:
-            return self.termstats[fieldname, text][0]
-        except KeyError:
-            return 0
-        
-    def max_length(self, fieldname, text):
-        self._test_field(fieldname)
-        try:
-            return self.termstats[fieldname, text][1]
-        except KeyError:
-            return 0
-        
-    def max_weight(self, fieldname, text):
-        self._test_field(fieldname)
-        try:
-            return self.termstats[fieldname, text][2]
-        except KeyError:
-            return 0
-        
-    def max_wol(self, fieldname, text):
-        self._test_field(fieldname)
-        try:
-            return self.termstats[fieldname, text][3]
-        except KeyError:
-            return 0
-    
-    @synchronized
-    def iter_from(self, fieldname, text):
-        self._test_field(fieldname)
+    def all_terms(self):
         invindex = self.invindex
-        indexfreqs = self.indexfreqs
-        
-        for fn in sorted(key for key in self.invindex.keys() if key >= fieldname):
-            texts = sorted(invindex[fn])
-            start = 0
-            if fn == fieldname:
-                start = bisect_left(texts, text)
-            for t in texts[start:]:
-                docfreq = len(invindex[fn][t])
-                indexfreq = indexfreqs[fn, t]
-                yield (fn, t, docfreq, indexfreq)
-    
-    def lexicon(self, fieldname):
-        self._test_field(fieldname)
-        return sorted(self.invindex[fieldname].keys())
-    
-    @synchronized
-    def expand_prefix(self, fieldname, prefix):
-        texts = self.lexicon(fieldname)
-        start = 0 if not prefix else bisect_left(texts, prefix)
-        for text in texts[start:]:
-            if text.startswith(prefix):
-                yield text
-            else:
-                break
+        for fieldname in sorted(invindex):
+            for k in sorted(invindex[fieldname]):
+                yield (fieldname, k)
     
     @synchronized
     def first_id(self, fieldname, text):

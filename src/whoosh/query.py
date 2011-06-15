@@ -1284,7 +1284,7 @@ class TermRange(RangeMixin, MultiTerm):
         startexcl = self.startexcl
         endexcl = self.endexcl
 
-        for fname, t, _, _ in ixreader.iter_from(fieldname, start):
+        for fname, t in ixreader.terms_from(fieldname, start):
             if fname != fieldname:
                 break
             if t == start and startexcl:

@@ -150,6 +150,14 @@ def test_deleting():
         assert_equal(r[0]["id"], "format")
         assert_equal(r[0]["subs"], 100)
 
+def _stats(r):
+    return [(fname, text, ti.doc_frequency(), ti.weight())
+            for (fname, text), ti in r]
+
+def _fstats(r):
+    return [(text, ti.doc_frequency(), ti.weight())
+            for text, ti in r]
+
 def test_iter():
     r = make_index().reader()
     
@@ -168,11 +176,11 @@ def test_iter():
                   ("text", u('to'), 1, 1), ("text", u('type'), 1, 1), ("text", u('unique'), 1, 1),
                   ("text", u('value'), 1, 1), ("text", u('vectors'), 1, 1), ("text", u('whether'), 3, 3)]
     
-    assert_equal([item for item in r if item[0] != 'subs'], everything)
-    assert_equal(list(r.iter_from("text", u("su"))), everything[32:])
+    assert_equal([item for item in _stats(r) if item[0] != 'subs'], everything)
+    assert_equal(_stats(r.iter_from("text", u("su"))), everything[32:])
     assert_equal(list(r.lexicon("text")), [x[1] for x in everything if x[0] == "text"])
-    assert_equal(list(r.iter_field("text")), [x[1:] for x in everything if x[0] == "text"])
-    assert_equal(list(r.iter_field("text", "st")), [x[1:] for x in everything if x[0] == "text" and x[1] >= "st"])
+    assert_equal(_fstats(r.iter_field("text")), [x[1:] for x in everything if x[0] == "text"])
+    assert_equal(_fstats(r.iter_field("text", "st")), [x[1:] for x in everything if x[0] == "text" and x[1] >= "st"])
 
 def test_vectors():
     ix = make_index()

@@ -278,8 +278,9 @@ class SegmentWriter(IndexWriter):
                 if has_deletions:
                     docmap[docnum] = self.docnum
                 
-                for fieldname, length in reader.doc_field_lengths(docnum):
-                    if fieldname in fieldnames:
+                for fieldname in reader.schema.scorable_names():
+                    length = reader.doc_field_length(docnum, fieldname)
+                    if length and fieldname in fieldnames:
                         self.pool.add_field_length(self.docnum, fieldname, length)
                 
                 for fieldname in reader.schema.vector_names():
@@ -290,7 +291,7 @@ class SegmentWriter(IndexWriter):
                 
                 self.docnum += 1
         
-        for fieldname, text, _, _ in reader:
+        for fieldname, text in reader.all_terms():
             if fieldname in fieldnames:
                 postreader = reader.postings(fieldname, text)
                 while postreader.is_active():

@@ -188,23 +188,26 @@ def test_frequency_keyword():
     w.add_document(content=u("D E F"))
     w.commit()
     
-    tr = ix.reader()
-    assert_equal(tr.doc_frequency("content", u("B")), 2)
-    assert_equal(tr.frequency("content", u("B")), 5)
-    assert_equal(tr.doc_frequency("content", u("E")), 2)
-    assert_equal(tr.frequency("content", u("E")), 2)
-    assert_equal(tr.doc_frequency("content", u("A")), 1)
-    assert_equal(tr.frequency("content", u("A")), 1)
-    assert_equal(tr.doc_frequency("content", u("D")), 3)
-    assert_equal(tr.frequency("content", u("D")), 4)
-    assert_equal(tr.doc_frequency("content", u("F")), 1)
-    assert_equal(tr.frequency("content", u("F")), 1)
-    assert_equal(tr.doc_frequency("content", u("Z")), 0)
-    assert_equal(tr.frequency("content", u("Z")), 0)
-    assert_equal(list(tr), [("content", u("A"), 1, 1), ("content", u("B"), 2, 5),
-                            ("content", u("C"), 2, 2), ("content", u("D"), 3, 4),
-                            ("content", u("E"), 2, 2), ("content", u("F"), 1, 1)])
-    tr.close()
+    with ix.reader() as tr:
+        assert_equal(tr.doc_frequency("content", u("B")), 2)
+        assert_equal(tr.frequency("content", u("B")), 5)
+        assert_equal(tr.doc_frequency("content", u("E")), 2)
+        assert_equal(tr.frequency("content", u("E")), 2)
+        assert_equal(tr.doc_frequency("content", u("A")), 1)
+        assert_equal(tr.frequency("content", u("A")), 1)
+        assert_equal(tr.doc_frequency("content", u("D")), 3)
+        assert_equal(tr.frequency("content", u("D")), 4)
+        assert_equal(tr.doc_frequency("content", u("F")), 1)
+        assert_equal(tr.frequency("content", u("F")), 1)
+        assert_equal(tr.doc_frequency("content", u("Z")), 0)
+        assert_equal(tr.frequency("content", u("Z")), 0)
+        
+        stats = [(fname, text, ti.doc_frequency(), ti.weight())
+                 for (fname, text), ti in tr]
+        
+        assert_equal(stats, [("content", u("A"), 1, 1), ("content", u("B"), 2, 5),
+                             ("content", u("C"), 2, 2), ("content", u("D"), 3, 4),
+                             ("content", u("E"), 2, 2), ("content", u("F"), 1, 1)])
     
 def test_frequency_text():
     s = fields.Schema(content=fields.KEYWORD)
@@ -230,9 +233,13 @@ def test_frequency_text():
         assert_equal(tr.frequency("content", u("foxtrot")), 1)
         assert_equal(tr.doc_frequency("content", u("zulu")), 0)
         assert_equal(tr.frequency("content", u("zulu")), 0)
-        assert_equal(list(tr), [("content", u("alfa"), 1, 1), ("content", u("bravo"), 2, 5),
-                                ("content", u("charlie"), 2, 2), ("content", u("delta"), 3, 4),
-                                ("content", u("echo"), 2, 2), ("content", u("foxtrot"), 1, 1)])
+        
+        stats = [(fname, text, ti.doc_frequency(), ti.weight())
+             for (fname, text), ti in tr]
+        
+        assert_equal(stats, [("content", u("alfa"), 1, 1), ("content", u("bravo"), 2, 5),
+                             ("content", u("charlie"), 2, 2), ("content", u("delta"), 3, 4),
+                             ("content", u("echo"), 2, 2), ("content", u("foxtrot"), 1, 1)])
 
 def test_deletion():
     s = fields.Schema(key=fields.ID, name=fields.TEXT, value=fields.TEXT)

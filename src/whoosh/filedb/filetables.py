@@ -31,12 +31,13 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
 from array import array
+from binascii import crc32
 from collections import defaultdict
 from hashlib import md5
 from struct import Struct
 
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
-                           b, text_type)
+                           b, string_type, text_type)
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
@@ -56,6 +57,11 @@ def cdb_hash(key):
 def md5_hash(key):
     return int(md5(key).hexdigest(), 16) & 0xffffffff
 
+def crc_hash(key):
+    return crc32(key) & 0xffffffff
+
+hash_functions = (hash, cdb_hash, md5_hash, crc_hash)
+
 _header_entry_struct = Struct("!qI")  # Position, number of slots
 header_entry_size = _header_entry_struct.size
 pack_header_entry = _header_entry_struct.pack
@@ -70,23 +76,22 @@ unpack_lengths = _lengths_struct.unpack
 # Table classes
 
 class HashWriter(object):
-    def __init__(self, dbfile, format=2):
+    def __init__(self, dbfile, format=1, hashtype=2):
         self.dbfile = dbfile
         self.format = format
+        self.hashtype = hashtype
         
         if format:
+            dbfile.write(b("HASH"))
             self.header_size = 16 + 256 * header_entry_size
             _pointer_struct = Struct("!Iq")  # Hash value, position
-            if format == 1:
-                self.hash_func = cdb_hash
-            else:
-                self.hash_func = md5_hash
         else:
             # Old format
             self.header_size = 256 * header_entry_size
             _pointer_struct = Struct("!qq")  # Hash value, position
-            self.hash_func = hash
+            self.hashtype = 0
         
+        self.hash_func = hash_functions[self.hashtype]
         self.pointer_size = _pointer_struct.size
         self.pack_pointer = _pointer_struct.pack
         
@@ -148,10 +153,9 @@ class HashWriter(object):
         dbfile = self.dbfile
         directory = self.directory
 
-        dbfile.seek(0)
+        dbfile.seek(4)
         if self.format:
-            dbfile.write(b("HASH"))
-            dbfile.write_byte(self.format)
+            dbfile.write_byte(self.hashtype)
             dbfile.write(b("\x00\x00\x00"))  # Unused
             dbfile.write_long(self._end_of_hashes)
         
@@ -175,23 +179,20 @@ class HashReader(object):
         dbfile.seek(0)
         magic = dbfile.read(4)
         if magic == b("HASH"):
+            self.format = 1
             self.header_size = 16 + 256 * header_entry_size
             _pointer_struct = Struct("!Iq")  # Hash value, position
-            self.format = dbfile.read_byte()
+            self.hashtype = dbfile.read_byte()
             dbfile.read(3)  # Unused
             self._end_of_hashes = dbfile.read_long()
-            assert self._end_of_hashes >= self.header_size, "%s < %s" % (self._end_of_hashes, self.header_size)
-            
-            if self.format == 1:
-                self.hash_func = cdb_hash
-            else:
-                self.hash_func = md5_hash
+            assert self._end_of_hashes >= self.header_size
         else:
-            self.format = 0
+            # Old format
+            self.format = self.hashtype = 0
             self.header_size = 256 * header_entry_size
             _pointer_struct = Struct("!qq")  # Hash value, position
-            self.hash_func = hash
         
+        self.hash_func = hash_functions[self.hashtype]
         self.buckets = []
         for _ in xrange(256):
             he = unpack_header_entry(dbfile.read(header_entry_size))
@@ -496,58 +497,53 @@ class CodedOrderedReader(OrderedHashReader):
     # and valuedecoder
     
     def __init__(self, dbfile):
-        sup = super(CodedOrderedReader, self)
-        sup.__init__(dbfile)
-
-        self._items = sup.items
-        self._items_from = sup.items_from
-        self._keys = sup.keys
-        self._keys_from = sup.keys_from
-        self._get = sup.get
-        self._getitem = sup.__getitem__
-        self._contains = sup.__contains__
-        self._range_for_key = sup.range_for_key
+        OrderedHashReader.__init__(self, dbfile)
 
     def __getitem__(self, key):
         k = self.keycoder(key)
-        return self.valuedecoder(self._getitem(k))
+        return self.valuedecoder(OrderedHashReader.__getitem__(self, k))
 
     def __contains__(self, key):
         try:
             codedkey = self.keycoder(key)
         except KeyError:
             return False
-        return self._contains(codedkey)
+        return OrderedHashReader.__contains__(self, codedkey)
 
     def get(self, key, default=None):
         k = self.keycoder(key)
-        return self.valuedecoder(self._get(k, default))
+        return self.valuedecoder(OrderedHashReader.get(self, k, default))
 
     def items(self):
         kd = self.keydecoder
         vd = self.valuedecoder
-        for key, value in self._items():
+        for key, value in OrderedHashReader.items(self):
             yield (kd(key), vd(value))
 
     def items_from(self, key):
         fromkey = self.keycoder(key)
         kd = self.keydecoder
         vd = self.valuedecoder
-        for key, value in self._items_from(fromkey):
+        for key, value in OrderedHashReader.items_from(self, fromkey):
             yield (kd(key), vd(value))
 
     def keys(self):
         kd = self.keydecoder
-        for k in self._keys():
+        for k in OrderedHashReader.keys(self):
             yield kd(k)
 
     def keys_from(self, key):
         kd = self.keydecoder
-        for k in self._keys_from(self.keycoder(key)):
+        for k in OrderedHashReader.keys_from(self, self.keycoder(key)):
             yield kd(k)
-            
+    
     def range_for_key(self, key):
-        return self._range_for_key(self.keycoder(key))
+        return OrderedHashReader.range_for_key(self, self.keycoder(key))
+    
+    def values(self):
+        vd = self.valuedecoder
+        for v in OrderedHashReader.values(self):
+            yield vd(v)
 
 
 class TermIndexWriter(CodedOrderedWriter):
@@ -611,28 +607,6 @@ class TermIndexReader(CodedOrderedReader):
         if isinstance(v, text_type):
             v = v.encode('latin-1')
         return FileTermInfo.from_string(v)
-    
-    def items_from(self, key):
-        fromkey = self.keycoder(key)
-        kd = self.keydecoder
-        vd = self.valuedecoder
-        for key, value in self._items_from(fromkey):
-            yield (kd(key), vd(value))
-            
-    def terms_and_freqs(self, fromkey=None):
-        dbfile = self.dbfile
-        read = self.read
-        kd = self.keydecoder
-        
-        if fromkey:
-            gen = self._ranges_from(self.keycoder(fromkey))
-        else:
-            gen = self._ranges()
-        
-        for keypos, keylen, datapos, datalen in gen:
-            yield (kd(read(keypos, keylen)),
-                   (FileTermInfo.read_weight(dbfile, datapos),
-                    FileTermInfo.read_doc_freq(dbfile, datapos)))
     
     def frequency(self, key):
         datapos = self.range_for_key(key)[0]
@@ -828,7 +802,7 @@ class StoredFieldReader(object):
         values = dict((names[i], vlist[i]) for i in xrange(len(names))
                       if vlist[i] is not None)
         
-        # Pull out an extra stored dynamic field values off the end of the list
+        # Pull any extra stored dynamic field values off the end of the list
         if len(vlist) > len(names):
             values.update(dict(vlist[len(names):]))
         
@@ -837,12 +811,14 @@ class StoredFieldReader(object):
 
 # TermInfo
 
+NO_ID = 0xffffffff
+
 class FileTermInfo(TermInfo):
     # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
-    struct = Struct("!fIBBffii")
+    struct = Struct("!fIBBffII")
     
     def __init__(self, weight=0.0, docfreq=0, minlength=None, maxlength=0,
-                 maxweight=0.0, maxwol=0.0, minid=-1, maxid=-1,
+                 maxweight=0.0, maxwol=0.0, minid=None, maxid=None,
                  postings=None):
         self._weight = weight
         self._df = docfreq
@@ -862,6 +838,8 @@ class FileTermInfo(TermInfo):
     def max_length(self):
         return byte_to_length(self._maxlength)
     
+    # filedb specific methods
+    
     def add_block(self, block):
         self._weight += sum(block.weights)
         self._df += len(block)
@@ -878,16 +856,18 @@ class FileTermInfo(TermInfo):
         self._maxweight = max(self._maxweight, block.max_weight())
         self._maxwol = max(self._maxwol, block.max_wol())
         
-        if self._minid == -1:
+        if self._minid is None:
             self._minid = block.ids[0]
         self._maxid = block.ids[-1]
     
     def to_string(self):
         ml = length_to_byte(self._minlength)
         xl = length_to_byte(self._maxlength)
+        mid = NO_ID if self._minid is None else self._minid
+        xid = NO_ID if self._maxid is None else self._maxid
+        
         st = self.struct.pack(self._weight, self._df, ml, xl,
-                              self._maxweight, self._maxwol, self._minid,
-                              self._maxid)
+                              self._maxweight, self._maxwol, mid, xid)
         
         if isinstance(self.postings, tuple):
             magic = 1
@@ -906,6 +886,8 @@ class FileTermInfo(TermInfo):
             f, df, ml, xl, xw, xwol, mid, xid = cls.struct.unpack(s[1:cls.struct.size+1])
             ml = byte_to_length(ml)
             xl = byte_to_length(xl)
+            mid = None if mid == NO_ID else mid
+            xid = None if xid == NO_ID else xid
             # Postings
             pstr = s[cls.struct.size + 1:]
             if hbyte == 0:
