@@ -664,8 +664,8 @@ class Searcher(object):
             return sorter.sort_query(q, limit=limit, reverse=reverse,
                                      filter=filter)
         
-            collector = Collector(limit=limit, usequality=optimize,
-                              groupedby=groupedby, reverse=reverse)
+        collector = Collector(limit=limit, usequality=optimize,
+                          groupedby=groupedby, reverse=reverse)
         return collector.search(self, q, allow=filter, restrict=mask)
         
 
@@ -942,7 +942,7 @@ class Collector(object):
         # Sort by negated scores so that higher scores go first, then by
         # document number to keep the order stable when documents have the same
         # score
-            items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+        items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
         
         return Results(self.searcher, self.q, items, self.docset,
                        groups=self.groups, runtime=self.runtime,
@@ -1007,8 +1007,8 @@ class TermTrackingCollector(Collector):
                                             offset):
             for key, m in self.matchers:
                 if m.is_active() and m.id() == offsetid - offset:
-                if key not in self.catalog:
-                    self.catalog[key] = set()
+                    if key not in self.catalog:
+                        self.catalog[key] = set()
                     self.catalog[key].add(offsetid)
         
             yield (offsetid, score)
