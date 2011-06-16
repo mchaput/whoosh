@@ -148,7 +148,7 @@ class MultiSegmentWriter(IndexWriter):
             for task in self.tasks:
                 task.cancel()
         finally:
-            self.lock.release()
+            self.writelock.release()
     
     def add_document(self, **fields):
         self.docbuffer.append(fields)
