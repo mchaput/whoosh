@@ -1,4 +1,4 @@
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import fields
 from whoosh.filedb import pools, filestore

@@ -1,7 +1,7 @@
 from __future__ import with_statement
 from random import randint, choice, sample
 
-from nose.tools import assert_equal, assert_not_equal
+from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 from whoosh import fields
 from whoosh.compat import xrange, next, u

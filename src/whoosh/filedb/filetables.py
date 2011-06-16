@@ -33,7 +33,7 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 from array import array
 from binascii import crc32
 from collections import defaultdict
-from hashlib import md5
+from hashlib import md5  #@UnresolvedImport
 from struct import Struct
 
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,

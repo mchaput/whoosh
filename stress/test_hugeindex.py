@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import struct
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import formats
 from whoosh.compat import next, xrange

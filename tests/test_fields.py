@@ -1,7 +1,7 @@
 from __future__ import with_statement
 from datetime import datetime, timedelta
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises
+from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
 
 from whoosh import analysis, fields, qparser, query
 from whoosh.compat import long_type, u, b, xrange, PY3

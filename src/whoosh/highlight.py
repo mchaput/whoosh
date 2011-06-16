@@ -483,7 +483,7 @@ class GenshiFormatter(Formatter):
         self.qname = qname
         self.between = between
         
-        from genshi.core import START, END, TEXT, Attrs, Stream
+        from genshi.core import START, END, TEXT, Attrs, Stream  #@UnresolvedImport
         self.START, self.END, self.TEXT = START, END, TEXT
         self.Attrs, self.Stream = Attrs, Stream
 
@@ -566,8 +566,6 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     return formatter(text, fragments)
     
 
-if __name__ == '__main__':
-    pass
 
 
 
