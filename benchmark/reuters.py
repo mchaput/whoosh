@@ -20,7 +20,7 @@ class Reuters(Spec):
         return schema
     
     def zcatalog_setup(self, cat):
-        from zcatalog import indexes
+        from zcatalog import indexes  #@UnresolvedImport
         cat["id"] = indexes.FieldIndex(field_name="id")
         cat["headline"] = indexes.TextIndex(field_name="headline")
         cat["body"] = indexes.TextIndex(field_name="text")

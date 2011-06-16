@@ -17,8 +17,8 @@ To open an existing index::
     ix = DataStoreStorage().open_index()
 """
 
-from google.appengine.api import memcache
-from google.appengine.ext import db
+from google.appengine.api import memcache  #@UnresolvedImport
+from google.appengine.ext import db  #@UnresolvedImport
 
 from whoosh.compat import BytesIO
 from whoosh.store import Storage

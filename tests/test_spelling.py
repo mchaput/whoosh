@@ -1,4 +1,4 @@
-from nose.tools import assert_equal, assert_not_equal
+from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 from whoosh import spelling
 from whoosh.compat import u, text_type

@@ -1,7 +1,7 @@
 from __future__ import with_statement
 from random import random, randint
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh.compat import xrange
 from whoosh.formats import (Characters, CharacterBoosts, DocBoosts, Existence,

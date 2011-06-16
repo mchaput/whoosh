@@ -3,7 +3,7 @@ import inspect
 from random import choice, randint
 import sys
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import query, scoring
 from whoosh.compat import u, xrange

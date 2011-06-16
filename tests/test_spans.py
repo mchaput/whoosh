@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, formats, query, spans
 from whoosh.compat import u, xrange
