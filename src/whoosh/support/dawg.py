@@ -40,6 +40,7 @@ instead of storing a DAWG separately.
 import re
 from array import array
 
+from whoosh.compat import text_type
 from whoosh.system import _INT_SIZE
 from whoosh.util import utf8encode, utf8decode
 
@@ -137,7 +138,9 @@ class BuildNode(object):
         self._hash = None
 
     def __repr__(self):
-        return "<%s:%s %s>" % (self.__class__.__name__, ",".join(self._edges.keys()), self.final)
+        return "<%s:%s %s>" % (self.__class__.__name__,
+                               ",".join(sorted(self._edges.keys())),
+                               self.final)
 
     def __hash__(self):
         if self._hash is not None:
@@ -194,7 +197,7 @@ class DawgBuilder(object):
     to support the spelling correction system.
     """
     
-    def __init__(self, dbfile=None, reduced=True, reduce_root=True):
+    def __init__(self, reduced=True, reduce_root=True):
         """
         :param dbfile: an optional StructFile. If you pass this argument to the
             initializer, you don't have to pass a file to the ``write()``
@@ -208,9 +211,8 @@ class DawgBuilder(object):
             reduction.
         """
         
-        self.dbfile = dbfile
-        self.reduced = reduced
-        self.reduce_root = reduce_root
+        self._reduced = reduced
+        self._reduce_root = reduce_root
         
         self.lastword = None
         # List of nodes that have not been checked for duplication.
@@ -219,7 +221,6 @@ class DawgBuilder(object):
         self.minimized = {}
         
         self.root = BuildNode()
-        self.offsets = {}
     
     def insert(self, word):
         """Add the given "word" (a string or list of strings) to the graph.
@@ -277,27 +278,39 @@ class DawgBuilder(object):
         """
         
         self._minimize(0)
-        root = self.root
-        if self.reduced:
-            if self.reduce_root:
-                reduce(root)
-            else:
-                for key in root:
-                    v = root.edge(key)
-                    reduce(v)
+        if self._reduced:
+            self.reduce(self.root, self._reduce_root)
+                    
+    def write(self, dbfile):
+        self.finish()
+        DawgWriter(dbfile).write(self.root)
+    
+    @staticmethod
+    def reduce(root, reduce_root=True):
+        if reduce_root:
+            reduce(root)
+        else:
+            for key in root:
+                v = root.edge(key)
+                reduce(v)
 
-    def write(self, dbfile=None):
+
+class DawgWriter(object):
+    def __init__(self, dbfile):
+        self.dbfile = dbfile
+        self.offsets = {}
+    
+    def write(self, root):
         """Write the graph to the given StructFile. If you passed a file to
         the initializer, you don't have to pass it here.
         """
         
-        dbfile = self.dbfile or dbfile
+        dbfile = self.dbfile
         dbfile.write("GR01")  # Magic number
         dbfile.write_int(0)  # File flags
         dbfile.write_uint(0)  # Pointer to root node
         
-        self.finish()
-        offset = self._write_node(dbfile, self.root)
+        offset = self._write_node(dbfile, root)
         
         # Seek back and write the pointer to the root node
         dbfile.flush()
@@ -328,8 +341,8 @@ class DawgBuilder(object):
         flags |= singles << 2
         # The fourth lowest bit = whether all keys are one byte
         if singles:
-            bytes = all(ord(key) <= 255 for key in keys)
-            flags |= bytes << 3
+            sbytes = all(ord(key) <= 255 for key in keys)
+            flags |= sbytes << 3
         dbfile.write_byte(flags)
         
         if keys:
@@ -338,7 +351,7 @@ class DawgBuilder(object):
             if singles:
                 for key in keys:
                     o = ord(key)
-                    if bytes:
+                    if sbytes:
                         dbfile.write_byte(o)
                     else:
                         dbfile.write_ushort(o)
@@ -382,7 +395,8 @@ class DiskNode(BaseNode):
     
     def __repr__(self):
         return "<%s %s:%s %s>" % (self.__class__.__name__, self.id,
-                                  ",".join(self._edges.keys()), self.final)
+                                  ",".join(sorted(self._edges.keys())),
+                                  self.final)
     
     def __contains__(self, key):
         return key in self._edges
@@ -406,7 +420,8 @@ class DiskNode(BaseNode):
     def load(cls, dbfile, expand=True):
         dbfile.seek(0)
         magic = dbfile.read(4)
-        assert magic == "GR01"
+        if magic != "GR01":
+            raise Exception("%r does not seem to be a graph file" % dbfile)
         fileflags = dbfile.read_int()
         return DiskNode(dbfile, dbfile.read_uint(), expand=expand)
     
@@ -538,9 +553,9 @@ def flatten(node, sofar=""):
 
 
 def dump_dawg(node, tab=0):
-    print "  " * tab, hex(id(node)), node.final
-    for key in node:
-        print "  " * tab, key, ":"
+    print("%s%s %s" %  (" " * tab, hex(id(node)), node.final))
+    for key in sorted(node):
+        print("%s%r:" % (" " * tab, key))
         dump_dawg(node.edge(key), tab + 1)
 
 

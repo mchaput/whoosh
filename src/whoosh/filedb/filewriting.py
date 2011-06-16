@@ -37,7 +37,7 @@ from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgBuilder
+from whoosh.support.dawg import DawgBuilder, DawgWriter
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -153,10 +153,9 @@ class SegmentWriter(IndexWriter):
         segment = Segment(self.name, self.generation, 0, None, None, None)
         
         # DAWG file
-        dawg = None
+        dawgfile = None
         if any(field.spelling for field in self.schema):
-            df = self.storage.create_file(segment.dawg_filename)
-            dawg = DawgBuilder(df, reduce_root=False)
+            dawgfile = self.storage.create_file(segment.dawg_filename)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -165,7 +164,7 @@ class SegmentWriter(IndexWriter):
         pf = self.storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw, dawg)
+        self.termswriter = TermsWriter(self.schema, ti, pw, dawgfile)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -484,14 +483,20 @@ class SegmentWriter(IndexWriter):
 
 
 class TermsWriter(object):
-    def __init__(self, schema, termsindex, postwriter, dawg, inlinelimit=1):
+    def __init__(self, schema, termsindex, postwriter, dawgfile, inlinelimit=1):
         self.schema = schema
         # This file maps terms to TermInfo structures
         self.termsindex = termsindex
         # This object writes postings to the posting file and keeps track of
         # 
         self.postwriter = postwriter
-        self.dawg = dawg
+        
+        self.dawgfile = dawgfile
+        if dawgfile:
+            self.dawg = DawgBuilder(reduce_root=False)
+        else:
+            self.dawg = None
+        
         # Posting lists with <= this number of postings will be inlined into
         # the terms index instead of being written to the posting file
         self.inlinelimit = inlinelimit
@@ -563,7 +568,7 @@ class TermsWriter(object):
         self.termsindex.close()
         self.postwriter.close()
         if self.dawg:
-            self.dawg.write()
+            self.dawg.write(self.dawgfile)
 
 
 def add_spelling(ix, fieldnames, commit=True):

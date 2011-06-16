@@ -31,7 +31,7 @@
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
-from whoosh.compat import xrange
+from whoosh.compat import xrange, string_type
 import whoosh.support.dawg as dawg
 from whoosh import analysis, fields, query, scoring
 from whoosh.support.levenshtein import distance
@@ -47,10 +47,8 @@ def simple_scorer(word, cost):
 
 
 class Corrector(object):
-    """This class allows you to generate suggested corrections for mis-typed
-    words based on a word list. Note that if you want to generate suggestions
-    based on the content of a field in an index, you should turn spelling on
-    for the field and use :func:`suggest` instead of this object.
+    """Base class for spelling correction objects. Concrete sub-classes should
+    implement the ``suggestions`` method.
     """
     
     def suggest(self, text, limit=5, maxdist=2, prefix=0):
@@ -135,22 +133,30 @@ class GraphCorrector(Corrector):
                                seen=seen):
             yield (ranking(sug, maxdist), sug)
     
-    def save(self, filename):
-        f = open(filename, "wb")
-        self.word_graph.write(f)
-        f.close()
+    def to_file(self, f):
+        """
+        
+        This method closes the file when it's done.
+        """
+        
+        root = self.word_graph
+        dawg.DawgBuilder.reduce(root)
+        dawg.DawgWriter(f).write(root)
     
     @classmethod
-    def from_word_list(cls, wordlist, ranking=None, fieldname=""):
-        dw = dawg.DawgBuilder()
+    def from_word_list(cls, wordlist, ranking=None, strip=True):
+        dw = dawg.DawgBuilder(reduced=False)
         for word in wordlist:
+            if strip:
+                word = word.strip()
             dw.insert(word)
+        dw.finish()
         return cls(dw.root, ranking=ranking)
     
     @classmethod
-    def from_graph_file(cls, dbfile, ranking=None, fieldname=""):
+    def from_graph_file(cls, dbfile, ranking=None):
         dr = dawg.DiskNode.load(dbfile)
-        return cls(dr.root, ranking=ranking)
+        return cls(dr, ranking=ranking)
     
 
 class MultiCorrector(Corrector):
@@ -166,13 +172,12 @@ class MultiCorrector(Corrector):
                 yield item
 
 
-def wordlist_to_graph_file(wordlist, dbfile):
+def wordlist_to_graph_file(wordlist, dbfile, strip=True):
     """Writes a word graph file from a list of words.
     
-    >>> # Open a dictionary file with one word on each line
-    >>> dictfile = open("mywords.txt")
-    >>> # Write the words to a word graph file
-    >>> wordlist_to_graph_file(dictfile, "mywords.dawg")
+    >>> # Open a word list file with one word on each line, and write the
+    >>> # word graph to a graph file
+    >>> wordlist_to_graph_file("mywords.txt", "mywords.dawg")
     
     :param wordlist: an iterable containing the words for the graph. The words
         must be in sorted order.
@@ -183,18 +188,20 @@ def wordlist_to_graph_file(wordlist, dbfile):
     
     from whoosh.filedb.structfile import StructFile
     
-    dw = dawg.DawgBuilder()
-    for word in wordlist:
-        dw.insert(word)
+    g = GraphCorrector.from_word_list(wordlist, strip=strip)
     
-    if isinstance(dbfile, basestring):
+    if isinstance(dbfile, string_type):
         dbfile = open(dbfile, "wb")
     if not isinstance(dbfile, StructFile):
         dbfile = StructFile(dbfile)
-    dw.write(dbfile)
-    dbfile.close()
+    
+    g.to_file(dbfile)
 
 
+#
+#
+#
+#
 # Old, obsolete spell checker - DO NOT USE
 
 class SpellChecker(object):
