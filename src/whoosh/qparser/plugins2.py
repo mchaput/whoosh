@@ -1,4 +1,4 @@
-# Copyright 2010 Matt Chaput. All rights reserved.
+# Copyright 2011 Matt Chaput. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -25,30 +25,39 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import re
+import copy
 
 from whoosh import query
 from whoosh.compat import iteritems, u
-from whoosh.qparser import default2 as default
 from whoosh.qparser import syntax2 as syntax
-from whoosh.qparser.common import get_single_text, rcompile, QueryParserError
+from whoosh.qparser.common import rcompile
+from whoosh.qparser.taggers import RegexTagger, FnTagger
 
 
 class Plugin(object):
-    def tokens(self, parser):
+    def taggers(self, parser):
         return ()
     
     def filters(self, parser):
         return ()
 
 
-class TokenizingPlugin(default.RegexToken):
+class TaggingPlugin(RegexTagger):
+    """A plugin that also acts as a tagger, to avoid having an extra tagger
+    class for simple cases.
+    
+    A TaggingPlugin object should have a ``priority`` attribute and either a
+    ``nodetype`` attribute or a ``create()`` method. If the subclass doesn't
+    override ``create()``, the base class will call ``self.nodetype`` with the
+    Match object's named groups as keyword arguments.
+    """
+    
     priority = 0
     
     def __init__(self, expr=None):
         self.expr = rcompile(expr or self.expr)
         
-    def tokens(self, parser):
+    def taggers(self, parser):
         return [(self, self.priority)]
     
     def filters(self, parser):
@@ -58,8 +67,7 @@ class TokenizingPlugin(default.RegexToken):
         return self.nodetype(**match.groupdict())
 
 
-
-class WhitespacePlugin(TokenizingPlugin):
+class WhitespacePlugin(TaggingPlugin):
     expr=r"\s+"
     priority = 100
     nodetype = syntax.Whitespace
@@ -68,7 +76,7 @@ class WhitespacePlugin(TokenizingPlugin):
         return [(self.remove_whitespace, 500)]
     
     def remove_whitespace(self, parser, group):
-        newgroup = group.empty()
+        newgroup = group.empty_copy()
         for node in group:
             if isinstance(node, syntax.GroupNode):
                 newgroup.append(self.remove_whitespace(parser, node))
@@ -77,12 +85,12 @@ class WhitespacePlugin(TokenizingPlugin):
         return newgroup
 
 
-class SingleQuotePlugin(TokenizingPlugin):
+class SingleQuotePlugin(TaggingPlugin):
     expr=r"(^|(?<=\W))'(?P<text>.*?)'(?=\s|\]|[)}]|$)"
     nodetype = syntax.WordNode
     
 
-class PrefixPlugin(TokenizingPlugin):
+class PrefixPlugin(TaggingPlugin):
     class PrefixNode(syntax.TextNode):
         qclass = query.Prefix
         
@@ -93,7 +101,7 @@ class PrefixPlugin(TokenizingPlugin):
     nodetype = PrefixNode
     
 
-class WildcardPlugin(TokenizingPlugin):
+class WildcardPlugin(TaggingPlugin):
     class WildcardNode(syntax.TextNode):
         qclass = query.Wildcard
         
@@ -104,7 +112,7 @@ class WildcardPlugin(TokenizingPlugin):
     nodetype = WildcardNode
            
 
-class BoostPlugin(TokenizingPlugin):
+class BoostPlugin(TaggingPlugin):
     class BoostNode(syntax.SyntaxNode):
         def __init__(self, original, boost):
             self.original = original
@@ -125,12 +133,23 @@ class BoostPlugin(TokenizingPlugin):
         return self.BoostNode(text, boost)
     
     def filters(self, parser):
-        return [(self.do_boost, 700)]
+        return [(self.clean_boost, 0), (self.do_boost, 700)]
+    
+    def clean_boost(self, parser, group):
+        bnode = self.BoostNode
+        for i, node in enumerate(group):
+            if isinstance(node, bnode):
+                if (not i or group[i - 1].is_ws()
+                    or isinstance(group[i - 1], bnode)):
+                    group[i] = syntax.WordNode(node.original)
+        return group
     
     def do_boost(self, parser, group):
-        newgroup = group.empty()
+        newgroup = group.empty_copy()
         for node in group:
-            if isinstance(node, self.BoostNode):
+            if isinstance(node, syntax.GroupNode):
+                node = self.do_boost(parser, node)
+            elif isinstance(node, self.BoostNode):
                 if (newgroup
                     and not (newgroup[-1].is_ws()
                              or isinstance(newgroup[-1], self.BoostNode))):
@@ -138,9 +157,6 @@ class BoostPlugin(TokenizingPlugin):
                     continue
                 else:
                     node = syntax.WordNode(node.original)
-            else:
-                if isinstance(node, syntax.GroupNode):
-                    node = self.do_boost(parser, node)
             
             newgroup.append(node)
         return newgroup
@@ -159,9 +175,9 @@ class GroupPlugin(Plugin):
         self.openexpr = openexpr
         self.closeexpr = closeexpr
     
-    def tokens(self, parser):
-        return [(default.FnToken(self.openexpr, self.openbracket), 0),
-                (default.FnToken(self.closeexpr, self.closebracket), 0)]
+    def taggers(self, parser):
+        return [(FnTagger(self.openexpr, self.openbracket), 0),
+                (FnTagger(self.closeexpr, self.closebracket), 0)]
         
     def filters(self, parser):
         return [(self.do_groups, 0)]
@@ -192,28 +208,28 @@ class GroupPlugin(Plugin):
         return top
 
 
-class FieldsPlugin(TokenizingPlugin):
+class FieldsPlugin(TaggingPlugin):
     def __init__(self, expr=r"(?P<text>\w+):", remove_unknown=True):
         self.expr = expr
         self.removeunknown = remove_unknown
     
-    def tokens(self, parser):
-        return [(self.FieldnameToken(self.expr), 0)]
+    def taggers(self, parser):
+        return [(self.FieldnameTagger(self.expr), 0)]
     
     def filters(self, parser):
         return [(self.do_fieldnames, 100)]
     
     def do_fieldnames(self, parser, group):
-        fnclass = self.FieldnameNode
+        fnclass = syntax.FieldnameNode
         
         if self.removeunknown and parser.schema:
-            # Look for field tokens that aren't in the schema and convert them
+            # Look for field nodes that aren't in the schema and convert them
             # to text
             schema = parser.schema
-            newgroup = group.empty()
+            newgroup = group.empty_copy()
             text = None
             for node in group:
-                if isinstance(node, fnclass) and node.text not in schema:
+                if isinstance(node, fnclass) and node.fieldname not in schema:
                     text = node.original
                     continue
                 elif text:
@@ -221,13 +237,16 @@ class FieldsPlugin(TokenizingPlugin):
                         node.text = text + node.text
                     else:
                         newgroup.append(syntax.WordNode(text))
+                    text = None
                 
                 newgroup.append(node)
+            if text:
+                newgroup.append(syntax.WordNode(text))
             group = newgroup
         
-        newgroup = group.empty()
+        newgroup = group.empty_copy()
         # Iterate backwards through the stream, looking for field-able objects
-        # with field tokens in front of them
+        # with field nodes in front of them
         i = len(group)
         while i > 0:
             i -= 1
@@ -238,40 +257,29 @@ class FieldsPlugin(TokenizingPlugin):
                 node = self.do_fieldnames(parser, node)
             
             if i > 0 and not node.is_ws() and isinstance(group[i - 1], fnclass):
-                node.set_fieldname(group[i - 1].text, override=False)
+                node.set_fieldname(group[i - 1].fieldname, override=False)
                 i -= 1
             
             newgroup.append(node)
         newgroup.reverse()
         return newgroup
     
-    class FieldnameToken(default.RegexToken):
+    class FieldnameTagger(RegexTagger):
         def create(self, parser, match):
-            return FieldsPlugin.FieldnameNode(match.group("text"),
-                                              match.group(0))
+            return syntax.FieldnameNode(match.group("text"), match.group(0))
     
-    class FieldnameNode(syntax.SyntaxNode):
-        def __init__(self, text, original):
-            self.text = text
-            self.original = original
-            self.startchar = None
-            self.endchar = None
-            
-        def r(self):
-            return "<%s:>" % self.text
-
 
 class PhrasePlugin(Plugin):
-    # Didn't use TokenizingPlugin because I need to add slop parsing at some
+    # Didn't use TaggingPlugin because I need to add slop parsing at some
     # point
     
     def __init__(self, expr='"(?P<text>.*?)"'):
         self.expr = expr
     
-    def tokens(self, parser):
-        return [(self.PhraseToken(self.expr), 0)]
+    def taggers(self, parser):
+        return [(self.PhraseTagger(self.expr), 0)]
     
-    class PhraseToken(default.RegexToken):
+    class PhraseTagger(RegexTagger):
         def create(self, parser, match):
             return PhrasePlugin.PhraseNode(match.group("text"))
     
@@ -300,9 +308,9 @@ class PhrasePlugin(Plugin):
     
 
 class RangePlugin(Plugin):
-    class BracketToken(default.RegexToken):
+    class BracketTagger(RegexTagger):
         def __init__(self, expr, btype):
-            default.RegexToken.__init__(self, expr)
+            RegexTagger.__init__(self, expr)
             self.btype = btype
         
         def create(self, parser, match):
@@ -322,21 +330,15 @@ class RangePlugin(Plugin):
     def __init__(self):
         pass
     
-    def tokens(self, parser):
-        return [(self.BracketToken(r"\[|\{", self.rangeopen), 1),
-                (self.BracketToken(r"\]|\}", self.rangeclose), 1)]
+    def taggers(self, parser):
+        return [(self.BracketTagger(r"\[|\{", self.rangeopen), 1),
+                (self.BracketTagger(r"\]|\}", self.rangeclose), 1)]
     
     def filters(self, parser):
         return [(self.do_ranges, 10)]
     
-    def is_before(self, node):
-        return not (self.is_to(node) or isinstance(node, self.rangeclose))
-    
-    def is_to(self, node):
-        return node.has_text and node.text.lower() == "to"
-    
-    def is_after(self, node):
-        return not isinstance(node, self.rangeclose)
+    def is_to(self, text):
+        return text.lower() == "to"
     
     @classmethod
     def is_exclusive(cls, brackettext):
@@ -345,64 +347,51 @@ class RangePlugin(Plugin):
     def take_range(self, group, i):
         assert isinstance(group[i], self.rangeopen)
         open = group[i]
-        i += 1
         
-        before = []
-        while i < len(group) and self.is_before(group[i]):
-            before.append(group[i])
-            i += 1
-            
-        if i == len(group) or not self.is_to(group[i]):
-            return
-        i += 1
-        
-        after = []
-        while i < len(group) and self.is_after(group[i]):
-            after.append(group[i])
-            i += 1
-            
-        if i == len(group):
-            return
-        
-        assert isinstance(group[i], self.rangeclose)
-        close = group[i]
-        return (before, after, open, close, i + 1)
-    
-    def fix_nodes(self, nodelist):
-        while nodelist and nodelist[0].is_ws():
-            del nodelist[0]
-        while nodelist and nodelist[-1].is_ws():
-            del nodelist[-1]
-        
-        if not nodelist:
-            return None
+        texts = []
+        j = i + 1
+        while j < len(group):
+            node = group[j]
+            if isinstance(node, self.rangeclose):
+                break
+            if node.has_text and not node.is_ws():
+                texts.append(node.text)
+            j += 1
         else:
-            return self.to_placeholder(nodelist)
-    
+            return
+        
+        close = group[j]
+        k = j + 1
+        if len(texts) == 1 and self.is_to(texts[0]):
+            return (open, None, None, close, k)
+        elif len(texts) == 2 and self.is_to(texts[0]):
+            return (open, None, texts[1], close, k)
+        elif len(texts) == 2 and self.is_to(texts[1]):
+            return (open, texts[0], None, close, k)
+        elif len(texts) == 3 and self.is_to(texts[1]):
+            return (open, texts[0], texts[2], close, k)
+        
+        return
+        
     def to_placeholder(self, nodelist):
         return syntax.Placeholder.from_nodes(nodelist)
     
     def do_ranges(self, parser, group):
         i = 0
         ropen, rclose = self.rangeopen, self.rangeclose
-        newgroup = group.empty()
+        newgroup = group.empty_copy()
         while i < len(group):
             node = group[i]
             if isinstance(node, ropen):
                 rnodes = self.take_range(group, i)
                 if rnodes:
-                    before, after, open, close, newi = rnodes
-                    before = self.fix_nodes(before)
-                    after = self.fix_nodes(after)
-                    
-                    if before or after:
-                        range = syntax.RangeNode(before, after, open.excl,
-                                                 close.excl)
-                        range.startchar = open.startchar
-                        range.endchar = close.endchar
-                        newgroup.append(range)
-                        i = newi
-                        continue
+                    open, start, end, close, newi = rnodes
+                    range = syntax.RangeNode(start, end, open.excl, close.excl)
+                    range.startchar = open.startchar
+                    range.endchar = close.endchar
+                    newgroup.append(range)
+                    i = newi
+                    continue
             
             if node.__class__ not in (ropen, rclose):
                 newgroup.append(node)
@@ -412,10 +401,10 @@ class RangePlugin(Plugin):
 
 
 class OperatorsPlugin(Plugin):
-    class OpToken(default.RegexToken):
+    class OpTagger(RegexTagger):
         def __init__(self, expr, grouptype, optype=syntax.InfixOperator,
                      leftassoc=True):
-            default.RegexToken.__init__(self, expr)
+            RegexTagger.__init__(self, expr)
             self.grouptype = grouptype
             self.optype = optype
             self.leftassoc = leftassoc
@@ -432,55 +421,206 @@ class OperatorsPlugin(Plugin):
             ops = []
         
         if not clean:
-            otoken = self.OpToken
+            otagger = self.OpTagger
             if Not:
-                ops.append((otoken(Not, syntax.NotGroup, syntax.PrefixOperator), 0))
+                ops.append((otagger(Not, syntax.NotGroup, syntax.PrefixOperator), 0))
             if And:
-                ops.append((otoken(And, syntax.AndGroup), 0))
-            if AndNot:
-                ops.append((otoken(AndNot, syntax.AndNotGroup), -5))
-            if AndMaybe:
-                ops.append((otoken(AndMaybe, syntax.AndMaybeGroup), -5))
+                ops.append((otagger(And, syntax.AndGroup), 0))
             if Or:
-                ops.append((otoken(Or, syntax.OrGroup), 0))
+                ops.append((otagger(Or, syntax.OrGroup), 0))
+            if AndNot:
+                ops.append((otagger(AndNot, syntax.AndNotGroup), -5))
+            if AndMaybe:
+                ops.append((otagger(AndMaybe, syntax.AndMaybeGroup), -5))
             if Require:
-                ops.append((otoken(Require, syntax.RequireGroup), 0))
+                ops.append((otagger(Require, syntax.RequireGroup), 0))
         
         self.ops = ops
     
-    def tokens(self, parser):
+    def taggers(self, parser):
         return self.ops
     
     def filters(self, parser):
         return [(self.do_operators, 600)]
     
     def do_operators(self, parser, group):
-        # Do left associative operators forward
-        i = 0
-        while i < len(group):
-            node = group[i]
-            if isinstance(node, syntax.Operator) and node.leftassoc:
-                i = node.replace_self(parser, group, i)
+        for tagger, _ in self.ops:
+            optype = tagger.optype
+            gtype = tagger.grouptype
+            if tagger.leftassoc:
+                i = 0
+                while i < len(group):
+                    t = group[i]
+                    if isinstance(t, optype) and t.grouptype is gtype:
+                        i = t.replace_self(parser, group, i)
+                    else:
+                        i += 1
             else:
-                i += 1
+                i = len(group) - 1
+                while i >= 0:
+                    t = group[i]
+                    if isinstance(t, optype):
+                        i = t.replace_self(parser, group, i)
+                    i -= 1
         
-        # Do right associative operators in reverse
-        i = len(group) - 1
-        while i >= 0:
-            node = group[i]
-            if isinstance(node, syntax.Operator) and not node.leftassoc:
-                i = node.replace_self(parser, group, i)
-            i -= 1
-        
-        for i, node in enumerate(group):
-            if isinstance(node, syntax.GroupNode):
-                group[i] = self.do_operators(parser, node)
+        for i, t in enumerate(group):
+            if isinstance(t, syntax.GroupNode):
+                group[i] = self.do_operators(parser, t)
         
         return group
     
 
+#
+
+class PlusMinusPlugin(Plugin):
+    class plus(syntax.SyntaxNode): pass
+    class minus(syntax.SyntaxNode): pass
+    
+    def __init__(self, plusexpr="\\+", minusexpr="-"):
+        self.plusexpr = plusexpr
+        self.minusexpr = minusexpr
+    
+    def taggers(self, parser):
+        return [(FnTagger(self.plusexpr, self.plus), 0),
+                (FnTagger(self.minusexpr, self.minus), 0)]
+    
+    def filters(self, parser):
+        return [(self.do_plusminus, 510)]
+    
+    def do_plusminus(self, parser, group):
+        required = syntax.AndGroup()
+        optional = syntax.OrGroup()
+        banned = syntax.OrGroup()
+
+        next = optional
+        for node in group:
+            if isinstance(node, self.plus):
+                next = required
+            elif isinstance(node, self.minus):
+                next = banned
+            else:
+                next.append(node)
+                next = optional
+        
+        group = optional
+        if required:
+            group = syntax.AndMaybeGroup([required, group])
+        if banned:
+            group = syntax.AndNotGroup([group, banned])
+        return group
 
 
+class GtLtPlugin(TaggingPlugin):
+    class GtLtNode(syntax.SyntaxNode):
+        def __init__(self, rel):
+            self.rel = rel
+        
+        def __repr__(self):
+            return "(%s)" % self.rel
+        
+    expr=r"(?P<rel>(<=|>=|<|>|=<|=>))"
+    nodetype = GtLtNode
+    
+    def filters(self, parser):
+        return [(self.do_gtlt, 99)]
+    
+    def do_gtlt(self, parser, group):
+        gtltnode = self.GtLtNode
+        newgroup = group.empty_copy()
+        prev = None
+        for node in group:
+            if isinstance(node, gtltnode):
+                if isinstance(prev, syntax.FieldnameNode):
+                    prev = node
+                else:
+                    prev = None
+                continue
+            elif node.has_text and isinstance(prev, gtltnode):
+                node = self.make_range(node.text, prev.rel)
+            newgroup.append(node)
+        return newgroup
+            
+    def make_range(self, text, rel):
+        if rel == "<":
+            return syntax.RangeNode(None, text, False, True)
+        elif rel == ">":
+            return syntax.RangeNode(text, None, True, False)
+        elif rel == "<=" or rel == "=<":
+            return syntax.RangeNode(None, text, False, False)
+        elif rel == ">=" or rel == "=>":
+            return syntax.RangeNode(text, None, False, False)
+
+
+class MultifieldPlugin(Plugin):
+    def __init__(self, fieldnames, fieldboosts=None, group=syntax.OrGroup):
+        self.fieldnames = fieldnames
+        self.boosts = fieldboosts or {}
+        self.group = group
+    
+    def filters(self, parser):
+        return [(self.do_multifield, 110)]
+    
+    def do_multifield(self, parser, group):
+        for i, node in enumerate(group):
+            if isinstance(node, syntax.GroupNode):
+                group[i] = self.do_multifield(parser, node)
+            elif node.has_fieldname and node.fieldname is None:
+                newnodes = []
+                for fname in self.fieldnames:
+                    newnode = copy.copy(node)
+                    newnode.set_fieldname(fname)
+                    newnode.set_boost(self.boosts.get(fname, 1.0))
+                    newnodes.append(newnode)
+                group[i] = self.group(newnodes)
+        return group
+
+
+class FieldAliasPlugin(Plugin):
+    def __init__(self, fieldmap):
+        self.fieldmap = fieldmap
+        self.reverse = {}
+        for key, values in iteritems(fieldmap):
+            for value in values:
+                self.reverse[value] = key
+    
+    def filters(self, parser):
+        return [(self.do_aliases, 90)]
+    
+    def do_aliases(self, parser, group):
+        for i, node in enumerate(group):
+            if isinstance(node, syntax.GroupNode):
+                group[i] = self.do_aliases(parser, node)
+            elif node.has_fieldname and node.fieldname is not None:
+                fname = node.fieldname
+                if fname in self.reverse:
+                    node.set_fieldname(self.reverse[fname], override=True)
+        return group
+
+
+class CopyFieldPlugin(Plugin):
+    def __init__(self, map, mirror=False):
+        self.map = map
+        if mirror:
+            # Add in reversed mappings
+            map.update(dict((v, k) for k, v in iteritems(map)))
+    
+    def filters(self, parser):
+        return [(self.do_copyfield, 109)]
+    
+    def do_copyfield(self, parser, group):
+        map = self.map
+        newgroup = group.empty_copy()
+        for node in group:
+            if isinstance(node, syntax.GroupNode):
+                node = self.do_copyfield(parser, node)
+            elif node.has_fieldname:
+                fname = node.fieldname or parser.fieldname
+                if fname in map:
+                    newnode = copy.copy(node)
+                    newnode.set_fieldname(map[fname], override=True)
+                    newgroup.append(newnode)
+            newgroup.append(node)
+        return newgroup
 
 
 
