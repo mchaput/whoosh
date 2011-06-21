@@ -359,7 +359,6 @@ class SegmentWriter(IndexWriter):
         self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
-        #print "%f" % (now() - t)
     
     #def update_document(self, **fields):
     

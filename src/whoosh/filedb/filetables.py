@@ -941,39 +941,5 @@ class FileTermInfo(TermInfo):
         return dbfile.get_float(weightspos + _FLOAT_SIZE)
     
 
-# Utility functions
-
-#def dump_hash(hashreader):
-#    dbfile = hashreader.dbfile
-#    read = hashreader.read
-#    eod = hashreader._start_of_hashes
-#
-#    print "HEADER_SIZE=", hashreader.header_size, "eod=", eod
-#
-#    # Dump hashtables
-#    for bucketnum in xrange(256):
-#        pos, numslots = unpack_header_entry(read(bucketnum * header_entry_size, header_entry_size))
-#        if numslots:
-#            print "Bucket %d: %d slots" % (bucketnum, numslots)
-#
-#            dbfile.seek(pos)
-#            for _ in xrange(0, numslots):
-#                print "  %X : %d" % hashreader.unpack_pointer(read(pos, pointer_size))
-#                pos += pointer_size
-#        else:
-#            print "Bucket %d empty: %s, %s" % (bucketnum, pos, numslots)
-#
-#    # Dump keys and values
-#    print "-----"
-#    pos = hashreader.header_size
-#    dbfile.seek(pos)
-#    while pos < eod:
-#        keylen, datalen = unpack_lengths(read(pos, lengths_size))
-#        keypos = pos + lengths_size
-#        datapos = pos + lengths_size + keylen
-#        key = read(keypos, keylen)
-#        data = read(datapos, datalen)
-#        print "%d +%d,%d:%r->%r" % (pos, keylen, datalen, key, data)
-#        pos = datapos + datalen
 
 

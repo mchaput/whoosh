@@ -1499,7 +1499,7 @@ class Hit(object):
                 print "Top 3 similar documents:"
                 for subhit in hit.more_like_this("content", top=3):
                   print "  ", subhit["title"]
-                  
+        
         :param fieldname: the name of the field to use to test similarity.
         :param text: by default, the method will attempt to load the contents
             of the field from the stored fields for the document, or from a

@@ -1,4 +1,4 @@
-# Copyright 2010 Matt Chaput. All rights reserved.
+# Copyright 2011 Matt Chaput. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -51,7 +51,7 @@ class SyntaxNode(object):
     def __repr__(self):
         r = "<"
         if self.has_fieldname:
-            r += "%s:" % self.fieldname
+            r += "%r:" % self.fieldname
         r += self.r()
         if self.has_boost and self.boost != 1.0:
             r += " ^%s" % self.boost
@@ -71,7 +71,7 @@ class SyntaxNode(object):
         return fn_wrapper(self)
     
     def query(self, parser):
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
     
     def is_ws(self):
         return False
@@ -102,6 +102,19 @@ class Whitespace(MarkerNode):
         return True
 
 
+class FieldnameNode(SyntaxNode):
+    has_fieldname = True
+    
+    def __init__(self, fieldname, original):
+        self.fieldname = fieldname
+        self.original = original
+        self.startchar = None
+        self.endchar = None
+        
+    def r(self):
+        return "(%r:)" % self.fieldname
+
+
 class GroupNode(SyntaxNode):
     has_boost = True
     merging = True
@@ -129,10 +142,10 @@ class GroupNode(SyntaxNode):
                               boost=self.boost, **self.kwargs)
     
     def query(self, parser):
-        return self.qclass([t.query(parser) for t in self.tokens],
+        return self.qclass([node.query(parser) for node in self.nodes],
                            boost=self.boost, **self.kwargs)
 
-    def empty(self):
+    def empty_copy(self):
         c = self.__class__(**self.kwargs)
         if self.has_boost:
             c.boost = self.boost
@@ -166,6 +179,9 @@ class GroupNode(SyntaxNode):
     def __setitem__(self, n, v):
         self.nodes.__setitem__(n, v)
     
+    def __delitem__(self, n):
+        self.nodes.__delitem__(n)
+    
     def insert(self, n, v):
         self.nodes.insert(n, v)
     
@@ -195,8 +211,22 @@ class Wrapper(GroupNode):
     merging = False
     
     def query(self, parser):
-        assert len(self.nodes) == 1
         return self.qclass(self.nodes[0].query(parser))
+
+
+class ErrorNode(SyntaxNode):
+    def __init__(self, message, node=None):
+        Wrapper.__init__(self, node)
+        self.message = message
+    
+    def r(self):
+        return "ERR %r %r" % (self.node, self.message)
+    
+    def query(self, parser):
+        if self.node:
+            return self.nodes[0].query(parser)
+        else:
+            return query.NullQuery
 
 
 class AndGroup(GroupNode):
@@ -235,10 +265,10 @@ class NotGroup(Wrapper):
 class RangeNode(SyntaxNode):
     has_fieldname = True
     
-    def __init__(self, startnode, endnode, startexcl, endexcl):
-        self.startnode = startnode
-        self.endnode = endnode
-        self.nodes = [startnode, endnode]
+    def __init__(self, start, end, startexcl, endexcl):
+        self.start = Placeholder(start) if start is not None else None
+        self.end = Placeholder(end) if end is not None else None
+        self.nodes = [self.start, self.end]
         self.startexcl = startexcl
         self.endexcl = endexcl
         self.boost = 1.0
@@ -248,7 +278,7 @@ class RangeNode(SyntaxNode):
     def r(self):
         b1 = "{" if self.startexcl else "["
         b2 = "}" if self.startexcl else "]"
-        return "%s%r %r%s" % (b1, self.startnode, self.endnode, b2)
+        return "%s%r %r%s" % (b1, self.start, self.end, b2)
     
     def apply(self, fn):
         return self.__class__(fn(self.startnode), fn(self.endnode),
@@ -256,10 +286,8 @@ class RangeNode(SyntaxNode):
         
     def query(self, parser):
         fieldname = self.fieldname or parser.fieldname
-        startnode, endnode = self.startnode, self.endnode
-        if not (startnode.has_text and endnode.has_text):
-            raise SyntaxError("Not all nodes in range %r have text" % self)
-        start, end = startnode.text, endnode.text
+        start = None if self.start is None else self.start.text
+        end = None if self.end is None else self.end.text
         
         if parser.schema and fieldname in parser.schema:
             field = parser.schema[fieldname]
@@ -271,13 +299,13 @@ class RangeNode(SyntaxNode):
                     if q is not None:
                         return q
                 except QueryParserError:
-                    pass
+                    return query.NullQuery
             
             if start:
-                start = get_single_text(fieldname, start, tokenize=False,
+                start = get_single_text(field, start, tokenize=False,
                                         removestops=False)
             if end:
-                end = get_single_text(fieldname, end, tokenize=False,
+                end = get_single_text(field, end, tokenize=False,
                                       removestops=False)
         
         return query.TermRange(fieldname, start, end, self.startexcl,

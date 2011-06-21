@@ -1,4 +1,4 @@
-# Copyright 2010 Matt Chaput. All rights reserved.
+# Copyright 2011 Matt Chaput. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -26,40 +26,9 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from whoosh import query
+from whoosh.qparser import plugins2 as plugins
 from whoosh.qparser import syntax2 as syntax
 from whoosh.qparser.common import rcompile, QueryParserError
-
-
-# Tokenizer objects
-
-class Token(object):
-    def match(self, parser, text, pos):
-        raise NotImplementedError
-    
-
-class RegexToken(Token):
-    def __init__(self, expr):
-        self.expr = rcompile(expr)
-        
-    def match(self, parser, text, pos):
-        match = self.expr.match(text, pos)
-        if match:
-            node = self.create(parser, match)
-            node.startchar = match.start()
-            node.endchar = match.end()
-            return node
-        
-    def create(self, parser, match):
-        raise NotImplementedError
-
-
-class FnToken(RegexToken):
-    def __init__(self, expr, fn):
-        RegexToken.__init__(self, expr)
-        self.fn = fn
-    
-    def create(self, parser, match):
-        return self.fn(**match.groupdict())
 
 
 # Query parser object
@@ -72,10 +41,68 @@ class QueryParser(object):
                  phraseclass=query.Phrase, group=syntax.AndGroup):
         self.fieldname = fieldname
         self.schema = schema
-        self.plugins = plugins
         self.termclass = termclass
         self.phraseclass = phraseclass
         self.group = group
+        
+        self.plugins = []
+        if not plugins:
+            plugins = self.default_set()
+        self.add_plugins(plugins)
+
+    def default_set(self):
+        return [plugins.WhitespacePlugin,
+                plugins.SingleQuotePlugin,
+                plugins.FieldsPlugin,
+                plugins.WildcardPlugin,
+                plugins.PhrasePlugin,
+                plugins.RangePlugin,
+                plugins.GroupPlugin,
+                plugins.OperatorsPlugin,
+                plugins.BoostPlugin,
+                ]
+
+    def add_plugins(self, pilist):
+        """Adds the given list of plugins to the list of plugins in this
+        parser.
+        """
+        
+        for pi in pilist:
+            self.add_plugin(pi)
+    
+    def add_plugin(self, pi):
+        """Adds the given plugin to the list of plugins in this parser.
+        """
+        
+        if isinstance(pi, type):
+            pi = pi()
+        self.plugins.append(pi)
+    
+    def remove_plugin(self, pi):
+        """Removes the given plugin object from the list of plugins in this
+        parser.
+        """
+        
+        self.plugins.remove(pi)
+    
+    def remove_plugin_class(self, cls):
+        """Removes any plugins of the given class from this parser.
+        """
+        
+        self.plugins = [pi for pi in self.plugins if not isinstance(pi, cls)]
+    
+    def replace_plugin(self, plugin):
+        """Removes any plugins of the class of the given plugin and then adds
+        it. This is a convenience method to keep from having to call
+        ``remove_plugin_class`` followed by ``add_plugin`` each time you want
+        to reconfigure a default plugin.
+        
+        >>> qp = qparser.QueryParser("content", schema)
+        >>> qp.replace_plugin(qparser.NotPlugin("(^| )-"))
+        """
+        
+        self.remove_plugin_class(plugin.__class__)
+        self.add_plugin(plugin)
 
     def _priorized(self, methodname):
         items_and_priorities = []
@@ -133,16 +160,16 @@ class QueryParser(object):
         
         return termclass(fieldname, text, boost=boost)
 
-    def tokens(self):
-        return self._priorized("tokens")
+    def taggers(self):
+        return self._priorized("taggers")
     
     def filters(self):
         return self._priorized("filters")
     
-    def tokenize(self, text, i=0):
+    def tag(self, text, i=0):
         stack = []
         prev = i
-        tokens = self.tokens()
+        taggers = self.taggers()
         
         def inter(startchar, endchar):
             n = syntax.WordNode(text[startchar:endchar])
@@ -152,11 +179,11 @@ class QueryParser(object):
         
         while i < len(text):
             node = None
-            for token in tokens:
-                node = token.match(self, text, i)
+            for tagger in taggers:
+                node = tagger.match(self, text, i)
                 if node:
                     if node.endchar <= i:
-                        raise Exception("Token %r did not move cursor forward. (%r, %s)" % (token, text, i))
+                        raise Exception("Token %r did not move cursor forward. (%r, %s)" % (tagger, text, i))
                     if prev < i:
                         stack.append(inter(prev, i))
                     
@@ -180,12 +207,78 @@ class QueryParser(object):
         return nodes
 
     def process(self, text, i=0):
-        return self.filterize(self.tokenize(text, i=i))
+        nodes = self.tag(text, i=i)
+        nodes = self.filterize(nodes)
+        return nodes
+
+    def parse(self, text, normalize=True):
+        tree = self.process(text)
+        q = tree.query(self)
+        if normalize:
+            q = q.normalize()
+        return q
 
 
+class ParserState(object):
+    def __init__(self, parser, text):
+        self.parser = parser
+        self.fieldname = parser.fieldname
+        self.schema = parser.schema
+        self.termclass = parser.termclass
+        self.phraseclass = parser.phraseclass
+        self.group = parser.group
+        self.text = text
 
 
+# Premade parser configurations
 
+def MultifieldParser(fieldnames, schema, fieldboosts=None, **kwargs):
+    """Returns a QueryParser configured to search in multiple fields.
+    
+    Instead of assigning unfielded clauses to a default field, this parser
+    transforms them into an OR clause that searches a list of fields. For
+    example, if the list of multi-fields is "f1", "f2" and the query string is
+    "hello there", the class will parse "(f1:hello OR f2:hello) (f1:there OR
+    f2:there)". This is very useful when you have two textual fields (e.g.
+    "title" and "content") you want to search by default.
+    
+    :param fieldnames: a list of field names to search.
+    :param fieldboosts: an optional dictionary mapping field names to boosts.
+    """
+    
+    p = QueryParser(None, schema, **kwargs)
+    mfp = plugins.MultifieldPlugin(fieldnames, fieldboosts=fieldboosts)
+    p.add_plugin(mfp)
+    return p
+
+
+def SimpleParser(fieldname, schema, **kwargs):
+    """Returns a QueryParser configured to support only +, -, and phrase
+    syntax.
+    """
+    
+    pis = [plugins.WhitespacePlugin,
+           plugins.PlusMinusPlugin,
+           plugins.PhrasePlugin]
+    return QueryParser(fieldname, schema, plugins=pis, **kwargs)
+
+
+def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
+    """Returns a QueryParser configured to support only +, -, and phrase
+    syntax, and which converts individual terms into DisjunctionMax queries
+    across a set of fields.
+    
+    :param fieldboosts: a dictionary mapping field names to boosts.
+    """
+    
+    mfp = plugins.MultifieldPlugin(list(fieldboosts.keys()),
+                                   fieldboosts=fieldboosts,
+                                   group=syntax.DisMaxGroup)
+    pis = [plugins.WhitespacePlugin,
+           plugins.PlusMinusPlugin,
+           plugins.PhrasePlugin,
+           mfp]
+    return QueryParser(None, schema, plugins=pis, **kwargs)
 
 
 

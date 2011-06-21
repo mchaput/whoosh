@@ -405,26 +405,6 @@ class MemPool(PoolBase):
         termswriter.add_iter(self.postbuf, lengths.get)
 
 
-#class UnixSortPool(PoolBase):
-#    def __init__(self, schema, dir=None, basename='', limitmb=32, **kwargs):
-#        super(UnixSortPool, self).__init__(schema, dir=dir, basename=basename)
-#        self._make_dir()
-#        fd, self.filename = tempfile.mkstemp(".run", dir=self.dir)
-#        self.sortfile = os.fdopen(fd, "wb")
-#        self.linebuffer = []
-#        self.bufferlimit = 100
-#        
-#    def add_posting(self, *args):
-#        self.sortfile.write(b64encode(dumps(args)) + "\n")
-#        
-#    def finish(self, termswriter, doccount, lengthfile):
-#        self.sortfile.close()
-#        from whoosh.util import now
-#        print "Sorting file...", self.filename
-#        t = now()
-#        outpath = os.path.join(os.path.dirname(self.filename), "sorted.txt")
-#        os.system("sort %s >%s" % (self.filename, outpath))
-#        print "...took", now() - t
 
     
     
