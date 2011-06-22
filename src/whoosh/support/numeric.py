@@ -124,15 +124,6 @@ def text_to_float(text, signed=True):
 
 
 # Functions for converting sortable representations to and from text.
-#
-# These functions use hexadecimal strings to encode the numbers, rather than
-# converting them to text using a 7-bit encoding, because while the hex
-# representation uses more space (8 bytes as opposed to 5 bytes for a 32 bit
-# number), it's 5-10 times faster to encode/decode in Python.
-#
-# The functions for 7 bit encoding are still available (to_7bit and from_7bit)
-# if needed.
-
 
 def sortable_int_to_text(x, shift=0):
     if shift:
