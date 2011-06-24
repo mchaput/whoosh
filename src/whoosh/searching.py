@@ -32,6 +32,7 @@
 from __future__ import division
 import copy
 import threading
+import weakref
 from collections import defaultdict, deque
 from heapq import heappush, heapreplace
 from math import ceil
@@ -75,7 +76,7 @@ class Searcher(object):
         self._ix = fromindex
         
         if parent:
-            self.parent = parent
+            self.parent = weakref.ref(parent)
             self.schema = parent.schema
             self._doccount = parent._doccount
             self._idf_cache = parent._idf_cache
@@ -133,13 +134,13 @@ class Searcher(object):
 
     def field_length(self, fieldname):
         if self.parent:
-            return self.parent.field_length(fieldname)
+            return self.parent().field_length(fieldname)
         else:
             return self.reader().field_length(fieldname)
         
     def max_field_length(self, fieldname):
         if self.parent:
-            return self.parent.max_field_length(fieldname)
+            return self.parent().max_field_length(fieldname)
         else:
             return self.reader().max_field_length(fieldname)
 
@@ -201,7 +202,7 @@ class Searcher(object):
             # on an empty index.
             return None
         
-        s = self.parent if self.parent else self
+        s = self.parent() if self.parent else self
         return self.weighting.scorer(s, fieldname, text, qf=qf)
 
     def postings(self, fieldname, text, qf=1):
