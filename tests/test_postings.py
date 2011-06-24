@@ -81,17 +81,6 @@ def test_existence_postings():
     
     assert_equal(postings, roundtrip(postings, Existence(None), "frequency"))
 
-def test_docboost_postings():
-    postings = []
-    docnum = 0
-    for _ in xrange(0, 20):
-        docnum += randint(1, 10)
-        freq = randint(1, 1000)
-        boost = byte_to_float(float_to_byte(random() * 2))
-        postings.append((docnum, (freq, boost)))
-
-    assert_equal(postings, roundtrip(postings, DocBoosts(None), "docboosts"))
-    
 def test_position_postings():
     postings = []
     docnum = 0
