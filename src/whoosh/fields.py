@@ -394,7 +394,7 @@ class NUMERIC(FieldType):
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        from whoosh.qparser import QueryParserError
+        from whoosh.qparser.common import QueryParserError
         
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
@@ -409,7 +409,7 @@ class NUMERIC(FieldType):
     
     def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
         from whoosh import query
-        from whoosh.qparser import QueryParserError
+        from whoosh.qparser.common import QueryParserError
         
         try:
             if start is not None:
@@ -474,8 +474,8 @@ class DATETIME(NUMERIC):
         return super(DATETIME, self).to_text(x, shift=shift)
     
     def _parse_datestring(self, qstring):
-        # This method does parses a very simple datetime representation of
-        # the form YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
+        # This method parses a very simple datetime representation of the form
+        # YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
         from whoosh.support.times import adatetime, fix, is_void
         
         qstring = qstring.replace(" ", "").replace("-", "").replace(".", "")

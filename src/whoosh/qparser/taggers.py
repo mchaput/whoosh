@@ -31,11 +31,28 @@ from whoosh.qparser.common import rcompile
 # Tagger objects
 
 class Tagger(object):
+    """Base class for taggers, objects which match syntax in the query string
+    and translate it into a :class:`whoosh.qparser.syntax.SyntaxNode` object.
+    """
+    
     def match(self, parser, text, pos):
+        """This method should see if this tagger matches the query string at
+        the given position. If it matches, it should return 
+        
+        :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
+        :param text: the text being parsed.
+        :param pos: the position in the text at which the tagger should try to
+            match.
+        """
+        
         raise NotImplementedError
 
 
 class RegexTagger(Tagger):
+    """Tagger class that uses regular expressions to match the query string.
+    Subclasses should override ``create()`` instead of ``match()``.
+    """
+    
     def __init__(self, expr):
         self.expr = rcompile(expr)
         
@@ -48,13 +65,32 @@ class RegexTagger(Tagger):
             return node
         
     def create(self, parser, match):
+        """When the regular expression matches, this method is called to
+        translate the regex match object into a syntax node.
+        
+        :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
+        :param match: the regex match object.
+        """
+        
         raise NotImplementedError
 
 
 class FnTagger(RegexTagger):
+    """Tagger that takes a regular expression and a class or function, and for
+    matches calls the class/function with the regex match's named groups as
+    keyword arguments.
+    """
+    
     def __init__(self, expr, fn):
         RegexTagger.__init__(self, expr)
         self.fn = fn
     
     def create(self, parser, match):
         return self.fn(**match.groupdict())
+
+
+
+
+
+
+

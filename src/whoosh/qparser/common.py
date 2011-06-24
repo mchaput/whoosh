@@ -40,15 +40,23 @@ class QueryParserError(Exception):
         self.cause = cause
 
 
-def rcompile(pattern, flags=0):
+def rcompile(pattern, flags=0, verbose=False):
+    """A wrapper for re.compile that checks whether "pattern" is a regex object
+    or a string to be compiled, and automatically adds the re.UNICODE flag.
+    """
+    
     if not isinstance(pattern, string_type):
         # If it's not a string, assume it's already a compiled pattern
         return pattern
+    if verbose:
+        flags |= re.VERBOSE
     return re.compile(pattern, re.UNICODE | flags)
 
 
 def get_single_text(field, text, **kwargs):
-    # Just take the first token
+    """Returns the first token from an analyzer's output.
+    """
+    
     for t in field.process_text(text, mode="query", **kwargs):
         return t
 

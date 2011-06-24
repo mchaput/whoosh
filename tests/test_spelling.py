@@ -155,7 +155,19 @@ def test_wordlist():
     assert_equal(cor.suggest("specail", maxdist=1), ["special"])
 
 def test_wordfile():
-    wordfile = gzip.open("../benchmark/english-words.10.gz", "r")
+    import os.path
+    
+    files = os.listdir(".")
+    testdir = "tests"
+    fname = "english-words.10.gz"
+    if testdir in files:
+        path = os.path.join(testdir, fname)
+    elif fname in files:
+        path = fname
+    else:
+        return
+    
+    wordfile = gzip.open(path, "r")
     cor = spelling.GraphCorrector.from_word_list(word.decode("latin-1")
                                                  for word in wordfile)
     wordfile.close()

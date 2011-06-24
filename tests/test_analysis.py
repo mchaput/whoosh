@@ -1,4 +1,4 @@
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import fields, qparser
 from whoosh.compat import u, unichr
@@ -109,8 +109,8 @@ def test_unicode_blocks():
     assert_equal(blocknum(u('a')), 0)
     assert_equal(blocknum(unichr(0x0b80)), 22)
     assert_equal(blocknum(unichr(2048)), None)
-    assert_equal(blocknum(u('a')), blocks.Basic_Latin)
-    assert_equal(blocknum(unichr(0x0b80)), blocks.Tamil)
+    assert_equal(blocknum(u('a')), blocks.Basic_Latin)  #@UndefinedVariable
+    assert_equal(blocknum(unichr(0x0b80)), blocks.Tamil)  #@UndefinedVariable
     
 def test_double_metaphone():
     mf = RegexTokenizer() | LowercaseFilter() | DoubleMetaphoneFilter()
