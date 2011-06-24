@@ -104,7 +104,7 @@ class Searcher(object):
                      "lexicon", "frequency", "doc_frequency", "term_info",
                      "doc_field_length"):
             setattr(self, name, getattr(self.ixreader, name))
-
+    
     def __enter__(self):
         return self
     
@@ -196,14 +196,13 @@ class Searcher(object):
         self.ixreader.set_caching_policy(*args, **kwargs)
 
     def scorer(self, fieldname, text, qf=1):
-        if self._doccount:
-            scorer = self.weighting.scorer(self, fieldname, text, qf=qf)
-        else:
+        if not self._doccount:
             # Scoring functions tend to cache information that isn't available
             # on an empty index.
-            scorer = None
-            
-        return scorer
+            return None
+        
+        s = self.parent if self.parent else self
+        return self.weighting.scorer(s, fieldname, text, qf=qf)
 
     def postings(self, fieldname, text, qf=1):
         """Returns a :class:`whoosh.matching.Matcher` for the postings of the
@@ -833,7 +832,7 @@ class Collector(object):
                 if score > items[0][0]:
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
-    
+                    
     def pull_matches(self, searcher, matcher, usequality, offset):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.

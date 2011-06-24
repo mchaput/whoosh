@@ -4,8 +4,8 @@ from random import random, randint
 from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh.compat import xrange
-from whoosh.formats import (Characters, CharacterBoosts, DocBoosts, Existence,
-                            Frequency, Positions, PositionBoosts)
+from whoosh.formats import (Characters, CharacterBoosts, Existence, Frequency,
+                            Positions, PositionBoosts)
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.util import float_to_byte, byte_to_float
 from whoosh.support.testing import TempStorage

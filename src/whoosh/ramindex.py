@@ -229,6 +229,7 @@ class RamIndex(IndexReader, IndexWriter):
         indexfreqs = self.indexfreqs
         fieldlengths = self.fieldlengths
         termstats = self.termstats
+        docboost = self._doc_boost(fields)
         usage = 0
         
         fieldnames = [name for name in sorted(fields.keys())
@@ -251,12 +252,15 @@ class RamIndex(IndexReader, IndexWriter):
                 # If the field is indexed, add the words in the value to the
                 # index
                 if field.indexed:
+                    fieldboost = self._field_boost(fields, name, docboost)
                     # Count of all terms in the value
                     count = 0
                     # Count of UNIQUE terms in the value
                     unique = 0
                     
                     for w, freq, weight, valuestring in field.index(value):
+                        weight *= fieldboost
+                        
                         if w not in fielddict:
                             fielddict[w] = []
                         fielddict[w].append((self.docnum, weight, valuestring))

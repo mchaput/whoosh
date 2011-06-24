@@ -227,49 +227,6 @@ class Frequency(Format):
         return freq * self.field_boost
     
 
-class DocBoosts(Frequency):
-    """A Field that stores frequency and per-document boost information for
-    each posting.
-    
-    Supports: frequency, weight.
-    """
-    
-    posting_size = _INT_SIZE + 1
-    
-    def word_values(self, value, doc_boost=1.0, **kwargs):
-        fb = self.field_boost
-        freqs = defaultdict(int)
-        weights = defaultdict(float)
-        
-        kwargs["boosts"] = True
-        for t in tokens(value, self.analyzer, kwargs):
-            weights[t.text] += t.boost
-            freqs[t.text] += 1
-        
-        encode = self.encode
-        return ((w, freq, weights[w] * doc_boost * fb, encode((freq, doc_boost)))
-                for w, freq in iteritems(freqs))
-    
-    def encode(self, freq_docboost):
-        freq, docboost = freq_docboost
-        return pack_uint(freq) + float_to_byte(docboost)
-    
-    def decode_docboosts(self, valuestring):
-        freq = unpack_uint(valuestring[:_INT_SIZE])[0]
-        docboost = byte_to_float(valuestring[-1])
-        return (freq, docboost)
-    
-    def decode_frequency(self, valuestring):
-        return unpack_uint(valuestring[0:_INT_SIZE])[0]
-    
-    def decode_weight(self, valuestring):
-        freq = unpack_uint(valuestring[:_INT_SIZE])[0]
-        docboost = byte_to_float(valuestring[-1])
-        return freq * docboost * self.field_boost
-    
-
-# Vector formats
-
 class Positions(Format):
     """A vector that stores position information in each posting, to allow
     phrase searching and "near" queries.

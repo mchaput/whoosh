@@ -193,14 +193,14 @@ class PoolBase(object):
                 for _ in xrange(doccount - len(arry)):
                     arry.append(0)
     
-    def add_content(self, docnum, fieldname, field, value):
+    def add_content(self, docnum, fieldname, field, value, fboost):
         add_posting = self.add_posting
         termcount = 0
         # TODO: Method for adding progressive field values, ie
         # setting start_pos/start_char?
         for w, freq, weight, valuestring in field.index(value):
             #assert w != ""
-            add_posting(fieldname, w, docnum, weight, valuestring)
+            add_posting(fieldname, w, docnum, weight * fboost, valuestring)
             termcount += freq
         
         if field.scorable and termcount:
