@@ -313,6 +313,7 @@ class SegmentWriter(IndexWriter):
         #t = now()
         self._check_state()
         schema = self.schema
+        docboost = self._doc_boost(fields)
         
         # Sort the keys
         fieldnames = sorted([name for name in fields.keys()
@@ -332,7 +333,9 @@ class SegmentWriter(IndexWriter):
                 field = schema[fieldname]
                 
                 if field.indexed:
-                    self.pool.add_content(docnum, fieldname, field, value)
+                    fieldboost = self._field_boost(fields, fieldname, docboost)
+                    self.pool.add_content(docnum, fieldname, field, value,
+                                          fieldboost)
                 
                 vformat = field.vector
                 if vformat:

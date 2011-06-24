@@ -174,11 +174,37 @@ class IndexWriter(object):
         keyword arguments like this::
         
             writer.add_document(title=u"a b c", _stored_title=u"e f g")
+        
+        You can boost the weight of all terms in a certain field by specifying
+        a ``_<fieldname>_boost`` keyword argument. For example, if you have a
+        field named "content", you can double the weight of this document for
+        searches in the "content" field like this::
+        
+            writer.add_document(content="a b c", _title_boost=2.0)
+            
+        You can boost every field at once using the ``_boost`` keyword. For
+        example, to boost fields "a" and "b" by 2.0, and field "c" by 3.0::
+        
+            writer.add_document(a="alfa", b="bravo", c="charlie",
+                                _boost=2.0, _c_boost=3.0)
             
         See also :meth:`Writer.update_document`.
         """
         
         raise NotImplementedError
+    
+    def _doc_boost(self, fields, default=1.0):
+        if "_boost" in fields:
+            return float(fields["_boost"])
+        else:
+            return default
+        
+    def _field_boost(self, fields, fieldname, default=1.0):
+        boostkw = "_%s_boost" % fieldname
+        if boostkw in fields:
+            return float(fields[boostkw])
+        else:
+            return default
     
     def _unique_fields(self, fields):
         # Check which of the supplied fields are unique
@@ -236,13 +262,9 @@ class IndexWriter(object):
         ...this will add two documents with the same value of ``unique_id``,
         instead of the second document replacing the first.
         
-        For fields that are both indexed and stored, you can specify an
-        alternate value to store using a keyword argument in the form
-        "_stored_<fieldname>". For example, if you have a field named "title"
-        and you want to index the text "a b c" but store the text "e f g", use
-        keyword arguments like this::
-        
-            writer.update_document(title=u"a b c", _stored_title=u"e f g")
+        See :meth:`Writer.add_document` for information on
+        ``_stored_<fieldname>``, ``_<fieldname>_boost``, and ``_boost`` keyword
+        arguments.
         """
         
         # Delete the set of documents matching the unique terms

@@ -491,9 +491,27 @@ def test_multivalue():
         assert ("num", nfield.to_text(3)) in r
         assert ("date", dfield.to_text(datetime(2003, 3, 3))) in r
 
+def test_doc_boost():
+    schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, a=u("alfa alfa alfa"), b=u("bravo"))
+    w.add_document(id=1, a=u("alfa"), b=u("bear"), _a_boost=5.0)
+    w.add_document(id=2, a=u("alfa alfa alfa alfa"), _boost=0.5)
+    w.commit()
+    
+    with ix.searcher() as s:
+        r = s.search(query.Term("a", "alfa"))
+        assert_equal([hit["id"] for hit in r], [1, 0, 2])
+    
+    w = ix.writer()
+    w.add_document(id=3, a=u("alfa"), b=u("bottle"), _a_boost=0.5)
+    w.add_document(id=4, b=u("bravo"), _b_boost=2.0)
+    w.commit(merge=False)
 
-
-
+    with ix.searcher() as s:
+        r = s.search(query.Term("a", "alfa"))
+        assert_equal([hit["id"] for hit in r], [1, 0, 2, 3])
 
 
 
