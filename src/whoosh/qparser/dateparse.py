@@ -750,14 +750,15 @@ class DateParserPlugin(plugins.Plugin):
         try:
             dt = self.dateparser.date_from(text, self.basedate)
             if dt is None:
-                node = self.errorize(text, node)
+                return self.errorize(text, node)
             else:
-                node = DateTimeNode(node.fieldname, dt, node.boost)
+                n = DateTimeNode(node.fieldname, dt, node.boost)
         except DateParseError:
             e = sys.exc_info()[1]
-            node = self.errorize(e, node)
-        
-        return node
+            n = self.errorize(e, node)
+        n.startchar = node.startchar
+        n.endchar = node.endchar
+        return n
     
     def range_to_dt(self, node):
         start = end = None
@@ -783,7 +784,10 @@ class DateParserPlugin(plugins.Plugin):
             end = end.disambiguated(self.basedate)
             if isinstance(end, timespan):
                 end = end.end
-        return DateRangeNode(node.fieldname, start, end, boost=node.boost)
+        drn = DateRangeNode(node.fieldname, start, end, boost=node.boost)
+        drn.startchar = node.startchar
+        drn.endchar = node.endchar
+        return drn
     
     def do_dates(self, parser, group):
         schema = parser.schema

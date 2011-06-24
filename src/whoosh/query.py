@@ -55,6 +55,38 @@ class QueryError(Exception):
     pass
 
 
+# Functions
+
+def query_lists(q):
+    """Returns the leaves of the query tree, with the query hierarchy
+    represented as nested lists.
+    """
+    
+    if q.is_leaf():
+        return q
+    else:
+        return [query_lists(qq) for qq in q.children()]
+
+
+def term_lists(q, phrases=True):
+    """Returns the terms in the query tree, with the query hierarchy
+    represented as nested lists.
+    """
+    
+    if q.is_leaf():
+        if phrases or not isinstance(q, Phrase):
+            return list(q.terms())
+    else:
+        ls = []
+        for qq in q.children():
+            t = term_lists(qq, phrases=phrases)
+            if len(t) == 1:
+                t = t[0]
+            if t:
+                ls.append(t)
+        return ls
+
+
 # Utility classes
 
 class Lowest(object):
@@ -133,7 +165,9 @@ class Query(object):
         And([Term("content", u"a"), Not(Term("content", u"b"))])
     """
 
-    syntax = None
+    # For queries produced by the query parser, record where in the user
+    # query this object originated
+    startchar = endchar = None
 
     def __or__(self, query):
         """Allows you to use | between query objects to wrap them in an Or
@@ -166,6 +200,27 @@ class Query(object):
         """
         
         return True
+
+    def children(self):
+        """Returns an iterator of the subqueries of this object.
+        """
+        
+        return iter([])
+
+    def is_range(self):
+        """Returns True if this object searches for values within a range.
+        """
+        
+        return False
+
+    def has_terms(self):
+        """Returns True if this specific object represents a search for a
+        specific term (as opposed to a pattern, as in Wildcard and Prefix) or
+        terms (i.e., whether the ``replace()`` method does something
+        meaningful on this instance).
+        """
+        
+        return False
 
     def apply(self, fn):
         """If this query has children, calls the given function on each child
@@ -227,30 +282,12 @@ class Query(object):
         *does not* modify the original query "in place".
         """
         
+        # The default implementation uses the apply method to "pass down" the
+        # replace() method call
         if self.is_leaf():
             return copy(self)
         else:
             return self.apply(methodcaller("replace", oldtext, newtext))
-
-    def all_terms(self, termset=None, phrases=True):
-        """Returns a set of all terms in this query tree.
-        
-        This method simply operates on the query itself, without reference to
-        an index (unlike existing_terms()), so it will *not* add terms that
-        require an index to compute, such as Prefix and Wildcard.
-        
-        >>> q = And([Term("content", u"render"), Term("path", u"/a/b")])
-        >>> q.all_terms()
-        set([("content", u"render"), ("path", u"/a/b")])
-        
-        :param phrases: Whether to add words found in Phrase queries.
-        :rtype: set
-        """
-
-        if termset is None:
-            termset = set()
-        self._all_terms(termset, phrases=phrases)
-        return termset
 
     def copy(self):
         """Deprecated, just use ``copy.deepcopy``.
@@ -258,25 +295,33 @@ class Query(object):
         
         return copy.deepcopy(self)
 
-    def _all_terms(self, *args, **kwargs):
-        # To be implemented in sub-classes
-        return
-
+    def all_terms(self, termset=None, phrases=True):
+        """Returns a set of all terms in this query tree.
+        
+        This method exists for backwards compatibility. For more flexibility
+        use the :meth:`Query.iter_all_terms` method instead, which simply yields
+        the terms in the query.
+        
+        :param phrases: Whether to add words found in Phrase queries.
+        :rtype: set
+        """
+        
+        if not termset:
+            termset = set()
+        for q in self.queries():
+            if q.has_terms():
+                if phrases or not isinstance(q, Phrase):
+                    termset.update(q.terms_())
+        return termset
+        
     def existing_terms(self, ixreader, termset=None, reverse=False,
                        phrases=True):
         """Returns a set of all terms in this query tree that exist in the
-        index represented by the given ixreaderder.
+        given ixreaderder.
         
-        This method references the IndexReader to expand Prefix and Wildcard
-        queries, and only adds terms that actually exist in the index (unless
-        reverse=True).
-        
-        >>> ixreader = my_index.reader()
-        >>> q = And([Or([Term("content", u"render"),
-        ...             Term("content", u"rendering")]),
-        ...             Prefix("path", u"/a/")])
-        >>> q.existing_terms(ixreader, termset)
-        set([("content", u"render"), ("path", u"/a/b"), ("path", u"/a/c")])
+        This method exists for backwards compatibility. For more flexibility
+        use the :meth:`Query.iter_all_terms` method instead, which simply yields
+        the terms in the query.
         
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
         :param reverse: If True, this method adds *missing* terms rather than
@@ -287,9 +332,61 @@ class Query(object):
 
         if termset is None:
             termset = set()
-        self._existing_terms(ixreader, termset, reverse=reverse,
-                             phrases=phrases)
+        if reverse:
+            test = lambda t: t not in ixreader
+        else:
+            test = lambda t: t in ixreader
+        
+        termset.update(t for t in self.all_terms(phrases=phrases) if test(t))
         return termset
+
+    def leaves(self):
+        """Returns an iterator of all the leaf queries in this query tree as a
+        flat series.
+        """
+        
+        if self.is_leaf():
+            yield self
+        else:
+            for q in self.children():
+                for qq in q.leaves():
+                    yield qq
+
+    def iter_all_terms(self, phrases=True):
+        """Returns an iterator of all terms in this query tree.
+        
+        >>> qp = qparser.QueryParser("text", myindex.schema)
+        >>> q = myparser.parse("alfa bravo title:charlie")
+        >>> # List the terms in a query
+        >>> list(q.iter_all_terms())
+        [("text", "alfa"), ("text", "bravo"), ("title", "charlie")]
+        >>> # Get a set of all terms in the query that don't exist in the index
+        >>> reader = myindex.reader()
+        >>> missing = set(t for t in q.iter_all_terms() if t not in reader)
+        set([("text", "alfa"), ("title", "charlie")])
+        >>> # All terms in the query that occur in fewer than 5 documents in
+        >>> # the index
+        >>> [t for t in q.iter_all_terms() if reader.doc_frequency(t[0], t[1]) < 5]
+        [("title", "charlie")]
+        
+        :param phrases: Whether to add words found in Phrase queries.
+        """
+        
+        for q in self.leaves():
+            if q.has_terms():
+                for t in q.terms():
+                    yield t
+
+    def terms(self):
+        """Yields one or more terms searched for by this specific query object.
+        You can check whether a query object targets specific terms before you
+        call this method using :meth:`Query.has_terms`.
+        
+        To get all terms in the tree, use :meth:`Query.iter_all_terms`.
+        """
+        
+        return ([])
+        
 
     def requires(self):
         """Returns a set of queries that are *known* to be required to match
@@ -397,16 +494,11 @@ class WrappingQuery(Query):
     def is_leaf(self):
         return False
     
+    def children(self):
+        yield self.child
+    
     def apply(self, fn):
         return self.__class__(fn(self.child))
-    
-    def all_terms(self, termset=None, phrases=True):
-        return self.child.all_terms(termset=termset, phrases=phrases)
-    
-    def existing_terms(self, ixreader, termset=None, reverse=False,
-                       phrases=True):
-        return self.child.existing_terms(ixreader, termset=termset,
-                                         reverse=reverse, phrases=phrases)
     
     def requires(self):
         return self.child.requires()
@@ -471,6 +563,9 @@ class CompoundQuery(Query):
     def is_leaf(self):
         return False
 
+    def children(self):
+        return iter(self.subqueries)
+
     def apply(self, fn):
         return self.__class__([fn(q) for q in self.subqueries],
                               boost=self.boost)
@@ -491,15 +586,6 @@ class CompoundQuery(Query):
             nots_sum = sum(q.estimate_size(ixreader) for q in nots)
             subs_min = max(0, subs_min - nots_sum)
         return subs_min
-
-    def _all_terms(self, termset, phrases=True):
-        for q in self.subqueries:
-            q.all_terms(termset, phrases=phrases)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        for q in self.subqueries:
-            q.existing_terms(ixreader, termset, reverse=reverse,
-                             phrases=phrases)
 
     def normalize(self):
         # Normalize subqueries and merge nested instances of this class
@@ -648,19 +734,6 @@ class MultiTerm(Query):
         else:
             return NullQuery
 
-    def _all_terms(self, termset, phrases=True):
-        pass
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        fieldname = self.fieldname
-        for word in self._words(ixreader):
-            t = (fieldname, word)
-            contains = t in ixreader
-            if reverse:
-                contains = not contains
-            if contains:
-                termset.add(t)
-
     def estimate_size(self, ixreader):
         return sum(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._words(ixreader))
@@ -737,16 +810,11 @@ class Term(Query):
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
-    def _all_terms(self, termset, phrases=True):
-        termset.add((self.fieldname, self.text))
+    def has_terms(self):
+        return True
 
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        fieldname, text = self.fieldname, self.text
-        contains = (fieldname, text) in ixreader
-        if reverse:
-            contains = not contains
-        if contains:
-            termset.add((fieldname, text))
+    def terms(self):
+        yield (self.fieldname, self.text)
 
     def replace(self, oldtext, newtext):
         q = copy.copy(self)
@@ -921,6 +989,9 @@ class Not(Query):
     def is_leaf(self):
         return False
 
+    def children(self):
+        yield self.query
+
     def apply(self, fn):
         return self.__class__(fn(self.query))
 
@@ -930,13 +1001,6 @@ class Not(Query):
             return NullQuery
         else:
             return self.__class__(query, boost=self.boost)
-
-    def _all_terms(self, termset, phrases=True):
-        self.query.all_terms(termset, phrases=phrases)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        self.query.existing_terms(ixreader, termset, reverse=reverse,
-                                  phrases=phrases)
 
     def field(self):
         return None
@@ -1058,7 +1122,19 @@ class Wildcard(PatternQuery):
             return self
 
 
-class FuzzyTerm(MultiTerm):
+class ExpandingTerm(MultiTerm):
+    """Middleware class for queries such as FuzzyTerm and Variations that
+    expand into multiple queries, but come from a single term.
+    """
+    
+    def has_terms(self):
+        return True
+    
+    def terms(self):
+        yield (self.fieldname, self.text)
+
+
+class FuzzyTerm(ExpandingTerm):
     """Matches documents containing words similar to the given term.
     """
 
@@ -1115,12 +1191,51 @@ class FuzzyTerm(MultiTerm):
                 ^ hash(self.maxdist) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
-    def _all_terms(self, termset, phrases=True):
-        termset.add((self.fieldname, self.text))
-
     def _words(self, ixreader):
         return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
                                      prefix=self.prefixlength)
+
+
+class Variations(ExpandingTerm):
+    """Query that automatically searches for morphological variations of the
+    given word in the same field.
+    """
+
+    def __init__(self, fieldname, text, boost=1.0):
+        self.fieldname = fieldname
+        self.text = text
+        self.boost = boost
+
+    def __repr__(self):
+        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        r += ")"
+        return r
+
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.text == other.text and self.boost == other.boost)
+
+    def __hash__(self):
+        return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
+
+    def _words(self, ixreader):
+        fieldname = self.fieldname
+        return [word for word in variations(self.text)
+                if (fieldname, word) in ixreader]
+
+    def __unicode__(self):
+        return u("%s:<%s>") % (self.fieldname, self.text)
+
+    __str__ = __unicode__
+
+    def replace(self, oldtext, newtext):
+        q = copy.copy(self)
+        if q.text == oldtext:
+            q.text = newtext
+        return q
 
 
 class RangeMixin(object):
@@ -1154,6 +1269,9 @@ class RangeMixin(object):
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl)
                 ^ hash(self.end) ^ hash(self.endexcl) ^ hash(self.boost))
+    
+    def is_range(self):
+        return True
     
     def _comparable_start(self):
         if self.start is None:
@@ -1406,59 +1524,6 @@ class DateRange(NumericRange):
                                            self.boost)
     
 
-class Variations(MultiTerm):
-    """Query that automatically searches for morphological variations of the
-    given word in the same field.
-    """
-
-    def __init__(self, fieldname, text, boost=1.0):
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
-
-    def __repr__(self):
-        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
-        if self.boost != 1:
-            r += ", boost=%s" % self.boost
-        r += ")"
-        return r
-
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.fieldname == other.fieldname
-                and self.text == other.text and self.boost == other.boost)
-
-    def __hash__(self):
-        return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
-
-    def _all_terms(self, termset, phrases=True):
-        termset.add(self.text)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        for word in variations(self.text):
-            t = (self.fieldname, word)
-            contains = t in ixreader
-            if reverse:
-                contains = not contains
-            if contains:
-                termset.add(t)
-
-    def _words(self, ixreader):
-        fieldname = self.fieldname
-        return [word for word in variations(self.text)
-                if (fieldname, word) in ixreader]
-
-    def __unicode__(self):
-        return u("%s:<%s>") % (self.fieldname, self.text)
-
-    __str__ = __unicode__
-
-    def replace(self, oldtext, newtext):
-        q = copy.copy(self)
-        if q.text == oldtext:
-            q.text = newtext
-        return q
-
 
 class Phrase(Query):
     """Matches documents containing a given phrase."""
@@ -1497,21 +1562,11 @@ class Phrase(Query):
             h ^= hash(w)
         return h
 
-    def _all_terms(self, termset, phrases=True):
-        if phrases:
-            fieldname = self.fieldname
-            for word in self.words:
-                termset.add((fieldname, word))
+    def has_terms(self):
+        return True
 
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        if phrases:
-            fieldname = self.fieldname
-            for word in self.words:
-                contains = (fieldname, word) in ixreader
-                if reverse:
-                    contains = not contains
-                if contains:
-                    termset.add((fieldname, word))
+    def terms(self):
+        return ((self.fieldname, word) for word in self.words)
 
     def normalize(self):
         if not self.words:
@@ -1866,13 +1921,6 @@ class AndNot(BinaryQuery):
 
         return self.__class__(a, b, boost=self.boost)
 
-    def _all_terms(self, termset, phrases=True):
-        self.a.all_terms(termset, phrases=phrases)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        self.a.existing_terms(ixreader, termset, reverse=reverse,
-                              phrases=phrases)
-        
     def requires(self):
         return self.a.requires()
 

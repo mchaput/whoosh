@@ -1,14 +1,13 @@
 from __future__ import with_statement
 import gzip
 
-from nose.tools import assert_equal, assert_not_equal
+from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 import whoosh.support.dawg as dawg
-from whoosh import fields, spelling
+from whoosh import fields, query, spelling
 from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempStorage
-from whoosh.util import now
 
 
 def test_graph_corrector():
@@ -185,6 +184,39 @@ def test_wordfile():
     assert_equal(cor.suggest("specail", maxdist=1), ["special"])
     gf.close()
 
+def test_query_terms():
+    from whoosh.qparser import QueryParser
     
+    qp = QueryParser("a", None)
+    text = "alfa b:(bravo OR c:charlie) delta"
+    q = qp.parse(text)
+    assert_equal(sorted(q.iter_all_terms()), [("a", "alfa"), ("a", "delta"),
+                                              ("b", "bravo"), ("c", "charlie")])
+    assert_equal(query.term_lists(q), [("a", "alfa"),
+                                       [("b", "bravo"), ("c", "charlie")],
+                                       ("a", "delta")])
+    
+    text = "alfa brav*"
+    q = qp.parse(text)
+    assert_equal(sorted(q.iter_all_terms()), [("a", "alfa")])
+    assert_equal(query.term_lists(q), [("a", "alfa")])
+    
+    text = 'alfa "bravo charlie" delta'
+    q = qp.parse(text)
+    assert_equal(query.term_lists(q), [("a", "alfa"),
+                                       [("a", "bravo"), ("a", "charlie")],
+                                       ("a", "delta")])
+    
+    text = 'alfa (b:"bravo charlie" c:del* echo) d:foxtrot'
+    q = qp.parse(text)
+    print [list(qq.terms()) for qq in q.leaves() if qq.has_terms()]
+    assert False
+
+
+
+
+
+
+
 
 

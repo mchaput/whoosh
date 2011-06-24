@@ -30,7 +30,7 @@ import copy
 from whoosh import query
 from whoosh.compat import iteritems, u
 from whoosh.qparser import syntax
-from whoosh.qparser.common import rcompile, wsyntax
+from whoosh.qparser.common import rcompile, xfer
 from whoosh.qparser.taggers import RegexTagger, FnTagger
 
 
@@ -163,7 +163,7 @@ class BoostPlugin(TaggingPlugin):
     >>> q = qp.parse("hello there^2")    
     """
     
-    expr = "\\^(?P<boost>[0-9]*(\\.[0-9]+)?)($|(?=[ \t\r\n]))"
+    expr = "\\^(?P<boost>[0-9]*(\\.[0-9]+)?)($|(?=[ \t\r\n)]))"
     
     class BoostNode(syntax.SyntaxNode):
         def __init__(self, original, boost):
@@ -389,7 +389,7 @@ class PhrasePlugin(Plugin):
             
             qclass = parser.phraseclass
             q = qclass(fieldname, words, slop=self.slop, boost=self.boost)
-            return wsyntax(q, self)
+            return xfer(q, self)
     
     class PhraseTagger(RegexTagger):
         def create(self, parser, matcher):
@@ -671,7 +671,7 @@ class GtLtPlugin(TaggingPlugin):
                     # If previous was a fieldname and next node has text
                     if isinstance(prevnode, fname) and nextnode.has_text:
                         # Make the next node into a range based on the symbol
-                        newgroup.append(self.make_range(nextnode.text, node.rel))
+                        newgroup.append(self.make_range(nextnode, node.rel))
                         # Skip the next node
                         i += 1
             else:
@@ -681,15 +681,19 @@ class GtLtPlugin(TaggingPlugin):
         
         return newgroup
             
-    def make_range(self, text, rel):
+    def make_range(self, node, rel):
+        text = node.text
         if rel == "<":
-            return syntax.RangeNode(None, text, False, True)
+            n = syntax.RangeNode(None, text, False, True)
         elif rel == ">":
-            return syntax.RangeNode(text, None, True, False)
+            n = syntax.RangeNode(text, None, True, False)
         elif rel == "<=" or rel == "=<":
-            return syntax.RangeNode(None, text, False, False)
+            n = syntax.RangeNode(None, text, False, False)
         elif rel == ">=" or rel == "=>":
-            return syntax.RangeNode(text, None, False, False)
+            n = syntax.RangeNode(text, None, False, False)
+        n.startchar = node.startchar
+        n.endchar = node.endchar
+        return n
 
 
 class MultifieldPlugin(Plugin):

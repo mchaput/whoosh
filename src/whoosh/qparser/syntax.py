@@ -26,8 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from whoosh import query
-from whoosh.qparser.common import (get_single_text, QueryParserError,
-                                   wsyntax)
+from whoosh.qparser.common import get_single_text, QueryParserError, xfer
 
 
 class SyntaxNode(object):
@@ -190,10 +189,14 @@ class GroupNode(SyntaxNode):
     
     @property
     def startchar(self):
+        if not self.nodes:
+            return None
         return self.nodes[0].startchar
     
     @property
     def endchar(self):
+        if not self.nodes:
+            return None
         return self.nodes[-1].endchar
     
     def apply(self, fn):
@@ -203,7 +206,7 @@ class GroupNode(SyntaxNode):
     def query(self, parser):
         q = self.qclass([node.query(parser) for node in self.nodes],
                         boost=self.boost, **self.kwargs)
-        return wsyntax(q, self)
+        return xfer(q, self)
 
     def empty_copy(self):
         """Returns an empty copy of this group.
@@ -284,7 +287,7 @@ class BinaryGroup(GroupNode):
         q = self.qclass(self.nodes[0].query(parser),
                         self.nodes[1].query(parser),
                                    boost=self.boost)
-        return wsyntax(q, self)
+        return xfer(q, self)
 
 
 class Wrapper(GroupNode):
@@ -294,7 +297,7 @@ class Wrapper(GroupNode):
     merging = False
     
     def query(self, parser):
-        return wsyntax(self.qclass(self.nodes[0].query(parser)), self)
+        return xfer(self.qclass(self.nodes[0].query(parser)), self)
 
 
 class ErrorNode(SyntaxNode):
@@ -305,9 +308,17 @@ class ErrorNode(SyntaxNode):
     def r(self):
         return "ERR %r %r" % (self.node, self.message)
     
+    @property
+    def startchar(self):
+        return self.node.startchar
+    
+    @property
+    def endchar(self):
+        return self.node.endchar
+    
     def query(self, parser):
         if self.node:
-            return wsyntax(self.node.query(parser), self.node)
+            return xfer(self.node.query(parser), self.node)
         else:
             return query.NullQuery
 
@@ -377,7 +388,7 @@ class RangeNode(SyntaxNode):
                                           self.startexcl, self.endexcl,
                                           boost=self.boost)
                     if q is not None:
-                        return wsyntax(q, self)
+                        return xfer(q, self)
                 except QueryParserError:
                     return query.NullQuery
             
@@ -390,7 +401,7 @@ class RangeNode(SyntaxNode):
         
         q = query.TermRange(fieldname, start, end, self.startexcl,
                             self.endexcl, boost=self.boost)
-        return wsyntax(q, self)
+        return xfer(q, self)
 
 
 class TextNode(SyntaxNode):
@@ -434,7 +445,7 @@ class TextNode(SyntaxNode):
         q = parser.term_query(fieldname, self.text, termclass,
                               boost=self.boost, tokenize=self.tokenize,
                               removestops=self.removestops)
-        return wsyntax(q, self)
+        return xfer(q, self)
 
 
 class WordNode(TextNode):

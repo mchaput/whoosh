@@ -234,7 +234,12 @@ def test_boost_query():
     assert_equal(q[0].boost, 1.0)
     assert_equal(q[1].boost, 2.5)
     assert_equal(q[2].text, "^3")
-    
+
+def test_boosts():
+    qp = default.QueryParser("t", None)
+    q = qp.parse("alfa ((bravo^2)^3)^4 charlie")
+    assert_equal(q.__unicode__(), "(t:alfa AND t:bravo^24.0 AND t:charlie)")
+
 def test_wildcard1():
     qp = default.QueryParser("content", None)
     q = qp.parse(u("hello *the?e* ?star*s? test"))
