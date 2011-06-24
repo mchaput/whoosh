@@ -3,42 +3,42 @@ import inspect
 from datetime import datetime
 import sys
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, formats, qparser, query
 from whoosh.compat import u, text_type, xrange
 from whoosh.filedb.filestore import RamStorage
-from whoosh.qparser import dateparse
+from whoosh.qparser import dateparse, default, plugins, syntax
 from whoosh.support.times import adatetime
 
 
 def _plugin_classes(ignore):
-    # Get all the subclasses of Weighting in whoosh.scoring
-    return [c for name, c in inspect.getmembers(qparser, inspect.isclass)
-            if qparser.Plugin in c.__bases__ and c not in ignore]
+    # Get all the subclasses of Plugin in whoosh.qparser.plugins
+    return [c for name, c in inspect.getmembers(plugins, inspect.isclass)
+            if plugins.Plugin in c.__bases__ and c not in ignore]
 
 
 def test_combos():
     qs = 'w:a "hi there"^4.2 AND x:b^2.3 OR c AND (y:d OR e) (apple ANDNOT bear)^2.3'
     
-    init_args = {qparser.DisMaxPlugin: ({"content": 1.0, "title": 1.2}, ),
-                 qparser.FieldAliasPlugin: ({"content": ("text", "body")}, ),
-                 qparser.MultifieldPlugin: (["title", "content"], ),
-                 qparser.CopyFieldPlugin: ({"name": "phone"}, ),
+    init_args = {plugins.MultifieldPlugin: (["content", "title"], {"content": 1.0, "title": 1.2}),
+                 plugins.FieldAliasPlugin: ({"content": ("text", "body")}, ),
+                 plugins.MultifieldPlugin: (["title", "content"], ),
+                 plugins.CopyFieldPlugin: ({"name": "phone"}, ),
                  }
     
-    plugins = _plugin_classes(())
-    for i, plugin in enumerate(plugins):
+    pis = _plugin_classes(())
+    for i, plugin in enumerate(pis):
         try:
-            plugins[i] = plugin(*init_args.get(plugin, ()))
+            pis[i] = plugin(*init_args.get(plugin, ()))
         except TypeError:
             raise TypeError("Error instantiating %s" % plugin)
     
     count = 0
-    for i, first in enumerate(plugins):
-        for j in xrange(len(plugins)):
+    for i, first in enumerate(pis):
+        for j in xrange(len(pis)):
             if i == j: continue
-            plist = [p for p in plugins[:j] if p is not first] + [first]
+            plist = [p for p in pis[:j] if p is not first] + [first]
             qp = qparser.QueryParser("text", None, plugins=plist)
             try:
                 qp.parse(qs)
@@ -49,13 +49,13 @@ def test_combos():
 
 def test_field_alias():
     qp = qparser.QueryParser("content", None)
-    qp.add_plugin(qparser.FieldAliasPlugin({"title": ("article", "caption")}))
+    qp.add_plugin(plugins.FieldAliasPlugin({"title": ("article", "caption")}))
     q = qp.parse("alfa title:bravo article:charlie caption:delta")
     assert_equal(text_type(q), u("(content:alfa AND title:bravo AND title:charlie AND title:delta)"))
 
 def test_dateparser():
     schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
-    qp = qparser.QueryParser("text", schema)
+    qp = default.QueryParser("text", schema)
     
     errs = []
     def cb(arg):
@@ -129,7 +129,9 @@ def test_date_range():
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, None)
     
+    print "!!!!!!!!!!!!!!!!!!!!"
     q = qp.parse(u("date:[30 march to next wednesday]"))
+    print "q=", q
     assert_equal(q.__class__, query.DateRange)
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, adatetime(2010, 9, 22).ceil())
@@ -226,8 +228,8 @@ def test_prefix_plugin():
     
     with ix.searcher() as s:
         qp = qparser.QueryParser("text", schema)
-        qp.remove_plugin_class(qparser.WildcardPlugin)
-        qp.add_plugin(qparser.PrefixPlugin)
+        qp.remove_plugin_class(plugins.WildcardPlugin)
+        qp.add_plugin(plugins.PrefixPlugin)
         
         q = qp.parse(u("b*"))
         r = s.search(q, limit=None)
@@ -239,14 +241,11 @@ def test_prefix_plugin():
     
 def test_custom_tokens():
     qp = qparser.QueryParser("text", None)
-    qp.remove_plugin_class(qparser.CompoundsPlugin)
-    qp.remove_plugin_class(qparser.NotPlugin)
+    qp.remove_plugin_class(plugins.OperatorsPlugin)
     
-    cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not=None)
+    cp = plugins.OperatorsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~",
+                                 Not="-")
     qp.add_plugin(cp)
-    
-    np = qparser.NotPlugin("-")
-    qp.add_plugin(np)
     
     q = qp.parse("this | that")
     assert_equal(q.__class__, query.Or)
@@ -270,34 +269,34 @@ def test_custom_tokens():
     
 def test_copyfield():
     qp = qparser.QueryParser("a", None)
-    qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}))
-    assert_equal(text_type(qp.parse("hello b:matt")), "(a:hello AND (b:matt OR c:matt))")
+    qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, None))
+    assert_equal(text_type(qp.parse("hello b:matt")), "(a:hello AND b:matt AND c:matt)")
     
     qp = qparser.QueryParser("a", None)
-    qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, qparser.AndMaybeGroup))
+    qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, syntax.AndMaybeGroup))
     assert_equal(text_type(qp.parse("hello b:matt")), "(a:hello AND (b:matt ANDMAYBE c:matt))")
     
     qp = qparser.QueryParser("a", None)
-    qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, qparser.RequireGroup))
+    qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, syntax.RequireGroup))
     assert_equal(text_type(qp.parse("hello (there OR b:matt)")), "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))")
     
     qp = qparser.QueryParser("a", None)
-    qp.add_plugin(qparser.CopyFieldPlugin({"a": "c"}))
+    qp.add_plugin(plugins.CopyFieldPlugin({"a": "c"}, syntax.OrGroup))
     assert_equal(text_type(qp.parse("hello there")), "((a:hello OR c:hello) AND (a:there OR c:there))")
     
     qp = qparser.QueryParser("a", None)
-    qp.add_plugin(qparser.CopyFieldPlugin({"b": "c"}, mirror=True))
+    qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, mirror=True))
     assert_equal(text_type(qp.parse("hello c:matt")), "(a:hello AND (c:matt OR b:matt))")
     
     qp = qparser.QueryParser("a", None)
-    qp.add_plugin(qparser.CopyFieldPlugin({"c": "a"}, mirror=True))
+    qp.add_plugin(plugins.CopyFieldPlugin({"c": "a"}, mirror=True))
     assert_equal(text_type(qp.parse("hello c:matt")), "((a:hello OR c:hello) AND (c:matt OR a:matt))")
     
     ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
     fmt = formats.Frequency(ana)
     schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt, multitoken_query="or"))
     qp = qparser.QueryParser("name", schema)
-    qp.add_plugin(qparser.CopyFieldPlugin({"name": "name_phone"}))
+    qp.add_plugin(plugins.CopyFieldPlugin({"name": "name_phone"}))
     assert_equal(text_type(qp.parse(u("spruce view"))), "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")
     
 def test_gtlt():
@@ -305,8 +304,8 @@ def test_gtlt():
                            c=fields.KEYWORD,
                            d=fields.NUMERIC(float), e=fields.DATETIME)
     qp = qparser.QueryParser("a", schema)
-    qp.add_plugin(qparser.GtLtPlugin())
-    qp.add_plugin(qparser.dateparse.DateParserPlugin())
+    qp.add_plugin(plugins.GtLtPlugin())
+    qp.add_plugin(dateparse.DateParserPlugin())
     
     q = qp.parse(u("a:hello b:>100 c:<=z there"))
     assert_equal(q.__class__, query.And)
@@ -327,12 +326,12 @@ def test_gtlt():
     q = qp.parse(u("a:> alfa c:<= bravo"))
     assert_equal(text_type(q), "(a:a: AND a:alfa AND a:c: AND a:bravo)")
     
-    qp.remove_plugin_class(qparser.FieldsPlugin)
-    qp.remove_plugin_class(qparser.RangePlugin)
+    qp.remove_plugin_class(plugins.FieldsPlugin)
+    qp.remove_plugin_class(plugins.RangePlugin)
     q = qp.parse(u("hello a:>500 there"))
     assert_equal(text_type(q), "(a:hello AND a:a: AND a:500 AND a:there)")
-        
-        
+
+
 
 
 

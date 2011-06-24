@@ -155,7 +155,7 @@ performance::
 See :doc:`/api/qparser` for information about the plugins included with .
 
 
-Changing the AND, OR, ANDNOT, ANDMAYBE, and NOT tokens
+Changing the AND, OR, ANDNOT, ANDMAYBE, and NOT syntax
 ------------------------------------------------------
 
 The default parser uses English keywords for the AND, OR, ANDNOT, ANDMAYBE,
@@ -243,8 +243,8 @@ termclass
     :class:`whoosh.query.Variations`, or if you've written a custom term class
     you want the parser to use instead of the ones shipped with Whoosh.
 
->>> from whoosh.qparser import QueryParser, GroupOr
->>> orparser = QueryParser("content", schema=myschema, group=GroupOr)
+>>> from whoosh.qparser import QueryParser, OrGroup
+>>> orparser = QueryParser("content", schema=myschema, group=OrGroup)
 
 
 Configuring plugins
@@ -260,6 +260,71 @@ The :meth:`whoosh.qparser.QueryParser.add_plugin`,
 the plugins in a QueryParser object.
 
 See :doc:`/api/qparser` for information about the available plugins.
+
+
+.. _custom-op:
+
+Creating custom operators
+-------------------------
+
+* Decide whether you want a PrefixOperator, PostfixOperator, or InfixOperator.
+
+* Create a new :class:`whoosh.qparser.syntax.GroupNode` subclass to hold
+  nodes affected by your operator. This object is responsible for generating
+  a :class:`whoosh.query.Query` object corresponding to the syntax.
+  
+* Create a regular expression pattern for the operator's query syntax.
+
+* Create an ``OperatorsPlugin.OpTagger`` object from the above information.
+
+* Create a new ``OperatorsPlugin`` instance configured with your custom
+  operator(s).
+  
+* Replace the default ``OperatorsPlugin`` in your parser with your new instance.
+
+For example, if you were creating a ``BEFORE`` operator::
+
+    from whoosh import qparser, query
+
+    optype = qparser.InfixOperator
+    pattern = " BEFORE "
+    
+    class BeforeGroup(qparser.GroupNode):
+        merging = True
+        qclass = query.Ordered
+
+Create an OpTagger for your operator::
+    
+    btagger = qparser.OperatorPlugin.OpTagger(pattern, BeforeGroup,
+                                              qparser.InfixOperator)
+
+By default, infix operators are left-associative. To make a right-associative
+infix operator, do this::
+
+    btagger = qparser.OperatorPlugin.OpTagger(pattern, BeforeGroup,
+                                              qparser.InfixOperator,
+                                              leftassoc=False)
+
+Create an :class:`~whoosh.qparser.plugins.OperatorsPlugin` instance with your
+new operator, and replace the default operators plugin in your query parser::
+
+    qp = qparser.QueryParser("text", myschema)
+    my_op_plugin = qparser.OperatorsPlugin([(btagger, 0)])
+    qp.replace_plugin(my_op_plugin)
+
+Note that the list of operators you specify with the first argument is IN
+ADDITION TO the default operators (AND, OR, etc.). To turn off one of the
+default operators, you can pass None to the corresponding keyword argument::
+        
+    cp = qparser.OperatorsPlugin([(optagger, 0)], And=None)
+
+If you want ONLY your list of operators and none of the default operators,
+use the ``clean`` keyword argument::
+
+    cp = qparser.OperatorsPlugin([(optagger, 0)], clean=True)
+
+Operators earlier in the list bind more closely than operators later in the
+list.
 
 
 

@@ -14,7 +14,7 @@ def assert_adatetime(at, **kwargs):
     for key in adatetime.units:
         val = getattr(at, key)
         target = kwargs.get(key)
-        assert_equal(val, target, "at.%s=%r not %r in %r" % (key, val, target, kwargs))
+        assert_equal(val, target, "at.%s=%r not %r in %r" % (key, val, target, at))
 
 def assert_timespan(ts, sargs, eargs):
     assert_adatetime(ts.start, **sargs)
@@ -177,15 +177,15 @@ def test_bundle_subs(p=english.bundle):
     
 def test_bundle(p=english.bundle):
     assert_adatetime(p.date_from("mar 29 1972 2:45am", basedate),
-                      year=1972, month=3, day=29, hour=2, minute=45)
+                     year=1972, month=3, day=29, hour=2, minute=45)
     assert_adatetime(p.date_from("16:10:45 14 February 2005", basedate),
-                      year=2005, month=2, day=14, hour=16, minute=10, second=45)
+                     year=2005, month=2, day=14, hour=16, minute=10, second=45)
     assert_adatetime(p.date_from("1985 sept 12 12:01", basedate),
-                      year=1985, month=9, day=12, hour=12, minute=1)
+                     year=1985, month=9, day=12, hour=12, minute=1)
     assert_adatetime(p.date_from("5pm 21st oct 2005", basedate),
-                      year=2005, month=10, day=21, hour=17)
+                     year=2005, month=10, day=21, hour=17)
     assert_adatetime(p.date_from("5:59:59pm next thur", basedate),
-                      year=2010, month=9, day=23, hour=17, minute=59, second=59)
+                     year=2010, month=9, day=23, hour=17, minute=59, second=59)
 
 def test_ranges(p=english.torange):
     assert_timespan(p.date_from("last tuesday to next tuesday", basedate),

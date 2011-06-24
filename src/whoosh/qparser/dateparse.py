@@ -30,7 +30,9 @@ import sys
 from datetime import datetime, timedelta
 
 from whoosh.compat import string_type, iteritems
-from whoosh.qparser import BasicSyntax, ErrorToken, Plugin, RangePlugin, Group, Word
+from whoosh.qparser import plugins, syntax
+from whoosh.qparser.common import rcompile
+from whoosh.qparser.taggers import Tagger
 from whoosh.support.relativedelta import relativedelta
 from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
                                   TimeError, relative_days)
@@ -41,13 +43,6 @@ class DateParseError(Exception):
 
 
 # Utility functions
-
-def rcompile(pattern):
-    """Just a shortcut to call re.compile with a standard set of flags.
-    """
-    
-    return re.compile(pattern, re.IGNORECASE | re.UNICODE)
-
 
 def print_debug(level, msg, *args):
     if level > 0:
@@ -130,7 +125,7 @@ class Sequence(MultiBase):
         super(Sequence, self).__init__(elements, name)
         self.sep_pattern = sep
         if sep:
-            self.sep_expr = rcompile(sep)
+            self.sep_expr = rcompile(sep, re.IGNORECASE)
         else:
             self.sep_expr = None
         self.progressive = progressive
@@ -304,7 +299,7 @@ class Bag(MultiBase):
         """
         
         super(Bag, self).__init__(elements, name)
-        self.sep_expr = rcompile(sep)
+        self.sep_expr = rcompile(sep, re.IGNORECASE)
         self.onceper = onceper
         self.requireall = requireall
         self.allof = allof
@@ -426,7 +421,7 @@ class Regex(ParserBase):
     
     def __init__(self, pattern, fn=None, modify=None):
         self.pattern = pattern
-        self.expr = rcompile(pattern)
+        self.expr = rcompile(pattern, re.IGNORECASE)
         self.fn = fn
         self.modify = modify
     
@@ -478,12 +473,12 @@ class Regex(ParserBase):
 class Month(Regex):
     def __init__(self, *patterns):
         self.patterns = patterns
-        self.exprs = [rcompile(pat) for pat in self.patterns]
+        self.exprs = [rcompile(pat, re.IGNORECASE) for pat in self.patterns]
         
         self.pattern = ("(?P<month>"
                         + "|".join("(%s)" % pat for pat in self.patterns)
                         + ")")
-        self.expr = rcompile(self.pattern)
+        self.expr = rcompile(self.pattern, re.IGNORECASE)
         
     def modify_props(self, p):
         text = p.month
@@ -507,7 +502,7 @@ class PlusMinus(Regex):
         self.pattern = ("(?P<dir>[+-]) *%s *%s *%s *%s *%s *%s *%s(?=(\\W|$))"
                         % (rel_years, rel_months, rel_weeks, rel_days,
                            rel_hours, rel_mins, rel_secs))
-        self.expr = rcompile(self.pattern)
+        self.expr = rcompile(self.pattern, re.IGNORECASE)
         
     def props_to_date(self, p, dt):
         if p.dir == "-":
@@ -529,10 +524,10 @@ class Daynames(Regex):
     def __init__(self, next, last, daynames):
         self.next_pattern = next
         self.last_pattern = last
-        self._dayname_exprs = tuple(rcompile(pat) for pat in daynames)
+        self._dayname_exprs = tuple(rcompile(pat, re.IGNORECASE) for pat in daynames)
         dn_pattern = "|".join(daynames)
         self.pattern = "(?P<dir>%s|%s) +(?P<day>%s)(?=(\\W|$))" % (next, last, dn_pattern)
-        self.expr = rcompile(self.pattern)
+        self.expr = rcompile(self.pattern, re.IGNORECASE)
     
     def props_to_date(self, p, dt):
         if re.match(p.dir, self.last_pattern):
@@ -554,7 +549,7 @@ class Daynames(Regex):
 class Time12(Regex):
     def __init__(self):
         self.pattern = "(?P<hour>[1-9]|10|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))"
-        self.expr = rcompile(self.pattern)
+        self.expr = rcompile(self.pattern, re.IGNORECASE)
 
     def props_to_date(self, p, dt):
         isam = p.ampm.lower().startswith("a")
@@ -695,11 +690,11 @@ class English(DateParser):
         self.torange = Combo((self.bundle, "to", self.bundle), name="torange")
         
         self.all = Choice((self.torange, self.bundle), name="all")
-        
+
 
 # QueryParser plugin
 
-class DateParserPlugin(Plugin):
+class DateParserPlugin(plugins.Plugin):
     """Adds more powerful parsing of DATETIME fields.
     
     >>> parser.add_plugin(DateParserPlugin())
@@ -707,7 +702,7 @@ class DateParserPlugin(Plugin):
     """
     
     def __init__(self, basedate=None, dateparser=None, callback=None,
-                 free=False):
+                 free=False, free_expr="([A-Za-z][A-Za-z_0-9]*):([^^]+)"):
         """
         :param basedate: a datetime object representing the current time
             against which to measure relative dates. If you do not supply this
@@ -732,180 +727,170 @@ class DateParserPlugin(Plugin):
         self.dateparser = dateparser
         self.callback = callback
         self.free = free
+        self.freeexpr = free_expr
     
-    def tokens(self, parser):
+    def taggers(self, parser):
         if self.free:
             # If we're tokenizing, we have to go before the FieldsPlugin
-            return ((DateToken, -1), )
+            return [(DateTagger(self, self.freeexpr), -1)]
         else:
             return ()
     
     def filters(self, parser):
         # Run the filter after the FieldsPlugin assigns field names
-        return ((self.do_dates, 110), )
+        return [(self.do_dates, 110)]
     
-    def do_dates(self, parser, stream):
+    def errorize(self, message, node):
+        if self.callback:
+            self.callback(message)
+        return syntax.ErrorNode(message, node)
+    
+    def text_to_dt(self, node):
+        text = node.text
+        try:
+            dt = self.dateparser.date_from(text, self.basedate)
+            if dt is None:
+                node = self.errorize(text, node)
+            else:
+                node = DateTimeNode(node.fieldname, dt, node.boost)
+        except DateParseError:
+            e = sys.exc_info()[1]
+            node = self.errorize(e, node)
+        
+        return node
+    
+    def range_to_dt(self, node):
+        start = end = None
+        dp = self.dateparser.get_parser()
+        
+        if node.start:
+            start = dp.date_from(node.start, self.basedate)
+            if start is None:
+                return self.errorize(node.start, node)
+        if node.end:
+            end = dp.date_from(node.end, self.basedate)
+            if end is None:
+                return self.errorize(node.end, node)
+        
+        if start and end:
+            ts = timespan(start, end).disambiguated(self.basedate)
+            start, end = ts.start, ts.end
+        elif start:
+            start = start.disambiguated(self.basedate)
+            if isinstance(start, timespan):
+                start = start.start
+        elif end:
+            end = end.disambiguated(self.basedate)
+            if isinstance(end, timespan):
+                end = end.end
+        return DateRangeNode(node.fieldname, start, end, boost=node.boost)
+    
+    def do_dates(self, parser, group):
         schema = parser.schema
         if not schema:
-            return stream
+            return group
         
         from whoosh.fields import DATETIME
         datefields = frozenset(fieldname for fieldname, field
                                in parser.schema.items()
                                if isinstance(field, DATETIME))
         
-        newstream = stream.empty()
-        for t in stream:
-            if isinstance(t, Group):
-                t = self.do_dates(parser, t)
-            elif (t.fieldname in datefields
-                  or (t.fieldname is None and parser.fieldname in datefields)):
-                if isinstance(t, Word):
-                    text = t.text
-                    try:
-                        dt = self.dateparser.date_from(text, self.basedate)
-                        if dt is None:
-                            if self.callback:
-                                self.callback(text)
-                            t = ErrorToken(t)
-                        else:
-                            t = DateToken(t.fieldname, dt, t.boost)
-                    except DateParseError:
-                        if self.callback:
-                            e = sys.exc_info()[1]
-                            self.callback("%s (%r)" % (str(e), text))
-                        t = ErrorToken(t)
-                
-                elif isinstance(t, RangePlugin.Range):
-                    start = end = None
-                    error = None
-                    
-                    dp = self.dateparser.get_parser()
-                    
-                    if t.start:
-                        start = dp.date_from(t.start, self.basedate)
-                        if start is None:
-                            error = t.start
-                    if t.end:
-                        end = dp.date_from(t.end, self.basedate)
-                        if end is None and error is None:
-                            error = t.end
-                    
-                    if error is not None:
-                        if self.callback:
-                            self.callback(error)
-                        t = ErrorToken(t)
-                    else:
-                        if start and end:
-                            ts = timespan(start, end).disambiguated(self.basedate)
-                            start, end = ts.start, ts.end
-                        elif start:
-                            start = start.disambiguated(self.basedate)
-                            if isinstance(start, timespan):
-                                start = start.start
-                        elif end:
-                            end = end.disambiguated(self.basedate)
-                            if isinstance(end, timespan):
-                                end = end.end
-                        t = DateRangeToken(t.fieldname, start, end, boost=t.boost)
+        for i, node in enumerate(group):
+            if node.has_fieldname:
+                fname = node.fieldname or parser.fieldname
+            else:
+                fname = None
             
-            newstream.append(t)
-        return newstream
+            if isinstance(node, syntax.GroupNode):
+                group[i] = self.do_dates(parser, node)
+            elif fname in datefields:
+                if node.has_text:
+                    group[i] = self.text_to_dt(node)
+                elif isinstance(node, syntax.RangeNode):
+                    group[i] = self.range_to_dt(node)
+        return group
 
 
-class DateToken(BasicSyntax):
-    expr = re.compile("([A-Za-z][A-Za-z_0-9]*):([^^]+)")
+class DateTimeNode(syntax.SyntaxNode):
+    has_fieldname = True
+    has_boost = True
     
-    def __init__(self, fieldname, timeobj, boost=1.0, endpos=None):
+    def __init__(self, fieldname, dt, boost=1.0):
         self.fieldname = fieldname
-        self.timeobj = timeobj
-        self.boost = boost
-        self.endpos = endpos
+        self.dt = dt
+        self.boost=1.0
     
-    def __repr__(self):
-        r = "%s:(%r)" % (self.fieldname, self.timeobj)
-        if self.boost != 1.0:
-            r + "^%s" % self.boost
-        return r
-    
-    def set_boost(self, b):
-        return self.__class__(self.fieldname, self.timeobj, boost=b,
-                              endpos=self.endpos)
-    
-    def set_fieldname(self, name):
-        if name is None:
-            raise Exception
-        return self.__class__(name, self.timeobj, boost=self.boost,
-                              endpos=self.endpos)
+    def r(self):
+        return repr(self.dt)
     
     def query(self, parser):
         from whoosh import query
         
         fieldname = self.fieldname or parser.fieldname
         field = parser.schema[fieldname]
-        dt = self.timeobj
-        if isinstance(self.timeobj, datetime):
+        dt = self.dt
+        if isinstance(self.dt, datetime):
             return query.Term(fieldname, field.to_text(dt), boost=self.boost)
-        elif isinstance(self.timeobj, timespan):
+        elif isinstance(self.dt, timespan):
             return query.DateRange(fieldname, dt.start, dt.end,
                                    boost=self.boost)
         else:
             raise Exception("Unknown time object: %r" % dt)
 
-    @classmethod
-    def create(cls, parser, match):
-        fieldname = match.group(1)
-        if parser.schema and fieldname in parser.schema:
-            field = parser.schema[fieldname]
-            
-            from whoosh.fields import DATETIME
-            if isinstance(field, DATETIME):
-                text = match.group(2)
-                textstart = match.start(2)
-                
-                plugin = parser.get_plugin(DateParserPlugin)
-                dateparser = plugin.dateparser
-                basedate = plugin.basedate
-                
-                d, newpos = dateparser.parse(text, basedate)
-                if d:
-                    return cls(fieldname, d, endpos=newpos + textstart)
-    
 
-class DateRangeToken(BasicSyntax):
-    def __init__(self, fieldname, starttime, endtime, boost=1.0, endpos=None):
+class DateRangeNode(syntax.SyntaxNode):
+    has_fieldname = True
+    has_boost = True
+    
+    def __init__(self, fieldname, start, end, boost=1.0):
         self.fieldname = fieldname
-        self.starttime = starttime
-        self.endtime = endtime
-        self.boost = boost
-        self.endpos = endpos
-        
-    def __repr__(self):
-        r = "%s:(%r, %r)" % (self.fieldname, self.starttime, self.endtime)
-        if self.boost != 1.0:
-            r + "^%s" % self.boost
-        return r
+        self.start = start
+        self.end = end
+        self.boost=1.0
     
-    def set_boost(self, b):
-        return self.__class__(self.fieldname, self.starttime, self.endtime,
-                              boost=b, endpos=self.endpos)
+    def r(self):
+        return "%r-%r" % (self.start, self.end)
     
-    def set_fieldname(self, name):
-        if name is None:
-            raise Exception
-        return self.__class__(name, self.starttime, self.endtime,
-                              boost=self.boost, endpos=self.endpos)
-        
     def query(self, parser):
         from whoosh import query
-        fieldname = self.fieldname or parser.fieldname
-        start = self.starttime
-        end = self.endtime
         
-        if start is None and end is None:
-            return query.Every(fieldname)
-        else:
-            return query.DateRange(fieldname, start, end, boost=self.boost)
+        fieldname = self.fieldname or parser.fieldname
+        return query.DateRange(fieldname, self.start, self.end, boost=self.boost)
+
+
+class DateTagger(Tagger):
+    def __init__(self, plugin, expr):
+        self.plugin = plugin
+        self.expr = rcompile(expr, re.IGNORECASE)
+    
+    def match(self, parser, text, pos):
+        from whoosh.fields import DATETIME
+        
+        match = self.expr.match(text, pos)
+        if match:
+            fieldname = match.group(1)
+            dtext = match.group(2)
+            
+            if parser.schema and fieldname in parser.schema:
+                field = parser.schema[fieldname]
+                if isinstance(field, DATETIME):
+                    plugin = self.plugin
+                    dateparser = plugin.dateparser
+                    basedate = plugin.basedate
+                    
+                    d, newpos = dateparser.parse(dtext, basedate)
+                    if d:
+                        node = DateTimeNode(fieldname, d)
+                        node.startchar = match.start()
+                        node.endchar = newpos + match.start(2)
+                        return node
+            
+        
+
+
+    
+
+
     
     
     
