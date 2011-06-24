@@ -43,7 +43,6 @@ from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
                              WrappingMatcher, AndNotMatcher)
 from whoosh.reading import TermNotFound
-from whoosh.support.levenshtein import distance
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
 
@@ -134,6 +133,8 @@ class Query(object):
         And([Term("content", u"a"), Not(Term("content", u"b"))])
     """
 
+    syntax = None
+
     def __or__(self, query):
         """Allows you to use | between query objects to wrap them in an Or
         query.
@@ -218,15 +219,6 @@ class Query(object):
         
         return fn_wrapper(self)
 
-    def copy(self):
-        """Returns a copy of this query tree.
-        """
-        
-        if self.is_leaf():
-            return copy.copy(self)
-        else:
-            return self.apply(methodcaller("copy"))
-
     def replace(self, oldtext, newtext):
         """Returns a copy of this query with oldtext replaced by newtext (if
         oldtext was anywhere in this query).
@@ -236,7 +228,7 @@ class Query(object):
         """
         
         if self.is_leaf():
-            return self.copy()
+            return copy(self)
         else:
             return self.apply(methodcaller("replace", oldtext, newtext))
 
@@ -259,6 +251,12 @@ class Query(object):
             termset = set()
         self._all_terms(termset, phrases=phrases)
         return termset
+
+    def copy(self):
+        """Deprecated, just use ``copy.deepcopy``.
+        """
+        
+        return copy.deepcopy(self)
 
     def _all_terms(self, *args, **kwargs):
         # To be implemented in sub-classes
@@ -563,7 +561,7 @@ class CompoundQuery(Query):
         if len(subqs) == 1:
             sub = subqs[0]
             if not (self.boost == 1.0 and sub.boost == 1.0):
-                sub = sub.copy()
+                sub = copy.deepcopy(sub)
                 sub.boost *= self.boost
             return sub
 
@@ -751,7 +749,7 @@ class Term(Query):
             termset.add((fieldname, text))
 
     def replace(self, oldtext, newtext):
-        q = self.copy()
+        q = copy.copy(self)
         if q.text == oldtext:
             q.text = newtext
         return q
@@ -1456,7 +1454,7 @@ class Variations(MultiTerm):
     __str__ = __unicode__
 
     def replace(self, oldtext, newtext):
-        q = self.copy()
+        q = copy.copy(self)
         if q.text == oldtext:
             q.text = newtext
         return q
@@ -1498,11 +1496,6 @@ class Phrase(Query):
         for w in self.words:
             h ^= hash(w)
         return h
-
-    def copy(self):
-        # Need to override the default shallow copy here to do a copy of the
-        # self.words list
-        return self.__class__(self.fieldname, self.words[:], boost=self.boost)
 
     def _all_terms(self, termset, phrases=True):
         if phrases:
@@ -1692,7 +1685,10 @@ class NullQuery(Query):
     def __hash__(self):
         return id(self)
     
-    def copy(self):
+    def __copy__(self):
+        return self
+    
+    def __deepcopy__(self, memo):
         return self
     
     def field(self):

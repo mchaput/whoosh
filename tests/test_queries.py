@@ -1,3 +1,5 @@
+import copy
+
 from nose.tools import assert_equal, assert_not_equal
 
 from whoosh import fields, scoring
@@ -164,11 +166,11 @@ def test_duplicates():
 
 def test_query_copy_hash():
     def do(q1, q2):
-        q1a = q1.copy()
+        q1a = copy.deepcopy(q1)
         assert_equal(q1, q1a)
         assert_equal(hash(q1), hash(q1a))
         assert_not_equal(q1, q2)
-        
+    
     do(Term("a", u("b"), boost=1.1), Term("a", u("b"), boost=1.5))
     do(And([Term("a", u("b")), Term("c", u("d"))], boost=1.1),
        And([Term("a", u("b")), Term("c", u("d"))], boost=1.5))

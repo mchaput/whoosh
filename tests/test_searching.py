@@ -1094,7 +1094,7 @@ def test_fieldboost():
         "Returns a function which will boost the given field in a query tree"
         def booster_fn(obj):
             if obj.is_leaf() and obj.field() == fieldname:
-                obj = obj.copy()
+                obj = copy.deepcopy(obj)
                 obj.boost *= factor
                 return obj
             else:

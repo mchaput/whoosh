@@ -30,7 +30,7 @@ import copy
 from whoosh import query
 from whoosh.compat import iteritems, u
 from whoosh.qparser import syntax
-from whoosh.qparser.common import rcompile
+from whoosh.qparser.common import rcompile, wsyntax
 from whoosh.qparser.taggers import RegexTagger, FnTagger
 
 
@@ -387,8 +387,9 @@ class PhrasePlugin(Plugin):
             else:
                 words = self.text.split(" ")
             
-            return query.Phrase(fieldname, words, slop=self.slop,
-                                boost=self.boost)
+            qclass = parser.phraseclass
+            q = qclass(fieldname, words, slop=self.slop, boost=self.boost)
+            return wsyntax(q, self)
     
     class PhraseTagger(RegexTagger):
         def create(self, parser, matcher):

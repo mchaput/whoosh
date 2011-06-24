@@ -185,6 +185,6 @@ def test_wordfile():
     assert_equal(cor.suggest("specail", maxdist=1), ["special"])
     gf.close()
 
-
+    
 
 
