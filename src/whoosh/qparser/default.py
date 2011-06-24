@@ -26,9 +26,8 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from whoosh import query
-# QueryParser has a plugins argument that will shadow the "plugins" module, so
-# rename the module when we import it
 from whoosh.qparser import syntax
+from whoosh.qparser.common import print_debug
 
 
 # Query parser object
@@ -225,7 +224,7 @@ class QueryParser(object):
         
         return self._priorized("filters")
     
-    def tag(self, text, pos=0):
+    def tag(self, text, pos=0, debug=False):
         """Returns a group of syntax nodes corresponding to the given text,
         created by matching the Taggers provided by the parser's plugins.
         
@@ -239,6 +238,7 @@ class QueryParser(object):
         prev = pos
         # Priorized list of taggers provided by the parser's plugins
         taggers = self.taggers()
+        print_debug(debug, "Taggers: %r" % taggers)
         
         # Define a function that will make a WordNode from the "interstitial"
         # text between matches
@@ -257,8 +257,11 @@ class QueryParser(object):
                     if node.endchar <= pos:
                         raise Exception("Token %r did not move cursor forward. (%r, %s)" % (tagger, text, pos))
                     if prev < pos:
-                        stack.append(inter(prev, pos))
-                    
+                        tween = inter(prev, pos)
+                        print_debug(debug, "Tween: %r" % tween)
+                        stack.append(tween)
+                        
+                    print_debug(debug, "Tagger: %r at %s: %r" % (tagger, pos, node))
                     stack.append(node)
                     prev = pos = node.endchar
                     break
@@ -272,21 +275,26 @@ class QueryParser(object):
             stack.append(inter(prev, len(text)))
         
         # Wrap the list of nodes in a group node
-        return self.group(stack)
+        group = self.group(stack)
+        print_debug(debug, "Tagged group: %r" % group)
+        return group
     
-    def filterize(self, nodes):
+    def filterize(self, nodes, debug=False):
         """Takes a group of nodes and runs the filters provided by the parser's
         plugins.
         """
         
         # Call each filter in the priorized list of plugin filters
+        print_debug(debug, "Pre-filtered group: %r" % nodes)
         for f in self.filters():
+            print_debug(debug, "..Applying: %r" % f)
             nodes = f(self, nodes)
+            print_debug(debug, "..Result: %r" % nodes)
             if nodes is None:
                 raise Exception("Filter %r did not return anything" % f)
         return nodes
 
-    def process(self, text, pos=0):
+    def process(self, text, pos=0, debug=False):
         """Returns a group of syntax nodes corresponding to the given text,
         tagged by the plugin Taggers and filtered by the plugin filters.
         
@@ -294,11 +302,11 @@ class QueryParser(object):
         :param pos: the position in the text to start tagging at.
         """
         
-        nodes = self.tag(text, pos=pos)
-        nodes = self.filterize(nodes)
+        nodes = self.tag(text, pos=pos, debug=debug)
+        nodes = self.filterize(nodes, debug=debug)
         return nodes
 
-    def parse(self, text, normalize=True):
+    def parse(self, text, normalize=True, debug=False):
         """Parses the input string and returns a :class:`whoosh.query.Query`
         object/tree. 
         
@@ -309,11 +317,17 @@ class QueryParser(object):
         :rtype: :class:`whoosh.query.Query`
         """
         
-        tree = self.process(text)
-        q = tree.query(self)
+        nodes = self.process(text, debug=debug)
+        print_debug(debug, "Syntax tree: %r" % nodes)
+        q = nodes.query(self)
+        print_debug(debug, "Pre-normalized query: %r" % q)
         if normalize:
             q = q.normalize()
+            print_debug(debug, "Normalized query: %r" % q)
         return q
+    
+    def parse_(self, text, normalize=True):
+        pass
 
 
 # Premade parser configurations

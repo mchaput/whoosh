@@ -30,6 +30,7 @@ This module contains common utility objects/functions for the other query
 parser modules.
 """
 
+from __future__ import print_function
 import re
 
 from whoosh.compat import string_type
@@ -61,8 +62,17 @@ def get_single_text(field, text, **kwargs):
         return t
 
 
-def wsyntax(qnode, stxnode):
-    qnode.syntax = stxnode
+def xfer(qnode, stxnode):
+    qnode.startchar = stxnode.startchar
+    qnode.endchar = stxnode.endchar
     return qnode
+
+
+def print_debug(level, msg):
+    if level:
+        print("  " * (level - 1), msg)
+
+
+
 
 

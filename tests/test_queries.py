@@ -1,8 +1,6 @@
-import copy
+from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
-from nose.tools import assert_equal, assert_not_equal
-
-from whoosh import fields, scoring
+from whoosh import fields
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
@@ -12,11 +10,9 @@ from whoosh.spans import *
 
 def test_all_terms():
     q = QueryParser("a", None).parse(u('hello b:there c:"my friend"'))
-    ts = set()
-    q.all_terms(ts, phrases=False)
+    ts = q.all_terms(phrases=False)
     assert_equal(sorted(ts), [("a", "hello"), ("b", "there")])
-    ts = set()
-    q.all_terms(ts, phrases=True)
+    ts = q.all_terms(phrases=True)
     assert_equal(sorted(ts), [("a", "hello"), ("b", "there"), ("c", "friend"), ("c", "my")])
 
 def test_existing_terms():
@@ -33,6 +29,7 @@ def test_existing_terms():
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
     
     ts = q.existing_terms(r, phrases=False)
+    print "ts=", sorted(ts)
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
     
     ts = q.existing_terms(r)
