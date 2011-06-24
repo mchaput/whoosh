@@ -61,3 +61,8 @@ def get_single_text(field, text, **kwargs):
         return t
 
 
+def wsyntax(qnode, stxnode):
+    qnode.syntax = stxnode
+    return qnode
+
+
