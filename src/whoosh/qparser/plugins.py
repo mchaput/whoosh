@@ -30,7 +30,7 @@ import copy
 from whoosh import query
 from whoosh.compat import iteritems, u
 from whoosh.qparser import syntax
-from whoosh.qparser.common import rcompile, xfer
+from whoosh.qparser.common import rcompile, attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
 
 
@@ -331,7 +331,7 @@ class FieldsPlugin(TaggingPlugin):
                     if node.has_text:
                         node.text = text + node.text
                     else:
-                        newgroup.append(syntax.WordNode(text))
+                        newgroup.append(syntax.WordNode(text, error="Unknown field"))
                     text = None
                 
                 newgroup.append(node)
@@ -367,6 +367,9 @@ class PhrasePlugin(Plugin):
     # Didn't use TaggingPlugin because I need to add slop parsing at some
     # point
     
+    # Expression used to find words if a schema isn't available
+    wordexpr = rcompile(r'\S+')
+    
     class PhraseNode(syntax.TextNode):
         def __init__(self, text, slop=1):
             syntax.TextNode.__init__(self, text)
@@ -380,16 +383,43 @@ class PhrasePlugin(Plugin):
                                   slop=self.slop, boost=self.boost)
         
         def query(self, parser):
+            text = self.text
             fieldname = self.fieldname or parser.fieldname
+            
+            # We want to process the text of the phrase into "words" (tokens),
+            # and also record the startchar and endchar of each word
+            
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
-                words = list(field.process_text(self.text, mode="query"))
+                if field.format:
+                    # We have a field with a format object, so use it to parse
+                    # the phrase into tokens
+                    tokens = field.format.analyze(text, mode="query",
+                                                  chars=True)
+                    words = []
+                    char_ranges = []
+                    for t in tokens:
+                        words.append(t.text)
+                        char_ranges.append((t.startchar, t.endchar))
+                else:
+                    # We have a field but it doesn't have a format object,
+                    # for some reason (it's self-parsing?), so use process_text
+                    # to get the texts (we won't know the start/end chars)
+                    words = list(field.process_text(text, mode="query"))
+                    char_ranges = [(None, None)] * len(words)
             else:
-                words = self.text.split(" ")
+                # We're parsing without a schema, so just use the default
+                # regular expression to break the text into words
+                words = []
+                char_ranges = []
+                for match in PhrasePlugin.wordexpr.finditer(text):
+                    words.append(match.group(0))
+                    char_ranges.append((match.start(), match.end()))
             
             qclass = parser.phraseclass
             q = qclass(fieldname, words, slop=self.slop, boost=self.boost)
-            return xfer(q, self)
+            q.char_ranges = char_ranges
+            return attach(q, self)
     
     class PhraseTagger(RegexTagger):
         def create(self, parser, matcher):
@@ -447,7 +477,8 @@ class RangePlugin(Plugin):
             startexcl = match.group("open") == self.excl_start
             endexcl = match.group("close") == self.excl_end
             
-            return syntax.RangeNode(start, end, startexcl, endexcl)
+            rn = syntax.RangeNode(start, end, startexcl, endexcl)
+            return rn
     
     def __init__(self, expr=None, excl_start="{", excl_end="}"):
         self.expr = expr or self.expr
@@ -691,9 +722,7 @@ class GtLtPlugin(TaggingPlugin):
             n = syntax.RangeNode(None, text, False, False)
         elif rel == ">=" or rel == "=>":
             n = syntax.RangeNode(text, None, False, False)
-        n.startchar = node.startchar
-        n.endchar = node.endchar
-        return n
+        return n.set_range(node.startchar, node.endchar)
 
 
 class MultifieldPlugin(Plugin):

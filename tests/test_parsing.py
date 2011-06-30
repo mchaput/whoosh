@@ -568,7 +568,7 @@ def test_nonexistant_fieldnames():
 def test_stopped():
     schema = fields.Schema(text = fields.TEXT)
     qp = default.QueryParser("text", schema)
-    q = qp.parse(u("a b"))
+    q = qp.parse(u("a b"), debug=True)
     assert_equal(q, query.NullQuery)
     
 def test_analyzing_terms():

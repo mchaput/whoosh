@@ -25,6 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import sys
+
 from whoosh import query
 from whoosh.qparser import syntax
 from whoosh.qparser.common import print_debug
@@ -184,7 +186,8 @@ class QueryParser(object):
                 try:
                     return field.parse_query(fieldname, text, boost=boost)
                 except:
-                    return query.NullQuery
+                    e = sys.exc_info()[1]
+                    return query.error_query(e)
             
             # Otherwise, ask the field to process the text into a list of
             # tokenized strings
@@ -204,7 +207,7 @@ class QueryParser(object):
             # It's possible field.process_text() will return an empty list (for
             # example, on a stop word)
             if not texts:
-                return query.NullQuery
+                return None
             
             text = texts[0]
         
@@ -319,8 +322,12 @@ class QueryParser(object):
         
         nodes = self.process(text, debug=debug)
         print_debug(debug, "Syntax tree: %r" % nodes)
+        
         q = nodes.query(self)
+        if not q:
+            q = query.NullQuery
         print_debug(debug, "Pre-normalized query: %r" % q)
+        
         if normalize:
             q = q.normalize()
             print_debug(debug, "Normalized query: %r" % q)

@@ -161,15 +161,18 @@ class FieldType(object):
         return self.format.word_values(value, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
-        """Returns an iterator of token strings corresponding to the given
-        string.
+        """Analyzes the given string and returns an iterator of token strings.
+        
+        >>> field = fields.TEXT()
+        >>> list(field.process_text("The ides of March"))
+        ["ides", "march"]
         """
         
         if not self.format:
             raise Exception("%s field has no format" % self)
         return (t.text for t
                 in self.format.analyze(qstring, mode=mode, **kwargs))
-        
+    
     def self_parsing(self):
         """Subclasses should override this method to return True if they want
         the query parser to call the field's ``parse_query()`` method instead
@@ -394,7 +397,6 @@ class NUMERIC(FieldType):
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        from whoosh.qparser.common import QueryParserError
         
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
@@ -403,7 +405,7 @@ class NUMERIC(FieldType):
             text = self.to_text(qstring)
         except Exception:
             e = sys.exc_info()[1]
-            raise QueryParserError(e)
+            return query.error_query(e)
         
         return query.Term(fieldname, text, boost=boost)
     
@@ -504,7 +506,12 @@ class DATETIME(NUMERIC):
         from whoosh import query
         from whoosh.support.times import is_ambiguous
         
-        at = self._parse_datestring(qstring)
+        try:
+            at = self._parse_datestring(qstring)
+        except:
+            e = sys.exc_info()[1]
+            return query.error_query(e)
+        
         if is_ambiguous(at):
             startnum = datetime_to_long(at.floor())
             endnum = datetime_to_long(at.ceil())
@@ -580,7 +587,8 @@ class BOOLEAN(FieldType):
         try:
             text = self.to_text(qstring)
         except ValueError:
-            return query.NullQuery
+            e = sys.exc_info()[1]
+            return query.error_query(e)
         
         return query.Term(fieldname, text, boost=boost)
     
@@ -908,7 +916,7 @@ class Schema(object):
         if type(fieldtype) is type:
             try:
                 fieldtype = fieldtype()
-            except Exception:
+            except:
                 e = sys.exc_info()[1]
                 raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
         

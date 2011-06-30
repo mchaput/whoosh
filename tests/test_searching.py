@@ -544,6 +544,7 @@ def test_stop_phrase():
     with ix.searcher() as s:
         qp = qparser.QueryParser("title", schema)
         q = qp.parse(u("richard of york"))
+        assert_equal(q.__unicode__(), "(title:richard AND title:york)")
         assert_equal(len(s.search(q)), 1)
         #q = qp.parse(u("lily the pink"))
         #assert len(s.search(q)), 1)
