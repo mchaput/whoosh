@@ -57,6 +57,18 @@ class QueryError(Exception):
 
 # Functions
 
+def error_query(msg, q=None):
+    """Returns the query in the second argument (or a :class:`NullQuery` if the
+    second argument is not given) with its ``error`` attribute set to
+    ``msg``.
+    """
+    
+    if q is None:
+        q = _NullQuery()
+    q.error = msg
+    return q
+
+
 def query_lists(q):
     """Returns the leaves of the query tree, with the query hierarchy
     represented as nested lists.
@@ -168,6 +180,9 @@ class Query(object):
     # For queries produced by the query parser, record where in the user
     # query this object originated
     startchar = endchar = None
+    # For queries produced by the query parser, records an error that resulted
+    # in this query
+    error = None
 
     def __or__(self, query):
         """Allows you to use | between query objects to wrap them in an Or
@@ -308,10 +323,10 @@ class Query(object):
         
         if not termset:
             termset = set()
-        for q in self.queries():
+        for q in self.leaves():
             if q.has_terms():
                 if phrases or not isinstance(q, Phrase):
-                    termset.update(q.terms_())
+                    termset.update(q.terms())
         return termset
         
     def existing_terms(self, ixreader, termset=None, reverse=False,
@@ -352,8 +367,9 @@ class Query(object):
                 for qq in q.leaves():
                     yield qq
 
-    def iter_all_terms(self, phrases=True):
-        """Returns an iterator of all terms in this query tree.
+    def iter_all_terms(self):
+        """Returns an iterator of ("fieldname", "text") pairs for all terms in
+        this query tree.
         
         >>> qp = qparser.QueryParser("text", myindex.schema)
         >>> q = myparser.parse("alfa bravo title:charlie")
@@ -368,8 +384,6 @@ class Query(object):
         >>> # the index
         >>> [t for t in q.iter_all_terms() if reader.doc_frequency(t[0], t[1]) < 5]
         [("title", "charlie")]
-        
-        :param phrases: Whether to add words found in Phrase queries.
         """
         
         for q in self.leaves():
@@ -377,17 +391,49 @@ class Query(object):
                 for t in q.terms():
                     yield t
 
-    def terms(self):
-        """Yields one or more terms searched for by this specific query object.
-        You can check whether a query object targets specific terms before you
-        call this method using :meth:`Query.has_terms`.
+    def all_term_queries(self):
+        """Returns an iterator of :class:`Term` query objects corresponding to
+        all terms in this query tree.
         
-        To get all terms in the tree, use :meth:`Query.iter_all_terms`.
+        Note that this doesn't just return the actual :class:`Term` queries in
+        the query tree... it also yields the terms inside phrases, variations,
+        etc.
         """
         
-        return ([])
-        
+        for q in self.leaves():
+            if q.has_terms():
+                for t in q.term_queries():
+                    yield t
 
+    def terms(self):
+        """Yields zero or more ("fieldname", "text") pairs searched for by this
+        query object. You can check whether a query object targets specific
+        terms before you call this method using :meth:`Query.has_terms`.
+        
+        To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
+        """
+        
+        return []
+    
+    def term_queries(self):
+        """Yields zero or more :class:`Term` query objects corresponding to the
+        terms searched for by this query object. You can check whether a query
+        object targets specific terms before you call this method using
+        :meth:`Query.has_terms`.
+        
+        The startchar and endchar indices will only be meaningful for queries
+        which were built by the query parser from a query string.
+        
+        To get all tokens for a query tree, use
+        :meth:`Query.all_terms_queries`.
+        """
+        
+        for fname, text in self.terms():
+            q = Term(fname, text, boost=self.boost)
+            q.startchar = self.startchar
+            q.endchar = self.endchar
+            yield q
+    
     def requires(self):
         """Returns a set of queries that are *known* to be required to match
         for the entire query to match. Note that other queries might also turn
@@ -514,7 +560,7 @@ class WrappingQuery(Query):
     
     def matcher(self, searcher):
         return self.child.matcher(searcher)
-    
+
 
 class CompoundQuery(Query):
     """Abstract base class for queries that combine or manipulate the results
@@ -787,8 +833,7 @@ class Term(Query):
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
-                and
-                self.fieldname == other.fieldname
+                and self.fieldname == other.fieldname
                 and self.text == other.text
                 and self.boost == other.boost)
 
@@ -815,6 +860,9 @@ class Term(Query):
 
     def terms(self):
         yield (self.fieldname, self.text)
+
+    def term_queries(self):
+        yield self
 
     def replace(self, oldtext, newtext):
         q = copy.copy(self)
@@ -1132,7 +1180,7 @@ class ExpandingTerm(MultiTerm):
     
     def terms(self):
         yield (self.fieldname, self.text)
-
+    
 
 class FuzzyTerm(ExpandingTerm):
     """Matches documents containing words similar to the given term.
@@ -1528,6 +1576,11 @@ class DateRange(NumericRange):
 class Phrase(Query):
     """Matches documents containing a given phrase."""
 
+    # If a Phrase object is created by the query parser, it will set this
+    # attribute to a list of (startchar, endchar) pairs corresponding to the
+    # words
+    char_ranges = None
+
     def __init__(self, fieldname, words, slop=1, boost=1.0):
         """
         :param fieldname: the field to search.
@@ -1568,6 +1621,17 @@ class Phrase(Query):
     def terms(self):
         return ((self.fieldname, word) for word in self.words)
 
+    def term_queries(self):
+        char_ranges = self.char_ranges
+        startchar = endchar = None
+        for i, word in enumerate(self.words):
+            if char_ranges:
+                startchar, endchar = char_ranges[i]
+            q = Term(self.fieldname, word, boost=self.boost)
+            q.startchar = startchar
+            q.endchar = endchar
+            yield q
+
     def normalize(self):
         if not self.words:
             return NullQuery
@@ -1586,8 +1650,7 @@ class Phrase(Query):
         return q
 
     def _and_query(self):
-        fn = self.fieldname
-        return And([Term(fn, word) for word in self.words])
+        return And([Term(self.fieldname, word) for word in self.words])
 
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)
@@ -1725,9 +1788,14 @@ class Every(Query):
         
         return ListMatcher(doclist, all_weights=self.boost)
 
-            
-class NullQuery(Query):
+
+
+
+class _NullQuery(Query):
     "Represents a query that won't match anything."
+    
+    boost = 1.0
+    
     def __call__(self):
         return self
     
@@ -1735,7 +1803,10 @@ class NullQuery(Query):
         return "<%s>" % (self.__class__.__name__, )
     
     def __eq__(self, other):
-        return other is self
+        return isinstance(other, _NullQuery)
+    
+    def __ne__(self, other):
+        return not self.__eq__(other)
     
     def __hash__(self):
         return id(self)
@@ -1763,9 +1834,8 @@ class NullQuery(Query):
     
     def matcher(self, searcher):
         return NullMatcher()
-
-
-NullQuery = NullQuery()
+
+NullQuery = _NullQuery()
 
 
 class ConstantScoreQuery(WrappingQuery):

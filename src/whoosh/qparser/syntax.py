@@ -25,8 +25,10 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import sys, weakref
+
 from whoosh import query
-from whoosh.qparser.common import get_single_text, QueryParserError, xfer
+from whoosh.qparser.common import get_single_text, QueryParserError, attach
 
 
 class SyntaxNode(object):
@@ -52,10 +54,7 @@ class SyntaxNode(object):
     has_fieldname = False
     has_text = False
     has_boost = False
-    
-    def __init__(self):
-        self.startchar = None
-        self.endchar = None
+    _parent = None
     
     def __repr__(self):
         r = "<"
@@ -110,6 +109,7 @@ class SyntaxNode(object):
         
         if self.fieldname is None or override:
             self.fieldname = name
+        return self
     
     def set_boost(self, boost):
         """Sets the boost associated with this node.
@@ -120,6 +120,34 @@ class SyntaxNode(object):
         if not self.has_boost:
             return
         self.boost = boost
+        return self
+        
+    def set_range(self, startchar, endchar):
+        """Sets the character range associated with this node.
+        """
+        
+        self.startchar = startchar
+        self.endchar = endchar
+        return self
+    
+    # Navigation methods
+    
+    def parent(self):
+        if self._parent:
+            return self._parent()
+    
+    def next_sibling(self):
+        p = self.parent()
+        if p:
+            return p.node_after(self)
+    
+    def prev_sibling(self):
+        p = self.parent()
+        if p:
+            return p.node_before(self)
+    
+    def bake(self, parent):
+        self._parent = weakref.ref(parent)
 
 
 class MarkerNode(SyntaxNode):
@@ -150,8 +178,6 @@ class FieldnameNode(SyntaxNode):
     def __init__(self, fieldname, original):
         self.fieldname = fieldname
         self.original = original
-        self.startchar = None
-        self.endchar = None
         
     def __repr__(self):
         return "<%r:>" % self.fieldname
@@ -204,9 +230,14 @@ class GroupNode(SyntaxNode):
                               boost=self.boost, **self.kwargs)
     
     def query(self, parser):
-        q = self.qclass([node.query(parser) for node in self.nodes],
-                        boost=self.boost, **self.kwargs)
-        return xfer(q, self)
+        subs = []
+        for node in self.nodes:
+            subq = node.query(parser)
+            if subq is not None:
+                subs.append(subq)
+        
+        q = self.qclass(subs, boost=self.boost, **self.kwargs)
+        return attach(q, self)
 
     def empty_copy(self):
         """Returns an empty copy of this group.
@@ -274,6 +305,32 @@ class GroupNode(SyntaxNode):
     def reverse(self):
         self.nodes.reverse()
     
+    def index(self, v):
+        return self.nodes.index(v)
+    
+    # Navigation methods
+    
+    def bake(self, parent):
+        SyntaxNode.bake(self, parent)
+        for node in self.nodes:
+            node.bake(self)
+    
+    def node_before(self, n):
+        try:
+            i = self.nodes.index(n)
+        except ValueError:
+            return
+        if i > 0:
+            return self.nodes[i - 1]
+    
+    def node_after(self, n):
+        try:
+            i = self.nodes.index(n)
+        except ValueError:
+            return
+        if i < len(self.nodes) - 2:
+            return self.nodes[i + 1]
+    
 
 class BinaryGroup(GroupNode):
     """Intermediate base class for group nodes that have two subnodes and
@@ -287,7 +344,7 @@ class BinaryGroup(GroupNode):
         q = self.qclass(self.nodes[0].query(parser),
                         self.nodes[1].query(parser),
                                    boost=self.boost)
-        return xfer(q, self)
+        return attach(q, self)
 
 
 class Wrapper(GroupNode):
@@ -297,7 +354,7 @@ class Wrapper(GroupNode):
     merging = False
     
     def query(self, parser):
-        return xfer(self.qclass(self.nodes[0].query(parser)), self)
+        return attach(self.qclass(self.nodes[0].query(parser)), self)
 
 
 class ErrorNode(SyntaxNode):
@@ -318,9 +375,11 @@ class ErrorNode(SyntaxNode):
     
     def query(self, parser):
         if self.node:
-            return xfer(self.node.query(parser), self.node)
+            q = self.node.query(parser)
         else:
-            return query.NullQuery
+            q = query.NullQuery
+        
+        return attach(query.error_query(self.message, q), self)
 
 
 class AndGroup(GroupNode):
@@ -388,9 +447,10 @@ class RangeNode(SyntaxNode):
                                           self.startexcl, self.endexcl,
                                           boost=self.boost)
                     if q is not None:
-                        return xfer(q, self)
+                        return attach(q, self)
                 except QueryParserError:
-                    return query.NullQuery
+                    e = sys.exc_info()[1]
+                    return attach(query.error_query(e), self)
             
             if start:
                 start = get_single_text(field, start, tokenize=False,
@@ -401,7 +461,7 @@ class RangeNode(SyntaxNode):
         
         q = query.TermRange(fieldname, start, end, self.startexcl,
                             self.endexcl, boost=self.boost)
-        return xfer(q, self)
+        return attach(q, self)
 
 
 class TextNode(SyntaxNode):
@@ -432,8 +492,6 @@ class TextNode(SyntaxNode):
     def __init__(self, text):
         self.fieldname = None
         self.text = text
-        self.startchar = None
-        self.endchar = None
         self.boost = 1.0
 
     def r(self):
@@ -445,7 +503,7 @@ class TextNode(SyntaxNode):
         q = parser.term_query(fieldname, self.text, termclass,
                               boost=self.boost, tokenize=self.tokenize,
                               removestops=self.removestops)
-        return xfer(q, self)
+        return attach(q, self)
 
 
 class WordNode(TextNode):
@@ -463,6 +521,10 @@ class WordNode(TextNode):
 
 class Operator(SyntaxNode):
     """Base class for PrefixOperator, PostfixOperator, and InfixOperator.
+    
+    Operators work by moving the nodes they apply to (e.g. for prefix operator,
+    the previous node, for infix operator, the nodes on either side, etc.) into
+    a group node. The group provides the code for what to do with the nodes.
     """
     
     def __init__(self, text, grouptype, leftassoc=True):

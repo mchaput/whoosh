@@ -60,10 +60,10 @@ class RegexTagger(Tagger):
         match = self.expr.match(text, pos)
         if match:
             node = self.create(parser, match)
-            node.startchar = match.start()
-            node.endchar = match.end()
-            return node
-        
+            if node is None:
+                raise Exception("%s.match() did not return a node" % (self.__class__.__name__))
+            return node.set_range(match.start(), match.end())
+    
     def create(self, parser, match):
         """When the regular expression matches, this method is called to
         translate the regex match object into a syntax node.

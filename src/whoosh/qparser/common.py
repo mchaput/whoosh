@@ -62,10 +62,11 @@ def get_single_text(field, text, **kwargs):
         return t
 
 
-def xfer(qnode, stxnode):
-    qnode.startchar = stxnode.startchar
-    qnode.endchar = stxnode.endchar
-    return qnode
+def attach(q, stxnode):
+    if q:
+        q.startchar = stxnode.startchar
+        q.endchar = stxnode.endchar
+    return q
 
 
 def print_debug(level, msg):

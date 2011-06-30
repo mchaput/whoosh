@@ -863,7 +863,7 @@ class Collector(object):
                 if score > items[0][0]:
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
-            
+                    
     def pull_matches(self, searcher, matcher, usequality, offset):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.
@@ -885,6 +885,7 @@ class Collector(object):
             # matcher with a more efficient version
             if replace:
                 if replacecounter == 0 or self.minscore != minscore:
+                    #print "minscore=", minscore, "max_qual=", matcher.max_quality()
                     matcher = matcher.replace(minscore or 0)
                     if not matcher.is_active():
                         break

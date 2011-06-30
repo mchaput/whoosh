@@ -79,21 +79,18 @@ def test_dateparser():
     assert_equal(errs[0], "blah")
     
     q = qp.parse(u("hello date:blarg"))
-    assert_equal(q.__class__, query.Term)
-    assert_equal(q.fieldname, "text")
-    assert_equal(q.text, "hello")
+    assert_equal(q.__unicode__(), "(text:hello AND <_NullQuery>)")
+    assert_equal(q[1].error, "blarg")
     assert_equal(errs[1], "blarg")
     
     q = qp.parse(u("hello date:20055x10"))
-    assert_equal(q.__class__, query.Term)
-    assert_equal(q.fieldname, "text")
-    assert_equal(q.text, "hello")
+    assert_equal(q.__unicode__(), "(text:hello AND <_NullQuery>)")
+    assert_equal(q[1].error, "20055x10")
     assert_equal(errs[2], "20055x10")
     
     q = qp.parse(u("hello date:'2005 19 32'"))
-    assert_equal(q.__class__, query.Term)
-    assert_equal(q.fieldname, "text")
-    assert_equal(q.text, "hello")
+    assert_equal(q.__unicode__(), "(text:hello AND <_NullQuery>)")
+    assert_equal(q[1].error, "2005 19 32")
     assert_equal(errs[3], "2005 19 32")
     
     q = qp.parse(u("date:'march 24 to dec 12'"))

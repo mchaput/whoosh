@@ -38,31 +38,48 @@ from cgi import escape as htmlescape
 
 # Fragment object
 
-class Fragment(object):
-    """Represents a fragment (extract) from a hit document. This object is
-    mainly used to keep track of the start and end points of the fragment; it
-    does not contain the text of the fragment or do much else.
+def fragment_from_tokens(text, tokens, charsbefore=0, charsafter=0):
+    """Returns a :class:`Fragment` object based on the :class:`analysis.Token`
+    objects in ``tokens`` that have ``token.matched == True``.
     """
     
-    def __init__(self, tokens, charsbefore=0, charsafter=0, textlen=999999):
+    startchar = tokens[0].startchar if tokens else 0
+    endchar = tokens[-1].endchar if tokens else len(text)
+    
+    startchar = max(0, startchar - charsbefore)
+    endchar = min(len(text), endchar + charsafter)
+    
+    matches = [t for t in tokens if t.matched]
+    return Fragment(text, startchar, endchar, matches,
+                    charsbefore=charsbefore, charsafter=charsafter)
+
+
+class Fragment(object):
+    """Represents a fragment (extract) from a hit document. This object is
+    mainly used to keep track of the start and end points of the fragment and
+    the "matched" character ranges inside; it does not contain the text of the
+    fragment or do much else.
+    """
+    
+    def __init__(self, text, matches, startchar=0, endchar=-1):
         """
-        :param tokens: list of the Token objects in the fragment. 
-        :param charsbefore: approx. how many characters before the start of the
-            first matched term to include in the fragment.
-        :param charsafter: approx. how many characters after the end of the
-            last matched term to include in the fragment.
-        :param textlen: length in characters of the document text.
+        :param text: the source text of the fragment.
+        :param matches: a list of objects which have ``startchar`` and
+            ``endchar`` attributes, and optionally a ``text`` attribute.
+        :param startchar: the index into ``text`` at which the fragment starts.
+            The default is 0.
+        :param endchar: the index into ``text`` at which the fragment ends.
+            The default is -1, which is interpreted as the length of ``text``.
         """
         
-        #: index of the first character of the fragment in the original
-        # document
-        self.startchar = max(0, tokens[0].startchar - charsbefore)
-        #: index after the last character of the fragment in the original
-        #document
-        self.endchar = min(textlen, tokens[-1].endchar + charsafter)
-        self.matches = [t for t in tokens if t.matched]
-        self.matched_terms = frozenset(t.text for t in self.matches)
-    
+        self.text = text
+        self.matches = matches
+        
+        if endchar == -1:
+            endchar = len(text)
+        self.startchar = startchar
+        self.endchar = endchar
+        
     def __len__(self):
         return self.endchar - self.startchar
     
@@ -80,12 +97,9 @@ class Fragment(object):
         fec = fragment.endchar
         return max(ec, fec) - min(sc, fsc)
     
-    def has_matches(self):
-        return any(t.matched for t in self.tokens)
-    
-
     def __lt__(self, other):
         return id(self) < id(other)
+
 
 # Filters
 
@@ -101,7 +115,7 @@ def copyandmatchfilter(termset, tokens):
 class Fragmenter(object):
     def __call__(self, text, tokens):
         raise NotImplementedError
-    
+
 
 class WholeFragmenter(Fragmenter):
     def __call__(self, text, tokens):
@@ -115,7 +129,8 @@ class WholeFragmenter(Fragmenter):
         if tokens:
             before = tokens[0].startchar
             after = len(text) - tokens[-1].endchar
-        return [Fragment(tokens, charsbefore=before, charsafter=after)]
+        return [fragment_from_tokens(text, tokens, charsbefore=before,
+                                     charsafter=after)]
 
 
 # Backwards compatiblity
@@ -136,7 +151,7 @@ class SimpleFragmenter(Fragmenter):
     def __call__(self, text, tokens):
         size = self.size
         first = None
-        frag = []
+        tks = []
         
         for t in tokens:
             if first is None:
@@ -144,14 +159,14 @@ class SimpleFragmenter(Fragmenter):
             
             if t.endchar - first > size:
                 first = None
-                if frag:
-                    yield Fragment(frag)
-                frag = []
+                if tks:
+                    yield fragment_from_tokens(text, tks)
+                tks = []
             
-            frag.append(t)
+            tks.append(t)
             
-        if frag:
-            yield Fragment(frag)
+        if tks:
+            yield fragment_from_tokens(text, tks)
 
 
 class SentenceFragmenter(Fragmenter):
@@ -178,7 +193,7 @@ class SentenceFragmenter(Fragmenter):
         sentencechars = self.sentencechars
         textlen = len(text)
         first = None
-        frag = []
+        tks = []
         
         for t in tokens:
             if first is None:
@@ -187,22 +202,22 @@ class SentenceFragmenter(Fragmenter):
             
             if endchar - first > maxchars:
                 first = None
-                if frag:
-                    yield Fragment(frag)
-                frag = []
+                if tks:
+                    yield fragment_from_tokens(text, tks)
+                tks = []
             
-            frag.append(t)
-            if frag and endchar < textlen and text[endchar] in sentencechars:
+            tks.append(t)
+            if tks and endchar < textlen and text[endchar] in sentencechars:
                 # Don't break for two periods in a row (e.g. ignore "...")
                 if endchar + 1 < textlen and text[endchar + 1] in sentencechars:
                     continue
                 
-                yield Fragment(frag, charsafter=0)
-                frag = []
+                yield fragment_from_tokens(text, tks, charsafter=0)
+                tks = []
                 first = None
         
-        if frag:
-            yield Fragment(frag)
+        if tks:
+            yield fragment_from_tokens(text, tks)
 
 
 class ContextFragmenter(Fragmenter):
@@ -246,7 +261,7 @@ class ContextFragmenter(Fragmenter):
                 countdown -= length
                 
                 if countdown < 0 or currentlen >= maxchars:
-                    yield Fragment(current)
+                    yield fragment_from_tokens(text, current)
                     current = deque()
                     currentlen = 0
             
@@ -256,10 +271,10 @@ class ContextFragmenter(Fragmenter):
                     currentlen -= t.endchar - t.startchar
 
         if countdown >= 0:
-            yield Fragment(current)
+            yield fragment_from_tokens(text, current)
 
 
-#class VectorFragmenter(Fragmenter):
+#class VectorFragmenter(Fragenter):
 #    def __init__(self, termmap, maxchars=200, charsbefore=20, charsafter=20):
 #        """
 #        :param termmap: A dictionary mapping the terms you're looking for to
@@ -344,8 +359,90 @@ def SHORTER(fragment):
 
 # Formatters
 
+def get_text(original, token, replace):
+    """Convenience function for getting the text to use for a match when
+    formatting.
+    
+    If ``replace`` is False, returns the part of ``original`` between
+    ``token.startchar`` and ``token.endchar``. If ``replace`` is True, returns
+    ``token.text``.
+    """
+    
+    if replace:
+        return token.text
+    else:
+        return original[token.startchar:token.endchar]
+
+
 class Formatter(object):
-    pass
+    """Base class for formatters.
+    
+    For highlighters that return strings, it is usually only necessary to
+    override :meth:`Formatter.format_token`.
+    
+    Use the :func:`get_text` function as a convenience to get the token text::
+    
+        class MyFormatter(Formatter):
+            def format_token(text, token, replace=False):
+                ttext = get_text(text, token, replace)
+                return "[%s]" % ttext
+                
+        
+    """
+    
+    between = "..."
+    
+    def format_token(self, text, token, replace=False):
+        """Returns a formatted version of the given "token" object, which
+        should have at least ``startchar`` and ``endchar`` attributes, and
+        a ``text`` attribute if ``replace`` is True.
+        
+        :param text: the original fragment text being highlighted.
+        :param token: an object having ``startchar`` and ``endchar`` attributes
+            and optionally a ``text`` attribute (if ``replace`` is True).
+        :param replace: if True, the original text between the token's
+            ``startchar`` and ``endchar`` indices will be replaced with the
+            value of the token's ``text`` attribute.
+        """
+        
+        raise NotImplementedError
+    
+    def format_fragment(self, fragment, replace=False):
+        """Returns a formatted version of the given text, using the "token"
+        objects in the given :class:`Fragment`.
+        
+        :param text: the original fragment text being highlighted.
+        :param fragment: a :class:`Fragment` object representing a list of
+            matches in the text.
+        :param replace: if True, the original text corresponding to each
+            match will be replaced with the value of the token object's
+            ``text`` attribute.
+        """
+        
+        output = []
+        index = fragment.startchar
+        text = fragment.text
+        
+        for t in fragment.matches:
+            if t.startchar > index:
+                output.append(text[index:t.startchar])
+            output.append(self.format_token(text, t, replace))
+            index = t.endchar
+        
+        output.append(text[index:fragment.endchar])
+        return "".join(output)
+    
+    def format(self, fragments, replace=False):
+        """Returns a formatted version of the given text, using a list of
+        :class:`Fragment` objects.
+        """
+        
+        formatted = [self.format_fragment(f, replace=replace)
+                     for f in fragments]
+        return self.between.join(formatted)
+    
+    def __call__(self, text, fragments):
+        return self.format(fragments)
 
 
 class UppercaseFormatter(Formatter):
@@ -358,27 +455,10 @@ class UppercaseFormatter(Formatter):
         """
         
         self.between = between
-        
-    def _format_fragment(self, text, fragment):
-        output = []
-        index = fragment.startchar
-        
-        for t in fragment.matches:
-            if t.startchar > index:
-                output.append(text[index:t.startchar])
-            
-            ttxt = text[t.startchar:t.endchar]
-            if t.matched:
-                ttxt = ttxt.upper()
-            output.append(ttxt)
-            index = t.endchar
-        
-        output.append(text[index:fragment.endchar])
-        return "".join(output)
-
-    def __call__(self, text, fragments):
-        return self.between.join((self._format_fragment(text, fragment)
-                                  for fragment in fragments))
+    
+    def format_token(self, text, token, replace=False):
+        ttxt = get_text(text, token, replace)
+        return ttxt.upper()
 
 
 class HtmlFormatter(Formatter):
@@ -428,44 +508,25 @@ class HtmlFormatter(Formatter):
         self.attrquote = attrquote
         self.maxclasses = maxclasses
         self.seen = {}
+        self.htmlclass = " ".join((self.classname, self.termclass))
     
-    def _format_fragment(self, text, fragment, seen):
-        htmlclass = " ".join((self.classname, self.termclass))
-        
-        output = []
-        index = fragment.startchar
-        
-        for t in fragment.matches:
-            if t.startchar > index:
-                output.append(text[index:t.startchar])
-            
-            ttxt = htmlescape(text[t.startchar:t.endchar])
-            if t.matched:
-                if t.text in seen:
-                    termnum = seen[t.text]
-                else:
-                    termnum = len(seen) % self.maxclasses
-                    seen[t.text] = termnum
-                ttxt = self.template % {"tag": self.tagname,
-                                        "q": self.attrquote,
-                                        "cls": htmlclass,
-                                        "t": ttxt, "tn": termnum}
-            output.append(ttxt)
-            index = t.endchar
-        
-        if index < fragment.endchar:
-            output.append(text[index:fragment.endchar])
-        
-        return "".join(output)
-    
-    def __call__(self, text, fragments):
+    def format_token(self, text, token, replace=False):
         seen = self.seen
-        return self.between.join(self._format_fragment(text, fragment, seen)
-                                 for fragment in fragments)
+        ttext = htmlescape(get_text(text, token, replace))
+        if ttext in seen:
+            termnum = seen[ttext]
+        else:
+            termnum = len(seen) % self.maxclasses
+            seen[ttext] = termnum
+        
+        return self.template % {"tag": self.tagname, "q": self.attrquote,
+                                "cls": self.htmlclass, "t": ttext,
+                                "tn": termnum}
     
     def clean(self):
         """Clears the dictionary mapping terms to HTML classnames.
         """
+        
         self.seen = {}
 
 
@@ -483,7 +544,7 @@ class GenshiFormatter(Formatter):
         self.qname = qname
         self.between = between
         
-        from genshi.core import START, END, TEXT, Attrs, Stream
+        from genshi.core import START, END, TEXT, Attrs, Stream  #@UnresolvedImport
         self.START, self.END, self.TEXT = START, END, TEXT
         self.Attrs, self.Stream = Attrs, Stream
 
@@ -493,42 +554,35 @@ class GenshiFormatter(Formatter):
         else:
             output.append((self.TEXT, text, (None, -1, -1)))
 
-    def _format_fragment(self, text, fragment):
-        START, TEXT, END, Attrs = self.START, self.TEXT, self.END, self.Attrs
+    def format_token(self, text, token, replace=False):
         qname = self.qname
+        ttext = get_text(text, token, replace)
+        return self.Stream([(self.START, (qname, self.Attrs()), (None, -1, -1)),
+                            (self.TEXT, ttext, (None, -1, -1)),
+                            (self.END, qname, (None, -1, -1))])
+
+    def format_fragment(self, fragment, replace=False):
         output = []
-        
         index = fragment.startchar
-        lastmatched = False
+        text = fragment.text
+        
         for t in fragment.matches:
             if t.startchar > index:
-                if lastmatched:
-                    output.append((END, qname, (None, -1, -1)))
-                    lastmatched = False
                 self._add_text(text[index:t.startchar], output)
-            
-            ttxt = text[t.startchar:t.endchar]
-            if not lastmatched:
-                output.append((START, (qname, Attrs()), (None, -1, -1)))
-                lastmatched = True
-            output.append((TEXT, ttxt, (None, -1, -1)))
-                                    
+            output.append(text, t, replace)
             index = t.endchar
-        
-        if lastmatched:
-            output.append((END, qname, (None, -1, -1)))
-        
-        return output
+        if index < len(text):
+            self._add_text(text[index:], output)
+        return self.Stream(output)
 
-    def __call__(self, text, fragments):
+    def format(self, fragments, replace=False):
         output = []
         first = True
         for fragment in fragments:
             if not first:
                 self._add_text(self.between, output)
+            output += self.format_fragment(fragment, replace=replace)
             first = False
-            output += self._format_fragment(text, fragment)
-        
         return self.Stream(output)
 
 
