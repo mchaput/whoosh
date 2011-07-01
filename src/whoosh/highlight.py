@@ -50,8 +50,7 @@ def fragment_from_tokens(text, tokens, charsbefore=0, charsafter=0):
     endchar = min(len(text), endchar + charsafter)
     
     matches = [t for t in tokens if t.matched]
-    return Fragment(text, startchar, endchar, matches,
-                    charsbefore=charsbefore, charsafter=charsafter)
+    return Fragment(text, matches, startchar, endchar)
 
 
 class Fragment(object):
@@ -79,6 +78,11 @@ class Fragment(object):
             endchar = len(text)
         self.startchar = startchar
         self.endchar = endchar
+        
+        self.matched_terms = set()
+        for t in matches:
+            if hasattr(t, "text"):
+                self.matched_terms.add(t.text)
         
     def __len__(self):
         return self.endchar - self.startchar

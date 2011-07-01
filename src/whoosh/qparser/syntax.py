@@ -181,7 +181,7 @@ class FieldnameNode(SyntaxNode):
         
     def __repr__(self):
         return "<%r:>" % self.fieldname
-
+    
 
 class GroupNode(SyntaxNode):
     """Base class for abstract syntax tree node types that group together
@@ -600,6 +600,15 @@ class InfixOperator(Operator):
             del group[position]
         
         return position
+
+
+# Functions
+
+def to_word(n):
+    node = WordNode(n.original)
+    node.startchar = n.startchar
+    node.endchar = n.endchar
+    return node
 
 
 

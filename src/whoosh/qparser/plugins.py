@@ -172,7 +172,7 @@ class BoostPlugin(TaggingPlugin):
         
         def r(self):
             return "^ %s" % self.boost
-    
+        
     def create(self, parser, match):
         # Override create so we can grab group 0
         original = match.group(0)
@@ -181,9 +181,11 @@ class BoostPlugin(TaggingPlugin):
         except ValueError:
             # The text after the ^ wasn't a valid number, so turn it into a
             # word
-            return syntax.WordNode(original)
-        
-        return self.BoostNode(original, boost)
+            node = syntax.WordNode(original)
+        else:
+            node = self.BoostNode(original, boost)
+            
+        return node
     
     def filters(self, parser):
         return [(self.clean_boost, 0), (self.do_boost, 700)]
@@ -198,7 +200,7 @@ class BoostPlugin(TaggingPlugin):
         for i, node in enumerate(group):
             if isinstance(node, bnode):
                 if (not i or not group[i - 1].has_boost):
-                    group[i] = syntax.WordNode(node.original)
+                    group[i] = syntax.to_word(node)
         return group
     
     def do_boost(self, parser, group):
@@ -217,8 +219,7 @@ class BoostPlugin(TaggingPlugin):
                     # Skip adding the BoostNode to the new group
                     continue
                 else:
-                    node = syntax.WordNode(node.original)
-            
+                    node = syntax.to_word(node)
             newgroup.append(node)
         return newgroup
 
@@ -322,21 +323,24 @@ class FieldsPlugin(TaggingPlugin):
             # to text
             schema = parser.schema
             newgroup = group.empty_copy()
-            text = None
+            prev_field_node = None
+            
             for node in group:
                 if isinstance(node, fnclass) and node.fieldname not in schema:
-                    text = node.original
+                    prev_field_node = node
                     continue
-                elif text:
+                elif prev_field_node:
+                    # If prev_field_node is not None, it contains a field node
+                    # that appeared before this node but isn't in the schema,
+                    # so we'll convert it to text here
                     if node.has_text:
-                        node.text = text + node.text
+                        node.text = prev_field_node.original + node.text
                     else:
-                        newgroup.append(syntax.WordNode(text, error="Unknown field"))
-                    text = None
-                
+                        newgroup.append(syntax.to_word(prev_field_node))
+                    prev_field_node = None
                 newgroup.append(node)
-            if text:
-                newgroup.append(syntax.WordNode(text))
+            if prev_field_node:
+                newgroup.append(syntax.to_word(prev_field_node))
             group = newgroup
         
         newgroup = group.empty_copy()
@@ -347,7 +351,10 @@ class FieldsPlugin(TaggingPlugin):
             i -= 1
             node = group[i]
             if isinstance(node, fnclass):
-                node = syntax.WordNode(node.original)
+                # If we see a fieldname node, it must not have been in front
+                # of something fieldable, since we would have already removed
+                # it (since we're iterating backwards), so convert it to text
+                node = syntax.to_word(node)
             elif isinstance(node, syntax.GroupNode):
                 node = self.do_fieldnames(parser, node)
             
