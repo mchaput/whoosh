@@ -378,8 +378,9 @@ class PhrasePlugin(Plugin):
     wordexpr = rcompile(r'\S+')
     
     class PhraseNode(syntax.TextNode):
-        def __init__(self, text, slop=1):
+        def __init__(self, text, textstartchar, slop=1):
             syntax.TextNode.__init__(self, text)
+            self.textstartchar = textstartchar
             self.slop = slop
         
         def r(self):
@@ -396,6 +397,7 @@ class PhrasePlugin(Plugin):
             # We want to process the text of the phrase into "words" (tokens),
             # and also record the startchar and endchar of each word
             
+            sc = self.textstartchar
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
                 if field.format:
@@ -407,7 +409,7 @@ class PhrasePlugin(Plugin):
                     char_ranges = []
                     for t in tokens:
                         words.append(t.text)
-                        char_ranges.append((t.startchar, t.endchar))
+                        char_ranges.append((sc + t.startchar, sc + t.endchar))
                 else:
                     # We have a field but it doesn't have a format object,
                     # for some reason (it's self-parsing?), so use process_text
@@ -421,16 +423,17 @@ class PhrasePlugin(Plugin):
                 char_ranges = []
                 for match in PhrasePlugin.wordexpr.finditer(text):
                     words.append(match.group(0))
-                    char_ranges.append((match.start(), match.end()))
+                    char_ranges.append((sc + match.start(), sc + match.end()))
             
             qclass = parser.phraseclass
-            q = qclass(fieldname, words, slop=self.slop, boost=self.boost)
-            q.char_ranges = char_ranges
+            q = qclass(fieldname, words, slop=self.slop, boost=self.boost,
+                       char_ranges=char_ranges)
             return attach(q, self)
     
     class PhraseTagger(RegexTagger):
-        def create(self, parser, matcher):
-            return PhrasePlugin.PhraseNode(matcher.group("text"))
+        def create(self, parser, match):
+            return PhrasePlugin.PhraseNode(match.group("text"),
+                                           match.start("text"))
     
     def __init__(self, expr='"(?P<text>.*?)"'):
         self.expr = expr

@@ -41,7 +41,7 @@ def test_existing_terms():
 
 def test_replace():
     q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2), Variations("a", "b", boost=2.0)])
-    q = q.replace("b", "BB")
+    q = q.replace("a", "b", "BB")
     assert_equal(q, And([Or([Term("a", "BB"), Term("b", "c")], boost=1.2),
                          Variations("a", "BB", boost=2.0)]))
 

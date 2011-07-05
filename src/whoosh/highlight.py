@@ -396,6 +396,9 @@ class Formatter(object):
     
     between = "..."
     
+    def _text(self, text):
+        return text
+    
     def format_token(self, text, token, replace=False):
         """Returns a formatted version of the given "token" object, which
         should have at least ``startchar`` and ``endchar`` attributes, and
@@ -429,11 +432,11 @@ class Formatter(object):
         
         for t in fragment.matches:
             if t.startchar > index:
-                output.append(text[index:t.startchar])
+                output.append(self._text(text[index:t.startchar]))
             output.append(self.format_token(text, t, replace))
             index = t.endchar
         
-        output.append(text[index:fragment.endchar])
+        output.append(self._text(text[index:fragment.endchar]))
         return "".join(output)
     
     def format(self, fragments, replace=False):
@@ -446,7 +449,16 @@ class Formatter(object):
         return self.between.join(formatted)
     
     def __call__(self, text, fragments):
+        # For backwards compatibility
         return self.format(fragments)
+
+
+class NullFormatter(Formatter):
+    """Formatter that does not modify the string.
+    """
+    
+    def format_token(self, text, token, replace=False):
+        return get_text(text, token, replace)
 
 
 class UppercaseFormatter(Formatter):
@@ -514,9 +526,12 @@ class HtmlFormatter(Formatter):
         self.seen = {}
         self.htmlclass = " ".join((self.classname, self.termclass))
     
+    def _text(self, text):
+        return htmlescape(text)
+    
     def format_token(self, text, token, replace=False):
         seen = self.seen
-        ttext = htmlescape(get_text(text, token, replace))
+        ttext = self._text(get_text(text, token, replace))
         if ttext in seen:
             termnum = seen[ttext]
         else:
