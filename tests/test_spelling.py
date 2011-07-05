@@ -4,6 +4,7 @@ import gzip
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 from whoosh import fields, highlight, query, spelling
+from whoosh.analysis import Token
 from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
@@ -100,7 +101,6 @@ def test_dawg():
         
         assert_equal(list(dawg.flatten(dw.root.edge("test"))), ["special", "specials"])
     
-
 def test_multisegment():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
     ix = RamStorage().create_index(schema)
@@ -186,14 +186,22 @@ def test_wordfile():
     gf.close()
 
 def test_query_highlight():
-    text = "alfa bravo charlie delta"
     qp = QueryParser("a", None)
-    q = qp.parse(text)
-    tqs = [tq for tq in q.all_term_queries() if tq.text == "bravo"]
-    fragment = highlight.Fragment(text, tqs)
-    hl = highlight.HtmlFormatter().format_fragment(fragment)
-    assert_equal(hl, 'alfa <strong class="match term0">bravo</strong> charlie delta')
+    hf = highlight.HtmlFormatter()
     
+    def do(text, terms):
+        q = qp.parse(text)
+        tks = [tk for tk in q.all_tokens() if tk.text in terms]
+        for tk in tks:
+            if tk.startchar is None or tk.endchar is None:
+                assert False, tk
+        fragment = highlight.Fragment(text, tks)
+        return hf.format_fragment(fragment)
+    
+    assert_equal(do("a b c d", ["b"]),
+                 'a <strong class="match term0">b</strong> c d')
+    assert_equal(do('a (x:b OR y:"c d") e', ("b", "c")),
+                 'a (x:<strong class="match term0">b</strong> OR y:"<strong class="match term1">c</strong> d") e')
 
 def test_query_terms():
     qp = QueryParser("a", None)
@@ -201,29 +209,42 @@ def test_query_terms():
     q = qp.parse("alfa b:(bravo OR c:charlie) delta")
     assert_equal(sorted(q.iter_all_terms()), [("a", "alfa"), ("a", "delta"),
                                               ("b", "bravo"), ("c", "charlie")])
-    assert_equal(query.term_lists(q), [("a", "alfa"),
-                                       [("b", "bravo"), ("c", "charlie")],
-                                       ("a", "delta")])
     
     q = qp.parse("alfa brav*")
     assert_equal(sorted(q.iter_all_terms()), [("a", "alfa")])
-    assert_equal(query.term_lists(q), [("a", "alfa")])
     
-    q = qp.parse('alfa "bravo charlie" delta')
-    assert_equal(query.term_lists(q), [("a", "alfa"),
-                                       [("a", "bravo"), ("a", "charlie")],
-                                       ("a", "delta")])
-
     q = qp.parse('a b:("b c" d)^2 e')
-    assert_equal(list(q.all_term_queries()), [query.Term('a', 'a'),
-                                              query.Term('b', 'b', boost=2.0),
-                                              query.Term('b', 'c', boost=2.0),
-                                              query. Term('b', 'd', boost=2.0),
-                                              query.Term('a', 'e')])
+    tokens = [(t.fieldname, t.text, t.boost) for t in q.all_tokens()]
+    assert_equal(tokens, [('a', 'a', 1.0), ('b', 'b', 2.0), ('b', 'c', 2.0),
+                          ('b', 'd', 2.0), ('a', 'e', 1.0)])
 
+def test_correct_query():
+    schema = fields.Schema(a=fields.TEXT(spelling=True), b=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(a=u("alfa bravo charlie delta"))
+    w.add_document(a=u("delta echo foxtrot golf"))
+    w.add_document(a=u("golf hotel india juliet"))
+    w.add_document(a=u("juliet kilo lima mike"))
+    w.commit()
+    
+    s = ix.searcher()
+    qp = QueryParser("a", ix.schema)
+    qtext = u('alpha ("brovo november" OR b:dolta) detail')
+    q = qp.parse(qtext, ix.schema)
+    
+    c = s.correct_query(q, qtext)
+    assert_equal(c.query.__unicode__(), '(a:alfa AND (a:"bravo november" OR b:dolta) AND a:detail)')
+    assert_equal(c.string, 'alfa ("bravo november" OR b:dolta) detail')
 
-
-
-
+    qtext = u('alpha b:("brovo november" a:delta) detail')
+    q = qp.parse(qtext, ix.schema)
+    c = s.correct_query(q, qtext)
+    assert_equal(c.query.__unicode__(), '(a:alfa AND b:"brovo november" AND a:delta AND a:detail)')
+    assert_equal(c.string, 'alfa b:("brovo november" a:delta) detail')
+    
+    hf = highlight.HtmlFormatter(classname="c")
+    assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:<strong class="c term1">delta</strong>) detail')
+    
 
 

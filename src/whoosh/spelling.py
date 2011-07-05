@@ -31,10 +31,11 @@
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
+from whoosh import analysis, fields, highlight, query, scoring
 from whoosh.compat import xrange, string_type
-import whoosh.support.dawg as dawg
-from whoosh import analysis, fields, query, scoring
+from whoosh.support import dawg
 from whoosh.support.levenshtein import distance
+
 
 
 # Suggestion scorers
@@ -48,7 +49,7 @@ def simple_scorer(word, cost):
 
 class Corrector(object):
     """Base class for spelling correction objects. Concrete sub-classes should
-    implement the ``suggestions`` method.
+    implement the ``_suggestions`` method.
     """
     
     def suggest(self, text, limit=5, maxdist=2, prefix=0):
@@ -66,12 +67,12 @@ class Corrector(object):
             list of words.
         """
         
-        suggestions = self.suggestions
+        _suggestions = self._suggestions
         
         heap = []
         seen = set()
         for k in xrange(1, maxdist+1):
-            for item in suggestions(text, k, prefix, seen):
+            for item in _suggestions(text, k, prefix, seen):
                 if len(heap) < limit:
                     heappush(heap, item)
                 elif item < heap[0]:
@@ -84,7 +85,7 @@ class Corrector(object):
         
         return [sug for _, sug in sorted(heap)]
         
-    def suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix, seen):
         """Low-level method that yields a series of (score, "suggestion")
         tuples.
         
@@ -109,10 +110,10 @@ class ReaderCorrector(Corrector):
         self.reader = reader
         self.fieldname = fieldname
     
-    def suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix, seen):
         fieldname = self.fieldname
         freq = self.reader.frequency
-        for sug in self.reader.terms_within(self.fieldname, text, maxdist,
+        for sug in self.reader.terms_within(fieldname, text, maxdist,
                                             prefix=prefix, seen=seen):
             yield ((maxdist, 0 - freq(fieldname, sug)), sug)
 
@@ -127,7 +128,7 @@ class GraphCorrector(Corrector):
         self.word_graph = word_graph
         self.ranking = ranking or simple_scorer
     
-    def suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix, seen):
         ranking = self.ranking
         for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
                                seen=seen):
@@ -166,9 +167,9 @@ class MultiCorrector(Corrector):
     def __init__(self, correctors):
         self.correctors = correctors
         
-    def suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix, seen):
         for corr in self.correctors:
-            for item in corr.suggestions(text, maxdist, prefix, seen):
+            for item in corr._suggestions(text, maxdist, prefix, seen):
                 yield item
 
 
@@ -197,6 +198,132 @@ def wordlist_to_graph_file(wordlist, dbfile, strip=True):
     
     g.to_file(dbfile)
 
+
+# Query correction
+
+class Correction(object):
+    """Represents the corrected version of a user query string. Has the
+    following attributes:
+    
+    ``query``
+        The corrected :class:`whoosh.query.Query` object.
+    ``string``
+        The corrected user query string.
+    ``original_query``
+        The original :class:`whoosh.query.Query` object that was corrected.
+    ``original_string``
+        The original user query string.
+    ``tokens``
+        A list of token objects representing the corrected words.
+    
+    You can also use the :meth:`Correction.format_string` to reformat the
+    corrected query string using a :class:`whoosh.highlight.Formatter` class.
+    For example, to display the corrected query string as HTML with the
+    changed words emphasized::
+    
+        from whoosh import highlight
+        
+        correction = mysearcher.correct_query(q, qstring)
+        
+        hf = highlight.HtmlFormatter(classname="change")
+        html = correction.format_string(hf)
+    """
+    
+    def __init__(self, q, qstring, corr_q, tokens):
+        self.original_query = q
+        self.query = corr_q
+        self.original_string = qstring
+        self.tokens = tokens
+        
+        if self.original_string and self.tokens:
+            self.string = self.format_string(highlight.NullFormatter())
+        else:
+            self.string = None
+    
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self.query, self.string)
+    
+    def format_string(self, formatter):
+        if not (self.original_string and self.tokens):
+            raise Exception("The original query isn't available") 
+        if isinstance(formatter, type):
+            formatter = formatter()
+        
+        fragment = highlight.Fragment(self.original_string, self.tokens)
+        return formatter.format_fragment(fragment, replace=True)
+
+
+# QueryCorrector objects
+
+class QueryCorrector(object):
+    """Base class for objects that correct words in a user query.
+    """
+    
+    def correct_query(self, q, qstring):
+        """Returns a :class:`Correction` object representing the corrected
+        form of the given query.
+        
+        :param q: the original :class:`whoosh.query.Query` tree to be
+            corrected.
+        :param qstring: the original user query. This may be None if the
+        original query string is not available, in which case the
+        ``Correction.string`` attribute will also be None.
+        :rtype: :class:`Correction`
+        """
+        
+        raise NotImplementedError
+
+
+class SimpleQueryCorrector(QueryCorrector):
+    """A simple query corrector based on a mapping of field names to
+    :class:`Corrector` objects, and a list of ``("fieldname", "text")`` tuples
+    to correct. And terms in the query that appear in list of term tuples are
+    corrected using the appropriate corrector.
+    """
+    
+    def __init__(self, correctors, terms, prefix=0, maxdist=2):
+        """
+        :param correctors: a dictionary mapping field names to
+            :class:`Corrector` objects.
+        :param terms: a sequence of ``("fieldname", "text")`` tuples
+            representing terms to be corrected.
+        :param prefix: suggested replacement words must share this number of
+            initial characters with the original word. Increasing this even to
+            just ``1`` can dramatically speed up suggestions, and may be
+            justifiable since spellling mistakes rarely involve the first
+            letter of a word.
+        :param maxdist: the maximum number of "edits" (insertions, deletions,
+            subsitutions, or transpositions of letters) allowed between the
+            original word and any suggestion. Values higher than ``2`` may be
+            slow.
+        """
+        
+        self.correctors = correctors
+        self.termset = frozenset(terms)
+        self.prefix = prefix
+        self.maxdist = maxdist
+    
+    def correct_query(self, q, qstring):
+        correctors = self.correctors
+        termset = self.termset
+        prefix = self.prefix
+        maxdist = self.maxdist
+        
+        corrected_tokens = []
+        corrected_q = q
+        for token in q.all_tokens():
+            fname = token.fieldname
+            if (fname, token.text) in termset:
+                sugs = correctors[fname].suggest(token.text, prefix=prefix,
+                                                 maxdist=maxdist)
+                if sugs:
+                    sug = sugs[0]
+                    corrected_q = corrected_q.replace(token.fieldname,
+                                                      token.text, sug)
+                    token.text = sug
+                    corrected_tokens.append(token)
+
+        return Correction(q, qstring, corrected_q, corrected_tokens)
 
 #
 #

@@ -404,8 +404,24 @@ def test_stability():
             assert_equal(docnums[:-1], last)
             last = docnums
 
-
-
+def test_contains():
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("alfa sierra tango"))
+    w.add_document(text=u("bravo charlie delta"))
+    w.add_document(text=u("charlie delta echo"))
+    w.add_document(text=u("delta echo foxtrot"))
+    w.commit()
+    
+    q = query.Or([query.Term("text", "bravo"), query.Term("text", "charlie")])
+    r = ix.searcher().search(q)
+    assert not r.contains_term("text", "alfa")
+    assert r.contains_term("text", "bravo")
+    assert r.contains_term("text", "charlie")
+    assert r.contains_term("text", "delta")
+    assert r.contains_term("text", "echo")
+    assert not r.contains_term("text", "foxtrot")
 
 
 
