@@ -157,6 +157,9 @@ class MultiSegmentWriter(IndexWriter):
     
     def commit(self, **kwargs):
         try:
+            # index the remaining stuff in self.docbuffer
+            self._enqueue()
+
             for task in self.tasks:
                 self.jobqueue.put(None)
             
