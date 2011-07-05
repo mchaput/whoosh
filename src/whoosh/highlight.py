@@ -533,8 +533,8 @@ class HtmlFormatter(Formatter):
         ttext = self._text(get_text(text, token, replace))
         if ttext in seen:
             termnum = seen[ttext]
-                else:
-                    termnum = len(seen) % self.maxclasses
+        else:
+            termnum = len(seen) % self.maxclasses
             seen[ttext] = termnum
         
         return self.template % {"tag": self.tagname, "q": self.attrquote,
