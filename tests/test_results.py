@@ -1,8 +1,8 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises
+from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
 
-from whoosh import analysis, fields, formats, qparser, query, searching
+from whoosh import analysis, fields, formats, qparser, query
 from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util import permutations
