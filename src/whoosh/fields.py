@@ -99,6 +99,7 @@ class FieldType(object):
     multitoken_query = "first"
     sortable_type = text_type
     sortable_typecode = None
+    spelling = False
     
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
@@ -160,15 +161,18 @@ class FieldType(object):
         return self.format.word_values(value, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
-        """Returns an iterator of token strings corresponding to the given
-        string.
+        """Analyzes the given string and returns an iterator of token strings.
+        
+        >>> field = fields.TEXT()
+        >>> list(field.process_text("The ides of March"))
+        ["ides", "march"]
         """
         
         if not self.format:
             raise Exception("%s field has no format" % self)
         return (t.text for t
                 in self.format.analyze(qstring, mode=mode, **kwargs))
-        
+    
     def self_parsing(self):
         """Subclasses should override this method to return True if they want
         the query parser to call the field's ``parse_query()`` method instead
@@ -221,13 +225,15 @@ class ID(FieldType):
     
     __inittypes__ = dict(stored=bool, unique=bool, field_boost=float)
     
-    def __init__(self, stored=False, unique=False, field_boost=1.0):
+    def __init__(self, stored=False, unique=False, field_boost=1.0,
+                 spelling=False):
         """
         :param stored: Whether the value of this field is stored with the document.
         """
         self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
         self.stored = stored
         self.unique = unique
+        self.spelling = spelling
 
 
 class IDLIST(FieldType):
@@ -237,7 +243,8 @@ class IDLIST(FieldType):
     
     __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
     
-    def __init__(self, stored=False, unique=False, expression=None, field_boost=1.0):
+    def __init__(self, stored=False, unique=False, expression=None,
+                 field_boost=1.0, spelling=False):
         """
         :param stored: Whether the value of this field is stored with the
             document.
@@ -252,6 +259,7 @@ class IDLIST(FieldType):
         self.format = Existence(analyzer=analyzer, field_boost=field_boost)
         self.stored = stored
         self.unique = unique
+        self.spelling = spelling
 
 
 class NUMERIC(FieldType):
@@ -389,7 +397,6 @@ class NUMERIC(FieldType):
     
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        from whoosh.qparser import QueryParserError
         
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
@@ -398,13 +405,13 @@ class NUMERIC(FieldType):
             text = self.to_text(qstring)
         except Exception:
             e = sys.exc_info()[1]
-            raise QueryParserError(e)
+            return query.error_query(e)
         
         return query.Term(fieldname, text, boost=boost)
     
     def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
         from whoosh import query
-        from whoosh.qparser import QueryParserError
+        from whoosh.qparser.common import QueryParserError
         
         try:
             if start is not None:
@@ -469,8 +476,8 @@ class DATETIME(NUMERIC):
         return super(DATETIME, self).to_text(x, shift=shift)
     
     def _parse_datestring(self, qstring):
-        # This method does parses a very simple datetime representation of
-        # the form YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
+        # This method parses a very simple datetime representation of the form
+        # YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
         from whoosh.support.times import adatetime, fix, is_void
         
         qstring = qstring.replace(" ", "").replace("-", "").replace(".", "")
@@ -499,7 +506,12 @@ class DATETIME(NUMERIC):
         from whoosh import query
         from whoosh.support.times import is_ambiguous
         
-        at = self._parse_datestring(qstring)
+        try:
+            at = self._parse_datestring(qstring)
+        except:
+            e = sys.exc_info()[1]
+            return query.error_query(e)
+        
         if is_ambiguous(at):
             startnum = datetime_to_long(at.floor())
             endnum = datetime_to_long(at.ceil())
@@ -534,7 +546,7 @@ class BOOLEAN(FieldType):
     >>> w.add_document(path="/a", done=False)
     >>> w.commit()
     """
-
+    
     strings = (u("f"), u("t"))    
     trues = frozenset((u("t"), u("true"), u("yes"), u("1")))
     falses = frozenset((u("f"), u("false"), u("no"), u("0")))
@@ -558,8 +570,6 @@ class BOOLEAN(FieldType):
         return self.strings[int(bit)]
     
     def index(self, bit):
-        
-        
         bit = bool(bit)
         # word, freq, weight, valuestring
         return [(self.strings[int(bit)], 1, 1.0, '')]
@@ -577,7 +587,8 @@ class BOOLEAN(FieldType):
         try:
             text = self.to_text(qstring)
         except ValueError:
-            return query.NullQuery
+            e = sys.exc_info()[1]
+            return query.error_query(e)
         
         return query.Term(fieldname, text, boost=boost)
     
@@ -604,7 +615,7 @@ class KEYWORD(FieldType):
                          unique=bool, field_boost=float)
     
     def __init__(self, stored=False, lowercase=False, commas=False,
-                 scorable=False, unique=False, field_boost=1.0):
+                 scorable=False, unique=False, field_boost=1.0, spelling=False):
         """
         :param stored: Whether to store the value of the field with the
             document.
@@ -618,6 +629,7 @@ class KEYWORD(FieldType):
         self.scorable = scorable
         self.stored = stored
         self.unique = unique
+        self.spelling = spelling
 
 
 class TEXT(FieldType):
@@ -630,7 +642,7 @@ class TEXT(FieldType):
                          stored=bool, field_boost=float)
     
     def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
-                 field_boost=1.0, multitoken_query="first"):
+                 field_boost=1.0, multitoken_query="first", spelling=False):
         """
         :param analyzer: The analysis.Analyzer to use to index the field
             contents. See the analysis module for more information. If you omit
@@ -670,6 +682,7 @@ class TEXT(FieldType):
         self.multitoken_query = multitoken_query
         self.scorable = True
         self.stored = stored
+        self.spelling = spelling
 
 
 class NGRAM(FieldType):
@@ -903,7 +916,7 @@ class Schema(object):
         if type(fieldtype) is type:
             try:
                 fieldtype = fieldtype()
-            except Exception:
+            except:
                 e = sys.exc_info()[1]
                 raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
         

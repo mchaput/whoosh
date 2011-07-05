@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 
 from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
 
-from whoosh import analysis, fields, qparser, query
+from whoosh import fields, qparser, query
 from whoosh.compat import long_type, u, b, xrange, PY3
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support import numeric, times
+from whoosh.support import times
 
 
 def test_schema_eq():

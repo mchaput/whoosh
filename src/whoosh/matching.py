@@ -28,7 +28,7 @@
 from itertools import repeat
 import sys
 
-from whoosh.compat import izip, next, xrange
+from whoosh.compat import izip, xrange
 
 """
 This module contains "matcher" classes. Matchers deal with posting lists. The
@@ -719,6 +719,8 @@ class UnionMatcher(AdditiveBiMatcher):
     """Matches the union (OR) of the postings in the two sub-matchers.
     """
     
+    _id = None
+    
     def replace(self, minquality=0):
         a = self.a
         b = self.b
@@ -745,9 +747,12 @@ class UnionMatcher(AdditiveBiMatcher):
         if a is not self.a or b is not self.b:
             return self.__class__(a, b)
         else:
+            self._id = None
             return self
     
     def is_active(self):
+        if self._id is not None:
+            return True
         return self.a.is_active() or self.b.is_active()
     
     def skip_to(self, id):
@@ -758,16 +763,24 @@ class UnionMatcher(AdditiveBiMatcher):
         if self.b.is_active():
             rb = self.b.skip_to(id)
         
+        self._id = None
         return ra or rb
     
     def id(self):
+        _id = self._id
+        if _id is not None:
+            return _id
+        
         a = self.a
         b = self.b
         if not a.is_active():
-            return b.id()
-        if not b.is_active():
-            return a.id()
-        return min(a.id(), b.id())
+            _id = b.id()
+        elif not b.is_active():
+            _id = a.id()
+        else:
+            _id = min(a.id(), b.id())
+        self._id = _id
+        return _id
     
     # Using sets is faster in most cases, but could potentially use a lot of
     # memory. Comment out this method override to not use sets.
@@ -775,6 +788,8 @@ class UnionMatcher(AdditiveBiMatcher):
         return iter(sorted(set(self.a.all_ids()) | set(self.b.all_ids())))
     
     def next(self):
+        self._id = None
+        
         a = self.a
         b = self.b
         a_active = a.is_active()
@@ -851,6 +866,8 @@ class UnionMatcher(AdditiveBiMatcher):
             return (a.score() + b.score())
     
     def skip_to_quality(self, minquality):
+        self._id = None
+        
         a = self.a
         b = self.b
         if not (a.is_active() or b.is_active()):

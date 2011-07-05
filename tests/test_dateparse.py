@@ -14,7 +14,7 @@ def assert_adatetime(at, **kwargs):
     for key in adatetime.units:
         val = getattr(at, key)
         target = kwargs.get(key)
-        assert_equal(val, target, "at.%s=%r not %r in %r" % (key, val, target, kwargs))
+        assert_equal(val, target, "at.%s=%r not %r in %r" % (key, val, target, at))
 
 def assert_timespan(ts, sargs, eargs):
     assert_adatetime(ts.start, **sargs)

@@ -149,8 +149,12 @@ class FilePostingReader(Matcher):
         self._next_block()
 
     def __repr__(self):
-        return "%s(%r, %s, %r, %r)" % (self.__class__.__name__, str(self.postfile),
-                                       self.startoffset, self.fieldname, self.text)
+        r = "%s(%r, %r, %r, %s" % (self.__class__.__name__, str(self.postfile),
+                                   self.fieldname, self.text, self.is_active())
+        if self.is_active():
+            r += ", %r" % self.id()
+        r += ")"
+        return r
 
     def close(self):
         pass

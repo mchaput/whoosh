@@ -36,15 +36,14 @@ import fnmatch
 import re
 from array import array
 
+from whoosh.analysis import Token
 from whoosh.compat import u, xrange, text_type
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
-                             WrappingMatcher, ConstantScoreMatcher,
-                             AndNotMatcher)
+                             WrappingMatcher, AndNotMatcher)
 from whoosh.reading import TermNotFound
-from whoosh.support.levenshtein import relative
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
 
@@ -55,6 +54,39 @@ class QueryError(Exception):
     """Error encountered while running a query.
     """
     pass
+
+
+# Functions
+
+def error_query(msg, q=None):
+    """Returns the query in the second argument (or a :class:`NullQuery` if the
+    second argument is not given) with its ``error`` attribute set to
+    ``msg``.
+    """
+    
+    if q is None:
+        q = _NullQuery()
+    q.error = msg
+    return q
+
+
+def token_lists(q, phrases=True):
+    """Returns the terms in the query tree, with the query hierarchy
+    represented as nested lists.
+    """
+    
+    if q.is_leaf():
+        if phrases or not isinstance(q, Phrase):
+            return list(q.tokens())
+    else:
+        ls = []
+        for qq in q.children():
+            t = token_lists(qq, phrases=phrases)
+            if len(t) == 1:
+                t = t[0]
+            if t:
+                ls.append(t)
+        return ls
 
 
 # Utility classes
@@ -135,6 +167,13 @@ class Query(object):
         And([Term("content", u"a"), Not(Term("content", u"b"))])
     """
 
+    # For queries produced by the query parser, record where in the user
+    # query this object originated
+    startchar = endchar = None
+    # For queries produced by the query parser, records an error that resulted
+    # in this query
+    error = None
+
     def __or__(self, query):
         """Allows you to use | between query objects to wrap them in an Or
         query.
@@ -166,6 +205,27 @@ class Query(object):
         """
         
         return True
+
+    def children(self):
+        """Returns an iterator of the subqueries of this object.
+        """
+        
+        return iter([])
+
+    def is_range(self):
+        """Returns True if this object searches for values within a range.
+        """
+        
+        return False
+
+    def has_terms(self):
+        """Returns True if this specific object represents a search for a
+        specific term (as opposed to a pattern, as in Wildcard and Prefix) or
+        terms (i.e., whether the ``replace()`` method does something
+        meaningful on this instance).
+        """
+        
+        return False
 
     def apply(self, fn):
         """If this query has children, calls the given function on each child
@@ -219,16 +279,7 @@ class Query(object):
         
         return fn_wrapper(self)
 
-    def copy(self):
-        """Returns a copy of this query tree.
-        """
-        
-        if self.is_leaf():
-            return copy.copy(self)
-        else:
-            return self.apply(methodcaller("copy"))
-
-    def replace(self, oldtext, newtext):
+    def replace(self, fieldname, oldtext, newtext):
         """Returns a copy of this query with oldtext replaced by newtext (if
         oldtext was anywhere in this query).
         
@@ -236,50 +287,46 @@ class Query(object):
         *does not* modify the original query "in place".
         """
         
+        # The default implementation uses the apply method to "pass down" the
+        # replace() method call
         if self.is_leaf():
-            return self.copy()
+            return copy.copy(self)
         else:
-            return self.apply(methodcaller("replace", oldtext, newtext))
+            return self.apply(methodcaller("replace", fieldname, oldtext, newtext))
+
+    def copy(self):
+        """Deprecated, just use ``copy.deepcopy``.
+        """
+        
+        return copy.deepcopy(self)
 
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
         
-        This method simply operates on the query itself, without reference to
-        an index (unlike existing_terms()), so it will *not* add terms that
-        require an index to compute, such as Prefix and Wildcard.
-        
-        >>> q = And([Term("content", u"render"), Term("path", u"/a/b")])
-        >>> q.all_terms()
-        set([("content", u"render"), ("path", u"/a/b")])
+        This method exists for backwards compatibility. For more flexibility
+        use the :meth:`Query.iter_all_terms` method instead, which simply yields
+        the terms in the query.
         
         :param phrases: Whether to add words found in Phrase queries.
         :rtype: set
         """
-
-        if termset is None:
+        
+        if not termset:
             termset = set()
-        self._all_terms(termset, phrases=phrases)
+        for q in self.leaves():
+            if q.has_terms():
+                if phrases or not isinstance(q, Phrase):
+                    termset.update(q.terms())
         return termset
-
-    def _all_terms(self, *args, **kwargs):
-        # To be implemented in sub-classes
-        return
-
+        
     def existing_terms(self, ixreader, termset=None, reverse=False,
                        phrases=True):
         """Returns a set of all terms in this query tree that exist in the
-        index represented by the given ixreaderder.
+        given ixreaderder.
         
-        This method references the IndexReader to expand Prefix and Wildcard
-        queries, and only adds terms that actually exist in the index (unless
-        reverse=True).
-        
-        >>> ixreader = my_index.reader()
-        >>> q = And([Or([Term("content", u"render"),
-        ...             Term("content", u"rendering")]),
-        ...             Prefix("path", u"/a/")])
-        >>> q.existing_terms(ixreader, termset)
-        set([("content", u"render"), ("path", u"/a/b"), ("path", u"/a/c")])
+        This method exists for backwards compatibility. For more flexibility
+        use the :meth:`Query.iter_all_terms` method instead, which simply yields
+        the terms in the query.
         
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
         :param reverse: If True, this method adds *missing* terms rather than
@@ -290,10 +337,95 @@ class Query(object):
 
         if termset is None:
             termset = set()
-        self._existing_terms(ixreader, termset, reverse=reverse,
-                             phrases=phrases)
+        if reverse:
+            test = lambda t: t not in ixreader
+        else:
+            test = lambda t: t in ixreader
+        
+        termset.update(t for t in self.all_terms(phrases=phrases) if test(t))
         return termset
 
+    def leaves(self):
+        """Returns an iterator of all the leaf queries in this query tree as a
+        flat series.
+        """
+        
+        if self.is_leaf():
+            yield self
+        else:
+            for q in self.children():
+                for qq in q.leaves():
+                    yield qq
+
+    def iter_all_terms(self):
+        """Returns an iterator of ("fieldname", "text") pairs for all terms in
+        this query tree.
+        
+        >>> qp = qparser.QueryParser("text", myindex.schema)
+        >>> q = myparser.parse("alfa bravo title:charlie")
+        >>> # List the terms in a query
+        >>> list(q.iter_all_terms())
+        [("text", "alfa"), ("text", "bravo"), ("title", "charlie")]
+        >>> # Get a set of all terms in the query that don't exist in the index
+        >>> reader = myindex.reader()
+        >>> missing = set(t for t in q.iter_all_terms() if t not in reader)
+        set([("text", "alfa"), ("title", "charlie")])
+        >>> # All terms in the query that occur in fewer than 5 documents in
+        >>> # the index
+        >>> [t for t in q.iter_all_terms() if reader.doc_frequency(t[0], t[1]) < 5]
+        [("title", "charlie")]
+        """
+        
+        for q in self.leaves():
+            if q.has_terms():
+                for t in q.terms():
+                    yield t
+
+    def all_tokens(self, boost=1.0):
+        """Returns an iterator of :class:`analysis.Token` objects corresponding
+        to all terms in this query tree. The Token objects will have the
+        ``fieldname``, ``text``, and ``boost`` attributes set. If the query
+        was built by the query parser, they Token objects will also have
+        ``startchar`` and ``endchar`` attributes indexing into the original
+        user query.
+        """
+        
+        if self.is_leaf():
+            for token in self.tokens(boost):
+                yield token
+        else:
+            boost *= self.boost if hasattr(self, "boost") else 1.0
+            for child in self.children():
+                for token in child.all_tokens(boost):
+                    yield token
+        
+    def terms(self):
+        """Yields zero or more ("fieldname", "text") pairs searched for by this
+        query object. You can check whether a query object targets specific
+        terms before you call this method using :meth:`Query.has_terms`.
+        
+        To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
+        """
+        
+        for token in self.tokens():
+            yield (token.fieldname, token.text)
+    
+    def tokens(self, boost=1.0):
+        """Yields zero or more :class:`analysis.Token` objects corresponding to
+        the terms searched for by this query object. You can check whether a
+        query object targets specific terms before you call this method using
+        :meth:`Query.has_terms`.
+        
+        The Token objects will have the ``fieldname``, ``text``, and ``boost``
+        attributes set. If the query was built by the query parser, they Token
+        objects will also have ``startchar`` and ``endchar`` attributes
+        indexing into the original user query.
+        
+        To get all tokens for a query tree, use :meth:`Query.all_tokens`.
+        """
+        
+        return []
+        
     def requires(self):
         """Returns a set of queries that are *known* to be required to match
         for the entire query to match. Note that other queries might also turn
@@ -322,6 +454,17 @@ class Query(object):
         """
         
         return self.fieldname
+
+    def with_boost(self, boost):
+        """Returns a COPY of this query with the boost set to the given value.
+        
+        If a query type does not accept a boost itself, it will try to pass the
+        boost on to its children, if any.
+        """
+        
+        q = self.copy()
+        q.boost = boost
+        return q
 
     def estimate_size(self, ixreader):
         """Returns an estimate of how many documents this query could
@@ -397,25 +540,26 @@ class WrappingQuery(Query):
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.child)
     
+    def _rewrap(self, child):
+        return self.__class__(child)
+    
     def is_leaf(self):
         return False
     
+    def children(self):
+        yield self.child
+    
     def apply(self, fn):
-        return self.__class__(fn(self.child))
-    
-    def all_terms(self, termset=None, phrases=True):
-        return self.child.all_terms(termset=termset, phrases=phrases)
-    
-    def existing_terms(self, ixreader, termset=None, reverse=False,
-                       phrases=True):
-        return self.child.existing_terms(ixreader, termset=termset,
-                                         reverse=reverse, phrases=phrases)
+        return self._rewrap(fn(self.child))
     
     def requires(self):
         return self.child.requires()
     
     def field(self):
         return self.child.field()
+    
+    def with_boost(self, boost):
+        return self._rewrap(self.child.with_boost(boost))
     
     def estimate_size(self, ixreader):
         return self.child.estimate_size(ixreader)
@@ -426,6 +570,7 @@ class WrappingQuery(Query):
     def matcher(self, searcher):
         return self.child.matcher(searcher)
     
+
 
 class CompoundQuery(Query):
     """Abstract base class for queries that combine or manipulate the results
@@ -438,7 +583,7 @@ class CompoundQuery(Query):
 
     def __repr__(self):
         r = "%s(%r" % (self.__class__.__name__, self.subqueries)
-        if self.boost != 1:
+        if hasattr(self, "boost") and self.boost != 1:
             r += ", boost=%s" % self.boost
         r += ")"
         return r
@@ -474,6 +619,9 @@ class CompoundQuery(Query):
     def is_leaf(self):
         return False
 
+    def children(self):
+        return iter(self.subqueries)
+
     def apply(self, fn):
         return self.__class__([fn(q) for q in self.subqueries],
                               boost=self.boost)
@@ -495,28 +643,21 @@ class CompoundQuery(Query):
             subs_min = max(0, subs_min - nots_sum)
         return subs_min
 
-    def _all_terms(self, termset, phrases=True):
-        for q in self.subqueries:
-            q.all_terms(termset, phrases=phrases)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        for q in self.subqueries:
-            q.existing_terms(ixreader, termset, reverse=reverse,
-                             phrases=phrases)
-
     def normalize(self):
         # Normalize subqueries and merge nested instances of this class
         subqueries = []
         for s in self.subqueries:
             s = s.normalize()
             if isinstance(s, self.__class__):
-                subqueries += [ss.normalize() for ss in s.subqueries]
+                subqueries += [ss.with_boost(ss.boost * s.boost) for ss in s]
             else:
                 subqueries.append(s)
         
+        # If every subquery is Null, this query is Null
         if all(q is NullQuery for q in subqueries):
             return NullQuery
 
+        # If there's an unfielded Every inside, then this query is Every
         if any((isinstance(q, Every) and q.fieldname is None) for q in subqueries):
             return Every()
 
@@ -564,8 +705,7 @@ class CompoundQuery(Query):
         if len(subqs) == 1:
             sub = subqs[0]
             if not (self.boost == 1.0 and sub.boost == 1.0):
-                sub = sub.copy()
-                sub.boost *= self.boost
+                sub = sub.with_boost(sub.boost * self.boost)
             return sub
 
         return self.__class__(subqs, boost=self.boost)
@@ -651,19 +791,6 @@ class MultiTerm(Query):
         else:
             return NullQuery
 
-    def _all_terms(self, termset, phrases=True):
-        pass
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        fieldname = self.fieldname
-        for word in self._words(ixreader):
-            t = (fieldname, word)
-            contains = t in ixreader
-            if reverse:
-                contains = not contains
-            if contains:
-                termset.add(t)
-
     def estimate_size(self, ixreader):
         return sum(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._words(ixreader))
@@ -717,8 +844,7 @@ class Term(Query):
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
-                and
-                self.fieldname == other.fieldname
+                and self.fieldname == other.fieldname
                 and self.text == other.text
                 and self.boost == other.boost)
 
@@ -734,26 +860,23 @@ class Term(Query):
         if self.boost != 1:
             t += u("^") + text_type(self.boost)
         return t
-
+    
     __str__ = __unicode__
 
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
-    def _all_terms(self, termset, phrases=True):
-        termset.add((self.fieldname, self.text))
+    def has_terms(self):
+        return True
 
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        fieldname, text = self.fieldname, self.text
-        contains = (fieldname, text) in ixreader
-        if reverse:
-            contains = not contains
-        if contains:
-            termset.add((fieldname, text))
+    def tokens(self, boost=1.0):
+        yield Token(fieldname=self.fieldname, text=self.text,
+                    boost=boost * self.boost, startchar=self.startchar,
+                    endchar=self.endchar, chars=True)
 
-    def replace(self, oldtext, newtext):
-        q = self.copy()
-        if q.text == oldtext:
+    def replace(self, fieldname, oldtext, newtext):
+        q = copy.copy(self)
+        if q.fieldname == fieldname and q.text == oldtext:
             q.text = newtext
         return q
 
@@ -924,6 +1047,9 @@ class Not(Query):
     def is_leaf(self):
         return False
 
+    def children(self):
+        yield self.query
+
     def apply(self, fn):
         return self.__class__(fn(self.query))
 
@@ -933,13 +1059,6 @@ class Not(Query):
             return NullQuery
         else:
             return self.__class__(query, boost=self.boost)
-
-    def _all_terms(self, termset, phrases=True):
-        self.query.all_terms(termset, phrases=phrases)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        self.query.existing_terms(ixreader, termset, reverse=reverse,
-                                  phrases=phrases)
 
     def field(self):
         return None
@@ -1061,22 +1180,35 @@ class Wildcard(PatternQuery):
             return self
 
 
-class FuzzyTerm(MultiTerm):
+class ExpandingTerm(MultiTerm):
+    """Intermediate base class for queries such as FuzzyTerm and Variations
+    that expand into multiple queries, but come from a single term.
+    """
+    
+    def has_terms(self):
+        return True
+    
+    def tokens(self, boost=1.0):
+        yield Token(fieldname=self.fieldname, text=self.text,
+                    boost=boost * self.boost, startchar=self.startchar,
+                    endchar=self.endchar, chars=True)
+    
+
+class FuzzyTerm(ExpandingTerm):
     """Matches documents containing words similar to the given term.
     """
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float,
-                         minsimilarity=float, prefixlength=int)
+                         maxdist=float, prefixlength=int)
 
-    def __init__(self, fieldname, text, boost=1.0, minsimilarity=0.5,
+    def __init__(self, fieldname, text, boost=1.0, maxdist=1,
                  prefixlength=1, constantscore=True):
         """
         :param fieldname: The name of the field to search.
         :param text: The text to search for.
         :param boost: A boost factor to apply to scores of documents matching
             this query.
-        :param minsimilarity: The minimum similarity ratio to match. 1.0 is the
-            maximum (an exact match to 'text').
+        :param maxdist: The maximum edit distance from the given text.
         :param prefixlength: The matched terms must share this many initial
             characters with 'text'. For example, if text is "light" and
             prefixlength is 2, then only terms starting with "li" are checked
@@ -1086,7 +1218,7 @@ class FuzzyTerm(MultiTerm):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
-        self.minsimilarity = minsimilarity
+        self.maxdist = maxdist
         self.prefixlength = prefixlength
         self.constantscore = constantscore
 
@@ -1094,18 +1226,20 @@ class FuzzyTerm(MultiTerm):
         return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
                 and self.text == other.text
-                and self.minsimilarity == other.minsimilarity
+                and self.maxdist == other.maxdist
                 and self.prefixlength == other.prefixlength
                 and self.boost == other.boost
                 and self.constantscore == other.constantscore)
 
     def __repr__(self):
-        r = "%s(%r, %r, boost=%f, minsimilarity=%f, prefixlength=%d)"
+        r = "%s(%r, %r, boost=%f, maxdist=%d, prefixlength=%d)"
         return r % (self.__class__.__name__, self.fieldname, self.text,
-                    self.boost, self.minsimilarity, self.prefixlength)
+                    self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = u("~") + self.text
+        r = self.text + u("~")
+        if self.maxdist > 1:
+            r += u("%d") % self.maxdist
         if self.boost != 1.0:
             r += u("^%f") % self.boost
         return r
@@ -1114,21 +1248,54 @@ class FuzzyTerm(MultiTerm):
 
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
-                ^ hash(self.minsimilarity) ^ hash(self.prefixlength)
+                ^ hash(self.maxdist) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
-    def _all_terms(self, termset, phrases=True):
-        termset.add((self.fieldname, self.text))
+    def _words(self, ixreader):
+        return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
+                                     prefix=self.prefixlength)
+
+
+class Variations(ExpandingTerm):
+    """Query that automatically searches for morphological variations of the
+    given word in the same field.
+    """
+
+    def __init__(self, fieldname, text, boost=1.0):
+        self.fieldname = fieldname
+        self.text = text
+        self.boost = boost
+
+    def __repr__(self):
+        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
+        if self.boost != 1:
+            r += ", boost=%s" % self.boost
+        r += ")"
+        return r
+
+    def __eq__(self, other):
+        return (other and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.text == other.text and self.boost == other.boost)
+
+    def __hash__(self):
+        return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
     def _words(self, ixreader):
-        text = self.text
-        minsim = self.minsimilarity
-        for term in ixreader.expand_prefix(self.fieldname,
-                                           text[:self.prefixlength]):
-            if text == term:
-                yield term
-            elif relative(text, term) > minsim:
-                yield term
+        fieldname = self.fieldname
+        return [word for word in variations(self.text)
+                if (fieldname, word) in ixreader]
+
+    def __unicode__(self):
+        return u("%s:<%s>") % (self.fieldname, self.text)
+
+    __str__ = __unicode__
+
+    def replace(self, fieldname, oldtext, newtext):
+        q = copy.copy(self)
+        if q.fieldname == fieldname and q.text == oldtext:
+            q.text = newtext
+        return q
 
 
 class RangeMixin(object):
@@ -1146,7 +1313,7 @@ class RangeMixin(object):
         start = '' if self.start is None else self.start
         end = '' if self.end is None else self.end
         return u("%s:%s%s TO %s%s") % (self.fieldname, startchar, start, end,
-                                       endchar)
+                                     endchar)
     
     __str__ = __unicode__
 
@@ -1162,6 +1329,9 @@ class RangeMixin(object):
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl)
                 ^ hash(self.end) ^ hash(self.endexcl) ^ hash(self.boost))
+    
+    def is_range(self):
+        return True
     
     def _comparable_start(self):
         if self.start is None:
@@ -1230,7 +1400,6 @@ class TermRange(RangeMixin, MultiTerm):
     """Matches documents containing any terms in a given range.
     
     >>> # Match documents where the indexed "id" field is greater than or equal
-
     >>> # to 'apple' and less than or equal to 'pear'.
     >>> TermRange("id", u"apple", u"pear")
     """
@@ -1269,13 +1438,14 @@ class TermRange(RangeMixin, MultiTerm):
                              self.startexcl, self.endexcl,
                              boost=self.boost)
 
-    def replace(self, oldtext, newtext):
-        q = self.copy()
-        if q.start == oldtext:
-            q.start = newtext
-        if q.end == oldtext:
-            q.end = newtext
-        return q
+    #def replace(self, fieldname, oldtext, newtext):
+    #    q = self.copy()
+    #    if q.fieldname == fieldname:
+    #        if q.start == oldtext:
+    #            q.start = newtext
+    #        if q.end == oldtext:
+    #            q.end = newtext
+    #    return q
     
     def _words(self, ixreader):
         fieldname = self.fieldname
@@ -1415,64 +1585,11 @@ class DateRange(NumericRange):
                                            self.boost)
     
 
-class Variations(MultiTerm):
-    """Query that automatically searches for morphological variations of the
-    given word in the same field.
-    """
-
-    def __init__(self, fieldname, text, boost=1.0):
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
-
-    def __repr__(self):
-        r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
-        if self.boost != 1:
-            r += ", boost=%s" % self.boost
-        r += ")"
-        return r
-
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.fieldname == other.fieldname
-                and self.text == other.text and self.boost == other.boost)
-
-    def __hash__(self):
-        return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
-
-    def _all_terms(self, termset, phrases=True):
-        termset.add(self.text)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        for word in variations(self.text):
-            t = (self.fieldname, word)
-            contains = t in ixreader
-            if reverse:
-                contains = not contains
-            if contains:
-                termset.add(t)
-
-    def _words(self, ixreader):
-        fieldname = self.fieldname
-        return [word for word in variations(self.text)
-                if (fieldname, word) in ixreader]
-
-    def __unicode__(self):
-        return u("%s:<%s>") % (self.fieldname, self.text)
-
-    __str__ = __unicode__
-
-    def replace(self, oldtext, newtext):
-        q = self.copy()
-        if q.text == oldtext:
-            q.text = newtext
-        return q
-
 
 class Phrase(Query):
     """Matches documents containing a given phrase."""
 
-    def __init__(self, fieldname, words, slop=1, boost=1.0):
+    def __init__(self, fieldname, words, slop=1, boost=1.0, char_ranges=None):
         """
         :param fieldname: the field to search.
         :param words: a list of words (unicode strings) in the phrase.
@@ -1480,12 +1597,16 @@ class Phrase(Query):
             phrase; the default of 1 means the phrase must match exactly.
         :param boost: a boost factor that to apply to the raw score of
             documents matched by this query.
+        :param char_ranges: if a Phrase object is created by the query parser,
+            it will set this attribute to a list of (startchar, endchar) pairs
+            corresponding to the words in the phrase
         """
 
         self.fieldname = fieldname
         self.words = words
         self.slop = slop
         self.boost = boost
+        self.char_ranges = char_ranges
 
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__ and
@@ -1506,26 +1627,19 @@ class Phrase(Query):
             h ^= hash(w)
         return h
 
-    def copy(self):
-        # Need to override the default shallow copy here to do a copy of the
-        # self.words list
-        return self.__class__(self.fieldname, self.words[:], boost=self.boost)
+    def has_terms(self):
+        return True
 
-    def _all_terms(self, termset, phrases=True):
-        if phrases:
-            fieldname = self.fieldname
-            for word in self.words:
-                termset.add((fieldname, word))
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        if phrases:
-            fieldname = self.fieldname
-            for word in self.words:
-                contains = (fieldname, word) in ixreader
-                if reverse:
-                    contains = not contains
-                if contains:
-                    termset.add((fieldname, word))
+    def tokens(self, boost=1.0):
+        char_ranges = self.char_ranges
+        startchar = endchar = None
+        for i, word in enumerate(self.words):
+            if char_ranges:
+                startchar, endchar = char_ranges[i]
+                
+            yield Token(fieldname=self.fieldname, text=word,
+                        boost=boost * self.boost, startchar=startchar,
+                        endchar=endchar, chars=True)
 
     def normalize(self):
         if not self.words:
@@ -1535,18 +1649,18 @@ class Phrase(Query):
 
         words = [w for w in self.words if w is not None]
         return self.__class__(self.fieldname, words, slop=self.slop,
-                              boost=self.boost)
+                              boost=self.boost, char_ranges=self.char_ranges)
 
-    def replace(self, oldtext, newtext):
-        q = self.copy()
-        for i in xrange(len(q.words)):
-            if q.words[i] == oldtext:
-                q.words[i] = newtext
+    def replace(self, fieldname, oldtext, newtext):
+        q = copy.copy(self)
+        if q.fieldname == fieldname:
+            for i, word in enumerate(q.words):
+                if word == oldtext:
+                    q.words[i] = newtext
         return q
 
     def _and_query(self):
-        fn = self.fieldname
-        return And([Term(fn, word) for word in self.words])
+        return And([Term(self.fieldname, word) for word in self.words])
 
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)
@@ -1684,9 +1798,14 @@ class Every(Query):
         
         return ListMatcher(doclist, all_weights=self.boost)
 
-            
-class NullQuery(Query):
+
+
+
+class _NullQuery(Query):
     "Represents a query that won't match anything."
+    
+    boost = 1.0
+    
     def __call__(self):
         return self
     
@@ -1694,12 +1813,18 @@ class NullQuery(Query):
         return "<%s>" % (self.__class__.__name__, )
     
     def __eq__(self, other):
-        return other is self
+        return isinstance(other, _NullQuery)
+    
+    def __ne__(self, other):
+        return not self.__eq__(other)
     
     def __hash__(self):
         return id(self)
     
-    def copy(self):
+    def __copy__(self):
+        return self
+    
+    def __deepcopy__(self, memo):
         return self
     
     def field(self):
@@ -1719,9 +1844,8 @@ class NullQuery(Query):
     
     def matcher(self, searcher):
         return NullMatcher()
-
-
-NullQuery = NullQuery()
+
+NullQuery = _NullQuery()
 
 
 class ConstantScoreQuery(WrappingQuery):
@@ -1742,8 +1866,8 @@ class ConstantScoreQuery(WrappingQuery):
     def __hash__(self):
         return hash(self.child) ^ hash(self.score)
     
-    def apply(self, fn):
-        return self.__class__(fn(self.child), self.score)
+    def _rewrap(self, child):
+        return self.__class__(child, self.score)
     
     def matcher(self, searcher):
         m = self.child.matcher(searcher)
@@ -1761,28 +1885,30 @@ class BinaryQuery(CompoundQuery):
     ``estimate_size()``, and/or ``estimate_min_size()``.
     """
     
-    def __init__(self, a, b, boost=1.0):
+    boost = 1.0
+    
+    def __init__(self, a, b):
         self.a = a
         self.b = b
         self.subqueries = (a, b)
-        self.boost = boost
 
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
-                and self.a == other.a and self.b == other.b
-                and self.boost == other.boost)
+                and self.a == other.a and self.b == other.b)
     
     def __hash__(self):
-        return (hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b)
-                ^ hash(self.boost))
+        return (hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b))
     
     def apply(self, fn):
-        return self.__class__(fn(self.a), fn(self.b), boost=self.boost)
+        return self.__class__(fn(self.a), fn(self.b))
     
     def field(self):
         f = self.a.field()
         if self.b.field() == f:
             return f
+    
+    def with_boost(self, boost):
+        return self.__class__(self.a.with_boost(boost), self.b.with_boost(boost))
     
     def normalize(self):
         a = self.a.normalize()
@@ -1794,7 +1920,7 @@ class BinaryQuery(CompoundQuery):
         elif b is NullQuery:
             return a
     
-        return self.__class__(a, b, boost=self.boost)
+        return self.__class__(a, b)
     
     def matcher(self, searcher):
         return self.matcherclass(self.a.matcher(searcher),
@@ -1819,12 +1945,15 @@ class Require(BinaryQuery):
     def estimate_min_size(self, ixreader):
         return self.b.estimate_min_size(ixreader)
 
+    def with_boost(self, boost):
+        return self.__class__(self.a.with_boost(boost), self.b)
+
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
         if a is NullQuery or b is NullQuery:
             return NullQuery
-        return self.__class__(a, b, boost=self.boost)
+        return self.__class__(a, b)
     
     def docs(self, searcher):
         return And(self.subqueries).docs(searcher)
@@ -1846,7 +1975,7 @@ class AndMaybe(BinaryQuery):
             return NullQuery
         if b is NullQuery:
             return a
-        return self.__class__(a, b, boost=self.boost)
+        return self.__class__(a, b)
 
     def requires(self):
         return self.a.requires()
@@ -1866,6 +1995,9 @@ class AndNot(BinaryQuery):
     JOINT = " ANDNOT "
     matcherclass = AndNotMatcher
 
+    def with_boost(self, boost):
+        return self.__class__(self.a.with_boost(boost), self.b)
+
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
@@ -1875,15 +2007,8 @@ class AndNot(BinaryQuery):
         elif b is NullQuery:
             return a
 
-        return self.__class__(a, b, boost=self.boost)
+        return self.__class__(a, b)
 
-    def _all_terms(self, termset, phrases=True):
-        self.a.all_terms(termset, phrases=phrases)
-
-    def _existing_terms(self, ixreader, termset, reverse=False, phrases=True):
-        self.a.existing_terms(ixreader, termset, reverse=reverse,
-                              phrases=phrases)
-        
     def requires(self):
         return self.a.requires()
 
