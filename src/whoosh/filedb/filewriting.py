@@ -37,6 +37,7 @@ from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
+from whoosh.support.dawg import DawgBuilder, DawgWriter
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -151,6 +152,11 @@ class SegmentWriter(IndexWriter):
         # Create a temporary segment to use its .*_filename attributes
         segment = Segment(self.name, self.generation, 0, None, None, None)
         
+        # DAWG file
+        dawgfile = None
+        if any(field.spelling for field in self.schema):
+            dawgfile = self.storage.create_file(segment.dawg_filename)
+        
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
         ti = TermIndexWriter(tf)
@@ -158,7 +164,7 @@ class SegmentWriter(IndexWriter):
         pf = self.storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw)
+        self.termswriter = TermsWriter(self.schema, ti, pw, dawgfile)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -356,7 +362,6 @@ class SegmentWriter(IndexWriter):
         self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
-        #print "%f" % (now() - t)
     
     #def update_document(self, **fields):
     
@@ -480,17 +485,26 @@ class SegmentWriter(IndexWriter):
 
 
 class TermsWriter(object):
-    def __init__(self, schema, termsindex, postwriter, inlinelimit=1):
+    def __init__(self, schema, termsindex, postwriter, dawgfile, inlinelimit=1):
         self.schema = schema
         # This file maps terms to TermInfo structures
         self.termsindex = termsindex
         # This object writes postings to the posting file and keeps track of
         # 
         self.postwriter = postwriter
+        
+        self.dawgfile = dawgfile
+        if dawgfile:
+            self.dawg = DawgBuilder(reduce_root=False)
+        else:
+            self.dawg = None
+        
         # Posting lists with <= this number of postings will be inlined into
         # the terms index instead of being written to the posting file
         self.inlinelimit = inlinelimit
         
+        self.hasdawg = set(fieldname for fieldname, field in self.schema.items()
+                           if field.spelling)
         self.lastfn = None
         self.lasttext = None
         self.format = None
@@ -503,6 +517,9 @@ class TermsWriter(object):
             raise Exception("Postings are out of order: %r:%s .. %r:%s" %
                             (lastfn, lasttext, fieldname, text))
     
+        if fieldname in self.hasdawg:
+            self.dawg.insert((fieldname, ) + tuple(text))
+        
         if fieldname != lastfn:
             self.format = self.schema[fieldname].format
     
@@ -552,9 +569,47 @@ class TermsWriter(object):
         self._finish_term()
         self.termsindex.close()
         self.postwriter.close()
-        
-        
-        
+        if self.dawg:
+            self.dawg.write(self.dawgfile)
+
+
+def add_spelling(ix, fieldnames, commit=True):
+    """Adds spelling files to an existing index that was created without
+    them, and modifies the schema so the given fields have the ``spelling``
+    attribute. Only works on filedb indexes.
+    
+    >>> ix = index.open_dir("testindex")
+    >>> add_spelling(ix, ["content", "tags"])
+    
+    :param ix: a :class:`whoosh.filedb.fileindex.FileIndex` object.
+    :param fieldnames: a list of field names to create word graphs for.
+    :param force: if True, overwrites existing word graph files. This is only
+        useful for debugging.
+    """
+    
+    from whoosh.filedb.filereading import SegmentReader
+    
+    writer = ix.writer()
+    storage = writer.storage
+    schema = writer.schema
+    segments = writer.segments
+    
+    for segment in segments:
+        filename = segment.dawg_filename
+        r = SegmentReader(storage, schema, segment)
+        f = storage.create_file(filename)
+        dawg = DawgBuilder(reduce_root=False)
+        for fieldname in fieldnames:
+            ft = (fieldname, )
+            for word in r.lexicon(fieldname):
+                dawg.insert(ft + tuple(word))
+        dawg.write(f)
+    
+    for fieldname in fieldnames:
+        schema[fieldname].spelling = True
+    
+    if commit:
+        writer.commit(merge=False)
         
             
         

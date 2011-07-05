@@ -59,6 +59,14 @@ def test_html_format():
     htext = highlight.highlight(_doc, terms, sa, cf, hf)
     assert_equal(htext, 'alfa <strong class="match term0">bravo</strong> charlie...hotel <strong class="match term1">india</strong> juliet')
 
+def test_html_escape():
+    terms = frozenset(["bravo"])
+    sa = analysis.StandardAnalyzer()
+    wf = highlight.WholeFragmenter()
+    hf = highlight.HtmlFormatter()
+    htext = highlight.highlight(u('alfa <bravo "charlie"> delta'), terms, sa, wf, hf)
+    assert_equal(htext, 'alfa &lt;<strong class="match term0">bravo</strong> "charlie"&gt; delta')
+
 def test_maxclasses():
     terms = frozenset(("alfa", "bravo", "charlie", "delta", "echo"))
     sa = analysis.StandardAnalyzer()

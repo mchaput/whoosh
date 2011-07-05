@@ -27,6 +27,26 @@ def test_addfield():
             assert_equal(s.document(id=u("d")), {"id": "d", "added": "fourth"})
             assert_equal(s.document(id=u("b")), {"id": "b"})
 
+def test_addfield_spelling():
+    schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
+    with TempIndex(schema, "addfield") as ix:
+        w = ix.writer()
+        w.add_document(id=u("a"), content=u("alfa"))
+        w.add_document(id=u("b"), content=u("bravo"))
+        w.add_document(id=u("c"), content=u("charlie"))
+        w.commit()
+        
+        ix.add_field("added", fields.KEYWORD(stored=True, spelling=True))
+        
+        w = ix.writer()
+        w.add_document(id=u("d"), content=u("delta"), added=u("fourth"))
+        w.add_document(id=u("e"), content=u("echo"), added=u("fifth"))
+        w.commit(merge=False)
+        
+        with ix.searcher() as s:
+            assert_equal(s.document(id=u("d")), {"id": "d", "added": "fourth"})
+            assert_equal(s.document(id=u("b")), {"id": "b"})
+
 def test_removefield():
     schema = fields.Schema(id=fields.ID(stored=True),
                            content=fields.TEXT,

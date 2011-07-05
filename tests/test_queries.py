@@ -1,6 +1,6 @@
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
-from whoosh import fields, scoring
+from whoosh import fields
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
@@ -10,11 +10,9 @@ from whoosh.spans import *
 
 def test_all_terms():
     q = QueryParser("a", None).parse(u('hello b:there c:"my friend"'))
-    ts = set()
-    q.all_terms(ts, phrases=False)
+    ts = q.all_terms(phrases=False)
     assert_equal(sorted(ts), [("a", "hello"), ("b", "there")])
-    ts = set()
-    q.all_terms(ts, phrases=True)
+    ts = q.all_terms(phrases=True)
     assert_equal(sorted(ts), [("a", "hello"), ("b", "there"), ("c", "friend"), ("c", "my")])
 
 def test_existing_terms():
@@ -31,6 +29,7 @@ def test_existing_terms():
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
     
     ts = q.existing_terms(r, phrases=False)
+    print "ts=", sorted(ts)
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
     
     ts = q.existing_terms(r)
@@ -42,7 +41,7 @@ def test_existing_terms():
 
 def test_replace():
     q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2), Variations("a", "b", boost=2.0)])
-    q = q.replace("b", "BB")
+    q = q.replace("a", "b", "BB")
     assert_equal(q, And([Or([Term("a", "BB"), Term("b", "c")], boost=1.2),
                          Variations("a", "BB", boost=2.0)]))
 
@@ -164,7 +163,7 @@ def test_duplicates():
 
 def test_query_copy_hash():
     def do(q1, q2):
-        q1a = q1.copy()
+        q1a = copy.deepcopy(q1)
         assert_equal(q1, q1a)
         assert_equal(hash(q1), hash(q1a))
         assert_not_equal(q1, q2)

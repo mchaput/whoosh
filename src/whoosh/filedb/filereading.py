@@ -36,6 +36,7 @@ from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
+from whoosh.support.dawg import DiskNode
 from whoosh.util import protected
 
 SAVE_BY_DEFAULT = True
@@ -84,6 +85,14 @@ class SegmentReader(IndexReader):
         # Postings file
         self.postfile = self.storage.open_file(segment.termposts_filename,
                                                mapped=False)
+        
+        # Dawg file
+        self.dawg = None
+        if any(field.spelling for field in self.schema):
+            fname = segment.dawg_filename
+            if self.storage.file_exists(fname):
+                dawgfile = self.storage.open_file(fname, mapped=False)
+                self.dawg = DiskNode.load(dawgfile, expand=False)
         
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
@@ -204,7 +213,7 @@ class SegmentReader(IndexReader):
         else:
             for text in texts:
                 yield text
-    
+
     def expand_prefix(self, fieldname, prefix):
         self._test_field(fieldname)
         # If a fieldcache for the field is already loaded, we already have the
@@ -213,7 +222,7 @@ class SegmentReader(IndexReader):
             return self._texts_in_fieldcache(fieldname, prefix)
         else:
             return IndexReader.expand_prefix(self, fieldname, prefix)
-    
+
     def lexicon(self, fieldname):
         self._test_field(fieldname)
         # If a fieldcache for the field is already loaded, we already have the
@@ -222,7 +231,7 @@ class SegmentReader(IndexReader):
             return self._texts_in_fieldcache(fieldname)
         else:
             return IndexReader.lexicon(self, fieldname)
-    
+        
     def __iter__(self):
         schema = self.schema
         return ((term, terminfo) for term, terminfo
@@ -250,7 +259,7 @@ class SegmentReader(IndexReader):
             return self.termsindex.doc_frequency((fieldname, text))
         except KeyError:
             return 0
-    
+
     def postings(self, fieldname, text, scorer=None):
         try:
             terminfo = self.termsindex[fieldname, text]
@@ -289,6 +298,22 @@ class SegmentReader(IndexReader):
         
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
+    # DAWG methods
+
+    def has_word_graph(self, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No field %r" % fieldname)
+        if not self.schema[fieldname].spelling:
+            return False
+        if self.dawg:
+            return fieldname in self.dawg
+        return False
+
+    def word_graph(self, fieldname):
+        if not self.has_word_graph(fieldname):
+            raise Exception("No word graph for field %r" % fieldname)
+        return self.dawg.edge(fieldname)
+    
     # Field cache methods
 
     def supports_caches(self):
@@ -411,7 +436,7 @@ class SegmentReader(IndexReader):
                               for docnum in docnums))
             
             
-
+        
 
 
 

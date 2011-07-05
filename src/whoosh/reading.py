@@ -32,6 +32,8 @@ from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
 from whoosh.compat import text_type, xrange, zip_, next
+from whoosh.support.dawg import within
+from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
 
@@ -163,7 +165,6 @@ class IndexReader(ClosableMixin):
         """Returns a :class:`TermInfo` object allowing access to various
         statistics about the given term.
         """
-        
         raise NotImplementedError
 
     def expand_prefix(self, fieldname, prefix):
@@ -197,7 +198,7 @@ class IndexReader(ClosableMixin):
         """Yields ((fieldname, text), terminfo) tuples for all terms in the
         reader, starting at the given term.
         """
-        
+
         term_info = self.term_info
         for term in self.terms_from(fieldname, text):
             yield (term, term_info(*term))
@@ -294,13 +295,13 @@ class IndexReader(ClosableMixin):
         is used by some scoring algorithms.
         """
         raise NotImplementedError
-    
+
     def max_field_length(self, fieldname):
         """Returns the minimum length of the field across all documents. This
         is used by some scoring algorithms.
         """
         raise NotImplementedError
-
+        
     def doc_field_length(self, docnum, fieldname, default=0):
         """Returns the number of terms in the given field in the given
         document. This is used by some scoring algorithms.
@@ -386,6 +387,59 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
 
+    def has_word_graph(self, fieldname):
+        """Returns True if the given field has a "word graph" associated with
+        it, allowing suggestions for correcting mis-typed words and fast fuzzy
+        term searching.
+        """
+        
+        return False
+    
+    def word_graph(self, fieldname):
+        """Returns the root :class:`whoosh.support.dawg.BaseNode` for the given
+        field, if the field has a stored word graph (otherwise raises an
+        exception). You can check whether a field has a word graph using
+        :meth:`IndexReader.has_word_graph`.
+        """
+        
+        raise NotImplementedError
+    
+    def corrector(self, fieldname):
+        """Returns a :class:`whoosh.spelling.Corrector` object that suggests
+        corrections based on the terms in the given field.
+        """
+        
+        from whoosh.spelling import ReaderCorrector
+        return ReaderCorrector(self, fieldname)
+    
+    def terms_within(self, fieldname, text, maxdist, prefix=0, seen=None):
+        """Returns a generator of words in the given field within ``maxdist``
+        Damerau-Levenshtein edit distance of the given text.
+        
+        :param maxdist: the maximum edit distance.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word.
+            Using a prefix dramatically decreases the time it takes to generate
+            the list of words.
+        :param seen: an optional set object. Words that appear in the set will
+            not be yielded.
+        """
+        
+        if self.has_word_graph(fieldname):
+            node = self.word_graph(fieldname)
+            for word in within(node, text, maxdist, prefix=prefix, seen=seen):
+                yield word
+        else:
+            if seen is None:
+                seen = set()
+            for word in self.expand_prefix(fieldname, text[:prefix]):
+                if word in seen:
+                    continue
+                if word == text or distance(word, text, limit=maxdist) <= maxdist:
+                    yield word
+                    seen.add(word)
+    
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
         list of (frequency, text) tuples.
@@ -632,6 +686,7 @@ class MultiReader(IndexReader):
             itermap[id(it)] = it
 
         # Fill in the list with the head term from each iterator.
+
         current = []
         for it in iterlist:
             term = next(it)
@@ -666,11 +721,11 @@ class MultiReader(IndexReader):
 
     def term_info(self, fieldname, text):
         term = (fieldname, text)
-        
+
         # Get the term infos for the sub-readers containing the term
         tis = [(r.term_info(fieldname, text), offset) for r, offset
                in zip_(self.readers, self.doc_offsets) if term in r]
-        
+
         # If only one reader had the term, return its terminfo with the offset
         # added
         if not tis:
@@ -680,7 +735,7 @@ class MultiReader(IndexReader):
             ti._minid += offset
             ti._maxid += offset
             return ti
-        
+
         # Combine the various statistics
         w = sum(ti.weight() for ti, _ in tis)
         df = sum(ti.doc_frequency() for ti, _ in tis)
@@ -688,11 +743,11 @@ class MultiReader(IndexReader):
         xl = max(ti.max_length() for ti, _ in tis)
         xw = max(ti.max_weight() for ti, _ in tis)
         xwol = max(ti.max_wol() for ti, _ in tis)
-        
+
         # For min and max ID, we need to add the doc offsets
         mid = min(ti.min_id() + offset for ti, offset in tis)
         xid = max(ti.max_id() + offset for ti, offset in tis)
-        
+
         return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
 
     def has_deletions(self):
@@ -778,6 +833,21 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldname)
 
+    def has_word_graph(self, fieldname):
+        return any(r.has_word_graph(fieldname) for r in self.readers)
+    
+    def word_graph(self, fieldname):
+        from whoosh.support.dawg import NullNode, UnionNode
+        from whoosh.util import make_binary_tree
+        
+        graphs = [r.word_graph(fieldname) for r in self.readers
+                  if r.has_word_graph(fieldname)]
+        if not graphs:
+            return NullNode()
+        if len(graphs) == 1:
+            return graphs[0]
+        return make_binary_tree(UnionNode, graphs)
+
     def format(self, fieldname):
         for r in self.readers:
             fmt = r.format(fieldname)
@@ -805,11 +875,12 @@ class MultiReader(IndexReader):
     def set_caching_policy(self, *args, **kwargs):
         for r in self.readers:
             r.set_caching_policy(*args, **kwargs)
-            
-    
 
-    
-    
+        
+
+
+
+
 
 
 

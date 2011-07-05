@@ -103,7 +103,7 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "lexicon", "frequency", "doc_frequency", "term_info",
-                     "doc_field_length"):
+                     "doc_field_length", "corrector"):
             setattr(self, name, getattr(self.ixreader, name))
     
     def __enter__(self):
@@ -356,6 +356,36 @@ class Searcher(object):
             raise Exception("Don't know what to do with filter object %r" % obj)
         
         return c
+    
+    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0):
+        """Returns a sorted list of suggested corrections for the given
+        mis-typed word ``text`` based on the contents of the given field::
+        
+            >>> searcher.suggest("content", "specail")
+            ["special"]
+        
+        This is a convenience method. If you are planning to get suggestions
+        for multiple words in the same field, it is more efficient to get a
+        :class:`~whoosh.spelling.Corrector` object and use it directly::
+        
+            corrector = searcher.corrector("fieldname")
+            for word in words:
+                print corrector.suggest(word)
+        
+        :param limit: only return up to this many suggestions. If there are not
+            enough terms in the field within ``maxdist`` of the given word, the
+            returned list will be shorter than this number.
+        :param maxdist: the largest edit distance from the given word to look
+            at. Numbers higher than 2 are not very effective or efficient.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word. Using a
+            prefix dramatically decreases the time it takes to generate the
+            list of words.
+        """
+        
+        c = self.reader().corrector(fieldname)
+        return c.suggest(text, limit=limit, maxdist=maxdist, prefix=prefix)
     
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -638,6 +668,103 @@ class Searcher(object):
                               groupedby=groupedby, reverse=reverse)
         return collector.search(self, q, allow=filter, restrict=mask)
         
+    def correct_query(self, q, qstring, correctors=None, allfields=False,
+                      terms=None, prefix=0, maxdist=2):
+        """Returns a corrected version of the given user query using a default
+        :class:`
+        
+        The default 
+        
+        * Corrects any words that don't appear in the index.
+        
+        * Takes suggestions from the words in the index. To make certain fields
+          use custom correctors, use the ``correctors`` argument to pass a
+          dictionary mapping field names to :class:`whoosh.spelling.Corrector`
+          objects.
+        
+        * ONLY CORRECTS FIELDS THAT HAVE THE ``spelling`` ATTRIBUTE in the
+          schema (or for which you pass a custom corrector). To automatically
+          check all fields, use ``allfields=True``. Spell checking fields
+          without ``spelling`` is slower.
+
+        Expert users who want more sophisticated correction behavior can create
+        a custom :class:`whoosh.spelling.QueryCorrector` and use that instead
+        of this method.
+        
+        Returns a :class:`whoosh.spelling.Correction` object with a ``query``
+        attribute containing the corrected :class:`whoosh.query.Query` object
+        and a ``string`` attributes containing the corrected query string.
+        
+        >>> from whoosh import qparser, highlight
+        >>> qtext = 'mary "litle lamb"'
+        >>> q = qparser.QueryParser("text", myindex.schema)
+        >>> mysearcher = myindex.searcher()
+        >>> correction = mysearcher().correct_query(q, qtext)
+        >>> correction.query
+        <query.And ...>
+        >>> correction.string
+        'mary "little lamb"'
+        
+        You can use the ``Correction`` object's ``format_string`` method to
+        format the corrected query string using a
+        :class:`whoosh.highlight.Formatter` object. For example, you can format
+        the corrected string as HTML, emphasizing the changed words.
+        
+        >>> hf = highlight.HtmlFormatter(classname="change")
+        >>> correction.format_string(hf)
+        'mary "<strong class="change term0">little</strong> lamb"'
+        
+        :param q: the :class:`whoosh.query.Query` object to correct.
+        :param qstring: the original user query from which the query object was
+            created. You can pass None instead of a string, in which the
+            second item in the returned tuple will also be None.
+        :param correctors: an optional dictionary mapping fieldnames to
+            :class:`whoosh.spelling.Corrector` objects. By default, this method
+            uses the contents of the index to spell check the terms in the
+            query. You can use this argument to "override" some fields with a
+            different correct, for example a
+            :class:`whoosh.spelling.GraphCorrector`.
+        :param allfields: if True, automatically spell check all fields, not
+            just fields with the ``spelling`` attribute.
+        :param terms: a sequence of ``("fieldname", "text")`` tuples to correct
+            in the query. By default, this method corrects terms that don't
+            appear in the index. You can use this argument to override that
+            behavior and explicitly specify the terms that should be corrected.
+        :param prefix: suggested replacement words must share this number of
+            initial characters with the original word. Increasing this even to
+            just ``1`` can dramatically speed up suggestions, and may be
+            justifiable since spellling mistakes rarely involve the first
+            letter of a word.
+        :param maxdist: the maximum number of "edits" (insertions, deletions,
+            subsitutions, or transpositions of letters) allowed between the
+            original word and any suggestion. Values higher than ``2`` may be
+            slow.
+        :rtype: :class:`whoosh.spelling.Correction`
+        """
+        
+        if correctors is None:
+            correctors = {}
+
+        if allfields:
+            fieldnames = self.schema.names()
+        else:
+            fieldnames = [name for name, field in self.schema.items()
+                          if field.spelling]
+        for fieldname in fieldnames:
+            if fieldname not in correctors:
+                correctors[fieldname] = self.corrector(fieldname)
+        
+        if terms is None:
+            terms = []
+            for token in q.all_tokens():
+                if token.fieldname in correctors:
+                    terms.append((token.fieldname, token.text))
+        
+        from whoosh import spelling
+        
+        sqc = spelling.SimpleQueryCorrector(correctors, terms)
+        return sqc.correct_query(q, qstring)
+        
 
 class Collector(object):
     def __init__(self, limit=10, usequality=True, replace=10, groupedby=None,
@@ -855,6 +982,7 @@ class Collector(object):
             # matcher with a more efficient version
             if replace:
                 if replacecounter == 0 or self.minscore != minscore:
+                    #print "minscore=", minscore, "max_qual=", matcher.max_quality()
                     matcher = matcher.replace(minscore or 0)
                     if not matcher.is_active():
                         break
@@ -1348,6 +1476,26 @@ class Results(object):
 
         self.docset = docs | otherdocs
         self.top_n = arein + notin + other
+
+    def contains_term(self, fieldname, text):
+        """Returns True if the given term exists in at least one of the
+        documents in this results set.
+        """
+        
+        docset = self.docs()
+        minid = min(docset)
+        maxid = max(docset)
+        
+        field = self.searcher.schema[fieldname]
+        text = field.to_text(text)
+        postings = self.searcher.postings(fieldname, text)
+        postings.skip_to(minid)
+        for id in postings.all_ids():
+            if id in docset:
+                return True
+            if id >= maxid:
+                break
+        return False
 
 
 class Hit(object):

@@ -26,6 +26,5 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from whoosh.qparser.default import *
-
-
-
+from whoosh.qparser.plugins import *
+from whoosh.qparser.syntax import *

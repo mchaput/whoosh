@@ -25,33 +25,314 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""This module contains functions/classes using a Whoosh index as a backend for
-a spell-checking engine.
+"""This module contains helper functions for correcting typos in user queries.
 """
 
 from collections import defaultdict
+from heapq import heappush, heapreplace
 
-from whoosh.compat import xrange
-from whoosh import analysis, fields, query, scoring
-from whoosh.support.levenshtein import relative, distance
+from whoosh import analysis, fields, highlight, query, scoring
+from whoosh.compat import xrange, string_type
+from whoosh.support import dawg
+from whoosh.support.levenshtein import distance
 
+
+
+# Suggestion scorers
+
+def simple_scorer(word, cost):
+    """Ranks suggestions by the edit distance.
+    """
+    
+    return (cost, 0)
+
+
+class Corrector(object):
+    """Base class for spelling correction objects. Concrete sub-classes should
+    implement the ``_suggestions`` method.
+    """
+    
+    def suggest(self, text, limit=5, maxdist=2, prefix=0):
+        """
+        :param text: the text to check.
+        :param limit: only return up to this many suggestions. If there are not
+            enough terms in the field within ``maxdist`` of the given word, the
+            returned list will be shorter than this number.
+        :param maxdist: the largest edit distance from the given word to look
+            at. Numbers higher than 2 are not very effective or efficient.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word. Using a
+            prefix dramatically decreases the time it takes to generate the
+            list of words.
+        """
+        
+        _suggestions = self._suggestions
+        
+        heap = []
+        seen = set()
+        for k in xrange(1, maxdist+1):
+            for item in _suggestions(text, k, prefix, seen):
+                if len(heap) < limit:
+                    heappush(heap, item)
+                elif item < heap[0]:
+                    heapreplace(heap, item)
+            
+            # If the heap is already at the required length, don't bother going
+            # to a higher edit distance
+            if len(heap) >= limit:
+                break
+        
+        return [sug for _, sug in sorted(heap)]
+        
+    def _suggestions(self, text, maxdist, prefix, seen):
+        """Low-level method that yields a series of (score, "suggestion")
+        tuples.
+        
+        :param text: the text to check.
+        :param maxdist: the maximum edit distance.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word.
+        :param seen: a set object with which to track already-seen words.
+        """
+        
+        raise NotImplementedError
+        
+
+class ReaderCorrector(Corrector):
+    """Suggests corrections based on the content of a field in a reader.
+    
+    Ranks suggestions by the edit distance, then by highest to lowest
+    frequency.
+    """
+    
+    def __init__(self, reader, fieldname):
+        self.reader = reader
+        self.fieldname = fieldname
+    
+    def _suggestions(self, text, maxdist, prefix, seen):
+        fieldname = self.fieldname
+        freq = self.reader.frequency
+        for sug in self.reader.terms_within(fieldname, text, maxdist,
+                                            prefix=prefix, seen=seen):
+            yield ((maxdist, 0 - freq(fieldname, sug)), sug)
+
+
+class GraphCorrector(Corrector):
+    """Suggests corrections based on the content of a word list.
+    
+    By default ranks suggestions based on the edit distance.
+    """
+
+    def __init__(self, word_graph, ranking=None):
+        self.word_graph = word_graph
+        self.ranking = ranking or simple_scorer
+    
+    def _suggestions(self, text, maxdist, prefix, seen):
+        ranking = self.ranking
+        for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
+                               seen=seen):
+            yield (ranking(sug, maxdist), sug)
+    
+    def to_file(self, f):
+        """
+        
+        This method closes the file when it's done.
+        """
+        
+        root = self.word_graph
+        dawg.DawgBuilder.reduce(root)
+        dawg.DawgWriter(f).write(root)
+    
+    @classmethod
+    def from_word_list(cls, wordlist, ranking=None, strip=True):
+        dw = dawg.DawgBuilder(reduced=False)
+        for word in wordlist:
+            if strip:
+                word = word.strip()
+            dw.insert(word)
+        dw.finish()
+        return cls(dw.root, ranking=ranking)
+    
+    @classmethod
+    def from_graph_file(cls, dbfile, ranking=None):
+        dr = dawg.DiskNode.load(dbfile)
+        return cls(dr, ranking=ranking)
+    
+
+class MultiCorrector(Corrector):
+    """Merges suggestions from a list of sub-correctors.
+    """
+    
+    def __init__(self, correctors):
+        self.correctors = correctors
+        
+    def _suggestions(self, text, maxdist, prefix, seen):
+        for corr in self.correctors:
+            for item in corr._suggestions(text, maxdist, prefix, seen):
+                yield item
+
+
+def wordlist_to_graph_file(wordlist, dbfile, strip=True):
+    """Writes a word graph file from a list of words.
+    
+    >>> # Open a word list file with one word on each line, and write the
+    >>> # word graph to a graph file
+    >>> wordlist_to_graph_file("mywords.txt", "mywords.dawg")
+    
+    :param wordlist: an iterable containing the words for the graph. The words
+        must be in sorted order.
+    :param dbfile: a filename string or file-like object to write the word
+        graph to. If you pass a file-like object, it will be closed when the
+        function completes.
+    """
+    
+    from whoosh.filedb.structfile import StructFile
+    
+    g = GraphCorrector.from_word_list(wordlist, strip=strip)
+    
+    if isinstance(dbfile, string_type):
+        dbfile = open(dbfile, "wb")
+    if not isinstance(dbfile, StructFile):
+        dbfile = StructFile(dbfile)
+    
+    g.to_file(dbfile)
+
+
+# Query correction
+
+class Correction(object):
+    """Represents the corrected version of a user query string. Has the
+    following attributes:
+    
+    ``query``
+        The corrected :class:`whoosh.query.Query` object.
+    ``string``
+        The corrected user query string.
+    ``original_query``
+        The original :class:`whoosh.query.Query` object that was corrected.
+    ``original_string``
+        The original user query string.
+    ``tokens``
+        A list of token objects representing the corrected words.
+    
+    You can also use the :meth:`Correction.format_string` to reformat the
+    corrected query string using a :class:`whoosh.highlight.Formatter` class.
+    For example, to display the corrected query string as HTML with the
+    changed words emphasized::
+    
+        from whoosh import highlight
+        
+        correction = mysearcher.correct_query(q, qstring)
+        
+        hf = highlight.HtmlFormatter(classname="change")
+        html = correction.format_string(hf)
+    """
+    
+    def __init__(self, q, qstring, corr_q, tokens):
+        self.original_query = q
+        self.query = corr_q
+        self.original_string = qstring
+        self.tokens = tokens
+        
+        if self.original_string and self.tokens:
+            self.string = self.format_string(highlight.NullFormatter())
+        else:
+            self.string = None
+    
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self.query, self.string)
+    
+    def format_string(self, formatter):
+        if not (self.original_string and self.tokens):
+            raise Exception("The original query isn't available") 
+        if isinstance(formatter, type):
+            formatter = formatter()
+        
+        fragment = highlight.Fragment(self.original_string, self.tokens)
+        return formatter.format_fragment(fragment, replace=True)
+
+
+# QueryCorrector objects
+
+class QueryCorrector(object):
+    """Base class for objects that correct words in a user query.
+    """
+    
+    def correct_query(self, q, qstring):
+        """Returns a :class:`Correction` object representing the corrected
+        form of the given query.
+        
+        :param q: the original :class:`whoosh.query.Query` tree to be
+            corrected.
+        :param qstring: the original user query. This may be None if the
+        original query string is not available, in which case the
+        ``Correction.string`` attribute will also be None.
+        :rtype: :class:`Correction`
+        """
+        
+        raise NotImplementedError
+
+
+class SimpleQueryCorrector(QueryCorrector):
+    """A simple query corrector based on a mapping of field names to
+    :class:`Corrector` objects, and a list of ``("fieldname", "text")`` tuples
+    to correct. And terms in the query that appear in list of term tuples are
+    corrected using the appropriate corrector.
+    """
+    
+    def __init__(self, correctors, terms, prefix=0, maxdist=2):
+        """
+        :param correctors: a dictionary mapping field names to
+            :class:`Corrector` objects.
+        :param terms: a sequence of ``("fieldname", "text")`` tuples
+            representing terms to be corrected.
+        :param prefix: suggested replacement words must share this number of
+            initial characters with the original word. Increasing this even to
+            just ``1`` can dramatically speed up suggestions, and may be
+            justifiable since spellling mistakes rarely involve the first
+            letter of a word.
+        :param maxdist: the maximum number of "edits" (insertions, deletions,
+            subsitutions, or transpositions of letters) allowed between the
+            original word and any suggestion. Values higher than ``2`` may be
+            slow.
+        """
+        
+        self.correctors = correctors
+        self.termset = frozenset(terms)
+        self.prefix = prefix
+        self.maxdist = maxdist
+    
+    def correct_query(self, q, qstring):
+        correctors = self.correctors
+        termset = self.termset
+        prefix = self.prefix
+        maxdist = self.maxdist
+        
+        corrected_tokens = []
+        corrected_q = q
+        for token in q.all_tokens():
+            fname = token.fieldname
+            if (fname, token.text) in termset:
+                sugs = correctors[fname].suggest(token.text, prefix=prefix,
+                                                 maxdist=maxdist)
+                if sugs:
+                    sug = sugs[0]
+                    corrected_q = corrected_q.replace(token.fieldname,
+                                                      token.text, sug)
+                    token.text = sug
+                    corrected_tokens.append(token)
+
+        return Correction(q, qstring, corrected_q, corrected_tokens)
+
+#
+#
+#
+#
+# Old, obsolete spell checker - DO NOT USE
 
 class SpellChecker(object):
-    """Implements a spell-checking engine using a search index for the backend
-    storage and lookup. This class is based on the Lucene contributed spell-
-    checker code.
-    
-    To use this object::
-    
-        st = store.FileStorage("spelldict")
-        sp = SpellChecker(st)
-        
-        sp.add_words([u"aardvark", u"manticore", u"zebra", ...])
-        # or
-        ix = index.open_dir("index")
-        sp.add_field(ix, "content")
-        
-        suggestions = sp.suggest(u"ardvark", number = 2)
+    """This feature is obsolete.
     """
 
     def __init__(self, storage, indexname="SPELL",

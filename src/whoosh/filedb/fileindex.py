@@ -367,9 +367,13 @@ class Segment(object):
     along the way).
     """
 
-    EXTENSIONS = {"fieldlengths": "fln", "storedfields": "sto",
-                  "termsindex": "trm", "termposts": "pst",
-                  "vectorindex": "vec", "vectorposts": "vps"}
+    EXTENSIONS = {"dawg": "dag",
+                  "fieldlengths": "fln",
+                  "storedfields": "sto",
+                  "termsindex": "trm",
+                  "termposts": "pst",
+                  "vectorindex": "vec",
+                  "vectorposts": "vps"}
     
     generation = 0
     
@@ -477,7 +481,6 @@ class Segment(object):
         """Returns the maximum length of the given field in any of the
         documents in the segment.
         """
-        
         return self.fieldlength_maxes.get(fieldname, default)
 
     def delete_document(self, docnum, delete=True):

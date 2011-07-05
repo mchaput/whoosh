@@ -1,4 +1,4 @@
-# Copyright 2010 Matt Chaput. All rights reserved.
+# Copyright 2011 Matt Chaput. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -25,23 +25,14 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""
-This module contains the new plug-in based hand-written query parser. This
-parser is able to adapt its behavior using interchangeable plug-in classes.
-"""
+import sys
 
 from whoosh import query
-from whoosh.qparser.syntax import *
-from whoosh.qparser.plugins import *
+from whoosh.qparser import syntax
+from whoosh.qparser.common import print_debug
 
 
-ws = "[ \t\r\n]+"
-wsexpr = rcompile(ws)
-
-
-full_profile = (BoostPlugin, OperatorsPlugin, FieldsPlugin, GroupPlugin,
-                PhrasePlugin, RangePlugin, SingleQuotesPlugin, WildcardPlugin)
-
+# Query parser object
 
 class QueryParser(object):
     """A hand-written query parser built on modular plug-ins. The default
@@ -55,6 +46,7 @@ class QueryParser(object):
     >>> from whoosh import qparser
     >>> parser = qparser.QueryParser("content", schema)
     >>> parser.remove_plugin_class(qparser.WildcardPlugin)
+    >>> parser.add_plugin(qparser.PrefixPlugin())
     >>> parser.parse(u"hello there")
     And([Term("content", u"hello"), Term("content", u"there")])
     """
@@ -62,26 +54,26 @@ class QueryParser(object):
     _multitoken_query_map = {"and": query.And, "or": query.Or,
                              "phrase": query.Phrase}
     
-    def __init__(self, fieldname, schema, termclass=query.Term,
-                 phraseclass=query.Phrase, group=AndGroup, plugins=None):
+    def __init__(self, fieldname, schema, plugins=None, termclass=query.Term,
+                 phraseclass=query.Phrase, group=syntax.AndGroup):
         """
-        :param fieldname: the default field -- use this as the field for any
-            terms without an explicit field.
+        :param fieldname: the default field -- the parser uses this as the
+            field for any terms without an explicit field.
         :param schema: a :class:`whoosh.fields.Schema` object to use when
             parsing. The appropriate fields in the schema will be used to
             tokenize terms/phrases before they are turned into query objects.
             You can specify None for the schema to create a parser that does
             not analyze the text of the query, usually for testing purposes.
+        :param plugins: a list of plugins to use. WhitespacePlugin is
+            automatically included, do not put it in this list. This overrides
+            the default list of plugins. Classes in the list will be
+            automatically instantiated.
         :param termclass: the query class to use for individual search terms.
             The default is :class:`whoosh.query.Term`.
         :param phraseclass: the query class to use for phrases. The default
             is :class:`whoosh.query.Phrase`.
         :param group: the default grouping. ``AndGroup`` makes terms required
             by default. ``OrGroup`` makes terms optional by default.
-        :param plugins: a list of plugins to use. WhitespacePlugin is
-            automatically included, do not put it in this list. This overrides
-            the default list of plugins. Classes in the list will be
-            automatically instantiated.
         """
         
         self.fieldname = fieldname
@@ -89,37 +81,62 @@ class QueryParser(object):
         self.termclass = termclass
         self.phraseclass = phraseclass
         self.group = group
+        self.plugins = []
         
         if not plugins:
-            plugins = full_profile
-        plugins = list(plugins) + [WhitespacePlugin]
-        for i, plugin in enumerate(plugins):
-            if isinstance(plugin, type):
-                try:
-                    plugins[i] = plugin()
-                except TypeError:
-                    raise TypeError("Could not instantiate %r" % plugin)
-        self.plugins = plugins
+            plugins = self.default_set()
+        self._add_ws_plugin()
+        self.add_plugins(plugins)
+
+    def default_set(self):
+        """Returns the default list of plugins to use.
+        """
         
-    def add_plugin(self, plugin):
+        from whoosh.qparser import plugins
+        
+        return [plugins.WhitespacePlugin(),
+                plugins.SingleQuotePlugin(),
+                plugins.FieldsPlugin(),
+                plugins.WildcardPlugin(),
+                plugins.PhrasePlugin(),
+                plugins.RangePlugin(),
+                plugins.GroupPlugin(),
+                plugins.OperatorsPlugin(),
+                plugins.BoostPlugin(),
+                ]
+
+    def add_plugins(self, pins):
+        """Adds the given list of plugins to the list of plugins in this
+        parser.
+        """
+        
+        for pin in pins:
+            self.add_plugin(pin)
+    
+    def add_plugin(self, pin):
         """Adds the given plugin to the list of plugins in this parser.
         """
         
-        if isinstance(plugin, type):
-            plugin = plugin()
-        self.plugins.append(plugin)
-        
-    def remove_plugin(self, plugin):
-        """Removes the given plugin from the list of plugins in this parser.
+        if isinstance(pin, type):
+            pin = pin()
+        self.plugins.append(pin)
+    
+    def _add_ws_plugin(self):
+        from whoosh.qparser.plugins import WhitespacePlugin
+        self.add_plugin(WhitespacePlugin())
+    
+    def remove_plugin(self, pi):
+        """Removes the given plugin object from the list of plugins in this
+        parser.
         """
         
-        self.plugins.remove(plugin)
-        
+        self.plugins.remove(pi)
+    
     def remove_plugin_class(self, cls):
         """Removes any plugins of the given class from this parser.
         """
         
-        self.plugins = [p for p in self.plugins if not isinstance(p, cls)]
+        self.plugins = [pi for pi in self.plugins if not isinstance(pi, cls)]
     
     def replace_plugin(self, plugin):
         """Removes any plugins of the class of the given plugin and then adds
@@ -133,21 +150,20 @@ class QueryParser(object):
         
         self.remove_plugin_class(plugin.__class__)
         self.add_plugin(plugin)
-    
-    def get_plugin(self, cls, derived=True):
-        for plugin in self.plugins:
-            if (derived and isinstance(plugin, cls)) or plugin.__class__ is cls:
-                return plugin
-        raise KeyError("No plugin with class %r" % cls)
-    
+
     def _priorized(self, methodname):
+        # methodname is "taggers" or "filters". Returns a priorized list of
+        # tagger objects or filter functions.
         items_and_priorities = []
         for plugin in self.plugins:
+            # Call either .taggers() or .filters() on the plugin
             method = getattr(plugin, methodname)
             for item in method(self):
                 items_and_priorities.append(item)
+        # Sort the list by priority (lower priority runs first)
         items_and_priorities.sort(key=lambda x: x[1])
-        return [item for item, pri in items_and_priorities]
+        # Return the sorted list without the priorities
+        return [item for item, _ in items_and_priorities]
     
     def multitoken_query(self, name, texts, fieldname, termclass, boost):
         qclass = self._multitoken_query_map.get(name.lower())
@@ -169,8 +185,9 @@ class QueryParser(object):
             if field.self_parsing():
                 try:
                     return field.parse_query(fieldname, text, boost=boost)
-                except QueryParserError:
-                    return query.NullQuery
+                except:
+                    e = sys.exc_info()[1]
+                    return query.error_query(e)
             
             # Otherwise, ask the field to process the text into a list of
             # tokenized strings
@@ -190,121 +207,134 @@ class QueryParser(object):
             # It's possible field.process_text() will return an empty list (for
             # example, on a stop word)
             if not texts:
-                return query.NullQuery
+                return None
             
             text = texts[0]
         
         return termclass(fieldname, text, boost=boost)
-        
-    def tokens(self):
-        """Returns a priorized list of tokens from the included plugins.
+
+    def taggers(self):
+        """Returns a priorized list of tagger objects provided by the parser's
+        currently configured plugins.
         """
         
-        return self._priorized("tokens")
-        
+        return self._priorized("taggers")
+    
     def filters(self):
-        """Returns a priorized list of filter functions from the included
-        plugins.
+        """Returns a priorized list of filter functions provided by the
+        parser's currently configured plugins.
         """
         
         return self._priorized("filters")
     
+    def tag(self, text, pos=0, debug=False):
+        """Returns a group of syntax nodes corresponding to the given text,
+        created by matching the Taggers provided by the parser's plugins.
+        
+        :param text: the text to tag.
+        :param pos: the position in the text to start tagging at.
+        """
+        
+        # The list out output tags
+        stack = []
+        # End position of the previous match
+        prev = pos
+        # Priorized list of taggers provided by the parser's plugins
+        taggers = self.taggers()
+        print_debug(debug, "Taggers: %r" % taggers)
+        
+        # Define a function that will make a WordNode from the "interstitial"
+        # text between matches
+        def inter(startchar, endchar):
+            n = syntax.WordNode(text[startchar:endchar])
+            n.startchar = startchar
+            n.endchar = endchar
+            return n
+        
+        while pos < len(text):
+            node = None
+            # Try each tagger to see if it matches at the current position
+            for tagger in taggers:
+                node = tagger.match(self, text, pos)
+                if node:
+                    if node.endchar <= pos:
+                        raise Exception("Token %r did not move cursor forward. (%r, %s)" % (tagger, text, pos))
+                    if prev < pos:
+                        tween = inter(prev, pos)
+                        print_debug(debug, "Tween: %r" % tween)
+                        stack.append(tween)
+                        
+                    print_debug(debug, "Tagger: %r at %s: %r" % (tagger, pos, node))
+                    stack.append(node)
+                    prev = pos = node.endchar
+                    break
+
+            if not node:
+                # No taggers matched, move forward
+                pos += 1
+        
+        # If there's unmatched text left over on the end, put it in a WordNode
+        if prev < len(text):
+            stack.append(inter(prev, len(text)))
+        
+        # Wrap the list of nodes in a group node
+        group = self.group(stack)
+        print_debug(debug, "Tagged group: %r" % group)
+        return group
+    
+    def filterize(self, nodes, debug=False):
+        """Takes a group of nodes and runs the filters provided by the parser's
+        plugins.
+        """
+        
+        # Call each filter in the priorized list of plugin filters
+        print_debug(debug, "Pre-filtered group: %r" % nodes)
+        for f in self.filters():
+            print_debug(debug, "..Applying: %r" % f)
+            nodes = f(self, nodes)
+            print_debug(debug, "..Result: %r" % nodes)
+            if nodes is None:
+                raise Exception("Filter %r did not return anything" % f)
+        return nodes
+
+    def process(self, text, pos=0, debug=False):
+        """Returns a group of syntax nodes corresponding to the given text,
+        tagged by the plugin Taggers and filtered by the plugin filters.
+        
+        :param text: the text to tag.
+        :param pos: the position in the text to start tagging at.
+        """
+        
+        nodes = self.tag(text, pos=pos, debug=debug)
+        nodes = self.filterize(nodes, debug=debug)
+        return nodes
+
     def parse(self, text, normalize=True, debug=False):
-        """Parses the input string and returns a Query object/tree.
+        """Parses the input string and returns a :class:`whoosh.query.Query`
+        object/tree. 
         
-        This method may return None if the input string does not result in any
-        valid queries.
-        
-        :param text: the unicode string to parse.
+        :param text: the string to parse.
         :param normalize: whether to call normalize() on the query object/tree
             before returning it. This should be left on unless you're trying to
             debug the parser output.
         :rtype: :class:`whoosh.query.Query`
         """
         
-        if debug:
-            print("Tokenizing %r" % text)
-        stream = self._tokenize(text, debug=debug)
-        if debug:
-            print("Stream=", stream)
-        stream = self._filterize(stream, debug)
+        nodes = self.process(text, debug=debug)
+        print_debug(debug, "Syntax tree: %r" % nodes)
         
-        if debug:
-            print("Final stream=", stream)
-        q = stream.query(self)
-        if debug:
-            print("Pre-normalized query=", q)
+        q = nodes.query(self)
+        if not q:
+            q = query.NullQuery
+        print_debug(debug, "Pre-normalized query: %r" % q)
+        
         if normalize:
             q = q.normalize()
+            print_debug(debug, "Normalized query: %r" % q)
         return q
     
-    def _tokenize(self, text, debug=False):
-        stack = []
-        i = 0
-        prev = 0
-        
-        tokens = self.tokens()
-        while i < len(text):
-            matched = False
-            
-            if debug:
-                print(".matching at %r" % text[i:])
-            for tk in tokens:
-                if debug:
-                    print("..trying token %r" % tk)
-                m = tk.match(text, i)
-                if m:
-                    item = tk.create(self, m)
-                    if debug:
-                        print("...matched %r item %r" % (m.group(0), item))
-                    
-                    if item:
-                        if item.endpos is not None:
-                            newpos = item.endpos
-                        else:
-                            newpos = m.end()
-                            
-                        if newpos <= i:
-                            raise Exception("Parser element %r did not move the cursor forward (pos=%s match=%r)" % (tk, i, m.group(0)))
-                        
-                        if prev < i:
-                            if debug:
-                                print("...Adding in-between %r as a term" % text[prev:i])
-                            stack.append(Word(text[prev:i]))
-                        
-                        stack.append(item)
-                        prev = i = newpos
-                        matched = True
-                        break
-            
-            if debug:
-                print(".stack is now %r" % (stack,))
-            
-            if not matched:
-                i += 1
-        
-        if prev < len(text):
-            stack.append(Word(text[prev:]))
-        
-        if debug:
-            print("Final stack %r" % (stack, ))
-        return self.group(stack)
-    
-    def _filterize(self, stream, debug=False):
-        if debug:
-            print("Tokenized stream=", stream)
-        
-        for f in self.filters():
-            if debug:
-                print("Applying filter", f)
-            
-            stream = f(self, stream)
-            if debug:
-                print("Stream=", stream)
-            
-            if stream is None:
-                raise Exception("Function %s did not return a stream" % f)
-        return stream
+    def parse_(self, text, normalize=True):
+        pass
 
 
 # Premade parser configurations
@@ -323,8 +353,11 @@ def MultifieldParser(fieldnames, schema, fieldboosts=None, **kwargs):
     :param fieldboosts: an optional dictionary mapping field names to boosts.
     """
     
+    from whoosh.qparser.plugins import MultifieldPlugin
+    
     p = QueryParser(None, schema, **kwargs)
-    p.add_plugin(MultifieldPlugin(fieldnames, fieldboosts=fieldboosts))
+    mfp = MultifieldPlugin(fieldnames, fieldboosts=fieldboosts)
+    p.add_plugin(mfp)
     return p
 
 
@@ -333,8 +366,12 @@ def SimpleParser(fieldname, schema, **kwargs):
     syntax.
     """
     
-    return QueryParser(fieldname, schema,
-                       plugins=(PlusMinusPlugin, PhrasePlugin), **kwargs)
+    from whoosh.qparser import plugins
+    
+    pins = [plugins.WhitespacePlugin,
+            plugins.PlusMinusPlugin,
+            plugins.PhrasePlugin]
+    return QueryParser(fieldname, schema, plugins=pins, **kwargs)
 
 
 def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
@@ -345,11 +382,16 @@ def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
     :param fieldboosts: a dictionary mapping field names to boosts.
     """
     
-    dmpi = DisMaxPlugin(fieldboosts, tiebreak)
-    return QueryParser(None, schema,
-                       plugins=(PlusMinusPlugin, PhrasePlugin, dmpi), **kwargs)
+    from whoosh.qparser import plugins
     
-
+    mfp = plugins.MultifieldPlugin(list(fieldboosts.keys()),
+                                   fieldboosts=fieldboosts,
+                                   group=syntax.DisMaxGroup)
+    pins = [plugins.WhitespacePlugin,
+            plugins.PlusMinusPlugin,
+            plugins.PhrasePlugin,
+            mfp]
+    return QueryParser(None, schema, plugins=pins, **kwargs)
 
 
 
