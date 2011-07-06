@@ -1048,7 +1048,11 @@ class Collector(object):
 
 
 class TermTrackingCollector(Collector):
-    """This collector records which parts of the query matched which documents
+    """This is an experiment. For a more straightforward but possibly slightly
+    slower method for determining if a given term was found, see
+    :meth:`Results.contains_term`.
+    
+    This collector records which parts of the query matched which documents
     in the final results. The results for each part of the query are available
     as a dictionary in the ``catalog`` attribute of the collector after the
     search, where the keys are representations of the parts of the query and
