@@ -29,7 +29,7 @@ from __future__ import with_statement
 from bisect import bisect_right
 from collections import defaultdict
 
-from whoosh.compat import iteritems, next, text_type
+from whoosh.compat import iteritems, text_type
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
@@ -37,7 +37,7 @@ from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
 from whoosh.filedb.pools import TempfilePool
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgBuilder, DawgWriter
+from whoosh.support.dawg import DawgBuilder
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -346,7 +346,7 @@ class SegmentWriter(IndexWriter):
                 vformat = field.vector
                 if vformat:
                     vlist = sorted((w, weight, valuestring)
-                                   for w, freq, weight, valuestring
+                                   for w, _, weight, valuestring
                                    in vformat.word_values(value, mode="index"))
                     self._add_vector(docnum, fieldname, vlist)
                 

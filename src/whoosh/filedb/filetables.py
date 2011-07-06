@@ -37,12 +37,10 @@ from hashlib import md5  #@UnresolvedImport
 from struct import Struct, pack
 
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
-                           b, string_type, text_type)
-from whoosh.matching import ListMatcher
+                           b, text_type)
 from whoosh.reading import TermInfo
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
-                           pack_uint, pack_long, unpack_ushort, unpack_uint,
-                           unpack_long)
+                           pack_long, unpack_ushort, unpack_long)
 from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 
 
