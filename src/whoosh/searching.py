@@ -815,7 +815,7 @@ class Collector(object):
     
     def should_add_all(self):
         """Returns True if this collector needs to add all found documents (for
-        example, if ``limit=None``), or alse if this collector should only
+        example, if ``limit=None``), or False if this collector should only
         add the top N found documents.
         """
         
