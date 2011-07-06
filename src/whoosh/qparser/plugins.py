@@ -28,7 +28,7 @@
 import copy
 
 from whoosh import query
-from whoosh.compat import iteritems, u
+from whoosh.compat import iteritems, u, PY3
 from whoosh.qparser import syntax
 from whoosh.qparser.common import rcompile, attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
@@ -78,7 +78,17 @@ class TaggingPlugin(RegexTagger):
         return ()
     
     def create(self, parser, match):
-        return self.nodetype(**match.groupdict())
+        kwargs = match.groupdict()
+        
+        if not PY3:
+            def convert_unicode_keys(d):
+                if isinstance(d, dict):
+                	return dict([(k.encode("utf-8"), convert_unicode_keys(v))\
+                	        for k, v in iteritems(d)])
+                return d
+            kwargs = convert_unicode_keys(kwargs)
+        
+        return self.nodetype(**kwargs)
 
 
 class WhitespacePlugin(TaggingPlugin):
