@@ -1,4 +1,4 @@
-from __future__ import with_statement
+from __future__ import with_statement, print_function
 import inspect
 from datetime import datetime
 import sys
@@ -126,9 +126,9 @@ def test_date_range():
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, None)
     
-    print "!!!!!!!!!!!!!!!!!!!!"
+    print("!!!!!!!!!!!!!!!!!!!!")
     q = qp.parse(u("date:[30 march to next wednesday]"))
-    print "q=", q
+    print("q=", q)
     assert_equal(q.__class__, query.DateRange)
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, adatetime(2010, 9, 22).ceil())

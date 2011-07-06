@@ -4,7 +4,7 @@ import random
 from nose.tools import assert_equal, assert_almost_equal, assert_not_equal
 
 from whoosh import analysis, fields, formats, matching, scoring
-from whoosh.compat import u
+from whoosh.compat import b, u, xrange
 from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import FileTermInfo
@@ -87,25 +87,25 @@ def test_midlevel_writing():
     schema = fields.Schema(t=fields.TEXT(phrase=False))
     ix = st.create_index(schema)
     w = ix.writer()
-    w.add_document(t=u"alfa bravo charlie delta alfa bravo alfa")
+    w.add_document(t=u("alfa bravo charlie delta alfa bravo alfa"))
     w.commit()
     
     with ix.reader() as r:
-        ti = r.termsindex["t", u"alfa"]
+        ti = r.termsindex["t", u("alfa")]
         assert_equal(ti.weight(), 3.0)
         assert_equal(ti.doc_frequency(), 1)
         assert_equal(ti.min_length(), 7)
         assert_equal(ti.max_length(), 7)
         assert_equal(ti.max_weight(), 3.0)
         assert_almost_equal(ti.max_wol(), 3.0 / 7)
-        assert_equal(ti.postings, ((0, ), (3.0, ), ('\x00\x00\x00\x03', )))
+        assert_equal(ti.postings, ((0, ), (3.0, ), (b('\x00\x00\x00\x03'), )))
 
     w = ix.writer()
-    w.add_document(t=u"alfa charlie alfa")
+    w.add_document(t=u("alfa charlie alfa"))
     w.commit()
     
     with ix.reader() as r:
-        ti = r.termsindex["t", u"alfa"]
+        ti = r.termsindex["t", u("alfa")]
         assert_equal(ti.weight(), 5.0)
         assert_equal(ti.doc_frequency(), 2)
         assert_equal(ti.min_length(), 3)
@@ -123,7 +123,7 @@ def test_max_field_length():
     ix = st.create_index(schema)
     for i in xrange(1, 200, 7):
         w = ix.writer()
-        w.add_document(t=u" ".join(["word"] * i))
+        w.add_document(t=u(" ").join(["word"] * i))
         w.commit()
         
         with ix.reader() as r:
@@ -140,7 +140,7 @@ def test_minmax_field_length():
         count = random.randint(1, 100)
         least = min(count, least)
         most = max(count, most)
-        w.add_document(t=u" ".join(["word"] * count))
+        w.add_document(t=u(" ").join(["word"] * count))
         w.commit()
         
         with ix.reader() as r:
@@ -151,16 +151,16 @@ def test_term_stats():
     schema = fields.Schema(t=fields.TEXT)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
-    w.add_document(t=u"alfa bravo charlie delta echo")
-    w.add_document(t=u"bravo charlie delta echo foxtrot")
-    w.add_document(t=u"charlie delta echo foxtrot golf")
-    w.add_document(t=u"delta echo foxtrot")
-    w.add_document(t=u"echo foxtrot golf hotel india juliet")
-    w.add_document(t=u"foxtrot alfa alfa alfa")
+    w.add_document(t=u("alfa bravo charlie delta echo"))
+    w.add_document(t=u("bravo charlie delta echo foxtrot"))
+    w.add_document(t=u("charlie delta echo foxtrot golf"))
+    w.add_document(t=u("delta echo foxtrot"))
+    w.add_document(t=u("echo foxtrot golf hotel india juliet"))
+    w.add_document(t=u("foxtrot alfa alfa alfa"))
     w.commit()
 
     with ix.reader() as r:
-        ti = r.term_info("t", u"alfa")
+        ti = r.term_info("t", u("alfa"))
         assert_equal(ti.weight(), 4.0)
         assert_equal(ti.doc_frequency(), 2)
         assert_equal(ti.min_length(), 4)
@@ -168,23 +168,23 @@ def test_term_stats():
         assert_equal(ti.max_weight(), 3.0)
         assert_equal(ti.max_wol(), 3.0 / 4.0)
         
-        assert_equal(r.term_info("t", u"echo").min_length(), 3)
+        assert_equal(r.term_info("t", u("echo")).min_length(), 3)
         
         assert_equal(r.doc_field_length(3, "t"), 3)
         assert_equal(r.min_field_length("t"), 3)
         assert_equal(r.max_field_length("t"), 6)
         
     w = ix.writer()
-    w.add_document(t=u"alfa")
-    w.add_document(t=u"bravo charlie")
-    w.add_document(t=u"echo foxtrot tango bravo")
-    w.add_document(t=u"golf hotel")
-    w.add_document(t=u"india")
-    w.add_document(t=u"juliet alfa bravo charlie delta echo foxtrot")
+    w.add_document(t=u("alfa"))
+    w.add_document(t=u("bravo charlie"))
+    w.add_document(t=u("echo foxtrot tango bravo"))
+    w.add_document(t=u("golf hotel"))
+    w.add_document(t=u("india"))
+    w.add_document(t=u("juliet alfa bravo charlie delta echo foxtrot"))
     w.commit(merge=False)
 
     with ix.reader() as r:
-        ti = r.term_info("t", u"alfa")
+        ti = r.term_info("t", u("alfa"))
         assert_equal(ti.weight(), 6.0)
         assert_equal(ti.doc_frequency(), 4)
         assert_equal(ti.min_length(), 1)
@@ -192,7 +192,7 @@ def test_term_stats():
         assert_equal(ti.max_weight(), 3.0)
         assert_equal(ti.max_wol(), 1.0)
         
-        assert_equal(r.term_info("t", u"echo").min_length(), 3)
+        assert_equal(r.term_info("t", u("echo")).min_length(), 3)
         
         assert_equal(r.min_field_length("t"), 1)
         assert_equal(r.max_field_length("t"), 7)

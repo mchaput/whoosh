@@ -936,7 +936,7 @@ class Collector(object):
                 continue
             
             if keyfns:
-                for name, keyfn in keyfns.iteritems():
+                for name, keyfn in iteritems(keyfns):
                     if name not in groups:
                         groups[name] = defaultdict(list)
                     key = keyfn(offsetid - offset)

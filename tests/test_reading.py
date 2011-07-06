@@ -4,7 +4,7 @@ import random, threading, time
 from nose.tools import assert_equal
 
 from whoosh import analysis, fields, reading
-from whoosh.compat import u
+from whoosh.compat import u, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempIndex
 

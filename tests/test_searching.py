@@ -1105,7 +1105,7 @@ def test_fieldboost():
     with ix.searcher() as s:
         q = Or([Term("a", u("alfa")), Term("b", u("alfa"))])
         q = q.accept(field_booster("a", 100.0))
-        assert_equal(unicode(q), u"(a:alfa^100.0 OR b:alfa)")
+        assert_equal(text_type(q), text_type("(a:alfa^100.0 OR b:alfa)"))
         r = s.search(q)
         assert_equal([hit["id"] for hit in r], [2, 5, 6, 3, 0, 1, 4])
     

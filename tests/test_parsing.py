@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, query
@@ -229,7 +231,7 @@ def test_boost_query():
     assert_equal(q[3].text, "hi^5x")
     
     q = qp.parse("alfa (bravo OR charlie)^2.5 ^3")
-    print "q=", q
+    print("q=", q)
     assert_equal(len(q), 3)
     assert_equal(q[0].boost, 1.0)
     assert_equal(q[1].boost, 2.5)

@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 from whoosh import fields
@@ -29,7 +31,7 @@ def test_existing_terms():
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
     
     ts = q.existing_terms(r, phrases=False)
-    print "ts=", sorted(ts)
+    print("ts=", sorted(ts))
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
     
     ts = q.existing_terms(r)
@@ -253,21 +255,21 @@ def test_highlight_daterange():
     
     w = ix.writer()
     w.update_document(
-        id=u'1',
-        title=u'Life Aquatic',
-        content=u'A nautic film crew sets out to kill a gigantic shark.',
+        id=u('1'),
+        title=u('Life Aquatic'),
+        content=u('A nautic film crew sets out to kill a gigantic shark.'),
         released=datetime(2004,12,25)
     )
     w.update_document(
-        id=u'2',
-        title=u'Darjeeling Limited',
-        content=u'Three brothers meet in India for a life changing train journey.',
+        id=u('2'),
+        title=u('Darjeeling Limited'),
+        content=u('Three brothers meet in India for a life changing train journey.'),
         released=datetime(2007,10,27)
     )
     w.commit()
     
     s = ix.searcher()
-    r = s.search(Term('content', u'train'))
+    r = s.search(Term('content', u('train')))
     assert_equal(len(r), 1)
     assert_equal(r[0]["id"], "2")
     assert_equal(r[0].highlights("content"), 'India for a life changing <b class="match term0">train</b> journey')

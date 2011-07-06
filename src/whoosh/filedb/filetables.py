@@ -876,7 +876,7 @@ class FileTermInfo(TermInfo):
             magic = 0
             p = -1 if self.postings is None else self.postings
             st += pack_long(p)
-        return chr(magic) + st
+        return b(chr(magic)) + st
 
     @classmethod
     def from_string(cls, s):
@@ -893,7 +893,7 @@ class FileTermInfo(TermInfo):
             if hbyte == 0:
                 p = unpack_long(pstr)[0]
             else:
-                p = loads(pstr + ".")
+                p = loads(pstr + b("."))
         else:
             # Old format was encoded as a variable length pickled tuple
             v = loads(s + b("."))
