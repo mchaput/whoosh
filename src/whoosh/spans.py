@@ -251,7 +251,7 @@ class SpanQuery(Query):
         return self.q.matcher(s)
     
     def __getattr__(self, name):
-        return getattr(self.q, name)
+        return super(Query, self).__getattr(self.q, name)
     
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.q)
