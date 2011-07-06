@@ -1,13 +1,13 @@
 from __future__ import with_statement
 import random, time, threading
 
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
 from whoosh import analysis, fields, query, writing
-from whoosh.compat import u, b, xrange, text_type, PY3
+from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import TermIndexReader
-from whoosh.support.testing import TempIndex, TempStorage
+from whoosh.support.testing import TempIndex
 
 
 def test_no_stored():
@@ -276,7 +276,7 @@ def test_read_inline():
         w.commit()
 
         tr = TermIndexReader(ix.storage.open_file("_readinline_1.trm"))
-        for i, (term, terminfo) in enumerate(tr.items()):
+        for i, (_, terminfo) in enumerate(tr.items()):
             assert_equal(terminfo.postings[0], (i,))
             assert_equal(terminfo.postings[1], (1.0,))
         tr.close()

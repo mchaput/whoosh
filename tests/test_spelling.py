@@ -1,11 +1,10 @@
 from __future__ import with_statement
 import gzip
 
-from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
+from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import fields, highlight, query, spelling
-from whoosh.analysis import Token
-from whoosh.compat import u, text_type
+from whoosh import fields, highlight, spelling
+from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.support import dawg

@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""This module contains objects that query the search index. These query
+"""
+This module contains objects that query the search index. These query
 objects are composable to form complex query trees.
 """
 

@@ -33,13 +33,13 @@ from __future__ import division
 import copy
 import threading
 import weakref
-from collections import defaultdict, deque
+from collections import defaultdict
 from heapq import heappush, heapreplace
 from math import ceil
 
 from whoosh import classify, highlight, query, scoring
 from whoosh.compat import (iteritems, itervalues, iterkeys, xrange, text_type,
-                           string_type, next, long_type)
+                           string_type)
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitSet, BitVector
 from whoosh.util import now, lru_cache
@@ -998,7 +998,7 @@ class Collector(object):
             # flag is true, try to skip ahead to the next block with the
             # minimum required quality
             if usequality and checkquality and minscore is not None:
-                skipped = matcher.skip_to_quality(minscore)
+                matcher.skip_to_quality(minscore)
                 #print "skipped=", skipped
                 # Skipping ahead might have moved the matcher to the end of the
                 # posting list
