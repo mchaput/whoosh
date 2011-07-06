@@ -40,7 +40,7 @@ instead of storing a DAWG separately.
 import re
 from array import array
 
-from whoosh.compat import text_type
+from whoosh.compat import b, text_type, xrange, iteritems, iterkeys, unichr
 from whoosh.system import _INT_SIZE
 from whoosh.util import utf8encode, utf8decode
 
@@ -146,7 +146,7 @@ class BuildNode(object):
         if self._hash is not None:
             return self._hash
         h = int(self.final)
-        for key, node in self._edges.iteritems():
+        for key, node in iteritems(self._edges):
             h ^= hash(key) ^ hash(node)
         self._hash = h
         return h
@@ -157,7 +157,7 @@ class BuildNode(object):
         mine, theirs = self._edges, other._edges
         if len(mine) != len(theirs):
             return False
-        for key in mine.iterkeys():
+        for key in iterkeys(mine):
             if key not in theirs or not mine[key] == theirs[key]:
                 return False
         return True
@@ -227,7 +227,7 @@ class DawgBuilder(object):
         Words must be inserted in sorted order.
         """
         
-        if word < self.lastword:
+        if self.lastword and word < self.lastword:
             raise Exception("Out of order %r..%r." % (self.lastword, word))
 
         # find common prefix between word and previous word
@@ -306,7 +306,7 @@ class DawgWriter(object):
         """
         
         dbfile = self.dbfile
-        dbfile.write("GR01")  # Magic number
+        dbfile.write(b("GR01"))  # Magic number
         dbfile.write_int(0)  # File flags
         dbfile.write_uint(0)  # Pointer to root node
         
@@ -420,7 +420,7 @@ class DiskNode(BaseNode):
     def load(cls, dbfile, expand=True):
         dbfile.seek(0)
         magic = dbfile.read(4)
-        if magic != "GR01":
+        if magic != b("GR01"):
             raise Exception("%r does not seem to be a graph file" % dbfile)
         fileflags = dbfile.read_int()
         return DiskNode(dbfile, dbfile.read_uint(), expand=expand)
@@ -534,7 +534,7 @@ def reduce(node):
         for key, sn in edges.items():
             reduce(sn)
             if len(sn) == 1 and not sn.final:
-                skey, ssn = sn._edges.items()[0]
+                skey, ssn = list(sn._edges.items())[0]
                 del edges[key]
                 edges[key + skey] = ssn
                 

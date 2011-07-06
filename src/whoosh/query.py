@@ -1620,6 +1620,7 @@ class Phrase(Query):
 
     def __unicode__(self):
         return u('%s:"%s"') % (self.fieldname, u(" ").join(self.words))
+    __str__ = __unicode__
 
     def __hash__(self):
         h = hash(self.fieldname) ^ hash(self.slop) ^ hash(self.boost)
@@ -1844,7 +1845,7 @@ class _NullQuery(Query):
     
     def matcher(self, searcher):
         return NullMatcher()
-
+
 NullQuery = _NullQuery()
 
 
@@ -2029,14 +2030,5 @@ class Otherwise(BinaryQuery):
 
 def BooleanQuery(required, should, prohibited):
     return AndNot(AndMaybe(And(required), Or(should)), Or(prohibited)).normalize()
-
-
-
-
-
-
-
-
-
 
 

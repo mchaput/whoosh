@@ -505,7 +505,23 @@ class Segment(object):
             return False
         return docnum in self.deleted
 
+    def __eq__(self, other):
+        return self.__class__ is type(other)
 
+    def __lt__(self, other):
+        return type(other) is self.__class__
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __gt__(self, other):
+        return not (self.__lt__(other) or self.__eq__(other))
+
+    def __le__(self, other):
+        return self.__eq__(other) or self.__lt__(other)
+
+    def __ge__(self, other):
+        return self.__eq__(other) or self.__gt__(other)
 
 
 

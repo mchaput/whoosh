@@ -163,6 +163,8 @@ def test_duplicates():
     q = And([Wildcard("a", u("b")), And([Wildcard("a", u("b")), Term("a", u("b"))])])
     assert_equal(q.normalize(), Term("a", u("b")))
 
+
+# TODO: FIX THIS
 def test_query_copy_hash():
     def do(q1, q2):
         q1a = copy.deepcopy(q1)

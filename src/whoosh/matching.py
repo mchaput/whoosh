@@ -234,6 +234,24 @@ class Matcher(object):
         """
         
         raise NotImplementedError(self.__class__.__name__)
+
+    def __eq__(self, other):
+        return self.__class__ is type(other)
+
+    def __lt__(self, other):
+        return type(other) is self.__class__
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __gt__(self, other):
+        return not (self.__lt__(other) or self.__eq__(other))
+
+    def __le__(self, other):
+        return self.__eq__(other) or self.__lt__(other)
+
+    def __ge__(self, other):
+        return self.__eq__(other) or self.__gt__(other)
     
 
 class NullMatcher(Matcher):
@@ -248,6 +266,8 @@ class NullMatcher(Matcher):
     
     def copy(self):
         return self
+
+
     
 
 class ListMatcher(Matcher):
@@ -713,6 +733,26 @@ class AdditiveBiMatcher(BiMatcher):
     
     def score(self):
         return (self.a.score() + self.b.score())
+
+    def __eq__(self, other):
+        return self.__class__ is type(other)
+
+    def __lt__(self, other):
+        return type(other) is self.__class__
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __gt__(self, other):
+        return not (self.__lt__(other) or self.__eq__(other))
+
+    def __le__(self, other):
+        return self.__eq__(other) or self.__lt__(other)
+
+    def __ge__(self, other):
+        return self.__eq__(other) or self.__gt__(other)
+
+    
     
 
 class UnionMatcher(AdditiveBiMatcher):

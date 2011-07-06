@@ -349,6 +349,8 @@ _length_byte_cache = array('i', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14,
 79414, 82035, 84743, 87541, 90430, 93416, 96499, 99684, 102975, 106374])
 
 def length_to_byte(length):
+    if length is None:
+    	return 0
     if length >= 108116:
         return 255
     else:

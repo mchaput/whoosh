@@ -21,13 +21,13 @@ def randstring(domain, minlen, maxlen):
 def test_termkey():
     with TempStorage("termkey") as st:
         tw = TermIndexWriter(st.create_file("test.trm"))
-        tw.add(("alfa", u("bravo")), FileTermInfo(1.0, 3))
+        tw.add((u("alfa"), u("bravo")), FileTermInfo(1.0, 3))
         tw.add((u("alfa"), u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')), FileTermInfo(4.0, 6))
         tw.add((u("text"), u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')), FileTermInfo(7.0, 9))
         tw.close()
         
         tr = TermIndexReader(st.open_file("test.trm"))
-        assert ("alfa", u("bravo")) in tr
+        assert (u("alfa"), u("bravo")) in tr
         assert (u("alfa"), u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')) in tr
         assert (u("text"), u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')) in tr
         tr.close()

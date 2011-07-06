@@ -217,6 +217,8 @@ class Frequency(Format):
                 for w, freq in iteritems(freqs))
 
     def encode(self, freq):
+        # frequency needs to be an int
+        freq = int(freq)
         return pack_uint(freq)
     
     def decode_frequency(self, valuestring):
