@@ -31,7 +31,7 @@
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh.compat import text_type, xrange, zip_, next
+from whoosh.compat import xrange, zip_, next
 from whoosh.support.dawg import within
 from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin

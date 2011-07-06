@@ -34,15 +34,13 @@ from array import array
 from binascii import crc32
 from collections import defaultdict
 from hashlib import md5  #@UnresolvedImport
-from struct import Struct
+from struct import Struct, pack
 
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
-                           b, string_type, text_type)
-from whoosh.matching import ListMatcher
+                           b, text_type)
 from whoosh.reading import TermInfo
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
-                           pack_uint, pack_long, unpack_ushort, unpack_uint,
-                           unpack_long)
+                           pack_long, unpack_ushort, unpack_long)
 from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 
 
@@ -861,22 +859,34 @@ class FileTermInfo(TermInfo):
         self._maxid = block.ids[-1]
     
     def to_string(self):
+        # Encode the lengths as 0-255 values
         ml = length_to_byte(self._minlength)
         xl = length_to_byte(self._maxlength)
+        # Convert None values to the out-of-band NO_ID constant so they can be
+        # stored as unsigned ints
         mid = NO_ID if self._minid is None else self._minid
         xid = NO_ID if self._maxid is None else self._maxid
         
+        # Pack the term info into bytes
         st = self.struct.pack(self._weight, self._df, ml, xl,
                               self._maxweight, self._maxwol, mid, xid)
         
         if isinstance(self.postings, tuple):
+            # Postings are inlined - dump them using the pickle protocol
             magic = 1
             st += dumps(self.postings, -1)[2:-1]
         else:
+            # Append postings pointer as long to end of term info bytes
             magic = 0
+            # It's possible for a term info to not have a pointer to postings
+            # on disk, in which case postings will be None. Convert a None
+            # value to -1 so it can be stored as a long.
             p = -1 if self.postings is None else self.postings
             st += pack_long(p)
-        return b(chr(magic)) + st
+        
+        # Prepend "magic number" (indicating whether the postings are inlined)
+        # to the term info bytes
+        return pack("B", magic) + st
 
     @classmethod
     def from_string(cls, s):

@@ -2,12 +2,17 @@ from __future__ import print_function
 
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
+import copy
+
 from whoosh import fields
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
-from whoosh.query import *
-from whoosh.spans import *
+from whoosh.query import (And, AndMaybe, ConstantScoreQuery, Every, DateRange,
+                          DisjunctionMax, FuzzyTerm, Not, NullQuery,
+                          NumericRange, Or, Phrase, Prefix, Require, Term,
+                          TermRange, Variations, Wildcard)
+from whoosh.spans import SpanContains, SpanFirst, SpanNear, SpanNot, SpanOr
 
 
 def test_all_terms():

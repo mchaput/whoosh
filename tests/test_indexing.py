@@ -1,5 +1,5 @@
 from __future__ import with_statement
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 import random
 from collections import defaultdict
 from datetime import datetime
@@ -14,7 +14,7 @@ from whoosh.support.testing import skip_if_unavailable, TempIndex, skip_if
 
 def no_queue_support():
     try:
-        import multiprocessing.synchronize
+        import multiprocessing.synchronize  #@UnusedImport
     except ImportError:
         return True
     else:
