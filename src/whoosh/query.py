@@ -38,7 +38,7 @@ import re
 from array import array
 
 from whoosh.analysis import Token
-from whoosh.compat import u, xrange, text_type
+from whoosh.compat import u, text_type
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
