@@ -553,14 +553,15 @@ class BOOLEAN(FieldType):
     
     __inittypes__ = dict(stored=bool)
     
-    def __init__(self, stored=False):
+    def __init__(self, stored=False, field_boost=1.0):
         """
         :param stored: Whether the value of this field is stored with the
             document.
         """
         
         self.stored = stored
-        self.format = Existence(None)
+        self.field_boost = field_boost
+        self.format = Existence(None, field_boost=field_boost)
     
     def to_text(self, bit):
         if isinstance(bit, string_type):
