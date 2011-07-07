@@ -37,7 +37,6 @@ from whoosh.analysis import unstopped, entoken
 from whoosh.compat import iteritems, dumps, loads, b
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint,
                            pack_float, unpack_float)
-from whoosh.util import (float_to_byte, byte_to_float)
 
 
 # Format base class
