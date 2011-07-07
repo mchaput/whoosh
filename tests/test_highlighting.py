@@ -1,8 +1,8 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
-from whoosh import analysis, highlight, fields, qparser
+from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 
@@ -145,6 +145,18 @@ def test_workflow_manual():
         
         assert_equal(outputs, ["The invisible MAN", "The MAN who wasn't there"])
         
+def test_unstored():
+    schema = fields.Schema(text=fields.TEXT, tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("alfa bravo charlie"), tags=u("delta echo"))
+    w.commit()
+    
+    hit = ix.searcher().search(query.Term("text", "bravo"))[0]
+    assert_raises(KeyError, hit.highlights, "tags")
+
+
+
 
 
 
