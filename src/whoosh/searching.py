@@ -1370,14 +1370,16 @@ class Results(object):
         if text is None:
             d = self.fields(n)
             if fieldname not in d:
-                raise KeyError("Field %r is not in the stored fields.")
+                raise KeyError("Field %r is not in the stored fields."
+                               % fieldname)
             text = d[fieldname]
         
-        analyzer = self.searcher.schema[fieldname].format.analyzer
+        analyzer = self.searcher.schema[fieldname].analyzer
         fragmenter = fragmenter or self.fragmenter
         formatter = formatter or self.formatter
         
-        terms = set(ttext for fname, ttext in self.terms() if fname == fieldname)
+        terms = set(ttext for fname, ttext in self.terms()
+                    if fname == fieldname)
         return highlight.highlight(text, terms, analyzer, fragmenter,
                                    formatter, top=top,
                                    scorer=self.fragment_scorer, order=order)

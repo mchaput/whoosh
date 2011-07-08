@@ -37,7 +37,6 @@ from whoosh.analysis import unstopped, entoken
 from whoosh.compat import iteritems, dumps, loads, b
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint,
                            pack_float, unpack_float)
-from whoosh.util import (float_to_byte, byte_to_float)
 
 
 # Format base class
@@ -51,18 +50,14 @@ class Format(object):
     
     posting_size = -1
     textual = True
-    __inittypes__ = dict(analyzer=object, field_boost=float)
+    __inittypes__ = dict(field_boost=float)
     
-    def __init__(self, analyzer, field_boost=1.0, **options):
+    def __init__(self, field_boost=1.0, **options):
         """
-        :param analyzer: The analysis.Analyzer object to use to index this
-            field. See the analysis module for more information. If this value
-            is None, the field is not indexed/searchable.
         :param field_boost: A constant boost factor to scale to the score
             of all queries matching terms in this field.
         """
         
-        self.analyzer = analyzer
         self.field_boost = field_boost
         self.options = options
     
@@ -72,14 +67,9 @@ class Format(object):
                 and self.__dict__ == other.__dict__)
     
     def __repr__(self):
-        return "%s(%r, boost = %s)" % (self.__class__.__name__,
-                                       self.analyzer, self.field_boost)
+        return "%s(%r, boost = %s)" % (self.__class__.__name__, self.field_boost)
     
-    def clean(self):
-        if self.analyzer and hasattr(self.analyzer, "clean"):
-            self.analyzer.clean()
-    
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         """Takes the text value to be indexed and yields a series of
         ("tokentext", frequency, weight, valuestring) tuples, where frequency
         is the number of times "tokentext" appeared in the value, weight is the
@@ -90,21 +80,10 @@ class Format(object):
         encode a list of token positions at which "tokentext" occured.
         
         :param value: The unicode text to index.
+        :param analyzer: The analyzer to use to process the text.
         """
+        
         raise NotImplementedError
-    
-    def analyze(self, unicodestring, mode='', **kwargs):
-        """Returns a :class:`whoosh.analysis.Token` iterator from the given
-        unicode string.
-        
-        :param unicodestring: the string to analyzer.
-        :param mode: a string indicating the purpose for which the unicode
-            string is being analyzed, i.e. 'index' or 'query'.
-        """
-        
-        if not self.analyzer:
-            raise Exception("%s format has no analyzer" % self.__class__)
-        return self.analyzer(unicodestring, mode=mode, **kwargs)
     
     def encode(self, value):
         """Returns the given value encoded as a string.
@@ -156,16 +135,15 @@ class Existence(Format):
     """
     
     posting_size = 0
-    __inittypes__ = dict(analyzer=object, field_boost=float)
+    __inittypes__ = dict(field_boost=float)
     
-    def __init__(self, analyzer, field_boost=1.0, **options):
-        self.analyzer = analyzer
+    def __init__(self, field_boost=1.0, **options):
         self.field_boost = field_boost
         self.options = options
     
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
-        wordset = set(t.text for t in tokens(value, self.analyzer, kwargs))
+        wordset = set(t.text for t in tokens(value, analyzer, kwargs))
         return ((w, 1, fb, '') for w in wordset)
     
     def encode(self, value):
@@ -185,30 +163,26 @@ class Frequency(Format):
     """
     
     posting_size = _INT_SIZE
-    __inittypes__ = dict(analyzer=object, field_boost=float,
-                         boost_as_freq=bool)
+    __inittypes__ = dict(field_boost=float, boost_as_freq=bool)
     
-    def __init__(self, analyzer, field_boost=1.0, boost_as_freq=False,
+    def __init__(self, field_boost=1.0, boost_as_freq=False,
                  **options):
         """
-        :param analyzer: The analysis.Analyzer object to use to index this
-            field. See the analysis module for more information. If this value
-            is None, the field is not indexed/searchable.
         :param field_boost: A constant boost factor to scale to the score of
             all queries matching terms in this field.
         """
         
-        self.analyzer = analyzer
+        assert isinstance(field_boost, float)
         self.field_boost = field_boost
         self.options = options
         
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
         freqs = defaultdict(int)
         weights = defaultdict(float)
         
         kwargs["boosts"] = True
-        for t in tokens(value, self.analyzer, kwargs):
+        for t in tokens(value, analyzer, kwargs):
             freqs[t.text] += 1
             weights[t.text] += t.boost
         
@@ -237,13 +211,13 @@ class Positions(Format):
     position boost = 1.0).
     """
     
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
         poses = defaultdict(list)
         weights = defaultdict(float)
         kwargs["positions"] = True
         kwargs["boosts"] = True
-        for t in tokens(value, self.analyzer, kwargs):
+        for t in tokens(value, analyzer, kwargs):
             poses[t.text].append(t.pos)
             weights[t.text] += t.boost
         
@@ -286,7 +260,7 @@ class Characters(Positions):
     position boost = 1.0), characters.
     """
     
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
         seen = defaultdict(list)
         weights = defaultdict(float)
@@ -294,7 +268,7 @@ class Characters(Positions):
         kwargs["positions"] = True
         kwargs["chars"] = True
         kwargs["boosts"] = True
-        for t in tokens(value, self.analyzer, kwargs):
+        for t in tokens(value, analyzer, kwargs):
             seen[t.text].append((t.pos, t.startchar, t.endchar))
             weights[t.text] += t.boost
         
@@ -342,13 +316,13 @@ class PositionBoosts(Positions):
     Supports: frequency, weight, positions, position_boosts.
     """
     
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
         seen = defaultdict(iter)
         
         kwargs["positions"] = True
         kwargs["boosts"] = True
-        for t in tokens(value, self.analyzer, kwargs):
+        for t in tokens(value, analyzer, kwargs):
             pos = t.pos
             boost = t.boost
             seen[t.text].append((pos, boost))
@@ -401,14 +375,14 @@ class CharacterBoosts(Characters):
     character_boosts.
     """
     
-    def word_values(self, value, **kwargs):
+    def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
         seen = defaultdict(iter)
         
         kwargs["positions"] = True
         kwargs["chars"] = True
         kwargs["boosts"] = True
-        for t in tokens(value, self.analyzer, kwargs):
+        for t in tokens(value, analyzer, kwargs):
             seen[t.text].append((t.pos, t.startchar, t.endchar, t.boost))
         
         encode = self.encode

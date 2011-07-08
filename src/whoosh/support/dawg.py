@@ -37,10 +37,9 @@ TODO: try to find a way to traverse the term index efficiently to do within()
 instead of storing a DAWG separately.
 """
 
-import re
 from array import array
 
-from whoosh.compat import b, text_type, xrange, iteritems, iterkeys, unichr
+from whoosh.compat import b, xrange, iteritems, iterkeys, unichr
 from whoosh.system import _INT_SIZE
 from whoosh.util import utf8encode, utf8decode
 
@@ -422,7 +421,7 @@ class DiskNode(BaseNode):
         magic = dbfile.read(4)
         if magic != b("GR01"):
             raise Exception("%r does not seem to be a graph file" % dbfile)
-        fileflags = dbfile.read_int()
+        _ = dbfile.read_int()  # File flags (currently unused)
         return DiskNode(dbfile, dbfile.read_uint(), expand=expand)
     
 

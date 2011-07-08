@@ -9,9 +9,8 @@ from whoosh.support.testing import TempIndex
 
 
 def test_vector_reading():
-    a = analysis.StandardAnalyzer()
     schema = fields.Schema(title = fields.TEXT,
-                           content = fields.TEXT(vector=formats.Frequency(analyzer=a)))
+                           content = fields.TEXT(vector=formats.Frequency()))
     
     with TempIndex(schema, "vectorreading") as ix:
         writer = ix.writer()
@@ -24,9 +23,8 @@ def test_vector_reading():
                              [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
 
 def test_vector_merge():
-    a = analysis.StandardAnalyzer()
     schema = fields.Schema(title = fields.TEXT,
-                           content = fields.TEXT(vector=formats.Frequency(analyzer=a)))
+                           content = fields.TEXT(vector=formats.Frequency()))
     
     with TempIndex(schema, "vectormerge") as ix:
         writer = ix.writer()
@@ -52,8 +50,7 @@ def test_vector_merge():
             assert_equal(vec, [(u('along'), 1), (u('book'), 1), (u('read'), 1)])
         
 def test_vector_unicode():
-    a = analysis.StandardAnalyzer()
-    schema = fields.Schema(content = fields.TEXT(vector=formats.Frequency(analyzer=a)))
+    schema = fields.Schema(content = fields.TEXT(vector=formats.Frequency()))
     ix = RamStorage().create_index(schema)
     
     writer = ix.writer()
