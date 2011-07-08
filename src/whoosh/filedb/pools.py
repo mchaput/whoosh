@@ -41,7 +41,7 @@ from whoosh.util import length_to_byte, byte_to_length
 
 
 try:
-    from sys import getsizeof
+    from sys import getsizeof  #@UnusedImport
 except ImportError:
     # If this is Python 2.5, rig up a guesstimated version of getsizeof
     def getsizeof(obj):
@@ -405,8 +405,40 @@ class MemPool(PoolBase):
         termswriter.add_iter(self.postbuf, lengths.get)
 
 
+# On-disk unique set of strings
 
+class DiskSet(object):
+    def __init__(self, iterable=None):
+        import sqlite3 as sqlite
+        
+        _, self.filename = tempfile.mkstemp(".wordset", "whoosh")
+        self.err = sqlite.IntegrityError
+        self.con = sqlite.connect(self.filename)
+        self.con.execute("create table items (item text primary key)")
+        
+        if iterable:
+            add = self.add
+            for item in iterable:
+                add(item)
     
+    def add(self, value):
+        try:
+            self.con.execute("insert into items values (?)", (value, ))
+        except self.err:
+            pass
+        
+    def __iter__(self):
+        for row in self.con.execute("select item from items order by item"):
+            yield row[0]
+    
+    def close(self):
+        if self.con:
+            self.con.close()
+        self.con = None
+    
+    def destroy(self):
+        self.close()
+        os.remove(self.filename)
     
 
 

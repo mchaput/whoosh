@@ -18,8 +18,7 @@ def get_index():
     if _ix is not None:
         return _ix
     
-    ana = analysis.SimpleAnalyzer()
-    charfield = fields.FieldType(format=formats.Characters(ana),
+    charfield = fields.FieldType(formats.Characters(), analysis.SimpleAnalyzer(),
                                  scorable=True, stored=True)
     schema = fields.Schema(text=charfield)
     st = RamStorage()

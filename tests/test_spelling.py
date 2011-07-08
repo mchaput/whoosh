@@ -3,7 +3,7 @@ import gzip
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import fields, highlight, spelling
+from whoosh import analysis, fields, highlight, spelling
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
@@ -123,6 +123,8 @@ def test_multisegment():
         
         assert_equal(list(r.lexicon("text")), sorted(domain))
         
+        print ix.storage.list()
+        assert r.has_word_graph("text")
         words = list(dawg.flatten(r.word_graph("text")))
         assert_equal(words, sorted(domain))
 
@@ -245,5 +247,20 @@ def test_correct_query():
     hf = highlight.HtmlFormatter(classname="c")
     assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:<strong class="c term1">delta</strong>) detail')
     
+#def test_bypass_stemming():
+#    from whoosh.support.dawg import flatten
+#    
+#    ana = analysis.StemmingAnalyzer()
+#    schema = fields.Schema(text=fields.TEXT(analyzer=ana, spelling=True))
+#    ix = RamStorage().create_index(schema)
+#    w = ix.writer()
+#    w.add_document(text=u("rendering shading modeling reactions"))
+#    w.commit()
+#    
+#    with ix.reader() as r:
+#        assert_equal(list(r.lexicon("text")), ["model", "reaction", "render", "shade"])
+#        assert_equal(list(flatten(r.word_graph("text"))), ["modeling", "reactions", "rendering", "shading"])
+
+
 
 

@@ -410,11 +410,10 @@ class PhrasePlugin(Plugin):
             sc = self.textstartchar
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
-                if field.format:
-                    # We have a field with a format object, so use it to parse
+                if field.analyzer:
+                    # We have a field with an analyzer, so use it to parse
                     # the phrase into tokens
-                    tokens = field.format.analyze(text, mode="query",
-                                                  chars=True)
+                    tokens = field.tokenize(text, mode="query", chars=True)
                     words = []
                     char_ranges = []
                     for t in tokens:

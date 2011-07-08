@@ -1370,7 +1370,7 @@ class Results(object):
                                % fieldname)
             text = d[fieldname]
         
-        analyzer = self.searcher.schema[fieldname].format.analyzer
+        analyzer = self.searcher.schema[fieldname].analyzer
         fragmenter = fragmenter or self.fragmenter
         formatter = formatter or self.formatter
         

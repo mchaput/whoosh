@@ -386,7 +386,7 @@ class SpellChecker(object):
         from whoosh.analysis import SimpleAnalyzer
 
         idtype = ID()
-        freqtype = FieldType(format=Frequency(SimpleAnalyzer()))
+        freqtype = FieldType(Frequency(), SimpleAnalyzer())
 
         fls = [("word", STORED), ("score", STORED)]
         for size in xrange(self.mingram, self.maxgram + 1):

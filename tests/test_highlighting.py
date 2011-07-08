@@ -127,9 +127,9 @@ def test_workflow_manual():
         assert_equal(len(r), 2)
         
         # Use the same analyzer as the field uses. To be sure, you can
-        # do schema[fieldname].format.analyzer. Be careful not to do this
+        # do schema[fieldname].analyzer. Be careful not to do this
         # on non-text field types such as DATETIME.
-        analyzer = schema["title"].format.analyzer
+        analyzer = schema["title"].analyzer
         
         # Since we want to highlight the full title, not extract fragments,
         # we'll use WholeFragmenter.
