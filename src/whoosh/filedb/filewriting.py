@@ -52,8 +52,9 @@ from whoosh.writing import IndexWriter, IndexingError
 # Merge policies
 
 # A merge policy is a callable that takes the Index object, the SegmentWriter
-# object, and the current segment list (not including the segment being written),
-# and returns an updated segment list (not including the segment being written).
+# object, and the current segment list (not including the segment being
+# written), and returns an updated segment list (not including the segment
+# being written).
 
 def NO_MERGE(writer, segments):
     """This policy does not merge any existing segments.
@@ -134,7 +135,7 @@ class SegmentWriter(IndexWriter):
         
         info = ix._read_toc()
         self.schema = info.schema
-        self.ssnames = set(self.schema.special_spelling_names())
+        #self.ssnames = set(self.schema.special_spelling_names())
         self.segments = info.segments
         self.storage = ix.storage
         self.indexname = ix.indexname
@@ -336,7 +337,7 @@ class SegmentWriter(IndexWriter):
         #t = now()
         self._check_state()
         schema = self.schema
-        ssnames = self.ssnames
+        #ssnames = self.ssnames
         docboost = self._doc_boost(fields)
         
         # Sort the keys
