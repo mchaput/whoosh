@@ -471,8 +471,8 @@ def test_posting_phrase():
 
 #    def test_vector_phrase():
 #        ana = analysis.StandardAnalyzer()
-#        ftype = fields.FieldType(format=formats.Frequency(ana),
-#                                 vector=formats.Positions(ana),
+#        ftype = fields.FieldType(formats.Frequency(), ana,
+#                                 vector=formats.Positions(),
 #                                 scorable=True)
 #        schema = fields.Schema(name=fields.ID(stored=True), value=ftype)
 #        storage = RamStorage()

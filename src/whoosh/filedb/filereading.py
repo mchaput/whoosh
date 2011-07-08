@@ -29,7 +29,7 @@ from bisect import bisect_left
 from heapq import nlargest, nsmallest
 from threading import Lock
 
-from whoosh.compat import iteritems, string_type, integer_types, next, xrange
+from whoosh.compat import iteritems, string_type, integer_types, xrange
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
@@ -37,7 +37,7 @@ from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.support.dawg import DiskNode
-from whoosh.util import protected
+
 
 SAVE_BY_DEFAULT = True
 
@@ -302,7 +302,7 @@ class SegmentReader(IndexReader):
 
     def has_word_graph(self, fieldname):
         if fieldname not in self.schema:
-            raise TermNotFound("No field %r" % fieldname)
+            return False
         if not self.schema[fieldname].spelling:
             return False
         if self.dawg:

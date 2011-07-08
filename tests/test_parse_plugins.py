@@ -290,8 +290,8 @@ def test_copyfield():
     assert_equal(text_type(qp.parse("hello c:matt")), "((a:hello OR c:hello) AND (c:matt OR a:matt))")
     
     ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
-    fmt = formats.Frequency(ana)
-    schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt, multitoken_query="or"))
+    fmt = formats.Frequency()
+    schema = fields.Schema(name=fields.KEYWORD, name_phone=fields.FieldType(fmt, ana, multitoken_query="or"))
     qp = qparser.QueryParser("name", schema)
     qp.add_plugin(plugins.CopyFieldPlugin({"name": "name_phone"}))
     assert_equal(text_type(qp.parse(u("spruce view"))), "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))")

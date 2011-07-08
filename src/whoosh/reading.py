@@ -837,13 +837,14 @@ class MultiReader(IndexReader):
         return any(r.has_word_graph(fieldname) for r in self.readers)
     
     def word_graph(self, fieldname):
-        from whoosh.support.dawg import NullNode, UnionNode
+        from whoosh.support.dawg import UnionNode
         from whoosh.util import make_binary_tree
+        
+        if not self.has_word_graph(fieldname):
+            raise Exception("No word graph for field %r" % fieldname)
         
         graphs = [r.word_graph(fieldname) for r in self.readers
                   if r.has_word_graph(fieldname)]
-        if not graphs:
-            return NullNode()
         if len(graphs) == 1:
             return graphs[0]
         return make_binary_tree(UnionNode, graphs)

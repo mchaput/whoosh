@@ -289,10 +289,11 @@ class RamIndex(IndexReader, IndexWriter):
                         fieldlengths[self.docnum, name] = count
                         usage += 36
                 
-                vector = field.vector
-                if vector:
-                    vlist = sorted((w, weight, valuestring) for w, freq, weight, valuestring
-                                   in vector.word_values(value))
+                vformat = field.vector
+                if vformat:
+                    wvs = vformat.word_values(value, field.analyzer, mode="index")
+                    vlist = sorted((w, weight, valuestring)
+                                   for w, _, weight, valuestring in wvs)
                     self.vectors[self.docnum, name] = vlist
                     usage += 28
                     for x in vlist:

@@ -1,8 +1,8 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
-from whoosh import analysis, highlight, fields, qparser
+from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 
@@ -127,9 +127,9 @@ def test_workflow_manual():
         assert_equal(len(r), 2)
         
         # Use the same analyzer as the field uses. To be sure, you can
-        # do schema[fieldname].format.analyzer. Be careful not to do this
+        # do schema[fieldname].analyzer. Be careful not to do this
         # on non-text field types such as DATETIME.
-        analyzer = schema["title"].format.analyzer
+        analyzer = schema["title"].analyzer
         
         # Since we want to highlight the full title, not extract fragments,
         # we'll use WholeFragmenter.
@@ -145,6 +145,18 @@ def test_workflow_manual():
         
         assert_equal(outputs, ["The invisible MAN", "The MAN who wasn't there"])
         
+def test_unstored():
+    schema = fields.Schema(text=fields.TEXT, tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("alfa bravo charlie"), tags=u("delta echo"))
+    w.commit()
+    
+    hit = ix.searcher().search(query.Term("text", "bravo"))[0]
+    assert_raises(KeyError, hit.highlights, "tags")
+
+
+
 
 
 

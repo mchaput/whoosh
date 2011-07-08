@@ -60,23 +60,6 @@ checking queries on that index, the suggestions are tailored to the contents of
 the index. The disadvantage is that if the indexed documents contain spelling
 errors, then the spelling suggestions will also be erroneous.
 
-Note that if you're stemming the content field, the spelling suggestions will be
-stemmed and so may appear strange (for example, "rend" instead of "render").
-One solution is to create a second spelling field with the same content as the
-main field with an unstemmed analyzer::
-
-    # Stemming analyzer for the main field
-    s_ana = RegexTokenizer() | LowercaseFilter() | StemmingFilter()
-    # Similar analyzer for the unstemmed field w/out the stemming filter
-    u_ana = RegexTokenizer() | LowercaseFilter()
-    
-    schema = Schema(content=TEXT(analyzer=s_ana),
-                    unstemmed=TEXT(analyzer=u_ana, spelling=True))
-
-Then you can offer spelling suggestions based on the unstemmed field. You may
-even find it useful to let users search the unstemmed field when they know they
-want a specific form of a word.
-
 
 Pulling suggestions from a word list
 ====================================

@@ -12,7 +12,7 @@ from whoosh.support.testing import TempIndex
 def make_index():
     ana = analysis.StandardAnalyzer(stoplist=None)
     sc = fields.Schema(id=fields.ID(stored=True),
-                       text=fields.TEXT(analyzer=ana, vector=formats.Frequency(ana)),
+                       text=fields.TEXT(analyzer=ana, vector=formats.Frequency()),
                        subs=fields.NUMERIC(int, stored=True))
     ix = RamIndex(sc)
     ix.add_document(id=u("fieldtype"),

@@ -20,7 +20,7 @@ text = u("How do I use a velocity field for particles")
 
 def create_index():
     analyzer = analysis.StandardAnalyzer()
-    vector_format = formats.Frequency(analyzer)
+    vector_format = formats.Frequency()
     schema = fields.Schema(path=fields.ID(stored=True),
                            content=fields.TEXT(analyzer=analyzer,
                                                vector=vector_format))
@@ -79,7 +79,7 @@ def test_more_like_this():
 
     ana = analysis.StandardAnalyzer()
     schema = fields.Schema(id=fields.ID(stored=True),
-                           text=fields.TEXT(analyzer=ana, vector=formats.Frequency(ana)))
+                           text=fields.TEXT(analyzer=ana, vector=formats.Frequency()))
     _check(schema)
     
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)

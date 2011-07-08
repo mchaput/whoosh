@@ -319,7 +319,7 @@ def test_snippets():
 
 def test_keyterms():
     ana = analysis.StandardAnalyzer()
-    vectorformat = formats.Frequency(ana)
+    vectorformat = formats.Frequency()
     schema = fields.Schema(path=fields.ID,
                            content=fields.TEXT(analyzer=ana,
                                                vector=vectorformat))
