@@ -303,7 +303,7 @@ class FileIndex(Index):
             if reuse:
                 # Put all atomic readers in a dictionary keyed by their
                 # generation, so we can re-use them if them if possible
-                readers = [r for r, offset in reuse.leaf_readers()]
+                readers = [r for r, _ in reuse.leaf_readers()]
                 reusable = dict((r.generation(), r) for r in readers)
             
             # Make a function to open readers, which reuses reusable readers.
