@@ -19,7 +19,7 @@ def make_postings():
 
 def test_readwrite():
     with TempStorage("readwrite") as st:
-        format = Frequency(None)
+        format = Frequency()
         postings = make_postings()
         
         postfile = st.create_file("readwrite")
@@ -37,7 +37,7 @@ def test_readwrite():
 
 def test_skip():
     with TempStorage("skip") as st:
-        format = Frequency(None)
+        format = Frequency()
         postings = make_postings()
         
         postfile = st.create_file("skip")
@@ -79,7 +79,7 @@ def test_existence_postings():
         docnum += randint(1, 10)
         postings.append((docnum, 1))
     
-    assert_equal(postings, roundtrip(postings, Existence(None), "frequency"))
+    assert_equal(postings, roundtrip(postings, Existence(), "frequency"))
 
 def test_position_postings():
     postings = []
@@ -93,10 +93,10 @@ def test_position_postings():
             posns.append(pos)
         postings.append((docnum, posns))
     
-    assert_equal(postings, roundtrip(postings, Positions(None), "positions"))
+    assert_equal(postings, roundtrip(postings, Positions(), "positions"))
     
     as_freq = [(docnum, len(posns)) for docnum, posns in postings]
-    assert_equal(as_freq, roundtrip(postings, Positions(None), "frequency"))
+    assert_equal(as_freq, roundtrip(postings, Positions(), "frequency"))
     
 def test_character_postings():
     postings = []
@@ -113,13 +113,13 @@ def test_character_postings():
             posns.append((pos, startchar, endchar))
         postings.append((docnum, posns))
         
-    assert_equal(postings, roundtrip(postings, Characters(None), "characters"))
+    assert_equal(postings, roundtrip(postings, Characters(), "characters"))
     
     as_posns = [(docnum, [pos for pos, sc, ec in posns]) for docnum, posns in postings]
-    assert_equal(as_posns, roundtrip(postings, Characters(None), "positions"))
+    assert_equal(as_posns, roundtrip(postings, Characters(), "positions"))
     
     as_freq = [(docnum, len(posns)) for docnum, posns in as_posns]
-    assert_equal(as_freq, roundtrip(postings, Characters(None), "frequency"))
+    assert_equal(as_freq, roundtrip(postings, Characters(), "frequency"))
     
 def test_posboost_postings():
     postings = []
@@ -134,13 +134,13 @@ def test_posboost_postings():
             posns.append((pos, boost))
         postings.append((docnum, posns))
     
-    assert_equal(postings, roundtrip(postings, PositionBoosts(None), "position_boosts"))
+    assert_equal(postings, roundtrip(postings, PositionBoosts(), "position_boosts"))
     
     as_posns = [(docnum, [pos for pos, boost in posns]) for docnum, posns in postings]
-    assert_equal(as_posns, roundtrip(postings, PositionBoosts(None), "positions"))
+    assert_equal(as_posns, roundtrip(postings, PositionBoosts(), "positions"))
     
     as_freq = [(docnum, len(posns)) for docnum, posns in postings]
-    assert_equal(as_freq, roundtrip(postings, PositionBoosts(None), "frequency"))
+    assert_equal(as_freq, roundtrip(postings, PositionBoosts(), "frequency"))
 
 def test_charboost_postings():
     postings = []
@@ -158,19 +158,19 @@ def test_charboost_postings():
             posns.append((pos, startchar, endchar, boost))
         postings.append((docnum, posns))
 
-    assert_equal(postings, roundtrip(postings, CharacterBoosts(None), "character_boosts"))
+    assert_equal(postings, roundtrip(postings, CharacterBoosts(), "character_boosts"))
     
     as_chars = [(docnum, [(pos, sc, ec) for pos, sc, ec, bst in posns]) for docnum, posns in postings]
-    assert_equal(as_chars, roundtrip(postings, CharacterBoosts(None), "characters"))
+    assert_equal(as_chars, roundtrip(postings, CharacterBoosts(), "characters"))
     
     as_posbsts = [(docnum, [(pos, bst) for pos, sc, ec, bst in posns]) for docnum, posns in postings]
-    assert_equal(as_posbsts, roundtrip(postings, CharacterBoosts(None), "position_boosts"))
+    assert_equal(as_posbsts, roundtrip(postings, CharacterBoosts(), "position_boosts"))
     
     as_posns = [(docnum, [pos for pos, sc, ec, bst in posns]) for docnum, posns in postings]
-    assert_equal(as_posns, roundtrip(postings, CharacterBoosts(None), "positions"))
+    assert_equal(as_posns, roundtrip(postings, CharacterBoosts(), "positions"))
     
     as_freq = [(docnum, len(posns)) for docnum, posns in as_posns]
-    assert_equal(as_freq, roundtrip(postings, CharacterBoosts(None), "frequency"))
+    assert_equal(as_freq, roundtrip(postings, CharacterBoosts(), "frequency"))
 
     
         

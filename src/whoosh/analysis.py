@@ -36,7 +36,7 @@ classes/functions involved in analysis:
   over, for performance reasons) corresponding to the tokens (words) in the
   text.
       
-  Every tokenizer is a callable that takes a string and returns a generator of
+  Every tokenizer is a callable that takes a string and returns an iterator of
   tokens.
       
 * Filters take the tokens from the tokenizer and perform various
@@ -47,16 +47,14 @@ classes/functions involved in analysis:
   generator.
       
 * Analyzers are convenience functions/classes that "package up" a tokenizer and
-  zero or more filters into a single unit, so you don't have to construct the
-  tokenizer-filter-filter-etc. pipeline yourself. For example, the
-  StandardAnalyzer combines a RegexTokenizer, LowercaseFilter, and StopFilter.
+  zero or more filters into a single unit. For example, the StandardAnalyzer
+  combines a RegexTokenizer, LowercaseFilter, and StopFilter.
     
   Every analyzer is a callable that takes a string and returns a token
-  generator. (So Tokenizers can be used as Analyzers if you don't need any
+  iterator. (So Tokenizers can be used as Analyzers if you don't need any
   filtering).
   
-You can implement an analyzer as a custom class or function, or compose
-tokenizers and filters together using the ``|`` character::
+You can compose tokenizers and filters together using the ``|`` character::
 
     my_analyzer = RegexTokenizer() | LowercaseFilter() | StopFilter()
     
@@ -65,12 +63,11 @@ a filter first or a tokenizer after the first item).
 """
 
 import re
-from array import array
 from collections import deque
 from itertools import chain
 
 from whoosh.compat import (callable, iteritems, string_type, text_type, u,
-                           unichr, xrange, next)
+                           xrange, next)
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util import lru_cache, unbound_cache
@@ -202,8 +199,11 @@ class Token(object):
 # Composition support
 
 class Composable(object):
+    is_morph = False
+    
     def __or__(self, other):
-        assert callable(other), "%r is not callable" % other
+        if not callable(other):
+            raise Exception("%r is not composable with %r" % (self, other))
         return CompositeAnalyzer(self, other)
     
     def __repr__(self):
@@ -213,6 +213,9 @@ class Composable(object):
                               for key, value
                               in iteritems(self.__dict__))
         return self.__class__.__name__ + "(%s)" % attrs
+    
+    def has_morph(self):
+        return self.is_morph
 
 
 # Tokenizers
@@ -223,7 +226,7 @@ class Tokenizer(Composable):
     
     def __eq__(self, other):
         return other and self.__class__ is other.__class__
-
+    
 
 class IDTokenizer(Tokenizer):
     """Yields the entire input string as a single token. For use in indexed but
@@ -236,10 +239,9 @@ class IDTokenizer(Tokenizer):
     
     def __call__(self, value, positions=False, chars=False,
                  keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0, mode='',
-                 **kwargs):
+                 start_pos=0, start_char=0, mode='', **kwargs):
         assert isinstance(value, text_type), "%r is not unicode" % value
-        t = Token(positions, chars, removestops=removestops, mode=mode)
+        t = Token(positions, chars, removestops=removestops, mode=mode, **kwargs)
         t.text = value
         t.boost = 1.0
         if keeporiginal:
@@ -285,10 +287,9 @@ class RegexTokenizer(Tokenizer):
                 return True
         return False
     
-    def __call__(self, value, positions=False, chars=False,
-                 keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0,
-                 tokenize=True, mode='', **kwargs):
+    def __call__(self, value, positions=False, chars=False, keeporiginal=False,
+                 removestops=True, start_pos=0, start_char=0, tokenize=True,
+                 mode='', **kwargs):
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -304,7 +305,7 @@ class RegexTokenizer(Tokenizer):
         
         assert isinstance(value, text_type), "%r is not unicode" % value
         
-        t = Token(positions, chars, removestops=removestops, mode=mode)
+        t = Token(positions, chars, removestops=removestops, mode=mode, **kwargs)
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
@@ -406,10 +407,9 @@ class CharsetTokenizer(Tokenizer):
                 and self.__class__ is other.__class__
                 and self.charmap == other.charmap)
 
-    def __call__(self, value, positions=False, chars=False,
-                 keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0,
-                 tokenize=True, mode='', **kwargs):
+    def __call__(self, value, positions=False, chars=False, keeporiginal=False,
+                 removestops=True, start_pos=0, start_char=0, tokenize=True,
+                  mode='', **kwargs):
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -425,7 +425,7 @@ class CharsetTokenizer(Tokenizer):
         
         assert isinstance(value, text_type), "%r is not unicode" % value
         
-        t = Token(positions, chars, removestops=removestops, mode=mode)
+        t = Token(positions, chars, removestops=removestops, mode=mode, **kwargs)
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
@@ -584,12 +584,18 @@ class NgramTokenizer(Tokenizer):
 
 class Filter(Composable):
     """Base class for Filter objects. A Filter subclass must implement a
-    __call__ method that takes a single argument, which is an iterator of Token
+    filter() method that takes a single argument, which is an iterator of Token
     objects, and yield a series of Token objects in return.
+    
+    Filters that do morphological transformation of tokens (e.g. stemming)
+    should set their ``is_morph`` attribute to True.
     """
     
     def __eq__(self, other):
         return other and self.__class__ is other.__class__
+    
+    def __call__(self, tokens):
+        raise NotImplementedError
 
 
 class PassFilter(Filter):
@@ -597,8 +603,7 @@ class PassFilter(Filter):
     """
     
     def __call__(self, tokens):
-        for t in tokens:
-            yield t
+        return tokens
 
 
 class LoggingFilter(Filter):
@@ -794,6 +799,8 @@ class StemFilter(Filter):
     """
     
     __inittypes__ = dict(stemfn=object, ignore=list)
+    
+    is_morph = True
     
     def __init__(self, stemfn=stem, ignore=None, cachesize=50000):
         """
@@ -1106,25 +1113,8 @@ class IntraWordFilter(Filter):
     (See :class:`MultiFilter`.)
     """
 
-    # Create sets of unicode digit, uppercase, and lowercase characters.
-    digits = array("u")
-    uppers = array("u")
-    lowers = array("u")
-    for n in xrange(2 ** 16 - 1):
-        ch = unichr(n)
-        if ch.islower():
-            lowers.append(ch)
-        elif ch.isupper():
-            uppers.append(ch)
-        elif ch.isdigit():
-            digits.append(ch)
-    
-    # Create escaped strings of characters for use in regular expressions
-    digits = re.escape("".join(digits))
-    uppers = re.escape("".join(uppers))
-    lowers = re.escape("".join(lowers))
-    letters = uppers + lowers
-    
+    is_morph = True
+
     __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
     
@@ -1143,18 +1133,20 @@ class IntraWordFilter(Filter):
             additional token with the same position as the last subword.
         """
         
+        from whoosh.support.unicode import digits, lowercase, uppercase
+        
         self.delims = re.escape(delims)
         
         # Expression for splitting at delimiter characters
         self.splitter = re.compile(u("[%s]+") % (self.delims,), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
-        dispat = u("(?<=[%s])'[Ss](?=$|[%s])") % (self.letters, self.delims)
+        dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase, self.delims)
         self.disposses = re.compile(dispat, re.UNICODE)
         
         # Expression for finding case and letter-number transitions
-        lower2upper = u("[%s][%s]") % (self.lowers, self.uppers)
-        letter2digit = u("[%s][%s]") % (self.letters, self.digits)
-        digit2letter = u("[%s][%s]") % (self.digits, self.letters)
+        lower2upper = u("[%s][%s]") % (lowercase, uppercase)
+        letter2digit = u("[%s%s][%s]") % (lowercase, uppercase, digits)
+        digit2letter = u("[%s][%s%s]") % (digits, lowercase, uppercase)
         if splitwords and splitnums:
             splitpat = u("(%s|%s|%s)") % (lower2upper, letter2digit, digit2letter)
             self.boundary = re.compile(splitpat, re.UNICODE)
@@ -1247,7 +1239,6 @@ class IntraWordFilter(Filter):
         
         # This filter renumbers tokens as it expands them. New position
         # counter.
-        
         newpos = None
         for t in tokens:
             text = t.text
@@ -1533,6 +1524,8 @@ class DoubleMetaphoneFilter(Filter):
     tolerance of spelling differences is desireable.
     """
     
+    is_morph = True
+    
     def __init__(self, primary_boost=1.0, secondary_boost=0.5, combine=False):
         """
         :param primary_boost: the boost to apply to the token containing the
@@ -1619,9 +1612,7 @@ class SubstitutionFilter(Filter):
 # Analyzers
 
 class Analyzer(Composable):
-    """ Abstract base class for analyzers. Since the analyzer protocol is just
-    __call__, this is pretty simple -- it mostly exists to provide common
-    implementations of __repr__ and __eq__.
+    """ Abstract base class for analyzers.
     """
     
     def __repr__(self):
@@ -1637,7 +1628,7 @@ class Analyzer(Composable):
     
     def clean(self):
         pass
-
+    
 
 class CompositeAnalyzer(Analyzer):
     def __init__(self, *composables):
@@ -1652,11 +1643,14 @@ class CompositeAnalyzer(Analyzer):
         return "%s(%s)" % (self.__class__.__name__,
                            ", ".join(repr(item) for item in self.items))
     
-    def __call__(self, value, **kwargs):
+    def __call__(self, value, no_morph=False, **kwargs):
         items = self.items
+        # Start with tokenizer
         gen = items[0](value, **kwargs)
+        # Run filters
         for item in items[1:]:
-            gen = item(gen)
+            if not (no_morph and hasattr(item, "is_morph") and item.is_morph):
+                gen = item(gen)
         return gen
     
     def __getitem__(self, item):
@@ -1674,6 +1668,9 @@ class CompositeAnalyzer(Analyzer):
         for item in self.items:
             if hasattr(item, "clean"):
                 item.clean()
+    
+    def has_morph(self):
+        return any(item.is_morph for item in self.items)
 
 
 def IDAnalyzer(lowercase=False):

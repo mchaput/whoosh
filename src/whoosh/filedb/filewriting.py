@@ -29,15 +29,21 @@ from __future__ import with_statement
 from bisect import bisect_right
 from collections import defaultdict
 
+#try:
+#    import sqlite3  #@UnusedImport
+#    has_sqlite = True
+#except ImportError:
+#    has_sqlite = False
+
 from whoosh.compat import iteritems, text_type
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
-from whoosh.filedb.pools import TempfilePool
+from whoosh.filedb.pools import TempfilePool  #, DiskSet
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgBuilder
+from whoosh.support.dawg import DawgBuilder  #, flatten
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -128,6 +134,7 @@ class SegmentWriter(IndexWriter):
         
         info = ix._read_toc()
         self.schema = info.schema
+        self.ssnames = set(self.schema.special_spelling_names())
         self.segments = info.segments
         self.storage = ix.storage
         self.indexname = ix.indexname
@@ -152,10 +159,12 @@ class SegmentWriter(IndexWriter):
         # Create a temporary segment to use its .*_filename attributes
         segment = Segment(self.name, self.generation, 0, None, None, None)
         
-        # DAWG file
-        dawgfile = None
+        # Spelling
+        # self.wordsets = {}
+        self.dawg = None
         if any(field.spelling for field in self.schema):
-            dawgfile = self.storage.create_file(segment.dawg_filename)
+            self.dawgfile = self.storage.create_file(segment.dawg_filename)
+            self.dawg = DawgBuilder(reduce_root=False)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -164,7 +173,7 @@ class SegmentWriter(IndexWriter):
         pf = self.storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw, dawgfile)
+        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -297,6 +306,14 @@ class SegmentWriter(IndexWriter):
                 
                 self.docnum += 1
         
+#        # Add dawg contents to word sets for fields that require separate
+#        # handling
+#        for fieldname in self.schema.special_spelling_names():
+#            if reader.has_word_graph(fieldname):
+#                graph = reader.word_graph(fieldname)
+#                self.add_spell_words(fieldname, flatten(graph))
+        
+        # Add postings
         for fieldname, text in reader.all_terms():
             if fieldname in fieldnames:
                 postreader = reader.postings(fieldname, text)
@@ -319,6 +336,7 @@ class SegmentWriter(IndexWriter):
         #t = now()
         self._check_state()
         schema = self.schema
+        ssnames = self.ssnames
         docboost = self._doc_boost(fields)
         
         # Sort the keys
@@ -335,35 +353,57 @@ class SegmentWriter(IndexWriter):
         docnum = self.docnum
         for fieldname in fieldnames:
             value = fields.get(fieldname)
-            if value is not None:
-                field = schema[fieldname]
-                
-                if field.indexed:
-                    fieldboost = self._field_boost(fields, fieldname, docboost)
-                    self.pool.add_content(docnum, fieldname, field, value,
-                                          fieldboost)
-                
-                vformat = field.vector
-                if vformat:
-                    vlist = sorted((w, weight, valuestring)
-                                   for w, _, weight, valuestring
-                                   in vformat.word_values(value, mode="index"))
-                    self._add_vector(docnum, fieldname, vlist)
-                
-                if field.stored:
-                    # Caller can override the stored value by including a key
-                    # _stored_<fieldname>
-                    storedvalue = value
-                    storedname = "_stored_" + fieldname
-                    if storedname in fields:
-                        storedvalue = fields[storedname]
-                    storedvalues[fieldname] = storedvalue
+            if value is None:
+                continue
+            field = schema[fieldname]
+            
+            if field.indexed:
+                fieldboost = self._field_boost(fields, fieldname, docboost)
+                self.pool.add_content(docnum, fieldname, field, value,
+                                      fieldboost)
+            
+#            if fieldname in ssnames:
+#                words = (item[0] for item in field.index(value, no_morph=True))
+#                self.add_spell_words(fieldname, words)
+            
+            vformat = field.vector
+            if vformat:
+                wvs = vformat.word_values(value, field.analyzer, mode="index")
+                vlist = sorted((w, weight, valuestring)
+                               for w, _, weight, valuestring in wvs)
+                self._add_vector(docnum, fieldname, vlist)
+            
+            if field.stored:
+                # Caller can override the stored value by including a key
+                # _stored_<fieldname>
+                storedvalue = value
+                storedname = "_stored_" + fieldname
+                if storedname in fields:
+                    storedvalue = fields[storedname]
+                storedvalues[fieldname] = storedvalue
         
         self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
     
     #def update_document(self, **fields):
+    
+#    def add_spell_words(self, fieldname, words):
+#        # Get or make a set for the words in this field
+#        if fieldname not in self.wordsets:
+#            self.wordsets[fieldname] = set()
+#        wordset = self.wordsets[fieldname]
+#        
+#        # If the in-memory set is getting big, replace it with an
+#        # on-disk set
+#        if has_sqlite and isinstance(wordset, set) and len(wordset) > 4096:
+#            diskset = DiskSet(wordset)
+#            self.wordsets[fieldname] = wordset = diskset
+#        
+#        for word in words:
+#            wordset.add(word)
+#            
+#        self._added = True
     
     def _add_vector(self, docnum, fieldname, vlist):
         vpostwriter = self.vpostwriter
@@ -443,19 +483,38 @@ class SegmentWriter(IndexWriter):
             else:
                 mergetype = MERGE_SMALL
             
-            # Call the merge policy function. The policy may choose to merge other
-            # segments into this writer's pool
+            # Call the merge policy function. The policy may choose to merge
+            # other segments into this writer's pool
             new_segments = mergetype(self, self.segments)
             
-            # Tell the pool we're finished adding information, it should add its
-            # accumulated data to the lengths, terms index, and posting files.
             if self._added:
+                # Create a Segment object for the segment created by this
+                # writer
+                thissegment = self._getsegment()
+                
+                # Tell the pool we're finished adding information, it should
+                # add its accumulated data to the lengths, terms index, and
+                # posting files.
                 self.pool.finish(self.termswriter, self.docnum, self.lengthfile)
             
-                # Create a Segment object for the segment created by this writer and
-                # add it to the list of remaining segments returned by the merge policy
-                # function
-                new_segments.append(self._getsegment())
+                # Write out spelling files
+                if self.dawg:
+#                if self.wordsets:
+#                    for fieldname in sorted(self.wordsets.keys()):
+#                        wordset = self.wordsets[fieldname]
+#                        ft = (fieldname, )
+#                        words = iter(wordset)
+#                        if isinstance(wordset, set):
+#                            words = sorted(words)
+#                        for text in words:
+#                            self.dawg.insert(ft + tuple(text))
+#                        if isinstance(wordset, DiskSet):
+#                            wordset.destroy()
+                    self.dawg.write(self.dawgfile)
+            
+                # Add new segment to the list of remaining segments returned by
+                # the merge policy function
+                new_segments.append(thissegment)
             else:
                 self.pool.cleanup()
             
@@ -464,11 +523,13 @@ class SegmentWriter(IndexWriter):
             self._close_all()
             
             from whoosh.filedb.fileindex import _write_toc, _clean_files
-            _write_toc(self.storage, self.schema, self.indexname, self.generation,
-                       self.segment_number, new_segments)
+            
+            _write_toc(self.storage, self.schema, self.indexname,
+                       self.generation, self.segment_number, new_segments)
             
             # Delete leftover files
-            _clean_files(self.storage, self.indexname, self.generation, new_segments)
+            _clean_files(self.storage, self.indexname, self.generation,
+                         new_segments)
         
         finally:
             if self.writelock:
@@ -485,26 +546,20 @@ class SegmentWriter(IndexWriter):
 
 
 class TermsWriter(object):
-    def __init__(self, schema, termsindex, postwriter, dawgfile, inlinelimit=1):
+    def __init__(self, schema, termsindex, postwriter, dawg, inlinelimit=1):
         self.schema = schema
         # This file maps terms to TermInfo structures
         self.termsindex = termsindex
         # This object writes postings to the posting file and keeps track of
         # 
         self.postwriter = postwriter
-        
-        self.dawgfile = dawgfile
-        if dawgfile:
-            self.dawg = DawgBuilder(reduce_root=False)
-        else:
-            self.dawg = None
+        self.dawg = dawg
         
         # Posting lists with <= this number of postings will be inlined into
         # the terms index instead of being written to the posting file
         self.inlinelimit = inlinelimit
         
-        self.hasdawg = set(fieldname for fieldname, field in self.schema.items()
-                           if field.spelling)
+        self.spelling = False
         self.lastfn = None
         self.lasttext = None
         self.format = None
@@ -517,15 +572,15 @@ class TermsWriter(object):
             raise Exception("Postings are out of order: %r:%s .. %r:%s" %
                             (lastfn, lasttext, fieldname, text))
     
-        if fieldname in self.hasdawg:
-            self.dawg.insert((fieldname, ) + tuple(text))
-        
         if fieldname != lastfn:
-            self.format = self.schema[fieldname].format
-    
+            field = self.schema[fieldname]
+            self.format = field.format
+            self.spelling = field.spelling
+        
         if fieldname != lastfn or text != lasttext:
             self._finish_term()
-            
+            if self.spelling:
+                self.dawg.insert((fieldname, ) + tuple(text))
             self.offset = self.postwriter.start(self.format)
             self.lasttext = text
             self.lastfn = fieldname
@@ -569,9 +624,9 @@ class TermsWriter(object):
         self._finish_term()
         self.termsindex.close()
         self.postwriter.close()
-        if self.dawg:
-            self.dawg.write(self.dawgfile)
 
+
+# Retroactively add spelling files to an existing index
 
 def add_spelling(ix, fieldnames, commit=True):
     """Adds spelling files to an existing index that was created without

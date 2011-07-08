@@ -65,6 +65,9 @@ class FieldType(object):
     
     * format (fields.Format): the storage format for the field's contents.
     
+    * analyzer (analysis.Analyzer): the analyzer to use to turn text into
+      terms.
+    
     * vector (fields.Format): the storage format for the field's vectors
       (forward index), or None if the field should not store vectors.
     
@@ -94,7 +97,7 @@ class FieldType(object):
     Subclasses may configure some or all of this for you.
     """
     
-    format = vector = scorable = stored = unique = None
+    analyzer = format = vector = scorable = stored = unique = None
     indexed = True
     multitoken_query = "first"
     sortable_type = text_type
@@ -104,9 +107,13 @@ class FieldType(object):
     __inittypes__ = dict(format=Format, vector=Format,
                          scorable=bool, stored=bool, unique=bool)
     
-    def __init__(self, format, vector=None, scorable=False, stored=False,
-                 unique=False, multitoken_query="first"):
+    def __init__(self, format, analyzer, vector=None, scorable=False,
+                 stored=False, unique=False, multitoken_query="first"):
+        assert isinstance(format, Format)
+        assert isinstance(analyzer, Analyzer)
+        
         self.format = format
+        self.analyzer = analyzer
         self.vector = vector
         self.scorable = scorable
         self.stored = stored
@@ -141,6 +148,16 @@ class FieldType(object):
         if self.vector and hasattr(self.vector, "clean"):
             self.vector.clean()
     
+    def has_morph(self):
+        """Returns True if this field by default performs morphological
+        transformations on its terms, e.g. stemming.
+        """
+        
+        if self.analyzer:
+            return self.analyzer.has_morph()
+        else:
+            return False
+    
     def to_text(self, value):
         """Returns a textual representation of the value. Non-textual fields
         (such as NUMERIC and DATETIME) will override this to encode objects
@@ -158,7 +175,8 @@ class FieldType(object):
             raise Exception("%s field cannot index without a format" % self.__class__)
         if not isinstance(value, (text_type, list, tuple)):
             raise ValueError("%r is not unicode or sequence" % value)
-        return self.format.word_values(value, mode="index", **kwargs)
+        assert isinstance(self.format, Format), type(self.format)
+        return self.format.word_values(value, self.analyzer, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
         """Analyzes the given string and returns an iterator of token strings.
@@ -170,8 +188,17 @@ class FieldType(object):
         
         if not self.format:
             raise Exception("%s field has no format" % self)
-        return (t.text for t
-                in self.format.analyze(qstring, mode=mode, **kwargs))
+        return (t.text for t in self.tokenize(qstring, mode=mode, **kwargs))
+    
+    def tokenize(self, value, **kwargs):
+        """Analyzes the given string and returns an iterator of Token objects
+        (note: for performance reasons, actually the same token yielded over
+        and over with different attributes).
+        """
+        
+        if not self.analyzer:
+            raise Exception("%s field has no analyzer" % self.__class__)
+        return self.analyzer(value, **kwargs)
     
     def self_parsing(self):
         """Subclasses should override this method to return True if they want
@@ -230,7 +257,9 @@ class ID(FieldType):
         """
         :param stored: Whether the value of this field is stored with the document.
         """
-        self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
+        
+        self.analyzer = IDAnalyzer()
+        self.format = Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
         self.spelling = spelling
@@ -255,8 +284,8 @@ class IDLIST(FieldType):
         """
         
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
-        analyzer = RegexAnalyzer(expression=expression)
-        self.format = Existence(analyzer=analyzer, field_boost=field_boost)
+        self.analyzer = RegexAnalyzer(expression=expression)
+        self.format = Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
         self.spelling = spelling
@@ -341,7 +370,8 @@ class NUMERIC(FieldType):
         self.decimal_places = decimal_places
         self.shift_step = shift_step
         self.signed = signed
-        self.format = Existence(analyzer=IDAnalyzer(), field_boost=field_boost)
+        self.analyzer = IDAnalyzer()
+        self.format = Existence(field_boost=field_boost)
     
     def _tiers(self, num):
         t = self.type
@@ -551,7 +581,7 @@ class BOOLEAN(FieldType):
     trues = frozenset((u("t"), u("true"), u("yes"), u("1")))
     falses = frozenset((u("f"), u("false"), u("no"), u("0")))
     
-    __inittypes__ = dict(stored=bool)
+    __inittypes__ = dict(stored=bool, field_boost=float)
     
     def __init__(self, stored=False, field_boost=1.0):
         """
@@ -561,7 +591,7 @@ class BOOLEAN(FieldType):
         
         self.stored = stored
         self.field_boost = field_boost
-        self.format = Existence(None, field_boost=field_boost)
+        self.format = Existence(field_boost=field_boost)
     
     def to_text(self, bit):
         if isinstance(bit, string_type):
@@ -625,8 +655,8 @@ class KEYWORD(FieldType):
         :param scorable: Whether this field is scorable.
         """
         
-        ana = KeywordAnalyzer(lowercase=lowercase, commas=commas)
-        self.format = Frequency(analyzer=ana, field_boost=field_boost)
+        self.analyzer = KeywordAnalyzer(lowercase=lowercase, commas=commas)
+        self.format = Frequency(field_boost=field_boost)
         self.scorable = scorable
         self.stored = stored
         self.unique = unique
@@ -660,22 +690,21 @@ class TEXT(FieldType):
             for example to allow fast excerpts in the search results.
         """
         
-        ana = analyzer or StandardAnalyzer()
+        self.analyzer = analyzer or StandardAnalyzer()
         
         if phrase:
             formatclass = Positions
         else:
             formatclass = Frequency
-            
-        self.format = formatclass(analyzer=ana, field_boost=field_boost)
+        self.format = formatclass(field_boost=field_boost)
         
         if vector:
             if type(vector) is type:
-                vector = vector(ana)
+                vector = vector()
             elif isinstance(vector, Format):
                 pass
             else:
-                vector = formatclass(ana)
+                vector = formatclass()
         else:
             vector = None
         self.vector = vector
@@ -718,8 +747,8 @@ class NGRAM(FieldType):
         if phrase:
             formatclass = Positions
         
-        self.format = formatclass(analyzer=NgramAnalyzer(minsize, maxsize),
-                                  field_boost=field_boost)
+        self.analyzer = NgramAnalyzer(minsize, maxsize)
+        self.format = formatclass(field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
         
@@ -764,8 +793,8 @@ class NGRAMWORDS(NGRAM):
             default is to combine N-grams with an And query.
         """
         
-        analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
-        self.format = Frequency(analyzer=analyzer, field_boost=field_boost)
+        self.analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
+        self.format = Frequency(field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
 
@@ -967,15 +996,15 @@ class Schema(object):
         """
         
         return [name for name, field in self.items() if field.vector]
-
-    def analyzer(self, fieldname):
-        """Returns the content analyzer for the given fieldname, or None if
-        the field has no analyzer
+    
+    def special_spelling_names(self):
+        """Returns a list of the names of fields that require special handling
+        for generating spelling graphs... either because they store graphs but
+        aren't indexed, or because the analyzer is stemmed.
         """
         
-        field = self[fieldname]
-        if field.format and field.format.analyzer:
-            return field.format.analyzer
+        return [name for name, field in self.items()
+                if field.spelling and (not field.indexed or field.has_morph())]
 
 
 class SchemaClass(with_metaclass(MetaSchema, Schema)):
