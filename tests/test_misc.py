@@ -1,13 +1,11 @@
 from __future__ import with_statement
 import threading, time
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import fields
-from whoosh.compat import u, xrange
 from whoosh.support.filelock import try_for
-from whoosh.util import length_to_byte, byte_to_length, now
-from whoosh.support.testing import TempStorage, TempIndex
+from whoosh.util import length_to_byte, byte_to_length
+from whoosh.support.testing import TempStorage
 
 
 def test_filelock_simple():
