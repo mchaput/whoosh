@@ -1,11 +1,11 @@
 from __future__ import with_statement
 import random
 
-from nose.tools import assert_equal, assert_almost_equal, assert_not_equal
+from nose.tools import assert_equal, assert_almost_equal  #@UnresolvedImport
 
-from whoosh import analysis, fields, formats, matching, scoring
+from whoosh import fields, formats, matching, scoring
 from whoosh.compat import b, u, xrange
-from whoosh.filedb.filepostings import FilePostingWriter, FilePostingReader
+from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import FileTermInfo
 from whoosh.filedb.postblocks import current

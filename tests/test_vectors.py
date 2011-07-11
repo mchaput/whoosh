@@ -1,8 +1,8 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import analysis, fields, formats
+from whoosh import fields, formats
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import TempIndex

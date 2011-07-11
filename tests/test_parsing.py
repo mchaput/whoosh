@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, query
 from whoosh.compat import u, text_type

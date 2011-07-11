@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
 from datetime import datetime, timedelta
 
@@ -602,7 +602,7 @@ def test_phrase_multi():
     
     with ix.searcher() as s:
         q = Phrase("text", ["alfa", "bravo"])
-        r = s.search(q)
+        _ = s.search(q)
 
 def test_missing_field_scoring():
     schema = fields.Schema(name=fields.TEXT(stored=True),
@@ -997,7 +997,7 @@ def test_trackingcollector():
                 Not(Term("text", "charlie"))])
         
         col = searching.TermTrackingCollector()
-        r = col.search(s, q)
+        _ = col.search(s, q)
         
         for docnum in col.catalog["text:alfa"]:
             words = s.stored_fields(docnum)["text"].split()

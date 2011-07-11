@@ -14,7 +14,7 @@ from whoosh.support.times import adatetime
 
 def _plugin_classes(ignore):
     # Get all the subclasses of Plugin in whoosh.qparser.plugins
-    return [c for name, c in inspect.getmembers(plugins, inspect.isclass)
+    return [c for _, c in inspect.getmembers(plugins, inspect.isclass)
             if plugins.Plugin in c.__bases__ and c not in ignore]
 
 

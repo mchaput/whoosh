@@ -4,7 +4,7 @@ from random import randint, choice, sample
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 from whoosh import fields
-from whoosh.compat import xrange, next, u
+from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.matching import *
 from whoosh.query import And, Term

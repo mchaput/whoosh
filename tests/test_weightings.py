@@ -5,21 +5,20 @@ import sys
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import query, scoring
+from whoosh import fields, query, scoring
 from whoosh.compat import u, xrange
-from whoosh.fields import *
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util import permutations
 
 
 def _weighting_classes(ignore):
     # Get all the subclasses of Weighting in whoosh.scoring
-    return [c for name, c in inspect.getmembers(scoring, inspect.isclass)
+    return [c for _, c in inspect.getmembers(scoring, inspect.isclass)
             if scoring.Weighting in c.__bases__ and c not in ignore]
     
 def test_all():
     domain = [u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot")]
-    schema = Schema(text=TEXT)
+    schema = fields.Schema(text=fields.TEXT)
     storage = RamStorage()
     ix = storage.create_index(schema)
     w = ix.writer()
@@ -68,7 +67,7 @@ def test_compatibility():
         def final(self, searcher, docnum, score):
             return score * 1.5
     
-    schema = Schema(text=TEXT)
+    schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     domain = "alfa bravo charlie delta".split()

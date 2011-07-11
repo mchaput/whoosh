@@ -2,10 +2,10 @@ from __future__ import with_statement
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import analysis, fields, formats, query, spans
+from whoosh import analysis, fields, formats, spans
 from whoosh.compat import u, xrange
 from whoosh.filedb.filestore import RamStorage
-from whoosh.query import And, Or, Term
+from whoosh.query import And, Or, Term, Phrase
 from whoosh.util import permutations
 
 
@@ -277,7 +277,7 @@ def test_span_condition():
 def test_regular_or():
     ix = get_index()
     with ix.searcher() as s:
-        oq = query.Or([query.Term("text", "bravo"), query.Term("text", "alfa")])
+        oq = Or([Term("text", "bravo"), Term("text", "alfa")])
         m = oq.matcher(s)
         while m.is_active():
             orig = s.stored_fields(m.id())["text"]
@@ -289,7 +289,7 @@ def test_regular_or():
 def test_regular_and():
     ix = get_index()
     with ix.searcher() as s:
-        aq = query.And([query.Term("text", "bravo"), query.Term("text", "alfa")])
+        aq = And([Term("text", "bravo"), Term("text", "alfa")])
         m = aq.matcher(s)
         while m.is_active():
             orig = s.stored_fields(m.id())["text"]
@@ -301,7 +301,7 @@ def test_regular_and():
 def test_span_characters():
     ix = get_index()
     with ix.searcher() as s:
-        pq = query.Phrase("text", ["bravo", "echo"])
+        pq = Phrase("text", ["bravo", "echo"])
         m = pq.matcher(s)
         while m.is_active():
             orig = " ".join(s.stored_fields(m.id())["text"])

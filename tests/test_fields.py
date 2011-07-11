@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
 
 from whoosh import fields, qparser, query
-from whoosh.compat import long_type, u, b, xrange, PY3
+from whoosh.compat import long_type, u, b, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support import times
 
