@@ -309,6 +309,7 @@ class SqlitePool(PoolBase):
         
         filename = self._field_filename(name)
         con = sqlite.connect(filename)
+        con.execute("PRAGMA synchronous=OFF")
         if name not in self.fieldnames:
             self.fieldnames.add(name)
             con.execute("create table postings (token text, docnum int, weight float, value blob)")
@@ -332,13 +333,21 @@ class SqlitePool(PoolBase):
             self.flush()
     
     def readback(self):
+        from whoosh.util import now
+        
         for name in sorted(self.fieldnames):
             con = self._con(name)
-            con.execute("create index postix on postings (token, docnum)")
+            #t = now()
+            #con.execute("create index postix on postings (token, docnum)")
+            #print "Create index:", name, now() - t
+            
+            print "Reading", name
+            t = now()
             for text, docnum, weight, valuestring in con.execute("select * from postings order by token, docnum"):
                 yield (name, text, docnum, weight, valuestring)
             con.close()
             os.remove(self._field_filename(name))
+            print "Readback:", name, now() - t
         
         if self._using_tempdir and self.dir:
             try:

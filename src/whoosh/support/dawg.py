@@ -196,22 +196,20 @@ class DawgBuilder(object):
     to support the spelling correction system.
     """
     
-    def __init__(self, reduced=True, reduce_root=True):
+    def __init__(self, reduced=True, field_root=False):
         """
         :param dbfile: an optional StructFile. If you pass this argument to the
             initializer, you don't have to pass a file to the ``write()``
             method after you construct the graph.
         :param reduced: when the graph is finished, branches of single-edged
             nodes will be collapsed into single nodes to form a Patricia tree.
-        :param reduce_root: when ``reduce`` is True and this argument is True,
-            reduction will include the root node. If the root node edges are
-            special (as in an index segment's term DAWG, where it has the field
-            names), you can turn this off to keep the root edges "safe" from
-            reduction.
+        :param field_root: treats the root node edges as field names,
+            preventing them from being reduced and allowing them to be inserted
+            out-of-order.
         """
         
         self._reduced = reduced
-        self._reduce_root = reduce_root
+        self._field_root = field_root
         
         self.lastword = None
         # List of nodes that have not been checked for duplication.
@@ -226,19 +224,24 @@ class DawgBuilder(object):
         Words must be inserted in sorted order.
         """
         
-        if self.lastword and word < self.lastword:
-            raise Exception("Out of order %r..%r." % (self.lastword, word))
-
-        # find common prefix between word and previous word
+        lw = self.lastword
         prefixlen = 0
-        if self.lastword:
-            for i in xrange(min(len(word), len(self.lastword))):
-                if word[i] != self.lastword[i]: break
-                prefixlen += 1
+        if lw:
+            if self._field_root and lw[0] != word[0]:
+                # If field_root == True, caller can add entire fields out-of-
+                # order (but not individual terms)
+                pass
+            elif word < lw:
+                raise Exception("Out of order %r..%r." % (self.lastword, word))
+            else:
+                # find common prefix between word and previous word
+                for i in xrange(min(len(word), len(lw))):
+                    if word[i] != lw[i]: break
+                    prefixlen += 1
 
         # Check the unchecked for redundant nodes, proceeding from last
-        # one down to the common prefix size. Then truncate the list at that
-        # point.
+        # one down to the common prefix size. Then truncate the list at
+        # that point.
         self._minimize(prefixlen)
 
         # Add the suffix, starting from the correct node mid-way through the
@@ -278,15 +281,15 @@ class DawgBuilder(object):
         
         self._minimize(0)
         if self._reduced:
-            self.reduce(self.root, self._reduce_root)
+            self.reduce(self.root, self._field_root)
                     
     def write(self, dbfile):
         self.finish()
         DawgWriter(dbfile).write(self.root)
     
     @staticmethod
-    def reduce(root, reduce_root=True):
-        if reduce_root:
+    def reduce(root, field_root=False):
+        if not field_root:
             reduce(root)
         else:
             for key in root:

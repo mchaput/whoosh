@@ -29,11 +29,11 @@ from __future__ import with_statement
 from bisect import bisect_right
 from collections import defaultdict
 
-#try:
-#    import sqlite3  #@UnusedImport
-#    has_sqlite = True
-#except ImportError:
-#    has_sqlite = False
+try:
+    import sqlite3  #@UnusedImport
+    has_sqlite = True
+except ImportError:
+    has_sqlite = False
 
 from whoosh.compat import iteritems, text_type
 from whoosh.fields import UnknownFieldError
@@ -41,9 +41,9 @@ from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
-from whoosh.filedb.pools import TempfilePool  #, DiskSet
+from whoosh.filedb.pools import TempfilePool, DiskSet
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgBuilder  #, flatten
+from whoosh.support.dawg import DawgBuilder, flatten
 from whoosh.support.filelock import try_for
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
@@ -161,11 +161,11 @@ class SegmentWriter(IndexWriter):
         segment = Segment(self.name, self.generation, 0, None, None, None)
         
         # Spelling
-        # self.wordsets = {}
+        self.wordsets = {}
         self.dawg = None
         if any(field.spelling for field in self.schema):
             self.dawgfile = self.storage.create_file(segment.dawg_filename)
-            self.dawg = DawgBuilder(reduce_root=False)
+            self.dawg = DawgBuilder(field_root=True)
         
         # Terms index
         tf = self.storage.create_file(segment.termsindex_filename)
@@ -174,7 +174,8 @@ class SegmentWriter(IndexWriter):
         pf = self.storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
+        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg,
+                                       self.wordsets)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -307,12 +308,12 @@ class SegmentWriter(IndexWriter):
                 
                 self.docnum += 1
         
-#        # Add dawg contents to word sets for fields that require separate
-#        # handling
-#        for fieldname in self.schema.special_spelling_names():
-#            if reader.has_word_graph(fieldname):
-#                graph = reader.word_graph(fieldname)
-#                self.add_spell_words(fieldname, flatten(graph))
+        # Add dawg contents to word sets for fields that require separate
+        # handling
+        for fieldname in self.schema.separate_spelling_names():
+            if reader.has_word_graph(fieldname):
+                graph = reader.word_graph(fieldname)
+                self.add_spell_words(fieldname, flatten(graph))
         
         # Add postings
         for fieldname, text in reader.all_terms():
@@ -363,9 +364,10 @@ class SegmentWriter(IndexWriter):
                 self.pool.add_content(docnum, fieldname, field, value,
                                       fieldboost)
             
-#            if fieldname in ssnames:
-#                words = (item[0] for item in field.index(value, no_morph=True))
-#                self.add_spell_words(fieldname, words)
+            if field.separate_spelling():
+                # This field requires spelling words to be added in a separate
+                # step, instead of as part of indexing
+                self.add_spell_words(fieldname, field.spellable_words(value))
             
             vformat = field.vector
             if vformat:
@@ -389,22 +391,35 @@ class SegmentWriter(IndexWriter):
     
     #def update_document(self, **fields):
     
-#    def add_spell_words(self, fieldname, words):
-#        # Get or make a set for the words in this field
-#        if fieldname not in self.wordsets:
-#            self.wordsets[fieldname] = set()
-#        wordset = self.wordsets[fieldname]
-#        
-#        # If the in-memory set is getting big, replace it with an
-#        # on-disk set
-#        if has_sqlite and isinstance(wordset, set) and len(wordset) > 4096:
-#            diskset = DiskSet(wordset)
-#            self.wordsets[fieldname] = wordset = diskset
-#        
-#        for word in words:
-#            wordset.add(word)
-#            
-#        self._added = True
+    def add_spell_words(self, fieldname, words):
+        # Get or make a set for the words in this field
+        if fieldname not in self.wordsets:
+            self.wordsets[fieldname] = set()
+        wordset = self.wordsets[fieldname]
+        
+        # If the in-memory set is getting big, replace it with an
+        # on-disk set
+        if has_sqlite and isinstance(wordset, set) and len(wordset) > 4096:
+            diskset = DiskSet(wordset)
+            self.wordsets[fieldname] = wordset = diskset
+        
+        for word in words:
+            wordset.add(word)
+            
+        self._added = True
+    
+    def _add_wordsets(self):
+        dawg = self.dawg
+        for fieldname in self.wordsets:
+            ws = self.wordsets[fieldname]
+            ft = (fieldname, )
+            
+            words = sorted(ws) if isinstance(ws, set) else iter(ws)
+            for text in words:
+                dawg.insert(ft + tuple(text))
+            
+            if isinstance(ws, DiskSet):
+                ws.destroy()
     
     def _add_vector(self, docnum, fieldname, vlist):
         vpostwriter = self.vpostwriter
@@ -500,17 +515,9 @@ class SegmentWriter(IndexWriter):
             
                 # Write out spelling files
                 if self.dawg:
-#                if self.wordsets:
-#                    for fieldname in sorted(self.wordsets.keys()):
-#                        wordset = self.wordsets[fieldname]
-#                        ft = (fieldname, )
-#                        words = iter(wordset)
-#                        if isinstance(wordset, set):
-#                            words = sorted(words)
-#                        for text in words:
-#                            self.dawg.insert(ft + tuple(text))
-#                        if isinstance(wordset, DiskSet):
-#                            wordset.destroy()
+                    # Insert any wordsets we've accumulated into the word graph
+                    self._add_wordsets()
+                    # Write out the word graph
                     self.dawg.write(self.dawgfile)
             
                 # Add new segment to the list of remaining segments returned by
@@ -551,9 +558,12 @@ class TermsWriter(object):
         self.schema = schema
         # This file maps terms to TermInfo structures
         self.termsindex = termsindex
+        
         # This object writes postings to the posting file and keeps track of
-        # 
+        # blocks
         self.postwriter = postwriter
+        
+        # Spelling
         self.dawg = dawg
         
         # Posting lists with <= this number of postings will be inlined into
@@ -567,21 +577,33 @@ class TermsWriter(object):
         self.offset = None
         
     def _new_term(self, fieldname, text):
+        # This method tests whether a new field/term has started in the stream
+        # of incoming postings, and if so performs appropriate work
+        
         lastfn = self.lastfn or ''
         lasttext = self.lasttext or ''
+        
         if fieldname < lastfn or (fieldname == lastfn and text < lasttext):
             raise Exception("Postings are out of order: %r:%s .. %r:%s" %
                             (lastfn, lasttext, fieldname, text))
     
+        # Is the fieldname of this posting different from the last one?
         if fieldname != lastfn:
+            # Store information we need about the new field
             field = self.schema[fieldname]
             self.format = field.format
-            self.spelling = field.spelling
+            self.spelling = field.spelling and not field.separate_spelling()
         
+        # Is the term of this posting different from the last one?
         if fieldname != lastfn or text != lasttext:
+            # Finish up the last term before starting a new one
             self._finish_term()
+            
+            # If this field has spelling, add the term to the word graph
             if self.spelling:
                 self.dawg.insert((fieldname, ) + tuple(text))
+                
+            # Set up internal state for the new term
             self.offset = self.postwriter.start(self.format)
             self.lasttext = text
             self.lastfn = fieldname
@@ -592,7 +614,8 @@ class TermsWriter(object):
             terminfo = postwriter.finish(self.inlinelimit)
             self.termsindex.add((self.lastfn, self.lasttext), terminfo)
     
-    def add_postings(self, fieldname, text, matcher, getlen, offset=0, docmap=None):
+    def add_postings(self, fieldname, text, matcher, getlen, offset=0,
+                     docmap=None):
         self._new_term(fieldname, text)
         postwrite = self.postwriter.write
         while matcher.is_active():
@@ -654,7 +677,7 @@ def add_spelling(ix, fieldnames, commit=True):
         filename = segment.dawg_filename
         r = SegmentReader(storage, schema, segment)
         f = storage.create_file(filename)
-        dawg = DawgBuilder(reduce_root=False)
+        dawg = DawgBuilder(field_root=True)
         for fieldname in fieldnames:
             ft = (fieldname, )
             for word in r.lexicon(fieldname):
