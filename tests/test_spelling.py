@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import gzip
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
 from whoosh import analysis, fields, highlight, spelling
 from whoosh.compat import u
@@ -9,7 +9,34 @@ from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.support import dawg
 from whoosh.support.testing import TempStorage
+from whoosh.util import permutations
 
+
+def test_dawg():
+    from whoosh.support.dawg import DawgBuilder
+    
+    with TempStorage() as st:
+        df = st.create_file("test.dawg")
+        
+        dw = DawgBuilder(field_root=True)
+        dw.insert(["test"] + list("special"))
+        dw.insert(["test"] + list("specials"))
+        dw.write(df)
+        
+        assert_equal(list(dawg.flatten(dw.root.edge("test"))), ["special", "specials"])
+
+def test_fields_out_of_order():
+    dw = dawg.DawgBuilder()
+    dw.insert("alfa")
+    dw.insert("bravo")
+    assert_raises(Exception, dw.insert, "baker")
+    dw.finish()
+    
+    dw = dawg.DawgBuilder(field_root=True)
+    dw.insert(["bravo"] + list("test"))
+    dw.insert(["alfa"] + list("test"))
+    assert_raises(Exception, dw.insert, ["alfa"] + list("before"))
+    dw.finish()
 
 def test_graph_corrector():
     wordlist = sorted(["render", "animation", "animate", "shader",
@@ -77,6 +104,7 @@ def test_add_spelling():
     add_spelling(ix, ["text1", "text2"])
     
     with ix.reader() as r:
+        print r.dawg
         assert r.has_word_graph("text1")
         assert r.has_word_graph("text2")
         
@@ -87,19 +115,6 @@ def test_add_spelling():
         sp = spelling.ReaderCorrector(r, "text2")
         assert_equal(sp.suggest(u("alfo"), maxdist=1), [u("alfa"), u("olfo")])
 
-def test_dawg():
-    from whoosh.support.dawg import DawgBuilder
-    
-    with TempStorage() as st:
-        df = st.create_file("test.dawg")
-        
-        dw = DawgBuilder(reduce_root=False)
-        dw.insert(["test"] + list("special"))
-        dw.insert(["test"] + list("specials"))
-        dw.write(df)
-        
-        assert_equal(list(dawg.flatten(dw.root.edge("test"))), ["special", "specials"])
-    
 def test_multisegment():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
     ix = RamStorage().create_index(schema)
@@ -247,19 +262,47 @@ def test_correct_query():
     hf = highlight.HtmlFormatter(classname="c")
     assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:<strong class="c term1">delta</strong>) detail')
     
-#def test_bypass_stemming():
-#    from whoosh.support.dawg import flatten
-#    
-#    ana = analysis.StemmingAnalyzer()
-#    schema = fields.Schema(text=fields.TEXT(analyzer=ana, spelling=True))
-#    ix = RamStorage().create_index(schema)
-#    w = ix.writer()
-#    w.add_document(text=u("rendering shading modeling reactions"))
-#    w.commit()
-#    
-#    with ix.reader() as r:
-#        assert_equal(list(r.lexicon("text")), ["model", "reaction", "render", "shade"])
-#        assert_equal(list(flatten(r.word_graph("text"))), ["modeling", "reactions", "rendering", "shading"])
+def test_bypass_stemming():
+    from whoosh.support.dawg import flatten
+    
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(text=fields.TEXT(analyzer=ana, spelling=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("rendering shading modeling reactions"))
+    w.commit()
+    
+    with ix.reader() as r:
+        assert_equal(list(r.lexicon("text")), ["model", "reaction", "render", "shade"])
+        assert_equal(list(flatten(r.word_graph("text"))), ["modeling", "reactions", "rendering", "shading"])
+
+def test_spelling_field_order():
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(a=fields.TEXT, b=fields.TEXT(analyzer=ana),
+                           c=fields.TEXT, d=fields.TEXT(analyzer=ana),
+                           e=fields.TEXT(analyzer=ana), f=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    
+    domain = u("alfa bravo charlie delta").split()
+    w = ix.writer()
+    for ls in permutations(domain):
+        value = " ".join(ls)
+        w.add_document(a=value, b=value, c=value, d=value, e=value, f=value)
+    w.commit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

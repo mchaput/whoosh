@@ -168,7 +168,7 @@ class FieldType(object):
     
     def index(self, value, **kwargs):
         """Returns an iterator of (termtext, frequency, weight, encoded_value)
-        tuples.
+        tuples for each unique word in the input value.
         """
         
         if not self.format:
@@ -242,6 +242,50 @@ class FieldType(object):
         """
         
         return ((text, text) for text in ixreader.lexicon(fieldname))
+    
+    def separate_spelling(self):
+        """Returns True if this field requires special handling of the words
+        that go into the field's word graph.
+        
+        The default behavior is to return True if the field is "spelled" but
+        not indexed, or if the field is indexed but the analyzer has
+        morphological transformations (e.g. stemming). Exotic field types may
+        need to override this behavior.
+        
+        This method should return False if the field does not support spelling
+        (i.e. the ``spelling`` attribute is False).
+        """
+        
+        if not self.spelling:
+            # If the field doesn't support spelling, it doesn't support
+            # separate spelling
+            return False
+        elif not self.indexed:
+            # The field is marked as supporting spelling, but isn't indexed, so
+            # we need to generate the spelling words separately from indexing
+            return True
+        elif self.analyzer.has_morph():
+            # The analyzer has morphological transformations (e.g. stemming),
+            # so the words that go into the word graph need to be generated
+            # separately without the transformations.
+            return True
+        else:
+            return False
+    
+    def spellable_words(self, value):
+        """Returns an iterator of each unique word (in sorted order) in the
+        input value, suitable for inclusion in the field's word graph.
+        
+        The default behavior is to call the field analyzer with the keyword
+        argument ``no_morph=True``, which should make the analyzer skip any
+        morphological transformation filters (e.g. stemming) to preserve the
+        original form of the words. Excotic field types may need to override
+        this behavior.
+        """
+        
+        wordset = sorted(set(token.text for token
+                             in self.analyzer(value, no_morph=True)))
+        return iter(wordset)
     
 
 class ID(FieldType):
@@ -997,14 +1041,14 @@ class Schema(object):
         
         return [name for name, field in self.items() if field.vector]
     
-    def special_spelling_names(self):
+    def separate_spelling_names(self):
         """Returns a list of the names of fields that require special handling
         for generating spelling graphs... either because they store graphs but
         aren't indexed, or because the analyzer is stemmed.
         """
         
         return [name for name, field in self.items()
-                if field.spelling and (not field.indexed or field.has_morph())]
+                if field.spelling and field.separate_spelling()]
 
 
 class SchemaClass(with_metaclass(MetaSchema, Schema)):
