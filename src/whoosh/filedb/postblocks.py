@@ -243,7 +243,7 @@ class Block2(BlockBase):
             elif maxid <= 65535:
                 typecode = "H"
             if typecode != ids.typecode:
-                ids = array(typecode, ids)
+                ids = array(typecode, iter(ids))
             if not IS_LITTLE:
                 ids.byteswap()
             ids_string = ids.tostring()
