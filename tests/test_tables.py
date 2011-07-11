@@ -3,7 +3,7 @@
 from __future__ import with_statement
 import random
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh.compat import u, b, xrange, iteritems, unichr
 from whoosh.filedb.filestore import RamStorage
