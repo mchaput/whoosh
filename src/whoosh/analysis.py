@@ -889,7 +889,7 @@ class PyStemmerFilter(StemFilter):
         :param cachesize: the maximum number of words to cache.
         """
         
-        import Stemmer
+        import Stemmer  #@UnresolvedImport
         
         stemmer = Stemmer.Stemmer(lang)
         stemmer.maxCacheSize = cachesize
@@ -901,7 +901,7 @@ class PyStemmerFilter(StemFilter):
         library.
         """
         
-        import Stemmer
+        import Stemmer  #@UnresolvedImport
         
         return Stemmer.algorithms()
     
