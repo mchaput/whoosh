@@ -601,14 +601,16 @@ def test_sorting_function():
     
     def fn(searcher, docnum):
         v = dict(searcher.vector_as("frequency", docnum, "text"))
-        # Give high score to documents that have equal number of "alfa"
-        # and "bravo"
-        return 1.0 / (abs(v.get("alfa", 0) - v.get("bravo", 0)) + 1.0)
+        # Sort documents that have equal number of "alfa"
+        # and "bravo" first
+        return 0 - 1.0 / (abs(v.get("alfa", 0) - v.get("bravo", 0)) + 1.0)
+    fnfacet = sorting.FunctionFacet(fn)
     
     with ix.searcher() as s:
         q = query.And([query.Term("text", u("alfa")), query.Term("text", u("bravo"))])
-        
-        r = [hit["text"] for hit in s.sort_query_using(q, fn)]
+        results = s.search(q, sortedby=fnfacet)
+        print results.top_n
+        r = [hit["text"] for hit in results]
         for t in r[:10]:
             tks = t.split()
             assert_equal(tks.count("alfa"), tks.count("bravo"))
