@@ -1,30 +1,36 @@
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import fields, qparser
+from whoosh import analysis, fields, qparser
 from whoosh.compat import u, unichr
-from whoosh.analysis import *
 from whoosh.filedb.filestore import RamStorage
 
 
 def test_regextokenizer():
     value = u("AAAaaaBBBbbbCCCcccDDDddd")
     
-    rex = RegexTokenizer("[A-Z]+")
-    assert_equal([t.text for t in rex(value)], [u("AAA"), u("BBB"), u("CCC"), u("DDD")])
+    rex = analysis.RegexTokenizer("[A-Z]+")
+    assert_equal([t.text for t in rex(value)], ["AAA", "BBB", "CCC", "DDD"])
     
-    rex = RegexTokenizer("[A-Z]+", gaps=True)
-    assert_equal([t.text for t in rex(value)], [u("aaa"), u("bbb"), u("ccc"), u("ddd")])
+    rex = analysis.RegexTokenizer("[A-Z]+", gaps=True)
+    assert_equal([t.text for t in rex(value)], ["aaa", "bbb", "ccc", "ddd"])
+
+def test_path_tokenizer():
+    value = u("/alfa/bravo/charlie/delta/")
+    pt = analysis.PathTokenizer()
+    assert_equal([t.text for t in pt(value)], ["/alfa", "/alfa/bravo",
+                                               "/alfa/bravo/charlie",
+                                               "/alfa/bravo/charlie/delta"])
 
 def test_composition1():
-    ca = RegexTokenizer() | LowercaseFilter()
+    ca = analysis.RegexTokenizer() | analysis.LowercaseFilter()
     assert_equal(ca.__class__.__name__, "CompositeAnalyzer")
     assert_equal(ca[0].__class__.__name__, "RegexTokenizer")
     assert_equal(ca[1].__class__.__name__, "LowercaseFilter")
     assert_equal([t.text for t in ca(u("ABC 123"))], ["abc", "123"])
 
 def test_composition2():
-    ca = RegexTokenizer() | LowercaseFilter()
-    sa = ca | StopFilter()
+    ca = analysis.RegexTokenizer() | analysis.LowercaseFilter()
+    sa = ca | analysis.StopFilter()
     assert_equal(len(sa), 3)
     assert_equal(sa.__class__.__name__, "CompositeAnalyzer")
     assert_equal(sa[0].__class__.__name__, "RegexTokenizer")
@@ -33,7 +39,7 @@ def test_composition2():
     assert_equal([t.text for t in sa(u("The ABC 123"))], ["abc", "123"])
 
 def test_composition3():
-    sa = RegexTokenizer() | StopFilter()
+    sa = analysis.RegexTokenizer() | analysis.StopFilter()
     assert_equal(sa.__class__.__name__, "CompositeAnalyzer")
 
 def test_composing_functions():
@@ -42,30 +48,30 @@ def test_composing_functions():
             t.text = t.text.upper()
             yield t
             
-    analyzer = RegexTokenizer() | filter
+    analyzer = analysis.RegexTokenizer() | filter
     assert_equal([t.text for t in analyzer(u("abc def"))], ["ABC", "DEF"])
 
 def test_shared_composition():
-    shared = RegexTokenizer(r"\S+") | LowercaseFilter()
+    shared = analysis.RegexTokenizer(r"\S+") | analysis.LowercaseFilter()
     
-    ana1 = shared | NgramFilter(3)
-    ana2 = shared | DoubleMetaphoneFilter()
+    ana1 = shared | analysis.NgramFilter(3)
+    ana2 = shared | analysis.DoubleMetaphoneFilter()
     
     assert_equal([t.text for t in ana1(u("hello"))], ["hel", "ell", "llo"])
     assert_equal([t.text for t in ana2(u("hello"))], ["HL"])
 
 def test_multifilter():
-    f1 = LowercaseFilter()
-    f2 = PassFilter()
-    mf = MultiFilter(a=f1, b=f2)
-    ana = RegexTokenizer(r"\S+") | mf
+    f1 = analysis.LowercaseFilter()
+    f2 = analysis.PassFilter()
+    mf = analysis.MultiFilter(a=f1, b=f2)
+    ana = analysis.RegexTokenizer(r"\S+") | mf
     text = u("ALFA BRAVO CHARLIE")
     assert_equal([t.text for t in ana(text, mode="a")], ["alfa", "bravo", "charlie"])
     assert_equal([t.text for t in ana(text, mode="b")], ["ALFA", "BRAVO", "CHARLIE"])
 
 def test_intraword():
-    iwf = IntraWordFilter(mergewords=True, mergenums=True)
-    ana = RegexTokenizer(r"\S+") | iwf
+    iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
+    ana = analysis.RegexTokenizer(r"\S+") | iwf
     
     def check(text, ls):
         assert_equal([(t.pos, t.text) for t in ana(text)], ls)
@@ -78,7 +84,7 @@ def test_intraword():
            (6, "AutoCoder")])
 
 def test_biword():
-    ana = RegexTokenizer(r"\w+") | BiWordFilter()
+    ana = analysis.RegexTokenizer(r"\w+") | analysis.BiWordFilter()
     result = [t.copy() for t
               in ana(u("the sign of four"), chars=True, positions=True)]
     assert_equal(["the-sign", "sign-of", "of-four"], [t.text for t in result])
@@ -90,7 +96,7 @@ def test_biword():
     assert_equal(result[0].text, "single")
 
 def test_shingles():
-    ana = RegexTokenizer(r"\w+") | ShingleFilter(3, " ")
+    ana = analysis.RegexTokenizer(r"\w+") | analysis.ShingleFilter(3, " ")
     source = u("better a witty fool than a foolish wit")
     results = [t.copy() for t in ana(source, positions=True, chars=True)]
     assert_equal([t.text for t in results],
@@ -113,11 +119,11 @@ def test_unicode_blocks():
     assert_equal(blocknum(unichr(0x0b80)), blocks.Tamil)  #@UndefinedVariable
     
 def test_double_metaphone():
-    mf = RegexTokenizer() | LowercaseFilter() | DoubleMetaphoneFilter()
+    mf = analysis.RegexTokenizer() | analysis.LowercaseFilter() | analysis.DoubleMetaphoneFilter()
     results = [(t.text, t.boost) for t in mf(u("Spruce View"))]
     assert_equal(results, [('SPRS', 1.0), ('F', 1.0), ('FF', 0.5)])
     
-    mf = RegexTokenizer() | LowercaseFilter() | DoubleMetaphoneFilter(combine=True)
+    mf = analysis.RegexTokenizer() | analysis.LowercaseFilter() | analysis.DoubleMetaphoneFilter(combine=True)
     results = [(t.text, t.boost) for t in mf(u("Spruce View"))]
     assert_equal(results, [('spruce', 1.0), ('SPRS', 1.0), ('view', 1.0),
                            ('F', 1.0), ('FF', 0.5)])
@@ -127,15 +133,15 @@ def test_double_metaphone():
     assert_equal(texts, [u('spruce'), 'SPRS', u('view'), 'F', 'FF'])
 
 def test_substitution():
-    mf = RegexTokenizer(r"\S+") | SubstitutionFilter("-", "")
+    mf = analysis.RegexTokenizer(r"\S+") | analysis.SubstitutionFilter("-", "")
     assert_equal([t.text for t in mf(u("one-two th-re-ee four"))],
                  ["onetwo", "threee", "four"])
     
-    mf = RegexTokenizer(r"\S+") | SubstitutionFilter("([^=]*)=(.*)", r"\2=\1")
+    mf = analysis.RegexTokenizer(r"\S+") | analysis.SubstitutionFilter("([^=]*)=(.*)", r"\2=\1")
     assert_equal([t.text for t in mf(u("a=b c=d ef"))], ["b=a", "d=c", "ef"])
 
 def test_delimited_attribute():
-    ana = RegexTokenizer(r"\S+") | DelimitedAttributeFilter()
+    ana = analysis.RegexTokenizer(r"\S+") | analysis.DelimitedAttributeFilter()
     results = [(t.text, t.boost) for t in ana(u("image render^2 file^0.5"))]
     assert_equal(results, [("image", 1.0), ("render", 2.0), ("file", 0.5)])
     
@@ -158,16 +164,16 @@ def test_porter2():
 def test_url():
     sample = u("Visit http://bitbucket.org/mchaput/whoosh or urn:isbn:5930502 or http://www.apple.com/.")
     
-    for ana in (SimpleAnalyzer(url_pattern),
-                StandardAnalyzer(url_pattern, stoplist=None)):
+    for ana in (analysis.SimpleAnalyzer(analysis.url_pattern),
+                analysis.StandardAnalyzer(analysis.url_pattern, stoplist=None)):
         ts = [t.text for t in ana(sample)]
         assert_equal(ts, [u('visit'), u('http://bitbucket.org/mchaput/whoosh'),
                           u('or'), u('urn:isbn:5930502'), u('or'), u('http://www.apple.com/')])
 
 def test_name_field():
-    ana = (RegexTokenizer(r"\S+")
-           | LowercaseFilter()
-           | DoubleMetaphoneFilter(combine=True))
+    ana = (analysis.RegexTokenizer(r"\S+")
+           | analysis.LowercaseFilter()
+           | analysis.DoubleMetaphoneFilter(combine=True))
     namefield = fields.TEXT(analyzer=ana, multitoken_query="or")
     schema = fields.Schema(id=fields.STORED, name=namefield)
     
@@ -184,7 +190,7 @@ def test_name_field():
 
 def test_start_pos():
     from whoosh import formats
-    ana = RegexTokenizer(r"\S+") | LowercaseFilter()
+    ana = analysis.RegexTokenizer(r"\S+") | analysis.LowercaseFilter()
     kw = {"positions": True}
     assert_equal([t.pos for t in formats.tokens(u("alfa bravo charlie delta"), ana, kw)], [0, 1, 2, 3])
     

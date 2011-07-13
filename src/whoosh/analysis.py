@@ -70,7 +70,7 @@ from whoosh.compat import (callable, iteritems, string_type, text_type, u,
                            xrange, next)
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
-from whoosh.util import lru_cache, unbound_cache
+from whoosh.util import lru_cache, unbound_cache, rcompile
 
 
 # Default list of stop words (words so common it's usually wasteful to index
@@ -86,8 +86,8 @@ STOP_WORDS = frozenset(('a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can',
 
 # Pre-configured regular expressions
 
-default_pattern = re.compile(r"\w+(\.?\w+)*", re.UNICODE)
-url_pattern = re.compile("""
+default_pattern = rcompile(r"\w+(\.?\w+)*")
+url_pattern = rcompile("""
 (
     [A-Za-z+]+://          # URL protocol
     \\S+?                  # URL body
@@ -95,7 +95,7 @@ url_pattern = re.compile("""
 ) | (                      # or...
     \w+([:.]?\w+)*         # word characters, with optional internal colons/dots
 )
-""", re.VERBOSE | re.UNICODE)
+""", verbose=True)
 
 
 # Utility functions
@@ -275,10 +275,7 @@ class RegexTokenizer(Tokenizer):
             than matching on the expression.
         """
         
-        if isinstance(expression, string_type):
-            self.expression = re.compile(expression, re.UNICODE)
-        else:
-            self.expression = expression
+        self.expression = rcompile(expression)
         self.gaps = gaps
     
     def __eq__(self, other):
@@ -578,6 +575,22 @@ class NgramTokenizer(Tokenizer):
                     
                     yield t
                 pos += 1
+
+
+class PathTokenizer(Tokenizer):
+    """A simple tokenizer that given a string ``"/a/b/c"`` yields tokens
+    ``["/a", "/a/b", "/a/b/c"]``.
+    """
+    
+    def __init__(self, expression="[^/]+"):
+        self.expr = rcompile(expression, re.UNICODE)
+    
+    def __call__(self, value, **kwargs):
+        assert isinstance(value, text_type), "%r is not unicode" % value
+        token = Token(**kwargs)
+        for match in self.expr.finditer(value):
+            token.text = value[:match.end()]
+            yield token
 
 
 # Filters
