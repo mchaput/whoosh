@@ -886,7 +886,7 @@ class Collector(object):
         if self.facets is not None:
             groups = self.groups
             for name, catter in self.categorizers.items():
-                key = catter.key_for_id(id)
+                key = catter.key_to_name(catter.key_for_id(id))
                 if self.groupids:
                     if name not in groups:
                         groups[name] = defaultdict(list)
@@ -1320,7 +1320,7 @@ class Results(object):
         
         if name not in self._groups:
             raise KeyError("%r not in group names %r" % (name, self._groups.keys()))
-        return self._groups[name]
+        return dict(self._groups[name])
     
     def _load_docs(self):
         # If self.docset is None, that means this results object was created

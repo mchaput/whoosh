@@ -27,7 +27,10 @@
 
 from array import array
 
-from whoosh.compat import string_type
+from whoosh.compat import string_type, xrange
+from whoosh.fields import DEFAULT_LONG
+from whoosh.support.times import (long_to_datetime, datetime_to_long,
+                                  timedelta_to_usecs)
 
 
 class Sorter(object):
@@ -158,6 +161,9 @@ class Categorizer(object):
     def key_for_id(self, docid):
         raise NotImplementedError
     
+    def key_to_name(self, key):
+        return key
+    
 
 class ScoreFacet(FacetType):
     def categorizer(self, searcher):
@@ -206,20 +212,22 @@ class FieldFacet(FacetType):
         self.reverse = reverse
     
     def categorizer(self, searcher):
-        from whoosh.fields import NUMERIC
+        from whoosh.fields import NUMERIC, DATETIME
         
         # The searcher we're passed here may wrap a multireader, but the
         # actual key functions will always be called per-segment following a
         # Categorizer.set_searcher method call
         fieldname = self.fieldname
-        reader = searcher.reader()
         schema = searcher.schema
-        if fieldname in schema and isinstance(schema[fieldname], NUMERIC):
+        if fieldname in schema and isinstance(schema[fieldname], DATETIME):
+            # Return a subclass of NumericFieldCategorizer that formats dates
+            return self.DateFieldCategorizer(fieldname, self.reverse)
+        elif fieldname in schema and isinstance(schema[fieldname], NUMERIC):
             # Numeric fields are naturally reversible
-            return self.NumericFieldCategorizer(reader, fieldname, self.reverse)
+            return self.NumericFieldCategorizer(fieldname, self.reverse)
         elif self.reverse:
             # If we need to "reverse" a string field, we need to do more work
-            return self.RevFieldCategorizer(reader, fieldname, self.reverse)
+            return self.RevFieldCategorizer(searcher, fieldname, self.reverse)
         else:
             # Straightforward: use the field cache to sort/categorize
             return self.FieldCategorizer(fieldname)
@@ -233,13 +241,14 @@ class FieldFacet(FacetType):
         
         def key_for_id(self, docid):
             return self.fieldcache.key_for(docid)
-    
+        
     class NumericFieldCategorizer(Categorizer):
-        def __init__(self, reader, fieldname, reverse):
+        def __init__(self, fieldname, reverse):
             self.fieldname = fieldname
             self.reverse = reverse
         
         def set_searcher(self, searcher, docoffset):
+            self.default = searcher.schema[self.fieldname].sortable_default()
             self.fieldcache = searcher.reader().fieldcache(self.fieldname)
         
         def key_for_id(self, docid):
@@ -248,6 +257,19 @@ class FieldFacet(FacetType):
                 return 0 - value
             else:
                 return value
+        
+        def key_to_name(self, key):
+            if key == self.default:
+                return None
+            else:
+                return key
+    
+    class DateFieldCategorizer(NumericFieldCategorizer):
+        def key_to_name(self, key):
+            if key == DEFAULT_LONG:
+                return None
+            else:
+                return long_to_datetime(key)
     
     class RevFieldCategorizer(Categorizer):
         def __init__(self, reader, fieldname, reverse):
@@ -273,7 +295,7 @@ class FieldFacet(FacetType):
 
 
 class QueryFacet(FacetType):
-    def __init__(self, querydict, other="none"):
+    def __init__(self, querydict, other=None):
         self.querydict = querydict
         self.other = other
     
@@ -289,17 +311,57 @@ class QueryFacet(FacetType):
             self.docsets = {}
             for qname, q in self.querydict.items():
                 docset = set(q.docs(searcher))
-                self.docsets[qname] = docset
+                if docset:
+                    self.docsets[qname] = docset
             self.offset = offset
         
         def key_for_id(self, docid):
-            if docid > 0: raise Exception
-            print "docid=", docid, "docsets=", self.docsets
             for qname in self.docsets:
                 if docid in self.docsets[qname]:
                     return qname
             return self.other
 
+
+class RangeFacet(QueryFacet):
+    def __init__(self, fieldname, start, end, gap):
+        self.fieldname = fieldname
+        self.start = start
+        self.end = end
+        self.gap = gap
+        self._queries()
+    
+    def _range_name(self, startval, endval):
+        return (startval, endval)
+    
+    def _queries(self):
+        from whoosh import query
+        
+        self.querydict = {}
+        gap = self.gap
+        cstart = self.start
+        while cstart < self.end:
+            cend = min(self.end, cstart + gap)
+            rangename = self._range_name(cstart, cend)
+            q = query.NumericRange(self.fieldname, cstart, cend, endexcl=True)
+            self.querydict[rangename] = q
+            
+            cstart += gap
+    
+    def categorizer(self, searcher):
+        return QueryFacet(self.querydict).categorizer(searcher)
+    
+
+class DateRangeFacet(RangeFacet):
+    def __init__(self, fieldname, startdate, enddate, delta):
+        self.fieldname = fieldname
+        self.start = datetime_to_long(startdate)
+        self.end = datetime_to_long(enddate)
+        self.gap = timedelta_to_usecs(delta)
+        self._queries()
+    
+    def _range_name(self, startval, endval):
+        return (long_to_datetime(startval), long_to_datetime(endval))
+    
 
 class MultiFacet(FacetType):
     def __init__(self, items=None):

@@ -59,16 +59,19 @@ def relative_days(current_wday, wday, dir):
         return (current_wday + 7 - wday) % 7 * -1
 
 
+def timedelta_to_usecs(td):
+    total = td.days * 86400000000  # Microseconds in a day
+    total += td.seconds * 1000000  # Microseconds in a second
+    total += td.microseconds
+    return total
+
+
 def datetime_to_long(dt):
     """Converts a datetime object to a long integer representing the number
     of microseconds since ``datetime.min``.
     """
     
-    td = dt - dt.min
-    total = td.days * 86400000000  # Microseconds in a day
-    total += td.seconds * 1000000  # Microseconds in a second
-    total += td.microseconds
-    return total
+    return timedelta_to_usecs(dt - dt.min)
 
 
 def long_to_datetime(x):

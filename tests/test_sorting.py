@@ -311,6 +311,98 @@ def test_query_facet():
                                          "d-f": [5, 7, 8],
                                          "g-i": [0, 3, 6]})
 
+def test_missing_field_facet():
+    schema = fields.Schema(id=fields.STORED, tag=fields.ID)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, tag=u("alfa"))
+    w.add_document(id=1, tag=u("alfa"))
+    w.add_document(id=2)
+    w.add_document(id=3, tag=u("bravo"))
+    w.add_document(id=4)
+    w.commit()
+    
+    with ix.searcher() as s:
+        r = s.search(query.Every(), groupedby="tag")
+        assert_equal(r.groups("tag"), {'': [2, 4], 'bravo': [3], 'alfa': [0, 1]})
+
+def test_missing_numeric_facet():
+    schema = fields.Schema(id=fields.STORED, tag=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, tag=1)
+    w.add_document(id=1, tag=1)
+    w.add_document(id=2)
+    w.add_document(id=3, tag=0)
+    w.add_document(id=4)
+    w.commit()
+    
+    with ix.searcher() as s:
+        r = s.search(query.Every(), groupedby="tag")
+        assert_equal(r.groups("tag"), {None: [2, 4], 0: [3], 1: [0, 1]})
+
+def test_date_facet():
+    from datetime import datetime
+    
+    schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    d1 = datetime(2011, 7, 13)
+    d2 = datetime(1984, 3, 29)
+    w.add_document(id=0, date=d1)
+    w.add_document(id=1, date=d1)
+    w.add_document(id=2)
+    w.add_document(id=3, date=d2)
+    w.add_document(id=4)
+    w.commit()
+    
+    with ix.searcher() as s:
+        r = s.search(query.Every(), groupedby="date")
+        assert_equal(r.groups("date"),  {d1: [0, 1], d2: [3], None: [2, 4]})
+
+def test_range_facet():
+    schema = fields.Schema(id=fields.STORED, price=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, price=200)
+    w.add_document(id=1, price=100)
+    w.add_document(id=2)
+    w.add_document(id=3, price=50)
+    w.add_document(id=4, price=500)
+    w.add_document(id=5, price=125)
+    w.commit()
+    
+    with ix.searcher() as s:
+        rf = sorting.RangeFacet("price", 0, 1000, 100)
+        r = s.search(query.Every(), groupedby={"price": rf})
+        assert_equal(r.groups("price"), {(0, 100): [3], (100, 200): [1, 5],
+                                         (200, 300): [0], (500, 600): [4],
+                                         None: [2]})
+
+def test_daterange_facet():
+    from datetime import datetime, timedelta
+    
+    schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, date=datetime(2001, 1, 15))
+    w.add_document(id=1, date=datetime(2001, 1, 10))
+    w.add_document(id=2)
+    w.add_document(id=3, date=datetime(2001, 1, 3))
+    w.add_document(id=4, date=datetime(2001, 1, 8))
+    w.add_document(id=5, date=datetime(2001, 1, 6))
+    w.commit()
+    
+    with ix.searcher() as s:
+        rf = sorting.DateRangeFacet("date", datetime(2001, 1, 1),
+                                    datetime(2001, 1, 20), timedelta(days=5))
+        r = s.search(query.Every(), groupedby={"date": rf})
+        dt = datetime
+        assert_equal(r.groups("date"), {(dt(2001, 1, 1, 0, 0), dt(2001, 1, 6, 0, 0)): [3],
+                                        (dt(2001, 1, 6, 0, 0), dt(2001, 1, 11, 0, 0)): [1, 4, 5],
+                                        (dt(2001, 1, 11, 0, 0), dt(2001, 1, 16, 0, 0)): [0],
+                                        None: [2]})
+
 @skip_if_unavailable("multiprocessing")
 @skip_if(lambda: True)
 def test_mp_fieldcache():

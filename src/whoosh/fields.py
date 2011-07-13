@@ -46,6 +46,16 @@ from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
 from whoosh.support.times import datetime_to_long
 
 
+# "Default" values to indicate missing values when sorting and faceting numeric
+# fields. There's no "out-of-band" value possible (except for floats, where we
+# use NaN), so we try to be conspicuous at least by using the maximum possible
+# value
+NUMERIC_DEFAULTS = {"b": 2**7-1, "B": 2**8-1, "h": 2**15-1, "H": 2**16-1,
+                    "i": 2**31-1, "I": 2**32-1, "q": 2**63-1, "Q": 2**64-1,
+                    "f": float("nan"), "d": float("nan"),
+                    }
+DEFAULT_LONG = NUMERIC_DEFAULTS["q"]
+
 # Exceptions
 
 class FieldConfigurationError(Exception):
@@ -100,7 +110,6 @@ class FieldType(object):
     analyzer = format = vector = scorable = stored = unique = None
     indexed = True
     multitoken_query = "first"
-    sortable_type = text_type
     sortable_typecode = None
     spelling = False
     
@@ -157,6 +166,13 @@ class FieldType(object):
             return self.analyzer.has_morph()
         else:
             return False
+    
+    def sortable_default(self):
+        """Returns a default value to use for "missing" values when sorting or
+        faceting in this field.
+        """
+        
+        return u("")
     
     def to_text(self, value):
         """Returns a textual representation of the value. Non-textual fields
@@ -231,10 +247,6 @@ class FieldType(object):
         terms in the given reader and field. The sortable values can be used
         for sorting. The default implementation simply returns the texts of all
         terms in the field.
-        
-        The value of the field's ``sortable_type`` attribute should contain the
-        type of the second item (the sortable value) in the pairs, e.g.
-        ``unicode`` or ``int``.
         
         This can be overridden by field types such as NUMERIC where some values
         in a field are not useful for sorting, and where the sortable values
@@ -383,21 +395,15 @@ class NUMERIC(FieldType):
         """
         
         self.type = type
-        if self.type is int:
-            self.sortable_type = int
-            if PY3:
-                self._to_text = long_to_text
-                self._from_text = text_to_long
-                self.sortable_typecode = "q" if signed else "Q"
-            else:
-                self._to_text = int_to_text
-                self._from_text = text_to_int
-                self.sortable_typecode = "i" if signed else "I"
-        elif self.type is long_type:
+        if self.type is long_type:
+            # This will catch the Python 3 int type
             self._to_text = long_to_text
             self._from_text = text_to_long
-            self.sortable_type = long_type
             self.sortable_typecode = "q" if signed else "Q"
+        elif self.type is int:
+            self._to_text = int_to_text
+            self._from_text = text_to_int
+            self.sortable_typecode = "i" if signed else "I"
         elif self.type is float:
             self._to_text = float_to_text
             self._from_text = text_to_float
@@ -416,6 +422,9 @@ class NUMERIC(FieldType):
         self.signed = signed
         self.analyzer = IDAnalyzer()
         self.format = Existence(field_boost=field_boost)
+    
+    def sortable_default(self):
+        return NUMERIC_DEFAULTS[self.sortable_typecode]
     
     def _tiers(self, num):
         t = self.type

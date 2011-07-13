@@ -131,7 +131,7 @@ class FieldCache(object):
     # Class constructor for building a field cache from a reader
     
     @classmethod
-    def from_field(cls, ixreader, fieldname, default=u("")):
+    def from_field(cls, ixreader, fieldname):
         """Creates an in-memory field cache from a reader.
         
         >>> r = ix.reader()
@@ -151,16 +151,18 @@ class FieldCache(object):
         texts = None
         if hastexts:
             typecode = "I"
-            texts = [default]
+            texts = [field.sortable_default()]
+            defaultnum = 0
         else:
             typecode = field.sortable_typecode
+            defaultnum = field.sortable_default()
         
         doccount = ixreader.doc_count_all()
         # Python does not support arrays of long long see Issue 1172711
         if typecode.lower() == "q":
-            order = [0] * doccount
+            order = [defaultnum] * doccount
         else:
-            order = array(typecode, [0] * doccount)
+            order = array(typecode, [defaultnum] * doccount)
         
         enum = enumerate(field.sortable_values(ixreader, fieldname))
         for i, (text, sortable) in enum:
