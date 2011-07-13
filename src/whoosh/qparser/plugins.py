@@ -342,7 +342,7 @@ class FieldsPlugin(TaggingPlugin):
             prev_field_node = None
             
             for node in group:
-                if (isinstance(node, fnclass) and node.fieldname not in schema):
+                if isinstance(node, fnclass) and node.fieldname not in schema:
                     prev_field_node = node
                     continue
                 elif prev_field_node:
