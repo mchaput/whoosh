@@ -540,55 +540,13 @@ class Searcher(object):
         return self.search(q, **kwargs)
 
     def sorter(self, *args, **kwargs):
-        """Returns a :class:`whoosh.sorting.Sorter` object for this searcher.
-        See the documentation for ``Sorter`` for how to use the sorter object
-        to get sorted search results.
+        """This method is deprecated. Instead of using a Sorter, configure a
+        :class:`whoosh.sorting.FieldFacet` or
+        :class:`whoosh.sorting.MultiFacet` and pass it to the
+        :meth:`Searcher.search` method's ``sortedby`` keyword argument.
         """
         
         return sorting.Sorter(self, *args, **kwargs)
-
-    def sort_query_using(self, q, fn, filter=None):
-        """Returns a :class:`Results` object with the documents matching the
-        given query ordered according score returned by the given function.
-        
-        The function is called for each matching document with two arguments:
-        this searcher and the document number. The function can usually only
-        work with information that can be accessed based on the document
-        number, such as stored fields, term vectors, and field caches.
-        
-        For example, assume an index where the "text" field was indexed with
-        term vectors. The following function loads the term vector for each
-        document and ranks documents containing equal occurrences of the terms
-        "love" and "hate" highest::
-        
-            def fn(searcher, docnum):
-                # Create a dictionary of term text to frequency
-                v = dict(searcher.vector_as("frequency", docnum, "text"))
-                # Give highest scores to documents that have equal numbers
-                # of the two terms
-                return 1.0 / (abs(v["love"] - v["hate"]) + 1.0)
-            
-            with myindex.searcher() as s:
-                q = And([Term("text", u"love"), Term("text", u"hate")])
-                results = s.sort_query_using(q, fn)
-        
-        (Note that the "function" can be an object with a ``__call__`` method.
-        This may be useful for sharing information between calls.)
-        
-        :param q: the query to run.
-        :param fn: a function to run on each document number to determine the
-            document's "score". Higher values appear earlier in the results.
-        :param filter: a query, Results object, or set of docnums. The results
-            will only contain documents that are also in the filter object.
-        """
-        
-        t = now()
-        comb = self._filter_to_comb(filter)
-        ls = [(fn(self, docnum), docnum) for docnum in self.docs_for_query(q)
-              if (not comb) or docnum in comb]
-        docset = set(docnum for _, docnum in ls)
-        ls.sort(key=lambda x: (0 - x[0], x[1]))
-        return Results(self, q, ls, docset, runtime=now() - t, filter=filter)
 
     def define_facets(self, name, qs, save=False):
         def doclists_for_searcher(s):
@@ -603,19 +561,17 @@ class Searcher(object):
             self.ixreader.define_facets(name, dls, save=save)
     
     def categorize_query(self, q, fieldname, counts=False):
-        groups = {}
-        if isinstance(fieldname, string_type):
-            fieldname = (fieldname, )
+        """This method is deprecated. Instead use the ``groupedby`` argument to
+        the :meth:`Searcher.search` method.
+        """
         
-        if self.subsearchers:
-            for s, offset in self.subsearchers:
-                r = s.reader()
-                r.group_docs_by(fieldname, q.docs(s), groups, counts=counts,
-                                offset=offset)
+        if isinstance(fieldname, (tuple, list)):
+            facet = sorting.MultiFacet(fieldname)
         else:
-            self.ixreader.group_docs_by(fieldname, q.docs(self), groups,
-                                        counts=counts)
-        return groups
+            facet = sorting.FieldFacet(fieldname)
+        
+        results = self.search(q, groupedby={fieldname: facet})        
+        return results.groups(fieldname)
     
     def docs_for_query(self, q, leafs=True):
         if self.subsearchers and leafs:
@@ -627,7 +583,7 @@ class Searcher(object):
                 yield docnum
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, filter=None, mask=None):
+               optimize=True, filter=None, mask=None, groupids=True):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -648,6 +604,10 @@ class Searcher(object):
             will only contain documents that are also in the filter object.
         :param mask: a query, Results object, or set of docnums. The results
             will not contain documents that are also in the mask object.
+        :param groupids: by default, faceting groups map keys to lists of
+            document numbers associated with that key. To map to a simple count
+            of the number of documents instead of a list, use
+            ``groupids=False``.
         :rtype: :class:`Results`
         """
 

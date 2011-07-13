@@ -33,139 +33,108 @@ from whoosh.support.times import (long_to_datetime, datetime_to_long,
                                   timedelta_to_usecs)
 
 
+# Legacy sorting object
+
 class Sorter(object):
-    """This object does the work of sorting search results.
+    """This is a legacy interface. The functionality of the Sorter object was
+    moved into the :class:`FacetType` classes and the
+    :class:`whoosh.searching.Collector` in Whoosh 2.0. The old Sorter API is
+    still supported for backwards-compatibility, but it simply forwards to the
+    new API.
     
-    For simple sorting (where all fields go in the same direction), you can
-    just use the ``sortedby`` and ``reverse`` arguments to
-    :meth:`whoosh.searching.Searcher.search`::
-    
-        # Sort by ascending group
-        r = searcher.search(myquery, sortedby="group")
-        # Sort by ascending path and the ascending price price
-        r = searcher.search(myquery, sortedby=("path", "price"))
-        # Sort by descending path
-        r = searcher.search(myquery, sortedby="path", reverse=True)
-    
-    These are the equivalent of using the sorter directly::
-    
-        # Sort by ascending path and the ascending price price
-        sorter = searcher.sorter()
-        sorter.add_field("path")
-        sorter.add_field("price")
-        r = sorter.sort_query(myquery)
-    
-    For complex sorting (where some fields are ascending and some fields are
-    descending), you must instantiate a sorter object from the searcher and
-    specify the fields to sort by::
-    
-        # Sort by ascending group and then descending price
-        sorter = searcher.sorter()
-        sorter.add_field("group")
-        sorter.add_field("price", reverse=True)
-        r = sorter.sort_query(myquery)
-    
-    Alternatively, you can set up the sort criteria using a keyword argument::
-    
-        # Sort by ascending group and then descending price
-        crits = [("group", False), ("price", True)]
-        sorter = searcher.sorter(criteria=crits)
-        r = sorter.sort_query(myquery)
-    
-    Note that complex sorting can be much slower on large indexes than a
-    sort in which all fields are sorted in the same direction. Also, when you
-    do this type of sort on a multi-segment index, the sort cannot reuse field
-    caches and must recreate a field cache-like structure across the entire
-    index, which can effectively double memory usage for cached fields.
-    
-    You can re-use a configured sorter with different queries. However, the
-    sorter object always returns results from the searcher it was created with.
-    If the index changes and you refresh the searcher, you need to recreate the
-    sorter object to see the updates.
+    See :doc:`/facets` for information on the new API.
     """
 
-    def __init__(self, searcher, sortedby=None):
-        """
-        :param searcher: a :class:`whoosh.searching.Searcher` object to use for
-            searching.
-        :param sortedby: a convenience that generates a proper "criteria" list
-            from a fieldname string or list of fieldnames, to set up the sorter
-            for a simple search.
-        """
-        
+    def __init__(self, searcher):
         self.searcher = searcher
-        self.facetlist = []
-        if sortedby:
-            if isinstance(sortedby, string_type):
-                sortedby = [sortedby]
-            for fieldname in sortedby:
-                self.criteria.append((fieldname, False))
+        self.multi = MultiFacet()
         
     def add_field(self, fieldname, reverse=False):
-        """Adds a field to the sorting criteria. Results are sorted by the
-        fields in the order you add them. For example, if you do::
-        
-            sorter.add_field("group")
-            sorter.add_field("price")
-            
-        ...the results are sorted by ``group``, and for results with the same
-        value of ``group``, are then sorted by ``price``.
-        
-        :param fieldname: the name of the field to sort by.
-        :param reverse: if True, reverses the natural ordering of the field.
-        """
-        
-        self.add_facet(FieldFacet(fieldname, reverse=reverse))
-    
-    def add_facet(self, facet):
-        self.facetlist.append(facet)
+        self.multi.add_field(fieldname, reverse=reverse)
     
     def sort_query(self, q, limit=None, reverse=False, filter=None, mask=None,
                    groupedby=None):
-        """Returns a :class:`whoosh.searching.Results` object for the given
-        query, sorted according to the fields set up using the
-        :meth:`Sorter.add_field` method.
-        
-        The parameters have the same meaning as for the
-        :meth:`whoosh.searching.Searcher.search` method.
-        """
-        
         from whoosh.searching import Collector
         
-        if len(self.facetlist) == 0:
-            raise Exception("No facets added for sorting")
-        elif len(self.facetlist) == 1:
-            facet = self.facetlist[0]
-        else:
-            facet = MultiFacet(self.facetlist)
-        
         collector = Collector(limit=limit, groupedby=groupedby, reverse=reverse)
-        return collector.sort(self.searcher, q, facet, allow=filter,
+        return collector.sort(self.searcher, q, self.multi, allow=filter,
                               restrict=mask)
     
-        
+
 # Faceting objects
 
 class FacetType(object):
+    """Base class for "facets", aspects that can be sorted/faceted.
+    """
+    
     def categorizer(self, searcher):
+        """Returns a :class:`Categorizer` corresponding to this facet.
+        """
+        
         raise NotImplementedError
     
 
 class Categorizer(object):
+    """Base class for categorizer objects which compute a key value for a
+    document based on certain criteria, for use in sorting/faceting.
+    
+    Categorizers are created by FacetType objects through the
+    :meth:`FacetType.categorizer` method. The
+    :class:`whoosh.searching.Searcher` object passed to the ``categorizer``
+    method may be a composite searcher (that is, wrapping a multi-reader), but
+    categorizers are always run **per-segment**, with segment-relative document
+    numbers.
+    
+    The collector will call a categorizer's ``set_searcher`` method as it
+    searches each segment to let the cateogorizer set up whatever segment-
+    specific data it needs.
+    """
+    
     def set_searcher(self, searcher, docoffset):
+        """Called by the collector when the collector moves to a new segment.
+        The ``searcher`` will be atomic. The ``docoffset`` is the offset of
+        the segment's document numbers relative to the entire index. You can
+        use the offset to get absolute index docnums by adding the offset to
+        segment-relative docnums.
+        """
+        
         pass
     
     def key_for_matcher(self, matcher):
+        """Returns a key for the given matcher. The default implementation
+        simply gets the matcher's current document ID and calls ``key_for_id``,
+        but a subclass can override this if it needs information from the
+        matcher to compute the key.
+        """
+        
         return self.key_for_id(matcher.id())
     
     def key_for_id(self, docid):
+        """Returns a key for the given **segment-relative** document number.
+        """
+        
         raise NotImplementedError
     
     def key_to_name(self, key):
+        """Returns a representation of the key to be used as a dictionary key
+        in faceting. For example, the sorting key for date fields is a large
+        integer; this method translates it into a ``datetime`` object to make
+        the groupings clearer.
+        """
+        
         return key
     
 
 class ScoreFacet(FacetType):
+    """Uses a document's score as a sorting criterion.
+    
+    For example, to sort by the ``tag`` field, and then within that by relative
+    score::
+    
+        tag_score = MultiFacet(["tag", ScoreFacet()])
+        results = searcher.search(myquery, sortedby=tag_score)
+    """
+    
     def categorizer(self, searcher):
         return self.ScoreCategorizer(searcher)
     
@@ -188,6 +157,21 @@ class ScoreFacet(FacetType):
 
 
 class FunctionFacet(FacetType):
+    """Lets you pass an arbitrary function that will compute the key. This may
+    be easier than subclassing FacetType and Categorizer to set up the desired
+    behavior.
+    
+    The function is called with the arguments ``(searcher, docid)``, where the
+    ``searcher`` may be a composite searcher, and the ``docid`` is an absolute
+    index document number (not segment-relative).
+    
+    For example, to use the number of words in the document's "content" field
+    as the sorting/faceting key::
+    
+        fn = lambda s, docid: s.doc_field_length(docid, "content")
+        lengths = FunctionFacet(fn)
+    """
+    
     def __init__(self, fn):
         self.fn = fn
     
@@ -196,10 +180,10 @@ class FunctionFacet(FacetType):
     
     class FunctionCategorizer(Categorizer):
         def __init__(self, searcher, fn):
+            self.searcher = searcher
             self.fn = fn
         
         def set_searcher(self, searcher, docoffset):
-            self.searcher = searcher
             self.offset = docoffset
         
         def key_for_id(self, docid):
@@ -207,7 +191,25 @@ class FunctionFacet(FacetType):
 
 
 class FieldFacet(FacetType):
+    """Sorts/facest by the contents of a field.
+    
+    For example, to sort by the contents of the "path" field in reverse order,
+    and facet by the contents of the "tag" field::
+    
+        paths = FieldFacet("path", reverse=True)
+        tags = FieldFacet("tag")
+        results = searcher.search(myquery, sortedby=paths, groupedby=tags)
+    
+    This facet returns different categorizers based on the field type.
+    """
+    
     def __init__(self, fieldname, reverse=False):
+        """
+        :param fieldname: the name of the field to sort/facet on.
+        :param reverse: if True, when sorting, reverse the sort order of this
+            facet.
+        """
+        
         self.fieldname = fieldname
         self.reverse = reverse
     
@@ -219,83 +221,101 @@ class FieldFacet(FacetType):
         # Categorizer.set_searcher method call
         fieldname = self.fieldname
         schema = searcher.schema
+        
         if fieldname in schema and isinstance(schema[fieldname], DATETIME):
             # Return a subclass of NumericFieldCategorizer that formats dates
-            return self.DateFieldCategorizer(fieldname, self.reverse)
+            return DateFieldCategorizer(fieldname, self.reverse)
+        
         elif fieldname in schema and isinstance(schema[fieldname], NUMERIC):
             # Numeric fields are naturally reversible
-            return self.NumericFieldCategorizer(fieldname, self.reverse)
+            return NumericFieldCategorizer(fieldname, self.reverse)
+        
         elif self.reverse:
             # If we need to "reverse" a string field, we need to do more work
-            return self.RevFieldCategorizer(searcher, fieldname, self.reverse)
+            return RevFieldCategorizer(searcher, fieldname, self.reverse)
+        
         else:
             # Straightforward: use the field cache to sort/categorize
-            return self.FieldCategorizer(fieldname)
+            return FieldCategorizer(fieldname)
+
+
+class FieldCategorizer(Categorizer):
+    def __init__(self, fieldname):
+        self.fieldname = fieldname
     
-    class FieldCategorizer(Categorizer):
-        def __init__(self, fieldname):
-            self.fieldname = fieldname
-        
-        def set_searcher(self, searcher, docoffset):
-            self.fieldcache = searcher.reader().fieldcache(self.fieldname)
-        
-        def key_for_id(self, docid):
-            return self.fieldcache.key_for(docid)
-        
-    class NumericFieldCategorizer(Categorizer):
-        def __init__(self, fieldname, reverse):
-            self.fieldname = fieldname
-            self.reverse = reverse
-        
-        def set_searcher(self, searcher, docoffset):
-            self.default = searcher.schema[self.fieldname].sortable_default()
-            self.fieldcache = searcher.reader().fieldcache(self.fieldname)
-        
-        def key_for_id(self, docid):
-            value = self.fieldcache.key_for(docid)
-            if self.reverse:
-                return 0 - value
-            else:
-                return value
-        
-        def key_to_name(self, key):
-            if key == self.default:
-                return None
-            else:
-                return key
+    def set_searcher(self, searcher, docoffset):
+        self.fieldcache = searcher.reader().fieldcache(self.fieldname)
     
-    class DateFieldCategorizer(NumericFieldCategorizer):
-        def key_to_name(self, key):
-            if key == DEFAULT_LONG:
-                return None
-            else:
-                return long_to_datetime(key)
+    def key_for_id(self, docid):
+        return self.fieldcache.key_for(docid)
+
+
+class NumericFieldCategorizer(Categorizer):
+    def __init__(self, fieldname, reverse):
+        self.fieldname = fieldname
+        self.reverse = reverse
     
-    class RevFieldCategorizer(Categorizer):
-        def __init__(self, reader, fieldname, reverse):
-            # Cache the relative positions of all docs with the given field
-            # across the entire index
-            dc = reader.doc_count_all()
-            arry = array("i", [0] * dc)
-            field = self.searcher.schema[fieldname]
-            for i, (t, _) in enumerate(field.sortable_values(reader, fieldname)):
-                if reverse:
-                    i = 0 - i
-                postings = reader.postings(fieldname, t)
-                for docid in postings.all_ids():
-                    arry[docid] = i
-            self.array = arry
-            
-        def set_searcher(self, searcher, docoffset):
-            self.searcher = searcher
-            self.docoffset = docoffset
+    def set_searcher(self, searcher, docoffset):
+        self.default = searcher.schema[self.fieldname].sortable_default()
+        self.fieldcache = searcher.reader().fieldcache(self.fieldname)
+    
+    def key_for_id(self, docid):
+        value = self.fieldcache.key_for(docid)
+        if self.reverse:
+            return 0 - value
+        else:
+            return value
+    
+    def key_to_name(self, key):
+        if key == self.default:
+            return None
+        else:
+            return key
+
+
+class DateFieldCategorizer(NumericFieldCategorizer):
+    def key_to_name(self, key):
+        if key == DEFAULT_LONG:
+            return None
+        else:
+            return long_to_datetime(key)
+
+
+class RevFieldCategorizer(Categorizer):
+    def __init__(self, reader, fieldname, reverse):
+        # Cache the relative positions of all docs with the given field
+        # across the entire index
+        dc = reader.doc_count_all()
+        arry = array("i", [0] * dc)
+        field = self.searcher.schema[fieldname]
+        for i, (t, _) in enumerate(field.sortable_values(reader, fieldname)):
+            if reverse:
+                i = 0 - i
+            postings = reader.postings(fieldname, t)
+            for docid in postings.all_ids():
+                arry[docid] = i
+        self.array = arry
         
-        def key_for_id(self, docid):
-            return self.array[docid + self.docoffset]
+    def set_searcher(self, searcher, docoffset):
+        self.searcher = searcher
+        self.docoffset = docoffset
+    
+    def key_for_id(self, docid):
+        return self.array[docid + self.docoffset]
 
 
 class QueryFacet(FacetType):
+    """Sorts/facets based on the results of a series of queries.
+    """
+    
     def __init__(self, querydict, other=None):
+        """
+        :param querydict: a dictionary mapping keys to
+            :class:`whoosh.query.Query` objects.
+        :param other: the key to use for documents that don't match any of the
+            queries.
+        """
+        
         self.querydict = querydict
         self.other = other
     
@@ -323,7 +343,30 @@ class QueryFacet(FacetType):
 
 
 class RangeFacet(QueryFacet):
+    """Sorts/facets based on numeric ranges. For textual ranges, use
+    :class:`QueryFacet`.
+    
+    For example, to facet the "price" field into $100 buckets, up to $1000::
+    
+        prices = RangeFacet("price", 0, 1000, 100)
+        results = searcher.search(myquery, groupedby=prices)
+    """
+    
     def __init__(self, fieldname, start, end, gap, hardend=False):
+        """
+        :param fieldname: the numeric field to sort/facet on.
+        :param start: the start of the entire range.
+        :param end: the end of the entire range.
+        :param gap: the size of each "bucket" in the range. This can be a
+            sequence of sizes. For example, ``gap=[1,5,10]`` will use 1 as the
+            size of the first bucket, 5 as the size of the second bucket, and
+            10 as the size of all subsequent buckets.
+        :param hardend: if True, the end of the last bucket is clamped to the
+            value of ``end``. If False (the default), the last bucket is always
+            ``gap`` sized, even if that means the end of the last bucket is
+            after ``end``.
+        """
+        
         self.fieldname = fieldname
         self.start = start
         self.end = end
@@ -370,7 +413,34 @@ class RangeFacet(QueryFacet):
     
 
 class DateRangeFacet(RangeFacet):
+    """Sorts/facets based on date ranges.
+    
+    For example, to facet the "birthday" field into year-sized buckets::
+    
+        startdate = datetime(1920, 0, 0)
+        enddate = datetime.now()
+        gap = timedelta(days=365)
+        bdays = RangeFacet("birthday", startdate, enddate, gap)
+        results = searcher.search(myquery, groupedby=bdays)
+    """
+    
     def __init__(self, fieldname, startdate, enddate, delta, hardend=False):
+        """
+        :param fieldname: the datetime field to sort/facet on.
+        :param startdate: the start of the entire range.
+        :param enddate: the end of the entire range.
+        :param delta: a timedelta object representing the size of each "bucket"
+            in the range. This can be a sequence of timedeltas. For example,
+            ``gap=[timedelta(days=1), timedelta(days=5), timedelta(days=10)]``
+            will use 1 day as the size of the first bucket, 5 days as the size
+            of the second bucket, and 10 days as the size of all subsequent
+            buckets.
+        :param hardend: if True, the end of the last bucket is clamped to the
+            value of ``end``. If False (the default), the last bucket is always
+            ``gap`` sized, even if that means the end of the last bucket is
+            after ``end``.
+        """
+        
         self.fieldname = fieldname
         self.start = datetime_to_long(startdate)
         self.end = datetime_to_long(enddate)
@@ -386,6 +456,27 @@ class DateRangeFacet(RangeFacet):
     
 
 class MultiFacet(FacetType):
+    """Sorts/facets by the combination of multiple "sub-facets".
+    
+    For example, to sort by the value of the "tag" field, and then (for
+    documents where the tag is the same) by the value of the "path" field::
+    
+        facet = MultiFacet(FieldFacet("tag"), FieldFacet("path")
+        results = searcher.search(myquery, sortedby=facet)
+        
+    As a shortcut, you can use strings to refer to field names, and they will
+    be assumed to be field names and turned into FieldFacet objects::
+    
+        facet = MultiFacet("tag", "path")
+        
+    You can also use the ``add_*`` methods to add criteria to the multifacet::
+    
+        facet = MultiFacet()
+        facet.add_field("tag")
+        facet.add_field("path", reverse=True)
+        facet.add_query({"a-m": TermRange("name", "a", "m"), "n-z": TermRange("name", "n", "z")})
+    """
+    
     def __init__(self, items=None):
         self.facets = []
         if items:
@@ -416,10 +507,6 @@ class MultiFacet(FacetType):
     
     def add_query(self, querydict, other="none"):
         self.facets.append(QueryFacet(querydict, other=other))
-        return self
-    
-    def add_function(self, fn):
-        self.facets.append(FunctionFacet(fn))
         return self
     
     def add_facet(self, facet):
@@ -455,8 +542,26 @@ class MultiFacet(FacetType):
 
 
 class Facets(object):
-    def __init__(self):
+    """Maps facet names to :class:`FacetType` objects, for creating multiple
+    groupings of documents.
+    
+    For example, to group by tag, and **also** group by price range::
+    
+        facets = Facets()
+        facets.add_field("tag")
+        facets.add_facet("price", RangeFacet("price", 0, 1000, 100))
+        results = searcher.search(myquery, groupedby=facets)
+        
+        tag_groups = results.groups("tag")
+        price_groups = results.groups("price")
+    
+    (To group by the combination of multiple facets, use :class:`MultiFacet`.)
+    """
+    
+    def __init__(self, x=None):
         self.facets = {}
+        if x:
+            self.add_facets(x)
     
     @classmethod
     def from_groupedby(cls, groupedby):
@@ -476,15 +581,45 @@ class Facets(object):
         return facets
     
     def items(self):
+        """Returns a list of (facetname, facetobject) tuples for the facets in
+        this object.
+        """
+        
         return self.facets.items()
     
+    def add_field(self, fieldname):
+        """Adds a :class:`FieldFacet` for the given field name (the field name is
+        automatically used as the facet name).
+        """
+        
+        self.facets[fieldname] = FieldFacet(fieldname)
+        return self
+    
+    def add_query(self, name, querydict, other="none"):
+        """Adds a :class:`QueryFacet` under the given ``name``.
+        
+        :param name: a name for the facet.
+        :param querydict: a dictionary mapping keys to
+            :class:`whoosh.query.Query` objects.
+        """
+        
+        self.facets[name] = QueryFacet(querydict, other=other)
+        return self
+    
     def add_facet(self, name, facet):
+        """Adds a :class:`FacetType` object under the given ``name``.
+        """
+        
         if not isinstance(facet, FacetType):
             raise Exception("%r:%r is not a facet" % (name, facet))
         self.facets[name] = facet
         return self
     
     def add_facets(self, facets, replace=True):
+        """Adds the contents of the given ``Facets`` or ``dict`` object to this
+        object.
+        """
+        
         if not isinstance(facets, (dict, Facets)):
             raise Exception("%r is not a Facets object or dict" % facets)
         for name, facet in facets.items():
@@ -492,26 +627,6 @@ class Facets(object):
                 self.facets[name] = facet
         return self
     
-    def add_field(self, fieldname, reverse=False):
-        self.facets[fieldname] = FieldFacet(fieldname, reverse=reverse)
-        return self
-    
-    def add_query(self, name, querydict, other="none"):
-        self.facets[name] = QueryFacet(querydict, other=other)
-        return self
-    
-    def add_score(self):
-        self.facets["_score"] = ScoreFacet()
-        return self
-    
-    def add_function(self, name, fn):
-        self.facets[name] = FunctionFacet(fn)
-        return self
-    
-    def key_function(self, searcher, name):
-        facet = self.facets[name]
-        catter = facet.categorizer(searcher)
-        return catter.key_for_id
 
 
 
