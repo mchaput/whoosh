@@ -34,10 +34,10 @@ import copy
 import threading
 import weakref
 from collections import defaultdict
-from heapq import heappush, heapreplace
+from heapq import heappush, heapreplace, nlargest, nsmallest
 from math import ceil
 
-from whoosh import classify, highlight, query, scoring
+from whoosh import classify, highlight, query, scoring, sorting
 from whoosh.compat import (iteritems, itervalues, iterkeys, xrange, text_type,
                            string_type)
 from whoosh.reading import TermNotFound
@@ -545,9 +545,7 @@ class Searcher(object):
         to get sorted search results.
         """
         
-        from whoosh.sorting import Sorter
-        
-        return Sorter(self, *args, **kwargs)
+        return sorting.Sorter(self, *args, **kwargs)
 
     def sort_query_using(self, q, fn, filter=None):
         """Returns a :class:`Results` object with the documents matching the
@@ -637,17 +635,14 @@ class Searcher(object):
         :param limit: the maximum number of documents to score. If you're only
             interested in the top N documents, you can set limit=N to limit the
             scoring for a faster search.
-        :param sortedby: the name of a field to sort by, or a tuple of field
-            names to sort by multiple fields. This is a shortcut for using a
-            :class:`whoosh.sorting.Sorter` object to do a simple sort. To do
-            complex sorts (where different fields are sorted in different
-            directions), use :meth:`Searcher.sorter` to get a sorter and use it
-            to perform the sorted search.
+        :param sortedby: the name of a field to sort by, or a
+            :class:`whoosh.sorting.Sorter` object.
         :param reverse: Reverses the direction of the sort.
-        :param groupedby: a list of field names or facet names. If this
-            argument is not None, you can use the :meth:`Results.groups` method
-            on the results object to retrieve a dictionary mapping field/facet
-            values to document numbers.
+        :param groupedby: a list of field names or facet names, or a
+            :class:`whoosh.sorting.Facets` object. If you supply this
+            argument, you can use the :meth:`Results.groups` method on the
+            results object to retrieve a dictionary mapping field/facet values
+            to document numbers.
         :param optimize: use optimizations to get faster results when possible.
         :param filter: a query, Results object, or set of docnums. The results
             will only contain documents that are also in the filter object.
@@ -659,15 +654,15 @@ class Searcher(object):
         if limit is not None and limit < 1:
             raise ValueError("limit must be >= 1")
 
-        if sortedby is not None:
-            sorter = self.sorter(sortedby=sortedby)
-            return sorter.sort_query(q, limit=limit, reverse=reverse,
-                                     filter=filter)
-        
         collector = Collector(limit=limit, usequality=optimize,
                               groupedby=groupedby, reverse=reverse)
-        return collector.search(self, q, allow=filter, restrict=mask)
         
+        if sortedby:
+            return collector.sort(self, q, sortedby, allow=filter,
+                                  restrict=mask)
+        else:
+            return collector.search(self, q, allow=filter, restrict=mask)
+    
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
         """Returns a corrected version of the given user query using a default
@@ -768,7 +763,7 @@ class Searcher(object):
 
 class Collector(object):
     def __init__(self, limit=10, usequality=True, replace=10, groupedby=None,
-                 timelimit=None, greedy=False, reverse=False):
+                 timelimit=None, greedy=False, reverse=False, groupids=True):
         """A Collector finds the matching documents, scores them, collects them
         into a list, and produces a Results object from them.
         
@@ -807,11 +802,11 @@ class Collector(object):
         self.timelimit = timelimit
         self.greedy = greedy
         self.reverse = reverse
+        self.groupids = groupids
         
-        # The groupedby attribute is expected to be a sequence of field names
-        if isinstance(groupedby, string_type):
-            groupedby = (groupedby, )
-        self.groupedby = groupedby
+        self.facets = None
+        if groupedby:
+            self.facets = sorting.Facets.from_groupedby(groupedby)
     
     def should_add_all(self):
         """Returns True if this collector needs to add all found documents (for
@@ -822,7 +817,7 @@ class Collector(object):
         limit = self.limit
         if limit:
             limit = min(limit, self.searcher.doc_count_all())
-        return not limit or self.groupedby
+        return not limit
     
     def use_block_quality(self, searcher, matcher=None):
         """Returns True if this collector can use block quality optimizations
@@ -836,16 +831,108 @@ class Collector(object):
             use = use and matcher.supports_block_quality()
         return use
     
-    def score(self, searcher, matcher):
-        """Called to compute the score for the current document in the given
-        :class:`whoosh.matching.Matcher`.
-        """
-        
+    def _score_fn(self, searcher):
         w = searcher.weighting
-        score = matcher.score()
         if w.use_final:
-            score = w.final(searcher, matcher.id(), score)
-        return score
+            def scorefn(matcher):
+                score = matcher.score()
+                return w.final(searcher, matcher.id(), score)
+        else:
+            scorefn = None
+        return scorefn
+    
+    def _set_categorizers(self, searcher, offset):
+        if self.facets:
+            self.categorizers = dict((name, facet.categorizer(searcher))
+                                     for name, facet in self.facets.items())
+            for catter in self.categorizers.values():
+                catter.set_searcher(searcher, offset)
+    
+    def _set_filters(self, allow, restrict):
+        if allow:
+            allow = self.searcher._filter_to_comb(allow)
+        self.allow = allow
+        if restrict:
+            restrict = self.searcher._filter_to_comb(restrict)
+        self.restrict = restrict
+    
+    def _set_timer(self):
+        # If this collector is time limited, start the timer thread
+        self.timer = None
+        if self.timelimit:
+            self.timer = threading.Timer(self.timelimit, self._timestop)
+            self.timer.start()
+    
+    def _reset(self):
+        self.groups = {}
+        self.items = []
+        self.timedout = False
+        self.runtime = -1
+        self.minscore = None
+    
+    def _timestop(self):
+        # Called by the Timer when the time limit expires. Set an attribute on
+        # the collector to indicate that the timer has expired and the
+        # collector should raise a TimeLimit exception at the next consistent
+        # state.
+        self.timer = None
+        self.timedout = True
+    
+    def collect(self, docid):
+        docset = self.docset
+        if docset is not None:
+            docset.add(docid)
+        
+        if self.facets is not None:
+            groups = self.groups
+            for name, catter in self.categorizers.items():
+                key = catter.key_for_id(docid)
+                if self.groupids:
+                    if name not in groups:
+                        groups[name] = defaultdict(list)
+                    groups[name][key].append(docid)
+                else:
+                    if name not in groups:
+                        groups[name] = defaultdict(int)
+                    groups[name][key] += 1
+    
+    def sort(self, searcher, q, sortedby, allow=None, restrict=None):
+        self.searcher = searcher
+        self.q = q
+        self.docset = set()
+        self._set_filters(allow, restrict)
+        self._reset()
+        self._set_timer()
+        
+        facet = sorting.MultiFacet(sortedby)
+        catter = facet.categorizer(searcher)
+        keyfn = catter.key_for_matcher
+        t = now()
+        if searcher.is_atomic():
+            self._set_categorizers(searcher, 0)
+            catter.set_searcher(searcher, 0)
+            self.add_sorted_matches(searcher, q, 0, keyfn)
+        else:
+            for s, offset in searcher.subsearchers:
+                self._set_categorizers(s, offset)
+                catter.set_searcher(s, offset)
+                self.add_sorted_matches(s, q, offset, keyfn)
+        self.runtime = now() - t
+        return self.results(scores=False)
+    
+    def add_sorted_matches(self, searcher, q, offset, keyfn):
+        items = self.items
+        limit = self.limit
+        reverse = self.reverse
+        heapfn = nlargest if reverse else nsmallest
+        addall = self.should_add_all()
+        matcher = q.matcher(searcher)
+        
+        ls = list(self.pull_matches(searcher, matcher, offset, keyfn, False))
+        if addall:
+            items.extend(ls)
+        else:
+            self.items = heapfn(limit, items + ls)
     
     def search(self, searcher, q, allow=None, restrict=None):
         """Top-level method call which uses the given :class:`Searcher` and
@@ -863,38 +950,26 @@ class Collector(object):
         
         self.searcher = searcher
         self.q = q
-        
-        if allow:
-            allow = searcher._filter_to_comb(allow)
-        self.allow = allow
-        if restrict:
-            restrict = searcher._filter_to_comb(restrict)
-        self.restrict = restrict
-        
-        self.groups = {}
-        self.items = []
-        self.minscore = None
-        self.timedout = False
-        self.runtime = -1
+        self._set_filters(allow, restrict)
+        self._reset()
+        self._set_timer()
         
         # If we're not using block quality, then we can add every document
         # number to a set as we see it, because we're not skipping low-quality
         # blocks
         self.docset = set() if not self.use_block_quality(searcher) else None
         
-        # If this collector is time limited, start the timer thread
-        self.timer = None
-        if self.timelimit:
-            self.timer = threading.Timer(self.timelimit, self._timestop)
-            self.timer.start()
-        
         # Perform the search
         t = now()
         if searcher.is_atomic():
-            self.add_matches(searcher, q)
+            scorefn = self._score_fn(searcher)
+            self._set_categorizers(searcher, 0)
+            self.add_matches(searcher, q, 0, scorefn)
         else:
             for s, offset in searcher.subsearchers:
-                self.add_matches(s, q, offset=offset)
+                scorefn = self._score_fn(s)
+                self._set_categorizers(s, offset)
+                self.add_matches(s, q, offset, scorefn)
         
         # If we started a time limit timer thread, cancel it
         if self.timelimit and self.timer:
@@ -903,45 +978,15 @@ class Collector(object):
         self.runtime = now() - t
         return self.results()
     
-    def _timestop(self):
-        # Called by the Timer when the time limit expires. Set an attribute on
-        # the collector to indicate that the timer has expired and the
-        # collector should raise a TimeLimit exception at the next consistent
-        # state.
-        self.timer = None
-        self.timedout = True
-    
-    def add_matches(self, searcher, q, offset=0):
-        allow = self.allow
-        restrict = self.restrict
+    def add_matches(self, searcher, q, offset, scorefn):
         items = self.items
-        groups = self.groups
         limit = self.limit
         addall = self.should_add_all()
         matcher = q.matcher(searcher)
         usequality = self.use_block_quality(searcher, matcher)
         
-        # If this collector has grouping enabled, set up the key functions
-        keyfns = None
-        if self.groupedby:
-            keyfns = {}
-            for name in self.groupedby:
-                keyfns[name] = searcher.reader().key_fn(name)
-        
-        for offsetid, score in self.pull_matches(searcher, matcher, usequality,
-                                                 offset):
-            if allow and offsetid not in allow:
-                continue
-            if restrict and offsetid in restrict:
-                continue
-            
-            if keyfns:
-                for name, keyfn in iteritems(keyfns):
-                    if name not in groups:
-                        groups[name] = defaultdict(list)
-                    key = keyfn(offsetid - offset)
-                    groups[name][key].append(offsetid)
-            
+        for score, offsetid in self.pull_matches(searcher, matcher, offset,
+                                                 scorefn, usequality):
             # Document numbers are negated before putting them in the heap so
             # that higher document numbers have lower "priority" in the queue.
             # Lower document numbers should always come before higher document
@@ -960,15 +1005,16 @@ class Collector(object):
                 if score > items[0][0]:
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
-                    
-    def pull_matches(self, searcher, matcher, usequality, offset):
+    
+    def pull_matches(self, searcher, matcher, offset, scorefn, usequality):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.
         """
         
-        scorefn = self.score
+        allow = self.allow
+        restrict = self.restrict
         replace = self.replace
-        docset = self.docset
+        collect = self.collect
         minscore = self.minscore
         replacecounter = 0
         timelimited = bool(self.timelimit)
@@ -1008,14 +1054,18 @@ class Collector(object):
             # The current document ID 
             id = matcher.id()
             offsetid = id + offset
-            # If we're keeping track of IDs encountered, add this one
-            if docset is not None:
-                docset.add(offsetid)
             
-            # If we're using quality optimizations, check whether the current
-            # posting has higher quality than the minimum before yielding it.
-            score = scorefn(searcher, matcher)
-            yield (offsetid, score)
+            if allow and offsetid not in allow:
+                continue
+            if restrict and offsetid in restrict:
+                continue
+            
+            collect(offsetid)
+            if scorefn:
+                score = scorefn(matcher)
+            else:
+                score = matcher.score()
+            yield (score, offsetid)
             
             # Check whether the time limit expired
             if self.timedout:
@@ -1025,22 +1075,24 @@ class Collector(object):
             # matcher has entered a new block, so we should check block quality
             # again.
             checkquality = matcher.next()
-            
-                    
-    def results(self):
+    
+    def results(self, scores=True):
         """Returns the current results from the collector. This is useful for
         getting the results out of a collector that was stopped by a time
         limit exception.
         """
         
-        # Docnums are stored as negative for reasons too obscure to go into
-        # here, re-negate them before returning
-        items = [(x[0], 0 - x[1]) for x in self.items]
+        if scores:
+            # Docnums are stored as negative for reasons too obscure to go into
+            # here, re-negate them before returning
+            items = [(x[0], 0 - x[1]) for x in self.items]
         
-        # Sort by negated scores so that higher scores go first, then by
-        # document number to keep the order stable when documents have the same
-        # score
-        items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+            # Sort by negated scores so that higher scores go first, then by
+            # document number to keep the order stable when documents have the
+            # same score
+            items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+        else:
+            items = sorted(self.items, reverse=self.reverse)
         
         return Results(self.searcher, self.q, items, self.docset,
                        groups=self.groups, runtime=self.runtime,
@@ -1096,24 +1148,24 @@ class TermTrackingCollector(Collector):
         # If you're using this collector, you need to examine all documents
         return True
     
-    def add_matches(self, searcher, q, offset=0):
+    def add_matches(self, searcher, q, offset, scorefn):
         sup = super(TermTrackingCollector, self)
         self.matchers = []
         q = self._tag(q)
-        return sup.add_matches(searcher, q, offset=offset)
+        return sup.add_matches(searcher, q, offset, scorefn)
     
-    def pull_matches(self, searcher, matcher, usequality, offset):
+    def pull_matches(self, searcher, matcher, offset, scorefn, usequality):
         super_method = super(TermTrackingCollector, self).pull_matches
         
-        for offsetid, score in super_method(searcher, matcher, usequality,
-                                            offset):
+        for score, offsetid in super_method(searcher, matcher, offset,
+                                            scorefn, usequality):
             for key, m in self.matchers:
                 if m.is_active() and m.id() == offsetid - offset:
                     if key not in self.catalog:
                         self.catalog[key] = set()
                     self.catalog[key].add(offsetid)
             
-            yield (offsetid, score)
+            yield (score, offsetid)
     
     def _tag(self, q):
         # Takes a query and returns a copy of the query with a TaggedQuery
@@ -1267,6 +1319,8 @@ class Results(object):
         fields associated with a document ID.
         """
         
+        if name not in self._groups:
+            raise KeyError("%r not in group names %r" % (name, self._groups.keys()))
         return self._groups[name]
     
     def _load_docs(self):
