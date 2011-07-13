@@ -177,7 +177,8 @@ class ScoreFacet(FacetType):
             score = matcher.score()
             if self.use_final:
                 score = self.final(self.searcher, matcher.id(), score)
-            return score
+            # Negate the score so higher values sort first
+            return 0 - score
 
 
 class FunctionFacet(FacetType):
@@ -271,49 +272,59 @@ class FieldFacet(FacetType):
             return self.array[docid + self.docoffset]
 
 
-class QueryFacet(object):
+class QueryFacet(FacetType):
     def __init__(self, querydict, other="none"):
         self.querydict = querydict
         self.other = other
     
     def categorizer(self, searcher):
-        return self.QueryCategorizer(searcher, self.querydict, self.other)
+        return self.QueryCategorizer(self.querydict, self.other)
     
     class QueryCategorizer(Categorizer):
-        def __init__(self, searcher, querydict, other):
-            self.docsets = dict((qname, set(q.docs(searcher)))
-                                for qname, q in querydict)
+        def __init__(self, querydict, other):
+            self.querydict = querydict
             self.other = other
+            
+        def set_searcher(self, searcher, offset):
+            self.docsets = {}
+            for qname, q in self.querydict.items():
+                docset = set(q.docs(searcher))
+                self.docsets[qname] = docset
+            self.offset = offset
         
         def key_for_id(self, docid):
-            for qname, docset in enumerate(self.docsets):
-                if docid in docset:
+            if docid > 0: raise Exception
+            print "docid=", docid, "docsets=", self.docsets
+            for qname in self.docsets:
+                if docid in self.docsets[qname]:
                     return qname
             return self.other
 
 
 class MultiFacet(FacetType):
-    def __init__(self, *items):
-        self.facets = list(items)
-    
+    def __init__(self, items=None):
+        self.facets = []
+        if items:
+            for item in items:
+                self._add(item)
+            
     @classmethod
     def from_sortedby(cls, sortedby):
         multi = cls()
-        def _add(item):
-            if isinstance(sortedby, FacetType):
-                multi.add_facet(sortedby)
-            elif isinstance(sortedby, string_type):
-                multi.add_field(sortedby)
-            else:
-                raise Exception("Don't know what to do with facet %r" % item)
-        
         if isinstance(sortedby, (list, tuple)) or hasattr(sortedby, "__iter__"):
             for item in sortedby:
-                _add(item)
+                multi._add(item)
         else:
-            _add(sortedby)
-        
+            multi._add(sortedby)
         return multi
+    
+    def _add(self, item):
+        if isinstance(item, FacetType):
+            self.add_facet(item)
+        elif isinstance(item, string_type):
+            self.add_field(item)
+        else:
+            raise Exception("Don't know what to do with facet %r" % (item, ))
     
     def add_field(self, fieldname, reverse=False):
         self.facets.append(FieldFacet(fieldname, reverse=reverse))
