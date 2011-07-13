@@ -26,11 +26,8 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from array import array
-from heapq import nlargest, nsmallest
 
 from whoosh.compat import string_type
-from whoosh.searching import Results
-from whoosh.util import now
 
 
 class Sorter(object):
@@ -84,29 +81,23 @@ class Sorter(object):
     sorter object to see the updates.
     """
 
-    def __init__(self, searcher, criteria=None, sortedby=None):
+    def __init__(self, searcher, sortedby=None):
         """
         :param searcher: a :class:`whoosh.searching.Searcher` object to use for
             searching.
-        :param criteria: a list of ``(fieldname, reversed)`` tuples, where the
-            second value in each tuple is a boolean indicating whether to
-            reverse the order of the sort for that field. Alternatively you can
-            use the :meth:`Sorter.add_field` method on the instantiated sorter.
         :param sortedby: a convenience that generates a proper "criteria" list
             from a fieldname string or list of fieldnames, to set up the sorter
             for a simple search.
         """
         
         self.searcher = searcher
-        self.criteria = criteria or []
+        self.facetlist = []
         if sortedby:
             if isinstance(sortedby, string_type):
                 sortedby = [sortedby]
             for fieldname in sortedby:
                 self.criteria.append((fieldname, False))
         
-        self.arrays = None
-
     def add_field(self, fieldname, reverse=False):
         """Adds a field to the sorting criteria. Results are sorted by the
         fields in the order you add them. For example, if you do::
@@ -121,123 +112,13 @@ class Sorter(object):
         :param reverse: if True, reverses the natural ordering of the field.
         """
         
-        self.criteria.append((fieldname, reverse))
+        self.add_facet(FieldFacet(fieldname, reverse=reverse))
     
-    def is_simple(self):
-        """Returns ``True`` if this is a "simple" sort (all the fields are
-        sorted in the same direction).
-        """
-        
-        if len(self.criteria) < 2:
-            return True
-        
-        firstdir = self.criteria[0][1]
-        return all(c[1] == firstdir for c in self.criteria)
+    def add_facet(self, facet):
+        self.facetlist.append(facet)
     
-    def _results(self, q, docnums, docset, runtime):
-        top_n = [(None, docnum) for docnum in docnums]
-        return Results(self.searcher, q, top_n, docset, runtime=runtime)
-    
-    def _simple_sort_query(self, q, limit=None, reverse=False, filter=None):
-        # If the direction of all sort fields is the same, we can use field
-        # caches to do the sorting
-        
-        t = now()
-        docset = set()
-        sortedby = [c[0] for c in self.criteria]
-        reverse = self.criteria[0][1] ^ reverse
-        comb = self.searcher._filter_to_comb(filter)
-        
-        if self.searcher.subsearchers:
-            heap = []
-            
-            # I wish I could actually do a heap thing here, but the Python heap
-            # queue only works with greater-than, and I haven't thought of a
-            # smart way to get around that yet, so I'm being dumb and using
-            # nlargest/nsmallest on the heap + each subreader list :(
-            op = nlargest if reverse else nsmallest
-            
-            for s, offset in self.searcher.subsearchers:
-                # This searcher is wrapping a MultiReader, so push the sorting
-                # down to the leaf readers and then combine the results.
-                docnums = [docnum for docnum in q.docs(s)
-                           if (not comb) or docnum + offset in comb]
-                
-                # Add the docnums to the docset
-                docset.update(docnums)
-                
-                # Ask the reader to return a list of (key, docnum) pairs to
-                # sort by. If limit=None, the returned list is not sorted. If
-                # limit=True, it is sorted.
-                r = s.reader()
-                srt = r.key_docs_by(sortedby, docnums, limit, reverse=reverse,
-                                    offset=offset)
-                if limit:
-                    # Pick the "limit" smallest/largest items from the current
-                    # and new list
-                    heap = op(limit, heap + srt)
-                else:
-                    # If limit=None, we'll just add everything to the "heap"
-                    # and sort it at the end.
-                    heap.extend(srt)
-            
-            # Sort the heap and take the docnums
-            docnums = [docnum for _, docnum in sorted(heap, reverse=reverse)]
-            
-        else:
-            # This searcher is wrapping an atomic reader, so we don't need to
-            # get tricky combining the results of multiple readers, just ask
-            # the reader to sort the results.
-            r = self.searcher.reader()
-            docnums = [docnum for docnum in q.docs(self.searcher)
-                       if (not comb) or docnum in comb]
-            docnums = r.sort_docs_by(sortedby, docnums, reverse=reverse)
-            docset = set(docnums)
-            
-            # I artificially enforce the limit here, even thought the current
-            # implementation can't use it, so that the results don't change
-            # based on single- vs- multi-segment.
-            docnums = docnums[:limit]
-        
-        runtime = now() - t
-        return self._results(q, docnums, docset, runtime)
-    
-    def _complex_cache(self):
-        self.arrays = []
-        r = self.searcher.reader()
-        for name, reverse in self.criteria:
-            arry = array("i", [0] * r.doc_count_all())
-            field = self.searcher.schema[name]
-            for i, (t, _) in enumerate(field.sortable_values(r, name)):
-                if reverse:
-                    i = 0 - i
-                postings = r.postings(name, t)
-                for docid in postings.all_ids():
-                    arry[docid] = i
-            self.arrays.append(arry)
-
-    def _complex_key_fn(self, docnum):
-        return tuple(arry[docnum] for arry in self.arrays)
-
-    def _complex_sort_query(self, q, limit=None, reverse=False, filter=None):
-        t = now()
-        if self.arrays is None:
-            self._complex_cache()
-        comb = self.searcher._filter_to_comb(filter)
-        docnums = [docnum for docnum in self.searcher.docs_for_query(q)
-                   if (not comb) or docnum in comb]
-        docnums.sort(key=self._complex_key_fn, reverse=reverse)
-        docset = set(docnums)
-        
-        # I artificially enforce the limit here, even thought the current
-        # implementation can't use it, so that the results don't change based
-        # on single- vs- multi-segment.
-        if limit:
-            docnums = docnums[:limit]
-        runtime = now() - t
-        return self._results(q, docnums, docset, runtime)
-
-    def sort_query(self, q, limit=None, reverse=False, filter=None):
+    def sort_query(self, q, limit=None, reverse=False, filter=None, mask=None,
+                   groupedby=None):
         """Returns a :class:`whoosh.searching.Results` object for the given
         query, sorted according to the fields set up using the
         :meth:`Sorter.add_field` method.
@@ -246,13 +127,303 @@ class Sorter(object):
         :meth:`whoosh.searching.Searcher.search` method.
         """
         
-        if self.is_simple():
-            meth = self._simple_sort_query
+        from whoosh.searching import Collector
+        
+        if len(self.facetlist) == 0:
+            raise Exception("No facets added for sorting")
+        elif len(self.facetlist) == 1:
+            facet = self.facetlist[0]
         else:
-            meth = self._complex_sort_query
-            
-        return meth(q, limit, reverse, filter)
+            facet = MultiFacet(self.facetlist)
+        
+        collector = Collector(limit=limit, groupedby=groupedby, reverse=reverse)
+        return collector.sort(self.searcher, q, facet, allow=filter,
+                              restrict=mask)
     
+        
+# Faceting objects
+
+class FacetType(object):
+    def categorizer(self, searcher):
+        raise NotImplementedError
+    
+
+class Categorizer(object):
+    def set_searcher(self, searcher, docoffset):
+        pass
+    
+    def key_for_matcher(self, matcher):
+        return self.key_for_id(matcher.id())
+    
+    def key_for_id(self, docid):
+        raise NotImplementedError
+    
+
+class ScoreFacet(FacetType):
+    def categorizer(self, searcher):
+        return self.ScoreCategorizer(searcher)
+    
+    class ScoreCategorizer(Categorizer):
+        def __init__(self, searcher):
+            w = searcher.weighting
+            self.use_final = w.use_final
+            if w.use_final:
+                self.final = w.final
+        
+        def set_searcher(self, searcher, offset):
+            self.searcher = searcher
+    
+        def key_for_matcher(self, matcher):
+            score = matcher.score()
+            if self.use_final:
+                score = self.final(self.searcher, matcher.id(), score)
+            return score
+
+
+class FunctionFacet(FacetType):
+    def __init__(self, fn):
+        self.fn = fn
+    
+    def categorizer(self, searcher):
+        return self.FunctionCategorizer(searcher, self.fn)
+    
+    class FunctionCategorizer(Categorizer):
+        def __init__(self, searcher, fn):
+            self.fn = fn
+        
+        def set_searcher(self, searcher, docoffset):
+            self.searcher = searcher
+            self.offset = docoffset
+        
+        def key_for_id(self, docid):
+            return self.fn(self.searcher, docid + self.offset)
+
+
+class FieldFacet(FacetType):
+    def __init__(self, fieldname, reverse=False):
+        self.fieldname = fieldname
+        self.reverse = reverse
+    
+    def categorizer(self, searcher):
+        from whoosh.fields import NUMERIC
+        
+        # The searcher we're passed here may wrap a multireader, but the
+        # actual key functions will always be called per-segment following a
+        # Categorizer.set_searcher method call
+        fieldname = self.fieldname
+        reader = searcher.reader()
+        schema = searcher.schema
+        if fieldname in schema and isinstance(schema[fieldname], NUMERIC):
+            # Numeric fields are naturally reversible
+            return self.NumericFieldCategorizer(reader, fieldname, self.reverse)
+        elif self.reverse:
+            # If we need to "reverse" a string field, we need to do more work
+            return self.RevFieldCategorizer(reader, fieldname, self.reverse)
+        else:
+            # Straightforward: use the field cache to sort/categorize
+            return self.FieldCategorizer(fieldname)
+    
+    class FieldCategorizer(Categorizer):
+        def __init__(self, fieldname):
+            self.fieldname = fieldname
+        
+        def set_searcher(self, searcher, docoffset):
+            self.fieldcache = searcher.reader().fieldcache(self.fieldname)
+        
+        def key_for_id(self, docid):
+            return self.fieldcache.key_for(docid)
+    
+    class NumericFieldCategorizer(Categorizer):
+        def __init__(self, reader, fieldname, reverse):
+            self.fieldname = fieldname
+            self.reverse = reverse
+        
+        def set_searcher(self, searcher, docoffset):
+            self.fieldcache = searcher.reader().fieldcache(self.fieldname)
+        
+        def key_for_id(self, docid):
+            value = self.fieldcache.key_for(docid)
+            if self.reverse:
+                return 0 - value
+            else:
+                return value
+    
+    class RevFieldCategorizer(Categorizer):
+        def __init__(self, reader, fieldname, reverse):
+            # Cache the relative positions of all docs with the given field
+            # across the entire index
+            dc = reader.doc_count_all()
+            arry = array("i", [0] * dc)
+            field = self.searcher.schema[fieldname]
+            for i, (t, _) in enumerate(field.sortable_values(reader, fieldname)):
+                if reverse:
+                    i = 0 - i
+                postings = reader.postings(fieldname, t)
+                for docid in postings.all_ids():
+                    arry[docid] = i
+            self.array = arry
+            
+        def set_searcher(self, searcher, docoffset):
+            self.searcher = searcher
+            self.docoffset = docoffset
+        
+        def key_for_id(self, docid):
+            return self.array[docid + self.docoffset]
+
+
+class QueryFacet(object):
+    def __init__(self, querydict, other="none"):
+        self.querydict = querydict
+        self.other = other
+    
+    def categorizer(self, searcher):
+        return self.QueryCategorizer(searcher, self.querydict, self.other)
+    
+    class QueryCategorizer(Categorizer):
+        def __init__(self, searcher, querydict, other):
+            self.docsets = dict((qname, set(q.docs(searcher)))
+                                for qname, q in querydict)
+            self.other = other
+        
+        def key_for_id(self, docid):
+            for qname, docset in enumerate(self.docsets):
+                if docid in docset:
+                    return qname
+            return self.other
+
+
+class MultiFacet(FacetType):
+    def __init__(self, *items):
+        self.facets = list(items)
+    
+    @classmethod
+    def from_sortedby(cls, sortedby):
+        multi = cls()
+        def _add(item):
+            if isinstance(sortedby, FacetType):
+                multi.add_facet(sortedby)
+            elif isinstance(sortedby, string_type):
+                multi.add_field(sortedby)
+            else:
+                raise Exception("Don't know what to do with facet %r" % item)
+        
+        if isinstance(sortedby, (list, tuple)) or hasattr(sortedby, "__iter__"):
+            for item in sortedby:
+                _add(item)
+        else:
+            _add(sortedby)
+        
+        return multi
+    
+    def add_field(self, fieldname, reverse=False):
+        self.facets.append(FieldFacet(fieldname, reverse=reverse))
+        return self
+    
+    def add_query(self, querydict, other="none"):
+        self.facets.append(QueryFacet(querydict, other=other))
+        return self
+    
+    def add_function(self, fn):
+        self.facets.append(FunctionFacet(fn))
+        return self
+    
+    def add_facet(self, facet):
+        if not isinstance(facet, FacetType):
+            raise Exception()
+        self.facets.append(facet)
+        return self
+    
+    def categorizer(self, searcher):
+        if not self.facets:
+            raise Exception("No facets")
+        elif len(self.facets) == 1:
+            catter = self.facets[0].categorizer(searcher)
+        else:
+            catter = self.MultiCategorizer([facet.categorizer(searcher)
+                                            for facet in self.facets])
+        return catter
+    
+    class MultiCategorizer(Categorizer):
+        def __init__(self, catters):
+            self.catters = catters
+        
+        def set_searcher(self, searcher, docoffset):
+            for catter in self.catters:
+                catter.set_searcher(searcher, docoffset)
+        
+        def key_for_matcher(self, matcher):
+            return tuple(catter.key_for_matcher(matcher)
+                         for catter in self.catters)
+        
+        def key_for_id(self, docid):
+            return tuple(catter.key_for_id(docid) for catter in self.catters)
+
+
+class Facets(object):
+    def __init__(self):
+        self.facets = {}
+    
+    @classmethod
+    def from_groupedby(cls, groupedby):
+        facets = cls()
+        if isinstance(groupedby, (cls, dict)):
+            facets.add_facets(groupedby)
+        elif isinstance(groupedby, string_type):
+            facets.add_field(groupedby)
+        elif isinstance(groupedby, FacetType):
+            facets.add_facet("facet", groupedby)
+        elif isinstance(groupedby, (list, tuple)):
+            for item in groupedby:
+                facets.add_facets(cls.from_groupedby(item))
+        else:
+            raise Exception("Don't know what to do with groupedby=%r" % groupedby)
+        
+        return facets
+    
+    def items(self):
+        return self.facets.items()
+    
+    def add_facet(self, name, facet):
+        if not isinstance(facet, FacetType):
+            raise Exception("%r:%r is not a facet" % (name, facet))
+        self.facets[name] = facet
+        return self
+    
+    def add_facets(self, facets, replace=True):
+        if not isinstance(facets, (dict, Facets)):
+            raise Exception("%r is not a Facets object or dict" % facets)
+        for name, facet in facets.items():
+            if replace or name not in self.facets:
+                self.facets[name] = facet
+        return self
+    
+    def add_field(self, fieldname, reverse=False):
+        self.facets[fieldname] = FieldFacet(fieldname, reverse=reverse)
+        return self
+    
+    def add_query(self, name, querydict, other="none"):
+        self.facets[name] = QueryFacet(querydict, other=other)
+        return self
+    
+    def add_score(self):
+        self.facets["_score"] = ScoreFacet()
+        return self
+    
+    def add_function(self, name, fn):
+        self.facets[name] = FunctionFacet(fn)
+        return self
+    
+    def key_function(self, searcher, name):
+        facet = self.facets[name]
+        catter = facet.categorizer(searcher)
+        return catter.key_for_id
+
+
+
+
+
+
+
 
 
 

@@ -62,7 +62,7 @@ def make_multi_index(ix):
             w.add_document(ev=u("a"), **doc)
         w.commit(merge=False)
 
-def try_sort(sortedby, key, q=None, limit=None, reverse=False):
+def try_sort(sortedby, key, q=None, limit=None, reverse=False, debug=False):
     if q is None: q = query.Term("ev", u("a"))
     
     correct = [d["id"] for d in sorted(docs, key=key, reverse=reverse)][:limit]
@@ -73,6 +73,10 @@ def try_sort(sortedby, key, q=None, limit=None, reverse=False):
             with ix.searcher() as s:
                 r = s.search(q, sortedby=sortedby, limit=limit, reverse=reverse)
                 rids = [d["id"] for d in r]
+                if debug:
+                    print "fn=", fn
+                    print "rids=", rids
+                    print "correct=", correct
                 assert_equal(rids, correct)
 
 
@@ -196,6 +200,10 @@ def test_page_sorted():
         w.commit()
         
         with ix.searcher() as s:
+            r = s.search(query.Every(), sortedby="key", limit=5)
+            assert_equal(r.scored_length(), 5)
+            assert_equal(len(r), s.doc_count_all())
+            
             rp = s.search_page(query.Every(), 1, pagelen=5, sortedby="key")
             assert_equal("".join([h["key"] for h in rp]), "abcde")
             assert_equal(rp[10:], [])
@@ -238,7 +246,7 @@ def test_field_facets():
     check(make_single_index)
     check(make_multi_index)
 
-def test_query_facets():
+def test_define_facets():
     schema = fields.Schema(value=fields.ID(stored=True))
     with TempIndex(schema, "queryfacets") as ix:
         w = ix.writer()
@@ -292,8 +300,11 @@ def test_multifacet():
             cats = s.categorize_query(query.Every(), ("tag", "size"))
             assert_equal(cats, correct)
             
-            r = s.search(query.Every(), groupedby=[("tag", "size")])
-            cats = r.groups(("tag", "size"))
+            from whoosh.sorting import MultiFacet
+            
+            facet = MultiFacet("tag", "size")
+            r = s.search(query.Every(), groupedby={"tag/size" : facet})
+            cats = r.groups(("tag/size"))
             assert_equal(cats, correct)
 
 def test_sort_filter():
