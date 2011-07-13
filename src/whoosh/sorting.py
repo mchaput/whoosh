@@ -323,11 +323,12 @@ class QueryFacet(FacetType):
 
 
 class RangeFacet(QueryFacet):
-    def __init__(self, fieldname, start, end, gap):
+    def __init__(self, fieldname, start, end, gap, hardend=False):
         self.fieldname = fieldname
         self.start = start
         self.end = end
         self.gap = gap
+        self.hardend = hardend
         self._queries()
     
     def _range_name(self, startval, endval):
@@ -336,27 +337,48 @@ class RangeFacet(QueryFacet):
     def _queries(self):
         from whoosh import query
         
+        if not self.gap:
+            raise Exception("No gap secified (%r)" % self.gap)
+        if isinstance(self.gap, (list, tuple)):
+            gaps = self.gap
+            gapindex = 0
+        else:
+            gaps = [self.gap]
+            gapindex = -1
+        
         self.querydict = {}
-        gap = self.gap
         cstart = self.start
         while cstart < self.end:
-            cend = min(self.end, cstart + gap)
+            thisgap = gaps[gapindex]
+            if gapindex >= 0:
+                gapindex += 1
+                if gapindex == len(gaps):
+                    gapindex = -1
+            
+            cend = cstart + thisgap
+            if self.hardend:
+                cend = min(self.end, cend)
+            
             rangename = self._range_name(cstart, cend)
             q = query.NumericRange(self.fieldname, cstart, cend, endexcl=True)
             self.querydict[rangename] = q
             
-            cstart += gap
+            cstart += thisgap
     
     def categorizer(self, searcher):
         return QueryFacet(self.querydict).categorizer(searcher)
     
 
 class DateRangeFacet(RangeFacet):
-    def __init__(self, fieldname, startdate, enddate, delta):
+    def __init__(self, fieldname, startdate, enddate, delta, hardend=False):
         self.fieldname = fieldname
         self.start = datetime_to_long(startdate)
         self.end = datetime_to_long(enddate)
-        self.gap = timedelta_to_usecs(delta)
+        self.hardend = hardend
+        if isinstance(delta, (list, tuple)):
+            self.gap = [timedelta_to_usecs(d) for d in delta]
+        else:
+            self.gap = timedelta_to_usecs(delta)
         self._queries()
     
     def _range_name(self, startval, endval):
