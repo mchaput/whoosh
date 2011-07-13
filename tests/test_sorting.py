@@ -3,7 +3,7 @@ import random
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import fields, query
+from whoosh import fields, query, sorting
 from whoosh.compat import u, xrange, long_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support.testing import skip_if_unavailable, skip_if, TempIndex
@@ -164,10 +164,11 @@ def test_sortedby():
     try_sort("id",  lambda d: d["id"], limit=5, reverse=True)
 
 def test_multisort():
-    try_sort(("tag", "id"), lambda d: (d["tag"], d["id"]))
-    try_sort(("tag", "id"), lambda d: (d["tag"], d["id"]), reverse=True)
-    try_sort(("tag", "id"), lambda d: (d["tag"], d["id"]), limit=5)
-    try_sort(("tag", "id"), lambda d: (d["tag"], d["id"]), reverse=True, limit=5)
+    mf = sorting.MultiFacet(["tag", "id"])
+    try_sort(mf, lambda d: (d["tag"], d["id"]))
+    try_sort(mf, lambda d: (d["tag"], d["id"]), reverse=True)
+    try_sort(mf, lambda d: (d["tag"], d["id"]), limit=5)
+    try_sort(mf, lambda d: (d["tag"], d["id"]), reverse=True, limit=5)
 
 def test_numeric():
     try_sort("num", lambda d: d["num"])
@@ -211,6 +212,104 @@ def test_page_sorted():
             rp = s.search_page(query.Term("key", "glonk"), 1, pagelen=5, sortedby="key")
             assert_equal(len(rp), 0)
             assert rp.is_last_page()
+
+def test_score_facet():
+    schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT, c=fields.ID)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, a=u("alfa alfa bravo"), b=u("bottle"), c=u("c"))
+    w.add_document(id=2, a=u("alfa alfa alfa"), b=u("bottle"), c=u("c"))
+    w.commit()
+    w = ix.writer()
+    w.add_document(id=3, a=u("alfa bravo bravo"), b=u("bottle"), c=u("c"))
+    w.add_document(id=4, a=u("alfa bravo alfa"), b=u("apple"), c=u("c"))
+    w.commit(merge=False)
+    w = ix.writer()
+    w.add_document(id=5, a=u("alfa bravo bravo"), b=u("apple"), c=u("c"))
+    w.add_document(id=6, a=u("alfa alfa alfa"), b=u("apple"), c=u("c"))
+    w.commit(merge=False)
+    
+    with ix.searcher() as s:
+        facet = sorting.MultiFacet(["b", sorting.ScoreFacet()])
+        r = s.search(q=query.Term("a", u("alfa")), sortedby=facet)
+        assert_equal([h["id"] for h in r], [6, 4, 5, 2, 1, 3])
+
+def test_function_facet():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True, vector=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    domain = ("alfa", "bravo", "charlie")
+    count = 1
+    for w1 in domain:
+        for w2 in domain:
+            for w3 in domain:
+                for w4 in domain:
+                    w.add_document(id=count, text=u(" ").join((w1, w2, w3, w4)))
+                    count += 1
+    w.commit()
+    
+    def fn(searcher, docnum):
+        v = dict(searcher.vector_as("frequency", docnum, "text"))
+        # Give high score to documents that have equal number of "alfa"
+        # and "bravo". Negate value so higher values sort first
+        return 0 - (1.0 / (abs(v.get("alfa", 0) - v.get("bravo", 0)) + 1.0))
+    
+    with ix.searcher() as s:
+        q = query.And([query.Term("text", u("alfa")), query.Term("text", u("bravo"))])
+        
+        fnfacet = sorting.FunctionFacet(fn)
+        r = s.search(q, sortedby=fnfacet)
+        texts = [hit["text"] for hit in r]
+        for t in texts[:10]:
+            tks = t.split()
+            assert_equal(tks.count("alfa"), tks.count("bravo"))
+
+def test_numeric_field_facet():
+    schema = fields.Schema(id=fields.STORED, v1=fields.NUMERIC, v2=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, v1=2, v2=100)
+    w.add_document(id=2, v1=1, v2=50)
+    w.commit()
+    w = ix.writer()
+    w.add_document(id=3, v1=2, v2=200)
+    w.add_document(id=4, v1=1, v2=100)
+    w.commit()
+    w = ix.writer(merge=False)
+    w.add_document(id=5, v1=2, v2=50)
+    w.add_document(id=6, v1=1, v2=200)
+    w.commit()
+    
+    with ix.searcher() as s:
+        mf = sorting.MultiFacet().add_field("v1").add_field("v2", reverse=True)
+        r = s.search(query.Every(), sortedby=mf)
+        assert_equal([hit["id"] for hit in r], [6, 4, 2, 3, 1, 5])
+
+def test_query_facet():
+    schema = fields.Schema(id=fields.STORED, v=fields.ID)
+    ix = RamStorage().create_index(schema)
+    for i, ltr in enumerate(u("iacgbehdf")):
+        w = ix.writer()
+        w.add_document(id=i, v=ltr)
+        w.commit(merge=False)
+    
+    with ix.searcher() as s:
+        q1 = query.TermRange("v", "a", "c")
+        q2 = query.TermRange("v", "d", "f")
+        q3 = query.TermRange("v", "g", "i")
+        
+        assert_equal([hit["id"] for hit in s.search(q1)], [1, 2, 4])
+        assert_equal([hit["id"] for hit in s.search(q2)], [5, 7, 8])
+        assert_equal([hit["id"] for hit in s.search(q3)], [0, 3, 6])
+        
+        facet = sorting.QueryFacet({"a-c": q1, "d-f": q2, "g-i": q3})
+        r = s.search(query.Every(), groupedby=facet)
+        # If you specify a facet withou a name, it's automatically called
+        # "facet"
+        print r.groups("facet")
+        assert_equal(r.groups("facet"), {"a-c": [1, 2, 4],
+                                         "d-f": [5, 7, 8],
+                                         "g-i": [0, 3, 6]})
 
 @skip_if_unavailable("multiprocessing")
 @skip_if(lambda: True)
@@ -302,7 +401,7 @@ def test_multifacet():
             
             from whoosh.sorting import MultiFacet
             
-            facet = MultiFacet("tag", "size")
+            facet = MultiFacet(["tag", "size"])
             r = s.search(query.Every(), groupedby={"tag/size" : facet})
             cats = r.groups(("tag/size"))
             assert_equal(cats, correct)
@@ -374,8 +473,6 @@ def test_custom_sort():
             cs = s.sorter()
             cs.add_field("price")
             cs.add_field("quant", reverse=True)
-            print("crit=", cs.criteria)
-            print("is_simple=", cs.is_simple())
             r = cs.sort_query(query.Every(), limit=None)
             assert_equal([hit["name"] for hit in r], list(u("DCAFBE")))
             

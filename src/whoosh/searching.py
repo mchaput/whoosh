@@ -878,19 +878,19 @@ class Collector(object):
         self.timer = None
         self.timedout = True
     
-    def collect(self, docid):
+    def collect(self, id, offsetid):
         docset = self.docset
         if docset is not None:
-            docset.add(docid)
+            docset.add(offsetid)
         
         if self.facets is not None:
             groups = self.groups
             for name, catter in self.categorizers.items():
-                key = catter.key_for_id(docid)
+                key = catter.key_for_id(id)
                 if self.groupids:
                     if name not in groups:
                         groups[name] = defaultdict(list)
-                    groups[name][key].append(docid)
+                    groups[name][key].append(offsetid)
                 else:
                     if name not in groups:
                         groups[name] = defaultdict(int)
@@ -904,7 +904,7 @@ class Collector(object):
         self._reset()
         self._set_timer()
         
-        facet = sorting.MultiFacet(sortedby)
+        facet = sorting.MultiFacet.from_sortedby(sortedby)
         catter = facet.categorizer(searcher)
         keyfn = catter.key_for_matcher
         t = now()
@@ -1055,17 +1055,16 @@ class Collector(object):
             id = matcher.id()
             offsetid = id + offset
             
-            if allow and offsetid not in allow:
-                continue
-            if restrict and offsetid in restrict:
-                continue
-            
-            collect(offsetid)
-            if scorefn:
-                score = scorefn(matcher)
-            else:
-                score = matcher.score()
-            yield (score, offsetid)
+            # Check whether the document is filtered
+            if ((not allow or offsetid in allow)
+                and (not restrict or offsetid not in restrict)):
+                # Collect and yield this document
+                collect(id, offsetid)
+                if scorefn:
+                    score = scorefn(matcher)
+                else:
+                    score = matcher.score()
+                yield (score, offsetid)
             
             # Check whether the time limit expired
             if self.timedout:

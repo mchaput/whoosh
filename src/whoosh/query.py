@@ -1782,6 +1782,7 @@ class Every(Query):
         reader = searcher.reader()
         
         if fieldname in (None, "", "*"):
+            # This takes into account deletions
             doclist = list(reader.all_doc_ids())
         elif reader.supports_caches() and reader.fieldcache_available(self.fieldname):
             # If the reader has a field cache, use it to quickly get the list
@@ -1799,8 +1800,6 @@ class Every(Query):
             doclist = sorted(doclist)
         
         return ListMatcher(doclist, all_weights=self.boost)
-
-
 
 
 class _NullQuery(Query):
