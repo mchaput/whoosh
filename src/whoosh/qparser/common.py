@@ -31,27 +31,14 @@ parser modules.
 """
 
 from __future__ import print_function
-import re
 
 from whoosh.compat import string_type
+
 
 class QueryParserError(Exception):
     def __init__(self, cause, msg=None):
         super(QueryParserError, self).__init__(str(cause))
         self.cause = cause
-
-
-def rcompile(pattern, flags=0, verbose=False):
-    """A wrapper for re.compile that checks whether "pattern" is a regex object
-    or a string to be compiled, and automatically adds the re.UNICODE flag.
-    """
-    
-    if not isinstance(pattern, string_type):
-        # If it's not a string, assume it's already a compiled pattern
-        return pattern
-    if verbose:
-        flags |= re.VERBOSE
-    return re.compile(pattern, re.UNICODE | flags)
 
 
 def get_single_text(field, text, **kwargs):
