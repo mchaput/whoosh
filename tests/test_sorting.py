@@ -379,6 +379,23 @@ def test_range_facet():
                                          (200, 300): [0], (500, 600): [4],
                                          None: [2]})
 
+def test_range_gaps():
+    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    for i in range(10):
+        w.add_document(id=i, num=i)
+    w.commit()
+    
+    with ix.searcher() as s:
+        rf = sorting.RangeFacet("num", 0, 1000, [1,2,3])
+        r = s.search(query.Every(), groupedby={"num": rf})
+        assert_equal(r.groups("num"), {(0, 1): [0],
+                                       (1, 3): [1, 2],
+                                       (3, 6): [3, 4, 5],
+                                       (6, 9): [6, 7, 8],
+                                       (9, 12): [9]})
+
 def test_daterange_facet():
     from datetime import datetime, timedelta
     
