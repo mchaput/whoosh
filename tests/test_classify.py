@@ -73,7 +73,7 @@ def test_more_like_this():
             docnum = s.document_number(id=u("1"))
             r = s.more_like(docnum, "text", **kwargs)
             assert_equal([hit["id"] for hit in r], ["6", "2", "3"])
-            
+    
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT(stored=True))
     _check(schema)
 

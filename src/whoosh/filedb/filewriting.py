@@ -35,7 +35,7 @@ try:
 except ImportError:
     has_sqlite = False
 
-from whoosh.compat import iteritems, text_type
+from whoosh.compat import integer_types, iteritems, text_type
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.filepostings import FilePostingWriter
@@ -174,8 +174,7 @@ class SegmentWriter(IndexWriter):
         pf = self.storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg,
-                                       self.wordsets)
+        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
         
         if self.schema.has_vectored_fields():
             # Vector index
@@ -568,6 +567,7 @@ class TermsWriter(object):
         
         # Posting lists with <= this number of postings will be inlined into
         # the terms index instead of being written to the posting file
+        assert isinstance(inlinelimit, integer_types)
         self.inlinelimit = inlinelimit
         
         self.spelling = False

@@ -84,8 +84,8 @@ class FieldCache(object):
     each document with a value through the array.
     """
     
-    def __init__(self, order=None, texts=None, hastexts=True, default=u(""),
-                 typecode="I"):
+    def __init__(self, order=None, texts=None, hastexts=True,
+                 default=u('\uFFFF'), typecode="I"):
         """
         :param order: an array of ints.
         :param texts: a list of text values.
@@ -131,7 +131,7 @@ class FieldCache(object):
     # Class constructor for building a field cache from a reader
     
     @classmethod
-    def from_field(cls, ixreader, fieldname, default=u("")):
+    def from_field(cls, ixreader, fieldname):
         """Creates an in-memory field cache from a reader.
         
         >>> r = ix.reader()
@@ -151,16 +151,18 @@ class FieldCache(object):
         texts = None
         if hastexts:
             typecode = "I"
-            texts = [default]
+            texts = [field.sortable_default()]
+            defaultnum = 0
         else:
             typecode = field.sortable_typecode
+            defaultnum = field.sortable_default()
         
         doccount = ixreader.doc_count_all()
         # Python does not support arrays of long long see Issue 1172711
         if typecode.lower() == "q":
-            order = [0] * doccount
+            order = [defaultnum] * doccount
         else:
-            order = array(typecode, [0] * doccount)
+            order = array(typecode, [defaultnum] * doccount)
         
         enum = enumerate(field.sortable_values(ixreader, fieldname))
         for i, (text, sortable) in enum:
@@ -182,7 +184,8 @@ class FieldCache(object):
                 newcode = "H"
             
             if newcode != order.typecode:
-                order = array(newcode, order)
+                # Can't use an array as the source for another array
+                order = array(newcode, iter(order))
                 typecode = newcode
         
         return cls(order, texts, hastexts=hastexts, typecode=typecode)
@@ -254,9 +257,8 @@ class FieldCache(object):
                 newcode = "B"
             elif len(self.texts) < 65535:
                 newcode = "H"
-            
             if newcode != self.order.typecode:
-                self.order = array(newcode, self.order)
+                self.order = array(newcode, iter(self.order))
                 self.typecode = newcode
         else:
             dbfile.write_uint(0)  # No texts
@@ -298,7 +300,7 @@ class FieldCache(object):
     
     def groups(self, docnums, counts=False):
         """Returns a dictionary mapping key values to document numbers. If
-        ``counts_only`` is True, the returned dictionary maps key values to the
+        ``counts`` is True, the returned dictionary maps key values to the
         number of documents in that 
         """
         
@@ -364,7 +366,8 @@ class FieldCache(object):
 # Streaming cache file writer
 
 class FieldCacheWriter(object):
-    def __init__(self, dbfile, size=0, hastexts=True, code="I", default=u("")):
+    def __init__(self, dbfile, size=0, hastexts=True, code="I",
+                 default=u('\uFFFF')):
         self.dbfile = dbfile
         self.order = array(self.code, [0] * size)
         self.hastexts = hastexts

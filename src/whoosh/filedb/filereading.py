@@ -143,6 +143,7 @@ class SegmentReader(IndexReader):
         return self.dc
 
     def stored_fields(self, docnum):
+        assert docnum >= 0
         schema = self.schema
         return dict(item for item
                     in iteritems(self.storedfields[docnum])

@@ -31,11 +31,11 @@ from datetime import datetime, timedelta
 
 from whoosh.compat import string_type, iteritems
 from whoosh.qparser import plugins, syntax
-from whoosh.qparser.common import rcompile
 from whoosh.qparser.taggers import Tagger
 from whoosh.support.relativedelta import relativedelta
 from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
                                   TimeError, relative_days)
+from whoosh.util import rcompile
 
 
 class DateParseError(Exception):

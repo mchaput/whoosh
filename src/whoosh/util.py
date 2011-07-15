@@ -37,16 +37,15 @@ from array import array
 from bisect import insort, bisect_left
 from copy import copy
 from functools import wraps
-from math import log
 from struct import pack, unpack
 from threading import Lock
 
-from whoosh.compat import xrange, u, b
+from whoosh.compat import xrange, u, b, string_type
 from whoosh.system import IS_LITTLE
 
 
 try:
-    from itertools import permutations
+    from itertools import permutations  #@UnusedImport
 except ImportError:
     # This function was only added to itertools in 2.6...
     def permutations(iterable, r=None):
@@ -74,7 +73,7 @@ except ImportError:
 
 
 try:
-    from operator import methodcaller
+    from operator import methodcaller  #@UnusedImport
 except ImportError:
     def methodcaller(name, *args, **kwargs):
         def caller(obj):
@@ -350,7 +349,7 @@ _length_byte_cache = array('i', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14,
 
 def length_to_byte(length):
     if length is None:
-    	return 0
+        return 0
     if length >= 108116:
         return 255
     else:
@@ -636,6 +635,18 @@ def find_object(name, blacklist=None, whitelist=None):
     cls = getattr(mod, clsname)
     return cls
 
+
+def rcompile(pattern, flags=0, verbose=False):
+    """A wrapper for re.compile that checks whether "pattern" is a regex object
+    or a string to be compiled, and automatically adds the re.UNICODE flag.
+    """
+    
+    if not isinstance(pattern, string_type):
+        # If it's not a string, assume it's already a compiled pattern
+        return pattern
+    if verbose:
+        flags |= re.VERBOSE
+    return re.compile(pattern, re.UNICODE | flags)
 
 
 
