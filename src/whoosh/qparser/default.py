@@ -103,6 +103,7 @@ class QueryParser(object):
                 plugins.GroupPlugin(),
                 plugins.OperatorsPlugin(),
                 plugins.BoostPlugin(),
+                plugins.EveryPlugin(),
                 ]
 
     def add_plugins(self, pins):

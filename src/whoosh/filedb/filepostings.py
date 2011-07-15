@@ -78,6 +78,7 @@ class FilePostingWriter(PostingWriter):
             self._write_block()
 
     def finish(self, inlinelimit=1):
+        assert isinstance(inlinelimit, integer_types)
         if self.block is None:
             raise Exception("Called finish() when not in a block")
 

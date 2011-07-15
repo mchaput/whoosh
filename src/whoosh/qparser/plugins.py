@@ -30,8 +30,9 @@ import copy
 from whoosh import query
 from whoosh.compat import iteritems, u, PY3
 from whoosh.qparser import syntax
-from whoosh.qparser.common import rcompile, attach
+from whoosh.qparser.common import attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
+from whoosh.util import rcompile
 
 
 class Plugin(object):
@@ -79,15 +80,6 @@ class TaggingPlugin(RegexTagger):
     
     def create(self, parser, match):
         kwargs = match.groupdict()
-        
-        if not PY3:
-            def convert_unicode_keys(d):
-                if isinstance(d, dict):
-                	return dict([(k.encode("utf-8"), convert_unicode_keys(v))\
-                	        for k, v in iteritems(d)])
-                return d
-            kwargs = convert_unicode_keys(kwargs)
-        
         return self.nodetype(**kwargs)
 
 
@@ -297,6 +289,21 @@ class GroupPlugin(Plugin):
         return top
 
 
+class EveryPlugin(TaggingPlugin):
+    expr = "[*]:[*]"
+    priority = -1
+    
+    def create(self, parser, match):
+        return self.EveryNode()
+        
+    class EveryNode(syntax.SyntaxNode):
+        def r(self):
+            return "*:*"
+        
+        def query(self, parser):
+            return query.Every()
+
+
 class FieldsPlugin(TaggingPlugin):
     """Adds the ability to specify the field of a clause.
     """
@@ -305,7 +312,7 @@ class FieldsPlugin(TaggingPlugin):
         def create(self, parser, match):
             return syntax.FieldnameNode(match.group("text"), match.group(0))
     
-    def __init__(self, expr=r"(?P<text>\w+):", remove_unknown=True):
+    def __init__(self, expr=r"(?P<text>\w+|[*]):", remove_unknown=True):
         """
         :param expr: the regular expression to use for tagging fields.
         :param remove_unknown: if True, converts field specifications for

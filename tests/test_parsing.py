@@ -412,6 +412,7 @@ def test_star():
     qp = default.QueryParser("text", schema)
     q = qp.parse(u("*"))
     assert_equal(q.__class__, query.Every)
+    assert_equal(q.fieldname, "text")
 
     q = qp.parse(u("*h?ll*"))
     assert_equal(q.__class__, query.Wildcard)
@@ -436,6 +437,21 @@ def test_star():
     assert_equal(q.__class__, query.Wildcard)
     assert_equal(q.text, "*q")
 
+def test_star_field():
+    schema = fields.Schema(text=fields.TEXT)
+    qp = default.QueryParser("text", schema)
+    
+    q = qp.parse(u("*:*"))
+    assert_equal(q.__class__, query.Every)
+    assert_equal(q.fieldname, None)
+    
+    # This gets parsed to a term with text="*:test" which is then analyzed down
+    # to just "test"
+    q = qp.parse(u("*:test"))
+    assert_equal(q.__class__, query.Term)
+    assert_equal(q.fieldname, "text")
+    assert_equal(q.text, "test")
+    
 def test_range_query():
     schema = fields.Schema(name=fields.ID(stored=True), text = fields.TEXT(stored=True))
     qp = default.QueryParser("text", schema)
