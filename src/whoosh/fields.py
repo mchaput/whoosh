@@ -172,7 +172,7 @@ class FieldType(object):
         faceting in this field.
         """
         
-        return u("")
+        return u('\uFFFF')
     
     def to_text(self, value):
         """Returns a textual representation of the value. Non-textual fields

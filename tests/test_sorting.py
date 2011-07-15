@@ -1,4 +1,5 @@
 from __future__ import with_statement
+from datetime import datetime, timedelta
 import random
 
 from nose.tools import assert_equal  #@UnresolvedImport
@@ -156,7 +157,25 @@ def test_shared_cache():
         
         assert not r3.fieldcache_loaded("id")
         r3.close()
+
+@skip_if_unavailable("multiprocessing")
+@skip_if(lambda: True)
+def test_mp_fieldcache():
+    schema = fields.Schema(key=fields.KEYWORD(stored=True))
+    with TempIndex(schema, "mpfieldcache") as ix:
+        domain = list(u("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        random.shuffle(domain)
+        w = ix.writer()
+        for char in domain:
+            w.add_document(key=char)
+        w.commit()
         
+        tasks = [MPFCTask(ix.storage, ix.indexname) for _ in xrange(4)]
+        for task in tasks:
+            task.start()
+        for task in tasks:
+            task.join()
+
 def test_sortedby():
     try_sort("id", lambda d: d["id"])
     try_sort("id", lambda d: d["id"], limit=5)
@@ -324,7 +343,7 @@ def test_missing_field_facet():
     
     with ix.searcher() as s:
         r = s.search(query.Every(), groupedby="tag")
-        assert_equal(r.groups("tag"), {'': [2, 4], 'bravo': [3], 'alfa': [0, 1]})
+        assert_equal(r.groups("tag"), {None: [2, 4], 'bravo': [3], 'alfa': [0, 1]})
 
 def test_missing_numeric_facet():
     schema = fields.Schema(id=fields.STORED, tag=fields.NUMERIC)
@@ -342,8 +361,6 @@ def test_missing_numeric_facet():
         assert_equal(r.groups("tag"), {None: [2, 4], 0: [3], 1: [0, 1]})
 
 def test_date_facet():
-    from datetime import datetime
-    
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
@@ -397,8 +414,6 @@ def test_range_gaps():
                                        (9, 12): [9]})
 
 def test_daterange_facet():
-    from datetime import datetime, timedelta
-    
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
@@ -420,36 +435,35 @@ def test_daterange_facet():
                                         (dt(2001, 1, 11, 0, 0), dt(2001, 1, 16, 0, 0)): [0],
                                         None: [2]})
 
-@skip_if_unavailable("multiprocessing")
-@skip_if(lambda: True)
-def test_mp_fieldcache():
-    schema = fields.Schema(key=fields.KEYWORD(stored=True))
-    with TempIndex(schema, "mpfieldcache") as ix:
-        domain = list(u("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"))
-        random.shuffle(domain)
-        w = ix.writer()
-        for char in domain:
-            w.add_document(key=char)
-        w.commit()
-        
-        tasks = [MPFCTask(ix.storage, ix.indexname) for _ in xrange(4)]
-        for task in tasks:
-            task.start()
-        for task in tasks:
-            task.join()
-
+def test_overlapping_facet():
+    schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, tags=u("alfa bravo charlie"))
+    w.add_document(id=1, tags=u("bravo charlie delta"))
+    w.add_document(id=2, tags=u("charlie delta echo"))
+    w.add_document(id=3, tags=u("delta echo alfa"))
+    w.add_document(id=4, tags=u("echo alfa bravo"))
+    w.commit()
+    
+    with ix.searcher() as s:
+        of = sorting.FieldFacet("tags", allow_overlap=True)
+        r = s.search(query.Every(), groupedby={"tags": of})
+        assert_equal(r.groups("tags"), {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
+                                        'charlie': [0, 1, 2], 'delta': [1, 2, 3],
+                                        'echo': [2, 3, 4]})
+    
 def test_field_facets():
     def check(method):
         with TempIndex(get_schema()) as ix:
             method(ix)
             with ix.searcher() as s:
-                q = query.Every()
-                groups = s.categorize_query(q, "tag")
+                results = s.search(query.Every(), groupedby="tag")
+                groups = results.groups("tag")
                 assert (sorted(groups.items())
-                        == [(u('one'), [long_type(0), long_type(6)]), (u('three'),
-                            [long_type(1), long_type(3),
-                             long_type(7), long_type(8)]),
-                            (u('two'), [long_type(2), long_type(4), long_type(5)])])
+                        == [(u('one'), [0, 6]),
+                            (u('three'), [1, 3, 7, 8]),
+                            (u('two'), [2, 4, 5])])
     
     check(make_single_index)
     check(make_multi_index)
@@ -479,11 +493,8 @@ def test_define_facets():
                 assert_equal(groups, {'a-i': u('abcdefghi'), 'j-r': u('jklmnopqr'),
                                       's-z': u('stuvwxyz')})
             
-            check(s.categorize_query(query.Every(), "range"))
+            check(s.search(query.Every(), groupedby="range").groups("range"))
 
-            r = s.search(query.Every(), groupedby="range")
-            check(r.groups("range"))
-            
         with ix.searcher() as s:
             assert not s.reader().fieldcache_available("range")
 
@@ -505,12 +516,7 @@ def test_multifacet():
                    (u('bravo'), u('small')): [3]}
         
         with ix.searcher() as s:
-            cats = s.categorize_query(query.Every(), ("tag", "size"))
-            assert_equal(cats, correct)
-            
-            from whoosh.sorting import MultiFacet
-            
-            facet = MultiFacet(["tag", "size"])
+            facet = sorting.MultiFacet(["tag", "size"])
             r = s.search(query.Every(), groupedby={"tag/size" : facet})
             cats = r.groups(("tag/size"))
             assert_equal(cats, correct)
