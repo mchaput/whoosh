@@ -84,8 +84,8 @@ class FieldCache(object):
     each document with a value through the array.
     """
     
-    def __init__(self, order=None, texts=None, hastexts=True, default=u(""),
-                 typecode="I"):
+    def __init__(self, order=None, texts=None, hastexts=True,
+                 default=u('\uFFFF'), typecode="I"):
         """
         :param order: an array of ints.
         :param texts: a list of text values.
@@ -366,7 +366,8 @@ class FieldCache(object):
 # Streaming cache file writer
 
 class FieldCacheWriter(object):
-    def __init__(self, dbfile, size=0, hastexts=True, code="I", default=u("")):
+    def __init__(self, dbfile, size=0, hastexts=True, code="I",
+                 default=u('\uFFFF')):
         self.dbfile = dbfile
         self.order = array(self.code, [0] * size)
         self.hastexts = hastexts
