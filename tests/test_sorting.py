@@ -63,7 +63,7 @@ def make_multi_index(ix):
             w.add_document(ev=u("a"), **doc)
         w.commit(merge=False)
 
-def try_sort(sortedby, key, q=None, limit=None, reverse=False, debug=False):
+def try_sort(sortedby, key, q=None, limit=None, reverse=False):
     if q is None: q = query.Term("ev", u("a"))
     
     correct = [d["id"] for d in sorted(docs, key=key, reverse=reverse)][:limit]
@@ -74,10 +74,6 @@ def try_sort(sortedby, key, q=None, limit=None, reverse=False, debug=False):
             with ix.searcher() as s:
                 r = s.search(q, sortedby=sortedby, limit=limit, reverse=reverse)
                 rids = [d["id"] for d in r]
-                if debug:
-                    print "fn=", fn
-                    print "rids=", rids
-                    print "correct=", correct
                 assert_equal(rids, correct)
 
 
@@ -325,7 +321,6 @@ def test_query_facet():
         r = s.search(query.Every(), groupedby=facet)
         # If you specify a facet withou a name, it's automatically called
         # "facet"
-        print r.groups("facet")
         assert_equal(r.groups("facet"), {"a-c": [1, 2, 4],
                                          "d-f": [5, 7, 8],
                                          "g-i": [0, 3, 6]})
@@ -615,7 +610,6 @@ def test_sorting_function():
     with ix.searcher() as s:
         q = query.And([query.Term("text", u("alfa")), query.Term("text", u("bravo"))])
         results = s.search(q, sortedby=fnfacet)
-        print results.top_n
         r = [hit["text"] for hit in results]
         for t in r[:10]:
             tks = t.split()

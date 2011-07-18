@@ -337,17 +337,10 @@ class SqlitePool(PoolBase):
         
         for name in sorted(self.fieldnames):
             con = self._con(name)
-            #t = now()
-            #con.execute("create index postix on postings (token, docnum)")
-            #print "Create index:", name, now() - t
-            
-            print "Reading", name
-            t = now()
             for text, docnum, weight, valuestring in con.execute("select * from postings order by token, docnum"):
                 yield (name, text, docnum, weight, valuestring)
             con.close()
             os.remove(self._field_filename(name))
-            print "Readback:", name, now() - t
         
         if self._using_tempdir and self.dir:
             try:

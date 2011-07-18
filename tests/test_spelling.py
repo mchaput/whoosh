@@ -104,7 +104,6 @@ def test_add_spelling():
     add_spelling(ix, ["text1", "text2"])
     
     with ix.reader() as r:
-        print r.dawg
         assert r.has_word_graph("text1")
         assert r.has_word_graph("text2")
         
@@ -135,10 +134,7 @@ def test_multisegment():
     ix.optimize()
     with ix.reader() as r:
         assert r.is_atomic()
-        
         assert_equal(list(r.lexicon("text")), sorted(domain))
-        
-        print ix.storage.list()
         assert r.has_word_graph("text")
         words = list(dawg.flatten(r.word_graph("text")))
         assert_equal(words, sorted(domain))
