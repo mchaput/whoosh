@@ -56,9 +56,9 @@ class Sorter(object):
                    groupedby=None):
         from whoosh.searching import Collector
         
-        collector = Collector(limit=limit, groupedby=groupedby, reverse=reverse)
-        return collector.sort(self.searcher, q, self.multi, allow=filter,
-                              restrict=mask)
+        collector = Collector(limit=limit, groupedby=groupedby)
+        return collector.sort(self.searcher, q, self.multi, reverse=reverse,
+                              allow=filter, restrict=mask)
     
 
 # Faceting objects

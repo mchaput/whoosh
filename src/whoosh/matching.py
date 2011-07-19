@@ -77,6 +77,52 @@ class Matcher(object):
         
         raise NotImplementedError
     
+    def term(self):
+        """Returns a ("fieldname", "termtext") tuple for the term this matcher
+        matches, or None if this matcher is not a term matcher.
+        """
+        
+        return None
+    
+    def term_matchers(self):
+        """Returns an iterator of term matchers in this tree.
+        """
+        
+        if self.term() is not None:
+            yield self
+        else:
+            for cm in self.children():
+                for m in cm.term_matchers():
+                    yield m
+    
+    def matching_terms(self, id=None):
+        """Returns an iterator of ("fieldname", "termtext") tuples for the
+        CURRENTLY MATCHING term matchers in this tree.
+        """
+        
+        if not self.is_active():
+            return
+        
+        if id is None:
+            id = self.id()
+        elif id != self.id():
+            return
+        
+        t = self.term()
+        if t is None:
+            for c in self.children():
+                for t in c.matching_terms(id):
+                    yield t
+        else:
+            yield t
+    
+    def children(self):
+        """Returns an (possibly empty) list of the submatchers of this
+        matcher.
+        """
+        
+        return []
+    
     def replace(self, minquality=0):
         """Returns a possibly-simplified version of this matcher. For example,
         if one of the children of a UnionMatcher is no longer active, calling
@@ -275,7 +321,7 @@ class ListMatcher(Matcher):
     """
     
     def __init__(self, ids, weights=None, values=None, format=None,
-                 scorer=None, position=0, all_weights=None):
+                 scorer=None, position=0, all_weights=None, term=None):
         """
         :param ids: a list of doc IDs.
         :param weights: a list of weights corresponding to the list of IDs.
@@ -286,6 +332,8 @@ class ListMatcher(Matcher):
             format of the field.
         :param scorer: a :class:`whoosh.scoring.BaseScorer` object for scoring
             the postings.
+        :param term: a ("fieldname", "text") tuple, or None if this is not a
+            term matcher.
         """
         
         self._ids = ids
@@ -295,12 +343,16 @@ class ListMatcher(Matcher):
         self._i = position
         self._format = format
         self._scorer = scorer
+        self._term = term
     
     def __repr__(self):
         return "<%s>" % self.__class__.__name__
     
     def is_active(self):
         return self._i < len(self._ids)
+    
+    def term(self):
+        return self._term
     
     def copy(self):
         return self.__class__(self._ids, self._weights, self._values,
@@ -444,6 +496,9 @@ class WrappingMatcher(Matcher):
     def is_active(self):
         return self.child.is_active()
     
+    def children(self):
+        return [self.child]
+    
     def supports(self, astype):
         return self.child.supports(astype)
     
@@ -501,6 +556,9 @@ class MultiMatcher(Matcher):
     
     def is_active(self):
         return self.current < len(self.matchers)
+    
+    def children(self):
+        return [self.matchers[self.current]]
     
     def _next_matcher(self):
         matchers = self.matchers
@@ -636,7 +694,8 @@ class FilterMatcher(WrappingMatcher):
                               boost=self.boost)
     
     def _replacement(self, newchild):
-        return self.__class__(newchild, self._ids, exclude=self._exclude, boost=self.boost)
+        return self.__class__(newchild, self._ids, exclude=self._exclude,
+                              boost=self.boost)
     
     def _find_next(self):
         child = self.child
@@ -686,6 +745,9 @@ class BiMatcher(Matcher):
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.a, self.b)
+
+    def children(self):
+        return [self.a, self.b]
 
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
@@ -1548,7 +1610,10 @@ class ConstantScoreMatcher(WrappingMatcher):
     
     def score(self):
         return self._score
-    
+
+
+
+
 
 #class PhraseMatcher(WrappingMatcher):
 #    """Matches postings where a list of sub-matchers occur next to each other

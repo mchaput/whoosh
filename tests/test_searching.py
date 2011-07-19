@@ -983,32 +983,6 @@ def test_boost_phrase():
             if "bravo charlie delta" in hit["title"]:
                 assert hit.score > 100.0
 
-def test_trackingcollector():
-    schema = fields.Schema(text=fields.TEXT(stored=True))
-    ix = RamStorage().create_index(schema)
-    domain = u("alfa bravo charlie delta echo").split()
-    w = ix.writer()
-    for ls in list(permutations(domain, 3))[::2]:
-        w.add_document(text=u(" ").join(ls))
-    w.commit()
-    
-    with ix.searcher() as s:
-        q = Or([Term("text", u("alfa")),Term("text", u("bravo")),
-                Not(Term("text", "charlie"))])
-        
-        col = searching.TermTrackingCollector()
-        _ = col.search(s, q)
-        
-        for docnum in col.catalog["text:alfa"]:
-            words = s.stored_fields(docnum)["text"].split()
-            assert "alfa" in words
-            assert "charlie" not in words
-        
-        for docnum in col.catalog["text:bravo"]:
-            words = s.stored_fields(docnum)["text"].split()
-            assert "bravo" in words
-            assert "charlie" not in words
-
 def test_filter():
     schema = fields.Schema(id=fields.STORED, path=fields.ID, text=fields.TEXT)
     ix = RamStorage().create_index(schema)

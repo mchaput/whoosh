@@ -312,7 +312,7 @@ def test_snippets():
     with ix.searcher() as s:
         qp = qparser.QueryParser("text", ix.schema)
         q = qp.parse(u("key"))
-        r = s.search(q)
+        r = s.search(q, terms=True)
         r.formatter = highlight.UppercaseFormatter()
         
         assert_equal(sorted([hit.highlights("text") for hit in r]), sorted(target))
@@ -415,16 +415,36 @@ def test_contains():
     w.commit()
     
     q = query.Or([query.Term("text", "bravo"), query.Term("text", "charlie")])
-    r = ix.searcher().search(q)
-    assert not r.contains_term("text", "alfa")
-    assert r.contains_term("text", "bravo")
-    assert r.contains_term("text", "charlie")
-    assert r.contains_term("text", "delta")
-    assert r.contains_term("text", "echo")
-    assert not r.contains_term("text", "foxtrot")
+    r = ix.searcher().search(q, terms=True)
+    for hit in r:
+        assert not hit.contains_term("text", "alfa")
+        assert (hit.contains_term("text", "bravo")
+                or hit.contains_term("text", "charlie"))
+        assert not hit.contains_term("text", "foxtrot")
 
-
-
+def test_terms():
+    schema = fields.Schema(text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("alfa sierra tango"))
+    w.add_document(text=u("bravo charlie delta"))
+    w.add_document(text=u("charlie delta echo"))
+    w.add_document(text=u("delta echo foxtrot"))
+    w.commit()
+    
+    qp = qparser.QueryParser("text", ix.schema)
+    q = qp.parse(u("(bravo AND charlie) OR foxtrot OR missing"))
+    r = ix.searcher().search(q, terms=True)
+    
+    def txts(tset):
+        return sorted(t[1] for t in tset)
+    
+    assert_equal(txts(r.matched_terms()), ["bravo", "charlie", "foxtrot"])
+    for hit in r:
+        value = hit["text"]
+        for txt in txts(hit.matched_terms()):
+            assert txt in value
+    
 
 
 
