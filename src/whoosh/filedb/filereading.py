@@ -271,12 +271,11 @@ class SegmentReader(IndexReader):
         postings = terminfo.postings
         if isinstance(postings, integer_types):
             postreader = FilePostingReader(self.postfile, postings, format,
-                                           scorer=scorer, fieldname=fieldname,
-                                           text=text)
+                                           scorer=scorer, term=(fieldname, text))
         else:
             docids, weights, values = postings
             postreader = ListMatcher(docids, weights, values, format,
-                                     scorer=scorer)
+                                     scorer=scorer, term=(fieldname, text))
         
         deleted = self.segment.deleted
         if deleted:

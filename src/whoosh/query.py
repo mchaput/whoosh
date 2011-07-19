@@ -1876,7 +1876,7 @@ class ConstantScoreQuery(WrappingQuery):
             return m
         else:
             ids = array("I", m.all_ids())
-            return ListMatcher(ids, all_weights=self.score)
+            return ListMatcher(ids, all_weights=self.score, term=m.term())
     
 
 class BinaryQuery(CompoundQuery):

@@ -92,7 +92,7 @@ def test_workflow_easy():
         # Parse the user query
         parser = qparser.QueryParser("title", schema=ix.schema)
         q = parser.parse(u("man"))
-        r = s.search(q)
+        r = s.search(q, terms=True)
         assert_equal(len(r), 2)
         
         r.fragmenter = highlight.WholeFragmenter()

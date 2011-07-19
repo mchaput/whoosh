@@ -48,6 +48,14 @@ from whoosh.util import now, lru_cache
 class TimeLimit(Exception):
     pass
 
+class NoTermsException(Exception):
+    """Exception raised you try to access matched terms on a :class:`Results`
+    object was created without them. To record which terms matched in which
+    document, you need to call the :meth:`Searcher.search` method with
+    ``terms=True``.
+    """
+    
+    message = "Results were created without recording terms"
 
 # Searcher class
 
@@ -570,7 +578,8 @@ class Searcher(object):
                 yield docnum
     
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, filter=None, mask=None, groupids=True):
+               optimize=True, filter=None, mask=None, groupids=True,
+               terms=False):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -593,6 +602,10 @@ class Searcher(object):
             document numbers associated with that key. To map to a simple count
             of the number of documents instead of a list, use
             ``groupids=False``.
+        :param terms: if True, record which terms were found in each matching
+            document. You can use :meth:`Results.contains_term` or
+            :meth:`Hit.contains_term` to check whether a hit contains a
+            particular term.
         :rtype: :class:`Results`
         """
 
@@ -600,12 +613,12 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         collector = Collector(limit=limit, usequality=optimize,
-                              groupedby=groupedby, reverse=reverse,
-                              groupids=groupids)
+                              groupedby=groupedby, groupids=groupids,
+                              terms=terms)
         
         if sortedby:
-            return collector.sort(self, q, sortedby, allow=filter,
-                                  restrict=mask)
+            return collector.sort(self, q, sortedby, reverse=reverse,
+                                  allow=filter, restrict=mask)
         else:
             return collector.search(self, q, allow=filter, restrict=mask)
     
@@ -708,38 +721,55 @@ class Searcher(object):
         
 
 class Collector(object):
-    def __init__(self, limit=10, usequality=True, replace=10, groupedby=None,
-                 timelimit=None, greedy=False, reverse=False, groupids=True):
-        """A Collector finds the matching documents, scores them, collects them
-        into a list, and produces a Results object from them.
-        
-        Normally you do not need to instantiate an instance of the base
-        Collector class, the :meth:`Searcher.search` method does that for you.
-        
-        If you create a custom Collector instance or subclass you can use its
-        ``search()`` method instead of :meth:`Searcher.search`::
-        
-            mycollector = MyCollector()
-            results = mycollector.search(mysearcher, myquery)
-        
-        **Do not** re-use or share Collector instances between searches. You
-        should create a new Collector instance for each search.
-        
-        To limit the amount of time a search can take, pass the number of
-        seconds to the ``timelimit`` keyword argument::
-        
-            # Limit the search to 4.5 seconds
-            col = Collector(timelimit=4.5, greedy=False)
-            # If this call takes more than 4.5 seconds, it will raise a
-            # whoosh.searching.TimeLimit exception
-            try:
-                r = searcher.search(myquery, collector=col)
-            except TimeLimit, tl:
-                # You can still retrieve partial results from the collector
-                r = col.results()
-        
-        If the ``greedy`` keyword is ``True``, the collector will finish adding
-        the most recent hit before raising the ``TimeLimit`` exception.
+    """A Collector finds the matching documents, scores them, collects them
+    into a list, and produces a Results object from them.
+    
+    Normally you do not need to instantiate an instance of the base
+    Collector class, the :meth:`Searcher.search` method does that for you.
+    
+    If you create a custom Collector instance or subclass you can use its
+    ``search()`` method instead of :meth:`Searcher.search`::
+    
+        mycollector = MyCollector()
+        results = mycollector.search(mysearcher, myquery)
+    
+    **Do not** re-use or share Collector instances between searches. You
+    should create a new Collector instance for each search.
+    
+    To limit the amount of time a search can take, pass the number of
+    seconds to the ``timelimit`` keyword argument::
+    
+        # Limit the search to 4.5 seconds
+        col = Collector(timelimit=4.5, greedy=False)
+        # If this call takes more than 4.5 seconds, it will raise a
+        # whoosh.searching.TimeLimit exception
+        try:
+            r = searcher.search(myquery, collector=col)
+        except TimeLimit, tl:
+            # You can still retrieve partial results from the collector
+            r = col.results()
+    
+    If the ``greedy`` keyword is ``True``, the collector will finish adding
+    the most recent hit before raising the ``TimeLimit`` exception.
+    """
+    
+    def __init__(self, limit=10, usequality=True, groupedby=None,
+                 groupids=True, timelimit=None, greedy=False, terms=False,
+                 replace=10):
+        """
+        :param limit: the maximum number of hits to collect. If this is None,
+            collect all hits.
+        :param usequality: whether to use block quality optimizations when
+            available. This is mostly useful for debugging purposes.
+        :param groupedby: see :doc:`/facets` for information.
+        :param groupids: if True, saves lists of document IDs for facets. If
+            False, only saves a count of the number of documents in each group.
+        :param timelimit: the maximum amount of time (in possibly fractional
+            seconds) to allow for searching. If the search takes longer than
+            this, it will raise a ``TimeLimit`` exception.
+        :param greedy: if ``True``, the collector will finish adding the most
+            recent hit before raising the ``TimeLimit`` exception.
+        :param terms: if ``True``, record which terms matched in each document.
         """
         
         self.limit = limit
@@ -747,8 +777,8 @@ class Collector(object):
         self.replace = replace
         self.timelimit = timelimit
         self.greedy = greedy
-        self.reverse = reverse
         self.groupids = groupids
+        self.termlists = defaultdict(set) if terms else None
         
         self.facets = None
         if groupedby:
@@ -771,7 +801,8 @@ class Collector(object):
         does not use the final() method, etc.).
         """
         
-        use = (self.usequality and not searcher.weighting.use_final
+        use = (self.usequality
+               and not searcher.weighting.use_final
                and not self.should_add_all())
         if matcher:
             use = use and matcher.supports_block_quality()
@@ -904,8 +935,8 @@ class Collector(object):
         matcher = q.matcher(searcher)
         usequality = self.use_block_quality(searcher, matcher)
         
-        for score, offsetid in self.pull_matches(searcher, matcher, offset,
-                                                 scorefn, usequality):
+        for score, offsetid in self.pull_matches(matcher, offset, scorefn,
+                                                 usequality):
             # Document numbers are negated before putting them in the heap so
             # that higher document numbers have lower "priority" in the queue.
             # Lower document numbers should always come before higher document
@@ -925,7 +956,7 @@ class Collector(object):
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
     
-    def pull_matches(self, searcher, matcher, offset, scorefn, usequality):
+    def pull_matches(self, matcher, offset, scorefn, usequality):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.
         """
@@ -937,6 +968,13 @@ class Collector(object):
         minscore = self.minscore
         replacecounter = 0
         timelimited = bool(self.timelimit)
+        
+        termlists = self.termlists
+        recordterms = termlists is not None
+        if recordterms:
+            termmatchers = list(matcher.term_matchers())
+        else:
+            termmatchers = None
         
         # A flag to indicate whether we should check block quality at the start
         # of the next loop
@@ -952,6 +990,8 @@ class Collector(object):
                         break
                     replacecounter = replace
                     minscore = self.minscore
+                    if recordterms:
+                        termmatchers = list(matcher.term_matchers())
                 replacecounter -= 1
             
             # Check whether the time limit expired since the last match
@@ -983,6 +1023,12 @@ class Collector(object):
                     score = matcher.score()
                 yield (score, offsetid)
             
+            # If recording terms, add the document to the termlists
+            if recordterms:
+                for m in termmatchers:
+                    if m.is_active() and m.id() == id:
+                        termlists[m.term()].add(offsetid)
+            
             # Check whether the time limit expired
             if timelimited and self.timedout:
                 raise TimeLimit
@@ -992,7 +1038,8 @@ class Collector(object):
             # again.
             checkquality = matcher.next()
     
-    def sort(self, searcher, q, sortedby, allow=None, restrict=None):
+    def sort(self, searcher, q, sortedby, reverse=False, allow=None,
+             restrict=None):
         self.searcher = searcher
         self.q = q
         self.docset = set()
@@ -1002,7 +1049,7 @@ class Collector(object):
         
         items = self.items
         limit = self.limit
-        heapfn = nlargest if self.reverse else nsmallest
+        heapfn = nlargest if reverse else nsmallest
         addall = self.should_add_all()
         
         facet = sorting.MultiFacet.from_sortedby(sortedby)
@@ -1019,8 +1066,8 @@ class Collector(object):
             catter.set_searcher(s, offset)
             matcher = q.matcher(s)
             
-            if catter.requires_matcher:
-                ls = list(self.pull_matches(s, matcher, offset,
+            if catter.requires_matcher or self.termlists:
+                ls = list(self.pull_matches(matcher, offset,
                                             catter.key_for_matcher, False))
             else:
                 ls = list(self.pull_unscored_matches(matcher, offset,
@@ -1033,7 +1080,7 @@ class Collector(object):
         
         self.items = items
         self.runtime = now() - t
-        return self.results(scores=False)
+        return self.results(scores=False, reverse=reverse)
     
     def pull_unscored_matches(self, matcher, offset, keyfn):
         allow = self.allow
@@ -1060,7 +1107,7 @@ class Collector(object):
             if timelimited and self.timedout:
                 raise TimeLimit
     
-    def results(self, scores=True):
+    def results(self, scores=True, reverse=False):
         """Returns the current results from the collector. This is useful for
         getting the results out of a collector that was stopped by a time
         limit exception.
@@ -1074,111 +1121,14 @@ class Collector(object):
             # Sort by negated scores so that higher scores go first, then by
             # document number to keep the order stable when documents have the
             # same score
-            items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+            items.sort(key=lambda x: (0 - x[0], x[1]))
         else:
-            items = sorted(self.items, reverse=self.reverse)
+            items = sorted(self.items, reverse=reverse)
         
         return Results(self.searcher, self.q, items, self.docset,
                        groups=self.groups, runtime=self.runtime,
-                       filter=self.allow, mask=self.restrict)
-
-
-class TermTrackingCollector(Collector):
-    """This is an experiment. For a more straightforward but possibly slightly
-    slower method for determining if a given term was found, see
-    :meth:`Results.contains_term`.
-    
-    This collector records which parts of the query matched which documents
-    in the final results. The results for each part of the query are available
-    as a dictionary in the ``catalog`` attribute of the collector after the
-    search, where the keys are representations of the parts of the query and
-    the values are sets of document numbers that matched that part of the
-    query.
-    
-    This feature is experimental and may change in future releases.
-    
-    How to choose a key to represent query objects in the ``catalog``
-    dictionary was not entirely clear. The current implementation uses the
-    unicode representation of the query object, which usually returns something
-    at least recognizable (for example, ``unicode(Term("f", u"a")) == u"f:a"``
-    and ``unicode(Prefix("f", "b")) == u"f:b*"``).
-    
-    >>> myparser = qparser.QueryParser("content", myindex.schema)
-    >>> myquery = myparser.parse(u"apple OR bear NOT camel")
-    >>> col = TermTrackingCollector()
-    >>> results = col.search(searcher, myquery)
-    >>> # The docnums in the results that contained "apple"
-    >>> col.catalog["content:apple"]
-    set([1, 2, 3])
-    >>> for hit in results:
-    ...     print hit.rank, ":", hit["title"]
-    ...     for key, docset in col.catalog.keys():
-    ...         if hit.docnum in docset:
-    ...             print "   - Contains", key
-    """
-    
-    # This collector works by rewriting the query with "TaggedQuery" wrappers
-    # around the leaf nodes before it searches. When base collector generates
-    # a matcher tree from the query tree, these wrappers "phone home" to this
-    # collector and register the leaf matchers. Then, when collecting hits, the
-    # collector checks with the leaf matchers at each hit to see if they are
-    # matching the current document.
-    
-    def __init__(self, *args, **kwargs):
-        super(TermTrackingCollector, self).__init__(*args, **kwargs)
-        self.catalog = {}
-    
-    def should_add_all(self):
-        # If you're using this collector, you need to examine all documents
-        return True
-    
-    def add_matches(self, searcher, q, offset, scorefn):
-        sup = super(TermTrackingCollector, self)
-        self.matchers = []
-        q = self._tag(q)
-        return sup.add_matches(searcher, q, offset, scorefn)
-    
-    def pull_matches(self, searcher, matcher, offset, scorefn, usequality):
-        super_method = super(TermTrackingCollector, self).pull_matches
-        
-        for score, offsetid in super_method(searcher, matcher, offset,
-                                            scorefn, usequality):
-            for key, m in self.matchers:
-                if m.is_active() and m.id() == offsetid - offset:
-                    if key not in self.catalog:
-                        self.catalog[key] = set()
-                    self.catalog[key].add(offsetid)
-            
-            yield (score, offsetid)
-    
-    def _tag(self, q):
-        # Takes a query and returns a copy of the query with a TaggedQuery
-        # wrapper around any leaf nodes in the query tree
-        if isinstance(q, query.Not):
-            return q
-        elif q.is_leaf():
-            return TermTrackingCollector.TaggedQuery(q, self)
-        else:
-            return q.apply(self._tag)
-        
-    def _tag_matcher(self, key, m):
-        # This method is called from the TaggedQuery wrappers that the _tag
-        # method added to the query
-        self.matchers.append((key, m))
-        
-    class TaggedQuery(query.WrappingQuery):
-        # The only purpose of this query wrapper is to "call home" to the
-        # TrackingCollector instance when the child query generates a matcher
-        # so the TrackingCollector can register it
-        
-        def __init__(self, child, tracker):
-            self.child = child
-            self.tracker = tracker
-        
-        def matcher(self, searcher):
-            m = self.child.matcher(searcher)
-            self.tracker._tag_matcher(text_type(self.child), m)
-            return m
+                       filter=self.allow, mask=self.restrict,
+                       termlists=self.termlists)
 
 
 class Results(object):
@@ -1193,7 +1143,7 @@ class Results(object):
     """
 
     def __init__(self, searcher, q, top_n, docset, groups=None, runtime=-1,
-                 filter=None, mask=None):
+                 filter=None, mask=None, termlists=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -1213,7 +1163,7 @@ class Results(object):
         self.runtime = runtime
         self._filter = filter
         self._mask = mask
-        self._terms = None
+        self._termlists = termlists
         
         self.fragmenter = highlight.ContextFragmenter()
         self.fragment_scorer = highlight.BasicFragmentScorer()
@@ -1271,11 +1221,6 @@ class Results(object):
         """
         
         return ((docnum, score) for score, docnum in self.top_n)
-
-    def terms(self):
-        if self._terms is  None:
-            self._terms = self.q.existing_terms(self.searcher.reader())
-        return self._terms
 
     def fields(self, n):
         """Returns the stored fields for the document at the ``n`` th position
@@ -1396,8 +1341,31 @@ class Results(object):
         """
         return self.top_n[n][1]
 
+    def matched_terms(self):
+        """Returns the set of ``("fieldname", "text")`` tuples representing
+        terms from the query that matched one or more of the TOP N documents
+        (this does not report terms for documents that match the query but did
+        not score high enough to make the top N results). You can compare this
+        set to the terms from the original query to find terms which didn't
+        occur in any matching documents.
+        
+        This is only valid if you used ``terms=True`` in the search call to
+        record matching terms. Otherwise it will raise an exception.
+        
+        >>> q = myparser.parse("alfa OR bravo OR charlie")
+        >>> results = searcher.search(q, terms=True)
+        >>> results.terms()
+        set([("content", "alfa"), ("content", "charlie")])
+        >>> q.all_terms() - results.terms()
+        set([("content", "bravo")])
+        """
+        
+        if self._termlists is None:
+            raise NoTermsException
+        return set(self._termlists.keys())
+
     def highlights(self, n, fieldname, text=None, top=3, fragmenter=None,
-                   formatter=None, order=highlight.FIRST):
+                   formatter=None, order=highlight.FIRST, force=True):
         """Returns highlighted snippets for the document in the Nth position
         in the results. It is usually more convenient to call this method on a
         Hit object instead of the Results.
@@ -1416,11 +1384,17 @@ class Results(object):
         fragmenter = fragmenter or self.fragmenter
         formatter = formatter or self.formatter
         
-        terms = set(ttext for fname, ttext in self.terms()
-                    if fname == fieldname)
+        if self._termlists is None:
+            terms = self.q.existing_terms(self.searcher.reader())
+        else:
+            terms = self.matched_terms()
+        terms = set(ttext for fname, ttext in terms if fname == fieldname)
+        if not terms and not force:
+            return None
+        
         return highlight.highlight(text, terms, analyzer, fragmenter,
-                                   formatter, top=top,
-                                   scorer=self.fragment_scorer, order=order)
+                                   formatter, top=top, order=order,
+                                   scorer=self.fragment_scorer)
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -1521,26 +1495,6 @@ class Results(object):
         self.docset = docs | otherdocs
         self.top_n = arein + notin + other
 
-    def contains_term(self, fieldname, text):
-        """Returns True if the given term exists in at least one of the
-        documents in this results set.
-        """
-        
-        docset = self.docs()
-        minid = min(docset)
-        maxid = max(docset)
-        
-        field = self.searcher.schema[fieldname]
-        text = field.to_text(text)
-        postings = self.searcher.postings(fieldname, text)
-        postings.skip_to(minid)
-        for id in postings.all_ids():
-            if id in docset:
-                return True
-            if id >= maxid:
-                break
-        return False
-
 
 class Hit(object):
     """Represents a single search result ("hit") in a Results object.
@@ -1589,8 +1543,37 @@ class Hit(object):
             self._fields = self.searcher.stored_fields(self.docnum)
         return self._fields
     
+    def matched_terms(self):
+        """Returns the set of ``("fieldname", "text")`` tuples representing
+        terms from the query that matched in this document. You can
+        compare this set to the terms from the original query to find terms
+        which didn't occur in this document.
+        
+        This is only valid if you used ``terms=True`` in the search call to
+        record matching terms. Otherwise it will raise an exception.
+        
+        >>> q = myparser.parse("alfa OR bravo OR charlie")
+        >>> results = searcher.search(q, terms=True)
+        >>> for hit in results:
+        ...   print(hit["title"])
+        ...   print("Contains:", hit.matched_terms())
+        ...   print("Doesn't contain:", q.all_terms() - hit.matched_terms())
+        """
+        
+        termlists = self.results._termlists
+        if termlists is None:
+            raise NoTermsException
+        
+        # termlists maps terms->set of docnums, so we have to check every term
+        # to see if this document is in its list
+        s = set()
+        for term in termlists.keys():
+            if self.docnum in termlists[term]:
+                s.add(term)
+        return s
+    
     def highlights(self, fieldname, text=None, top=3, fragmenter=None,
-                   formatter=None, order=highlight.FIRST):
+                   formatter=None, order=highlight.FIRST, force=True):
         """Returns highlighted snippets from the given field::
         
             r = searcher.search(myquery)
@@ -1644,11 +1627,17 @@ class Hit(object):
             :func:`whoosh.highlight.LONGER`,
             :func:`whoosh.highlight.SHORTER`, or a custom sorting function. The
             default is ``highlight.FIRST``.
+        :param force: if True (the default), returns "highlights" even if the
+            document does not contain any matching terms. If False, returns
+            None instead of highlights when the document does not contain any
+            matching terms. This can save time by avoiding retokenizing large
+            amounts of text.
         """
         
         return self.results.highlights(self.rank, fieldname, text=text,
                                        top=top, fragmenter=fragmenter,
-                                       formatter=formatter, order=order)
+                                       formatter=formatter, order=order,
+                                       force=force)
     
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):
@@ -1681,6 +1670,20 @@ class Hit(object):
         return self.searcher.more_like(self.docnum, fieldname, text=text,
                                        top=top, numterms=numterms, model=model,
                                        normalize=normalize, filter=filter)
+    
+    def contains_term(self, fieldname, text):
+        """Returns True if the given query term exists in this document. This
+        only works for terms that were in the original query.
+        """
+        
+        termlists = self.results._termlists
+        if termlists is not None:
+            term = (fieldname, text)
+            if term in termlists:
+                docset = termlists[term]
+                return self.docnum in docset
+        
+        return False
     
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())

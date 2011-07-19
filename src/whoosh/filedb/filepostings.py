@@ -124,8 +124,8 @@ class FilePostingWriter(PostingWriter):
         
 
 class FilePostingReader(Matcher):
-    def __init__(self, postfile, offset, format, scorer=None,
-                 fieldname=None, text=None, stringids=False):
+    def __init__(self, postfile, offset, format, scorer=None, term=None,
+                 stringids=False):
         
         assert isinstance(offset, integer_types), "offset is %r/%s" % (offset, type(offset))
         assert isinstance(format, Format), "format is %r/%s" % (format, type(format))
@@ -136,8 +136,7 @@ class FilePostingReader(Matcher):
         self.supports_chars = self.format.supports("characters")
         self.supports_poses = self.format.supports("positions")
         self.scorer = scorer
-        self.fieldname = fieldname
-        self.text = text
+        self._term = term
         self.stringids = stringids
         
         magic = postfile.get_int(offset)
@@ -150,8 +149,8 @@ class FilePostingReader(Matcher):
         self._next_block()
 
     def __repr__(self):
-        r = "%s(%r, %r, %r, %s" % (self.__class__.__name__, str(self.postfile),
-                                   self.fieldname, self.text, self.is_active())
+        r = "%s(%r, %r, %s" % (self.__class__.__name__, str(self.postfile),
+                                   self._text, self.is_active())
         if self.is_active():
             r += ", %r" % self.id()
         r += ")"
@@ -162,11 +161,14 @@ class FilePostingReader(Matcher):
 
     def copy(self):
         return self.__class__(self.postfile, self.startoffset, self.format,
-                              scorer=self.scorer, fieldname=self.fieldname,
-                              text=self.text, stringids=self.stringids)
+                              scorer=self.scorer, term=self._term,
+                              stringids=self.stringids)
 
     def is_active(self):
         return self._active
+
+    def term(self):
+        return self._term
 
     def id(self):
         return self.block.ids[self.i]
@@ -195,7 +197,7 @@ class FilePostingReader(Matcher):
         elif self.supports_poses:
             return [Span(pos) for pos in self.value_as("positions")]
         else:
-            raise Exception("Field does not support positions (%r)" % self.fieldname)
+            raise Exception("Field does not support positions (%r)" % self._term)
 
     def weight(self):
         weights = self.block.weights
