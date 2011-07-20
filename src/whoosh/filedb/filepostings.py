@@ -150,7 +150,7 @@ class FilePostingReader(Matcher):
 
     def __repr__(self):
         r = "%s(%r, %r, %s" % (self.__class__.__name__, str(self.postfile),
-                                   self._text, self.is_active())
+                               self._term, self.is_active())
         if self.is_active():
             r += ", %r" % self.id()
         r += ")"

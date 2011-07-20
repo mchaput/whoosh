@@ -918,8 +918,9 @@ class Collector(object):
             
         for s, offset in searchers:
             scorefn = self._score_fn(s)
+            self.subsearcher = s
             self._set_categorizers(s, offset)
-            self.add_matches(s, q, offset, scorefn)
+            self.add_matches(q, offset, scorefn)
         
         # If we started a time limit timer thread, cancel it
         if self.timelimit and self.timer:
@@ -928,15 +929,12 @@ class Collector(object):
         self.runtime = now() - t
         return self.results()
     
-    def add_matches(self, searcher, q, offset, scorefn):
+    def add_matches(self, q, offset, scorefn):
         items = self.items
         limit = self.limit
         addall = self.should_add_all()
-        matcher = q.matcher(searcher)
-        usequality = self.use_block_quality(searcher, matcher)
         
-        for score, offsetid in self.pull_matches(matcher, offset, scorefn,
-                                                 usequality):
+        for score, offsetid in self.pull_matches(q, offset, scorefn):
             # Document numbers are negated before putting them in the heap so
             # that higher document numbers have lower "priority" in the queue.
             # Lower document numbers should always come before higher document
@@ -956,7 +954,7 @@ class Collector(object):
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
     
-    def pull_matches(self, matcher, offset, scorefn, usequality):
+    def pull_matches(self, q, offset, scorefn):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.
         """
@@ -968,6 +966,9 @@ class Collector(object):
         minscore = self.minscore
         replacecounter = 0
         timelimited = bool(self.timelimit)
+        
+        matcher = q.matcher(self.subsearcher)
+        usequality = self.use_block_quality(self.subsearcher, matcher)
         
         termlists = self.termlists
         recordterms = termlists is not None
@@ -988,6 +989,7 @@ class Collector(object):
                     matcher = matcher.replace(minscore or 0)
                     if not matcher.is_active():
                         break
+                    usequality = self.use_block_quality(self.subsearcher, matcher)
                     replacecounter = replace
                     minscore = self.minscore
                     if recordterms:
@@ -1062,16 +1064,14 @@ class Collector(object):
             searchers = searcher.subsearchers
             
         for s, offset in searchers:
+            self.subsearcher = s
             self._set_categorizers(s, offset)
             catter.set_searcher(s, offset)
-            matcher = q.matcher(s)
             
             if catter.requires_matcher or self.termlists:
-                ls = list(self.pull_matches(matcher, offset,
-                                            catter.key_for_matcher, False))
+                ls = list(self.pull_matches(q, offset, catter.key_for_matcher))
             else:
-                ls = list(self.pull_unscored_matches(matcher, offset,
-                                                     catter.key_for_id))
+                ls = list(self.pull_unscored_matches(q, offset, catter.key_for_id))
             
             if addall:
                 items.extend(ls)
@@ -1082,12 +1082,13 @@ class Collector(object):
         self.runtime = now() - t
         return self.results(scores=False, reverse=reverse)
     
-    def pull_unscored_matches(self, matcher, offset, keyfn):
+    def pull_unscored_matches(self, q, offset, keyfn):
         allow = self.allow
         restrict = self.restrict
         collect = self.collect
         timelimited = bool(self.timelimit)
         
+        matcher = q.matcher(self.subsearcher)
         for id in matcher.all_ids():
             # Check whether the time limit expired since the last match
             if timelimited and self.timedout and not self.greedy:

@@ -304,6 +304,15 @@ class NullMatcher(Matcher):
     """Matcher with no postings which is never active.
     """
     
+    def supports_block_quality(self):
+        return True
+    
+    def block_quality(self):
+        return 0
+    
+    def skip_to_quality(self, minquality):
+        return 0
+    
     def is_active(self):
         return False
     
@@ -1610,6 +1619,9 @@ class ConstantScoreMatcher(WrappingMatcher):
     
     def score(self):
         return self._score
+
+
+
 
 
 
