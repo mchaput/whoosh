@@ -590,9 +590,9 @@ class Searcher(object):
         :param limit: the maximum number of documents to score. If you're only
             interested in the top N documents, you can set limit=N to limit the
             scoring for a faster search.
-        :param sortedby: see :doc`/facets`.
+        :param sortedby: see :doc:`/facets`.
         :param reverse: Reverses the direction of the sort.
-        :param groupedby: see :doc`/facets`.
+        :param groupedby: see :doc:`/facets`.
         :param optimize: use optimizations to get faster results when possible.
         :param filter: a query, Results object, or set of docnums. The results
             will only contain documents that are also in the filter object.
@@ -625,9 +625,9 @@ class Searcher(object):
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
         """Returns a corrected version of the given user query using a default
-        :class:`
+        :class:`whoosh.spelling.ReaderCorrector`.
         
-        The default 
+        The default:
         
         * Corrects any words that don't appear in the index.
         

@@ -14,8 +14,6 @@ Searching classes
 .. autoclass:: Collector
     :members:
     
-.. autoclass:: TermTrackingCollector
-
 
 Results classes
 ===============

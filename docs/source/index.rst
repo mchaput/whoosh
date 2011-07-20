@@ -35,6 +35,7 @@ Contents
     fieldcaches
     batch
     threads
+    recipes
     api/api
     tech/index
 

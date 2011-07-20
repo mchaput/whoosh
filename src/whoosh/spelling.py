@@ -266,8 +266,8 @@ class QueryCorrector(object):
         :param q: the original :class:`whoosh.query.Query` tree to be
             corrected.
         :param qstring: the original user query. This may be None if the
-        original query string is not available, in which case the
-        ``Correction.string`` attribute will also be None.
+            original query string is not available, in which case the
+            ``Correction.string`` attribute will also be None.
         :rtype: :class:`Correction`
         """
         

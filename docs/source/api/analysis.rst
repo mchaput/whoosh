@@ -27,6 +27,7 @@ Tokenizers
 .. autoclass:: SpaceSeparatedTokenizer
 .. autoclass:: CommaSeparatedTokenizer
 .. autoclass:: NgramTokenizer
+.. autoclass:: PathTokenizer
 
 
 Filters
@@ -35,6 +36,7 @@ Filters
 .. autoclass:: PassFilter
 .. autoclass:: LoggingFilter
 .. autoclass:: MultiFilter
+.. autoclass:: ReverseTextFilter
 .. autoclass:: LowercaseFilter
 .. autoclass:: StripFilter
 .. autoclass:: StopFilter

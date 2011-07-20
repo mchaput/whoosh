@@ -25,49 +25,72 @@ The following functions return pre-configured QueryParser objects.
 Plug-ins
 ========
 
-.. autoclass:: FieldsPlugin
-.. autoclass:: CompoundsPlugin
-.. autoclass:: NotPlugin
-.. autoclass:: WildcardPlugin
+.. autoclass:: Plugin
+    :members:
+
+.. autoclass:: SingleQuotePlugin
 .. autoclass:: PrefixPlugin
+.. autoclass:: WildcardPlugin
+.. autoclass:: BoostPlugin
+.. autoclass:: GroupPlugin
+.. autoclass:: EveryPlugin
+.. autoclass:: FieldsPlugin
 .. autoclass:: PhrasePlugin
 .. autoclass:: RangePlugin
-.. autoclass:: SingleQuotesPlugin
-.. autoclass:: GroupPlugin
-.. autoclass:: BoostPlugin
-.. autoclass:: NotPlugin
+.. autoclass:: OperatorsPlugin
 .. autoclass:: PlusMinusPlugin
+.. autoclass:: GtLtPlugin
 .. autoclass:: MultifieldPlugin
-.. autoclass:: DisMaxPlugin
 .. autoclass:: FieldAliasPlugin
 .. autoclass:: CopyFieldPlugin
-.. autoclass:: GtLtPlugin
 
 
-Syntax objects
-==============
+Syntax node objects
+===================
 
-Groups
-------
+Base nodes
+----------
 
-.. autoclass:: SyntaxObject
-.. autoclass:: Group
+.. autoclass:: SyntaxNode
+    :members:
+
+
+Nodes
+-----
+
+.. autoclass:: FieldnameNode
+.. autoclass:: TextNode
+.. autoclass:: WordNode
+.. autoclass:: RangeNode
+.. autoclass:: MarkerNode
+
+
+Group nodes
+-----------
+
+.. autoclass:: GroupNode
+.. autoclass:: BinaryGroup
+.. autoclass:: ErrorNode
 .. autoclass:: AndGroup
 .. autoclass:: OrGroup
 .. autoclass:: AndNotGroup
 .. autoclass:: AndMaybeGroup
 .. autoclass:: DisMaxGroup
+.. autoclass:: RequireGroup
 .. autoclass:: NotGroup
 
 
-Tokens
-------
+Operators
+---------
 
-.. autoclass:: Token
-.. autoclass:: Singleton
-.. autoclass:: White
-.. autoclass:: BasicSyntax
-.. autoclass:: Word
+.. autoclass:: Operator
+.. autoclass:: PrefixOperator
+.. autoclass:: PostfixOperator
+.. autoclass:: InfixOperator
 
-    
+
+
+
+
+
 

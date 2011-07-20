@@ -16,6 +16,7 @@ The following abstract base classes are subclassed to create the the "real" quer
 
 .. autoclass:: CompoundQuery
 .. autoclass:: MultiTerm
+.. autoclass:: ExpandingTerm
 .. autoclass:: WrappingQuery
 
 
@@ -52,7 +53,6 @@ Special queries
 ===============
 
 .. autoclass:: ConstantScoreQuery
-.. autoclass:: WeightingQuery
 
 
 Exceptions
