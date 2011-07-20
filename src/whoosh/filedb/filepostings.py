@@ -139,8 +139,8 @@ class FilePostingReader(Matcher):
         self._term = term
         self.stringids = stringids
         
-        magic = postfile.get_int(offset)
-        self.blockclass = postblocks.magic_map[magic]
+        self.magic = postfile.get_int(offset)
+        self.blockclass = postblocks.magic_map[self.magic]
         
         self.blockcount = postfile.get_uint(offset + _INT_SIZE)
         self.baseoffset = offset + _INT_SIZE * 2
@@ -151,7 +151,7 @@ class FilePostingReader(Matcher):
     def __repr__(self):
         r = "%s(%r, %r, %s" % (self.__class__.__name__, str(self.postfile),
                                self._term, self.is_active())
-        if self.is_active():
+        if self.is_active() and self.i < len(self.block.ids):
             r += ", %r" % self.id()
         r += ")"
         return r
