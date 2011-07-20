@@ -62,8 +62,7 @@ class SegmentReader(IndexReader):
         tf = storage.open_file(segment.termsindex_filename)
         self.termsindex = TermIndexReader(tf)
         
-        # Term postings file, vector index, and vector postings: lazy load
-        self.postfile = None
+        # Term vector index, and vector postings: lazy load
         self.vectorindex = None
         self.vpostfile = None
         
