@@ -14,7 +14,7 @@ Matchers
 .. autoclass:: ListMatcher
 .. autoclass:: WrappingMatcher
 .. autoclass:: MultiMatcher
-.. autoclass:: ExcludeMatcher
+.. autoclass:: FilterMatcher
 .. autoclass:: BiMatcher
 .. autoclass:: AdditiveBiMatcher
 .. autoclass:: UnionMatcher
@@ -24,6 +24,7 @@ Matchers
 .. autoclass:: InverseMatcher
 .. autoclass:: RequireMatcher
 .. autoclass:: AndMaybeMatcher
+.. autoclass:: ConstantScoreMatcher
 
 
 Exceptions

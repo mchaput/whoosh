@@ -5,11 +5,31 @@
 .. automodule:: whoosh.sorting
 
 
-Sorter object
-=============
+Base types
+==========
 
-.. autoclass:: Sorter
+.. autoclass:: FacetType
+    :members:
+
+.. autoclass:: Categorizer
     :members:
 
 
+Facet types
+===========
+
+.. autoclass:: FieldFacet
+.. autoclass:: QueryFacet
+.. autoclass:: RangeFacet
+.. autoclass:: DateRangeFacet
+.. autoclass:: ScoreFacet
+.. autoclass:: FunctionFacet
+.. autoclass:: MultiFacet
+
+
+Facets object
+=============
+
+.. autoclass:: Facets
+    :members:
 

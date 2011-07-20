@@ -159,7 +159,7 @@ class IndexWriter(object):
         Instead of a single object (i.e., unicode string, number, or datetime),
         you can supply a list or tuple of objects. For unicode strings, this
         bypasses the field's analyzer. For numbers and dates, this lets you add
-        multiple values for the given field.
+        multiple values for the given field::
         
             date1 = datetime.now()
             date2 = datetime(2005, 12, 25)
