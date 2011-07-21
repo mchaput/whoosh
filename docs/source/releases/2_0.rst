@@ -5,5 +5,139 @@ Whoosh 2.x release notes
 Whoosh 2.0
 ==========
 
+Improvements
+------------
+
+* Whoosh is now compatible with Python 3 (tested with Python 3.2). Special
+  thanks to Vinay Sajip who did the work, and also Jordan Sherer who helped
+  fix later issues.
+
+* Sorting and grouping (faceting) now use a new system of "facet" objects which
+  are much more flexible than the previous field-based system.
+
+  For example, to sort by first name and then score::
+        
+      from whoosh import sorting
+       
+      mf = sorting.MultiFacet([sorting.FieldFacet("firstname"),
+                               sorting.ScoreFacet()])
+      results = searcher.search(myquery, sortedby=mf)
+
+  In addition to the previously supported sorting/grouping by field contents
+  and/or query results, you can now use numeric ranges, date ranges, score, and
+  more. The new faceting system also supports overlapping groups.
+
+  (The old "Sorter" API still works but is deprecated and may be removed in a
+  future version.)
+
+  See :doc:`/facets` for more information.
+
+* Completely revamped spell-checking to make it much faster, easier, and more
+  flexible. You can enable generation of the graph files use by spell checking
+  using the ``spelling=True`` argument to a field type::
+  
+      schema = fields.Schema(text=fields.TEXT(spelling=True))
+  
+  (Spelling suggestion methods will work on fields without ``spelling=True``
+  but will slower.) The spelling graph will be updated automatically as new
+  documents are added -- it is no longer necessary to maintain a separate
+  "spelling index".
+
+  You can get suggestions for individual words using
+  :meth:`whoosh.searching.Searcher.suggest`::
+  
+      suglist = searcher.suggest("content", "werd", limit=3)
+
+  Whoosh now includes convenience methods to spell-check and correct user
+  queries, with optional highlighting of corrections using the
+  ``whoosh.highlight`` module::
+  
+      from whoosh import highlight, qparser
+  
+      # User query string
+      qstring = request.get("q")
+      
+      # Parse into query object
+      parser = qparser.QueryParser("content", myindex.schema)
+      qobject = parser.parse(qstring)
+      
+      results = searcher.search(qobject)
+      
+      if not results:
+        correction = searcher.correct_query(gobject, gstring)
+        # correction.query = corrected query object
+        # correction.string = corrected query string
+        
+        # Format the corrected query string with HTML highlighting
+        cstring = correction.format_string(highlight.HtmlFormatter())
+  
+  Spelling suggestions can come from field contents and/or lists of words.
+  For stemmed fields the spelling suggestions automatically use the unstemmed
+  forms of the words.
+
+  There are APIs for spelling suggestions and query correction, so highly
+  motivated users could conceivably replace the defaults with more
+  sophisticated behaviors (for example, to take context into account).
+
+  See :doc:`/spelling` for more information.
+
+* :class:`whoosh.query.FuzzyTerm` now uses the new word graph feature as well
+  and so is much faster.
+
+* You can now set a boost factor for individual documents as you index them,
+  to increase the score of terms in those documents in searches. See the
+  documentation for the :meth:`~whoosh.writing.IndexWriter.add_document` for
+  more information.
+
+* Added built-in recording of which terms matched in which documents. Use the
+  ``terms=True`` argument to :meth:`whoosh.searching.Searcher.search` and use
+  :meth:`whoosh.searching.Hit.matched_terms` and
+  :meth:`whoosh.searching.Hit.contains_term` to check matched terms.
+
+* Whoosh now supports whole-term quality optimizations, so for example if the
+  system knows that a UnionMatcher cannot possibly contribute to the "top N"
+  results unless both sub-matchers match, it will replace the UnionMatcher with
+  an IntersectionMatcher which is faster to compute. The performance improvement
+  is not as dramatic as from block quality optimizations, but it can be
+  noticeable.
+
+* Fixed a bug that prevented block quality optimizations in queries with words
+  not in the index, which could severely degrade performance.
+
+* Block quality optimizations now use the actual scoring algorithm to calculate
+  block quality instead of an approximation, which fixes issues where ordering
+  of results could be different for searches with and without the optimizations.
+
+* the BOOLEAN field type now supports field boosts.
+
+* Re-architected the query parser to make the code easier to understand. Custom
+  parser plugins from previous versions will probably break in Whoosh 2.0.
+
+* Various bug-fixes and performance improvements.
+
+* Removed the "read lock", which caused more problems than it solved. Now when
+  opening a reader, if segments are deleted out from under the reader as it
+  is opened, the code simply retries.
+
+
+Compatibility
+-------------
+
+* The term quality optimizations required changes to the on-disk formats.
+  Whoosh 2.0 if backwards-compatible with the old format. As you rewrite an
+  index using Whoosh 2.0, by default it will use the new formats for new
+  segments, making the index incompatible with older versions.
+
+  To upgrade an existing index to use the new formats immediately, use
+  ``Index.optimize()``.
+
+* Removed the experimental ``TermTrackingCollector`` since it is replaced by
+  the new built-in term recording functionality.
+
+* Reader iteration methods (``__iter__``, ``iter_from``, ``iter_field``, etc.)
+  now yield :class:`whoosh.reading.TermInfo` objects.
+
+* The arguments to :class:`whoosh.query.FuzzyTerm` changed.
+
 
 
