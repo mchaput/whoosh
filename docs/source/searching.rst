@@ -113,28 +113,7 @@ floating point number.
 Sorting
 -------
 
-Instead of sorting the matched documents by a score, you can sort them by the
-contents of one or more indexed field(s). These should be fields for which each
-document stores one term (i.e. an ID field type), for example "path", "id",
-"date", etc.
-
-To sort by the contents of the "path" field::
-
-    results = s.search(myquery, sortedby="path")
-    
-To sort by the contents of the "date" field, and within that the "id" field::
-
-    results = s.search(myquery, sortedby=["path", "date"])
-    
-To reverse the sort order::
-
-    results = s.search(myquery, sortedby="path", reverse=True)
-
-To do more complex sorts (with different fields sorted in different directions)
-use a Sorter object. See :doc:`api/sorting`.
-
-Sorting relies on field caches. See :doc:`fieldcaches` for information about
-field caches.
+See :doc:`facets`.
 
 
 Highlighting snippets and More Like This
@@ -208,14 +187,14 @@ The Results object supports the following methods:
 ``Results.extend(results)``
     Adds the documents in 'results' on to the end of the list of result
     documents.
-    
+
 ``Results.filter(results)``
     Removes the documents in 'results' from the list of result documents.
-    
+
 ``Results.upgrade(results)``
     Any result documents that also appear in 'results' are moved to the top of
     the list of result documents.
-    
+
 ``Results.upgrade_and_extend(results)``
     Any result documents that also appear in 'results' are moved to the top of
     the list of result documents. Then any other documents in 'results' are

@@ -2,6 +2,43 @@
 Whoosh recipes
 ==============
 
+General
+=======
+
+Get the stored fields for a document from the document number
+-------------------------------------------------------------
+::
+
+    stored_fields = searcher.stored_fields(docnum)
+
+
+Searching
+=========
+
+Find every document
+-------------------
+::
+
+    myquery = query.Every()
+
+
+iTunes-style search-as-you-type
+-------------------------------
+
+Use the :class:`whoosh.analysis.NgramWordAnalyzer` as the analyzer for the
+field you want to search as the user types. You can save space in the index by
+turning off positions in the field using ``phrase=False``, since phrase
+searching on N-gram fields usually doesn't make much sense::
+
+    # For example, to search the "title" field as the user types
+    analyzer = analysis.NgramWordAnalyzer()
+    title_field = fields.TEXT(analyzer=analyzer, phrase=False)
+    schema = fields.Schema(title=title_field)
+
+See the documentation for the :class:`~whoosh.analysis.NgramWordAnalyzer` class
+for information on the available options.
+
+
 Shortcuts
 =========
 
@@ -17,9 +54,26 @@ Look up documents by a field value
         ...
 
 
-Queries
+Sorting
 =======
 
+See :doc:`facets`.
+
+
+Speed up sorting/grouping by QueryFacet
+---------------------------------------
+::
+
+    # Runtime query facet
+    qfacet = sorting.QueryFacet({"a-m": TermRange("name", "a", "m"),
+                                 "n-z": TermRange("name", "n", "zzzzz")})
+    results = searcher.search(myquery, sortedby=qfacet)
+    
+    # Cache the query facet in a pseudo-field
+    searcher.define_facets("nameranges", qfacet, save=True)
+    
+    # Use the pseudo-field to sort/group instead of the QueryFacet
+    results = searcher.search(myquery, sortedby="nameranges")
 
 
 Results
@@ -74,18 +128,42 @@ Which terms matched in each hit?
 Global information
 ==================
 
+How many documents are in the index?
+------------------------------------
+::
+
+    # Including documents that are deleted but not yet optimized away
+    numdocs = searcher.doc_count_all()
+    
+    # Not including deleted documents
+    numdocs = searcher.doc_count()
+
+
 What fields are in the index?
 -----------------------------
 ::
 
     return myindex.schema.names()
 
+
 Is term X in the index?
 -----------------------
 ::
 
     return ("content", "wobble") in searcher
+
+
+How many times does term X occur in the index?
+----------------------------------------------
+::
+
+    # Number of times content:wobble appears in all documents
+    freq = searcher.frequency("content", "wobble")
     
+    # Number of documents containing content:wobble
+    docfreq = searcher.doc_frequency("content", "wobble")
+
+
 Is term X in document Y?
 ------------------------
 ::
