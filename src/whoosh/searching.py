@@ -1255,6 +1255,17 @@ class Results(object):
             self._load_docs()
         return docnum in self.docset
 
+    def __nonzero__(self):
+        return not self.is_empty()
+        
+    __bool__ = __nonzero__
+
+    def is_empty(self):
+        """Returns True if not documents matched the query.
+        """
+        
+        return self.scored_length() == 0
+
     def items(self):
         """Returns an iterator of (docnum, score) pairs for the scored
         documents in the results.
