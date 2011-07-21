@@ -552,13 +552,48 @@ class Searcher(object):
         :class:`whoosh.sorting.FieldFacet` or
         :class:`whoosh.sorting.MultiFacet` and pass it to the
         :meth:`Searcher.search` method's ``sortedby`` keyword argument.
+        
+        See :doc:`/facets`.
         """
         
         return sorting.Sorter(self, *args, **kwargs)
 
     def define_facets(self, name, qs, save=False):
+        """This is an experimental feature which may change in future versions.
+        
+        Adds a field cache for a synthetic field defined by a dictionary of
+        queries. This creates a persistent cache to speed up a
+        :class:`whoosh.sorting.QueryFacet`. You can then use the new "field"
+        for sorting and/or faceting.
+        
+        For example, sorting using a :class:`~whoosh.sorting.QueryFacet`
+        recomputes the queries at sort time, which may be slow::
+        
+            qfacet = sorting.QueryFacet({"a-z": TermRange(...
+            results = searcher.search(myquery, sortedby=qfacet)
+            
+        You can cache the results of the query facet in a field cache and use
+        the pseudo-field for sorting::
+        
+            searcher.define_facets("nameranges", qfacet, save=True)
+            
+            results = searcher.search(myquery, sortedby="nameranges")
+        
+        See :doc:`/facets`.
+        
+        :param name: a name for the pseudo-field to cache the query results in.
+        :param qs: a QueryFacet object or dictionary mapping key values to
+            :class:`whoosh.query.Query` objects.
+        :param save: if True, saves the field cache to disk so it is persistent
+            across searchers. The default is False, which only creates the
+            field cache in memory.
+        """
+        
+        if isinstance(qs, sorting.QueryFacet):
+            qs = qs.querydict
+        
         def doclists_for_searcher(s):
-            return dict((key, q.docs(s)) for key, q in iteritems(qs))
+            return dict((key, q.docs(s)) for key, q in qs.items())
         
         if self.subsearchers:
             for s in self.subsearchers:
@@ -568,8 +603,12 @@ class Searcher(object):
             dls = doclists_for_searcher(self)
             self.ixreader.define_facets(name, dls, save=save)
     
-    def docs_for_query(self, q, leafs=True):
-        if self.subsearchers and leafs:
+    def docs_for_query(self, q):
+        """Returns an iterator of document numbers for documents matching the
+        given :class:`whoosh.query.Query` object.
+        """
+        
+        if self.subsearchers:
             for s, offset in self.subsearchers:
                 for docnum in q.docs(s):
                     yield docnum + offset
