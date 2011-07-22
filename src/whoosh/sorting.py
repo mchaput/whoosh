@@ -33,34 +33,6 @@ from whoosh.support.times import (long_to_datetime, datetime_to_long,
                                   timedelta_to_usecs)
 
 
-# Legacy sorting object
-
-class Sorter(object):
-    """This is a legacy interface. The functionality of the Sorter object was
-    moved into the :class:`FacetType` classes and the
-    :class:`whoosh.searching.Collector` in Whoosh 2.0. The old Sorter API is
-    still supported for backwards-compatibility, but it simply forwards to the
-    new API.
-    
-    See :doc:`/facets` for information on the new API.
-    """
-
-    def __init__(self, searcher):
-        self.searcher = searcher
-        self.multi = MultiFacet()
-        
-    def add_field(self, fieldname, reverse=False):
-        self.multi.add_field(fieldname, reverse=reverse)
-    
-    def sort_query(self, q, limit=None, reverse=False, filter=None, mask=None,
-                   groupedby=None):
-        from whoosh.searching import Collector
-        
-        collector = Collector(limit=limit, groupedby=groupedby)
-        return collector.sort(self.searcher, q, self.multi, reverse=reverse,
-                              allow=filter, restrict=mask)
-    
-
 # Faceting objects
 
 class FacetType(object):
@@ -542,7 +514,30 @@ class FunctionFacet(FacetType):
         
         def key_for_id(self, docid):
             return self.fn(self.searcher, docid + self.offset)
+
+
+class StoredFieldFacet(FacetType):
+    """Lets you sort/group using the value in an unindexed, stored field (e.g.
+    STORED). This is slower than using an indexed field.
+    """
     
+    def __init__(self, fieldname):
+        self.fieldname = fieldname
+    
+    def categorizer(self, searcher):
+        return self.StoredFieldCategorizer(self.fieldname)
+    
+    class StoredFieldCategorizer(Categorizer):
+        def __init__(self, fieldname):
+            self.fieldname = fieldname
+        
+        def set_searcher(self, searcher, docoffset):
+            self.searcher = searcher
+        
+        def key_for_id(self, docid):
+            fields = self.searcher.stored_fields(docid)
+            return fields[self.fieldname]
+
 
 class MultiFacet(FacetType):
     """Sorts/facets by the combination of multiple "sub-facets".
@@ -726,6 +721,37 @@ class Facets(object):
     
 
 
+
+
+
+
+
+# Legacy sorting object
+
+class Sorter(object):
+    """This is a legacy interface. The functionality of the Sorter object was
+    moved into the :class:`FacetType` classes and the
+    :class:`whoosh.searching.Collector` in Whoosh 2.0. The old Sorter API is
+    still supported for backwards-compatibility, but it simply forwards to the
+    new API.
+    
+    See :doc:`/facets` for information on the new API.
+    """
+
+    def __init__(self, searcher):
+        self.searcher = searcher
+        self.multi = MultiFacet()
+        
+    def add_field(self, fieldname, reverse=False):
+        self.multi.add_field(fieldname, reverse=reverse)
+    
+    def sort_query(self, q, limit=None, reverse=False, filter=None, mask=None,
+                   groupedby=None):
+        from whoosh.searching import Collector
+        
+        collector = Collector(limit=limit, groupedby=groupedby)
+        return collector.sort(self.searcher, q, self.multi, reverse=reverse,
+                              allow=filter, restrict=mask)
 
 
 

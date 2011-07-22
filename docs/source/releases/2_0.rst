@@ -134,6 +134,9 @@ Compatibility
 * Removed the experimental ``TermTrackingCollector`` since it is replaced by
   the new built-in term recording functionality.
 
+* Removed the experimental ``Searcher.define_facets`` feature until a future
+  release when it will be replaced by a more robust and useful feature.
+
 * Reader iteration methods (``__iter__``, ``iter_from``, ``iter_field``, etc.)
   now yield :class:`whoosh.reading.TermInfo` objects.
 

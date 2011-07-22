@@ -463,35 +463,35 @@ def test_field_facets():
     check(make_single_index)
     check(make_multi_index)
 
-def test_define_facets():
-    schema = fields.Schema(value=fields.ID(stored=True))
-    with TempIndex(schema, "queryfacets") as ix:
-        w = ix.writer()
-        alphabet = list(u("abcdefghijklmnopqrstuvwxyz"))
-        random.shuffle(alphabet)
-        
-        for letter in alphabet:
-            w.add_document(value=letter)
-        w.commit()
-        
-        with ix.searcher() as s:
-            q1 = query.TermRange("value", u("a"), u("i"))
-            q2 = query.TermRange("value", u("j"), u("r"))
-            q3 = query.TermRange("value", u("s"), u("z"))
-            s.define_facets("range", {"a-i": q1, "j-r": q2, "s-z": q3},
-                            save=False)
-            
-            def check(groups):
-                for key in groups.keys():
-                    groups[key] = "".join(sorted([s.stored_fields(id)["value"]
-                                                  for id in groups[key]]))
-                assert_equal(groups, {'a-i': u('abcdefghi'), 'j-r': u('jklmnopqr'),
-                                      's-z': u('stuvwxyz')})
-            
-            check(s.search(query.Every(), groupedby="range").groups("range"))
-
-        with ix.searcher() as s:
-            assert not s.reader().fieldcache_available("range")
+#def test_define_facets():
+#    schema = fields.Schema(value=fields.ID(stored=True))
+#    with TempIndex(schema, "queryfacets") as ix:
+#        w = ix.writer()
+#        alphabet = list(u("abcdefghijklmnopqrstuvwxyz"))
+#        random.shuffle(alphabet)
+#        
+#        for letter in alphabet:
+#            w.add_document(value=letter)
+#        w.commit()
+#        
+#        with ix.searcher() as s:
+#            q1 = query.TermRange("value", u("a"), u("i"))
+#            q2 = query.TermRange("value", u("j"), u("r"))
+#            q3 = query.TermRange("value", u("s"), u("z"))
+#            qfacet = sorting.QueryFacet({"a-i": q1, "j-r": q2, "s-z": q3})
+#            s.define_facets("range", qfacet, save=False)
+#            
+#            def check(groups):
+#                for key in groups.keys():
+#                    groups[key] = "".join(sorted([s.stored_fields(id)["value"]
+#                                                  for id in groups[key]]))
+#                assert_equal(groups, {'a-i': u('abcdefghi'), 'j-r': u('jklmnopqr'),
+#                                      's-z': u('stuvwxyz')})
+#            
+#            check(s.search(query.Every(), groupedby="range").groups("range"))
+#
+#        with ix.searcher() as s:
+#            assert not s.reader().fieldcache_available("range")
 
 def test_multifacet():
     schema = fields.Schema(tag=fields.ID(stored=True),

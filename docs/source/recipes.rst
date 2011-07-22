@@ -60,22 +60,6 @@ Sorting
 See :doc:`facets`.
 
 
-Speed up sorting/grouping by QueryFacet
----------------------------------------
-::
-
-    # Runtime query facet
-    qfacet = sorting.QueryFacet({"a-m": TermRange("name", "a", "m"),
-                                 "n-z": TermRange("name", "n", "zzzzz")})
-    results = searcher.search(myquery, sortedby=qfacet)
-    
-    # Cache the query facet in a pseudo-field
-    searcher.define_facets("nameranges", qfacet, save=True)
-    
-    # Use the pseudo-field to sort/group instead of the QueryFacet
-    results = searcher.search(myquery, sortedby="nameranges")
-
-
 Results
 =======
 
