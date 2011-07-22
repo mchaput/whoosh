@@ -558,51 +558,51 @@ class Searcher(object):
         
         return sorting.Sorter(self, *args, **kwargs)
 
-    def define_facets(self, name, qs, save=False):
-        """This is an experimental feature which may change in future versions.
+#    def define_facets(self, name, facet, save=False):
+#        """This is an experimental feature which may change in future versions.
+#        
+#        Adds a field cache for a synthetic field defined by a
+#        :class:`whoosh.sorting.FacetType` object, for example a
+#        :class:`~whoosh.sorting.QueryFacet` or
+#        :class:`~whoosh.sorting.RangeFacet`.
+#        
+#        For example, sorting using a :class:`~whoosh.sorting.QueryFacet`
+#        recomputes the queries at sort time, which may be slow::
+#        
+#            qfacet = sorting.QueryFacet({"a-z": TermRange(...
+#            results = searcher.search(myquery, sortedby=qfacet)
+#            
+#        You can cache the results of the query facet in a field cache and use
+#        the pseudo-field for sorting::
+#        
+#            searcher.define_facets("nameranges", qfacet, save=True)
+#            
+#            results = searcher.search(myquery, sortedby="nameranges")
+#        
+#        See :doc:`/facets`.
+#        
+#        :param name: a name for the pseudo-field to cache the query results in.
+#        :param qs: a :class:`~whoosh.sorting.FacetType` object.
+#        :param save: if True, saves the field cache to disk so it is persistent
+#            across searchers. The default is False, which only creates the
+#            field cache in memory.
+#        """
+#        
+#        
+#        if self.subsearchers:
+#            ss = self.subsearchers
+#        else:
+#            ss = [(self, 0)]
+#        
+#        for s, offset in ss:
+#            doclists = defaultdict(list)
+#            catter = facet.categorizer(self)
+#            catter.set_searcher(s, offset)
+#            for docnum in xrange(s.doc_count_all()):
+#                key = catter.key_for_id(docnum)
+#                doclists[key].append(docnum)
+#            s.reader().define_facets(name, doclists, save=save)
         
-        Adds a field cache for a synthetic field defined by a dictionary of
-        queries. This creates a persistent cache to speed up a
-        :class:`whoosh.sorting.QueryFacet`. You can then use the new "field"
-        for sorting and/or faceting.
-        
-        For example, sorting using a :class:`~whoosh.sorting.QueryFacet`
-        recomputes the queries at sort time, which may be slow::
-        
-            qfacet = sorting.QueryFacet({"a-z": TermRange(...
-            results = searcher.search(myquery, sortedby=qfacet)
-            
-        You can cache the results of the query facet in a field cache and use
-        the pseudo-field for sorting::
-        
-            searcher.define_facets("nameranges", qfacet, save=True)
-            
-            results = searcher.search(myquery, sortedby="nameranges")
-        
-        See :doc:`/facets`.
-        
-        :param name: a name for the pseudo-field to cache the query results in.
-        :param qs: a QueryFacet object or dictionary mapping key values to
-            :class:`whoosh.query.Query` objects.
-        :param save: if True, saves the field cache to disk so it is persistent
-            across searchers. The default is False, which only creates the
-            field cache in memory.
-        """
-        
-        if isinstance(qs, sorting.QueryFacet):
-            qs = qs.querydict
-        
-        def doclists_for_searcher(s):
-            return dict((key, q.docs(s)) for key, q in qs.items())
-        
-        if self.subsearchers:
-            for s in self.subsearchers:
-                dls = doclists_for_searcher(s)
-                s.reader().define_facets(name, dls, save=save)
-        else:
-            dls = doclists_for_searcher(self)
-            self.ixreader.define_facets(name, dls, save=save)
-    
     def docs_for_query(self, q):
         """Returns an iterator of document numbers for documents matching the
         given :class:`whoosh.query.Query` object.
