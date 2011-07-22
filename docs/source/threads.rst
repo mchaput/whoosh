@@ -14,12 +14,8 @@ threads.
 A Reader object (which underlies the Searcher object) wraps open files and often
 individual methods rely on consistent file cursor positions (e.g. they do two
 file.read()s in a row, so if another thread moves the cursor between the two
-read calls Bad Things would happen). It's best to use one Reader/Searcher per
+read calls Bad Things would happen). You should use one Reader/Searcher per
 thread in your code.
-
-(I've attempted to add synchronization locks around the appropriate bits of the
-code, but I haven't tested Whoosh in a shared multithreaded environment, so you
-should avoid sharing Readers/Searchers.)
 
 Readers/Searchers tend to cache information (such as field caches for sorting),
 so if you can share one across multiple search requests, it's a big performance
@@ -43,6 +39,7 @@ While the writer is open and during the commit, **the index is still available
 for reading**. Existing readers are unaffected and new readers can open the
 current index normally.
 
+
 Lock files
 ----------
 
@@ -50,10 +47,6 @@ Locking the index is accomplished by acquiring an exclusive file lock on the
 ``<indexname>_WRITELOCK`` file in the index directory. The file is not deleted
 after the file lock is released, so the fact that the file exists **does not**
 mean the index is locked.
-
-A second lock file called ``<indexname>_READLOCK`` exists which is used to keep
-a writer from deleting segments at the exact moment a new reader is trying to
-open them.
 
 
 Versioning

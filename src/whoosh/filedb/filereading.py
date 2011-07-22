@@ -360,17 +360,6 @@ class SegmentReader(IndexReader):
     def _fieldkey(self, fieldname):
         return "%s/%s" % (self.uuid_string, fieldname)
 
-    def define_facets(self, name, qs, save=SAVE_BY_DEFAULT):
-        if name in self.schema:
-            raise Exception("Can't define facets using the name of a field (%r)" % name)
-        
-        if self.fieldcache_available(name):
-            # Don't recreate the cache if it already exists
-            return
-        
-        cache = self.caching_policy.get_class().from_lists(qs, self.doc_count_all())
-        self.caching_policy.put(self._fieldkey(name), cache, save=save)
-
     def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
         the given field.
@@ -403,36 +392,6 @@ class SegmentReader(IndexReader):
     def unload_fieldcache(self, name):
         self.caching_policy.delete(self._fieldkey(name))
     
-    # Sorting and faceting methods
-    
-    def key_fn(self, fields):
-        if isinstance(fields, string_type):
-            fields = (fields, )
-        
-        if len(fields) > 1:
-            fcs = [self.fieldcache(fn) for fn in fields]
-            return lambda docnum: tuple(fc.key_for(docnum) for fc in fcs)
-        else:
-            return self.fieldcache(fields[0]).key_for
-    
-    def sort_docs_by(self, fields, docnums, reverse=False):
-        keyfn = self.key_fn(fields)
-        return sorted(docnums, key=keyfn, reverse=reverse)
-    
-    def key_docs_by(self, fields, docnums, limit, reverse=False, offset=0):
-        keyfn = self.key_fn(fields)
-        
-        if limit is None:
-            # Don't bother sorting, the caller will do that
-            return [(keyfn(docnum), docnum + offset) for docnum in docnums]
-        else:
-            # A non-reversed sort (the usual case) is inefficient because we
-            # have to use nsmallest, but I can't think of a cleverer thing to
-            # do right now. I thought I had an idea, but I was wrong.
-            op = nlargest if reverse else nsmallest
-            
-            return op(limit, ((keyfn(docnum), docnum + offset)
-                              for docnum in docnums))
             
             
         

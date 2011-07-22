@@ -5,7 +5,9 @@ from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, reading
 from whoosh.compat import u, xrange
+from whoosh.filedb.filereading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
+from whoosh.ramindex import RamIndex
 from whoosh.support.testing import TempIndex
 
 def _create_index():
@@ -283,7 +285,69 @@ def test_nonexclusive_read():
         for th in ths:
             th.join()
 
+def test_doc_count():
+    schema = fields.Schema(id=fields.NUMERIC)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    for i in xrange(10):
+        w.add_document(id=i)
+    w.commit()
+    
+    r = ix.reader()
+    assert_equal(r.doc_count(), 10)
+    assert_equal(r.doc_count_all(), 10)
+    
+    w = ix.writer()
+    w.delete_document(2)
+    w.delete_document(4)
+    w.delete_document(6)
+    w.delete_document(8)
+    w.commit()
+    
+    r = ix.reader()
+    assert_equal(r.doc_count(), 6)
+    assert_equal(r.doc_count_all(), 10)
+    
+    w = ix.writer()
+    for i in xrange(10, 15):
+        w.add_document(id=i)
+    w.commit(merge=False)
+    
+    r = ix.reader()
+    assert_equal(r.doc_count(), 11)
+    assert_equal(r.doc_count_all(), 15)
+    
+    w = ix.writer()
+    w.delete_document(10)
+    w.delete_document(12)
+    w.delete_document(14)
+    w.commit(merge=False)
+    
+    r = ix.reader()
+    assert_equal(r.doc_count(), 8)
+    assert_equal(r.doc_count_all(), 15)
+    
+    ix.optimize()
+    r = ix.reader()
+    assert_equal(r.doc_count(), 8)
+    assert_equal(r.doc_count_all(), 8)
 
+#def test_reader_subclasses():
+#    def is_abstract(attr):
+#        return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
+#    def check_methods(base, subclass):
+#        for attrname in dir(base):
+#            if attrname.startswith("_"):
+#                continue
+#            attr = getattr(base, attrname)
+#            if is_abstract(attr):
+#                oattr = getattr(subclass, attrname)
+#                assert not is_abstract(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
+#    
+#    check_methods(reading.IndexReader, SegmentReader)
+#    check_methods(reading.IndexReader, reading.MultiReader)
+#    check_methods(reading.IndexReader, RamIndex)
+#    check_methods(reading.IndexReader, reading.EmptyReader)
 
 
 

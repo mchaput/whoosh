@@ -36,6 +36,7 @@ from whoosh.support.dawg import within
 from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
+from whoosh.util import abstractmethod
 
 
 # Exceptions
@@ -125,6 +126,7 @@ class IndexReader(ClosableMixin):
     def is_atomic(self):
         return True
 
+    @abstractmethod
     def __contains__(self, term):
         """Returns True if the given term tuple (fieldname, text) is
         in this reader.
@@ -144,6 +146,7 @@ class IndexReader(ClosableMixin):
         
         return -1
 
+    @abstractmethod
     def all_terms(self):
         """Yields (fieldname, text) tuples for every term in the index.
         """
@@ -161,10 +164,12 @@ class IndexReader(ClosableMixin):
                 continue
             yield (fname, text)
 
+    @abstractmethod
     def term_info(self, fieldname, text):
         """Returns a :class:`TermInfo` object allowing access to various
         statistics about the given term.
         """
+        
         raise NotImplementedError
 
     def expand_prefix(self, fieldname, prefix):
@@ -222,10 +227,12 @@ class IndexReader(ClosableMixin):
                 return
             yield (text, terminfo)
 
+    @abstractmethod
     def has_deletions(self):
         """Returns True if the underlying index/segment has deleted
         documents.
         """
+        
         raise NotImplementedError
 
     def all_doc_ids(self):
@@ -240,18 +247,22 @@ class IndexReader(ClosableMixin):
         is_deleted = self.is_deleted
         return (docnum for docnum in xrange(self.doc_count_all())
                 if not is_deleted(docnum))
-        
+    
+    @abstractmethod
     def is_deleted(self, docnum):
         """Returns True if the given document number is marked deleted.
         """
+        
         raise NotImplementedError
 
+    @abstractmethod
     def stored_fields(self, docnum):
         """Returns the stored fields for the given document number.
         
         :param numerickeys: use field numbers as the dictionary keys instead of
             field names.
         """
+        
         raise NotImplementedError
 
     def all_stored_fields(self):
@@ -262,46 +273,56 @@ class IndexReader(ClosableMixin):
             if not self.is_deleted(docnum):
                 yield self.stored_fields(docnum)
 
+    @abstractmethod
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this reader.
         """
+        
         raise NotImplementedError
 
+    @abstractmethod
     def doc_count(self):
         """Returns the total number of UNDELETED documents in this reader.
         """
+        
         raise NotImplementedError
 
+    @abstractmethod
     def frequency(self, fieldname, text):
         """Returns the total number of instances of the given term in the
         collection.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def doc_frequency(self, fieldname, text):
         """Returns how many documents the given term appears in.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def field_length(self, fieldname):
         """Returns the total number of terms in the given field. This is used
         by some scoring algorithms.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def min_field_length(self, fieldname):
         """Returns the minimum length of the field across all documents. This
         is used by some scoring algorithms.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def max_field_length(self, fieldname):
         """Returns the minimum length of the field across all documents. This
         is used by some scoring algorithms.
         """
         raise NotImplementedError
-        
+    
+    @abstractmethod
     def doc_field_length(self, docnum, fieldname, default=0):
         """Returns the number of terms in the given field in the given
         document. This is used by some scoring algorithms.
@@ -318,6 +339,7 @@ class IndexReader(ClosableMixin):
             return p.id()
         raise TermNotFound((fieldname, text))
 
+    @abstractmethod
     def postings(self, fieldname, text, scorer=None):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
@@ -334,12 +356,14 @@ class IndexReader(ClosableMixin):
 
         raise NotImplementedError
 
+    @abstractmethod
     def has_vector(self, docnum, fieldname):
         """Returns True if the given document has a term vector for the given
         field.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def vector(self, docnum, fieldname):
         """Returns a :class:`~whoosh.matching.Matcher` object for the
         given term vector.
@@ -395,6 +419,7 @@ class IndexReader(ClosableMixin):
         
         return False
     
+    @abstractmethod
     def word_graph(self, fieldname):
         """Returns the root :class:`whoosh.support.dawg.BaseNode` for the given
         field, if the field has a stored word graph (otherwise raises an
@@ -473,78 +498,6 @@ class IndexReader(ClosableMixin):
         """
         
         return False
-    
-    def sort_docs_by(self, fieldname, docnums, reverse=False):
-        """Returns a version of `docnums` sorted by the value of a field or
-        a set of fields in each document.
-        
-        :param fieldname: either the name of a field, or a tuple of field names
-            to specify a multi-level sort.
-        :param docnums: a sequence of document numbers to sort.
-        :param reverse: if True, reverses the sort direction.
-        """
-        
-        raise NotImplementedError
-    
-    def key_docs_by(self, fieldname, docnums, limit, reverse=False, offset=0):
-        """Returns a sequence of `(sorting_key, docnum)` pairs for the
-        document numbers in `docnum`.
-        
-        If `limit` is `None`, this method associates every document number with
-        a sorting key but does not sort them. If `limit` is not `None`, this
-        method returns a sorted list of at most `limit` pairs.
-        
-        This method is useful for sorting and faceting documents in different
-        readers, by associating the sort key with the document number.
-        
-        :param fieldname: either the name of a field, or a tuple of field names
-            to specify a multi-level sort.
-        :param docnums: a sequence of document numbers to key.
-        :param limit: if not `None`, only keys the first/last N documents.
-        :param reverse: if True, reverses the sort direction (when limit is not
-            `None`).
-        :param offset: a number to add to the docnums returned.
-        """
-        
-        raise NotImplementedError
-    
-    def group_docs_by(self, fieldname, docnums, groups, counts=False, offset=0):
-        """Returns a dictionary mapping field values to items with that value
-        in the given field(s).
-        
-        :param fieldname: either the name of a field, or a tuple of field names
-            to specify a multi-level sort.
-        :param docnums: a sequence of document numbers to group.
-        :param counts: if True, return a dictionary of doc counts, instead of
-            a dictionary of lists of docnums.
-        :param offset: a number to add to the docnums returned.
-        """
-        
-        gen = self.key_docs_by(fieldname, docnums, None, offset=offset)
-        
-        if counts:
-            for key, docnum in gen:
-                if key not in groups:
-                    groups[key] = 0
-                groups[key] += 1
-        else:
-            for key, docnum in gen:
-                if key not in groups:
-                    groups[key] = []
-                groups[key].append(docnum)
-                
-    def define_facets(self, name, doclists, save=False):
-        """Tells the reader to remember a set of facets under the given name.
-        
-        :param name: the name to use for the set of facets.
-        :param doclists: a dictionary mapping facet names to lists of document
-            IDs.
-        :param save: whether to save caches (if any) to some form of permanent
-            storage (i.e. disk) if possible. This keyword may be used or
-            ignored in the backend.
-        """
-        
-        raise NotImplementedError
     
     def set_caching_policy(self, *args, **kwargs):
         """Sets the field caching policy for this reader.
