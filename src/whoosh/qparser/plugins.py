@@ -79,7 +79,9 @@ class TaggingPlugin(RegexTagger):
         return ()
     
     def create(self, parser, match):
-        kwargs = match.groupdict()
+        # Groupdict keys can be unicode sometimes apparently? Convert them to
+        # str for use as keyword arguments. This should be Py3-safe.
+        kwargs = dict((str(k), v) for k, v in iteritems(match.groupdict()))
         return self.nodetype(**kwargs)
 
 
