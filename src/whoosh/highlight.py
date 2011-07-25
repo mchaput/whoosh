@@ -606,20 +606,20 @@ class GenshiFormatter(Formatter):
 # Highlighting
 
 def top_fragments(text, terms, analyzer, fragmenter, top=3,
-                  scorer=None, minscore=1):
+                  scorer=None, minscore=1, mode="query"):
     if scorer is None:
         scorer = BasicFragmentScorer()
     
     termset = frozenset(terms)
-    tokens = copyandmatchfilter(termset, analyzer(text, chars=True,
-                                                  keeporiginal=True))
+    tokens = analyzer(text, chars=True, keeporiginal=True, mode=mode)
+    tokens = copyandmatchfilter(termset, tokens)
     scored_frags = nlargest(top, ((scorer(f), f)
                                   for f in fragmenter(text, tokens)))
     return [sf for score, sf in scored_frags if score > minscore]
 
 
 def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
-              scorer=None, minscore=1, order=FIRST):
+              scorer=None, minscore=1, order=FIRST, mode="query"):
     
     if scorer is None:
         scorer = BasicFragmentScorer()
@@ -631,8 +631,8 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     if type(scorer) is type:
         scorer = scorer()
     
-    fragments = top_fragments(text, terms, analyzer, fragmenter,
-                              top=top, scorer=scorer, minscore=minscore)
+    fragments = top_fragments(text, terms, analyzer, fragmenter, top=top,
+                              scorer=scorer, minscore=minscore, mode=mode)
     fragments.sort(key=order)
     return formatter(text, fragments)
     

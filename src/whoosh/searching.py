@@ -1421,7 +1421,8 @@ class Results(object):
         return set(self._termlists.keys())
 
     def highlights(self, n, fieldname, text=None, top=3, fragmenter=None,
-                   formatter=None, order=highlight.FIRST, force=True):
+                   formatter=None, order=highlight.FIRST, force=True,
+                   mode="query"):
         """Returns highlighted snippets for the document in the Nth position
         in the results. It is usually more convenient to call this method on a
         Hit object instead of the Results.
@@ -1450,7 +1451,7 @@ class Results(object):
         
         return highlight.highlight(text, terms, analyzer, fragmenter,
                                    formatter, top=top, order=order,
-                                   scorer=self.fragment_scorer)
+                                   scorer=self.fragment_scorer, mode=mode)
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -1629,7 +1630,8 @@ class Hit(object):
         return s
     
     def highlights(self, fieldname, text=None, top=3, fragmenter=None,
-                   formatter=None, order=highlight.FIRST, force=True):
+                   formatter=None, order=highlight.FIRST, force=True,
+                   mode="query"):
         """Returns highlighted snippets from the given field::
         
             r = searcher.search(myquery)
@@ -1688,12 +1690,16 @@ class Hit(object):
             None instead of highlights when the document does not contain any
             matching terms. This can save time by avoiding retokenizing large
             amounts of text.
+        :param mode: EXPERT: the mode argument to pass to the analyzer. The
+            default is "query". You should not need to change this unless you
+            want to get different analyzer behavior in highlights for some
+            reason.
         """
         
         return self.results.highlights(self.rank, fieldname, text=text,
                                        top=top, fragmenter=fragmenter,
                                        formatter=formatter, order=order,
-                                       force=force)
+                                       force=force, mode=mode)
     
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):

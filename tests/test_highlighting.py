@@ -155,7 +155,21 @@ def test_unstored():
     hit = ix.searcher().search(query.Term("text", "bravo"))[0]
     assert_raises(KeyError, hit.highlights, "tags")
 
-
+def test_multifilter():
+    iwf_for_index = analysis.IntraWordFilter(mergewords=True, mergenums=False)
+    iwf_for_query = analysis.IntraWordFilter(mergewords=False, mergenums=False)
+    mf = analysis.MultiFilter(index=iwf_for_index, query=iwf_for_query)
+    ana = analysis.RegexTokenizer() | mf | analysis.LowercaseFilter()
+    schema = fields.Schema(text=fields.TEXT(analyzer=ana, stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("Our BabbleTron5000 is great"))
+    w.commit()
+    
+    with ix.searcher() as s:
+        hit = s.search(query.Term("text", "5000"))[0]
+        assert_equal(hit.highlights("text"), '<b class="match term0">BabbleTron5000</b> is great')
+    
 
 
 
