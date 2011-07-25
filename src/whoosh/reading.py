@@ -419,7 +419,6 @@ class IndexReader(ClosableMixin):
         
         return False
     
-    @abstractmethod
     def word_graph(self, fieldname):
         """Returns the root :class:`whoosh.support.dawg.BaseNode` for the given
         field, if the field has a stored word graph (otherwise raises an
@@ -427,7 +426,7 @@ class IndexReader(ClosableMixin):
         :meth:`IndexReader.has_word_graph`.
         """
         
-        raise NotImplementedError
+        return None
     
     def corrector(self, fieldname):
         """Returns a :class:`whoosh.spelling.Corrector` object that suggests
@@ -517,6 +516,12 @@ class EmptyReader(IndexReader):
     
     def __iter__(self):
         return iter([])
+    
+    def all_terms(self):
+        return iter([])
+    
+    def term_info(self, fieldname, text):
+        raise TermNotFound((fieldname, text))
     
     def iter_from(self, fieldname, text):
         return iter([])

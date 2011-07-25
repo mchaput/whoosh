@@ -76,10 +76,9 @@ class SegmentReader(IndexReader):
             flf = storage.open_file(segment.fieldlengths_filename)
             self.fieldlengths = LengthReader(flf, segment.doc_count_all())
         
-        # Copy methods from underlying segment
-        self.has_deletions = segment.has_deletions
-        self.is_deleted = segment.is_deleted
-        self.doc_count = segment.doc_count
+        # Copy info from underlying segment
+        self._has_deletions = segment.has_deletions()
+        self._doc_count = segment.doc_count()
         
         # Postings file
         self.postfile = self.storage.open_file(segment.termposts_filename,
@@ -100,6 +99,15 @@ class SegmentReader(IndexReader):
         
         self.is_closed = False
         self._sync_lock = Lock()
+
+    def has_deletions(self):
+        return self._has_deletions
+    
+    def doc_count(self):
+        return self._doc_count
+    
+    def is_deleted(self, docnum):
+        return self.segment.is_deleted(docnum)
 
     def generation(self):
         return self.segment.generation

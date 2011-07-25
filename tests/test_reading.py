@@ -332,22 +332,22 @@ def test_doc_count():
     assert_equal(r.doc_count(), 8)
     assert_equal(r.doc_count_all(), 8)
 
-#def test_reader_subclasses():
-#    def is_abstract(attr):
-#        return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
-#    def check_methods(base, subclass):
-#        for attrname in dir(base):
-#            if attrname.startswith("_"):
-#                continue
-#            attr = getattr(base, attrname)
-#            if is_abstract(attr):
-#                oattr = getattr(subclass, attrname)
-#                assert not is_abstract(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
-#    
-#    check_methods(reading.IndexReader, SegmentReader)
-#    check_methods(reading.IndexReader, reading.MultiReader)
-#    check_methods(reading.IndexReader, RamIndex)
-#    check_methods(reading.IndexReader, reading.EmptyReader)
+def test_reader_subclasses():
+    def is_abstract(attr):
+        return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
+    def check_methods(base, subclass):
+        for attrname in dir(base):
+            if attrname.startswith("_"):
+                continue
+            attr = getattr(base, attrname)
+            if is_abstract(attr):
+                oattr = getattr(subclass, attrname)
+                assert not is_abstract(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
+    
+    check_methods(reading.IndexReader, SegmentReader)
+    check_methods(reading.IndexReader, reading.MultiReader)
+    check_methods(reading.IndexReader, reading.EmptyReader)
+    check_methods(reading.IndexReader, RamIndex)
 
 
 
