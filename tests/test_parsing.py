@@ -707,6 +707,15 @@ def test_multitoken_phrase():
     q = parser.parse(qstring)
     assert_equal(q.__class__, query.Phrase)
 
+def test_singlequote_multitoken():
+    schema = fields.Schema(text=fields.TEXT(multitoken_query="and"))
+    parser = default.QueryParser("text", schema)
+    q = parser.parse(u"foo bar")
+    assert_equal(q.__unicode__(), "(text:foo AND text:bar)")
+    
+    q = parser.parse(u"'foo bar'")  # single quotes
+    assert_equal(q.__unicode__(), "(text:foo AND text:bar)")
+
 def test_operator_queries():
     qp = default.QueryParser("f", None)
     
