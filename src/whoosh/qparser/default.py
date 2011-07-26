@@ -51,8 +51,7 @@ class QueryParser(object):
     And([Term("content", u"hello"), Term("content", u"there")])
     """
     
-    _multitoken_query_map = {"and": query.And, "or": query.Or,
-                             "phrase": query.Phrase}
+    _multitoken_query_map = {"and": query.And, "or": query.Or}
     
     def __init__(self, fieldname, schema, plugins=None, termclass=query.Term,
                  phraseclass=query.Phrase, group=syntax.AndGroup):
@@ -167,10 +166,14 @@ class QueryParser(object):
         return [item for item, _ in items_and_priorities]
     
     def multitoken_query(self, name, texts, fieldname, termclass, boost):
-        qclass = self._multitoken_query_map.get(name.lower())
-        if qclass:
-            return qclass([termclass(fieldname, t, boost=boost)
-                           for t in texts])
+        name = name.lower()
+        if name == "phrase":
+            return self.phraseclass(fieldname, texts, boost=boost)
+        else:
+            qclass = self._multitoken_query_map.get(name)
+            if qclass:
+                return qclass([termclass(fieldname, t, boost=boost)
+                               for t in texts])
     
     def term_query(self, fieldname, text, termclass, boost=1.0, tokenize=True,
                    removestops=True):

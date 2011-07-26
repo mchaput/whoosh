@@ -675,6 +675,19 @@ def test_multitoken_words():
     assert_equal(q[1].__class__, query.Term)
     assert_equal(q[1].text, "bacon")
 
+def test_multitoken_phrase():
+    textfield = fields.TEXT()
+    textfield.multitoken_query = "phrase"
+    schema = fields.Schema(text=textfield)
+    parser = default.QueryParser("text", schema)
+    qstring = u("chaw-bacon")
+    
+    texts = list(schema["text"].process_text(qstring))
+    assert_equal(texts, ["chaw", "bacon"])
+    
+    q = parser.parse(qstring)
+    assert_equal(q.__class__, query.Phrase)
+
 def test_operator_queries():
     qp = default.QueryParser("f", None)
     
