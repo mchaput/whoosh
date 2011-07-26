@@ -708,13 +708,13 @@ def test_multitoken_phrase():
     assert_equal(q.__class__, query.Phrase)
 
 def test_singlequote_multitoken():
-    schema = fields.Schema(text=fields.TEXT(multitoken_query="and"))
+    schema = fields.Schema(text=fields.TEXT(multitoken_query="or"))
     parser = default.QueryParser("text", schema)
     q = parser.parse(u"foo bar")
     assert_equal(q.__unicode__(), "(text:foo AND text:bar)")
     
     q = parser.parse(u"'foo bar'")  # single quotes
-    assert_equal(q.__unicode__(), "(text:foo AND text:bar)")
+    assert_equal(q.__unicode__(), "(text:foo OR text:bar)")
 
 def test_operator_queries():
     qp = default.QueryParser("f", None)
