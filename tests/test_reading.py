@@ -3,7 +3,7 @@ import random, threading, time
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import analysis, fields, reading
+from whoosh import analysis, fields, formats, reading
 from whoosh.compat import u, xrange
 from whoosh.filedb.filereading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
@@ -114,7 +114,7 @@ def test_term_inspection():
 
 def test_vector_postings():
     s = fields.Schema(id=fields.ID(stored=True, unique=True),
-                      content=fields.TEXT(vector=fields.Positions(analyzer=analysis.StandardAnalyzer())))
+                      content=fields.TEXT(vector=formats.Positions(analyzer=analysis.StandardAnalyzer())))
     st = RamStorage()
     ix = st.create_index(s)
     
@@ -333,21 +333,12 @@ def test_doc_count():
     assert_equal(r.doc_count_all(), 8)
 
 def test_reader_subclasses():
-    def is_abstract(attr):
-        return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
-    def check_methods(base, subclass):
-        for attrname in dir(base):
-            if attrname.startswith("_"):
-                continue
-            attr = getattr(base, attrname)
-            if is_abstract(attr):
-                oattr = getattr(subclass, attrname)
-                assert not is_abstract(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
+    from whoosh.support.testing import check_abstract_methods
     
-    check_methods(reading.IndexReader, SegmentReader)
-    check_methods(reading.IndexReader, reading.MultiReader)
-    check_methods(reading.IndexReader, reading.EmptyReader)
-    check_methods(reading.IndexReader, RamIndex)
+    check_abstract_methods(reading.IndexReader, SegmentReader)
+    check_abstract_methods(reading.IndexReader, reading.MultiReader)
+    check_abstract_methods(reading.IndexReader, reading.EmptyReader)
+    check_abstract_methods(reading.IndexReader, RamIndex)
 
 
 
