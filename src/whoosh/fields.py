@@ -34,12 +34,12 @@ import re
 import sys
 from decimal import Decimal
 
+from whoosh import formats
 from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              StandardAnalyzer, NgramAnalyzer, Tokenizer,
                              NgramWordAnalyzer, Analyzer)
 from whoosh.compat import (with_metaclass, itervalues, string_type, u,
                            integer_types, long_type, text_type, xrange, PY3)
-from whoosh.formats import Format, Existence, Frequency, Positions
 from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
                                     text_to_long, float_to_text, text_to_float,
                                     )
@@ -99,9 +99,10 @@ class FieldType(object):
       a "word" in a user query parses into multiple tokens. The string is
       interpreted by the query parser. The strings understood by the default
       query parser are "first" (use first token only), "and" (join the tokens
-      with an AND query), "or" (join the tokens with OR), and "phrase" (join
-      the tokens with a phrase query).
-     
+      with an AND query), "or" (join the tokens with OR), "phrase" (join
+      the tokens with a phrase query), and "default" (use the query parser's
+      default join type).
+    
     The constructor for the base field type simply lets you supply your own
     configured field format, vector format, and scorable and stored values.
     Subclasses may configure some or all of this for you.
@@ -109,16 +110,16 @@ class FieldType(object):
     
     analyzer = format = vector = scorable = stored = unique = None
     indexed = True
-    multitoken_query = "first"
+    multitoken_query = "default"
     sortable_typecode = None
     spelling = False
     
-    __inittypes__ = dict(format=Format, vector=Format,
+    __inittypes__ = dict(format=formats.Format, vector=formats.Format,
                          scorable=bool, stored=bool, unique=bool)
     
     def __init__(self, format, analyzer, vector=None, scorable=False,
-                 stored=False, unique=False, multitoken_query="first"):
-        assert isinstance(format, Format)
+                 stored=False, unique=False, multitoken_query="default"):
+        assert isinstance(format, formats.Format)
         assert isinstance(analyzer, Analyzer)
         
         self.format = format
@@ -191,7 +192,7 @@ class FieldType(object):
             raise Exception("%s field cannot index without a format" % self.__class__)
         if not isinstance(value, (text_type, list, tuple)):
             raise ValueError("%r is not unicode or sequence" % value)
-        assert isinstance(self.format, Format), type(self.format)
+        assert isinstance(self.format, formats.Format), type(self.format)
         return self.format.word_values(value, self.analyzer, mode="index", **kwargs)
     
     def process_text(self, qstring, mode='', **kwargs):
@@ -315,7 +316,7 @@ class ID(FieldType):
         """
         
         self.analyzer = IDAnalyzer()
-        self.format = Existence(field_boost=field_boost)
+        self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
         self.spelling = spelling
@@ -341,7 +342,7 @@ class IDLIST(FieldType):
         
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
         self.analyzer = RegexAnalyzer(expression=expression)
-        self.format = Existence(field_boost=field_boost)
+        self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
         self.spelling = spelling
@@ -421,7 +422,7 @@ class NUMERIC(FieldType):
         self.shift_step = shift_step
         self.signed = signed
         self.analyzer = IDAnalyzer()
-        self.format = Existence(field_boost=field_boost)
+        self.format = formats.Existence(field_boost=field_boost)
     
     def sortable_default(self):
         return NUMERIC_DEFAULTS[self.sortable_typecode]
@@ -644,7 +645,7 @@ class BOOLEAN(FieldType):
         
         self.stored = stored
         self.field_boost = field_boost
-        self.format = Existence(field_boost=field_boost)
+        self.format = formats.Existence(field_boost=field_boost)
     
     def to_text(self, bit):
         if isinstance(bit, string_type):
@@ -709,7 +710,7 @@ class KEYWORD(FieldType):
         """
         
         self.analyzer = KeywordAnalyzer(lowercase=lowercase, commas=commas)
-        self.format = Frequency(field_boost=field_boost)
+        self.format = formats.Frequency(field_boost=field_boost)
         self.scorable = scorable
         self.stored = stored
         self.unique = unique
@@ -726,7 +727,8 @@ class TEXT(FieldType):
                          stored=bool, field_boost=float)
     
     def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
-                 field_boost=1.0, multitoken_query="first", spelling=False):
+                 field_boost=1.0, multitoken_query="default", spelling=False,
+                 chars=False):
         """
         :param analyzer: The analysis.Analyzer to use to index the field
             contents. See the analysis module for more information. If you omit
@@ -745,16 +747,18 @@ class TEXT(FieldType):
         
         self.analyzer = analyzer or StandardAnalyzer()
         
+        if chars:
+            formatclass = formats.Characters
         if phrase:
-            formatclass = Positions
+            formatclass = formats.Positions
         else:
-            formatclass = Frequency
+            formatclass = formats.Frequency
         self.format = formatclass(field_boost=field_boost)
         
         if vector:
             if type(vector) is type:
                 vector = vector()
-            elif isinstance(vector, Format):
+            elif isinstance(vector, formats.Format):
                 pass
             else:
                 vector = formatclass()
@@ -796,9 +800,9 @@ class NGRAM(FieldType):
             searching. The default is off.
         """
         
-        formatclass = Frequency
+        formatclass = formats.Frequency
         if phrase:
-            formatclass = Positions
+            formatclass = formats.Positions
         
         self.analyzer = NgramAnalyzer(minsize, maxsize)
         self.format = formatclass(field_boost=field_boost)
@@ -847,7 +851,7 @@ class NGRAMWORDS(NGRAM):
         """
         
         self.analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
-        self.format = Frequency(field_boost=field_boost)
+        self.format = formats.Frequency(field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
 

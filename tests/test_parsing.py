@@ -657,7 +657,26 @@ def test_ngramwords():
     assert_equal(q[0][1].text, "ello")
     assert_equal(q[1].text, "tom")
 
-def test_multitoken_words():
+def test_multitoken_default():
+    textfield = fields.TEXT()
+    assert textfield.multitoken_query == "default"
+    schema = fields.Schema(text=textfield)
+    parser = default.QueryParser('text', schema)
+    qstring = u("chaw-bacon")
+    
+    texts = list(schema["text"].process_text(qstring))
+    assert_equal(texts, ["chaw", "bacon"])
+    
+    q = parser.parse(qstring)
+    print("q=", q.__unicode__())
+    assert_equal(q.__class__, query.And)
+    assert_equal(len(q), 2)
+    assert_equal(q[0].__class__, query.Term)
+    assert_equal(q[0].text, "chaw")
+    assert_equal(q[1].__class__, query.Term)
+    assert_equal(q[1].text, "bacon")
+
+def test_multitoken_or():
     textfield = fields.TEXT()
     textfield.multitoken_query = "or"
     schema = fields.Schema(text=textfield)

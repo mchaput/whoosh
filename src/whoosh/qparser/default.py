@@ -29,7 +29,7 @@ import sys
 
 from whoosh import query
 from whoosh.qparser import syntax
-from whoosh.qparser.common import print_debug
+from whoosh.qparser.common import print_debug, QueryParserError
 
 
 # Query parser object
@@ -50,8 +50,6 @@ class QueryParser(object):
     >>> parser.parse(u"hello there")
     And([Term("content", u"hello"), Term("content", u"there")])
     """
-    
-    _multitoken_query_map = {"and": query.And, "or": query.Or}
     
     def __init__(self, fieldname, schema, plugins=None, termclass=query.Term,
                  phraseclass=query.Phrase, group=syntax.AndGroup):
@@ -165,15 +163,40 @@ class QueryParser(object):
         # Return the sorted list without the priorities
         return [item for item, _ in items_and_priorities]
     
-    def multitoken_query(self, name, texts, fieldname, termclass, boost):
-        name = name.lower()
-        if name == "phrase":
+    def multitoken_query(self, spec, texts, fieldname, termclass, boost):
+        """Returns a query for multiple texts. This method implements the
+        intention specified in the field's ``multitoken_query`` attribute,
+        which specifies what to do when strings that look like single terms
+        to the parser turn out to yield multiple tokens when analyzed.
+        
+        :param spec: a string describing how to join the text strings into a
+            query. This is usually the value of the field's
+            ``multitoken_query`` attribute.
+        :param texts: a list of token strings.
+        :param fieldname: the name of the field.
+        :param termclass: the query class to use for single terms.
+        :param boost: the original term's boost in the query string, should be
+            applied to the returned query object.
+        """
+        
+        spec = spec.lower()
+        if spec == "first":
+            # Throw away all but the first token
+            return termclass(fieldname, texts[0], boost=boost)
+        elif spec == "phrase":
+            # Turn the token into a phrase
             return self.phraseclass(fieldname, texts, boost=boost)
         else:
-            qclass = self._multitoken_query_map.get(name)
-            if qclass:
-                return qclass([termclass(fieldname, t, boost=boost)
-                               for t in texts])
+            if spec == "default":
+                qclass = self.group.qclass
+            elif spec == "and":
+                qclass = query.And
+            elif spec == "or":
+                qclass = query.Or
+            else:
+                raise QueryParserError("Unknown multitoken_query value %r" % spec)
+            return qclass([termclass(fieldname, t, boost=boost)
+                           for t in texts])
     
     def term_query(self, fieldname, text, termclass, boost=1.0, tokenize=True,
                    removestops=True):
@@ -203,10 +226,8 @@ class QueryParser(object):
             # multitoken_query attribute to decide what query class, if any, to
             # use to put the tokens together
             if len(texts) > 1:
-                mtq = self.multitoken_query(field.multitoken_query, texts,
-                                            fieldname, termclass, boost)
-                if mtq:
-                    return mtq
+                return self.multitoken_query(field.multitoken_query, texts,
+                                             fieldname, termclass, boost)
                 
             # It's possible field.process_text() will return an empty list (for
             # example, on a stop word)
