@@ -127,6 +127,23 @@ def test_lengths():
             ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
             assert_equal(ls2, [byte_to_length(length_to_byte(l))for l in lengths])
 
+def test_many_lengths():
+    domain = u("alfa bravo charlie delta echo foxtrot golf hotel").split()
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    for i, word in enumerate(domain):
+        length = (i + 1) ** 6
+        w.add_document(text=" ".join(word for _ in xrange(length)))
+    w.commit()
+    
+    s = ix.searcher()
+    for i, word in enumerate(domain):
+        target = byte_to_length(length_to_byte((i + 1) ** 6))
+        ti = s.term_info("text", word)
+        assert_equal(ti.min_length(), target)
+        assert_equal(ti.max_length(), target)
+
 def test_lengths_ram():
     s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
                       f2=fields.KEYWORD(stored=True, scorable=True))
