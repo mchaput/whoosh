@@ -649,11 +649,14 @@ def rcompile(pattern, flags=0, verbose=False):
     return re.compile(pattern, re.UNICODE | flags)
 
 
-def abstractmethod(funcobj):
-    """A decorator indicating abstract methods.
-    """
-    funcobj.__isabstractmethod__ = True
-    return funcobj
+try:
+    from abc import abstractmethod  #@UnusedImport
+except ImportError:
+    def abstractmethod(funcobj):
+        """A decorator indicating abstract methods.
+        """
+        funcobj.__isabstractmethod__ = True
+        return funcobj
 
 
 

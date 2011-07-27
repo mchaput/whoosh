@@ -18,14 +18,6 @@ def test_null_fragment():
     htext = highlight.highlight(_doc, terms, sa, nf, uc)
     assert_equal(htext, "alfa BRAVO charlie delta echo foxtrot golf hotel INDIA juliet kilo lima")
 
-def test_simple_fragment():
-    terms = frozenset(("bravo", "india"))
-    sa = analysis.StandardAnalyzer()
-    sf = highlight.SimpleFragmenter(size=20)
-    uc = highlight.UppercaseFormatter()
-    htext = highlight.highlight(_doc, terms, sa, sf, uc)
-    assert_equal(htext, "alfa BRAVO charlie...hotel INDIA juliet kilo")
-    
 def test_sentence_fragment():
     text = u("This is the first sentence. This one doesn't have the word. This sentence is the second. Third sentence here.")
     terms = ("sentence", )
