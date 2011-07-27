@@ -30,8 +30,6 @@ This module contains common utility objects/functions for the other query
 parser modules.
 """
 
-from __future__ import print_function
-
 from whoosh.compat import string_type
 
 
