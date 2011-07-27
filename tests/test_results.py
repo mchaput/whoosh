@@ -2,7 +2,7 @@ from __future__ import with_statement
 
 from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
 
-from whoosh import analysis, fields, formats, qparser, query
+from whoosh import analysis, fields, formats, highlight, qparser, query
 from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util import permutations
@@ -291,9 +291,23 @@ def test_resultspage():
         assert_equal(len(rp), 0)
         assert rp.is_last_page()
 
-def test_snippets():
-    from whoosh import highlight
+def test_highlight_setters():
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=u("Hello"))
+    w.commit()
     
+    r = ix.searcher().search(query.Term("text", "hello"))
+    hl = highlight.Highlighter()
+    ucf = highlight.UppercaseFormatter()
+    r.highlighter = hl
+    print "fmt=", r.formatter
+    r.formatter = ucf
+    print r.formatter
+    assert hl.formatter is ucf
+    
+def test_snippets():
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(text=fields.TEXT(stored=True, analyzer=ana))
     ix = RamStorage().create_index(schema)
@@ -301,21 +315,22 @@ def test_snippets():
     w.add_document(text=u("Lay out the rough animation by creating the important poses where they occur on the timeline."))
     w.add_document(text=u("Set key frames on everything that's key-able. This is for control and predictability: you don't want to accidentally leave something un-keyed. This is also much faster than selecting the parameters to key."))
     w.add_document(text=u("Use constant (straight) or sometimes linear transitions between keyframes in the channel editor. This makes the character jump between poses."))
-    w.add_document(text=u("Keying everything gives quick, immediate results, but it can become difficult to tweak the animation later, especially for complex characters."))
+    w.add_document(text=u("Keying everything gives quick, immediate results. But it can become difficult to tweak the animation later, especially for complex characters."))
     w.add_document(text=u("Copy the current pose to create the next one: pose the character, key everything, then copy the keyframe in the playbar to another frame, and key everything at that frame."))
     w.commit()
     
-    target = ["Set KEY frames on everything that's KEY-able. This is for control and predictability...leave something un-KEYED. This is also much faster than selecting...parameters to KEY",
-              "next one: pose the character, KEY everything, then copy...playbar to another frame, and KEY everything at that frame",
+    target = ["Set KEY frames on everything that's KEY-able",
+              "Copy the current pose to create the next one: pose the character, KEY everything, then copy the keyframe in the playbar to another frame, and KEY everything at that frame",
               "KEYING everything gives quick, immediate results"]
     
     with ix.searcher() as s:
         qp = qparser.QueryParser("text", ix.schema)
         q = qp.parse(u("key"))
         r = s.search(q, terms=True)
+        r.fragmenter = highlight.SentenceFragmenter()
         r.formatter = highlight.UppercaseFormatter()
         
-        assert_equal(sorted([hit.highlights("text") for hit in r]), sorted(target))
+        assert_equal(sorted([hit.highlights("text", top=1) for hit in r]), sorted(target))
 
 def test_keyterms():
     ana = analysis.StandardAnalyzer()

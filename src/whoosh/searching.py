@@ -1188,16 +1188,13 @@ class Results(object):
     """
 
     def __init__(self, searcher, q, top_n, docset, groups=None, runtime=-1,
-                 filter=None, mask=None, termlists=None):
+                 filter=None, mask=None, termlists=None, highlighter=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
         :param query: the original query that created these results.
         :param top_n: a list of (score, docnum) tuples representing the top
             N search results.
-        :param scores: a list of scores corresponding to the document
-            numbers in top_n, or None if the results do not have scores.
-        :param runtime: the time it took to run this search.
         """
 
         self.searcher = searcher
@@ -1210,9 +1207,8 @@ class Results(object):
         self._mask = mask
         self._termlists = termlists
         
-        self.fragmenter = highlight.ContextFragmenter()
-        self.fragment_scorer = highlight.BasicFragmentScorer()
-        self.formatter = highlight.HtmlFormatter(tagname="b")
+        self.highlighter = highlighter or highlight.Highlighter()
+        self.char_cache = {}
     
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
@@ -1327,8 +1323,8 @@ class Results(object):
         self.docset = docset
 
     def has_exact_length(self):
-        """True if this results object already knows the exact number of
-        matching documents.
+        """Returns True if this results object already knows the exact number
+        of matching documents.
         """
         
         return self.docset is not None
@@ -1397,6 +1393,21 @@ class Results(object):
         """
         return self.top_n[n][1]
 
+    def query_terms(self):
+        return self.q.existing_terms(self.searcher.reader())
+
+    def has_matched_terms(self):
+        """Returns True if the search recorded which terms matched in which
+        documents.
+        
+        >>> r = searcher.search(myquery)
+        >>> r.has_matched_terms()
+        False
+        >>> 
+        """
+        
+        return self._termlists is not None
+
     def matched_terms(self):
         """Returns the set of ``("fieldname", "text")`` tuples representing
         terms from the query that matched one or more of the TOP N documents
@@ -1420,38 +1431,29 @@ class Results(object):
             raise NoTermsException
         return set(self._termlists.keys())
 
-    def highlights(self, n, fieldname, text=None, top=3, fragmenter=None,
-                   formatter=None, order=highlight.FIRST, force=True,
-                   mode="query"):
-        """Returns highlighted snippets for the document in the Nth position
-        in the results. It is usually more convenient to call this method on a
-        Hit object instead of the Results.
-        
-        See the docs for the :meth:`Hit.highlights` method.
-        """
-        
-        if text is None:
-            d = self.fields(n)
-            if fieldname not in d:
-                raise KeyError("Field %r is not in the stored fields."
-                               % fieldname)
-            text = d[fieldname]
-        
-        analyzer = self.searcher.schema[fieldname].analyzer
-        fragmenter = fragmenter or self.fragmenter
-        formatter = formatter or self.formatter
-        
-        if self._termlists is None:
-            terms = self.q.existing_terms(self.searcher.reader())
-        else:
-            terms = self.matched_terms()
-        terms = set(ttext for fname, ttext in terms if fname == fieldname)
-        if not terms and not force:
-            return None
-        
-        return highlight.highlight(text, terms, analyzer, fragmenter,
-                                   formatter, top=top, order=order,
-                                   scorer=self.fragment_scorer, mode=mode)
+    def _get_fragmenter(self):
+        return self.highlighter.fragmenter
+    def _set_fragmenter(self, f):
+        self.highlighter.fragmenter = f
+    fragmenter = property(_get_fragmenter, _set_fragmenter)
+    
+    def _get_formatter(self):
+        return self.highlighter.formatter
+    def _set_formatter(self, f):
+        self.highlighter.formatter = f
+    formatter = property(_get_formatter, _set_formatter)
+    
+    def _get_scorer(self):
+        return self.highlighter.scorer
+    def _set_scorer(self, s):
+        self.highlighter.scorer = s
+    scorer = property(_get_scorer, _set_scorer)
+    
+    def _get_order(self):
+        return self.highlighter.order
+    def _set_order(self, o):
+        self.highlighter.order = o
+    order = property(_get_order, _set_order)
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -1629,33 +1631,28 @@ class Hit(object):
                 s.add(term)
         return s
     
-    def highlights(self, fieldname, text=None, top=3, fragmenter=None,
-                   formatter=None, order=highlight.FIRST, force=True,
-                   mode="query"):
+    def highlights(self, fieldname, text=None, top=3):
         """Returns highlighted snippets from the given field::
         
             r = searcher.search(myquery)
             for hit in r:
-                print hit["title"]
-                print hit.highlights("content")
+                print(hit["title"])
+                print(hit.highlights("content"))
         
-        See :doc:`how to highlight terms in search results </highlight>` for
-        more information.
+        See :doc:`/highlight`.
         
-        You can set the ``fragmenter`` and ``formatter`` attributes on the
-        ``Results`` object instead of specifying the ``fragmenter`` and
-        ``formatter`` arguments to this method. For example, to return larger
-        fragments and highlight them by converting to upper-case instead of
-        with HTML tags::
+        To change the fragmeter, formatter, order, or scorer used in
+        highlighting, you can set attributes on the results object::
         
             from whoosh import highlight
+            
+            results = searcher.search(myquery, terms=True)
+            results.fragmenter = highlight.SentenceFragmenter()
         
-            r = searcher.search(myquery)
-            r.fragmenter = highlight.ContextFragmenter(surround=40)
-            r.formatter = highlight.UppercaseFormatter()
-            for hit in r:
-                print hit["title"]
-                print hit.highlights("content")
+        ...or use a custom :class:`whoosh.highlight.Highlighter` object::
+        
+            hl = highlight.Highlighter(fragmenter=sf)
+            results.highlighter = hl
         
         :param fieldname: the name of the field you want to highlight.
         :param text: by default, the method will attempt to load the contents
@@ -1664,42 +1661,10 @@ class Hit(object):
             access to the text another way (for example, loading from a file or
             a database), you can supply it using the ``text`` parameter.
         :param top: the maximum number of fragments to return.
-        :param fragmenter: A :class:`whoosh.highlight.Fragmenter` object. This
-            controls how the text is broken in fragments. The default is
-            :class:`whoosh.highlight.ContextFragmenter`. For some applications
-            you may find that a different fragmenting algorithm, such as
-            :class:`whoosh.highlight.SentenceFragmenter` gives better results.
-            For short fields you could use
-            :class:`whoosh.highlight.WholeFragmenter` which returns the entire
-            field as a single fragment.
-        :param formatter: A :class:`whoosh.highlight.Formatter` object. This
-            controls how the search terms are highlighted in the snippets. The
-            default is :class:`whoosh.highlight.HtmlFormatter` with
-            ``tagname='b'``.
-            
-            Note that different formatters may return different objects, e.g.
-            plain text, HTML, a Genshi event stream, a SAX event generator,
-            etc.
-        :param order: the order of the fragments. This should be one of
-            :func:`whoosh.highlight.SCORE`, :func:`whoosh.highlight.FIRST`,
-            :func:`whoosh.highlight.LONGER`,
-            :func:`whoosh.highlight.SHORTER`, or a custom sorting function. The
-            default is ``highlight.FIRST``.
-        :param force: if True (the default), returns "highlights" even if the
-            document does not contain any matching terms. If False, returns
-            None instead of highlights when the document does not contain any
-            matching terms. This can save time by avoiding retokenizing large
-            amounts of text.
-        :param mode: EXPERT: the mode argument to pass to the analyzer. The
-            default is "query". You should not need to change this unless you
-            want to get different analyzer behavior in highlights for some
-            reason.
         """
         
-        return self.results.highlights(self.rank, fieldname, text=text,
-                                       top=top, fragmenter=fragmenter,
-                                       formatter=formatter, order=order,
-                                       force=force, mode=mode)
+        hhit = self.results.highlighter.highlight_hit
+        return hhit(self, fieldname, text=text, top=top)
     
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):

@@ -43,7 +43,6 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
-from whoosh.compat import next
 from whoosh.matching import (WrappingMatcher, AndMaybeMatcher, UnionMatcher,
                              IntersectionMatcher, NullMatcher)
 from whoosh.query import Query, And, AndMaybe, Or, Term
@@ -53,9 +52,10 @@ from whoosh.util import make_binary_tree
 # Span class
 
 class Span(object):
-    __slots__ = ("start", "end", "startchar", "endchar")
+    __slots__ = ("start", "end", "startchar", "endchar", "boost")
     
-    def __init__(self, start, end=None, startchar=None, endchar=None):
+    def __init__(self, start, end=None, startchar=None, endchar=None,
+                 boost=1.0):
         if end is None:
             end = start
         assert start <= end
@@ -63,9 +63,10 @@ class Span(object):
         self.end = end
         self.startchar = startchar
         self.endchar = endchar
+        self.boost = boost
 
     def __repr__(self):
-        if self.startchar or self.endchar:
+        if self.startchar is not None or self.endchar is not None:
             return "<%d-%d %d:%d>" % (self.start, self.end, self.startchar, self.endchar)
         else:
             return "<%d-%d>" % (self.start, self.end)
@@ -159,7 +160,7 @@ class Span(object):
             return 0
         elif self.is_before(span):
             return span.start - self.end
-        elif self.is_after(span):
+        else:
             return self.start - span.end
 
 

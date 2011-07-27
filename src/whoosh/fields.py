@@ -149,6 +149,19 @@ class FieldType(object):
     def on_remove(self, schema, fieldname):
         pass
     
+    def supports(self, name):
+        """Returns True if the underlying format supports the given posting
+        value type.
+        
+        >>> field = TEXT()
+        >>> field.supports("positions")
+        True
+        >>> field.supports("characters")
+        False
+        """
+        
+        return self.format.supports(name)
+    
     def clean(self):
         """Clears any cached information in the field and any child objects.
         """
