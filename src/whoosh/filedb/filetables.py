@@ -860,8 +860,10 @@ class FileTermInfo(TermInfo):
     
     def to_string(self):
         # Encode the lengths as 0-255 values
-        ml = length_to_byte(self._minlength)
-        xl = length_to_byte(self._maxlength)
+        ml = self._minlength
+        if ml is None:
+            ml = 0
+        xl = self._maxlength
         # Convert None values to the out-of-band NO_ID constant so they can be
         # stored as unsigned ints
         mid = NO_ID if self._minid is None else self._minid
@@ -894,8 +896,6 @@ class FileTermInfo(TermInfo):
         if hbyte < 2:
             # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
             f, df, ml, xl, xw, xwol, mid, xid = cls.struct.unpack(s[1:cls.struct.size+1])
-            ml = byte_to_length(ml)
-            xl = byte_to_length(xl)
             mid = None if mid == NO_ID else mid
             xid = None if xid == NO_ID else xid
             # Postings
