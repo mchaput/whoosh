@@ -279,7 +279,7 @@ def test_highlight_daterange():
     r = s.search(Term('content', u('train')), terms=True)
     assert_equal(len(r), 1)
     assert_equal(r[0]["id"], "2")
-    assert_equal(r[0].highlights("content"), 'India for a life changing <b class="match term0">train</b> journey')
+    assert_equal(r[0].highlights("content"), 'for a life changing <b class="match term0">train</b> journey')
     
     r = s.search(DateRange('released', datetime(2007,1,1), None))
     assert_equal(len(r), 1)
