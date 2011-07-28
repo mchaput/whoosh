@@ -1208,7 +1208,7 @@ class Results(object):
         self._termlists = termlists
         
         self.highlighter = highlighter or highlight.Highlighter()
-        self.char_cache = {}
+        self._char_cache = {}
     
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
