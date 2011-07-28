@@ -160,7 +160,7 @@ def test_multifilter():
     
     with ix.searcher() as s:
         hit = s.search(query.Term("text", "5000"))[0]
-        assert_equal(hit.highlights("text"), '<b class="match term0">BabbleTron5000</b> is great')
+        assert_equal(hit.highlights("text"), 'Our BabbleTron<b class="match term0">5000</b> is great')
     
 
 

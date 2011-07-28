@@ -83,6 +83,29 @@ def test_intraword():
            (3, "500"), (4, "42"), (4, "50042"), (5, "Auto"), (6, "Coder"),
            (6, "AutoCoder")])
 
+def test_intraword_chars():
+    iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
+    ana = analysis.RegexTokenizer(r"\S+") | iwf | analysis.LowercaseFilter()
+    
+    target = u("WiKiWo-rd")
+    tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
+    assert_equal(tokens, [("wi", 0, 2), ("ki", 2, 4), ("wo", 4, 6),
+                          ("rd", 7, 9), ("wikiword", 0, 9)])
+    
+    target = u("Zo WiKiWo-rd")
+    tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
+    assert_equal(tokens, [("zo", 0, 2), ("wi", 3, 5), ("ki", 5, 7),
+                          ("wo", 7, 9), ("rd", 10, 12), ("wikiword", 3, 12)])
+
+def test_intraword_posessive():
+    iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
+    ana = analysis.RegexTokenizer(r"\S+") | iwf | analysis.LowercaseFilter()
+    
+    target = u("O'Malley's-Bar")
+    tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
+    assert_equal(tokens, [("o", 0, 1), ("malley", 2, 8), ("bar", 11, 14),
+                          ("omalleybar", 0, 14)])
+
 def test_biword():
     ana = analysis.RegexTokenizer(r"\w+") | analysis.BiWordFilter()
     result = [t.copy() for t
