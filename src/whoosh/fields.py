@@ -739,15 +739,17 @@ class TEXT(FieldType):
     __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=object,
                          stored=bool, field_boost=float)
     
-    def __init__(self, analyzer=None, phrase=True, vector=None, stored=False,
-                 field_boost=1.0, multitoken_query="default", spelling=False,
-                 chars=False):
+    def __init__(self, analyzer=None, phrase=True, chars=False, vector=None,
+                 stored=False, field_boost=1.0, multitoken_query="default",
+                 spelling=False):
         """
         :param analyzer: The analysis.Analyzer to use to index the field
             contents. See the analysis module for more information. If you omit
             this argument, the field uses analysis.StandardAnalyzer.
         :param phrase: Whether the store positional information to allow phrase
             searching.
+        :param chars: Whether to store character ranges along with positions.
+            If this is True, "phrase" is also implied.
         :param vector: A :class:`whoosh.formats.Format` object to use to store
             term vectors, or ``True`` to store vectors using the same format as
             the inverted index, or ``None`` or ``False`` to not store vectors.
@@ -756,13 +758,15 @@ class TEXT(FieldType):
             document. Since this field type generally contains a lot of text,
             you should avoid storing it with the document unless you need to,
             for example to allow fast excerpts in the search results.
+        :param spelling: Whether to generate word graphs for this field to make
+            spelling suggestions much faster.
         """
         
         self.analyzer = analyzer or StandardAnalyzer()
         
         if chars:
             formatclass = formats.Characters
-        if phrase:
+        elif phrase:
             formatclass = formats.Positions
         else:
             formatclass = formats.Frequency
