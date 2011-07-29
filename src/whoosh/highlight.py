@@ -63,9 +63,9 @@ DEFAULT_CHARLIMIT = 2 ** 15
 # Fragment object
 
 def mkfrag(text, tokens, startchar=None, endchar=None,
-                         charsbefore=0, charsafter=0):
+           charsbefore=0, charsafter=0):
     """Returns a :class:`Fragment` object based on the :class:`analysis.Token`
-    objects in ``tokens`` that have ``token.matched == True``.
+    objects in ``tokens`.
     """
     
     if startchar is None:
@@ -76,8 +76,7 @@ def mkfrag(text, tokens, startchar=None, endchar=None,
     startchar = max(0, startchar - charsbefore)
     endchar = min(len(text), endchar + charsafter)
     
-    matches = [t for t in tokens if t.matched]
-    return Fragment(text, matches, startchar, endchar)
+    return Fragment(text, tokens, startchar, endchar)
 
 
 class Fragment(object):
@@ -85,6 +84,25 @@ class Fragment(object):
     mainly used to keep track of the start and end points of the fragment and
     the "matched" character ranges inside; it does not contain the text of the
     fragment or do much else.
+    
+    The useful attributes are:
+    
+    ``Fragment.text``
+        The entire original text from which this fragment is taken.
+    
+    ``Fragment.matches``
+        An ordered list of objects representing the matched terms in the
+        fragment. These objects have ``startchar`` and ``endchar`` attributes.
+    
+    ``Fragment.startchar``
+        The index of the first character in the fragment.
+    
+    ``Fragment.endchar``
+        The index of the last character in the fragment.
+    
+    ``Fragment.matched_terms``
+        A ``set`` of the ``text`` of the matched terms in the fragment (if
+        available).
     """
     
     def __init__(self, text, matches, startchar=0, endchar=-1):
@@ -163,7 +181,7 @@ class Fragmenter(object):
         """Yields :class:`Fragment` objects based on the tokenized text.
         
         :param text: the string being highlighted.
-        :param all_tokens: an iterator of :class:`whoosh.analysis.Token`
+        :param all_tokens: an iterator of :class:`analysis.Token`
             objects from the string.
         """
         
@@ -174,7 +192,7 @@ class Fragmenter(object):
         terms.
         
         :param text: the string being highlighted.
-        :param all_tokens: a list of :class:`whoosh.analysis.Token` objects
+        :param all_tokens: a list of :class:`analysis.Token` objects
             representing the term matches in the string.
         """
         
@@ -235,22 +253,22 @@ class SentenceFragmenter(Fragmenter):
         first = None
         # Buffer for matched tokens in the current sentence
         tks = []
+        # Number of chars in the current sentence
+        currentlen = 0
         
         for t in tokens:
-            if first is None:
-                # Remember the startchar of the first token in a sentence
-                first = t.startchar
+            startchar = t.startchar
             endchar = t.endchar
-            
             if charlimit and endchar > charlimit:
                 break
             
-            # If this sentence is longer than maxchars, finish it and reset
-            if endchar - first > maxchars:
-                if tks:
-                    yield mkfrag(text, tks, startchar=first)
-                    tks = []
-                first = None
+            if first is None:
+                # Remember the startchar of the first token in a sentence
+                first = startchar
+                currentlen = 0
+            
+            tlength = endchar - startchar
+            currentlen += tlength
             
             if t.matched:
                 tks.append(t.copy())
@@ -262,11 +280,14 @@ class SentenceFragmenter(Fragmenter):
                 if endchar + 1 < textlen and text[endchar + 1] in sentencechars:
                     continue
                 
-                # If the sentence had matches, yield it as a token
-                if tks:
+                # If the sentence had matches and it's not too long, yield it
+                # as a token
+                if tks and currentlen <= maxchars:
                     yield mkfrag(text, tks, startchar=first, endchar=endchar)
-                    tks = []
+                # Reset the counts
+                tks = []
                 first = None
+                currentlen = 0
         else:
             # If we get to the end of the text and there's still a sentence
             # in the buffer, yield it
@@ -288,13 +309,12 @@ class ContextFragmenter(Fragmenter):
         """
         
         self.maxchars = maxchars
-        self.charsbefore = self.charsafter = surround
+        self.surround = surround
         self.charlimit = charlimit
     
     def fragment_tokens(self, text, tokens):
         maxchars = self.maxchars
-        charsbefore = self.charsbefore
-        charsafter = self.charsafter
+        surround = self.surround
         charlimit = self.charlimit
         
         # startchar of the first token in the fragment
@@ -311,8 +331,6 @@ class ContextFragmenter(Fragmenter):
         currentlen = 0
         
         for t in tokens:
-            #print "t=", t
-            #print "  f=", first, "fs=", firsts, "t-=", countdown, "tks=", len(tks), "len=", currentlen
             startchar = t.startchar
             endchar = t.endchar
             tlength = endchar - startchar
@@ -323,7 +341,7 @@ class ContextFragmenter(Fragmenter):
                 # We're not in a fragment currently, so just maintain the
                 # "charsbefore" buffer
                 firsts.append(startchar)
-                while firsts and endchar - firsts[0] > charsbefore:
+                while firsts and endchar - firsts[0] > surround:
                     firsts.popleft()
             elif currentlen + tlength > maxchars:
                 # We're in a fragment, but adding this token would put us past
@@ -332,7 +350,7 @@ class ContextFragmenter(Fragmenter):
                 countdown = 0
             elif t.matched:
                 # Start/restart the countdown
-                countdown = charsafter
+                countdown = surround
                 # Remember the first char of this fragment
                 if first is None:
                     if firsts:
@@ -340,7 +358,7 @@ class ContextFragmenter(Fragmenter):
                     else:
                         first = startchar
                         # Add on unused front context
-                        countdown += charsbefore
+                        countdown += surround
                 tks.append(t.copy())
             
             # If we're in a fragment...
@@ -369,16 +387,22 @@ class PinpointFragmenter(Fragmenter):
     positions of the matched terms.
     """
     
-    def __init__(self, maxchars=200, surround=20, charlimit=DEFAULT_CHARLIMIT):
+    def __init__(self, maxchars=200, surround=20, autotrim=False,
+                 charlimit=DEFAULT_CHARLIMIT):
         """
         :param maxchars: The maximum number of characters allowed in a
             fragment.
         :param surround: The number of extra characters of context to add both
             before the first matched term and after the last matched term.
+        :param autotrim: automatically trims text before the first space and
+            after the last space in the fragments, to try to avoid truncated
+            words at the start and end. For short fragments or fragments with
+            long runs between spaces this may give strange results.
         """
         
         self.maxchars = maxchars
-        self.charsbefore = self.charsafter = surround
+        self.surround = surround
+        self.autotrim = autotrim
         self.charlimit = charlimit
     
     def must_retokenize(self):
@@ -388,10 +412,30 @@ class PinpointFragmenter(Fragmenter):
         matched = [t for t in tokens if t.matched]
         return self.fragment_matches(text, matched)
     
+    @staticmethod
+    def _autotrim(fragment):
+        text = fragment.text
+        startchar = fragment.startchar
+        endchar = fragment.endchar
+        
+        firstspace = text.find(" ", startchar, endchar)
+        if firstspace > 0:
+            startchar = firstspace + 1
+        lastspace = text.rfind(" ", startchar, endchar)
+        if lastspace > 0:
+            endchar = lastspace
+        
+        if fragment.matches:
+            startchar = min(startchar, fragment.matches[0].startchar)
+            endchar = max(endchar, fragment.matches[-1].endchar)
+        
+        fragment.startchar = startchar
+        fragment.endchar = endchar
+    
     def fragment_matches(self, text, tokens):
         maxchars = self.maxchars
-        charsbefore = self.charsbefore
-        charsafter = self.charsafter
+        surround = self.surround
+        autotrim = self.autotrim
         charlimit = self.charlimit
         
         for i, t in enumerate(tokens):
@@ -405,16 +449,19 @@ class PinpointFragmenter(Fragmenter):
             while j < len(tokens) - 1 and currentlen < maxchars:
                 next = tokens[j + 1]
                 ec = next.endchar
-                if ec - right <= charsafter and ec - left <= maxchars:
+                if ec - right <= surround and ec - left <= maxchars:
                     j += 1
                     right = ec
                     currentlen += (ec - next.startchar)
                 else:
                     break
             
-            left = max(0, left - charsbefore)
-            right = min(len(text), right + charsafter)
-            yield Fragment(text, tokens[i:j + 1], left, right)
+            left = max(0, left - surround)
+            right = min(len(text), right + surround)
+            fragment = Fragment(text, tokens[i:j + 1], left, right)
+            if autotrim:
+                self._autotrim(fragment)
+            yield fragment
 
 
 # Fragment scorers
@@ -486,8 +533,6 @@ class Formatter(object):
             def format_token(text, token, replace=False):
                 ttext = get_text(text, token, replace)
                 return "[%s]" % ttext
-
-
     """
     
     between = "..."
