@@ -84,4 +84,23 @@ def skip_if_unavailable(modulename):
     return skip_if(cantimport)
 
 
+def is_abstract_method(attr):
+    """Returns True if the given object has __isabstractmethod__ == True.
+    """
+    
+    return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
+
+
+def check_abstract_methods(base, subclass):
+    """Raises AssertionError if ``subclass`` does not override a method on
+    ``base`` that is marked as an abstract method.
+    """
+    
+    for attrname in dir(base):
+        if attrname.startswith("_"):
+            continue
+        attr = getattr(base, attrname)
+        if is_abstract_method(attr):
+            oattr = getattr(subclass, attrname)
+            assert not is_abstract_method(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
 

@@ -67,7 +67,7 @@ class Format(object):
                 and self.__dict__ == other.__dict__)
     
     def __repr__(self):
-        return "%s(%r, boost = %s)" % (self.__class__.__name__, self.field_boost)
+        return "%s(boost=%s)" % (self.__class__.__name__, self.field_boost)
     
     def word_values(self, value, analyzer, **kwargs):
         """Takes the text value to be indexed and yields a series of

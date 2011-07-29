@@ -5,101 +5,110 @@ How to create highlighted search result excerpts
 Overview
 ========
 
-The highlight module requires that you have the text of the indexed 
-document available. You can keep the text in a stored field, or if the 
-original text is available in a file, database column, etc, just reload 
-it on the fly. Note that you might need to process the text to remove 
+The highlight module requires that you have the text of the indexed
+document available. You can keep the text in a stored field,  Note that you might need to process the text to remove
 e.g. HTML tags, wiki markup, etc.
 
-The highlight module works on a pipeline:
+The highlighting system works as a pipeline, with four component types.
 
-#. Run the text through an analyzer to turn it into a token stream [#f1]_.
+* **Fragmenters** chop up the original text into __fragments__, based on the
+  locations of matched terms in the text.
 
-#. Break the token stream into "fragments" (there are several different styles of fragmentation  available).
+* **Scorers** assign a score to each fragment, allowing the system to rank the
+  best fragments by whatever criterion.
 
-#. Score each fragment based on how many matched query terms the fragment contains.
+* **Order functions** control in what order the top-scoring fragments are
+  presented to the user. For example, you can show the fragments in the order
+  they appear in the document (FIRST) or show higher-scoring fragments first
+  (SCORE)
 
-#. Format the highest scoring fragments for display.
-
-.. rubric:: Footnotes
-
-.. [#f1]
-    Some search systems, such as Lucene, can use term vectors to highlight text
-    without retokenizing it. In my tests I found that using a Position/Character
-    term vector didn't give any speed improvement in Whoosh over retokenizing
-    the text. This probably needs further investigation.
+* **Formatters** turn the fragment objects into human-readable output, such as
+  an HTML string.
 
 
-The easy way
+Requirements
 ============
 
-The :class:`whoosh.searching.Hit` objects you get from a
-:class:`whoosh.searching.Results` object have a
-:meth:`~whoosh.searching.Hit.highlights` method which returns highlighted
-snippets from the document. The only required argument is the name of the field
-to highlight::
+Highlighting requires that you have the text of the indexed document available.
+You can keep the text in a stored field, or if the  original text is available
+in a file, database column, etc, just reload it on the fly.
 
-    results = searcher.search(myquery)
+
+How to
+======
+
+Get search results::
+
+    results = mysearcher.search(myquery)
     for hit in results:
-        print hit["title"]
-        print hit.highlights("content")
-        
-This assumes the ``"content"`` field is marked ``stored`` in the schema so it is
-available in the stored fields for the document. If you don't store the contents
-of the field you want to highlight in the index, but have access to it another
-way (for example, reading from a file or a database), you can supply the text as
-an optional second argument::
+        print(hit["title"])
 
-    results = searcher.search(myquery)
+You can use the :meth:`~whoosh.searching.Hit.highlights` method on the
+:class:`whoosh.searching.Hit` object to get highlighted snippets from the
+document containing the search terms.
+
+The first argument is the name of the field to highlight. If the field is
+stored, this is the only argument you need to supply::
+
+    results = mysearcher.search(myquery)
     for hit in results:
-        print hit["title"]
+        print(hit["title"])
+        # Assume "content" field is stored
+        print(hit.highlights("content"))
+
+If the field is not stored, you need to retrieve the text of the field some
+other way. For example, reading it from the original file or a database. Then
+you can supply the text to highlight with the ``text`` argument::
+
+    results = mysearcher.search(myquery)
+    for hit in results:
+        print(hit["title"])
         
-        # Instead of storing the contents in the index, I stored a file path
-        # so I could retrieve the contents from the original file
-        path = hit["path"]
-        text = open(path).read()
-        print hit.highlight("content", text)
+        # Assume the "path" stored field contains a path to the original file
+        with open(hit["path"]) as fileobj:
+            filecontents = fileobj.read()
+        
+        print(hit.highlights("content", text=filecontents))
 
-You can customize the creation of the snippets by setting the ``fragmenter``
-and/or ``formatter`` attributes on the :class:`Results` object or using the
-``fragmenter`` and/or ``formatter`` keyword arguments to
-:meth:`~whoosh.searching.Hit.highlight`. Set the ``Results.fragmenter``
-attribute to a :class:`whoosh.highlight.Fragmenter` object (see "Fragmenters"
-below) and/or the ``Results.formatter`` attribute to a
-:class:`whoosh.highlight.Formatter` object (see "Formatters" below).
 
-For example, to return larger fragments and highlight them by converting to
-upper-case instead of with HTML tags::
+The character limit
+===================
 
-    from whoosh import highlight
+By default, Whoosh only pulls fragments from the first 32K characters of the
+text. This prevents very long texts from bogging down the highlighting process
+too much, and is usually justified since important/summary information is
+usually at the start of a document. However, if you find the highlights are
+missing information (for example, very long encyclopedia articles where the
+terms appear in a later section), you can increase the fragmenter's character
+limit.
 
-    r = searcher.search(myquery)
-    r.fragmenter = highlight.ContextFragmenter(surround=40)
-    r.formatter = highlight.UppercaseFormatter()
-    
-    for hit in r:
-        print hit["title"]
-        print hit.highlights("content")
+You can change the character limit on the results object like this::
 
-Using the keyword argument(s) is useful when you want to alternate highlighting
-styles in the same results::
+    results = mysearcher.search(myquery)
+    results.fragmenter.charlimit = 100000
 
-    r = searcher.search(myquery)
-    
-    # Use this fragmenter for titles, just returns the entire field as a single
-    # fragment
-    tf = highlight.WholeFragmenter()
-    # Use this fragmenter for content
-    cf = highlight.SentenceFragmenter()
-    
-    # Use the same formatter for both
-    r.formatter = highlight.HtmlFormatter(tagname="span")
-    
-    for hit in r:
-        # Print the title with matched terms highlighted
-        print hit.highlights("title", fragmenter=tf)
-        # Print the content snippet
-        print hit.highlights("content", fragmenter=cf)
+To turn off the character limit::
+
+    results.fragmenter.charlimit = None
+
+If you instantiate a custom fragmenter, you can set the character limit on it
+directly::
+
+    sf = highlights.SentenceFragmenter(charlimit=100000)
+    results.fragmenter = sf
+
+See below for information on customizing the highlights.
+
+If you increase or disable the character limit to highlight long documents, you
+may need to use the tips in the "speeding up highlighting" section below to
+make highlighting faster.
+
+
+Customizing the highlights
+==========================
+
+Number of fragments
+-------------------
 
 You can use the ``top`` keyword argument to control the number of fragments
 returned in each snippet::
@@ -107,12 +116,250 @@ returned in each snippet::
     # Show a maximum of 5 fragments from the document
     print hit.highlight("content", top=5)
 
-You can control the order of the fragments in the snippet with the ``order``
-keyword argument. The value of the argument should be a sorting function for
-fragments. The :mod:`whoosh.highlight` module contains several sorting functions
-such as :func:`whoosh.highlight.SCORE`, :func:`whoosh.highlight.FIRST`,
-:func:`whoosh.highlight.LONGER`, :func:`whoosh.highlight.SHORTER`. The default
-is ``highlight.FIRST``, which is usually best.
+
+Fragment size
+-------------
+
+The default fragmenter has a ``maxchars`` attribute (default 200) controlling
+the maximum length of a fragment, and a ``surround`` attribute (default 20)
+controlling the maximum number of characters of context to add at the beginning
+and end of a fragment::
+
+    # Allow larger fragments
+    results.formatter.maxchars = 300
+    
+    # Show more context before and after
+    results.formatter.surround = 50
+
+
+Fragmenter
+----------
+
+A fragmenter controls how to extract excerpts from the original text.
+
+The ``highlight`` module has the following pre-made fragmenters:
+
+:class:`whoosh.highlight.ContextFragmenter` (the default)
+    This is a "smart" fragmenter that finds matched terms and then pulls
+    in surround text to form fragments. This fragmenter only yields
+    fragments that contain matched terms.
+
+:class:`whoosh.highlight.SentenceFragmenter`
+    Tries to break the text into fragments based on sentence punctuation
+    (".", "!", and "?"). This object works by looking in the original
+    text for a sentence end as the next character after each token's
+    'endchar'. Can be fooled by e.g. source code, decimals, etc.
+
+:class:`whoosh.highlight.WholeFragmenter`
+    Returns the entire text as one "fragment". This can be useful if you
+    are highlighting a short bit of text and don't need to fragment it.
+
+The different fragmenters have different options. For example, the default
+:class:`~whoosh.highlights.ContextFragmenter` lets you set the maximum
+fragment size and the size of the context to add on either side::
+
+    my_cf = highlights.ContextFragmenter(maxchars=100, surround=30)
+
+See the :mod:`whoosh.highlight` docs for more information.
+
+To use a different fragmenter::
+
+    results.fragmenter = my_cf
+
+
+Scorer
+------
+
+A scorer is a callable that takes a :class:`whoosh.highlight.Fragment` object and
+returns a sortable value (where higher values represent better fragments).
+The default scorer adds up the number of matched terms in the fragment, and
+adds a "bonus" for the number of __different__ matched terms. The highlighting
+system uses this score to select the best fragments to show to the user.
+
+As an example of a custom scorer, to rank fragments by lowest standard
+deviation of the positions of matched terms in the fragment::
+
+    def StandardDeviationScorer(fragment):
+        """Gives higher scores to fragments where the matched terms are close
+        together.
+        """
+        
+        # Since lower values are better in this case, we need to negate the
+        # value
+        return 0 - stddev([t.pos for t in fragment.matched])
+
+To use a different scorer::
+
+    results.scorer = StandardDeviationScorer
+
+
+Order
+-----
+
+The order is a function that takes a fragment and returns a sortable value used
+to sort the highest-scoring fragments before presenting them to the user (where
+fragments with lower values appear before fragments with higher values).
+
+The ``highlight`` module has the following order functions.
+
+``FIRST`` (the default)
+    Show fragments in the order they appear in the document.
+
+``SCORE``
+    Show highest scoring fragments first.
+
+The ``highlight`` module also includes ``LONGER`` (longer fragments first) and
+``SHORTER`` (shorter fragments first), but they probably aren't as generally
+useful.
+
+To use a different order::
+
+    results.order = highlight.SCORE
+
+
+Formatter
+---------
+
+A formatter contols how the highest scoring fragments are turned into a
+formatted bit of text for display to the user. It can return anything
+(e.g. plain text, HTML, a Genshi event stream, a SAX event generator,
+or anything else useful to the calling system).
+
+The ``highlight`` module contains the following pre-made formatters.
+
+:class:`whoosh.highlight.HtmlFormatter`
+    Outputs a string containing HTML tags (with a class attribute)
+    around the the matched terms.
+
+:class:`whoosh.highlight.UppercaseFormatter`
+    Converts the matched terms to UPPERCASE.
+
+:class:`whoosh.highlight.GenshiFormatter`
+    Outputs a Genshi event stream, with the matched terms wrapped in a
+    configurable element.
+
+The easiest way to create a custom formatter is to subclass
+``highlight.Formatter`` and override the ``format_token`` method::
+
+    class BracketFormatter(highlight.Formatter):
+        """Puts square brackets around the matched terms.
+        """
+
+        def format_token(self, text, token, replace=False):
+            # Use the get_text function to get the text corresponding to the
+            # token
+            tokentext = highlight.get_text(text, token)
+            
+            # Return the text as you want it to appear in the highlighted
+            # string
+            return "[%s]" % tokentext
+
+To use a different formatter::
+
+    brf = BracketFormatter()
+    results.formatter = brf
+
+If you need more control over the formatting (or want to output something other
+than strings), you will need to override other methods. See the documentation
+for the :class:`whoosh.highlight.Formatter` class.
+
+
+Highlighter object
+==================
+
+Rather than setting attributes on the results object, you can create a
+reusable :class:`whoosh.highlight.Highlighter` object. Keyword arguments let
+you change the ``fragmenter``, ``scorer``, ``order``, and/or ``formatter``::
+
+    hi = highlight.Highlighter(fragmenter=my_cf, scorer=sds)
+                               
+You can then use the :meth:`whoosh.highlight.Highlighter.highlight_hit` method
+to get highlights for a Hit object::
+
+    for hit in results:
+        print(hit["title"])
+        print(hi.highlight_hit(hit))
+
+(When you assign to a Results object's ``fragmenter``, ``scorer``, ``order``,
+or ``formatter`` attributes, you're actually changing the values on the
+results object's default ``Highlighter`` object.)
+
+
+Speeding up highlighting
+========================
+
+Recording which terms matched in which documents during the search may make
+highlighting faster, since it will skip documents it knows don't contain any
+matching terms in the given field::
+
+    # Record per-document term matches
+    results = searcher.search(myquery, terms=True)
+
+
+PinpointFragmenter
+------------------
+
+Usually the highlighting system uses the field's analyzer to re-tokenize the
+document's text to find the matching terms in context. If you have long
+documents and have increased/disabled the character limit, and/or if the field
+has a very complex analyzer, re-tokenizing may be slow.
+
+Instead of retokenizing, Whoosh can look up the character positions of the
+matched terms in the index. Looking up the character positions is not
+instantaneous, but is usually faster than analyzing large amounts of text.
+
+To use :class:`whoosh.highlight.PinpointFragmenter` and avoid re-tokenizing the
+document text, you must do all of the following:
+
+Index the field with character information (this will require re-indexing an
+existing index)::
+
+    # Index the start and end chars of each term
+    schema = fields.Schema(content=fields.TEXT(stored=True, chars=True))
+
+Record per-document term matches in the results::
+
+    # Record per-document term matches
+    results = searcher.search(myquery, terms=True)
+
+Set a :class:`whoosh.highlight.PinpointFragmenter` as the fragmenter::
+
+    results.fragmenter = highlight.PinpointFragmenter()
+
+
+PinpointFragmenter limitations
+------------------------------
+
+When the highlighting system does not re-tokenize the text, it doesn't know
+where any other words are in the text except the matched terms it looked up in
+the index. Therefore when the fragmenter adds surrounding context, it just adds
+or a certain number of characters blindly, and so doesn't distinguish between
+content and whitespace, or break on word boundaries, for example::
+
+    >>> hit.highlights("content")
+    're when the <b>fragmenter</b>\n       ad'
+
+(This can be embarassing when the word fragments form dirty words!)
+
+One way to avoid this is to not show any surrounding context, but then
+fragments containing one matched term will contain ONLY that matched term::
+
+    >>> hit.highlights("content")
+    '<b>fragmenter</b>'
+
+Alternatively, you can normalize whitespace in the text before passing it to
+the highlighting system::
+
+    >>> text = searcher.stored_
+    >>> re.sub("[\t\r\n ]+", " ", text)
+    >>> hit.highlights("content", text=text)
+
+...and use the ``autotrim`` option of ``PinpointFragmenter`` to automatically
+strip text before the first space and after the last space in the fragments::
+
+    >>> results.fragmenter = highlight.PinpointFragmenter(autotrim=True)
+    >>> hit.highlights("content")
+    'when the <b>fragmenter</b>'
 
 
 Using the low-level API
@@ -121,7 +368,10 @@ Using the low-level API
 Usage
 -----
 
-The high-level interface is the highlight function::
+The following function lets you retokenize and highlight a piece of text using
+an analyzer::
+
+    from whoosh.highlight import highlight
 
     excerpts = highlight(text, terms, analyzer, fragmenter, formatter, top=3,
                          scorer=BasicFragmentScorer, minscore=1, order=FIRST)
@@ -157,178 +407,16 @@ minscore
 
 order
     An ordering function that determines the order of the "top" fragments in the
-    output text. This will usually be either SCORE (highest scoring fragments
-    first) or FIRST (highest scoring fragments in their original order). (Whoosh
-    also includes LONGER (longer fragments first) and SHORTER (shorter fragments
-    first) as examples of scoring functions, but they probably aren't as
-    generally useful.)
+    output text.
 
 
-Example
--------
-
-.. code-block:: python
-
-    # Set up the index
-    # ----------------
-
-    st = RamStorage()
-    schema = fields.Schema(id=fields.ID(stored=True),
-                          title=fields.TEXT(stored=True))
-    ix = st.create_index(schema)
-
-    w = ix.writer()
-    w.add_document(id=u"1", title=u"The man who wasn't there")
-    w.add_document(id=u"2", title=u"The dog who barked at midnight")
-    w.add_document(id=u"3", title=u"The invisible man")
-    w.add_document(id=u"4", title=u"The girl with the dragon tattoo")
-    w.add_document(id=u"5", title=u"The woman who disappeared")
-    w.commit()
-
-    # Perform a search
-    # ----------------
-
-    s = ix.searcher()
-
-    # Parse the user query
-    parser = qparser.QueryParser("title", schema=ix.schema)
-    q = parser.parse(u"man")
-
-    # Extract the terms the user used in the field we're interested in
-    # THIS IS HOW YOU GET THE TERMS ARGUMENT TO highlight()
-    terms = [text for fieldname, text in q.all_terms()
-            if fieldname == "title"]
-
-    # Get the search results
-    r = s.search(q)
-    assert len(r) == 2
-
-    # Use the same analyzer as the field uses. To be sure, you can
-    # do schema[fieldname].format.analyzer. Be careful not to do this
-    # on non-text field types such as DATETIME.
-    analyzer = schema["title"].format.analyzer
-
-    # Since we want to highlight the full title, not extract fragments,
-    # we'll use WholeFragmenter. See the docs for the highlight module
-    # for which fragmenters are available.
-    fragmenter = highlight.WholeFragmenter()
-
-    # This object controls what the highlighted output looks like.
-    # See the docs for its arguments.
-    formatter = highlight.HtmlFormatter()
-
-    for d in r:
-       # The text argument to highlight is the stored text of the title
-       text = d["title"]
-
-       print highlight.highlight(text, terms, analyzer,
-                                 fragmenter, formatter)
 
 
-Fragmenters
-===========
-
-A fragmenter controls the policy of how to extract excerpts from the 
-original text. It is a callable that takes the original text, the set of 
-terms to match, and the token stream, and returns a sequence of Fragment 
-objects.
-
-The available fragmenters are:
-
-WholeFragmenter
-    Returns the entire text as one "fragment". This can be useful if you
-    are highlighting a short bit of text and don't need to fragment it.
-
-SimpleFragmenter
-    Or maybe "DumbFragmenter", this just breaks the token stream into
-    equal sized chunks.
-
-SentenceFragmenter
-    Tries to break the text into fragments based on sentence punctuation
-    (".", "!", and "?"). This object works by looking in the original
-    text for a sentence end as the next character after each token's
-    'endchar'. Can be fooled by e.g. source code, decimals, etc.
-
-ContextFragmenter
-    This is a "smart" fragmenter that finds matched terms and then pulls
-    in surround text to form fragments. This fragmenter only yields
-    fragments that contain matched terms.
-
-See the :mod:`whoosh.highlight` docs for more information.
 
 
-Formatters
-==========
-
-A formatter contols how the highest scoring fragments are turned into a 
-formatted bit of text for display to the user. It can return anything 
-(e.g. plain text, HTML, a Genshi event stream, a SAX event generator, 
-anything useful to the calling system).
-
-Whoosh currently includes only two formatters, because I wrote this 
-module for myself and that's all I needed at the time. Unless you happen 
-to be using Genshi also, you'll probably need to implement your own 
-formatter. I'll try to add more useful formatters in the future.
-
-UppercaseFormatter
-    Converts the matched terms to UPPERCASE.
-
-HtmlFormatter
-	Outputs a string containing HTML tags (with a class attribute)
-	around the the matched terms.
-
-GenshiFormatter
-    Outputs a Genshi event stream, with the matched terms wrapped in a
-    configurable element.
-
-See the :mod:`whoosh.highlight` docs for more information.
 
 
-Writing your own formatter
-==========================
 
-A Formatter subclass needs a __call__ method. It is called with the following
-arguments::
-
-    formatter(text, fragments)
-
-text
-    The original text.
-
-fragments
-    An iterable of Fragment objects representing the top scoring
-    fragments.
-
-The Fragment object is a simple object that has attributes containing 
-basic information about the fragment:
-
-Fragment.startchar
-    The index of the first character of the fragment.
-
-Fragment.endchar
-    The index of the last character of the fragment.
-
-Fragment.matches
-    An ordered list of analysis.Token objects representing the matched
-    terms within the fragment.
-
-Fragments.matched_terms
-    For convenience: A frozenset of the text of the matched terms within
-    the fragment -- i.e. frozenset(t.text for t in self.matches).
-
-The basic work you need to do in the formatter is:
-
-* Take the text of the original document, and pull out the bit between
-    Fragment.startchar and Fragment.endchar
-
-* For each Token object in Fragment.matches, highlight the bits of the
-   excerpt between Token.startchar and Token.endchar. (Remember that the
-   character indices refer to the original text, so you need to adjust
-   them for the excerpt.)
-
-The tricky part is that if you're adding text (e.g. inserting HTML tags 
-into the output), you have to be careful about keeping the character 
-indices straight.
 
 
 
