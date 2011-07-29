@@ -30,7 +30,7 @@ import threading
 import time
 
 from whoosh.store import LockError
-from whoosh.util import synchronized
+from whoosh.util import abstractmethod, synchronized
 
 
 # Exceptions
@@ -81,7 +81,8 @@ class IndexWriter(object):
         """
         
         self.schema.remove(fieldname, **kwargs)
-        
+    
+    @abstractmethod
     def reader(self, **kwargs):
         """Returns a reader for the existing index.
         """
@@ -129,11 +130,13 @@ class IndexWriter(object):
         
         return count
     
+    @abstractmethod
     def delete_document(self, docnum, delete=True):
         """Deletes a document by number.
         """
         raise NotImplementedError
     
+    @abstractmethod
     def add_document(self, **fields):
         """The keyword arguments map field names to the values to index/store::
         
@@ -290,6 +293,7 @@ class IndexWriter(object):
     
 
 class PostingWriter(object):
+    @abstractmethod
     def start(self, format):
         """Start a new set of postings for a new term. Implementations may
         raise an exception if this is called without a corresponding call to
@@ -297,6 +301,7 @@ class PostingWriter(object):
         """
         raise NotImplementedError
     
+    @abstractmethod
     def write(self, id, weight, valuestring):
         """Add a posting with the given ID and value.
         """

@@ -28,6 +28,24 @@
 """The highlight module contains classes and functions for displaying short
 excerpts from hit documents in the search results you present to the user, with
 query terms highlighted.
+
+The highlighting system has four main elements.
+
+* **Fragmenters** chop up the original text into __fragments__, based on the
+  locations of matched terms in the text.
+
+* **Scorers** assign a score to each fragment, allowing the system to rank the
+  best fragments by whatever criterion.
+
+* **Order functions** control in what order the top-scoring fragments are
+  presented to the user. For example, you can show the fragments in the order
+  they appear in the document (FIRST) or show higher-scoring fragments first
+  (SCORE)
+
+* **Formatters** turn the fragment objects into human-readable output, such as
+  an HTML string.
+
+See :doc:`/highlight` for more information.
 """
 
 from __future__ import division
@@ -35,22 +53,30 @@ from collections import deque
 from heapq import nlargest
 from cgi import escape as htmlescape
 
+from whoosh.analysis import Token
+
+
+# The default value for the maximum chars to examine when fragmenting
+DEFAULT_CHARLIMIT = 2 ** 15
+
 
 # Fragment object
 
-def fragment_from_tokens(text, tokens, charsbefore=0, charsafter=0):
+def mkfrag(text, tokens, startchar=None, endchar=None,
+           charsbefore=0, charsafter=0):
     """Returns a :class:`Fragment` object based on the :class:`analysis.Token`
-    objects in ``tokens`` that have ``token.matched == True``.
+    objects in ``tokens`.
     """
     
-    startchar = tokens[0].startchar if tokens else 0
-    endchar = tokens[-1].endchar if tokens else len(text)
+    if startchar is None:
+        startchar = tokens[0].startchar if tokens else 0
+    if endchar is None:
+        endchar = tokens[-1].endchar if tokens else len(text)
     
     startchar = max(0, startchar - charsbefore)
     endchar = min(len(text), endchar + charsafter)
     
-    matches = [t for t in tokens if t.matched]
-    return Fragment(text, matches, startchar, endchar)
+    return Fragment(text, tokens, startchar, endchar)
 
 
 class Fragment(object):
@@ -58,6 +84,25 @@ class Fragment(object):
     mainly used to keep track of the start and end points of the fragment and
     the "matched" character ranges inside; it does not contain the text of the
     fragment or do much else.
+    
+    The useful attributes are:
+    
+    ``Fragment.text``
+        The entire original text from which this fragment is taken.
+    
+    ``Fragment.matches``
+        An ordered list of objects representing the matched terms in the
+        fragment. These objects have ``startchar`` and ``endchar`` attributes.
+    
+    ``Fragment.startchar``
+        The index of the first character in the fragment.
+    
+    ``Fragment.endchar``
+        The index of the last character in the fragment.
+    
+    ``Fragment.matched_terms``
+        A ``set`` of the ``text`` of the matched terms in the fragment (if
+        available).
     """
     
     def __init__(self, text, matches, startchar=0, endchar=-1):
@@ -84,6 +129,9 @@ class Fragment(object):
             if hasattr(t, "text"):
                 self.matched_terms.add(t.text)
     
+    def __repr__(self):
+        return "<Fragment %d:%d %d>" % (self.startchar, self.endchar, len(self.matches))
+    
     def __len__(self):
         return self.endchar - self.startchar
     
@@ -104,11 +152,10 @@ class Fragment(object):
     def __lt__(self, other):
         return id(self) < id(other)
 
-# Filters
+# Tokenizing
 
-def copyandmatchfilter(termset, tokens):
+def set_matched_filter(tokens, termset):
     for t in tokens:
-        t = t.copy()
         t.matched = t.text in termset
         yield t
 
@@ -116,60 +163,64 @@ def copyandmatchfilter(termset, tokens):
 # Fragmenters
 
 class Fragmenter(object):
-    def __call__(self, text, tokens):
+    def must_retokenize(self):
+        """Returns True if this fragmenter requires retokenized text.
+        
+        If this method returns True, the fragmenter's ``fragment_tokens``
+        method  will be called with an iterator of ALL tokens from the text,
+        with the tokens for matched terms having the ``matched`` attribute set
+        to True.
+        
+        If this method returns False, the fragmenter's ``fragment_matches``
+        method will be called with a LIST of matching tokens.
+        """
+        
+        return True
+    
+    def fragment_tokens(self, text, all_tokens):
+        """Yields :class:`Fragment` objects based on the tokenized text.
+        
+        :param text: the string being highlighted.
+        :param all_tokens: an iterator of :class:`analysis.Token`
+            objects from the string.
+        """
+        
+        raise NotImplementedError
+    
+    def fragment_matches(self, text, matched_tokens):
+        """Yields :class:`Fragment` objects based on the text and the matched
+        terms.
+        
+        :param text: the string being highlighted.
+        :param all_tokens: a list of :class:`analysis.Token` objects
+            representing the term matches in the string.
+        """
+        
         raise NotImplementedError
     
 
 class WholeFragmenter(Fragmenter):
-    def __call__(self, text, tokens):
-        """Doesn't fragment the token stream. This object just returns the
-        entire stream as one "fragment". This is useful if you want to
-        highlight the entire text.
-        """
+    """Doesn't fragment the token stream. This object just returns the entire
+    entire stream as one "fragment". This is useful if you want to highlight
+    the entire text.
+    """
+    
+    def __init__(self, charlimit=DEFAULT_CHARLIMIT):
+        self.charlimit = charlimit
         
-        tokens = list(tokens)
-        before = after = 0
-        if tokens:
-            before = tokens[0].startchar
-            after = len(text) - tokens[-1].endchar
-        return [fragment_from_tokens(text, tokens, charsbefore=before,
-                                     charsafter=after)]
+    def fragment_tokens(self, text, tokens):
+        charlimit = self.charlimit
+        matches = []
+        for t in tokens:
+            if charlimit and t.endchar > charlimit:
+                break
+            if t.matched:
+                matches.append(t.copy())
+        return [Fragment(text, matches)]
 
 
 # Backwards compatiblity
 NullFragmeter = WholeFragmenter
-
-
-class SimpleFragmenter(Fragmenter):
-    """Simply splits the text into roughly equal sized chunks.
-    """
-    
-    def __init__(self, size=70):
-        """
-        :param size: size (in characters) to chunk to. The chunking is based on
-            tokens, so the fragments will usually be smaller.
-        """
-        self.size = size
-    
-    def __call__(self, text, tokens):
-        size = self.size
-        first = None
-        tks = []
-        
-        for t in tokens:
-            if first is None:
-                first = t.startchar
-            
-            if t.endchar - first > size:
-                first = None
-                if tks:
-                    yield fragment_from_tokens(text, tks)
-                tks = []
-            
-            tks.append(t)
-            
-        if tks:
-            yield fragment_from_tokens(text, tks)
 
 
 class SentenceFragmenter(Fragmenter):
@@ -183,54 +234,73 @@ class SentenceFragmenter(Fragmenter):
         sa = StandardAnalyzer(stoplist=None)
     """
     
-    def __init__(self, maxchars=200, sentencechars=".!?"):
+    def __init__(self, maxchars=200, sentencechars=".!?", charlimit=DEFAULT_CHARLIMIT):
         """
         :param maxchars: The maximum number of characters allowed in a fragment.
         """
         
         self.maxchars = maxchars
         self.sentencechars = frozenset(sentencechars)
+        self.charlimit = charlimit
     
-    def __call__(self, text, tokens):
+    def fragment_tokens(self, text, tokens):
         maxchars = self.maxchars
         sentencechars = self.sentencechars
+        charlimit = self.charlimit
+        
         textlen = len(text)
+        # startchar of first token in the current sentence
         first = None
+        # Buffer for matched tokens in the current sentence
         tks = []
+        # Number of chars in the current sentence
+        currentlen = 0
         
         for t in tokens:
-            if first is None:
-                first = t.startchar
+            startchar = t.startchar
             endchar = t.endchar
+            if charlimit and endchar > charlimit:
+                break
             
-            if endchar - first > maxchars:
-                first = None
-                if tks:
-                    yield fragment_from_tokens(text, tks)
-                tks = []
+            if first is None:
+                # Remember the startchar of the first token in a sentence
+                first = startchar
+                currentlen = 0
             
-            tks.append(t)
-            if tks and endchar < textlen and text[endchar] in sentencechars:
+            tlength = endchar - startchar
+            currentlen += tlength
+            
+            if t.matched:
+                tks.append(t.copy())
+            
+            # If the character after the current token is end-of-sentence
+            # punctuation, finish the sentence and reset
+            if endchar < textlen and text[endchar] in sentencechars:
                 # Don't break for two periods in a row (e.g. ignore "...")
                 if endchar + 1 < textlen and text[endchar + 1] in sentencechars:
                     continue
                 
-                yield fragment_from_tokens(text, tks, charsafter=0)
+                # If the sentence had matches and it's not too long, yield it
+                # as a token
+                if tks and currentlen <= maxchars:
+                    yield mkfrag(text, tks, startchar=first, endchar=endchar)
+                # Reset the counts
                 tks = []
                 first = None
-        
-        if tks:
-            yield fragment_from_tokens(text, tks)
+                currentlen = 0
+        else:
+            # If we get to the end of the text and there's still a sentence
+            # in the buffer, yield it
+            if tks:
+                yield mkfrag(text, tks, startchar=first, endchar=endchar)
 
 
 class ContextFragmenter(Fragmenter):
     """Looks for matched terms and aggregates them with their surrounding
     context.
-    
-    This fragmenter only yields fragments that contain matched terms.
     """
     
-    def __init__(self, maxchars=200, surround=20):
+    def __init__(self, maxchars=200, surround=20, charlimit=DEFAULT_CHARLIMIT):
         """
         :param maxchars: The maximum number of characters allowed in a
             fragment.
@@ -239,85 +309,159 @@ class ContextFragmenter(Fragmenter):
         """
         
         self.maxchars = maxchars
-        self.charsbefore = self.charsafter = surround
+        self.surround = surround
+        self.charlimit = charlimit
     
-    def __call__(self, text, tokens):
+    def fragment_tokens(self, text, tokens):
         maxchars = self.maxchars
-        charsbefore = self.charsbefore
-        charsafter = self.charsafter
+        surround = self.surround
+        charlimit = self.charlimit
         
-        current = deque()
-        currentlen = 0
+        # startchar of the first token in the fragment
+        first = None
+        # Stack of startchars
+        firsts = deque()
+        # Each time we see a matched token, we reset the countdown to finishing
+        # the fragment. This also indicates whether we're currently inside a
+        # fragment (< 0 not in fragment, >= 0 in fragment)
         countdown = -1
+        # Tokens in current fragment
+        tks = []
+        # Number of chars in the current fragment
+        currentlen = 0
+        
         for t in tokens:
-            if t.matched:
-                countdown = charsafter
-                # Add on "unused" context length from the front
-                countdown += (charsbefore - currentlen)
+            startchar = t.startchar
+            endchar = t.endchar
+            tlength = endchar - startchar
+            if charlimit and endchar > charlimit:
+                break
             
-            current.append(t)
+            if countdown < 0 and not t.matched:
+                # We're not in a fragment currently, so just maintain the
+                # "charsbefore" buffer
+                firsts.append(startchar)
+                while firsts and endchar - firsts[0] > surround:
+                    firsts.popleft()
+            elif currentlen + tlength > maxchars:
+                # We're in a fragment, but adding this token would put us past
+                # the maximum size. Zero the countdown so the code below will
+                # cause the fragment to be emitted
+                countdown = 0
+            elif t.matched:
+                # Start/restart the countdown
+                countdown = surround
+                # Remember the first char of this fragment
+                if first is None:
+                    if firsts:
+                        first = firsts[0]
+                    else:
+                        first = startchar
+                        # Add on unused front context
+                        countdown += surround
+                tks.append(t.copy())
             
-            length = t.endchar - t.startchar
-            currentlen += length
-            
+            # If we're in a fragment...
             if countdown >= 0:
-                countdown -= length
+                # Update the counts
+                currentlen += tlength
+                countdown -= tlength
                 
-                if countdown < 0 or currentlen >= maxchars:
-                    yield fragment_from_tokens(text, current)
-                    current = deque()
+                # If the countdown is expired
+                if countdown <= 0:
+                    # Finish the fragment
+                    yield mkfrag(text, tks, startchar=first, endchar=endchar)
+                    # Reset the counts
+                    tks = []
+                    firsts = deque()
+                    first = None
                     currentlen = 0
+        
+        # If there's a fragment left over at the end, yield it
+        if tks:
+            yield mkfrag(text, tks, startchar=first, endchar=endchar)
+
+
+class PinpointFragmenter(Fragmenter):
+    """This is a NON-RETOKENIZING fragmenter. It builds fragments from the
+    positions of the matched terms.
+    """
+    
+    def __init__(self, maxchars=200, surround=20, autotrim=False,
+                 charlimit=DEFAULT_CHARLIMIT):
+        """
+        :param maxchars: The maximum number of characters allowed in a
+            fragment.
+        :param surround: The number of extra characters of context to add both
+            before the first matched term and after the last matched term.
+        :param autotrim: automatically trims text before the first space and
+            after the last space in the fragments, to try to avoid truncated
+            words at the start and end. For short fragments or fragments with
+            long runs between spaces this may give strange results.
+        """
+        
+        self.maxchars = maxchars
+        self.surround = surround
+        self.autotrim = autotrim
+        self.charlimit = charlimit
+    
+    def must_retokenize(self):
+        return False
+    
+    def fragment_tokens(self, text, tokens):
+        matched = [t for t in tokens if t.matched]
+        return self.fragment_matches(text, matched)
+    
+    @staticmethod
+    def _autotrim(fragment):
+        text = fragment.text
+        startchar = fragment.startchar
+        endchar = fragment.endchar
+        
+        firstspace = text.find(" ", startchar, endchar)
+        if firstspace > 0:
+            startchar = firstspace + 1
+        lastspace = text.rfind(" ", startchar, endchar)
+        if lastspace > 0:
+            endchar = lastspace
+        
+        if fragment.matches:
+            startchar = min(startchar, fragment.matches[0].startchar)
+            endchar = max(endchar, fragment.matches[-1].endchar)
+        
+        fragment.startchar = startchar
+        fragment.endchar = endchar
+    
+    def fragment_matches(self, text, tokens):
+        maxchars = self.maxchars
+        surround = self.surround
+        autotrim = self.autotrim
+        charlimit = self.charlimit
+        
+        for i, t in enumerate(tokens):
+            j = i
+            left = t.startchar
+            right = t.endchar
+            if charlimit and right > charlimit:
+                break
             
-            else:
-                while current and currentlen > charsbefore:
-                    t = current.popleft()
-                    currentlen -= t.endchar - t.startchar
-
-        if countdown >= 0:
-            yield fragment_from_tokens(text, current)
-
-
-#class VectorFragmenter(Fragenter):
-#    def __init__(self, termmap, maxchars=200, charsbefore=20, charsafter=20):
-#        """
-#        :param termmap: A dictionary mapping the terms you're looking for to
-#            lists of either (posn, startchar, endchar) or
-#            (posn, startchar, endchar, boost) tuples.
-#        :param maxchars: The maximum number of characters allowed in a fragment.
-#        :param charsbefore: The number of extra characters of context to add before
-#            the first matched term.
-#        :param charsafter: The number of extra characters of context to add after
-#            the last matched term.
-#        """
-#        
-#        self.termmap = termmap
-#        self.maxchars = maxchars
-#        self.charsbefore = charsbefore
-#        self.charsafter = charsafter
-#    
-#    def __call__(self, text, tokens):
-#        maxchars = self.maxchars
-#        charsbefore = self.charsbefore
-#        charsafter = self.charsafter
-#        textlen = len(text)
-#        
-#        vfrags = []
-#        for term, data in self.termmap.iteritems():
-#            if len(data) == 3:
-#                t = Token(startchar = data[1], endchar = data[2])
-#            elif len(data) == 4:
-#                t = Token(startchar = data[1], endchar = data[2], boost = data[3])
-#            else:
-#                raise ValueError(repr(data))
-#            
-#            newfrag = VFragment([t], charsbefore, charsafter, textlen)
-#            added = False
-#            
-#            for vf in vfrags:
-#                if vf.overlaps(newfrag) and vf.overlapped_length(newfrag) < maxchars:
-#                    vf.merge(newfrag)
-#                    added = True
-#                    break
+            currentlen = right - left
+            while j < len(tokens) - 1 and currentlen < maxchars:
+                next = tokens[j + 1]
+                ec = next.endchar
+                if ec - right <= surround and ec - left <= maxchars:
+                    j += 1
+                    right = ec
+                    currentlen += (ec - next.startchar)
+                else:
+                    break
+            
+            left = max(0, left - surround)
+            right = min(len(text), right + surround)
+            fragment = Fragment(text, tokens[i:j + 1], left, right)
+            if autotrim:
+                self._autotrim(fragment)
+            yield fragment
 
 
 # Fragment scorers
@@ -333,7 +477,7 @@ class BasicFragmentScorer(FragmentScorer):
         
         # Favor diversity: multiply score by the number of separate
         # terms matched
-        score *= len(f.matched_terms) * 100
+        score *= (len(f.matched_terms) * 100) or 1
         
         return score
 
@@ -389,8 +533,6 @@ class Formatter(object):
             def format_token(text, token, replace=False):
                 ttext = get_text(text, token, replace)
                 return "[%s]" % ttext
-
-
     """
     
     between = "..."
@@ -434,9 +576,10 @@ class Formatter(object):
                 output.append(self._text(text[index:t.startchar]))
             output.append(self.format_token(text, t, replace))
             index = t.endchar
-        
         output.append(self._text(text[index:fragment.endchar]))
-        return "".join(output)
+        
+        out_string = "".join(output)
+        return out_string
 
     def format(self, fragments, replace=False):
         """Returns a formatted version of the given text, using a list of
@@ -605,17 +748,12 @@ class GenshiFormatter(Formatter):
 
 # Highlighting
 
-def top_fragments(text, terms, analyzer, fragmenter, top=3,
-                  scorer=None, minscore=1, mode="query"):
-    if scorer is None:
-        scorer = BasicFragmentScorer()
-    
-    termset = frozenset(terms)
-    tokens = analyzer(text, chars=True, keeporiginal=True, mode=mode)
-    tokens = copyandmatchfilter(termset, tokens)
-    scored_frags = nlargest(top, ((scorer(f), f)
-                                  for f in fragmenter(text, tokens)))
-    return [sf for score, sf in scored_frags if score > minscore]
+def top_fragments(fragments, count, scorer, order, minscore=1):
+    scored_fragments = ((scorer(f), f) for f in fragments)
+    scored_fragments = nlargest(count, scored_fragments)
+    best_fragments = [sf for score, sf in scored_fragments if score > minscore]
+    best_fragments.sort(key=order)
+    return best_fragments
 
 
 def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
@@ -631,10 +769,100 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     if type(scorer) is type:
         scorer = scorer()
     
-    fragments = top_fragments(text, terms, analyzer, fragmenter, top=top,
-                              scorer=scorer, minscore=minscore, mode=mode)
-    fragments.sort(key=order)
+    if scorer is None:
+        scorer = BasicFragmentScorer()
+    
+    termset = frozenset(terms)
+    tokens = analyzer(text, chars=True, mode=mode, removestops=False)
+    tokens = set_matched_filter(tokens, termset)
+    fragments = fragmenter.fragment_tokens(text, tokens)
+    fragments = top_fragments(fragments, top, scorer, order)
     return formatter(text, fragments)
+
+
+class Highlighter(object):
+    def __init__(self, fragmenter=None, scorer=None, formatter=None,
+                 always_retokenize=False, order=FIRST):
+        self.fragmenter = fragmenter or ContextFragmenter()
+        self.scorer = scorer or BasicFragmentScorer()
+        self.formatter = formatter or HtmlFormatter(tagname="b")
+        self.order = order
+        self.always_retokenize = always_retokenize
+    
+    def can_load_chars(self, results, fieldname):
+        if self.always_retokenize:
+            return False
+        if not results.has_matched_terms():
+            return False
+        if self.fragmenter.must_retokenize():
+            return False
+        
+        field = results.searcher.schema[fieldname]
+        return field.supports("characters")
+    
+    def _load_chars(self, results, fieldname, texts):
+        results._char_cache[fieldname] = cache = {}
+        sorted_ids = sorted(docnum for _, docnum in results.top_n)
+        texts = [t[1] for t in results.matched_terms() if t[0] == fieldname]
+        
+        for docnum in sorted_ids:
+            cache[docnum] = {}
+        
+        for text in texts:
+            m = results.searcher.postings(fieldname, text)
+            docset = results._termlists[(fieldname, text)]
+            for docnum in sorted_ids:
+                if docnum in docset:
+                    m.skip_to(docnum)
+                    assert m.id() == docnum
+                    cache[docnum][text] = m.value_as("characters")
+    
+    def highlight_hit(self, hitobj, fieldname, text=None, top=3):
+        results = hitobj.results
+        
+        if text is None:
+            d = hitobj.fields()
+            if fieldname not in d:
+                raise KeyError("Field %r is not in the stored fields."
+                               % fieldname)
+            text = d[fieldname]
+        
+        # Get the terms searched for/matched
+        if results.has_matched_terms() is None:
+            terms = hitobj.matched_terms()
+        else:
+            terms = results.query_terms()
+        # Get the words searched for in the field
+        words = set(termtext for fname, termtext in terms if fname == fieldname)
+        if not words:
+            # No terms matches in this field
+            return self.formatter.format([])
+        
+        if self.can_load_chars(results, fieldname):
+            if fieldname not in results._char_cache:
+                self._load_chars(results, fieldname, words)
+            
+            map = results._char_cache[fieldname][hitobj.docnum]
+            tokens = []
+            charlimit = self.fragmenter.charlimit
+            for word in words:
+                chars = map[word]
+                for pos, startchar, endchar in chars:
+                    if charlimit and endchar > charlimit:
+                        break
+                    tokens.append(Token(text=word, pos=pos, startchar=startchar, endchar=endchar))
+            tokens.sort(key=lambda t: t.startchar)
+            fragments = self.fragmenter.fragment_matches(text, tokens)
+        else:
+            analyzer = results.searcher.schema[fieldname].analyzer
+            termset = frozenset(words)
+            tokens = analyzer(text, chars=True, mode="query", removestops=False)
+            tokens = set_matched_filter(tokens, termset)
+            fragments = self.fragmenter.fragment_tokens(text, tokens)
+        
+        fragments = top_fragments(fragments, top, self.scorer, self.order)
+        output = self.formatter.format(fragments)
+        return output
     
 
 

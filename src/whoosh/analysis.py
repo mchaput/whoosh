@@ -1150,11 +1150,11 @@ class IntraWordFilter(Filter):
         
         self.delims = re.escape(delims)
         
-        # Expression for splitting at delimiter characters
-        self.splitter = re.compile(u("[%s]+") % (self.delims,), re.UNICODE)
+        # Expression for text between delimiter characters
+        self.between = re.compile(u("[^%s]+") % (self.delims,), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
         dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase, self.delims)
-        self.disposses = re.compile(dispat, re.UNICODE)
+        self.posessive = re.compile(dispat, re.UNICODE)
         
         # Expression for finding case and letter-number transitions
         lower2upper = u("[%s][%s]") % (lowercase, uppercase)
@@ -1177,34 +1177,58 @@ class IntraWordFilter(Filter):
         return other and self.__class__ is other.__class__\
         and self.__dict__ == other.__dict__
     
-    def split(self, string):
-        boundaries = self.boundary.finditer
+    def _split(self, string):
+        bound = self.boundary
         
-        # Are we splitting on word/num boundaries?
-        if self.splitting:
-            parts = []
-            # First, split on delimiters
-            splitted = self.splitter.split(string)
-            
-            for run in splitted:
-                # For each delimited run of characters, find the boundaries
-                # (e.g. lower->upper, letter->num, num->letter) and split
-                # between them.
-                start = 0
-                for match in boundaries(run):
-                    middle = match.start() + 1
-                    parts.append(run[start:middle])
-                    start = middle
-                    
-                # Add the bit after the last split
-                if start < len(run):
-                    parts.append(run[start:])
+        # Yields (startchar, endchar) pairs for each indexable substring in
+        # the given string, e.g. "WikiWord" -> (0, 4), (4, 8)
+        
+        # Whether we're splitting on transitions (case changes, letter -> num,
+        # num -> letter, etc.)
+        splitting = self.splitting
+        
+        # Make a list (dispos, for "disposessed") of (startchar, endchar) pairs
+        # for runs of text between "'s"
+        if "'" in string:
+            # Split on posessive 's
+            dispos = []
+            prev = 0
+            for match in self.posessive.finditer(string):
+                dispos.append((prev, match.start()))
+                prev = match.end()
+            if prev < len(string):
+                dispos.append((prev, len(string)))
         else:
-            # Just split on delimiters
-            parts = self.splitter.split(string)
-        return parts
+            # Shortcut if there's no apostrophe in the string
+            dispos = ((0, len(string)), )
+        
+        # For each run between 's
+        for sc, ec in dispos:
+            # Split on boundary characters
+            for part_match in self.between.finditer(string, sc, ec):
+                part_start = part_match.start()
+                part_end = part_match.end()
+                
+                if splitting:
+                    # The point to start splitting at
+                    prev = part_start
+                    # Find transitions (e.g. "iW" or "a0")
+                    for bmatch in bound.finditer(string, part_start, part_end):
+                        # The point in the middle of the transition
+                        pivot = bmatch.start() + 1
+                        # Yield from the previous match to the transition
+                        yield (prev, pivot)
+                        # Make the transition the new starting point
+                        prev = pivot
+                    
+                    # If there's leftover text at the end, yield it too
+                    if prev < part_end:
+                        yield (prev, part_end)
+                else:
+                    # Not splitting on transitions, just yield the part
+                    yield (part_start, part_end)
     
-    def merge(self, parts):
+    def _merge(self, parts):
         mergewords = self.mergewords
         mergenums = self.mergenums
         
@@ -1214,39 +1238,50 @@ class IntraWordFilter(Filter):
         insertat = 0
         # Buffer for parts to merge
         buf = []
-        for pos, part in parts[:]:
+        # Iterate on a copy of the parts list so we can modify the original as
+        # we go
+        
+        def insert_item(buf, at, newpos):
+            newtext = "".join(item[0] for item in buf)
+            newsc = buf[0][2]  # start char of first item in buffer
+            newec = buf[-1][3] # end char of last item in buffer
+            parts.insert(insertat, (newtext, newpos, newsc, newec))
+        
+        for item in parts[:]:
+            # item = (text, pos, startchar, endchar)
+            text = item[0]
+            pos = item[1]
+            
             # Set the type of this part
-            if part.isalpha():
+            if text.isalpha():
                 this = 1
-            elif part.isdigit():
+            elif text.isdigit():
                 this = 2
             
             # Is this the same type as the previous part?
-            if buf and (this == last == 1 and mergewords)\
-            or (this == last == 2 and mergenums):
+            if (buf and (this == last == 1 and mergewords)
+                or (this == last == 2 and mergenums)):
                 # This part is the same type as the previous. Add it to the
                 # buffer of parts to merge.
-                buf.append(part)
+                buf.append(item)
             else:
                 # This part is different than the previous.
                 if len(buf) > 1:
                     # If the buffer has at least two parts in it, merge them
                     # and add them to the original list of parts.
-                    parts.insert(insertat, (pos - 1, u("").join(buf)))
+                    insert_item(buf, insertat, pos - 1)
                     insertat += 1
                 # Reset the buffer
-                buf = [part]
+                buf = [item]
                 last = this
             insertat += 1
         
         # If there are parts left in the buffer at the end, merge them and add
         # them to the original list.
         if len(buf) > 1:
-            parts.append((pos, u("").join(buf)))
+            insert_item(buf, len(parts), pos)
     
     def __call__(self, tokens):
-        disposses = self.disposses.sub
-        merge = self.merge
         mergewords = self.mergewords
         mergenums = self.mergenums
         
@@ -1265,45 +1300,41 @@ class IntraWordFilter(Filter):
                     # Token doesn't have positions, just use 0
                     newpos = 0
             
-            if (text.isalpha()
-                and (text.islower() or text.isupper())) or text.isdigit():
+            if (text.isalpha() and (text.islower() or text.isupper())) or text.isdigit():
                 # Short-circuit the common cases of no delimiters, no case
                 # transitions, only digits, etc.
                 t.pos = newpos
                 yield t
                 newpos += 1
             else:
-                # Should we check for an apos before doing the disposses step?
-                # Or is the re faster? if "'" in text:
-                text = disposses("", text)
-                
                 # Split the token text on delimiters, word and/or number
-                # boundaries, and give the split parts positions
-                parts = [(newpos + i, part)
-                         for i, part in enumerate(self.split(text))]
+                # boundaries into a list of (text, pos, startchar, endchar)
+                # tuples
+                ranges = self._split(text)
+                parts = [(text[sc:ec], i + newpos, sc, ec)
+                         for i, (sc, ec) in enumerate(ranges)]
                 
                 # Did the split yield more than one part?
                 if len(parts) > 1:
                     # If the options are set, merge consecutive runs of all-
                     # letters and/or all-numbers.
                     if mergewords or mergenums:
-                        merge(parts)
+                        self._merge(parts)
                     
-                    # Yield tokens for the parts
-                    for pos, text in parts:
-                        t.text = text
-                        t.pos = pos
-                        yield t
-                    
-                    # Set the new position counter based on the last part
-                    newpos = parts[-1][0] + 1
-                else:
-                    # The split only gave one part, so just yield the
-                    # "dispossesed" text.
+                # Yield tokens for the parts
+                chars = t.chars
+                if chars:
+                    base = t.startchar
+                for text, pos, startchar, endchar in parts:
                     t.text = text
-                    t.pos = newpos
+                    t.pos = pos
+                    if t.chars:
+                        t.startchar = base + startchar
+                        t.endchar = base + endchar
                     yield t
-                    newpos += 1
+                
+                # Set the new position counter based on the last part
+                newpos = parts[-1][1] + 1
 
 
 class BiWordFilter(Filter):

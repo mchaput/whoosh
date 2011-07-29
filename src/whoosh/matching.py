@@ -29,6 +29,7 @@ from itertools import repeat
 import sys
 
 from whoosh.compat import izip, xrange
+from whoosh.util import abstractmethod
 
 """
 This module contains "matcher" classes. Matchers deal with posting lists. The
@@ -70,9 +71,20 @@ class Matcher(object):
     """Base class for all matchers.
     """
     
+    @abstractmethod
     def is_active(self):
         """Returns True if this matcher is still "active", that is, it has not
         yet reached the end of the posting list.
+        """
+        
+        raise NotImplementedError
+    
+    @abstractmethod
+    def reset(self):
+        """Returns to the start of the posting list.
+        
+        Note that reset() may not do what you've used Matcher.replace() and
+        therefore aren't actually calling reset() on the original matcher.
         """
         
         raise NotImplementedError
@@ -131,6 +143,7 @@ class Matcher(object):
         
         return self
     
+    @abstractmethod
     def copy(self):
         """Returns a copy of this matcher.
         """
@@ -160,6 +173,7 @@ class Matcher(object):
         
         raise NoQualityAvailable(self.__class__)
     
+    @abstractmethod
     def id(self):
         """Returns the ID of the current posting.
         """
@@ -214,12 +228,14 @@ class Matcher(object):
         while self.is_active():
             yield (self.id(), self.value_as(astype))
     
+    @abstractmethod
     def value(self):
         """Returns the encoded value of the current posting.
         """
         
         raise NotImplementedError
     
+    @abstractmethod
     def supports(self, astype):
         """Returns True if the field's format supports the named data type,
         for example 'frequency' or 'characters'.
@@ -227,6 +243,7 @@ class Matcher(object):
         
         raise NotImplementedError("supports not implemented in %s" % self.__class__)
     
+    @abstractmethod
     def value_as(self, astype):
         """Returns the value(s) of the current posting as the given type.
         """
@@ -263,6 +280,7 @@ class Matcher(object):
         
         raise NotImplementedError(self.__class__.__name__)
     
+    @abstractmethod
     def next(self):
         """Moves this matcher to the next posting.
         """
@@ -275,6 +293,7 @@ class Matcher(object):
         
         return self.value_as("weight")
     
+    @abstractmethod
     def score(self):
         """Returns the score of the current posting.
         """
@@ -315,6 +334,9 @@ class NullMatcher(Matcher):
     
     def is_active(self):
         return False
+    
+    def reset(self):
+        pass
     
     def all_ids(self):
         return []
@@ -359,6 +381,9 @@ class ListMatcher(Matcher):
     
     def is_active(self):
         return self._i < len(self._ids)
+    
+    def reset(self):
+        self._i = 0
     
     def term(self):
         return self._term
@@ -505,6 +530,9 @@ class WrappingMatcher(Matcher):
     def is_active(self):
         return self.child.is_active()
     
+    def reset(self):
+        self.child.reset()
+    
     def children(self):
         return [self.child]
     
@@ -565,6 +593,11 @@ class MultiMatcher(Matcher):
     
     def is_active(self):
         return self.current < len(self.matchers)
+    
+    def reset(self):
+        for mr in self.matchers:
+            mr.reset()
+        self.current = 0
     
     def children(self):
         return [self.matchers[self.current]]
@@ -698,6 +731,10 @@ class FilterMatcher(WrappingMatcher):
                                              self.child, self._ids,
                                              self._exclude, self.boost)
     
+    def reset(self):
+        self.child.reset()
+        self._find_next()
+    
     def copy(self):
         return self.__class__(self.child.copy(), self._ids, self._exclude,
                               boost=self.boost)
@@ -751,6 +788,10 @@ class BiMatcher(Matcher):
         super(BiMatcher, self).__init__()
         self.a = a
         self.b = b
+
+    def reset(self):
+        self.a.reset()
+        self.b.reset()
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.a, self.b)
@@ -1118,6 +1159,14 @@ class IntersectionMatcher(AdditiveBiMatcher):
     
     def __init__(self, a, b):
         super(IntersectionMatcher, self).__init__(a, b)
+        self._find_first()
+    
+    def reset(self):
+        self.a.reset()
+        self.b.reset()
+        self._find_first()
+    
+    def _find_first(self):
         if (self.a.is_active()
             and self.b.is_active()
             and self.a.id() != self.b.id()):
@@ -1240,6 +1289,14 @@ class AndNotMatcher(BiMatcher):
 
     def __init__(self, a, b):
         super(AndNotMatcher, self).__init__(a, b)
+        self._find_first()
+    
+    def reset(self):
+        self.a.reset()
+        self.b.reset()
+        self._find_first()
+    
+    def _find_first(self):
         if (self.a.is_active()
             and self.b.is_active()
             and self.a.id() == self.b.id()):
@@ -1373,6 +1430,11 @@ class InverseMatcher(WrappingMatcher):
     def is_active(self):
         return self._id < self.limit
     
+    def reset(self):
+        self.child.reset()
+        self._id = 0
+        self._find_next()
+    
     def supports_block_quality(self):
         return False
     
@@ -1499,7 +1561,16 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     def __init__(self, a, b):
         self.a = a
         self.b = b
-        
+        self._first_b()
+    
+    def reset(self):
+        self.a.reset()
+        self.b.reset()
+        self._first_b()
+    
+    def _first_b(self):
+        a = self.a
+        b = self.b
         if a.is_active() and b.is_active() and a.id() != b.id():
             b.skip_to(a.id())
     

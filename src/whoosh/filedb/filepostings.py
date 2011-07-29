@@ -121,7 +121,7 @@ class FilePostingWriter(PostingWriter):
         self.terminfo.add_block(self.block)
         self._reset_block()
         self.blockcount += 1
-        
+
 
 class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorer=None, term=None,
@@ -166,6 +166,10 @@ class FilePostingReader(Matcher):
 
     def is_active(self):
         return self._active
+    
+    def reset(self):
+        self.currentblock = -1
+        self._next_block()
 
     def term(self):
         return self._term

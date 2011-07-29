@@ -30,10 +30,12 @@ documents.
 """
 
 from __future__ import division
+import random
 from collections import defaultdict
-from math import log, sqrt
+from math import log
 
 from whoosh.compat import xrange, iteritems
+
 
 # Expansion models
 
@@ -144,8 +146,7 @@ class Expander(object):
     
     def add_text(self, string):
         field = self.ixreader.schema[self.fieldname]
-        self.add((text, weight) for text, freq, weight, value
-                 in field.index(string))
+        self.add((text, weight) for text, _, weight, _ in field.index(string))
     
     def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.
@@ -177,210 +178,6 @@ class Expander(object):
         return [(t, weight) for weight, t in tlist[:number]]
 
 
-# Clustering
-
-def median(nums):
-    nums = sorted(nums)
-    l = len(nums)
-    if l % 2:  # Odd
-        return nums[l // 2]
-    else:
-        return (nums[l // 2 - 1] + nums[l // 2]) / 2.0
-
-
-def mean(nums):
-    return sum(nums) / len(nums)
-
-
-def minkowski_distance(x, y, p=2):
-    assert(len(y) == len(x))
-    s = sum(abs(x[i] - y[i]) ** p for i in xrange(len(x)))
-    return s ** 1.0 / p
-   
-
-def list_to_matrix(ls, f, symmetric=False, diagonal=None):
-    matrix = []
-    for rownum, i1 in enumerate(ls):
-        row = []
-        for colnum, i2 in enumerate(ls):
-            if diagonal is not None and rownum == colnum:
-                # Cell on the diagonal
-                row.append(diagonal)
-            elif symmetric and colnum < rownum:
-                # Matrix is symmetrical and we've already calculated this cell
-                # on the other side of the diagonal.
-                row.append(matrix[colnum][rownum])
-            else:
-                row.append(f(i1, i2))
-        matrix.append(row)
-    return matrix
-
-
-def magnitude(v):
-    return sqrt(sum(v[i] ** 2 for i in xrange(len(v))))
-    
-
-def dot_product(v1, v2):
-    assert len(v1) == len(v2)
-    return sum(v1[i] * v2[i] for i in xrange(len(v1)))
-
-
-def centroid(points, method=median):
-    return tuple(method([point[i] for point in points])
-                 for i in xrange(len(points[0])))
-
-
-class Cluster(object):
-    def __init__(self, *items):
-        self.items = list(items)
-    
-    def __repr__(self):
-        return "<C %r>" % (self.items, )
-    
-    def __len__(self):
-        return len(self.items)
-    
-    def __add__(self, cluster):
-        return Cluster(self.items + cluster.items)
-    
-    def __iter__(self):
-        return iter(self.items)
-    
-    def __getitem__(self, n):
-        return self.items.__getitem__(n)
-    
-    def append(self, item):
-        self.items.append(item)
-        
-    def remove(self, item):
-        self.items.remove(item)
-        
-    def pop(self, i=None):
-        return self.items.pop(i)
-    
-    def flatten(self):
-        for item in self.items:
-            if isinstance(item, Cluster):
-                for i2 in item.flatten():
-                    yield i2
-            else:
-                yield item
-                
-    def dump(self, tab=0):
-        print("%s-" % (" " * tab, ))
-        for item in self.items:
-            if isinstance(item, Cluster):
-                item.dump(tab + 2)
-            else:
-                print("%s%r" % (" " * tab, item))
-    
-
-class HierarchicalClustering(object):
-    def __init__(self, distance_fn, linkage="uclus"):
-        self.distance = distance_fn
-        if linkage == "uclus":
-            self.linkage = self.uclus_dist
-        if linkage == "average":
-            self.linkage = self.average_linkage_dist
-        if linkage == "complete":
-            self.linkage = self.complete_linkage_dist
-        if linkage == "single":
-            self.linkage = self.single_linkage_dist
-    
-    def uclus_dist(self, x, y):
-        distances = []
-        for xi in x.flatten():
-            for yi in y.flatten():
-                distances.append(self.distance(xi, yi))
-        return median(distances)
-    
-    def average_linkage_dist(self, x, y):
-        distances = []
-        for xi in x.flatten():
-            for yi in y.flatten():
-                distances.append(self.distance(xi, yi))
-        return mean(distances)
-        
-    def complete_linkage_dist(self, x, y):
-        maxdist = self.distance(x[0], y[0])
-        for xi in x.flatten():
-            for yi in y.flatten():
-                maxdist = max(maxdist, self.distance(xi, yi))
-        return maxdist
-   
-    def single_linkage_dist(self, x, y):
-        mindist = self.distance(x[0], y[0])
-        for xi in x.flatten():
-            for yi in y.flatten():
-                mindist = min(mindist, self.distance(xi, yi))
-        return mindist
-
-    def clusters(self, data):
-        data = [Cluster(x) for x in data]
-        linkage = self.linkage
-        matrix = None
-        sequence = 0
-        while matrix is None or len(matrix) > 2:
-            matrix = list_to_matrix(data, linkage, True, 0)
-            lowrow, lowcol = None, None
-            mindist = None
-            for rownum, row in enumerate(matrix):
-                for colnum, cell in enumerate(row):
-                    if rownum != colnum and (cell < mindist or lowrow is None):
-                        lowrow, lowcol = rownum, colnum
-                        mindist = cell
-            
-            sequence += 1
-            cluster = Cluster(data[lowrow], data[lowcol])
-            
-            data.remove(data[max(lowrow, lowcol)])
-            data.remove(data[min(lowrow, lowcol)])
-            data.append(cluster)
-        
-        if isinstance(data, list):
-            data = Cluster(*data)
-        return data
-
-
-class KMeansClustering(object):
-    def __init__(self, distance_fn=None):
-        self.distance = distance_fn or minkowski_distance
-        
-    def clusters(self, data, count):
-        if len(data) > 1 and isinstance(data[0], (list, tuple)):
-            l = len(data[0])
-            if not all(len(item) == l for item in data[1:]):
-                raise ValueError("All items in %r are not of the same dimension" % (data, ))
-        if count <= 1:
-            raise ValueError("You must ask for at least 2 clusters")
-        if not data or len(data) == 1 or count >= len(data):
-            return data
-        
-        clusters = [Cluster() for _ in xrange(count)]
-        for i, item in enumerate(data):
-            clusters[i % count].append(item)
-        
-        def move_item(item, pos, origin):
-            closest = origin
-            for cluster in clusters:
-                if (self.distance(item, centroid(cluster))
-                    < self.distance(item, centroid(closest))):
-                    closest = cluster
-            if closest is not origin:
-                closest.append(origin.pop(pos))
-                return True
-            return False
-        
-        moved = True
-        while moved:
-            moved = False
-            for cluster in clusters:
-                for pos, item in enumerate(cluster):
-                    moved = move_item(item, pos, cluster) or moved
-                    
-        return clusters
-                    
-        
 # Similarity functions
 
 def shingles(input, size=2):
@@ -438,7 +235,126 @@ def hamming_distance(first_hash, other_hash, hashbits=32):
     return tot
 
 
+# Clustering
+
+def kmeans(data, k, t=0.0001, distfun=None, maxiter=50, centers=None):
+    """
+    One-dimensional K-means clustering function.
+
+    :param data: list of data points.
+    :param k: number of clusters.
+    :param t: tolerance; stop if changes between iterations are smaller than
+        this value.
+    :param distfun: a distance function.
+    :param centers: a list of centroids to start with.
+    :param maxiter: maximum number of iterations to run.
+    """
+
+    # Adapted from a C version by Roger Zhang, <rogerz@cs.dal.ca>
+    # http://cs.smu.ca/~r_zhang/code/kmeans.c
+
+    DOUBLE_MAX = 1.797693e308
+    n = len(data)
+
+    error = DOUBLE_MAX  # sum of squared euclidean distance
+
+    counts = [0] * k  # size of each cluster
+    labels = [0] * n  # output cluster label for each data point
+
+    # c1 is an array of len k of the temp centroids
+    c1 = [0] * k
+
+    # choose k initial centroids
+    if centers:
+        c = centers
+    else:
+        c = random.sample(data, k)
+    
+    niter = 0
+    # main loop
+    while True:
+        # save error from last step
+        old_error = error
+        error = 0
+
+        # clear old counts and temp centroids
+        for i in xrange(k):
+            counts[i] = 0
+            c1[i] = 0
+
+        for h in xrange(n):
+            # identify the closest cluster
+            min_distance = DOUBLE_MAX
+            for i in xrange(k):
+                distance = (data[h] - c[i]) ** 2
+                if distance < min_distance:
+                    labels[h] = i
+                    min_distance = distance
+
+            # update size and temp centroid of the destination cluster
+            c1[labels[h]] += data[h]
+            counts[labels[h]] += 1
+            # update standard error
+            error += min_distance
+
+        for i in xrange(k):  # update all centroids
+            c[i] = c1[i] / counts[i] if counts[i] else c1[i]
+
+        niter += 1
+        if (abs(error - old_error) < t) or (niter > maxiter):
+            break
+
+    return labels, c
 
 
+# Sliding window clusters
 
+def two_pass_variance(data):
+    n    = 0
+    sum1 = 0
+    sum2 = 0
+ 
+    for x in data:
+        n    = n + 1
+        sum1 = sum1 + x
+ 
+    mean = sum1/n
+ 
+    for x in data:
+        sum2 = sum2 + (x - mean)*(x - mean)
+ 
+    variance = sum2/(n - 1)
+    return variance
+
+def weighted_incremental_variance(data_weight_pairs):
+    mean = 0
+    S = 0
+    sumweight = 0
+    for x, weight in data_weight_pairs:
+        temp = weight + sumweight
+        Q = x - mean
+        R = Q * weight / temp
+        S = S + sumweight * Q * R
+        mean = mean + R
+        sumweight = temp
+    Variance = S / (sumweight-1)  # if sample is the population, omit -1
+    return Variance
+
+
+def swin(data, size):
+    clusters = []
+    for i, left in enumerate(data):
+        j = i
+        right = data[j]
+        while j < len(data) - 1 and right - left < size:
+            j += 1
+            right = data[j]
+        v = 99999
+        if j - i > 1:
+            v = two_pass_variance(data[i:j+1])
+        clusters.append((left, right, j - i , v))
+    clusters.sort(key=lambda x: (0 - x[2], x[3]))
+    return clusters
+    
+                
 
