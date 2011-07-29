@@ -5,10 +5,6 @@ How to create highlighted search result excerpts
 Overview
 ========
 
-The highlight module requires that you have the text of the indexed
-document available. You can keep the text in a stored field,  Note that you might need to process the text to remove
-e.g. HTML tags, wiki markup, etc.
-
 The highlighting system works as a pipeline, with four component types.
 
 * **Fragmenters** chop up the original text into __fragments__, based on the
@@ -31,7 +27,8 @@ Requirements
 
 Highlighting requires that you have the text of the indexed document available.
 You can keep the text in a stored field, or if the  original text is available
-in a file, database column, etc, just reload it on the fly.
+in a file, database column, etc, just reload it on the fly. Note that you might
+need to process the text to remove e.g. HTML tags, wiki markup, etc.
 
 
 How to
