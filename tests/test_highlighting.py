@@ -161,8 +161,32 @@ def test_multifilter():
     with ix.searcher() as s:
         hit = s.search(query.Term("text", "5000"))[0]
         assert_equal(hit.highlights("text"), 'Our BabbleTron<b class="match term0">5000</b> is great')
-    
 
+def test_pinpoint():
+    domain = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet "
+               "kilo lima mike november oskar papa quebec romeo sierra tango")
+    schema = fields.Schema(text=fields.TEXT(stored=True, chars=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(text=domain)
+    w.commit()
+    
+    assert ix.schema["text"].supports("characters")
+    with ix.searcher() as s:
+        r = s.search(query.Term("text", "juliet"), terms=True)
+        hit = r[0]
+        hi = highlight.Highlighter()
+        hi.formatter = highlight.UppercaseFormatter()
+        
+        assert not hi.can_load_chars(r, "text")
+        assert_equal(hi.highlight_hit(hit, "text"), "golf hotel india JULIET kilo lima mike november")
+        
+        hi.fragmenter = highlight.PinpointFragmenter()
+        assert hi.can_load_chars(r, "text")
+        assert_equal(hi.highlight_hit(hit, "text"), "ot golf hotel india JULIET kilo lima mike nove")
+        
+        hi.fragmenter.autotrim = True
+        assert_equal(hi.highlight_hit(hit, "text"), "golf hotel india JULIET kilo lima mike")
 
 
 
