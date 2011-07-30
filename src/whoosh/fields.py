@@ -1130,6 +1130,29 @@ def ensure_schema(schema):
         raise FieldConfigurationError("%r is not a Schema" % schema)
     return schema
     
-    
-    
+
+def merge_fielddict(d1, d2):
+    keyset = set(d1.keys()) | set(d2.keys())
+    out = {}
+    for name in keyset:
+        field1 = d1.get(name)
+        field2 = d2.get(name)
+        if field1 and field2 and field1 != field2:
+            raise Exception("Inconsistent field %r: %r != %r" % (name, field1, field2))
+        out[name] = field1 or field2
+    return out
+
+
+def merge_schema(s1, s2):
+    schema = Schema()
+    schema._fields = merge_fielddict(s1._fields, s2._fields)
+    schema._dyn_fields = merge_fielddict(s1._dyn_fields, s2._dyn_fields)
+    return schema
+
+
+def merge_schemas(schemas):
+    schema = schemas[0]
+    for i in xrange(1, len(schemas)):
+        schema = merge_schema(schema, schemas[i])
+    return schema
 

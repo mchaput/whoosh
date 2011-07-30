@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from base64 import b64encode
 from bisect import bisect_left
 from heapq import nlargest, nsmallest
 from threading import Lock
@@ -51,12 +52,6 @@ class SegmentReader(IndexReader):
         self.storage = storage
         self.schema = schema
         self.segment = segment
-        
-        if hasattr(self.segment, "uuid"):
-            self.uuid_string = str(self.segment.uuid)
-        else:
-            import uuid
-            self.uuid_string = str(uuid.uuid4())
         
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
@@ -110,7 +105,7 @@ class SegmentReader(IndexReader):
         return self.segment.is_deleted(docnum)
 
     def generation(self):
-        return self.segment.generation
+        return self.segment.id
 
     def _open_vectors(self):
         if self.vectorindex:
@@ -358,7 +353,7 @@ class SegmentReader(IndexReader):
                 storage = self.storage
             else:
                 storage = None
-            cp = DefaultFieldCachingPolicy(self.segment.name, storage=storage)
+            cp = DefaultFieldCachingPolicy(self.segment.basename(), storage=storage)
         
         if type(cp) is type:
             cp = cp()
@@ -366,7 +361,7 @@ class SegmentReader(IndexReader):
         self.caching_policy = cp
 
     def _fieldkey(self, fieldname):
-        return "%s/%s" % (self.uuid_string, fieldname)
+        return "%s/%s" % (self.segment.id, fieldname)
 
     def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for

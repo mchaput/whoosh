@@ -514,8 +514,8 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         """
         :param basename: a prefix for filenames. This is usually the name of
             the reader's segment.
-        :param storage: a custom :class:`whoosh.store.Storage` object to use
-            for saving field caches. If this is ``None``, this object will not
+        :param storage: a :class:`whoosh.store.Storage` object to use for
+            saving field caches. If this is ``None``, this object will not
             save caches to disk.
         :param gzip_caches: if True, field caches saved to disk by this object
             will be compressed. Loading compressed caches is very slow, so you

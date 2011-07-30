@@ -249,9 +249,10 @@ class Index(object):
         
     def latest_generation(self):
         """Returns the generation number of the latest generation of this
-        index, or -1 if the backend doesn't support versioning.
+        index, or None if the backend doesn't support versioning.
         """
-        return -1
+        
+        return None
     
     def refresh(self):
         """Returns a new Index object representing the latest generation
@@ -260,6 +261,7 @@ class Index(object):
         
         :returns: :class:`Index`
         """
+        
         return self
     
     def up_to_date(self):
@@ -270,13 +272,15 @@ class Index(object):
         
         :param rtype: bool
         """
+        
         return True
     
     def last_modified(self):
-        """Returns the last modified time of the index, or -1 if the backend
+        """Returns the last modified time of the index, or None if the backend
         doesn't support last-modified times.
         """
-        return - 1
+        
+        return None
     
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never had any
@@ -284,11 +288,13 @@ class Index(object):
         
         :param rtype: bool
         """
+        
         raise NotImplementedError
     
     def optimize(self):
         """Optimizes this index, if necessary.
         """
+        
         pass
     
     def doc_count_all(self):

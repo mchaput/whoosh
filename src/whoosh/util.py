@@ -29,10 +29,7 @@
 """
 
 from __future__ import with_statement
-import codecs
-import re
-import sys
-import time
+import codecs, random, re, sys, time
 from array import array
 from bisect import insort, bisect_left
 from copy import copy

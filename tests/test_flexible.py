@@ -66,7 +66,7 @@ def test_removefield():
         w.remove_field("city")
         w.commit()
 
-        ixschema = ix._current_schema()
+        ixschema = ix.schema
         assert_equal(ixschema.names(), ["id"])
         assert_equal(ixschema.stored_names(), ["id"])
         

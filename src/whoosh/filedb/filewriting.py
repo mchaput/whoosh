@@ -36,8 +36,8 @@ except ImportError:
     has_sqlite = False
 
 from whoosh.compat import integer_types, iteritems, text_type
-from whoosh.fields import UnknownFieldError
-from whoosh.filedb.fileindex import Segment
+from whoosh.fields import merge_schemas, UnknownFieldError
+from whoosh.filedb.fileindex import Revision, Segment
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
@@ -68,6 +68,7 @@ def MERGE_SMALL(writer, segments):
     """
 
     from whoosh.filedb.filereading import SegmentReader
+    
     newsegments = []
     sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
     total_docs = 0
@@ -125,77 +126,22 @@ def MERGE_SQUARES(writer, segments):
 
 class SegmentWriter(IndexWriter):
     def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
-                 timeout=0.0, delay=0.1, name=None, _lk=True, **poolargs):
-        
-        self.writelock = None
-        if _lk:
-            self.writelock = ix.lock("WRITELOCK")
-            if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
-                raise LockError
-        
-        info = ix._read_toc()
-        self.schema = info.schema
-        #self.ssnames = set(self.schema.special_spelling_names())
-        self.segments = info.segments
-        self.storage = ix.storage
+                 timeout=0.0, delay=0.1, **poolargs):
+        self.mergelock = ix.lock("mergelock")
+        self.storage = storage = ix.storage
         self.indexname = ix.indexname
+        self.id = Segment._make_id()
+        self.revs = list(ix._leaf_revisions())
+        self.schema = ix._schema or merge_schemas([rev.schema for rev in self.revs])
         self.is_closed = False
-        
         self.blocklimit = blocklimit
-        self.segment_number = info.segment_counter + 1
-        self.generation = info.generation + 1
-        
-        self._doc_offsets = []
-        base = 0
-        for s in self.segments:
-            self._doc_offsets.append(base)
-            base += s.doc_count_all()
-        
-        self.name = name or Segment.basename(self.indexname, self.segment_number)
+        self.timeout = timeout
+        self.delay = delay
         self.docnum = 0
         self.fieldlength_totals = defaultdict(int)
         self._added = False
-        self._unique_cache = {}
-    
-        # Create a temporary segment to use its .*_filename attributes
-        segment = Segment(self.name, self.generation, 0, None, None, None)
         
-        # Spelling
-        self.wordsets = {}
-        self.dawg = None
-        if any(field.spelling for field in self.schema):
-            self.dawgfile = self.storage.create_file(segment.dawg_filename)
-            self.dawg = DawgBuilder(field_root=True)
-        
-        # Terms index
-        tf = self.storage.create_file(segment.termsindex_filename)
-        ti = TermIndexWriter(tf)
-        # Term postings file
-        pf = self.storage.create_file(segment.termposts_filename)
-        pw = FilePostingWriter(pf, blocklimit=blocklimit)
-        # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
-        
-        if self.schema.has_vectored_fields():
-            # Vector index
-            vf = self.storage.create_file(segment.vectorindex_filename)
-            self.vectorindex = TermVectorWriter(vf)
-            
-            # Vector posting file
-            vpf = self.storage.create_file(segment.vectorposts_filename)
-            self.vpostwriter = FilePostingWriter(vpf, stringids=True)
-        else:
-            self.vectorindex = None
-            self.vpostwriter = None
-        
-        # Stored fields file
-        sf = self.storage.create_file(segment.storedfields_filename)
-        self.storedfields = StoredFieldWriter(sf, self.schema.stored_names())
-        
-        # Field lengths file
-        self.lengthfile = self.storage.create_file(segment.fieldlengths_filename)
-        
-        # Create the pool
+        # Pool
         if poolclass is None:
             if procs > 1:
                 from whoosh.filedb.multiproc import MultiPool
@@ -203,6 +149,56 @@ class SegmentWriter(IndexWriter):
             else:
                 poolclass = TempfilePool
         self.pool = poolclass(self.schema, procs=procs, **poolargs)
+        
+        self.segments = []
+        self._doc_offsets = []
+        docbase = 0
+        for rev in self.revs:
+            for seg in rev.segments:
+                self.segments.append(seg)
+                self._doc_offsets.append(docbase)
+                docbase += seg.doc_count_all()
+        
+        # Filenames
+        newsegment = self._getsegment()
+        dawgname = newsegment.dawg_filename
+        termsname = newsegment.termsindex_filename
+        postsname = newsegment.termposts_filename
+        vectname = newsegment.vectorindex_filename
+        vpostsname = newsegment.vectorposts_filename
+        storedname = newsegment.storedfields_filename
+        lengthsname = newsegment.fieldlengths_filename
+        
+        # Create files
+        self.lengthfile = storage.create_file(lengthsname)
+        self.storedfields = StoredFieldWriter(storage.create_file(storedname),
+                                              self.schema.stored_names())
+        # Terms writer
+        self.wordsets = {}
+        self.dawg = None
+        if any(field.spelling for field in self.schema):
+            self.dawgfile = storage.create_file(dawgname)
+            self.dawg = DawgBuilder(field_root=True)
+        ti = TermIndexWriter(storage.create_file(termsname))
+        pw = FilePostingWriter(storage.create_file(postsname), blocklimit=blocklimit)
+        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
+        
+        # Vectors
+        self.vectorindex = self.vpostwriter = None
+        if self.schema.has_vectored_fields():
+            # Vector index
+            vf = storage.create_file(vectname)
+            self.vectorindex = TermVectorWriter(vf)
+            
+            # Vector posting file
+            vpf = storage.create_file(vpostsname)
+            self.vpostwriter = FilePostingWriter(vpf, stringids=True)
+    
+    def _getsegment(self):
+        return Segment(self.indexname, self.id, self.docnum,
+                       self.pool.fieldlength_totals(),
+                       self.pool.fieldlength_mins(),
+                       self.pool.fieldlength_maxes())
     
     def _check_state(self):
         if self.is_closed:
@@ -269,7 +265,7 @@ class SegmentWriter(IndexWriter):
         from whoosh.filedb.fileindex import FileIndex
         
         return FileIndex._reader(self.storage, self.schema, self.segments,
-                                 self.generation, reuse=reuse)
+                                 reuse=reuse)
     
     def add_reader(self, reader):
         self._check_state()
@@ -453,12 +449,6 @@ class SegmentWriter(IndexWriter):
         if self.vpostwriter:
             self.vpostwriter.close()
     
-    def _getsegment(self):
-        return Segment(self.name, self.generation, self.docnum,
-                       self.pool.fieldlength_totals(),
-                       self.pool.fieldlength_mins(),
-                       self.pool.fieldlength_maxes())
-    
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
         
@@ -488,68 +478,72 @@ class SegmentWriter(IndexWriter):
         """
         
         self._check_state()
-        try:
-            if mergetype:
-                pass
-            elif optimize:
-                mergetype = OPTIMIZE
-            elif not merge:
-                mergetype = NO_MERGE
-            else:
-                mergetype = MERGE_SMALL
+        new_segments = []
+        if merge:
+            # Try to acquire the merge lock
+            to, delay = self.timeout, self.delay
+            gotlock = try_for(self.mergelock.acquire, timeout=to, delay=delay)
+            if gotlock:
+                try:
+                    if mergetype:
+                        pass
+                    elif optimize:
+                        mergetype = OPTIMIZE
+                    else:
+                        mergetype = MERGE_SMALL
+                    
+                    # Check that the segments we started with still exist
+                    segments = [seg for seg in self.segments
+                                if seg.exists_in(self.storage)]
+                    # Remember the IDs of the pre-merged segments
+                    orig_ids = set(seg.id for seg in segments)
+                    # Call the merge policy function. The policy may choose to
+                    # merge other segments into this writer's pool
+                    new_segments = mergetype(self, self.segments)
+                    # Find which segments got merged
+                    merged_ids = orig_ids - set(seg.id for seg in new_segments)
+                    
+                    # Delete leftover files
+                    for rev in self.revs:
+                        rev.delete_files(self.storage)
+                    for seg in segments:
+                        if seg.id in merged_ids:
+                            seg.delete_files()
+                finally:
+                    self.mergelock.release()
+        
+        if self._added:
+            # Tell the pool we're finished adding information, it should
+            # add its accumulated data to the lengths, terms index, and
+            # posting files.
+            self.pool.finish(self.termswriter, self.docnum, self.lengthfile)
             
-            # Call the merge policy function. The policy may choose to merge
-            # other segments into this writer's pool
-            new_segments = mergetype(self, self.segments)
+            # Write out spelling files
+            if self.dawg:
+                # Insert any wordsets we've accumulated into the word graph
+                self._add_wordsets()
+                # Write out the word graph
+                self.dawg.write(self.dawgfile)
             
-            if self._added:
-                # Create a Segment object for the segment created by this
-                # writer
-                thissegment = self._getsegment()
-                
-                # Tell the pool we're finished adding information, it should
-                # add its accumulated data to the lengths, terms index, and
-                # posting files.
-                self.pool.finish(self.termswriter, self.docnum, self.lengthfile)
+            # Create a Segment object for the segment created by this
+            # writer and add it to the list of new segments
+            thissegment = self._getsegment()
+            new_segments.append(thissegment)
             
-                # Write out spelling files
-                if self.dawg:
-                    # Insert any wordsets we've accumulated into the word graph
-                    self._add_wordsets()
-                    # Write out the word graph
-                    self.dawg.write(self.dawgfile)
-            
-                # Add new segment to the list of remaining segments returned by
-                # the merge policy function
-                new_segments.append(thissegment)
-            else:
-                self.pool.cleanup()
-            
-            # Close all files, write a new TOC with the new segment list, and
-            # release the lock.
+            # Close all files
             self._close_all()
             
-            from whoosh.filedb.fileindex import _write_toc, _clean_files
-            
-            _write_toc(self.storage, self.schema, self.indexname,
-                       self.generation, self.segment_number, new_segments)
-            
-            # Delete leftover files
-            _clean_files(self.storage, self.indexname, self.generation,
-                         new_segments)
-        
-        finally:
-            if self.writelock:
-                self.writelock.release()
+            # Write the new revision
+            parentids = [rev.id for rev in self.revs]
+            Revision.create(self.storage, self.indexname, self.schema,
+                            parentids, new_segments)
+        else:
+            self.pool.cleanup()
         
     def cancel(self):
         self._check_state()
-        try:
-            self.pool.cancel()
-            self._close_all()
-        finally:
-            if self.writelock:
-                self.writelock.release()
+        self.pool.cancel()
+        self._close_all()
 
 
 class TermsWriter(object):

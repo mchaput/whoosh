@@ -29,6 +29,8 @@ import struct
 from array import array
 
 from whoosh.compat import long_type, xrange, PY3
+from whoosh.support.base85 import b85chars, b85dec
+
 
 _istruct = struct.Struct(">i")
 _qstruct = struct.Struct(">q")
@@ -37,8 +39,8 @@ _ipack, _iunpack = _istruct.pack, _istruct.unpack
 _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
-_max_sortable_int = long_type(4294967295)
-_max_sortable_long = long_type(18446744073709551615)
+_max_sortable_int = 4294967295
+_max_sortable_long = 18446744073709551615
 
 
 # Functions for converting numbers to and from sortable representations
@@ -245,22 +247,13 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
 
 # Functions for encoding numeric values as sequences of 7-bit ascii characters
 
-# Instead of using the character set from the ascii85 algorithm, I put the
-# characters in order so that the encoded text sorts properly (my life would be
-# a lot easier if they had just done that from the start)
-_b85chars = "!$%&*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz{|}~"
-_b85dec = {}
-for i in range(len(_b85chars)):
-    _b85dec[_b85chars[i]] = i
-
-
 def to_base85(x, islong=False):
     "Encodes the given integer using base 85."
     
     size = 10 if islong else 5
     rems = ""
-    for i in xrange(size):
-        rems = _b85chars[x % 85] + rems
+    for _ in xrange(size):
+        rems = b85chars[x % 85] + rems
         x //= 85
     return rems
 
@@ -270,7 +263,7 @@ def from_base85(text):
 
     acc = 0
     for c in text:
-        acc = acc * 85 + _b85dec[c]
+        acc = acc * 85 + b85dec[c]
     return acc
 
 
@@ -310,3 +303,6 @@ def from_7bit(text):
         x |= char
     x -= (1 << shift) - 1
     return int(x)
+
+
+
