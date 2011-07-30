@@ -3,7 +3,7 @@ import random, threading, time
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh import analysis, fields, formats, reading
+from whoosh import analysis, fields, formats, query, reading
 from whoosh.compat import u, xrange
 from whoosh.filedb.filereading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
@@ -45,7 +45,6 @@ def _multi_segment_index():
     w = ix.writer()
     w.add_document(f1 = u("A B"), f2 = u("1 2"), f3 = u("X Y"))
     w.commit(merge=False)
-    
     return ix
 
 def _stats(r):
@@ -286,11 +285,11 @@ def test_nonexclusive_read():
             th.join()
 
 def test_doc_count():
-    schema = fields.Schema(id=fields.NUMERIC)
+    schema = fields.Schema(id=fields.ID(stored=True))
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     for i in xrange(10):
-        w.add_document(id=i)
+        w.add_document(id=u("%s") % i)
     w.commit()
     
     r = ix.reader()
@@ -298,10 +297,10 @@ def test_doc_count():
     assert_equal(r.doc_count_all(), 10)
     
     w = ix.writer()
-    w.delete_document(2)
-    w.delete_document(4)
-    w.delete_document(6)
-    w.delete_document(8)
+    w.delete_by_query(query.Term("id", "2"))
+    w.delete_by_query(query.Term("id", "4"))
+    w.delete_by_query(query.Term("id", "6"))
+    w.delete_by_query(query.Term("id", "8"))
     w.commit()
     
     r = ix.reader()
@@ -310,7 +309,7 @@ def test_doc_count():
     
     w = ix.writer()
     for i in xrange(10, 15):
-        w.add_document(id=i)
+        w.add_document(id=u("%s") % i)
     w.commit(merge=False)
     
     r = ix.reader()
@@ -318,9 +317,9 @@ def test_doc_count():
     assert_equal(r.doc_count_all(), 15)
     
     w = ix.writer()
-    w.delete_document(10)
-    w.delete_document(12)
-    w.delete_document(14)
+    w.delete_by_query(query.Term("id", "10"))
+    w.delete_by_query(query.Term("id", "12"))
+    w.delete_by_query(query.Term("id", "14"))
     w.commit(merge=False)
     
     r = ix.reader()

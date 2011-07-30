@@ -788,13 +788,17 @@ def test_outofdate():
     schema = fields.Schema(id=fields.ID(stored=True))
     st = RamStorage()
     ix = st.create_index(schema)
+    print "    ix=", repr(ix.latest_generation())
     
     w = ix.writer()
     w.add_document(id=u("1"))
     w.add_document(id=u("2"))
     w.commit()
     
+    print "    ix=", repr(ix.latest_generation())
     s = ix.searcher()
+    print "reader=", repr(s.ixreader.generation())
+    print "    ix=", repr(ix.latest_generation())
     assert s.up_to_date()
     
     w = ix.writer()

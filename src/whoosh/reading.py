@@ -593,9 +593,6 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def is_atomic(self):
-        return False
-
     def __init__(self, readers, generation=-1):
         self.readers = readers
         self._gen = generation
@@ -621,6 +618,9 @@ class MultiReader(IndexReader):
         segmentnum = self._document_segment(docnum)
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
+
+    def is_atomic(self):
+        return False
 
     def add_reader(self, reader):
         self.readers.append(reader)

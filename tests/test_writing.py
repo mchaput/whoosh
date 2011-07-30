@@ -275,7 +275,11 @@ def test_read_inline():
         w.add_document(a=u("charlie"))
         w.commit()
 
-        tr = TermIndexReader(ix.storage.open_file("_readinline_1.trm"))
+        trms = [fname for fname in ix.storage if fname.endswith(".trm")]
+        assert_equal(len(trms), 1)
+        filename = trms[0]
+
+        tr = TermIndexReader(ix.storage.open_file(filename))
         for i, (_, terminfo) in enumerate(tr.items()):
             assert_equal(terminfo.postings[0], (i,))
             assert_equal(terminfo.postings[1], (1.0,))

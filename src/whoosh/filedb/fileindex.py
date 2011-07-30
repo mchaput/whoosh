@@ -25,8 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import re, sys
-from base64 import b64encode, b64decode
+import copy, re, sys
 from datetime import datetime
 from os import urandom
 from time import time, sleep
@@ -38,44 +37,38 @@ from whoosh.index import Index, EmptyIndexError, IndexVersionError, _DEF_INDEX_N
 from whoosh.reading import EmptyReader, MultiReader
 from whoosh.store import Storage, LockError
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
+from whoosh.util import b64encode, b64decode
 
 
 _INDEX_VERSION = -110
 
 
-# TOC read/write functions
-
-ROOT_ID = "\x00" * 16
-
+def _make_id():
+    return urandom(12)
 
 class Revision(object):
-    def __init__(self, indexname, id, schema, parentids=None, segments=None,
+    def __init__(self, indexname, id, schema, segments=None,
                  release=None, created=None):
         self.indexname = indexname
-        self.id = id if id is not None else self._make_id()
+        self.id = id
         self.schema = schema
-        self.parentids = parentids or ()
         self.segments = segments or ()
         self.release = release
         self.created = created
     
     @staticmethod
-    def _make_id():
-        return urandom(12)
-    
-    @staticmethod
     def _filename(indexname, id):
-        i = b64encode(id, "-_")
+        i = b64encode(id)
         return "%s.%s.toc" % (indexname, i)
     
     @staticmethod
     def regex(indexname):
-        pat = r"^%s\.(?P<id>.{12})\.toc$" % indexname
+        pat = r"^%s\.(?P<id>.{16})\.toc$" % indexname
         return re.compile(pat)
     
     @classmethod
-    def create(cls, storage, indexname, schema, parentids=None, segments=None):
-        rev = cls(indexname, cls._make_id(), schema, parentids, segments)
+    def create(cls, storage, indexname, id, schema, segments=None):
+        rev = cls(indexname, id, schema, segments)
         rev.store(storage)
         return rev
     
@@ -104,10 +97,8 @@ class Revision(object):
             raise IndexVersionError("Can't read format %s" % version, version)
         # Load Whoosh version that created this TOC
         release = stream.read_pickle()
-        # Read the list of parent IDs
-        parentids = stream.read_pickle()
         # Check that the filename and internal ID match
-        _id = stream.read(16)
+        _id = stream.read(12)
         if _id != id:
             raise Exception("ID in %s is %s" % (fname, b64encode(_id)))
         # Creation date
@@ -120,7 +111,7 @@ class Revision(object):
         # Load the segments
         segments = stream.read_pickle()
         stream.close()
-        return cls(indexname, id, schema, parentids, segments, release, created)
+        return cls(indexname, id, schema, segments, release, created)
     
     @classmethod
     def find_all(cls, storage, indexname):
@@ -132,12 +123,14 @@ class Revision(object):
     
     @classmethod
     def load_all(cls, storage, indexname, schema=None, suppress=False):
+        revs = []
         for id in cls.find_all(storage, indexname):
             try:
-                yield cls.load(storage, indexname, id, schema=schema)
+                revs.append(cls.load(storage, indexname, id, schema=schema))
             except OSError:
                 if not suppress:
                     raise
+        return sorted(revs, key=lambda x: x.created)
     
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self.filename())
@@ -163,7 +156,6 @@ class Revision(object):
         stream.write_int(_INDEX_VERSION)
         stream.write_pickle(__version__)
         # Write self
-        stream.write_pickle(tuple(self.parentids))
         stream.write(self.id)
         stream.write_pickle(datetime.utcnow())
         stream.write_string(pickle.dumps(self.schema, -1))
@@ -190,20 +182,16 @@ class Segment(object):
                   "vectorindex": "vec",
                   "vectorposts": "vps"}
     
-    def __init__(self, indexname, id=None, doccount=0, fieldlength_totals=None,
+    def __init__(self, indexname, id, doccount=0, fieldlength_totals=None,
                  fieldlength_mins=None, fieldlength_maxes=None, deleted=None):
         self.indexname = indexname
-        self.id = id or self._make_id()
+        self.id = id
         self.doccount = doccount
         self.fieldlength_totals = fieldlength_totals or {}
         self.fieldlength_mins = fieldlength_mins or {}
         self.fieldlength_maxes = fieldlength_maxes or {}
         self.deleted = deleted
         
-    @staticmethod
-    def _make_id():
-        return urandom(12)
-    
     @classmethod
     def _idstring(cls, segid):
         return b64encode(segid)
@@ -217,7 +205,11 @@ class Segment(object):
         return "%s.%s" % (cls._basename(indexname, segid), ext)
     
     def __repr__(self):
-        return "<%s %s>" % (self.__class__.__name__, b64encode(self.id))
+        r = "<%s %s %d" % (self.__class__.__name__, b64encode(self.id), self.doccount)
+        if self.deleted:
+            r += " " + ",".join(str(docnum) for docnum in sorted(self.deleted))
+        r += ">"
+        return r
 
     def __getattr__(self, name):
         # Capture accesses to e.g. Segment.fieldlengths_filename and return
@@ -261,6 +253,7 @@ class Segment(object):
         """
         :returns: the number of (undeleted) documents in this segment.
         """
+        
         return self.doccount - self.deleted_count()
 
     def has_deletions(self):
@@ -319,14 +312,6 @@ class Segment(object):
         return docnum in self.deleted
 
 
-def _leaf_revs(storage, indexname, parentids=None):
-    parentids = parentids or set()
-    revs = list(Revision.load_all(storage, indexname, suppress=True))
-    for rev in revs:
-        parentids.update(rev.parentids)
-    return [rev for rev in revs if rev.id not in parentids]
-
-
 def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
     # Clear existing files
     prefix = "%s." % indexname
@@ -336,12 +321,39 @@ def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
     
     # Create and store the root revision
     schema = ensure_schema(schema)
-    return Revision.create(storage, indexname, schema)
+    return Revision.create(storage, indexname, _make_id(), schema)
 
 
+def segments_from_revs(revs):
+    segs = []
+    for rev in revs:
+        segs.extend(rev.segments)
+    return merge_segments(segs)
 
-    
-    
+
+def merge_segments(segments):
+    segs = []
+    byid = {}
+    # Merge the list of segments in each revision
+    for seg in segments:
+        if seg.id in byid:
+            first = byid[seg.id]
+            # Segment objects with the same id are identical except the
+            # set of deleted documents... merge that
+            if seg.deleted:
+                if first.deleted is None:
+                    first.deleted = seg.deleted
+                else:
+                    first.deleted.update(seg.deleted)
+        else:
+            # Make a copy so we can modify the deleted attr without
+            # having to worry if the caller expected the list of revs
+            # to remain unchanged
+            seg = copy.copy(seg)
+            byid[seg.id] = seg
+            segs.append(seg)
+    return segs
+
 
 # Index placeholder object
 
@@ -359,8 +371,8 @@ class FileIndex(Index):
         self.indexname = indexname
         self._schema = schema
         
-        # Try reading the TOC to see if it's possible
-        #self._revision()
+        if len(self._revisions()) == 0:
+            raise EmptyIndexError
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__,
@@ -369,32 +381,33 @@ class FileIndex(Index):
     def close(self):
         pass
 
-    def _leaf_revisions(self):
-        return _leaf_revs(self.storage, self.indexname)
-
+    def _revisions(self):
+        return list(Revision.load_all(self.storage, self.indexname, suppress=True))
+    
     def _segments(self):
-        segs = {}
-        for rev in self._leaf_revisions():
-            for seg in rev.segments:
-                if seg.id in segs:
-                    raise Exception
-                segs[seg.id] = seg
-        return list(segs.values())
+        return segments_from_revs(self._revisions())
 
     # add_field
     # remove_field
     
+    @staticmethod
+    def _comp_id(revs):
+        if len(revs) == 1:
+            return revs[0].id
+        else:
+            return tuple(sorted(rev.id for rev in revs))
+    
     def latest_generation(self):
-        return tuple(rev.id for rev in self._leaf_revisions())
+        return self._comp_id(self._revisions())
     
     # refresh
     # up_to_date
     
     def last_modified(self):
-        return max(rev.created for rev in self._leaf_revisions())
+        return max(rev.created for rev in self._revisions())
 
     def is_empty(self):
-        return sum(len(rev.segments) for rev in self._leaf_revisions()) == 0
+        return sum(len(rev.segments) for rev in self._revisions()) == 0
     
     def optimize(self):
         w = self.writer()
@@ -417,10 +430,9 @@ class FileIndex(Index):
     def schema(self):
         return (self._schema
                 or merge_schemas([rev.schema for rev
-                                  in self._leaf_revisions()]))
+                                  in self._revisions()]))
 
-    @classmethod
-    def _reader(self, storage, schema, segments, reuse=None):
+    def _read_segments(self, schema, segments, reuse=None):
         from whoosh.filedb.filereading import SegmentReader
         
         reusable = {}
@@ -440,13 +452,13 @@ class FileIndex(Index):
             # It removes any readers it reuses from the "reusable" dictionary,
             # so later we can close any readers left in the dictionary.
             def segreader(segment):
-                gen = segment.generation
-                if gen in reusable:
-                    r = reusable[gen]
-                    del reusable[gen]
+                segid = segment.id
+                if segid in reusable:
+                    r = reusable[segid]
+                    del reusable[segid]
                     return r
                 else:
-                    return SegmentReader(storage, schema, segment)
+                    return SegmentReader(self.storage, schema, segment)
             
             if len(segments) == 1:
                 # This index has one segment, so return a SegmentReader object
@@ -458,7 +470,8 @@ class FileIndex(Index):
                 # MultiReader
                 
                 readers = [segreader(segment) for segment in segments]
-                return MultiReader(readers)
+                gen = tuple(r.generation() for r in readers)
+                return MultiReader(readers, generation=gen)
         finally:
             for r in reusable.values():
                 r.close()
@@ -469,8 +482,7 @@ class FileIndex(Index):
             # Read the information from the TOC file
             try:
                 segments = self._segments()
-                return self._reader(self.storage, self.schema, segments,
-                                    reuse=reuse)
+                return self._read_segments(self.schema, segments, reuse=reuse)
             except IOError:
                 # Presume that we got a "file not found error" because a writer
                 # deleted one of the files just as we were trying to open it,

@@ -36,9 +36,9 @@ from whoosh.compat import load as load_pickle
 from whoosh.compat import integer_types, b
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_sbyte, pack_ushort, pack_int, pack_uint,
-                           pack_long, pack_float,
-                           unpack_sbyte, unpack_ushort, unpack_int,
-                           unpack_uint, unpack_long, unpack_float, IS_LITTLE)
+                           pack_long, pack_float, unpack_sbyte, unpack_ushort,
+                           unpack_int, unpack_uint, unpack_long, unpack_float,
+                           IS_LITTLE)
 from whoosh.util import (varint, read_varint, signed_varint,
                          decode_signed_varint, float_to_byte, byte_to_float)
 

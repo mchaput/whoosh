@@ -25,7 +25,6 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from base64 import b64encode
 from bisect import bisect_left
 from heapq import nlargest, nsmallest
 from threading import Lock

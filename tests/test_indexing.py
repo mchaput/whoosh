@@ -7,7 +7,6 @@ from datetime import datetime
 from whoosh import fields, query
 from whoosh.compat import u, xrange, text_type, PY3
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length, permutations
 from whoosh.writing import IndexingError
 from whoosh.support.testing import skip_if_unavailable, TempIndex, skip_if
@@ -170,29 +169,33 @@ def test_lengths_ram():
     assert_equal(dr.max_field_length("f2"), 7)
     
 def test_merged_lengths():
-    s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
+    s = fields.Schema(id=fields.ID,
+                      f1=fields.KEYWORD(stored=True, scorable=True),
                       f2=fields.KEYWORD(stored=True, scorable=True))
     with TempIndex(s, "mergedlengths") as ix:
         w = ix.writer()
-        w.add_document(f1=u("A B C"), f2=u("X"))
-        w.add_document(f1=u("B C D E"), f2=u("Y Z"))
+        w.add_document(id=u("1"), f1=u("A B C"), f2=u("X"))
+        w.add_document(id=u("2"), f1=u("B C D E"), f2=u("Y Z"))
         w.commit()
         
         w = ix.writer()
-        w.add_document(f1=u("A"), f2=u("B C D E X Y"))
-        w.add_document(f1=u("B C"), f2=u("X"))
-        w.commit(NO_MERGE)
+        w.add_document(id=u("3"), f1=u("A"), f2=u("B C D E X Y"))
+        w.add_document(id=u("4"), f1=u("B C"), f2=u("X"))
+        w.commit(merge=False)
         
         w = ix.writer()
-        w.add_document(f1=u("A B X Y Z"), f2=u("B C"))
-        w.add_document(f1=u("Y X"), f2=u("A B"))
-        w.commit(NO_MERGE)
+        w.add_document(id=u("5"), f1=u("A B X Y Z"), f2=u("B C"))
+        w.add_document(id=u("6"), f1=u("Y X"), f2=u("A B"))
+        w.commit(merge=False)
         
-        with ix.reader() as dr:
-            assert_equal(dr.stored_fields(0)["f1"], u("A B C"))
-            assert_equal(dr.doc_field_length(0, "f1"), 3)
-            assert_equal(dr.doc_field_length(2, "f2"), 6)
-            assert_equal(dr.doc_field_length(4, "f1"), 5)
+        with ix.searcher() as s:
+            docnum = s.document_number(id=u("1"))
+            assert_equal(s.stored_fields(docnum)["f1"], "A B C")
+            assert_equal(s.doc_field_length(docnum, "f1"), 3)
+            docnum = s.document_number(id=u("3"))
+            assert_equal(s.doc_field_length(docnum, "f2"), 6)
+            docnum = s.document_number(id=u("5"))
+            assert_equal(s.doc_field_length(docnum, "f1"), 5)
     
 def test_frequency_keyword():
     s = fields.Schema(content=fields.KEYWORD)

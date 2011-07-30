@@ -41,18 +41,13 @@ from whoosh.writing import IndexWriter
 # Multiprocessing writer
 
 class SegmentWritingTask(Process):
-    def __init__(self, storage, indexname, segname, kwargs, jobqueue,
-                 resultqueue, firstjob=None):
+    def __init__(self, storage, indexname, kwargs, jobqueue, firstjob=None):
         Process.__init__(self)
         self.storage = storage
         self.indexname = indexname
-        self.segname = segname
         self.kwargs = kwargs
         self.jobqueue = jobqueue
-        self.resultqueue = resultqueue
         self.firstjob = firstjob
-        
-        self.segment = None
         self.running = True
     
     def _add_file(self, args):
@@ -67,8 +62,7 @@ class SegmentWritingTask(Process):
     def run(self):
         jobqueue = self.jobqueue
         ix = self.storage.open_index(self.indexname)
-        writer = self.writer = SegmentWriter(ix, _lk=False, name=self.segname,
-                                             **self.kwargs)
+        writer = self.writer = SegmentWriter(ix, **self.kwargs)
         
         if self.firstjob:
             self._add_file(self.firstjob)
@@ -82,10 +76,7 @@ class SegmentWritingTask(Process):
         if not self.running:
             writer.cancel()
         else:
-            writer.pool.finish(writer.termswriter, writer.docnum,
-                               writer.lengthfile)
-            writer._close_all()
-            self.resultqueue.put(writer._getsegment())
+            writer.commit(merge=False)
     
     def cancel(self):
         self.running = False
@@ -100,29 +91,17 @@ class MultiSegmentWriter(IndexWriter):
         self.kwargs = kwargs
         self.kwargs["dir"] = dir
         
-        self.segnames = []
         self.tasks = []
         self.jobqueue = Queue(self.procs * 4)
-        self.resultqueue = Queue()
         self.docbuffer = []
         
-        self.writelock = ix.lock("WRITELOCK")
-        self.writelock.acquire()
-        
-        info = ix._read_toc()
-        self.schema = info.schema
-        self.segment_number = info.segment_counter
-        self.generation = info.generation + 1
-        self.segments = info.segments
+        self.schema = ix.schema
         self.storage = ix.storage
         
     def _new_task(self, firstjob):
         ix = self.index
-        self.segment_number += 1
-        segmentname = Segment.basename(ix.indexname, self.segment_number)
-        task = SegmentWritingTask(ix.storage, ix.indexname, segmentname,
-                                  self.kwargs, self.jobqueue,
-                                  self.resultqueue, firstjob)
+        task = SegmentWritingTask(ix.storage, ix.indexname, self.kwargs,
+                                  self.jobqueue, firstjob)
         self.tasks.append(task)
         task.start()
         return task
@@ -144,11 +123,8 @@ class MultiSegmentWriter(IndexWriter):
         self.docbuffer = []
     
     def cancel(self):
-        try:
-            for task in self.tasks:
-                task.cancel()
-        finally:
-            self.writelock.release()
+        for task in self.tasks:
+            task.cancel()
     
     def add_document(self, **fields):
         self.docbuffer.append(fields)
@@ -156,33 +132,16 @@ class MultiSegmentWriter(IndexWriter):
             self._enqueue()
     
     def commit(self, **kwargs):
-        try:
-            # index the remaining stuff in self.docbuffer
-            self._enqueue()
-
-            for task in self.tasks:
-                self.jobqueue.put(None)
-            
-            for task in self.tasks:
-                task.join()
-            
-            for task in self.tasks:
-                taskseg = self.resultqueue.get()
-                assert isinstance(taskseg, Segment), type(taskseg)
-                self.segments.append(taskseg)
-            
-            self.jobqueue.close()
-            self.resultqueue.close()
-            
-            from whoosh.filedb.fileindex import _write_toc, _clean_files
-            _write_toc(self.storage, self.schema, self.index.indexname,
-                       self.generation, self.segment_number, self.segments)
-            
-            # Delete leftover files
-            _clean_files(self.storage, self.index.indexname,
-                         self.generation, self.segments)
-        finally:
-            self.writelock.release()
+        # index the remaining stuff in self.docbuffer
+        self._enqueue()
+        # Add sentries to the job queue
+        for task in self.tasks:
+            self.jobqueue.put(None)
+        # Wait for the tasks to finish
+        for task in self.tasks:
+            task.join()
+        # Clean up
+        self.jobqueue.close()
 
 
 # Multiprocessing pool

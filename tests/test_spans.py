@@ -59,12 +59,18 @@ def test_excludematcher():
     
     domain = ("alfa", "bravo", "charlie", "delta")
     
+    total = 0
     for _ in xrange(3):
         w = ix.writer()
         for ls in permutations(domain):
             w.add_document(content=u(" ").join(ls))
+            total += 1
         w.commit(merge=False)
     
+    print ix.storage.list()
+    print [(seg, seg.doccount) for seg in ix._segments()]
+    
+    assert_equal(ix.doc_count_all(), total)
     w = ix.writer()
     w.delete_document(5)
     w.delete_document(10)

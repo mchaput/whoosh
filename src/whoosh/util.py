@@ -29,7 +29,7 @@
 """
 
 from __future__ import with_statement
-import codecs, random, re, sys, time
+import base64, codecs, re, sys, time
 from array import array
 from bisect import insort, bisect_left
 from copy import copy
@@ -656,6 +656,10 @@ except ImportError:
         return funcobj
 
 
+def b64encode(data):
+    return base64.b64encode(data, "-_")
+def b64decode(data):
+    return base64.b64decode(data, "-_")
 
 
 

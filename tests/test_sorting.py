@@ -455,10 +455,9 @@ def test_field_facets():
             with ix.searcher() as s:
                 results = s.search(query.Every(), groupedby="tag")
                 groups = results.groups("tag")
-                assert (sorted(groups.items())
-                        == [(u('one'), [0, 6]),
-                            (u('three'), [1, 3, 7, 8]),
-                            (u('two'), [2, 4, 5])])
+                target = [(u('one'), [0, 6]), (u('three'), [1, 3, 7, 8]),
+                          (u('two'), [2, 4, 5])]
+                assert_equal(sorted(groups.items()), target)
     
     check(make_single_index)
     check(make_multi_index)

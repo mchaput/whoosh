@@ -37,7 +37,8 @@ except ImportError:
 
 from whoosh.compat import integer_types, iteritems, text_type
 from whoosh.fields import merge_schemas, UnknownFieldError
-from whoosh.filedb.fileindex import Revision, Segment
+from whoosh.filedb.fileindex import (Revision, Segment, segments_from_revs,
+                                     _make_id)
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
                                       TermVectorWriter)
@@ -125,13 +126,14 @@ def MERGE_SQUARES(writer, segments):
 # Writer object
 
 class SegmentWriter(IndexWriter):
-    def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
+    def __init__(self, ix, id=None, poolclass=None, procs=0, blocklimit=128,
                  timeout=0.0, delay=0.1, **poolargs):
+        self._ix = ix
         self.mergelock = ix.lock("mergelock")
         self.storage = storage = ix.storage
         self.indexname = ix.indexname
-        self.id = Segment._make_id()
-        self.revs = list(ix._leaf_revisions())
+        self.id = id if id is not None else _make_id()
+        self.revs = list(ix._revisions())
         self.schema = ix._schema or merge_schemas([rev.schema for rev in self.revs])
         self.is_closed = False
         self.blocklimit = blocklimit
@@ -150,48 +152,47 @@ class SegmentWriter(IndexWriter):
                 poolclass = TempfilePool
         self.pool = poolclass(self.schema, procs=procs, **poolargs)
         
-        self.segments = []
+        self.segments = segments_from_revs(self.revs)
         self._doc_offsets = []
         docbase = 0
-        for rev in self.revs:
-            for seg in rev.segments:
-                self.segments.append(seg)
-                self._doc_offsets.append(docbase)
-                docbase += seg.doc_count_all()
+        for seg in self.segments:
+            self._doc_offsets.append(docbase)
+            docbase += seg.doc_count_all()
         
         # Filenames
         newsegment = self._getsegment()
-        dawgname = newsegment.dawg_filename
-        termsname = newsegment.termsindex_filename
-        postsname = newsegment.termposts_filename
-        vectname = newsegment.vectorindex_filename
-        vpostsname = newsegment.vectorposts_filename
-        storedname = newsegment.storedfields_filename
-        lengthsname = newsegment.fieldlengths_filename
+        self.dawgname = newsegment.dawg_filename
+        self.termsname = newsegment.termsindex_filename
+        self.postsname = newsegment.termposts_filename
+        self.vectname = newsegment.vectorindex_filename
+        self.vpostsname = newsegment.vectorposts_filename
+        self.storedname = newsegment.storedfields_filename
+        self.lengthsname = newsegment.fieldlengths_filename
         
         # Create files
-        self.lengthfile = storage.create_file(lengthsname)
-        self.storedfields = StoredFieldWriter(storage.create_file(storedname),
+        self.lengthfile = storage.create_file(self.lengthsname)
+        self.storedfields = StoredFieldWriter(storage.create_file(self.storedname),
                                               self.schema.stored_names())
         # Terms writer
         self.wordsets = {}
         self.dawg = None
         if any(field.spelling for field in self.schema):
-            self.dawgfile = storage.create_file(dawgname)
+            self.dawgfile = storage.create_file(self.dawgname)
             self.dawg = DawgBuilder(field_root=True)
-        ti = TermIndexWriter(storage.create_file(termsname))
-        pw = FilePostingWriter(storage.create_file(postsname), blocklimit=blocklimit)
+        ti = TermIndexWriter(storage.create_file(self.termsname))
+        pw = FilePostingWriter(storage.create_file(self.postsname),
+                               blocklimit=blocklimit)
         self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
         
         # Vectors
         self.vectorindex = self.vpostwriter = None
         if self.schema.has_vectored_fields():
             # Vector index
-            vf = storage.create_file(vectname)
+            vf = storage.create_file(self.vectname)
             self.vectorindex = TermVectorWriter(vf)
             
             # Vector posting file
-            vpf = storage.create_file(vpostsname)
+            vpf = storage.create_file(self.vpostsname)
             self.vpostwriter = FilePostingWriter(vpf, stringids=True)
     
     def _getsegment(self):
@@ -244,8 +245,9 @@ class SegmentWriter(IndexWriter):
 
     def delete_document(self, docnum, delete=True):
         self._check_state()
-        if docnum >= sum(seg.doccount for seg in self.segments):
-            raise IndexingError("No document ID %r in this index" % docnum)
+        maxdoc = sum(seg.doccount for seg in self.segments)
+        if docnum >= maxdoc:
+            raise IndexingError("No document ID %r in this index (%d)" % (docnum, maxdoc))
         segment, segdocnum = self._segment_and_docnum(docnum)
         segment.delete_document(segdocnum, delete=delete)
 
@@ -262,10 +264,7 @@ class SegmentWriter(IndexWriter):
 
     def reader(self, reuse=None):
         self._check_state()
-        from whoosh.filedb.fileindex import FileIndex
-        
-        return FileIndex._reader(self.storage, self.schema, self.segments,
-                                 reuse=reuse)
+        return self._ix._read_segments(self.schema, self.segments, reuse=reuse)
     
     def add_reader(self, reader):
         self._check_state()
@@ -437,9 +436,8 @@ class SegmentWriter(IndexWriter):
         
         self.vectorindex.add((docnum, fieldname), offset)
     
-    def _close_all(self):
+    def _close_all(self, delete=False):
         self.is_closed = True
-        
         self.termswriter.close()
         self.storedfields.close()
         if not self.lengthfile.is_closed:
@@ -448,6 +446,19 @@ class SegmentWriter(IndexWriter):
             self.vectorindex.close()
         if self.vpostwriter:
             self.vpostwriter.close()
+    
+    def _delete_files(self):
+        storage = self.storage
+        def rem(name):
+            if storage.file_exists(name):
+                storage.delete_file(name)
+        rem(self.dawgname)
+        rem(self.termsname)
+        rem(self.postsname)
+        rem(self.vectname)
+        rem(self.vpostsname)
+        rem(self.storedname)
+        rem(self.lengthsname)
     
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
@@ -478,7 +489,7 @@ class SegmentWriter(IndexWriter):
         """
         
         self._check_state()
-        new_segments = []
+        segments = self.segments
         if merge:
             # Try to acquire the merge lock
             to, delay = self.timeout, self.delay
@@ -493,13 +504,13 @@ class SegmentWriter(IndexWriter):
                         mergetype = MERGE_SMALL
                     
                     # Check that the segments we started with still exist
-                    segments = [seg for seg in self.segments
+                    segments = [seg for seg in segments
                                 if seg.exists_in(self.storage)]
                     # Remember the IDs of the pre-merged segments
                     orig_ids = set(seg.id for seg in segments)
                     # Call the merge policy function. The policy may choose to
                     # merge other segments into this writer's pool
-                    new_segments = mergetype(self, self.segments)
+                    new_segments = mergetype(self, segments)
                     # Find which segments got merged
                     merged_ids = orig_ids - set(seg.id for seg in new_segments)
                     
@@ -508,7 +519,8 @@ class SegmentWriter(IndexWriter):
                         rev.delete_files(self.storage)
                     for seg in segments:
                         if seg.id in merged_ids:
-                            seg.delete_files()
+                            seg.delete_files(self.storage)
+                    segments = new_segments
                 finally:
                     self.mergelock.release()
         
@@ -528,22 +540,22 @@ class SegmentWriter(IndexWriter):
             # Create a Segment object for the segment created by this
             # writer and add it to the list of new segments
             thissegment = self._getsegment()
-            new_segments.append(thissegment)
+            segments.append(thissegment)
             
             # Close all files
             self._close_all()
-            
-            # Write the new revision
-            parentids = [rev.id for rev in self.revs]
-            Revision.create(self.storage, self.indexname, self.schema,
-                            parentids, new_segments)
         else:
             self.pool.cleanup()
+        
+        # Write new revision
+        return Revision.create(self.storage, self.indexname, self.id,
+                               self.schema, segments)
         
     def cancel(self):
         self._check_state()
         self.pool.cancel()
         self._close_all()
+        self._delete_files()
 
 
 class TermsWriter(object):
