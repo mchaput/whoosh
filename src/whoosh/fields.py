@@ -143,6 +143,15 @@ class FieldType(object):
                     (self.stored == other.stored),
                     (self.unique == other.unique)))
     
+    def __setstate__(self, state):
+        # Fix old fields pickled back when the analyzer was on the format
+        analyzer = state.get("analyzer")
+        format = state.get("format")
+        if analyzer is None and format is not None and hasattr(format, "analyzer"):
+            state["analyzer"] = format.analyzer
+            del format.analyzer
+        self.__dict__.update(state)
+    
     def on_add(self, schema, fieldname):
         pass
     
@@ -202,7 +211,7 @@ class FieldType(object):
         """
         
         if not self.format:
-            raise Exception("%s field cannot index without a format" % self.__class__)
+            raise Exception("%s field %r cannot index without a format" % (self.__class__.__name__, self))
         if not isinstance(value, (text_type, list, tuple)):
             raise ValueError("%r is not unicode or sequence" % value)
         assert isinstance(self.format, formats.Format), type(self.format)
