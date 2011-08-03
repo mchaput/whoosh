@@ -139,8 +139,8 @@ class WeightScorer(BaseScorer):
 
 
 class WeightLengthScorer(BaseScorer):
-    """Base class for scorers where the only per-document variables are weight
-    and length.
+    """Base class for scorers where the only per-document variables are term
+    weight and field length.
     
     Subclasses should follow this pattern:
     

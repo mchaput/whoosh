@@ -51,12 +51,12 @@ def test_searching():
             assert_equal([d["id"] for d in r], result)
         
         _runq(query.Term("text", u("format")), ["format", "vector"])
-        _runq(query.Term("text", u("the")), ["fieldtype", "format", "vector", "const", "stored"])
+        _runq(query.Term("text", u("the")), ["fieldtype", "format", "const", "vector", "stored"])
         _runq(query.Prefix("text", u("st")), ["format", "vector", "stored"])
         _runq(query.Wildcard("id", u("*st*")), ["stored", "const"])
         _runq(query.TermRange("id", u("c"), u("s")), ["fieldtype", "format", "const"])
         _runq(query.NumericRange("subs", 10, 100), ["fieldtype", "format", "vector", "scorable"])
-        _runq(query.Phrase("text", ["this", "field"]), ["scorable", "stored", "unique"], limit=None)
+        _runq(query.Phrase("text", ["this", "field"]), ["scorable", "unique", "stored"], limit=None)
         _runq(query.Every(), ["fieldtype", "format", "vector", "scorable", "stored", "unique", "const"])
         _runq(query.Every("subs"), ["fieldtype", "format", "vector", "scorable", "stored", "unique", "const"])
 
@@ -262,9 +262,28 @@ def test_missing_term_docfreq():
     assert_raises(TermNotFound, ix.doc_frequency, "content", "foo")
     assert_equal(ix.doc_frequency("id", "foo"), 0)
 
+def test_missing_postings():
+    schema = fields.Schema(id=fields.ID)
+    ix = RamIndex(schema)
+    ix.add_document(id=u("one"))
+    assert_raises(TermNotFound, ix.postings, "content", "foo")
+    assert_raises(TermNotFound, ix.postings, "id", "foo")
 
-
-
+def test_block_info():
+    schema = fields.Schema(key=fields.KEYWORD)
+    ix = RamIndex(schema)
+    ix.add_document(key=u("alfa bravo charlie"))
+    ix.add_document(key=u("bravo delta"))
+    ix.add_document(key=u("charlie delta echo foxtrot"))
+    ix.add_document(key=u("delta echo foxtrot golf hotel india"))
+    ix.add_document(key=u("echo foxtrot golf hotel india juliet alfa bravo"))
+    s = ix.searcher()
+    p = s.postings("key", "bravo")
+    assert p.supports_block_quality()
+    assert_equal(p.block_min_length(), 2)
+    assert_equal(p.block_max_length(), 8)
+    assert_equal(p.block_max_wol(), 0.5)
+    
 
 
 

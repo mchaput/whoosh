@@ -352,7 +352,8 @@ class ListMatcher(Matcher):
     """
     
     def __init__(self, ids, weights=None, values=None, format=None,
-                 scorer=None, position=0, all_weights=None, term=None):
+                 scorer=None, position=0, all_weights=None, term=None,
+                 terminfo=None):
         """
         :param ids: a list of doc IDs.
         :param weights: a list of weights corresponding to the list of IDs.
@@ -375,6 +376,7 @@ class ListMatcher(Matcher):
         self._format = format
         self._scorer = scorer
         self._term = term
+        self._terminfo = terminfo
     
     def __repr__(self):
         return "<%s>" % self.__class__.__name__
@@ -453,21 +455,23 @@ class ListMatcher(Matcher):
             return 1.0
     
     def block_min_length(self):
-        return self._minlength
+        return self._terminfo.min_length()
     
     def block_max_length(self):
-        return self._maxlength
+        return self._terminfo.max_length()
     
     def block_max_weight(self):
         if self._all_weights:
             return self._all_weights
         elif self._weights:
             return max(self._weights)
+        elif self._terminfo is not None:
+            return self._terminfo.max_weight()
         else:
             return 1.0
     
     def block_max_wol(self):
-        return self.block_max_weight() / self.block_min_length()
+        return self._terminfo.max_wol()
     
     def score(self):
         if self._scorer:

@@ -189,18 +189,21 @@ class RamIndex(IndexReader, IndexWriter):
     def postings(self, fieldname, text, scorer=None):
         self._test_field(fieldname)
         try:
-            postings = self.invindex[fieldname][text]
+            terminfo = self.term_info(fieldname, text)
         except KeyError:
             raise TermNotFound((fieldname, text))
         
-        excludeset = self.deleted
         format = self.schema[fieldname].format
+        postings = self.invindex[fieldname][text]
+        excludeset = self.deleted
         if excludeset:
             postings = [x for x in postings if x[0] not in excludeset]
             if not postings:
                 return NullMatcher()
         ids, weights, values = zip_(*postings)
-        return ListMatcher(ids, weights, values, format=format)
+        lm = ListMatcher(ids, weights, values, format=format, scorer=scorer,
+                         term=(fieldname, text), terminfo=terminfo)
+        return lm
     
     def reader(self):
         return self
@@ -258,9 +261,11 @@ class RamIndex(IndexReader, IndexWriter):
                     # Count of UNIQUE terms in the value
                     unique = 0
                     
+                    words = []
                     for w, freq, weight, valuestring in field.index(value):
                         weight *= fieldboost
                         
+                        words.append((w, weight))
                         if w not in fielddict:
                             fielddict[w] = []
                         fielddict[w].append((self.docnum, weight, valuestring))
@@ -270,10 +275,17 @@ class RamIndex(IndexReader, IndexWriter):
                         
                         usage += 44 + len(valuestring)
                         
+                        # Record max weight and max wol
                         # min_length, max_length, max_weight, max_wol
                         wol = weight / count
-                        if (name, w) in termstats:
-                            ts = termstats[name, w]
+                    
+                    for w, weight in words:
+                        ts = termstats.get((name, w))
+                        # Record term stats for each term in this document
+                        wol = weight / count
+                        if ts is None:
+                            termstats[name, w] = [count, count, weight, wol]
+                        else:
                             if count < ts[0]:
                                 ts[0] = count
                             if count > ts[1]:
@@ -282,8 +294,6 @@ class RamIndex(IndexReader, IndexWriter):
                                 ts[2] = weight
                             if wol > ts[3]:
                                 ts[3] = wol
-                        else:
-                            termstats[name, w] = [count, count, weight, wol]
                     
                     if field.scorable:
                         fieldlengths[self.docnum, name] = count

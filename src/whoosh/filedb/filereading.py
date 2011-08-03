@@ -282,7 +282,8 @@ class SegmentReader(IndexReader):
         else:
             docids, weights, values = postings
             postreader = ListMatcher(docids, weights, values, format,
-                                     scorer=scorer, term=(fieldname, text))
+                                     scorer=scorer, term=(fieldname, text),
+                                     terminfo=terminfo)
         
         deleted = self.segment.deleted
         if deleted:

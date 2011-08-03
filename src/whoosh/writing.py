@@ -47,11 +47,16 @@ class IndexWriter(object):
     To get a writer for a particular index, call
     :meth:`~whoosh.index.Index.writer` on the Index object.
     
-    >>> writer = my_index.writer()
+    >>> writer = myindex.writer()
     
     You can use this object as a context manager. If an exception is thrown
-    from within the context it calls cancel(), otherwise it calls commit() when
-    the context exits.
+    from within the context it calls :meth:`~IndexWriter.cancel` to clean up
+    temporary files, otherwise it calls :meth:`~IndexWriter.commit` when the
+    context exits.
+    
+    >>> with myindex.writer() as w:
+    ...     w.add_document(title="First document", content="Hello there.")
+    ...     w.add_document(title="Second document", content="This is easy!")
     """
     
     def __enter__(self):
