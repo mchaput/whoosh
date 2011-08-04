@@ -179,6 +179,8 @@ def test_wordfile():
     else:
         return
     
+    if not os.path.exists(path):
+        return
     wordfile = gzip.open(path, "r")
     cor = spelling.GraphCorrector.from_word_list(word.decode("latin-1")
                                                  for word in wordfile)
