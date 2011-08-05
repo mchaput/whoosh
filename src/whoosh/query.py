@@ -757,7 +757,8 @@ class CompoundQuery(Query):
             if len(nots) == 1:
                 notm = nots[0].matcher(searcher)
             else:
-                notms = [(q.estimate_size(), q.matcher(searcher))
+                r = searcher.reader()
+                notms = [(q.estimate_size(r), q.matcher(searcher))
                          for q in nots]
                 notm = make_weighted_tree(UnionMatcher, notms)
             
