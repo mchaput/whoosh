@@ -229,6 +229,10 @@ def test_frowny_face():
     tokens = [t.text for t in ana(u(":-("))]
     assert_equal(tokens, [])
     
+    # text has consecutive delimiters
+    tokens = [t.text for t in ana(u("LOL:)"))]
+    assert_equal(tokens, ["LOL"])
+    
 
 
 
