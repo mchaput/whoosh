@@ -1154,7 +1154,7 @@ class IntraWordFilter(Filter):
         self.between = re.compile(u("[^%s]+") % (self.delims,), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
         dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase, self.delims)
-        self.posessive = re.compile(dispat, re.UNICODE)
+        self.possessive = re.compile(dispat, re.UNICODE)
         
         # Expression for finding case and letter-number transitions
         lower2upper = u("[%s][%s]") % (lowercase, uppercase)
@@ -1187,13 +1187,13 @@ class IntraWordFilter(Filter):
         # num -> letter, etc.)
         splitting = self.splitting
         
-        # Make a list (dispos, for "disposessed") of (startchar, endchar) pairs
+        # Make a list (dispos, for "dispossessed") of (startchar, endchar) pairs
         # for runs of text between "'s"
         if "'" in string:
-            # Split on posessive 's
+            # Split on possessive 's
             dispos = []
             prev = 0
-            for match in self.posessive.finditer(string):
+            for match in self.possessive.finditer(string):
                 dispos.append((prev, match.start()))
                 prev = match.end()
             if prev < len(string):
