@@ -97,7 +97,7 @@ def test_intraword_chars():
     assert_equal(tokens, [("zo", 0, 2), ("wi", 3, 5), ("ki", 5, 7),
                           ("wo", 7, 9), ("rd", 10, 12), ("wikiword", 3, 12)])
 
-def test_intraword_posessive():
+def test_intraword_possessive():
     iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
     ana = analysis.RegexTokenizer(r"\S+") | iwf | analysis.LowercaseFilter()
     
