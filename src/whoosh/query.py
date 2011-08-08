@@ -319,9 +319,19 @@ class Query(object):
                 if phrases or not isinstance(q, Phrase):
                     termset.update(q.terms())
         return termset
+    
+    def _existing_terms_helper(self, ixreader, termset, reverse):
+        if termset is None:
+            termset = set()
+        if reverse:
+            test = lambda t: t not in ixreader
+        else:
+            test = lambda t: t in ixreader
         
+        return termset, test
+    
     def existing_terms(self, ixreader, termset=None, reverse=False,
-                       phrases=True):
+                       phrases=True, expand=False):
         """Returns a set of all terms in this query tree that exist in the
         given ixreaderder.
         
@@ -333,17 +343,24 @@ class Query(object):
         :param reverse: If True, this method adds *missing* terms rather than
             *existing* terms to the set.
         :param phrases: Whether to add words found in Phrase queries.
+        :param expand: If True, queries that match multiple terms
+            (such as :class:`Wildcard` and :class:`Prefix`) will return all
+            matching expansions.
         :rtype: set
         """
-
-        if termset is None:
-            termset = set()
-        if reverse:
-            test = lambda t: t not in ixreader
-        else:
-            test = lambda t: t in ixreader
         
-        termset.update(t for t in self.all_terms(phrases=phrases) if test(t))
+        # By default, this method calls all_terms() and then filters based on
+        # the contents of the reader. Subclasses that need to use the reader to
+        # generate the terms (i.e. MultiTerm) need to override this
+        # implementation
+        
+        termset, test = self._existing_terms_helper(ixreader, termset, reverse)
+        if self.is_leaf():
+            gen = self.all_terms(phrases=phrases)
+            termset.update(t for t in gen if test(t))
+        else:
+            for q in self.children():
+                q.existing_terms(ixreader, termset, reverse, phrases, expand)
         return termset
 
     def leaves(self):
@@ -800,6 +817,22 @@ class MultiTerm(Query):
     def estimate_min_size(self, ixreader):
         return min(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._words(ixreader))
+
+    def existing_terms(self, ixreader, termset=None, reverse=False,
+                       phrases=True, expand=False):
+        termset, test = self._existing_terms_helper(ixreader, termset, reverse)
+        
+        if not expand:
+            return termset
+        fieldname = self.field()
+        if fieldname is None:
+            return termset
+        
+        for word in self._words(ixreader):
+            term = (fieldname, word)
+            if test(term):
+                termset.add(term)
+        return termset
 
     def matcher(self, searcher):
         fieldname = self.fieldname

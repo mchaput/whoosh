@@ -831,7 +831,7 @@ class Highlighter(object):
         if results.has_matched_terms() is None:
             terms = hitobj.matched_terms()
         else:
-            terms = results.query_terms()
+            terms = results.query_terms(expand=True)
         # Get the words searched for in the field
         words = set(termtext for fname, termtext in terms if fname == fieldname)
         if not words:

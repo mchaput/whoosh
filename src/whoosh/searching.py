@@ -1393,8 +1393,8 @@ class Results(object):
         """
         return self.top_n[n][1]
 
-    def query_terms(self):
-        return self.q.existing_terms(self.searcher.reader())
+    def query_terms(self, expand=False):
+        return self.q.existing_terms(self.searcher.reader(), expand=expand)
 
     def has_matched_terms(self):
         """Returns True if the search recorded which terms matched in which
@@ -1663,8 +1663,8 @@ class Hit(object):
         :param top: the maximum number of fragments to return.
         """
         
-        hhit = self.results.highlighter.highlight_hit
-        return hhit(self, fieldname, text=text, top=top)
+        hliter = self.results.highlighter
+        return hliter.highlight_hit(self, fieldname, text=text, top=top)
     
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):
