@@ -350,7 +350,7 @@ _length_byte_cache = array('i', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14,
 def length_to_byte(length):
     if length is None:
         return 0
-    if length >= 108116:
+    if length >= 106374:
         return 255
     else:
         return bisect_left(_length_byte_cache, length)
