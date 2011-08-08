@@ -1205,7 +1205,9 @@ class IntraWordFilter(Filter):
         # For each run between 's
         for sc, ec in dispos:
             # Split on boundary characters
+            found = False
             for part_match in self.between.finditer(string, sc, ec):
+                found = True
                 part_start = part_match.start()
                 part_end = part_match.end()
                 
@@ -1227,7 +1229,7 @@ class IntraWordFilter(Filter):
                 else:
                     # Not splitting on transitions, just yield the part
                     yield (part_start, part_end)
-    
+            
     def _merge(self, parts):
         mergewords = self.mergewords
         mergenums = self.mergenums
@@ -1333,8 +1335,9 @@ class IntraWordFilter(Filter):
                         t.endchar = base + endchar
                     yield t
                 
-                # Set the new position counter based on the last part
-                newpos = parts[-1][1] + 1
+                if parts:
+                    # Set the new position counter based on the last part
+                    newpos = parts[-1][1] + 1
 
 
 class BiWordFilter(Filter):

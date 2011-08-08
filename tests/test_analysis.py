@@ -222,7 +222,13 @@ def test_start_pos():
     assert_equal(" ".join([t.text for t in ts]), "A B C D")
     assert_equal([t.pos for t in ts], [3, 4, 5, 6])
 
-
+def test_frowny_face():
+    # See https://bitbucket.org/mchaput/whoosh/issue/166/
+    ana = analysis.RegexTokenizer(r"\S+") | analysis.IntraWordFilter()
+    # text is all delimiters
+    tokens = [t.text for t in ana(u(":-("))]
+    assert_equal(tokens, [])
+    
 
 
 
