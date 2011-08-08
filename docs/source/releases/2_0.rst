@@ -2,6 +2,13 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.1
+==========
+
+This release fixes several bugs, and contains speed improvments to highlighting.
+See :doc:`/highlight` for more information.
+
+
 Whoosh 2.0
 ==========
 
