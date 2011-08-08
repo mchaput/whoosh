@@ -188,5 +188,22 @@ def test_pinpoint():
         hi.fragmenter.autotrim = True
         assert_equal(hi.highlight_hit(hit, "text"), "golf hotel india JULIET kilo lima mike")
 
+def test_highlight_wildcards():
+    schema = fields.Schema(text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie delta cookie echo"))
+    
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("text", ix.schema)
+        q = qp.parse(u("c*"))
+        r = s.search(q)
+        assert_equal(r.scored_length(), 1)
+        r.formatter = highlight.UppercaseFormatter()
+        hit = r[0]
+        assert_equal(hit.highlights("text"), "alfa bravo CHARLIE delta COOKIE echo")
+
+
+
 
 

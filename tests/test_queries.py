@@ -4,7 +4,7 @@ from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 import copy
 
-from whoosh import fields
+from whoosh import fields, query
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
@@ -24,8 +24,7 @@ def test_all_terms():
 
 def test_existing_terms():
     s = fields.Schema(key=fields.ID, value=fields.TEXT)
-    st = RamStorage()
-    ix = st.create_index(s)
+    ix = RamStorage().create_index(s)
     
     w = ix.writer()
     w.add_document(key=u("a"), value=u("alfa bravo charlie delta echo"))
@@ -36,7 +35,6 @@ def test_existing_terms():
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
     
     ts = q.existing_terms(r, phrases=False)
-    print("ts=", sorted(ts))
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
     
     ts = q.existing_terms(r)
@@ -46,6 +44,42 @@ def test_existing_terms():
     q.existing_terms(r, ts, reverse=True)
     assert_equal(sorted(ts), [("value", "sierra"), ("value", "tango")])
 
+def test_wildcard_existing_terms():
+    s = fields.Schema(key=fields.ID, value=fields.TEXT)
+    ix = RamStorage().create_index(s)
+    
+    w = ix.writer()
+    w.add_document(key=u("a"), value=u("alfa bravo bear charlie delta"))
+    w.add_document(key=u("a"), value=u("boggle echo render rendering renders"))
+    w.commit()
+    r = ix.reader()
+    qp = QueryParser("value", ix.schema)
+    
+    def words(terms):
+        z = []
+        for t in terms:
+            assert t[0] == "value"
+            z.append(t[1])
+        return " ".join(sorted(z))
+    
+    q = qp.parse(u("b*"))
+    ts = q.existing_terms(r)
+    assert_equal(ts, set())
+    ts = q.existing_terms(r, expand=True)
+    assert_equal(words(ts), "bear boggle bravo")
+    
+    q = qp.parse(u("[a TO f]"))
+    ts = q.existing_terms(r)
+    assert_equal(ts, set())
+    ts = q.existing_terms(r, expand=True)
+    assert_equal(words(ts), "alfa bear boggle bravo charlie delta echo")
+    
+    q = query.Variations("value", "render")
+    ts = q.existing_terms(r, expand=False)
+    assert_equal(ts, set())
+    ts = q.existing_terms(r, expand=True)
+    assert_equal(words(ts), "render rendering renders")
+    
 def test_replace():
     q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2), Variations("a", "b", boost=2.0)])
     q = q.replace("a", "b", "BB")
