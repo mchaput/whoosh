@@ -382,7 +382,8 @@ class SpellChecker(object):
     def _schema(self):
         # Creates a schema given this object's mingram and maxgram attributes.
 
-        from whoosh.fields import Schema, FieldType, Frequency, ID, STORED
+        from whoosh.fields import Schema, FieldType, ID, STORED
+        from whoosh.formats import Frequency
         from whoosh.analysis import SimpleAnalyzer
 
         idtype = ID()
