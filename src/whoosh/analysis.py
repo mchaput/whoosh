@@ -647,6 +647,8 @@ class MultiFilter(Filter):
     of the token stream.
     """
     
+    default_filter = PassFilter()
+    
     def __init__(self, **kwargs):
         """Use keyword arguments to associate mode attribute values with
         instantiated filters.
@@ -668,7 +670,7 @@ class MultiFilter(Filter):
     def __call__(self, tokens):
         # Only selects on the first token
         t = next(tokens)
-        filter = self.filters[t.mode]
+        filter = self.filters.get(t.mode, self.default_filter)
         return filter(chain([t], tokens))
         
 
@@ -1205,9 +1207,7 @@ class IntraWordFilter(Filter):
         # For each run between 's
         for sc, ec in dispos:
             # Split on boundary characters
-            found = False
             for part_match in self.between.finditer(string, sc, ec):
-                found = True
                 part_start = part_match.start()
                 part_end = part_match.end()
                 
@@ -1339,6 +1339,72 @@ class IntraWordFilter(Filter):
                     # Set the new position counter based on the last part
                     newpos = parts[-1][1] + 1
 
+
+class CompoundWordFilter(Filter):
+    """Given a set of words (or any object with a ``__contains__`` method),
+    break any tokens in the stream that are composites of words in the word set
+    into their individual parts.
+    
+    Given the correct set of words, this filter can break apart run-together
+    words and trademarks (e.g. "turbosquid", "applescript"). It can also be
+    useful for agglutinative languages such as German.
+    
+    The ``keep_compound`` argument lets you decide whether to keep the
+    compound word in the token stream along with the word segments.
+    
+    >>> cwf = CompoundWordFilter(wordset, keep_compound=True)
+    >>> analyzer = RegexTokenizer(r"\S+") | cwf
+    >>> [t.text for t in analyzer("I do not like greeneggs and ham")
+    ["I", "do", "not", "like", "greeneggs", "green", "eggs", "and", "ham"]
+    >>> cwf.keep_compound = False
+    >>> [t.text for t in analyzer("I do not like greeneggs and ham")
+    ["I", "do", "not", "like", "green", "eggs", "and", "ham"]
+    """
+    
+    def __init__(self, wordset, keep_compound=True):
+        """
+        :param wordset: an object with a ``__contains__`` method, such as a
+            set, containing strings to look for inside the tokens.
+        :param keep_compound: if True (the default), the original compound
+            token will be retained in the stream before the subwords.
+        """
+        
+        self.wordset = wordset
+        self.keep_compound = keep_compound
+    
+    def subwords(self, s, memo):
+        if s in self.wordset:
+            return [s]
+        if s in memo:
+            return memo[s]
+        
+        for i in xrange(1, len(s)):
+            prefix = s[:i]
+            if prefix in self.wordset:
+                suffix = s[i:]
+                suffix_subs = self.subwords(suffix, memo)
+                if suffix_subs:
+                    result = [prefix] + suffix_subs
+                    memo[s] = result
+                    return result 
+        
+        return None
+    
+    def __call__(self, tokens):
+        keep_compound = self.keep_compound
+        memo = {}
+        subwords = self.subwords
+        for t in tokens:
+            subs = subwords(t.text, memo)
+            if subs:
+                if len(subs) > 1 and keep_compound:
+                    yield t
+                for subword in subs:
+                    t.text = subword
+                    yield t
+            else:
+                yield t
+        
 
 class BiWordFilter(Filter):
     """Merges adjacent tokens into "bi-word" tokens, so that for example::
