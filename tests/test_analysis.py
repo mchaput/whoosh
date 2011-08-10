@@ -106,6 +106,26 @@ def test_intraword_possessive():
     assert_equal(tokens, [("o", 0, 1), ("malley", 2, 8), ("bar", 11, 14),
                           ("omalleybar", 0, 14)])
 
+def test_word_segments():
+    wordset = set(u("alfa bravo charlie delta").split())
+    
+    cwf = analysis.CompoundWordFilter(wordset, keep_compound=True)
+    ana = analysis.RegexTokenizer(r"\S+") | cwf
+    target = u("alfacharlie bravodelta delto bravo subalfa")
+    tokens = [t.text for t in ana(target)]
+    assert_equal(tokens, ["alfacharlie", "alfa", "charlie", "bravodelta",
+                          "bravo", "delta", "delto", "bravo", "subalfa"])
+    
+    cwf = analysis.CompoundWordFilter(wordset, keep_compound=False)
+    ana = analysis.RegexTokenizer(r"\S+") | cwf
+    target = u("alfacharlie bravodelta delto bravo subalfa")
+    tokens = [t.text for t in ana(target)]
+    assert_equal(tokens, ["alfa", "charlie", "bravo", "delta", "delto", "bravo", "subalfa"])
+    
+    #target = u("alfacharlie bravodelta")
+    #tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
+    #assert_equal(tokens, [("alfa", 0, 4), ("charlie", 4, 11), ("bravo", 12, 17), ("delta", 17, 22)])
+
 def test_biword():
     ana = analysis.RegexTokenizer(r"\w+") | analysis.BiWordFilter()
     result = [t.copy() for t

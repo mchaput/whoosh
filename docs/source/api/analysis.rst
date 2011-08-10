@@ -44,6 +44,7 @@ Filters
 .. autoclass:: CharsetFilter
 .. autoclass:: NgramFilter
 .. autoclass:: IntraWordFilter
+.. autoclass:: CompoundWordFilter
 .. autoclass:: BiWordFilter
 .. autoclass:: ShingleFilter
 .. autoclass:: DelimitedAttributeFilter
