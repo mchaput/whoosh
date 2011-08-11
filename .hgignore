@@ -17,3 +17,6 @@ benchmark/reuters_index*
 benchmark/dictionary_index*
 benchmark/enron_cache.pickle
 benchmark/enron_mail_082109.tar.gz
+
+syntax: regexp
+^tmp$
