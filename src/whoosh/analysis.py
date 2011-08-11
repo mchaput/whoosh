@@ -674,6 +674,56 @@ class MultiFilter(Filter):
         return filter(chain([t], tokens))
         
 
+class TeeFilter(Filter):
+    """Interleaves the results of two or more filters (or filter chains).
+    
+    >>> target = "ALFA BRAVO CHARLIE"
+    >>> # In one branch, we'll lower-case the tokens
+    >>> f1 = LowercaseFilter()
+    >>> # In the other branch, we'll reverse the tokens
+    >>> f2 = ReverseTextFilter()
+    >>> ana = RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2)
+    >>> [token.text for token in ana(target)]
+    ["alfa", "AFLA", "bravo", "OVARB", "charlie", "EILRAHC"]
+    
+    To combine the incoming token stream with the output of a filter chain, use
+    ``TeeFilter`` and make one of the filters a :class:`PassFilter`.
+    
+    >>> f1 = PassFilter()
+    >>> f2 = BiWordFilter()
+    >>> ana = RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2) | LowercaseFilter()
+    >>> [token.text for token in ana(target)]
+    ["alfa", "alfa-bravo", "bravo", "bravo-charlie", "charlie"]
+    """
+    
+    def __init__(self, *filters):
+        if len(filters) < 2:
+            raise Exception("TeeFilter requires two or more filters")
+        self.filters = filters
+    
+    def __eq__(self, other):
+        return self.__class__ is other.__class__ and self.filters == other.fitlers
+    
+    def __call__(self, tokens):
+        from itertools import tee
+        
+        count = len(self.filters)
+        # Tee the token iterator and wrap each teed iterator with the
+        # corresponding filter
+        gens = [filter(t.copy() for t in gen) for filter, gen
+                in zip(self.filters, tee(tokens, count))]
+        # Keep a count of the number of running iterators
+        running = count
+        while running:
+            for i, gen in enumerate(gens):
+                if gen is not None:
+                    try:
+                        yield next(gen)
+                    except StopIteration:
+                        gens[i] = None
+                        running -= 1
+
+
 class ReverseTextFilter(Filter):
     """Reverses the text of each token.
     
@@ -1950,6 +2000,11 @@ def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
     if not tokenizer:
         tokenizer = RegexTokenizer()
     return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
+
+
+
+
+
 
 
 
