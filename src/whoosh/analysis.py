@@ -38,14 +38,14 @@ classes/functions involved in analysis:
       
   Every tokenizer is a callable that takes a string and returns an iterator of
   tokens.
-      
+
 * Filters take the tokens from the tokenizer and perform various
   transformations on them. For example, the LowercaseFilter converts all tokens
   to lowercase, which is usually necessary when indexing regular English text.
       
   Every filter is a callable that takes a token generator and returns a token
   generator.
-      
+
 * Analyzers are convenience functions/classes that "package up" a tokenizer and
   zero or more filters into a single unit. For example, the StandardAnalyzer
   combines a RegexTokenizer, LowercaseFilter, and StopFilter.
@@ -53,11 +53,11 @@ classes/functions involved in analysis:
   Every analyzer is a callable that takes a string and returns a token
   iterator. (So Tokenizers can be used as Analyzers if you don't need any
   filtering).
-  
+
 You can compose tokenizers and filters together using the ``|`` character::
 
     my_analyzer = RegexTokenizer() | LowercaseFilter() | StopFilter()
-    
+
 The first item must be a tokenizer and the rest must be filters (you can't put
 a filter first or a tokenizer after the first item).
 """

@@ -177,6 +177,35 @@ class StructFile(object):
         """
         return decode_signed_varint(read_varint(self.file.read))
 
+    def write_tagint(self, i):
+        """Writes a sometimes-compressed unsigned integer to the wrapped file.
+        This is similar to the varint methods but uses a less compressed but
+        faster format.
+        """
+        
+        # Store numbers 0-253 in one byte. Byte 254 means "an unsigned 16-bit
+        # int follows." Byte 255 means "An unsigned 32-bit int follows."
+        if i <= 253:
+            self.file.write(chr(i))
+        elif i <= 65535:
+            self.file.write("\xFE" + pack_ushort(i))
+        else:
+            self.file.write("\xFF" + pack_uint(i))
+    
+    def read_tagint(self):
+        """Reads a sometimes-compressed unsigned integer from the wrapped file.
+        This is similar to the varint methods but uses a less compressed but
+        faster format.
+        """
+        
+        tb = ord(self.file.read(1))
+        if tb == 254:
+            return self.file.read_ushort()
+        elif tb == 255:
+            return self.file.read_uint()
+        else:
+            return tb
+
     def write_byte(self, n):
         """Writes a single byte to the wrapped file, shortcut for
         ``file.write(chr(n))``.

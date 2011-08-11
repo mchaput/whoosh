@@ -325,6 +325,8 @@ class SimpleQueryCorrector(QueryCorrector):
 
         return Correction(q, qstring, corrected_q, corrected_tokens)
 
+
+
 #
 #
 #
@@ -339,21 +341,6 @@ class SpellChecker(object):
                  booststart=2.0, boostend=1.0,
                  mingram=3, maxgram=4,
                  minscore=0.5):
-        """
-        :param storage: The storage object in which to create the
-            spell-checker's dictionary index.
-        :param indexname: The name to use for the spell-checker's dictionary
-            index. You only need to change this if you have multiple spelling
-            indexes in the same storage.
-        :param booststart: How much to boost matches of the first N-gram (the
-            beginning of the word).
-        :param boostend: How much to boost matches of the last N-gram (the end
-            of the word).
-        :param mingram: The minimum gram length to store.
-        :param maxgram: The maximum gram length to store.
-        :param minscore: The minimum score matches much achieve to be returned.
-        """
-
         self.storage = storage
         self.indexname = indexname
 
@@ -366,10 +353,6 @@ class SpellChecker(object):
         self.minscore = minscore
 
     def index(self, create=False):
-        """Returns the backend index of this object (instantiating it if it
-        didn't already exist).
-        """
-
         from whoosh import index
         if create or not self._index:
             create = create or not index.exists(self.storage, indexname=self.indexname)
@@ -398,25 +381,6 @@ class SpellChecker(object):
         return Schema(**dict(fls))
 
     def suggestions_and_scores(self, text, weighting=None):
-        """Returns a list of possible alternative spellings of 'text', as
-        ('word', score, weight) triples, where 'word' is the suggested
-        word, 'score' is the score that was assigned to the word using
-        :meth:`SpellChecker.add_field` or :meth:`SpellChecker.add_scored_words`,
-        and 'weight' is the score the word received in the search for the
-        original word's ngrams.
-        
-        You must add words to the dictionary (using add_field, add_words,
-        and/or add_scored_words) before you can use this.
-        
-        This is a lower-level method, in case an expert user needs access to
-        the raw scores, for example to implement a custom suggestion ranking
-        algorithm. Most people will want to call :meth:`~SpellChecker.suggest`
-        instead, which simply returns the top N valued words.
-        
-        :param text: The word to check.
-        :rtype: list
-        """
-
         if weighting is None:
             weighting = scoring.TF_IDF()
 
@@ -450,16 +414,6 @@ class SpellChecker(object):
             s.close()
 
     def suggest(self, text, number=3, usescores=False):
-        """Returns a list of suggested alternative spellings of 'text'. You
-        must add words to the dictionary (using add_field, add_words, and/or
-        add_scored_words) before you can use this.
-        
-        :param text: The word to check.
-        :param number: The maximum number of suggestions to return.
-        :param usescores: Use the per-word score to influence the suggestions.
-        :rtype: list
-        """
-
         if usescores:
             def keyfn(a):
                 return 0 - (1 / distance(text, a[0])) * a[1]
@@ -473,18 +427,6 @@ class SpellChecker(object):
                 if weight >= self.minscore]
 
     def add_field(self, ix, fieldname):
-        """Adds the terms in a field from another index to the backend
-        dictionary. This method calls add_scored_words() and uses each term's
-        frequency as the score. As a result, more common words will be
-        suggested before rare words. If you want to calculate the scores
-        differently, use add_scored_words() directly.
-        
-        :param ix: The index.Index object from which to add terms.
-        :param fieldname: The field name (or number) of a field in the source
-            index. All the indexed terms from this field will be added to the
-            dictionary.
-        """
-
         r = ix.reader()
         try:
             self.add_scored_words((w, terminfo.weight())
@@ -493,22 +435,9 @@ class SpellChecker(object):
             r.close()
 
     def add_words(self, ws, score=1):
-        """Adds a list of words to the backend dictionary.
-        
-        :param ws: A sequence of words (strings) to add to the dictionary.
-        :param score: An optional score to use for ALL the words in 'ws'.
-        """
         self.add_scored_words((w, score) for w in ws)
 
     def add_scored_words(self, ws):
-        """Adds a list of ("word", score) tuples to the backend dictionary.
-        Associating words with a score lets you use the 'usescores' keyword
-        argument of the suggest() method to order the suggestions using the
-        scores.
-        
-        :param ws: A sequence of ("word", score) tuples.
-        """
-
         writer = self.index().writer()
         for text, score in ws:
             fields = {"word": text, "score": score}
