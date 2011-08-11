@@ -115,7 +115,7 @@ class BaseScorer(object):
         """
         
         raise NotImplementedError(self.__class__.__name__)
-
+    
 
 # WeightScorer
 
