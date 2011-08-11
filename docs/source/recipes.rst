@@ -12,6 +12,42 @@ Get the stored fields for a document from the document number
     stored_fields = searcher.stored_fields(docnum)
 
 
+Analysis
+========
+
+Eliminate words shorter/longer than N
+-------------------------------------
+
+Use a :class:`~whoosh.analysis.StopFilter` and the ``minsize`` and ``maxsize``
+keyword arguments. If you just want to filter based on size and not common
+words, set the ``stoplist`` to None::
+
+    sf = analysis.StopFilter(stoplist=None, minsize=2, maxsize=40)
+
+
+Allow optional case-sensitive searches
+--------------------------------------
+
+A quick and easy way to do this is to index both the original and lowercased
+versions of each word. If the user searches for an all-lowercase word, it acts
+as a case-insensitive search, but if they search for a word with any uppercase
+characters, it acts as a case-sensitive search::
+
+    class CaseSensitivizer(analysis.Filter):
+        def __call__(self, tokens):
+            for t in tokens:
+                yield t
+                if t.mode == "index":
+                   low = t.text.lower()
+                   if low != t.text:
+                       t.text = low
+                       yield t
+    
+    ana = analysis.RegexTokenizer() | CaseSensitivizer()
+    [t.text for t in ana("The new SuperTurbo 5000", mode="index")]
+    # ["The", "the", "new", "SuperTurbo", "superturbo", "5000"]
+    
+
 Searching
 =========
 
