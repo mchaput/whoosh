@@ -69,6 +69,31 @@ def test_multifilter():
     assert_equal([t.text for t in ana(text, mode="a")], ["alfa", "bravo", "charlie"])
     assert_equal([t.text for t in ana(text, mode="b")], ["ALFA", "BRAVO", "CHARLIE"])
 
+def test_tee_filter():
+    target = u("Alfa Bravo Charlie")
+    f1 = analysis.LowercaseFilter()
+    f2 = analysis.ReverseTextFilter()
+    ana = analysis.RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2)
+    result = " ".join([t.text for t in ana(target)])
+    assert_equal(result, "alfa aflA bravo ovarB charlie eilrahC")
+    
+    class ucfilter(analysis.Filter):
+        def __call__(self, tokens):
+            for t in tokens:
+                t.text = t.text.upper()
+                yield t
+    
+    f2 = analysis.ReverseTextFilter() | ucfilter()
+    ana = analysis.RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2)
+    result = " ".join([t.text for t in ana(target)])
+    assert_equal(result, "alfa AFLA bravo OVARB charlie EILRAHC")
+    
+    f1 = analysis.PassFilter()
+    f2 = analysis.BiWordFilter()
+    ana = analysis.RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2) | analysis.LowercaseFilter()
+    result = " ".join([t.text for t in ana(target)])
+    assert_equal(result, "alfa alfa-bravo bravo bravo-charlie charlie")
+
 def test_intraword():
     iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
     ana = analysis.RegexTokenizer(r"\S+") | iwf
