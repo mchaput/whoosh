@@ -1,13 +1,16 @@
 from __future__ import with_statement
+import copy
+from datetime import datetime, timedelta
 
 from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
-from datetime import datetime, timedelta
-
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
-from whoosh.compat import u, xrange, text_type, next
+from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
-from whoosh.query import *
+from whoosh.query import (And, AndNot, DisjunctionMax, Every, FuzzyTerm, Not,
+                          NumericRange, Or, Ordered, Otherwise, Phrase, Prefix,
+                          Require, Term, TermRange, Variations, Wildcard,
+                          WrappingQuery)
 from whoosh.util import permutations
 
 
