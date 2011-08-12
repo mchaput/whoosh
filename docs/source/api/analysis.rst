@@ -36,6 +36,7 @@ Filters
 .. autoclass:: PassFilter
 .. autoclass:: LoggingFilter
 .. autoclass:: MultiFilter
+.. autoclass:: TeeFilter
 .. autoclass:: ReverseTextFilter
 .. autoclass:: LowercaseFilter
 .. autoclass:: StripFilter
