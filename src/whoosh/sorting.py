@@ -684,7 +684,7 @@ class Facets(object):
         automatically used as the facet name).
         """
         
-        self.facets[fieldname] = FieldFacet(fieldname)
+        self.facets[fieldname] = FieldFacet(fieldname, allow_overlap=allow_overlap)
         return self
     
     def add_query(self, name, querydict, other=None, allow_overlap=False):
