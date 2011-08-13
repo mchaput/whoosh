@@ -677,12 +677,15 @@ class MultiFilter(Filter):
 class TeeFilter(Filter):
     """Interleaves the results of two or more filters (or filter chains).
     
+    NOTE: because it needs to create copies of each token for each sub-filter,
+    this filter is quite slow.
+    
     >>> target = "ALFA BRAVO CHARLIE"
     >>> # In one branch, we'll lower-case the tokens
     >>> f1 = LowercaseFilter()
     >>> # In the other branch, we'll reverse the tokens
     >>> f2 = ReverseTextFilter()
-    >>> ana = RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2)
+    >>> ana = RegexTokenizer(r"\S+") | TeeFilter(f1, f2)
     >>> [token.text for token in ana(target)]
     ["alfa", "AFLA", "bravo", "OVARB", "charlie", "EILRAHC"]
     
@@ -691,7 +694,7 @@ class TeeFilter(Filter):
     
     >>> f1 = PassFilter()
     >>> f2 = BiWordFilter()
-    >>> ana = RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2) | LowercaseFilter()
+    >>> ana = RegexTokenizer(r"\S+") | TeeFilter(f1, f2) | LowercaseFilter()
     >>> [token.text for token in ana(target)]
     ["alfa", "alfa-bravo", "bravo", "bravo-charlie", "charlie"]
     """
