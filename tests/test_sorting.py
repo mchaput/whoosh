@@ -451,6 +451,37 @@ def test_daterange_facet():
                                         (dt(2001, 1, 11, 0, 0), dt(2001, 1, 16, 0, 0)): [0],
                                         None: [2]})
 
+def test_relative_daterange():
+    from whoosh.support.relativedelta import relativedelta
+    dt = datetime
+    
+    schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
+    ix = RamStorage().create_index(schema)
+    basedate = datetime(2001, 1, 1)
+    count = 0
+    with ix.writer() as w:
+        while basedate < datetime(2001, 12, 1):
+            w.add_document(id=count, date=basedate)
+            basedate += timedelta(days=14, hours=16)
+            count += 1
+    
+    with ix.searcher() as s:
+        gap = relativedelta(months=1)
+        rf = sorting.DateRangeFacet("date", dt(2001, 1, 1), dt(2001, 12, 31), gap)
+        r = s.search(query.Every(), groupedby={"date": rf})
+        assert_equal(r.groups("date"), {(dt(2001, 1, 1), dt(2001, 2, 1)): [0, 1, 2],
+                                        (dt(2001, 2, 1), dt(2001, 3, 1)): [3, 4],
+                                        (dt(2001, 3, 1), dt(2001, 4, 1)): [5, 6],
+                                        (dt(2001, 4, 1), dt(2001, 5, 1)): [7, 8],
+                                        (dt(2001, 5, 1), dt(2001, 6, 1)): [9, 10],
+                                        (dt(2001, 6, 1), dt(2001, 7, 1)): [11, 12],
+                                        (dt(2001, 7, 1), dt(2001, 8, 1)): [13, 14],
+                                        (dt(2001, 8, 1), dt(2001, 9, 1)): [15, 16],
+                                        (dt(2001, 9, 1), dt(2001, 10, 1)): [17, 18],
+                                        (dt(2001, 10, 1), dt(2001, 11, 1)): [19, 20],
+                                        (dt(2001, 11, 1), dt(2001, 12, 1)): [21, 22],
+                                        })
+
 def test_overlapping_facet():
     schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
