@@ -365,12 +365,15 @@ class RangeFacet(QueryFacet):
         self.hardend = hardend
         self._queries()
     
+    def _rangetype(self):
+        from whoosh import query
+        
+        return query.NumericRange
+    
     def _range_name(self, startval, endval):
         return (startval, endval)
     
     def _queries(self):
-        from whoosh import query
-        
         if not self.gap:
             raise Exception("No gap secified (%r)" % self.gap)
         if isinstance(self.gap, (list, tuple)):
@@ -380,6 +383,7 @@ class RangeFacet(QueryFacet):
             gaps = [self.gap]
             gapindex = -1
         
+        rangetype = self._rangetype()
         self.querydict = {}
         cstart = self.start
         while cstart < self.end:
@@ -394,23 +398,30 @@ class RangeFacet(QueryFacet):
                 cend = min(self.end, cend)
             
             rangename = self._range_name(cstart, cend)
-            q = query.NumericRange(self.fieldname, cstart, cend, endexcl=True)
+            q = rangetype(self.fieldname, cstart, cend, endexcl=True)
             self.querydict[rangename] = q
             
-            cstart += thisgap
+            cstart = cend
     
     def categorizer(self, searcher):
         return QueryFacet(self.querydict).categorizer(searcher)
     
 
 class DateRangeFacet(RangeFacet):
-    """Sorts/facets based on date ranges.
+    """Sorts/facets based on date ranges. This is the same as RangeFacet
+    except you are expected to use ``daterange`` objects as the start and end
+    of the range, and ``timedelta`` or ``relativedelta`` objects as the gap(s),
+    and it generates :class:`~whoosh.query.DateRange` queries instead of
+    :class:`~whoosh.query.TermRange` queries.
     
-    For example, to facet the "birthday" field into year-sized buckets::
+    For example, to facet a "birthday" range into 5 year buckets::
     
+        from datetime import datetime
+        from whoosh.support.relativedelta import relativedelta
+        
         startdate = datetime(1920, 0, 0)
         enddate = datetime.now()
-        gap = timedelta(days=365)
+        gap = relativedelta(years=5)
         bdays = RangeFacet("birthday", startdate, enddate, gap)
         results = searcher.search(myquery, groupedby=bdays)
         
@@ -418,36 +429,11 @@ class DateRangeFacet(RangeFacet):
     at the end.
     """
     
-    def __init__(self, fieldname, startdate, enddate, delta, hardend=False):
-        """
-        :param fieldname: the datetime field to sort/facet on.
-        :param startdate: the start of the entire range.
-        :param enddate: the end of the entire range.
-        :param delta: a timedelta object representing the size of each "bucket"
-            in the range. This can be a sequence of timedeltas. For example,
-            ``gap=[timedelta(days=1), timedelta(days=5), timedelta(days=10)]``
-            will use 1 day as the size of the first bucket, 5 days as the size
-            of the second bucket, and 10 days as the size of all subsequent
-            buckets.
-        :param hardend: if True, the end of the last bucket is clamped to the
-            value of ``end``. If False (the default), the last bucket is always
-            ``gap`` sized, even if that means the end of the last bucket is
-            after ``end``.
-        """
+    def _rangetype(self):
+        from whoosh import query
         
-        self.fieldname = fieldname
-        self.start = datetime_to_long(startdate)
-        self.end = datetime_to_long(enddate)
-        self.hardend = hardend
-        if isinstance(delta, (list, tuple)):
-            self.gap = [timedelta_to_usecs(d) for d in delta]
-        else:
-            self.gap = timedelta_to_usecs(delta)
-        self._queries()
+        return query.DateRange
     
-    def _range_name(self, startval, endval):
-        return (long_to_datetime(startval), long_to_datetime(endval))
-
 
 class ScoreFacet(FacetType):
     """Uses a document's score as a sorting criterion.
