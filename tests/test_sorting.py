@@ -319,11 +319,32 @@ def test_query_facet():
         
         facet = sorting.QueryFacet({"a-c": q1, "d-f": q2, "g-i": q3})
         r = s.search(query.Every(), groupedby=facet)
-        # If you specify a facet withou a name, it's automatically called
+        # If you specify a facet without a name, it's automatically called
         # "facet"
         assert_equal(r.groups("facet"), {"a-c": [1, 2, 4],
                                          "d-f": [5, 7, 8],
                                          "g-i": [0, 3, 6]})
+
+def test_query_facet2():
+    domain = u("abcdefghi")
+    schema = fields.Schema(v=fields.KEYWORD(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for i, ltr in enumerate(domain):
+            v = "%s %s" % (ltr, domain[0 - i])
+            w.add_document(v=v)
+    
+    with ix.searcher() as s:
+        q1 = query.TermRange("v", "a", "c")
+        q2 = query.TermRange("v", "d", "f")
+        q3 = query.TermRange("v", "g", "i")
+        
+        facets = sorting.Facets()
+        facets.add_query("myfacet", {"a-c": q1, "d-f": q2, "g-i": q3}, allow_overlap=True)
+        r = s.search(query.Every(), groupedby=facets)
+        assert_equal(r.groups("myfacet"), {'a-c': [0, 1, 2, 7, 8],
+                                           'd-f': [4, 5],
+                                           'g-i': [3, 6]})
 
 def test_missing_field_facet():
     schema = fields.Schema(id=fields.STORED, tag=fields.ID)
@@ -433,13 +454,12 @@ def test_daterange_facet():
 def test_overlapping_facet():
     schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    w.add_document(id=0, tags=u("alfa bravo charlie"))
-    w.add_document(id=1, tags=u("bravo charlie delta"))
-    w.add_document(id=2, tags=u("charlie delta echo"))
-    w.add_document(id=3, tags=u("delta echo alfa"))
-    w.add_document(id=4, tags=u("echo alfa bravo"))
-    w.commit()
+    with ix.writer() as w:
+        w.add_document(id=0, tags=u("alfa bravo charlie"))
+        w.add_document(id=1, tags=u("bravo charlie delta"))
+        w.add_document(id=2, tags=u("charlie delta echo"))
+        w.add_document(id=3, tags=u("delta echo alfa"))
+        w.add_document(id=4, tags=u("echo alfa bravo"))
     
     with ix.searcher() as s:
         of = sorting.FieldFacet("tags", allow_overlap=True)
@@ -447,7 +467,14 @@ def test_overlapping_facet():
         assert_equal(r.groups("tags"), {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
                                         'charlie': [0, 1, 2], 'delta': [1, 2, 3],
                                         'echo': [2, 3, 4]})
-    
+
+        fcts = sorting.Facets()
+        fcts.add_field("tags", allow_overlap=True)
+        r = s.search(query.Every(), groupedby=fcts)
+        assert_equal(r.groups("tags"), {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
+                                        'charlie': [0, 1, 2], 'delta': [1, 2, 3],
+                                        'echo': [2, 3, 4]})
+
 def test_field_facets():
     def check(method):
         with TempIndex(get_schema()) as ix:
