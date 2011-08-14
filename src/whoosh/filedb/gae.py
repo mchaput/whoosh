@@ -150,6 +150,3 @@ class DatastoreStorage(Storage):
 
     def lock(self, name):
         return MemcacheLock(name)
-
-
-

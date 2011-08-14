@@ -738,11 +738,3 @@ class Sorter(object):
         collector = Collector(limit=limit, groupedby=groupedby)
         return collector.sort(self.searcher, q, self.multi, reverse=reverse,
                               allow=filter, restrict=mask)
-
-
-
-
-
-
-
-

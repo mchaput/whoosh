@@ -1146,20 +1146,3 @@ def test_collect_limit():
         for _ in r:
             count += 1
         assert_equal(count, 5)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

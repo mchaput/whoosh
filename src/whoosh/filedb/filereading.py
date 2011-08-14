@@ -400,16 +400,3 @@ class SegmentReader(IndexReader):
 
     def unload_fieldcache(self, name):
         self.caching_policy.delete(self._fieldkey(name))
-    
-            
-            
-        
-
-
-
-
-
-
-
-
-

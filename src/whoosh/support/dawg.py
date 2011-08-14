@@ -649,15 +649,3 @@ def run_out(node, sofar):
         sofar.append(first)
         node = node.edge(first)
     return sofar
-
-
-
-    
-
-
-
-
-
-
-
-

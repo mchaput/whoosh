@@ -202,8 +202,3 @@ def test_highlight_wildcards():
         r.formatter = highlight.UppercaseFormatter()
         hit = r[0]
         assert_equal(hit.highlights("text"), "alfa bravo CHARLIE delta COOKIE echo")
-
-
-
-
-

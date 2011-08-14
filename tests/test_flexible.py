@@ -96,7 +96,3 @@ def test_optimize_away():
         with ix.searcher() as s:
             assert ("content", u("charlie")) not in s.reader()
             assert_equal(s.document(id=u("c")), {"id": u("c")})
-        
-
-
-

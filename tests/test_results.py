@@ -459,19 +459,3 @@ def test_terms():
         value = hit["text"]
         for txt in txts(hit.matched_terms()):
             assert txt in value
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-    

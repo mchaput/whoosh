@@ -361,8 +361,3 @@ class MultiPool(PoolBase):
             os.remove(runname)
         
         self.cleanup()
- 
- 
- 
- 
- 

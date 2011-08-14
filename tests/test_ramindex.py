@@ -283,15 +283,3 @@ def test_block_info():
     assert_equal(p.block_min_length(), 2)
     assert_equal(p.block_max_length(), 8)
     assert_equal(p.block_max_wol(), 0.5)
-    
-
-
-
-
-
-
-
-
-
-
-

@@ -78,7 +78,3 @@ def test_compatibility():
     s = ix.searcher(weighting=LegacyWeighting())
     r = s.search(query.Term("text", u("bravo")))
     assert_equal(r.score(0), 2.25)
-        
-
-
-

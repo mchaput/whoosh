@@ -183,5 +183,3 @@ class Enron(Spec):
 
 if __name__=="__main__":
     Bench().run(Enron)
-    
-    

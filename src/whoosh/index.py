@@ -370,6 +370,3 @@ class Index(object):
         w = self.writer()
         w.delete_by_query(q, searcher=searcher)
         w.commit()
-        
-    
-

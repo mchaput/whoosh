@@ -132,4 +132,3 @@ def check_abstract_methods(base, subclass):
         if is_abstract_method(attr):
             oattr = getattr(subclass, attrname)
             assert not is_abstract_method(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
-

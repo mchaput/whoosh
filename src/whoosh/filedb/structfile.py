@@ -328,16 +328,3 @@ class StructFile(object):
         if IS_LITTLE:
             a.byteswap()
         return a
-
-
-
-
-
-
-
-
-
-
-
-
-

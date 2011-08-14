@@ -734,12 +734,3 @@ def test_sorting_function():
 #        with ix.searcher() as s:
 #            assert_equal([hit["name"] for hit in cs.sort_query(s, query.Every())],
 #                          list("DCAFBE"))
-                    
-        
-        
-
-
-
-
-
-

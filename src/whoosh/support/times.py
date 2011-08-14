@@ -459,5 +459,3 @@ def fix(at):
         return at
     return datetime(year=at.year, month=at.month, day=at.day, hour=at.hour,
                     minute=at.minute, second=at.second, microsecond=at.microsecond)
-
-

@@ -51,5 +51,3 @@ def test_readwrite():
             SearcherThread().start()
             time.sleep(0.5)
         wt.join()
-    
-

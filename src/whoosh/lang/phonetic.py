@@ -120,4 +120,3 @@ def soundex_ar(word):
 
 if __name__ == "__main__":
     print(soundex_esp("solidad"))
-    

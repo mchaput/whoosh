@@ -266,5 +266,3 @@ if __name__ == "__main__":
     t = clock()
     print(th.synonyms("hail"))
     print(clock() - t)
-    
-    

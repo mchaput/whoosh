@@ -1149,7 +1149,3 @@ def ensure_schema(schema):
     if not isinstance(schema, Schema):
         raise FieldConfigurationError("%r is not a Schema" % schema)
     return schema
-    
-    
-    
-

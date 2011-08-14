@@ -834,20 +834,3 @@ class MultiReader(IndexReader):
     def set_caching_policy(self, *args, **kwargs):
         for r in self.readers:
             r.set_caching_policy(*args, **kwargs)
-
-        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

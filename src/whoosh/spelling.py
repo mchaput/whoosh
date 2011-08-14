@@ -450,9 +450,3 @@ class SpellChecker(object):
                     fields["gram%s" % size] = " ".join(gramlist)
             writer.add_document(**fields)
         writer.commit()
-
-
-
-
-
-

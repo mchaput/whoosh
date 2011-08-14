@@ -36,5 +36,3 @@ class Reuters(Spec):
         
 if __name__ == "__main__":
     Bench().run(Reuters)
-    
-    

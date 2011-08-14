@@ -598,15 +598,3 @@ class Bench(object):
             action = self.generate_search_file
         
         action(lib)
-        
-
-
-
-
-
-
-
-
-
-
-

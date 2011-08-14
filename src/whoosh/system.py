@@ -55,4 +55,3 @@ unpack_int = _int_struct.unpack
 unpack_uint = _uint_struct.unpack
 unpack_long = _long_struct.unpack
 unpack_float = _float_struct.unpack
-

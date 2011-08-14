@@ -402,7 +402,3 @@ def test_token_boost():
     assert_equal(results, [('SPRS', 1, 1.0, b('\x00\x00\x00\x01')),
                            ('FF', 1, 0.5, b('\x00\x00\x00\x01')),
                            ('F', 1, 1.0, b('\x00\x00\x00\x01'))])
-    
-        
-
-

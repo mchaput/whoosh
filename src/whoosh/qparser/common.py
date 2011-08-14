@@ -57,8 +57,3 @@ def attach(q, stxnode):
 def print_debug(level, msg):
     if level:
         print("  " * (level - 1), msg)
-
-
-
-
-

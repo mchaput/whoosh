@@ -87,10 +87,3 @@ class FnTagger(RegexTagger):
     
     def create(self, parser, match):
         return self.fn(**match.groupdict())
-
-
-
-
-
-
-

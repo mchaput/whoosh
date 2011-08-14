@@ -182,6 +182,3 @@ def test_termindex():
         ti = tr.get(t1)
         assert_equal(ti.weight(), 1.0)
         assert_equal(ti.doc_frequency(), i)
-        
-    
-

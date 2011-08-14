@@ -1377,18 +1377,3 @@ def charset_table_to_dict(tablestring):
             
             raise Exception("Don't know what to do with %r" % item)
     return map
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

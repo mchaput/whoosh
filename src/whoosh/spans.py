@@ -677,8 +677,3 @@ class SpanCondition(SpanBiQuery):
 
         def _get_spans(self):
             return self.a.spans()
-
-
-
-
-

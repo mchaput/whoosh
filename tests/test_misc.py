@@ -68,6 +68,3 @@ def test_lru_cache():
     assert_equal(test.cache_info(), (3, 7, 5, 5))
     test.cache_clear()
     assert_equal(test.cache_info(), (0, 0, 5, 0))
-
-
-

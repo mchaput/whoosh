@@ -939,4 +939,3 @@ if __name__ == '__main__':
     s = variations("rendering")
     print(time.clock() - t)
     print(len(s))
-    
