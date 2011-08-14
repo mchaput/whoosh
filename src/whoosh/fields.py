@@ -577,11 +577,18 @@ class DATETIME(NUMERIC):
                                        unique=unique, shift_step=8)
     
     def to_text(self, x, shift=0):
-        if isinstance(x, datetime.datetime):
-            x = datetime_to_long(x)
-        elif not isinstance(x, integer_types):
-            raise ValueError("DATETIME.to_text field doesn't know what to do "
-                             "with %r" % x)
+        from whoosh.support.times import floor
+        try:
+            if isinstance(x, text_type):
+                # for indexing, support same strings as for query parsing
+                x = self._parse_datestring(x)
+                x = floor(x) # this makes most sense (unspecified = lowest possible value)
+            if isinstance(x, datetime.datetime):
+                x = datetime_to_long(x)
+            elif not isinstance(x, integer_types):
+                raise TypeError()
+        except Exception:
+            raise ValueError("DATETIME.to_text can't convert from %r" % (x, ))
         
         return super(DATETIME, self).to_text(x, shift=shift)
     
