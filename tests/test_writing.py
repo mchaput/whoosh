@@ -284,6 +284,20 @@ def test_read_inline():
         with ix.reader() as r:
             pr = r.postings("a", "bravo")
             assert_equal(pr.id(), 1)
+
+def test_add_field():
+    schema = fields.Schema(a=fields.TEXT)
+    with TempIndex(schema, "addfield") as ix:
+        with ix.writer() as w:
+            w.add_document(a=u("alfa bravo charlie"))
+        with ix.writer() as w:
+            w.add_field("b", fields.ID(stored=True))
+            w.add_field("c*", fields.ID(stored=True), glob=True)
+            w.add_document(a=u("delta echo foxtrot"), b=u("india"), cat=u("juliet"))
+        
+        with ix.searcher() as s:
+            fs = s.document(b=u("india"))
+            assert_equal(fs, {"b": "india", "cat": "juliet"})
             
         
 
