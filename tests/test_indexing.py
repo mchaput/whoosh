@@ -529,7 +529,3 @@ def test_doc_boost():
     with ix.searcher() as s:
         r = s.search(query.Term("a", "alfa"))
         assert_equal([hit["id"] for hit in r], [1, 0, 2, 3])
-
-
-
-

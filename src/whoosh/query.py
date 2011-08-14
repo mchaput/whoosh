@@ -2064,5 +2064,3 @@ class Otherwise(BinaryQuery):
 
 def BooleanQuery(required, should, prohibited):
     return AndNot(AndMaybe(And(required), Or(should)), Or(prohibited)).normalize()
-
-

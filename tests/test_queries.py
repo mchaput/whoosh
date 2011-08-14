@@ -318,6 +318,3 @@ def test_highlight_daterange():
     r = s.search(DateRange('released', datetime(2007,1,1), None))
     assert_equal(len(r), 1)
     assert_equal(r[0].highlights("content"), '')
-
-
-

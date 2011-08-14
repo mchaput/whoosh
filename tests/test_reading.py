@@ -339,7 +339,3 @@ def test_reader_subclasses():
     check_abstract_methods(reading.IndexReader, reading.MultiReader)
     check_abstract_methods(reading.IndexReader, reading.EmptyReader)
     check_abstract_methods(reading.IndexReader, RamIndex)
-
-
-
-

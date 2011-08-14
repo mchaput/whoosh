@@ -614,20 +614,3 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         
     def get_class(self):
         return self.fcclass
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

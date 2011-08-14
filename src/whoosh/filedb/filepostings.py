@@ -340,19 +340,3 @@ class FilePostingReader(Matcher):
 
     def __ge__(self, other):
         return self.__eq__(other) or self.__gt__(other)
-    
-    
-    
-        
-
-
-
-
-
-
-
-
-
-
-
-

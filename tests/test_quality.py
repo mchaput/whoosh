@@ -270,25 +270,3 @@ def test_replacements():
     dm = matching.DisjunctionMaxMatcher(ls1, ls2)
     dm = dm.replace(0.15)
     assert dm is ls2
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

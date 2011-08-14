@@ -66,5 +66,3 @@ def test_vector_unicode():
     with ix.reader() as r:
         vec = list(r.vector_as("frequency", 0, "content"))
         assert_equal(vec, [(u('\u3456\u4567'), 1), (u('\u789a\u789b\u789c'), 1)])
-
-

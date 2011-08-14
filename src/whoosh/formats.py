@@ -427,12 +427,3 @@ class CharacterBoosts(Characters):
     def decode_position_boosts(self, valuestring):
         return [(pos, boost) for pos, _, _, boost
                 in self.decode_character_boosts(valuestring)]
-
-
-
-
-    
-
-
-
-

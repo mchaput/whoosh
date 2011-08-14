@@ -366,9 +366,3 @@ class RamIndex(IndexReader, IndexWriter):
         
     def commit(self):
         pass
-        
-    
-
-
-
-

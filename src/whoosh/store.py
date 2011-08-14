@@ -77,10 +77,3 @@ class Storage(object):
     
     def optimize(self):
         pass
-
-
-
-
-
-
-

@@ -176,15 +176,3 @@ def stem(w):
 
 if __name__ == '__main__':
     print(stem("fundamentally"))
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-

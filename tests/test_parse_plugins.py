@@ -327,12 +327,3 @@ def test_gtlt():
     qp.remove_plugin_class(plugins.RangePlugin)
     q = qp.parse(u("hello a:>500 there"))
     assert_equal(text_type(q), "(a:hello AND a:a: AND a:500 AND a:there)")
-        
-        
-
-
-
-
-
-
-

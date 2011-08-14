@@ -902,12 +902,3 @@ class CopyFieldPlugin(Plugin):
                     continue
             newgroup.append(node)
         return newgroup
-
-
-
-
-
-
-
-
-

@@ -196,4 +196,3 @@ intersphinx_mapping = {'http://docs.python.org/': None}
 
 # Autodoc config
 autoclass_content = "both"
-

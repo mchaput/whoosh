@@ -61,9 +61,3 @@ def test_bigsort():
     gen = ((sf(n)["date"], n) for n in q.docs(s))
     r = nlargest(25, gen)
     print(now() - t)
-        
-    
-    
-    
-    
-    

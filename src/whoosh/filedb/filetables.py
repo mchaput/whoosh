@@ -949,7 +949,3 @@ class FileTermInfo(TermInfo):
     def read_max_wol(cls, dbfile, datapos):
         weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
         return dbfile.get_float(weightspos + _FLOAT_SIZE)
-    
-
-
-

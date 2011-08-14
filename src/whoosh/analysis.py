@@ -2003,11 +2003,3 @@ def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
     if not tokenizer:
         tokenizer = RegexTokenizer()
     return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
-
-
-
-
-
-
-
-

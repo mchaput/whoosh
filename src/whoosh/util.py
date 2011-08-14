@@ -657,16 +657,3 @@ except ImportError:
         """
         funcobj.__isabstractmethod__ = True
         return funcobj
-
-
-
-
-
-
-
-
-
-
-
-
-

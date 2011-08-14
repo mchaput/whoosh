@@ -34,5 +34,3 @@ def test_bigtable():
         assert_equal(set1, set2)
         
         fhr.close()
-
-

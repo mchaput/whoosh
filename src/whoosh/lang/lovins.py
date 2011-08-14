@@ -568,6 +568,3 @@ def stem(word):
     """Returns the stemmed version of the argument string.
     """
     return fix_ending(remove_ending(word))
-
-
-

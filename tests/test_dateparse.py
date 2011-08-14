@@ -309,11 +309,3 @@ def test_final_ranges(p=english):
     assert_unamb_span(p.date_from("oct 25 5000 to tomorrow", basedate),
                            dict(year=2010, month=9, day=21),
                            dict(year=5000, month=10, day=25))
-        
-        
-        
-
-
-
-
-

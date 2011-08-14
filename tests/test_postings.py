@@ -171,11 +171,3 @@ def test_charboost_postings():
     
     as_freq = [(docnum, len(posns)) for docnum, posns in as_posns]
     assert_equal(as_freq, roundtrip(postings, CharacterBoosts(), "frequency"))
-
-    
-        
-        
-
-
-
-

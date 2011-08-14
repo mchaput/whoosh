@@ -609,7 +609,3 @@ def to_word(n):
     node.startchar = n.startchar
     node.endchar = n.endchar
     return node
-
-
-
-

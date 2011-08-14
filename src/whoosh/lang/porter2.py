@@ -311,6 +311,3 @@ def stem(word):
     word = normalize_ys(word)
 
     return word
-
-    
- 

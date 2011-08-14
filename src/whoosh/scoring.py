@@ -488,5 +488,3 @@ class ReverseWeighting(WeightingModel):
 #                return p
 #            else:
 #                return 0 - p
-
-

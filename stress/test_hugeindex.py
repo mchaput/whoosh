@@ -37,11 +37,3 @@ def test_huge_postfile():
             pfr.next()
             i += 1
         pf.close()
-    
-        
-        
-    
-
-
-
-

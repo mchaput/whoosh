@@ -798,6 +798,3 @@ def test_star_paren():
     assert_equal(q[1].fieldname, "title")
     assert_equal(q[0].text, "*john*")
     assert_equal(q[1].text, "blog")
-
-
-

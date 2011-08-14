@@ -1837,15 +1837,3 @@ class ConstantScoreMatcher(WrappingMatcher):
 #            poses[word] = decode_positions(vreader.value())
 #        # Now put the position lists in phrase order
 #        return [poses[word] for word in self.words]
-
-
-
-
-
-
-
-
-
-
-
-

@@ -355,6 +355,3 @@ def swin(data, size):
         clusters.append((left, right, j - i , v))
     clusters.sort(key=lambda x: (0 - x[2], x[3]))
     return clusters
-    
-                
-

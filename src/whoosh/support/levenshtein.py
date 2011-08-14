@@ -68,5 +68,3 @@ def relative(a, b):
 
 
 distance = damerau_levenshtein
-
-

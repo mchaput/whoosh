@@ -287,21 +287,3 @@ def test_spelling_field_order():
         value = " ".join(ls)
         w.add_document(a=value, b=value, c=value, d=value, e=value, f=value)
     w.commit()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -158,6 +158,3 @@ if os.name == "nt":
     FileLock = MsvcrtLock
 else:
     FileLock = FcntlLock
-
-
-

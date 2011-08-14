@@ -298,6 +298,3 @@ def test_add_field():
         with ix.searcher() as s:
             fs = s.document(b=u("india"))
             assert_equal(fs, {"b": "india", "cat": "juliet"})
-            
-        
-

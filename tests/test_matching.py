@@ -424,11 +424,3 @@ def test_current_terms():
         while m.is_active():
             assert_equal(sorted(m.matching_terms()), [("text", "alfa"), ("text", "charlie")])
             m.next()
-
-
-
-
-
-
-
-

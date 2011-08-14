@@ -417,9 +417,3 @@ def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
             plugins.PhrasePlugin,
             mfp]
     return QueryParser(None, schema, plugins=pins, **kwargs)
-
-
-
-
-
-

@@ -209,12 +209,3 @@ def copy_to_ram(storage):
         f.close()
         r.close()
     return ram
-
-
-
-
-
-
-
-
-

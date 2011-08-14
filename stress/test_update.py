@@ -20,7 +20,3 @@ def test_many_updates():
         with ix.searcher() as s:
             result = [d["key"] for d in s.search(query.Every())]
             assert_equal(len(result), len(set(result)))
-
-                
-
-

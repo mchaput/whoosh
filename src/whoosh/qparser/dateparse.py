@@ -888,18 +888,3 @@ class DateTagger(Tagger):
                         node.startchar = match.start()
                         node.endchar = newpos + match.start(2)
                         return node
-            
-        
-
-
-    
-
-
-    
-    
-    
-    
-    
-
-
-

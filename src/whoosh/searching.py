@@ -1866,6 +1866,3 @@ class ResultsPage(object):
         """
         
         return self.pagecount == 0 or self.pagenum == self.pagecount
-
-
-

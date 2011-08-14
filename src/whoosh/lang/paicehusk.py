@@ -240,10 +240,3 @@ zy1s.     { -yz > -ys  }
 # Make the standard rules available as a module-level function
 
 stem = PaiceHuskStemmer(defaultrules).stem
-
-
-
-
-
-
-

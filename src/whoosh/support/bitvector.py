@@ -272,9 +272,3 @@ class BitSet(object):
         self._back.clear(num)
         if len(self._back) * 4 < self.size // 8 - 32:
             self._switch(True)
-    
-    
-    
-    
-    
-    

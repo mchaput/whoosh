@@ -426,5 +426,3 @@ if __name__ == '__main__':
         'Parachute': ('PRKT', None), 'Nowhere': ('NR', None), 'Tux': ('TKS', None)}
     for name in names.keys():
         assert (double_metaphone(name) == names[name]), 'For "%s" function returned %s. Should be %s.' % (name, double_metaphone(name), names[name])
-        
-        

@@ -65,6 +65,3 @@ def test_20000_batch():
         t = now()
         ix.optimize()
         print("Optimize batch:", now() - t)
-
-
-

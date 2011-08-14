@@ -863,9 +863,3 @@ class Highlighter(object):
         fragments = top_fragments(fragments, top, self.scorer, self.order)
         output = self.formatter.format(fragments)
         return output
-    
-
-
-
-
-
