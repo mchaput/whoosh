@@ -135,7 +135,6 @@ class SegmentWriter(IndexWriter):
         
         info = ix._read_toc()
         self.schema = info.schema
-        #self.ssnames = set(self.schema.special_spelling_names())
         self.segments = info.segments
         self.storage = ix.storage
         self.indexname = ix.indexname
@@ -208,11 +207,11 @@ class SegmentWriter(IndexWriter):
         if self.is_closed:
             raise IndexingError("This writer is closed")
     
-    def add_field(self, fieldname, fieldspec):
+    def add_field(self, fieldname, fieldspec, **kwargs):
         self._check_state()
         if self._added:
             raise Exception("Can't modify schema after adding data to writer")
-        super(SegmentWriter, self).add_field(fieldname, fieldspec)
+        super(SegmentWriter, self).add_field(fieldname, fieldspec, **kwargs)
     
     def remove_field(self, fieldname):
         self._check_state()
@@ -333,11 +332,8 @@ class SegmentWriter(IndexWriter):
         self._added = True
     
     def add_document(self, **fields):
-        #from whoosh.util import now
-        #t = now()
         self._check_state()
         schema = self.schema
-        #ssnames = self.ssnames
         docboost = self._doc_boost(fields)
         
         # Sort the keys
@@ -387,8 +383,6 @@ class SegmentWriter(IndexWriter):
         self._added = True
         self.storedfields.append(storedvalues)
         self.docnum += 1
-    
-    #def update_document(self, **fields):
     
     def add_spell_words(self, fieldname, words):
         # Get or make a set for the words in this field
