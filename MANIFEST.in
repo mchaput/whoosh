@@ -1,5 +1,6 @@
 include *.txt
 include benchmark/dcvgr10.txt.gz
+include benchmark/reuters21578.txt.gz
 recursive-include tests *.txt *.py
 recursive-include benchmark *.txt *.py
 recursive-include docs *.txt *.py *.rst
