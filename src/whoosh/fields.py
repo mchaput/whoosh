@@ -579,7 +579,7 @@ class DATETIME(NUMERIC):
     def to_text(self, x, shift=0):
         from whoosh.support.times import floor
         try:
-            if isinstance(x, text_type):
+            if isinstance(x, string_type):
                 # for indexing, support same strings as for query parsing
                 x = self._parse_datestring(x)
                 x = floor(x) # this makes most sense (unspecified = lowest possible value)
@@ -709,7 +709,8 @@ class BOOLEAN(FieldType):
             return query.error_query(e)
         
         return query.Term(fieldname, text, boost=boost)
-    
+
+
 
 class STORED(FieldType):
     """Configured field type for fields you want to store but not index.
