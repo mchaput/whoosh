@@ -27,8 +27,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import os
-import tempfile
+import os, tempfile
 from array import array
 from collections import defaultdict
 from heapq import heapify, heappop, heapreplace
@@ -37,7 +36,7 @@ from marshal import load, dump
 
 from whoosh.compat import long_type, iteritems, xrange, text_type, PY3
 from whoosh.filedb.filetables import LengthWriter, LengthReader
-from whoosh.util import length_to_byte, byte_to_length
+from whoosh.util import length_to_byte, byte_to_length, utf8encode
 
 
 try:
@@ -405,6 +404,39 @@ class MemPool(PoolBase):
         lengths = LengthReader(None, doccount, self.length_arrays)
         self.postbuf.sort()
         termswriter.add_iter(self.postbuf, lengths.get)
+
+
+class DictPool(PoolBase):
+    def __init__(self, schema, **kwargs):
+        super(DictPool, self).__init__(schema)
+        self.schema = schema
+        self.postbuf = {}
+        
+    def add_posting(self, fieldname, text, docnum, weight, valuestring):
+        term = (fieldname, text)
+        if term in self.postbuf:
+            buf = self.postbuf[term]
+        else:
+            self.postbuf[term] = buf = (array("I"), array("f"), [])
+
+        buf[0].append(docnum)
+        buf[1].append(weight)
+        buf[2].append(valuestring)
+        
+    def finish(self, termswriter, doccount, lengthfile):
+        from itertools import izip
+        
+        pbuf = self.postbuf
+        self._write_lengths(lengthfile, doccount)
+        lengths = LengthReader(None, doccount, self.length_arrays)
+        
+        def gen():
+            for term in sorted(pbuf):
+                fieldname, text = term
+                for docnum, weight, valuestring in izip(*pbuf[term]):
+                    yield (fieldname, text, docnum, weight, valuestring)
+        
+        termswriter.add_iter(gen(), lengths.get)
 
 
 # On-disk unique set of strings
