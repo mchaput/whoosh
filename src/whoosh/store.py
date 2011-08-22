@@ -33,18 +33,18 @@ class LockError(Exception):
 class Storage(object):
     """Abstract base class for storage objects.
     """
-    
+
     readonly = False
-    
+
     def __iter__(self):
         return iter(self.list())
-    
+
     def create_index(self, schema, indexname=None):
         raise NotImplementedError
-    
+
     def open_index(self, indexname=None, schema=None):
         raise NotImplementedError
-    
+
     def create_file(self, name):
         raise NotImplementedError
 
@@ -56,13 +56,13 @@ class Storage(object):
 
     def file_exists(self, name):
         raise NotImplementedError
-    
+
     def file_modified(self, name):
         raise NotImplementedError
-    
+
     def file_length(self, name):
         raise NotImplementedError
-    
+
     def delete_file(self, name):
         raise NotImplementedError
 
@@ -71,9 +71,9 @@ class Storage(object):
 
     def lock(self, name):
         raise NotImplementedError
-    
+
     def close(self):
         pass
-    
+
     def optimize(self):
         pass

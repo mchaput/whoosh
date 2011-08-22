@@ -60,10 +60,10 @@ class StructFile(object):
 
     def __init__(self, fileobj, name=None, onclose=None, mapped=True,
                  gzip=False):
-        
+
         if gzip:
             fileobj = GzipFile(fileobj=fileobj)
-        
+
         self.file = fileobj
         self._name = name
         self.onclose = onclose
@@ -84,7 +84,7 @@ class StructFile(object):
             self.size = os.fstat(fd).st_size
             if self.size > 0:
                 import mmap
-                
+
                 try:
                     self.map = mmap.mmap(fd, self.size, access=mmap.ACCESS_READ)
                 except OSError:
@@ -121,7 +121,7 @@ class StructFile(object):
 
     def _setup_fake_map(self):
         _self = self
-        
+
         class fakemap(object):
             def __getitem__(self, slice):
                 if isinstance(slice, integer_types):
@@ -130,7 +130,7 @@ class StructFile(object):
                 else:
                     _self.seek(slice.start)
                     return _self.read(slice.stop - slice.start)
-        
+
         self.map = fakemap()
 
     def write_string(self, s):
@@ -182,7 +182,7 @@ class StructFile(object):
         This is similar to the varint methods but uses a less compressed but
         faster format.
         """
-        
+
         # Store numbers 0-253 in one byte. Byte 254 means "an unsigned 16-bit
         # int follows." Byte 255 means "An unsigned 32-bit int follows."
         if i <= 253:
@@ -191,13 +191,13 @@ class StructFile(object):
             self.file.write("\xFE" + pack_ushort(i))
         else:
             self.file.write("\xFF" + pack_uint(i))
-    
+
     def read_tagint(self):
         """Reads a sometimes-compressed unsigned integer from the wrapped file.
         This is similar to the varint methods but uses a less compressed but
         faster format.
         """
-        
+
         tb = ord(self.file.read(1))
         if tb == 254:
             return self.file.read_ushort()
@@ -238,11 +238,11 @@ class StructFile(object):
         """
         return byte_to_float(self.read_byte(), mantissabits, zeroexp)
 
-    def write_pickle(self, obj, protocol=-1):
+    def write_pickle(self, obj, protocol= -1):
         """Writes a pickled representation of obj to the wrapped file.
         """
         dump_pickle(obj, self.file, protocol)
-        
+
     def read_pickle(self):
         """Reads a pickled object from the wrapped file.
         """
@@ -250,22 +250,22 @@ class StructFile(object):
 
     def write_sbyte(self, n):
         self.file.write(pack_sbyte(n))
-        
+
     def write_int(self, n):
         self.file.write(pack_int(n))
-        
+
     def write_uint(self, n):
         self.file.write(pack_uint(n))
-        
+
     def write_ushort(self, n):
         self.file.write(pack_ushort(n))
-        
+
     def write_long(self, n):
         self.file.write(pack_long(n))
-        
+
     def write_float(self, n):
         self.file.write(pack_float(n))
-        
+
     def write_array(self, arry):
         if IS_LITTLE:
             arry = copy(arry)
@@ -277,22 +277,22 @@ class StructFile(object):
 
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
-    
+
     def read_int(self):
         return unpack_int(self.file.read(_INT_SIZE))[0]
-    
+
     def read_uint(self):
         return unpack_uint(self.file.read(_INT_SIZE))[0]
-    
+
     def read_ushort(self):
         return unpack_ushort(self.file.read(_SHORT_SIZE))[0]
-    
+
     def read_long(self):
         return unpack_long(self.file.read(_LONG_SIZE))[0]
-    
+
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
-    
+
     def read_array(self, typecode, length):
         a = array(typecode)
         if self.is_real:
@@ -305,22 +305,22 @@ class StructFile(object):
 
     def get_sbyte(self, position):
         return unpack_sbyte(self.map[position:position + 1])[0]
-    
+
     def get_int(self, position):
         return unpack_int(self.map[position:position + _INT_SIZE])[0]
-    
+
     def get_uint(self, position):
         return unpack_uint(self.map[position:position + _INT_SIZE])[0]
-    
+
     def get_ushort(self, position):
         return unpack_ushort(self.map[position:position + _SHORT_SIZE])[0]
-    
+
     def get_long(self, position):
         return unpack_long(self.map[position:position + _LONG_SIZE])[0]
-    
+
     def get_float(self, position):
         return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
-    
+
     def get_array(self, position, typecode, length):
         source = self.map[position:position + length * _SIZEMAP[typecode]]
         a = array(typecode)

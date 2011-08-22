@@ -46,44 +46,44 @@ SAVE_BY_DEFAULT = True
 
 class SegmentReader(IndexReader):
     GZIP_CACHES = False
-    
+
     def __init__(self, storage, schema, segment):
         self.storage = storage
         self.schema = schema
         self.segment = segment
-        
+
         if hasattr(self.segment, "uuid"):
             self.uuid_string = str(self.segment.uuid)
         else:
             import uuid
             self.uuid_string = str(uuid.uuid4())
-        
+
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
         self.termsindex = TermIndexReader(tf)
-        
+
         # Term vector index, and vector postings: lazy load
         self.vectorindex = None
         self.vpostfile = None
-        
+
         # Stored fields file
         sf = storage.open_file(segment.storedfields_filename, mapped=False)
         self.storedfields = StoredFieldReader(sf)
-        
+
         # Field length file
         self.fieldlengths = None
         if self.schema.has_scorable_fields():
             flf = storage.open_file(segment.fieldlengths_filename)
             self.fieldlengths = LengthReader(flf, segment.doc_count_all())
-        
+
         # Copy info from underlying segment
         self._has_deletions = segment.has_deletions()
         self._doc_count = segment.doc_count()
-        
+
         # Postings file
         self.postfile = self.storage.open_file(segment.termposts_filename,
                                                mapped=False)
-        
+
         # Dawg file
         self.dawg = None
         if any(field.spelling for field in self.schema):
@@ -91,21 +91,21 @@ class SegmentReader(IndexReader):
             if self.storage.file_exists(fname):
                 dawgfile = self.storage.open_file(fname, mapped=False)
                 self.dawg = DiskNode.load(dawgfile, expand=False)
-        
+
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
-        
+
         self.set_caching_policy()
-        
+
         self.is_closed = False
         self._sync_lock = Lock()
 
     def has_deletions(self):
         return self._has_deletions
-    
+
     def doc_count(self):
         return self._doc_count
-    
+
     def is_deleted(self, docnum):
         return self.segment.is_deleted(docnum)
 
@@ -115,17 +115,17 @@ class SegmentReader(IndexReader):
     def _open_vectors(self):
         if self.vectorindex:
             return
-        
+
         storage, segment = self.storage, self.segment
-        
+
         # Vector index
         vf = storage.open_file(segment.vectorindex_filename)
         self.vectorindex = TermVectorReader(vf)
-        
+
         # Vector postings file
         self.vpostfile = storage.open_file(segment.vectorposts_filename,
                                            mapped=False)
-    
+
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
 
@@ -168,7 +168,7 @@ class SegmentReader(IndexReader):
 
     def min_field_length(self, fieldname):
         return self.segment.min_field_length(fieldname)
-    
+
     def max_field_length(self, fieldname):
         return self.segment.max_field_length(fieldname)
 
@@ -195,7 +195,7 @@ class SegmentReader(IndexReader):
         return ((fieldname, text) for fieldname, text
                 in self.termsindex.keys()
                 if fieldname in schema)
-    
+
     def terms_from(self, fieldname, prefix):
         self._test_field(fieldname)
         schema = self.schema
@@ -239,7 +239,7 @@ class SegmentReader(IndexReader):
             return self._texts_in_fieldcache(fieldname)
         else:
             return IndexReader.lexicon(self, fieldname)
-        
+
     def __iter__(self):
         schema = self.schema
         return ((term, terminfo) for term, terminfo
@@ -284,26 +284,26 @@ class SegmentReader(IndexReader):
             postreader = ListMatcher(docids, weights, values, format,
                                      scorer=scorer, term=(fieldname, text),
                                      terminfo=terminfo)
-        
+
         deleted = self.segment.deleted
         if deleted:
             postreader = FilterMatcher(postreader, deleted, exclude=True)
-            
+
         return postreader
-    
+
     def vector(self, docnum, fieldname):
         if fieldname not in self.schema:
             raise TermNotFound("No  field %r" % fieldname)
         vformat = self.schema[fieldname].vector
         if not vformat:
             raise Exception("No vectors are stored for field %r" % fieldname)
-        
+
         self._open_vectors()
         offset = self.vectorindex.get((docnum, fieldname))
         if offset is None:
             raise Exception("No vector found for document"
                             " %s field %r" % (docnum, fieldname))
-        
+
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
     # DAWG methods
@@ -321,7 +321,7 @@ class SegmentReader(IndexReader):
         if not self.has_word_graph(fieldname):
             raise Exception("No word graph for field %r" % fieldname)
         return self.dawg.edge(fieldname)
-    
+
     # Field cache methods
 
     def supports_caches(self):
@@ -353,17 +353,17 @@ class SegmentReader(IndexReader):
             for saving field caches. If a caching policy object is specified
             using `cp` or `save` is `False`, this argument is ignored. 
         """
-        
+
         if not cp:
             if save and storage is None:
                 storage = self.storage
             else:
                 storage = None
             cp = DefaultFieldCachingPolicy(self.segment.name, storage=storage)
-        
+
         if type(cp) is type:
             cp = cp()
-        
+
         self.caching_policy = cp
 
     def _fieldkey(self, fieldname):
@@ -377,25 +377,25 @@ class SegmentReader(IndexReader):
         :param save: if True (the default), the cache is saved to disk if it
             doesn't already exist.
         """
-        
+
         key = self._fieldkey(fieldname)
         fc = self.caching_policy.get(key)
         if not fc:
             fc = FieldCache.from_field(self, fieldname)
             self.caching_policy.put(key, fc, save=save)
         return fc
-    
+
     def fieldcache_available(self, fieldname):
         """Returns True if a field cache exists for the given field (either in
         memory already or on disk).
         """
-        
+
         return self._fieldkey(fieldname) in self.caching_policy
-    
+
     def fieldcache_loaded(self, fieldname):
         """Returns True if a field cache for the given field is in memory.
         """
-        
+
         return self.caching_policy.is_loaded(self._fieldkey(fieldname))
 
     def unload_fieldcache(self, name):

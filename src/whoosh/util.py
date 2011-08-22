@@ -121,13 +121,13 @@ def make_binary_tree(fn, args, **kwargs):
     Any keyword arguments given to this function are passed to the class
     initializer.
     """
-    
+
     count = len(args)
     if not count:
         raise ValueError("Called make_binary_tree with empty list")
     elif count == 1:
         return args[0]
-    
+
     half = count // 2
     return fn(make_binary_tree(fn, args[:half], **kwargs),
               make_binary_tree(fn, args[half:], **kwargs), **kwargs)
@@ -138,7 +138,7 @@ def make_weighted_tree(fn, ls, **kwargs):
     (weight, argument) tuples and returns a huffman-like weighted tree of
     results/instances.
     """
-    
+
     if not ls:
         raise ValueError("Called make_weighted_tree with empty list")
 
@@ -196,7 +196,7 @@ def varint_to_int(vi):
 def signed_varint(i):
     """Zig-zag encodes a signed integer into a varint.
     """
-    
+
     if i >= 0:
         return varint(i << 1)
     return varint((i << 1) ^ (~0))
@@ -205,7 +205,7 @@ def signed_varint(i):
 def decode_signed_varint(i):
     """Zig-zag decodes an integer value.
     """
-    
+
     if not i & 1:
         return i >> 1
     return (i >> 1) ^ (~0)
@@ -272,6 +272,7 @@ def float_to_byte(value, mantissabits=5, zeroexp=2):
     else:
         result = chr(smallfloat - fzero)
     return b(result)
+
 
 def byte_to_float(b, mantissabits=5, zeroexp=2):
     """Decodes a floating point number stored in a single byte.
@@ -346,6 +347,7 @@ _length_byte_cache = array('i', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14,
 38863, 40146, 41472, 42841, 44256, 45717, 47227, 48786, 50397, 52061, 53780,
 55556, 57390, 59285, 61242, 63264, 65352, 67510, 69739, 72041, 74419, 76876,
 79414, 82035, 84743, 87541, 90430, 93416, 96499, 99684, 102975, 106374])
+
 
 def length_to_byte(length):
     if length is None:
@@ -465,13 +467,13 @@ def protected(func):
             return func(self, *args, **kwargs)
 
     return protected_wrapper
-    
+
 
 def synchronized(func):
     """Decorator for storage-access methods, which synchronizes on a threading
     lock. The parent object must have 'is_closed' and '_sync_lock' attributes.
     """
-    
+
     @wraps(func)
     def synchronized_wrapper(self, *args, **kwargs):
         with self._sync_lock:
@@ -483,9 +485,9 @@ def synchronized(func):
 def unbound_cache(func):
     """Caching decorator with an unbounded cache size.
     """
-    
+
     cache = {}
-    
+
     @wraps(func)
     def caching_wrapper(*args):
         try:
@@ -494,7 +496,7 @@ def unbound_cache(func):
             result = func(*args)
             cache[args] = result
             return result
-        
+
     return caching_wrapper
 
 
@@ -514,19 +516,19 @@ def lru_cache(maxsize=100):
     with f.cache_info().  Clear the cache and statistics with f.cache_clear().
     Access the underlying function with f.__wrapped__.
     """
-    
+
     def decorating_function(user_function):
 
         stats = [0, 0, 0]  # hits, misses
         data = {}
-        
+
         if maxsize:
             # The keys at each point on the clock face
             clock_keys = [None] * maxsize
             # The "referenced" bits at each point on the clock face
             clock_refs = array("B", (0 for _ in xrange(maxsize)))
             lock = Lock()
-            
+
             @wraps(user_function)
             def wrapper(*args):
                 key = args
@@ -572,7 +574,7 @@ def lru_cache(maxsize=100):
                         # Record a cache miss
                         stats[1] += 1
                 return result
-        
+
         else:
             @wraps(user_function)
             def wrapper(*args):
@@ -611,11 +613,12 @@ def find_object(name, blacklist=None, whitelist=None):
     >>> find_object("whoosh.analysis.StopFilter")
     <class 'whoosh.analysis.StopFilter'>
     """
-    
+
     if blacklist:
         for pre in blacklist:
             if name.startswith(pre):
-                raise TypeError("%r: can't instantiate names starting with %r" % (name, pre))
+                raise TypeError("%r: can't instantiate names starting with %r"
+                                % (name, pre))
     if whitelist:
         passes = False
         for pre in whitelist:
@@ -624,13 +627,13 @@ def find_object(name, blacklist=None, whitelist=None):
                 break
         if not passes:
             raise TypeError("Can't instantiate %r" % name)
-    
+
     lastdot = name.rfind(".")
-    
+
     assert lastdot > -1, "Name %r must be fully qualified" % name
     modname = name[:lastdot]
     clsname = name[lastdot + 1:]
-    
+
     mod = __import__(modname, fromlist=[clsname])
     cls = getattr(mod, clsname)
     return cls
@@ -640,7 +643,7 @@ def rcompile(pattern, flags=0, verbose=False):
     """A wrapper for re.compile that checks whether "pattern" is a regex object
     or a string to be compiled, and automatically adds the re.UNICODE flag.
     """
-    
+
     if not isinstance(pattern, string_type):
         # If it's not a string, assume it's already a compiled pattern
         return pattern

@@ -37,13 +37,12 @@ from whoosh.support import dawg
 from whoosh.support.levenshtein import distance
 
 
-
 # Suggestion scorers
 
 def simple_scorer(word, cost):
     """Ranks suggestions by the edit distance.
     """
-    
+
     return (cost, 0)
 
 
@@ -51,7 +50,7 @@ class Corrector(object):
     """Base class for spelling correction objects. Concrete sub-classes should
     implement the ``_suggestions`` method.
     """
-    
+
     def suggest(self, text, limit=5, maxdist=2, prefix=0):
         """
         :param text: the text to check.
@@ -66,25 +65,25 @@ class Corrector(object):
             prefix dramatically decreases the time it takes to generate the
             list of words.
         """
-        
+
         _suggestions = self._suggestions
-        
+
         heap = []
         seen = set()
-        for k in xrange(1, maxdist+1):
+        for k in xrange(1, maxdist + 1):
             for item in _suggestions(text, k, prefix, seen):
                 if len(heap) < limit:
                     heappush(heap, item)
                 elif item < heap[0]:
                     heapreplace(heap, item)
-            
+
             # If the heap is already at the required length, don't bother going
             # to a higher edit distance
             if len(heap) >= limit:
                 break
-        
+
         return [sug for _, sug in sorted(heap)]
-        
+
     def _suggestions(self, text, maxdist, prefix, seen):
         """Low-level method that yields a series of (score, "suggestion")
         tuples.
@@ -95,9 +94,9 @@ class Corrector(object):
             with the given word.
         :param seen: a set object with which to track already-seen words.
         """
-        
+
         raise NotImplementedError
-        
+
 
 class ReaderCorrector(Corrector):
     """Suggests corrections based on the content of a field in a reader.
@@ -105,11 +104,11 @@ class ReaderCorrector(Corrector):
     Ranks suggestions by the edit distance, then by highest to lowest
     frequency.
     """
-    
+
     def __init__(self, reader, fieldname):
         self.reader = reader
         self.fieldname = fieldname
-    
+
     def _suggestions(self, text, maxdist, prefix, seen):
         fieldname = self.fieldname
         freq = self.reader.frequency
@@ -127,23 +126,23 @@ class GraphCorrector(Corrector):
     def __init__(self, word_graph, ranking=None):
         self.word_graph = word_graph
         self.ranking = ranking or simple_scorer
-    
+
     def _suggestions(self, text, maxdist, prefix, seen):
         ranking = self.ranking
         for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
                                seen=seen):
             yield (ranking(sug, maxdist), sug)
-    
+
     def to_file(self, f):
         """
         
         This method closes the file when it's done.
         """
-        
+
         root = self.word_graph
         dawg.DawgBuilder.reduce(root)
         dawg.DawgWriter(f).write(root)
-    
+
     @classmethod
     def from_word_list(cls, wordlist, ranking=None, strip=True):
         dw = dawg.DawgBuilder(reduced=False)
@@ -153,20 +152,20 @@ class GraphCorrector(Corrector):
             dw.insert(word)
         dw.finish()
         return cls(dw.root, ranking=ranking)
-    
+
     @classmethod
     def from_graph_file(cls, dbfile, ranking=None):
         dr = dawg.DiskNode.load(dbfile)
         return cls(dr, ranking=ranking)
-    
+
 
 class MultiCorrector(Corrector):
     """Merges suggestions from a list of sub-correctors.
     """
-    
+
     def __init__(self, correctors):
         self.correctors = correctors
-        
+
     def _suggestions(self, text, maxdist, prefix, seen):
         for corr in self.correctors:
             for item in corr._suggestions(text, maxdist, prefix, seen):
@@ -186,16 +185,16 @@ def wordlist_to_graph_file(wordlist, dbfile, strip=True):
         graph to. If you pass a file-like object, it will be closed when the
         function completes.
     """
-    
+
     from whoosh.filedb.structfile import StructFile
-    
+
     g = GraphCorrector.from_word_list(wordlist, strip=strip)
-    
+
     if isinstance(dbfile, string_type):
         dbfile = open(dbfile, "wb")
     if not isinstance(dbfile, StructFile):
         dbfile = StructFile(dbfile)
-    
+
     g.to_file(dbfile)
 
 
@@ -228,27 +227,28 @@ class Correction(object):
         hf = highlight.HtmlFormatter(classname="change")
         html = correction.format_string(hf)
     """
-    
+
     def __init__(self, q, qstring, corr_q, tokens):
         self.original_query = q
         self.query = corr_q
         self.original_string = qstring
         self.tokens = tokens
-        
+
         if self.original_string and self.tokens:
             self.string = self.format_string(highlight.NullFormatter())
         else:
             self.string = None
-    
+
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self.query, self.string)
-    
+        return "%s(%r, %r)" % (self.__class__.__name__, self.query,
+                               self.string)
+
     def format_string(self, formatter):
         if not (self.original_string and self.tokens):
-            raise Exception("The original query isn't available") 
+            raise Exception("The original query isn't available")
         if isinstance(formatter, type):
             formatter = formatter()
-        
+
         fragment = highlight.Fragment(self.original_string, self.tokens)
         return formatter.format_fragment(fragment, replace=True)
 
@@ -258,7 +258,7 @@ class Correction(object):
 class QueryCorrector(object):
     """Base class for objects that correct words in a user query.
     """
-    
+
     def correct_query(self, q, qstring):
         """Returns a :class:`Correction` object representing the corrected
         form of the given query.
@@ -270,7 +270,7 @@ class QueryCorrector(object):
             ``Correction.string`` attribute will also be None.
         :rtype: :class:`Correction`
         """
-        
+
         raise NotImplementedError
 
 
@@ -280,7 +280,7 @@ class SimpleQueryCorrector(QueryCorrector):
     to correct. And terms in the query that appear in list of term tuples are
     corrected using the appropriate corrector.
     """
-    
+
     def __init__(self, correctors, terms, prefix=0, maxdist=2):
         """
         :param correctors: a dictionary mapping field names to
@@ -297,18 +297,18 @@ class SimpleQueryCorrector(QueryCorrector):
             original word and any suggestion. Values higher than ``2`` may be
             slow.
         """
-        
+
         self.correctors = correctors
         self.termset = frozenset(terms)
         self.prefix = prefix
         self.maxdist = maxdist
-    
+
     def correct_query(self, q, qstring):
         correctors = self.correctors
         termset = self.termset
         prefix = self.prefix
         maxdist = self.maxdist
-        
+
         corrected_tokens = []
         corrected_q = q
         for token in q.all_tokens():
@@ -324,7 +324,6 @@ class SimpleQueryCorrector(QueryCorrector):
                     corrected_tokens.append(token)
 
         return Correction(q, qstring, corrected_q, corrected_tokens)
-
 
 
 #
@@ -355,9 +354,11 @@ class SpellChecker(object):
     def index(self, create=False):
         from whoosh import index
         if create or not self._index:
-            create = create or not index.exists(self.storage, indexname=self.indexname)
+            create = create or not index.exists(self.storage,
+                                                indexname=self.indexname)
             if create:
-                self._index = self.storage.create_index(self._schema(), self.indexname)
+                self._index = self.storage.create_index(self._schema(),
+                                                        self.indexname)
             else:
                 self._index = self.storage.open_index(self.indexname)
         return self._index

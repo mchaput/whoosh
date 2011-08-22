@@ -34,7 +34,7 @@ class Tagger(object):
     """Base class for taggers, objects which match syntax in the query string
     and translate it into a :class:`whoosh.qparser.syntax.SyntaxNode` object.
     """
-    
+
     def match(self, parser, text, pos):
         """This method should see if this tagger matches the query string at
         the given position. If it matches, it should return 
@@ -44,7 +44,7 @@ class Tagger(object):
         :param pos: the position in the text at which the tagger should try to
             match.
         """
-        
+
         raise NotImplementedError
 
 
@@ -52,10 +52,10 @@ class RegexTagger(Tagger):
     """Tagger class that uses regular expressions to match the query string.
     Subclasses should override ``create()`` instead of ``match()``.
     """
-    
+
     def __init__(self, expr):
         self.expr = rcompile(expr)
-        
+
     def match(self, parser, text, pos):
         match = self.expr.match(text, pos)
         if match:
@@ -63,7 +63,7 @@ class RegexTagger(Tagger):
             if node is None:
                 raise Exception("%s.match() did not return a node" % (self.__class__.__name__))
             return node.set_range(match.start(), match.end())
-    
+
     def create(self, parser, match):
         """When the regular expression matches, this method is called to
         translate the regex match object into a syntax node.
@@ -71,7 +71,7 @@ class RegexTagger(Tagger):
         :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
         :param match: the regex match object.
         """
-        
+
         raise NotImplementedError
 
 
@@ -80,10 +80,10 @@ class FnTagger(RegexTagger):
     matches calls the class/function with the regex match's named groups as
     keyword arguments.
     """
-    
+
     def __init__(self, expr, fn):
         RegexTagger.__init__(self, expr)
         self.fn = fn
-    
+
     def create(self, parser, match):
         return self.fn(**match.groupdict())

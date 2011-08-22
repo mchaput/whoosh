@@ -265,7 +265,7 @@ def blocknum(ch):
     >>> blocknum(unichr(2048))
     None
     """
-    
+
     cp = ord(ch)
     i = bisect_right(_starts, cp) - 1
     end = _ends[i]

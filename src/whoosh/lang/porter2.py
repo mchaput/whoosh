@@ -9,7 +9,7 @@ in stemming.porter.
 """
 
 import re
- 
+
 r_exp = re.compile(r"[^aeiouy]*[aeiouy]+[^aeiouy](\w*)")
 ewss_exp1 = re.compile(r"^[aeiouy][^aeiouy]$")
 ewss_exp2 = re.compile(r".*[^aeiouy][aeiouy][^aeiouywxY]$")
@@ -24,7 +24,7 @@ def get_r1(word):
         return 5
     if word.startswith('commun'):
         return 6
- 
+
     # normal form
     match = r_exp.match(word)
     if match:
@@ -59,7 +59,7 @@ def remove_initial_apostrophe(word):
     if word.startswith("'"):
         return word[1:]
     return word
- 
+
 
 def capitalize_consonant_ys(word):
     if word.startswith('y'):
@@ -127,14 +127,14 @@ def step_1b(word, r1):
         if len(word) - 3 >= r1:
             return word[:-1]
         return word
- 
+
     for suffix in s1b_suffixes:
         if word.endswith(suffix):
             preceding = word[:-len(suffix)]
             if s1b_exp.search(preceding):
                 return step_1b_helper(preceding)
             return word
- 
+
     return word
 
 
@@ -233,11 +233,11 @@ def step_4(word, r2):
             if len(word) - len(end) >= r2:
                 return word[:-len(end)]
             return word
- 
+
     if word.endswith('sion') or word.endswith('tion'):
         if len(word) - 3 >= r2:
             return word[:-3]
- 
+
     return word
 
 
@@ -246,13 +246,13 @@ def step_5(word, r1, r2):
         if len(word) - 1 >= r2 and word[-2] == 'l':
             return word[:-1]
         return word
- 
+
     if word.endswith('e'):
         if len(word) - 1 >= r2:
             return word[:-1]
         if len(word) - 1 >= r1 and not ends_with_short_syllable(word[:-1]):
             return word[:-1]
- 
+
     return word
 
 
@@ -278,10 +278,10 @@ exceptional_forms = {'skis': 'ski',
                     'cosmos': 'cosmos',
                     'bias': 'bias',
                     'andes': 'andes'}
- 
+
 exceptional_early_exit_post_1a = frozenset(['inning', 'outing', 'canning', 'herring',
                                             'earring', 'proceed', 'exceed', 'succeed'])
- 
+
 
 def stem(word):
     if len(word) <= 2:

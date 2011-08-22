@@ -55,7 +55,7 @@ class FileStorage(Storage):
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
         if self.readonly:
             raise ReadOnlyError
-        
+
         from whoosh.filedb.fileindex import _create_index, FileIndex
         _create_index(self, schema, indexname)
         return FileIndex(self, schema, indexname)
@@ -67,7 +67,7 @@ class FileStorage(Storage):
     def create_file(self, name, excl=False, mode="wb", **kwargs):
         if self.readonly:
             raise ReadOnlyError
-        
+
         path = self._fpath(name)
         if excl:
             flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
@@ -77,7 +77,7 @@ class FileStorage(Storage):
             fileobj = os.fdopen(fd, mode)
         else:
             fileobj = open(path, mode)
-        
+
         f = StructFile(fileobj, name=name, mapped=self.mapped, **kwargs)
         return f
 
@@ -111,10 +111,10 @@ class FileStorage(Storage):
 
     def file_exists(self, name):
         return os.path.exists(self._fpath(name))
-    
+
     def file_modified(self, name):
         return os.path.getmtime(self._fpath(name))
-    
+
     def file_length(self, name):
         return os.path.getsize(self._fpath(name))
 
@@ -131,7 +131,7 @@ class FileStorage(Storage):
 
     def lock(self, name):
         return FileLock(self._fpath(name))
-    
+
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
 
@@ -192,7 +192,7 @@ class RamStorage(FileStorage):
         if name not in self.locks:
             self.locks[name] = Lock()
         return self.locks[name]
-    
+
 
 def copy_to_ram(storage):
     """Copies the given FileStorage object into a new RamStorage object.

@@ -39,16 +39,16 @@ class TempStorage(object):
         self.suppress = suppress
         self.keepdir = keepdir
         self.dir = None
-    
+
     def _mkdir(self):
         self.dir = os.path.join(self.parentdir, "tmp", self.basename + ".tmpix")
         if not os.path.exists(self.dir):
             os.makedirs(self.dir)
-        
+
     def __enter__(self):
         self._mkdir()
         return FileStorage(self.dir)
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if not self.keepdir:
             try:
@@ -56,7 +56,7 @@ class TempStorage(object):
             except OSError:
                 e = sys.exc_info()[1]
                 print("Can't remove temp dir: " + str(e))
-        
+
         if exc_type is not None:
             if self.keepdir:
                 print("Temp dir=", self.dir)
@@ -78,7 +78,7 @@ def skip_if(cond):
     """A Nose test decorator that skips the decorated test if the given
     function returns True at runtime.
     """
-    
+
     def decorating_function(testfn):
         @wraps(testfn)
         def wrapper(*args, **kwargs):
@@ -87,10 +87,10 @@ def skip_if(cond):
                 raise SkipTest
             else:
                 return testfn(*args, **kwargs)
-        
+
         return wrapper
     return decorating_function
-    
+
 
 def skip_if_unavailable(modulename):
     """A Nose test decorator that only runs the decorated test if a module
@@ -101,7 +101,7 @@ def skip_if_unavailable(modulename):
     
     Raises ``SkipTest`` if the module cannot be imported.
     """
-    
+
     def cantimport():
         try:
             __import__(modulename)
@@ -109,14 +109,14 @@ def skip_if_unavailable(modulename):
             return True
         else:
             return False
-        
+
     return skip_if(cantimport)
 
 
 def is_abstract_method(attr):
     """Returns True if the given object has __isabstractmethod__ == True.
     """
-    
+
     return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
 
 
@@ -124,7 +124,7 @@ def check_abstract_methods(base, subclass):
     """Raises AssertionError if ``subclass`` does not override a method on
     ``base`` that is marked as an abstract method.
     """
-    
+
     for attrname in dir(base):
         if attrname.startswith("_"):
             continue

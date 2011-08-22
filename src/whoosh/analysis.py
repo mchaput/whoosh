@@ -93,7 +93,7 @@ url_pattern = rcompile("""
     \\S+?                  # URL body
     (?=\\s|[.]\\s|$|[.]$)  # Stop at space/end, or a dot followed by space/end
 ) | (                      # or...
-    \w+([:.]?\w+)*         # word characters, with optional internal colons/dots
+    \w+([:.]?\w+)*         # word characters, with opt. internal colons/dots
 )
 """, verbose=True)
 
@@ -114,23 +114,23 @@ def entoken(textstream, positions=False, chars=False, start_pos=0,
     ``positions`` or ``chars`` is True, the function assumes each token was
     separated by one space).
     """
-    
+
     pos = start_pos
     char = start_char
     t = Token(positions=positions, chars=chars, **kwargs)
-    
+
     for text in textstream:
         t.text = text
-        
+
         if positions:
             t.pos = pos
             pos += 1
-        
+
         if chars:
             t.startchar = char
             char = char + len(text)
             t.endchar = char
-        
+
         yield t
 
 
@@ -164,7 +164,7 @@ class Token(object):
 
     ...or, call token.copy() to get a copy of the token object.
     """
-    
+
     def __init__(self, positions=False, chars=False, removestops=True, mode='',
                  **kwargs):
         """
@@ -177,7 +177,7 @@ class Token(object):
         :param mode: contains a string describing the purpose for which the
             analyzer is being called, i.e. 'index' or 'query'.
         """
-        
+
         self.positions = positions
         self.chars = chars
         self.stopped = False
@@ -185,12 +185,12 @@ class Token(object):
         self.removestops = removestops
         self.mode = mode
         self.__dict__.update(kwargs)
-    
+
     def __repr__(self):
         parms = ", ".join("%s=%r" % (name, value)
                           for name, value in iteritems(self.__dict__))
         return "%s(%s)" % (self.__class__.__name__, parms)
-        
+
     def copy(self):
         # This is faster than using the copy module
         return Token(**self.__dict__)
@@ -200,12 +200,12 @@ class Token(object):
 
 class Composable(object):
     is_morph = False
-    
+
     def __or__(self, other):
         if not callable(other):
             raise Exception("%r is not composable with %r" % (self, other))
         return CompositeAnalyzer(self, other)
-    
+
     def __repr__(self):
         attrs = ""
         if self.__dict__:
@@ -213,7 +213,7 @@ class Composable(object):
                               for key, value
                               in iteritems(self.__dict__))
         return self.__class__.__name__ + "(%s)" % attrs
-    
+
     def has_morph(self):
         return self.is_morph
 
@@ -223,25 +223,26 @@ class Composable(object):
 class Tokenizer(Composable):
     """Base class for Tokenizers.
     """
-    
+
     def __eq__(self, other):
         return other and self.__class__ is other.__class__
-    
+
 
 class IDTokenizer(Tokenizer):
     """Yields the entire input string as a single token. For use in indexed but
     untokenized fields, such as a document's path.
     
     >>> idt = IDTokenizer()
-    >>> [token.text for token in idt(u("/a/b 123 alpha"))] == [u("/a/b 123 alpha")]
-    True
+    >>> [token.text for token in idt("/a/b 123 alpha")]
+    ["/a/b 123 alpha"]
     """
-    
+
     def __call__(self, value, positions=False, chars=False,
                  keeporiginal=False, removestops=True,
                  start_pos=0, start_char=0, mode='', **kwargs):
         assert isinstance(value, text_type), "%r is not unicode" % value
-        t = Token(positions, chars, removestops=removestops, mode=mode, **kwargs)
+        t = Token(positions, chars, removestops=removestops, mode=mode,
+                  **kwargs)
         t.text = value
         t.boost = 1.0
         if keeporiginal:
@@ -252,19 +253,19 @@ class IDTokenizer(Tokenizer):
             t.startchar = start_char
             t.endchar = start_char + len(value)
         yield t
-    
+
 
 class RegexTokenizer(Tokenizer):
     """
     Uses a regular expression to extract tokens from text.
     
     >>> rex = RegexTokenizer()
-    >>> [token.text for token in rex(u("hi there 3.141 big-time under_score"))] == [u("hi"), u("there"), u("3.141"), u("big"), u("time"), u("under_score")]
-    True
+    >>> [token.text for token in rex(u("hi there 3.141 big-time under_score"))]
+    ["hi", "there", "3.141", "big", "time", "under_score"]
     """
-    
+
     __inittypes__ = dict(expression=text_type, gaps=bool)
-    
+
     def __init__(self, expression=default_pattern, gaps=False):
         """
         :param expression: A regular expression object or string. Each match
@@ -274,16 +275,16 @@ class RegexTokenizer(Tokenizer):
         :param gaps: If True, the tokenizer *splits* on the expression, rather
             than matching on the expression.
         """
-        
+
         self.expression = rcompile(expression)
         self.gaps = gaps
-    
+
     def __eq__(self, other):
         if self.__class__ is other.__class__:
             if self.expression.pattern == other.expression.pattern:
                 return True
         return False
-    
+
     def __call__(self, value, positions=False, chars=False, keeporiginal=False,
                  removestops=True, start_pos=0, start_char=0, tokenize=True,
                  mode='', **kwargs):
@@ -299,10 +300,11 @@ class RegexTokenizer(Tokenizer):
             will have chars (2,5),(6,9) instead (0,3),(4,7).
         :param tokenize: if True, the text should be tokenized.
         """
-        
+
         assert isinstance(value, text_type), "%r is not unicode" % value
-        
-        t = Token(positions, chars, removestops=removestops, mode=mode, **kwargs)
+
+        t = Token(positions, chars, removestops=removestops, mode=mode,
+                  **kwargs)
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
@@ -347,11 +349,11 @@ class RegexTokenizer(Tokenizer):
                     if chars:
                         t.startchar = start_char + start
                         t.endchar = start_char + end
-                    
+
                     yield t
-                
+
                 prevend = match.end()
-            
+
             # If the last "gap" was before the end of the text,
             # yield the last bit of text as a final token.
             if prevend < len(value):
@@ -380,7 +382,8 @@ class CharsetTokenizer(Tokenizer):
     One way to get a character mapping object is to convert a Sphinx charset
     table file using :func:`whoosh.support.charset.charset_table_to_dict`.
     
-    >>> from whoosh.support.charset import charset_table_to_dict, default_charset
+    >>> from whoosh.support.charset import charset_table_to_dict
+    >>> from whoosh.support.charset import default_charset
     >>> charmap = charset_table_to_dict(default_charset)
     >>> chtokenizer = CharsetTokenizer(charmap)
     >>> [t.text for t in chtokenizer(u'Stra\\xdfe ABC')]
@@ -389,16 +392,16 @@ class CharsetTokenizer(Tokenizer):
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
-    
+
     __inittype__ = dict(charmap=str)
-    
+
     def __init__(self, charmap):
         """
         :param charmap: a mapping from integer character numbers to unicode
             characters, as used by the unicode.translate() method.
         """
         self.charmap = charmap
-    
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
@@ -419,10 +422,11 @@ class CharsetTokenizer(Tokenizer):
             will have chars (2,5),(6,9) instead (0,3),(4,7).
         :param tokenize: if True, the text should be tokenized.
         """
-        
+
         assert isinstance(value, text_type), "%r is not unicode" % value
-        
-        t = Token(positions, chars, removestops=removestops, mode=mode, **kwargs)
+
+        t = Token(positions, chars, removestops=removestops, mode=mode,
+                  **kwargs)
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
@@ -456,9 +460,9 @@ class CharsetTokenizer(Tokenizer):
                         yield t
                     startchar = currentchar + 1
                     text = u("")
-                    
+
                 currentchar += 1
-            
+
             if currentchar > startchar:
                 t.text = value[startchar:currentchar]
                 t.boost = 1.0
@@ -476,10 +480,10 @@ def SpaceSeparatedTokenizer():
     """Returns a RegexTokenizer that splits tokens by whitespace.
     
     >>> sst = SpaceSeparatedTokenizer()
-    >>> [token.text for token in sst(u("hi there big-time, what's up"))] == [u("hi"), u("there"), u("big-time,"), u("what's"), u("up")]
-    True
+    >>> [token.text for token in sst("hi there big-time, what's up")]
+    ["hi", "there", "big-time,", "what's", "up"]
     """
-    
+
     return RegexTokenizer(r"[^ \t\r\n]+")
 
 
@@ -490,10 +494,10 @@ def CommaSeparatedTokenizer():
     expression.
     
     >>> cst = CommaSeparatedTokenizer()
-    >>> [token.text for token in cst(u("hi there, what's , up"))] == [u("hi there"), u("what's"), u("up")]
-    True
+    >>> [token.text for token in cst("hi there, what's , up")]
+    ["hi there", "what's", "up"]
     """
-    
+
     return RegexTokenizer(r"[^,]+") | StripFilter()
 
 
@@ -501,8 +505,8 @@ class NgramTokenizer(Tokenizer):
     """Splits input text into N-grams instead of words.
     
     >>> ngt = NgramTokenizer(4)
-    >>> [token.text for token in ngt(u("hi there"))] == [u("hi t"), u("i th"), u(" the"), u("ther"), u("here")]
-    True
+    >>> [token.text for token in ngt("hi there")]
+    ["hi t", "i th", " the", "ther", "here"]
 
     Note that this tokenizer does NOT use a regular expression to extract
     words, so the grams emitted by it will contain whitespace, punctuation,
@@ -512,34 +516,34 @@ class NgramTokenizer(Tokenizer):
     Alternatively, if you only want sub-word grams without whitespace, you
     could combine a RegexTokenizer with NgramFilter instead.
     """
-    
+
     __inittypes__ = dict(minsize=int, maxsize=int)
-    
+
     def __init__(self, minsize, maxsize=None):
         """
         :param minsize: The minimum size of the N-grams.
         :param maxsize: The maximum size of the N-grams. If you omit
             this parameter, maxsize == minsize.
         """
-        
+
         self.min = minsize
         self.max = maxsize or minsize
-    
+
     def __eq__(self, other):
         if self.__class__ is other.__class__:
             if self.min == other.min and self.max == other.max:
                 return True
         return False
-    
+
     def __call__(self, value, positions=False, chars=False, keeporiginal=False,
                  removestops=True, start_pos=0, start_char=0, mode='',
                  **kwargs):
         assert isinstance(value, text_type), "%r is not unicode" % value
-        
+
         inlen = len(value)
         t = Token(positions, chars, removestops=removestops, mode=mode)
         pos = start_pos
-        
+
         if mode == "query":
             size = min(self.max, inlen)
             for start in xrange(0, inlen - size + 1):
@@ -572,7 +576,7 @@ class NgramTokenizer(Tokenizer):
                     if chars:
                         t.startchar = start_char + start
                         t.endchar = start_char + end
-                    
+
                     yield t
                 pos += 1
 
@@ -581,10 +585,10 @@ class PathTokenizer(Tokenizer):
     """A simple tokenizer that given a string ``"/a/b/c"`` yields tokens
     ``["/a", "/a/b", "/a/b/c"]``.
     """
-    
+
     def __init__(self, expression="[^/]+"):
         self.expr = rcompile(expression, re.UNICODE)
-    
+
     def __call__(self, value, **kwargs):
         assert isinstance(value, text_type), "%r is not unicode" % value
         token = Token(**kwargs)
@@ -603,10 +607,10 @@ class Filter(Composable):
     Filters that do morphological transformation of tokens (e.g. stemming)
     should set their ``is_morph`` attribute to True.
     """
-    
+
     def __eq__(self, other):
         return other and self.__class__ is other.__class__
-    
+
     def __call__(self, tokens):
         raise NotImplementedError
 
@@ -614,7 +618,7 @@ class Filter(Composable):
 class PassFilter(Filter):
     """An identity filter: passes the tokens through untouched.
     """
-    
+
     def __call__(self, tokens):
         return tokens
 
@@ -623,18 +627,18 @@ class LoggingFilter(Filter):
     """Prints the contents of every filter that passes through as a debug
     log entry.
     """
-    
+
     def __init__(self, logger=None):
         """
         :param target: the logger to use. If omitted, the "whoosh.analysis"
             logger is used.
         """
-        
+
         if logger is None:
             import logging
             logger = logging.getLogger("whoosh.analysis")
         self.logger = logger
-    
+
     def __call__(self, tokens):
         logger = self.logger
         for t in tokens:
@@ -646,9 +650,9 @@ class MultiFilter(Filter):
     """Chooses one of two or more sub-filters based on the 'mode' attribute
     of the token stream.
     """
-    
+
     default_filter = PassFilter()
-    
+
     def __init__(self, **kwargs):
         """Use keyword arguments to associate mode attribute values with
         instantiated filters.
@@ -661,18 +665,18 @@ class MultiFilter(Filter):
         among all tokens in a token stream.
         """
         self.filters = kwargs
-    
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
                 and self.filters == other.filters)
-    
+
     def __call__(self, tokens):
         # Only selects on the first token
         t = next(tokens)
         filter = self.filters.get(t.mode, self.default_filter)
         return filter(chain([t], tokens))
-        
+
 
 class TeeFilter(Filter):
     """Interleaves the results of two or more filters (or filter chains).
@@ -698,18 +702,19 @@ class TeeFilter(Filter):
     >>> [token.text for token in ana(target)]
     ["alfa", "alfa-bravo", "bravo", "bravo-charlie", "charlie"]
     """
-    
+
     def __init__(self, *filters):
         if len(filters) < 2:
             raise Exception("TeeFilter requires two or more filters")
         self.filters = filters
-    
+
     def __eq__(self, other):
-        return self.__class__ is other.__class__ and self.filters == other.fitlers
-    
+        return (self.__class__ is other.__class__
+                and self.filters == other.fitlers)
+
     def __call__(self, tokens):
         from itertools import tee
-        
+
         count = len(self.filters)
         # Tee the token iterator and wrap each teed iterator with the
         # corresponding filter
@@ -731,10 +736,10 @@ class ReverseTextFilter(Filter):
     """Reverses the text of each token.
     
     >>> ana = RegexTokenizer() | ReverseTextFilter()
-    >>> [token.text for token in ana(u("hello there"))] == [u("olleh"), u("ereht")]
-    True
+    >>> [token.text for token in ana("hello there")]
+    ["olleh", "ereht"]
     """
-    
+
     def __call__(self, tokens):
         for t in tokens:
             t.text = t.text[::-1]
@@ -745,21 +750,21 @@ class LowercaseFilter(Filter):
     """Uses unicode.lower() to lowercase token text.
     
     >>> rext = RegexTokenizer()
-    >>> stream = rext(u("This is a TEST"))
-    >>> [token.text for token in LowercaseFilter(stream)] == [u("this"), u("is"), u("a"), u("test")]
-    True
+    >>> stream = rext("This is a TEST")
+    >>> [token.text for token in LowercaseFilter(stream)]
+    ["this", "is", "a", "test"]
     """
-    
+
     def __call__(self, tokens):
         for t in tokens:
             t.text = t.text.lower()
             yield t
-            
+
 
 class StripFilter(Filter):
     """Calls unicode.strip() on the token text.
     """
-    
+
     def __call__(self, tokens):
         for t in tokens:
             t.text = t.text.strip()
@@ -771,14 +776,14 @@ class StopFilter(Filter):
     default removes them).
     
     >>> rext = RegexTokenizer()
-    >>> stream = rext(u("this is a test"))
+    >>> stream = rext("this is a test")
     >>> stopper = StopFilter()
-    >>> [token.text for token in stopper(stream)] == [u("this"), u("test")]
-    True
-    
+    >>> [token.text for token in stopper(stream)]
+    ["this", "test"]
     """
 
-    __inittypes__ = dict(stoplist=list, minsize=int, maxsize=int, renumber=bool)
+    __inittypes__ = dict(stoplist=list, minsize=int, maxsize=int,
+                         renumber=bool)
 
     def __init__(self, stoplist=STOP_WORDS, minsize=2, maxsize=None,
                  renumber=True):
@@ -796,7 +801,7 @@ class StopFilter(Filter):
             entirely. This is not normally necessary, since the indexing
             code will ignore tokens it receives with stopped=True.
         """
-        
+
         if stoplist is None:
             self.stops = frozenset()
         else:
@@ -804,20 +809,20 @@ class StopFilter(Filter):
         self.min = minsize
         self.max = maxsize
         self.renumber = renumber
-    
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
                 and self.stops == other.stops
                 and self.min == other.min
                 and self.renumber == other.renumber)
-    
+
     def __call__(self, tokens):
         stoplist = self.stops
         minsize = self.min
         maxsize = self.max
         renumber = self.renumber
-        
+
         pos = None
         for t in tokens:
             text = t.text
@@ -848,8 +853,8 @@ class StemFilter(Filter):
     single word in the index.
     
     >>> stemmer = RegexTokenizer() | StemFilter()
-    >>> [token.text for token in stemmer(u("fundamentally willows"))] == [u("fundament"), u("willow")]
-    True
+    >>> [token.text for token in stemmer("fundamentally willows")]
+    ["fundament", "willow"]
     
     You can pass your own stemming function to the StemFilter. The default
     is the Porter stemming algorithm for English.
@@ -865,11 +870,11 @@ class StemFilter(Filter):
     :class:`PyStemmerFilter` provides slightly easier access to the language
     stemmers in that library.
     """
-    
+
     __inittypes__ = dict(stemfn=object, ignore=list)
-    
+
     is_morph = True
-    
+
     def __init__(self, stemfn=stem, ignore=None, cachesize=50000):
         """
         :param stemfn: the function to use for stemming.
@@ -879,19 +884,19 @@ class StemFilter(Filter):
         :param cachesize: the maximum number of words to cache. Use ``-1`` for
             an unbounded cache, or ``None`` for no caching.
         """
-        
+
         self.stemfn = stemfn
         self.ignore = frozenset() if ignore is None else frozenset(ignore)
         self.cachesize = cachesize
         # clear() sets the _stem attr to a cached wrapper around self.stemfn
         self.clear()
-    
+
     def __getstate__(self):
         # Can't pickle a dynamic function, so we have to remove the _stem
         # attribute from the state
         return dict([(k, self.__dict__[k]) for k in self.__dict__
                       if k != "_stem"])
-    
+
     def __setstate__(self, state):
         # Check for old instances of StemFilter class, which didn't have a
         # cachesize attribute and pickled the cache attribute
@@ -903,11 +908,11 @@ class StemFilter(Filter):
             self.ignore = frozenset()
         if "cache" in state:
             del state["cache"]
-        
+
         self.__dict__.update(state)
         # Set the _stem attribute
         self.clear()
-    
+
     def clear(self):
         if self.cachesize < 0:
             self._stem = unbound_cache(self.stemfn)
@@ -915,20 +920,20 @@ class StemFilter(Filter):
             self._stem = lru_cache(self.cachesize)(self.stemfn)
         else:
             self._stem = self.stemfn
-    
+
     def cache_info(self):
         if self.cachesize <= 1:
             return None
         return self._stem.cache_info()
-    
+
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
                 and self.stemfn == other.stemfn)
-    
+
     def __call__(self, tokens):
         stemfn = self._stem
         ignore = self.ignore
-        
+
         for t in tokens:
             if not t.stopped:
                 text = t.text
@@ -944,7 +949,7 @@ class PyStemmerFilter(StemFilter):
     
     >>> PyStemmerFilter("spanish")
     """
-    
+
     def __init__(self, lang="english", ignore=None, cachesize=10000):
         """
         :param lang: a string identifying the stemming algorithm to use. You
@@ -956,26 +961,26 @@ class PyStemmerFilter(StemFilter):
             are stemmed.
         :param cachesize: the maximum number of words to cache.
         """
-        
+
         import Stemmer  #@UnresolvedImport
-        
+
         stemmer = Stemmer.Stemmer(lang)
         stemmer.maxCacheSize = cachesize
         self._stem = stemmer.stemWord
         self.ignore = frozenset() if ignore is None else frozenset(ignore)
-        
+
     def algorithms(self):
         """Returns a list of stemming algorithms provided by the py-stemmer
         library.
         """
-        
+
         import Stemmer  #@UnresolvedImport
-        
+
         return Stemmer.algorithms()
-    
+
     def cache_info(self):
         return None
-        
+
 
 class CharsetFilter(Filter):
     """Translates the text of tokens by calling unicode.translate() using the
@@ -994,7 +999,8 @@ class CharsetFilter(Filter):
     charset table file using
     :func:`whoosh.support.charset.charset_table_to_dict`.
     
-    >>> from whoosh.support.charset import charset_table_to_dict, default_charset
+    >>> from whoosh.support.charset import charset_table_to_dict
+    >>> from whoosh.support.charset import default_charset
     >>> retokenizer = RegexTokenizer()
     >>> charmap = charset_table_to_dict(default_charset)
     >>> chfilter = CharsetFilter(charmap)
@@ -1004,21 +1010,21 @@ class CharsetFilter(Filter):
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
-    
+
     __inittypes__ = dict(charmap=dict)
-    
+
     def __init__(self, charmap):
         """
         :param charmap: a dictionary mapping from integer character numbers to
             unicode characters, as required by the unicode.translate() method.
         """
         self.charmap = charmap
-    
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
                 and self.charmap == other.charmap)
-    
+
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
         charmap = self.charmap
@@ -1031,15 +1037,14 @@ class NgramFilter(Filter):
     """Splits token text into N-grams.
     
     >>> rext = RegexTokenizer()
-    >>> stream = rext(u("hello there"))
+    >>> stream = rext("hello there")
     >>> ngf = NgramFilter(4)
-    >>> [token.text for token in ngf(stream)] == [u("hell"), u("ello"), u("ther"), u("here")]
-    True
-    
+    >>> [token.text for token in ngf(stream)]
+    ["hell", "ello", "ther", "here"]
     """
-    
+
     __inittypes__ = dict(minsize=int, maxsize=int)
-    
+
     def __init__(self, minsize, maxsize=None, at=None):
         """
         :param minsize: The minimum size of the N-grams.
@@ -1049,7 +1054,7 @@ class NgramFilter(Filter):
             if 'end', only take N-grams from the end of each word. Otherwise,
             take all N-grams from the word (the default).
         """
-        
+
         self.min = minsize
         self.max = maxsize or minsize
         self.at = 0
@@ -1057,11 +1062,11 @@ class NgramFilter(Filter):
             self.at = -1
         elif at == "end":
             self.at = 1
-    
+
     def __eq__(self, other):
         return other and self.__class__ is other.__class__\
         and self.min == other.min and self.max == other.max
-    
+
     def __call__(self, tokens):
         assert hasattr(tokens, "__iter__")
         at = self.at
@@ -1069,14 +1074,14 @@ class NgramFilter(Filter):
             text = t.text
             if len(text) < self.min:
                 continue
-            
+
             chars = t.chars
             if chars:
                 startchar = t.startchar
             # Token positions don't mean much for N-grams,
             # so we'll leave the token's original position
             # untouched.
-            
+
             if t.mode == "query":
                 size = min(self.max, len(t.text))
                 if at == -1:
@@ -1104,7 +1109,7 @@ class NgramFilter(Filter):
                         if chars:
                             t.endchar = startchar + size
                         yield t
-                        
+
                 elif at == 1:
                     start = max(0, len(text) - self.max)
                     for i in xrange(start, len(text) - self.min + 1):
@@ -1118,13 +1123,13 @@ class NgramFilter(Filter):
                             end = start + size
                             if end > len(text):
                                 continue
-                            
+
                             t.text = text[start:end]
-                            
+
                             if chars:
                                 t.startchar = startchar + start
                                 t.endchar = startchar + end
-                                
+
                             yield t
 
 
@@ -1165,7 +1170,10 @@ class IntraWordFilter(Filter):
     this filter can see them, and put this filter before any use of
     LowercaseFilter.
     
-    >>> analyzer = RegexTokenizer(r"\\S+") | IntraWordFilter() | LowercaseFilter()
+    >>> rt = RegexTokenizer(r"\\S+")
+    >>> iwf = IntraWordFilter()
+    >>> lcf = LowercaseFilter()
+    >>> analyzer = rt | iwf | lcf
     
     One use for this filter is to help match different written representations
     of a concept. For example, if the source text contained `wi-fi`, you
@@ -1174,8 +1182,9 @@ class IntraWordFilter(Filter):
     for indexing, and mergewords=False / mergenums=False in the analyzer used
     for querying.
     
-    >>> iwf = MultiFilter(index=IntraWordFilter(mergewords=True, mergenums=True),
-                          query=IntraWordFilter(mergewords=False, mergenums=False))
+    >>> iwf_i = IntraWordFilter(mergewords=True, mergenums=True)
+    >>> iwf_q = IntraWordFilter(mergewords=False, mergenums=False)
+    >>> iwf = MultiFilter(index=iwf_i, query=iwf_q)
     >>> analyzer = RegexTokenizer(r"\S+") | iwf | LowercaseFilter()
     
     (See :class:`MultiFilter`.)
@@ -1185,7 +1194,7 @@ class IntraWordFilter(Filter):
 
     __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
-    
+
     def __init__(self, delims=u("-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+"),
                  splitwords=True, splitnums=True,
                  mergewords=False, mergenums=False):
@@ -1200,50 +1209,52 @@ class IntraWordFilter(Filter):
         :param mergenums: merge consecutive runs of numeric subwords into an
             additional token with the same position as the last subword.
         """
-        
+
         from whoosh.support.unicode import digits, lowercase, uppercase
-        
+
         self.delims = re.escape(delims)
-        
+
         # Expression for text between delimiter characters
         self.between = re.compile(u("[^%s]+") % (self.delims,), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
-        dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase, self.delims)
+        dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase,
+                                                    self.delims)
         self.possessive = re.compile(dispat, re.UNICODE)
-        
+
         # Expression for finding case and letter-number transitions
         lower2upper = u("[%s][%s]") % (lowercase, uppercase)
         letter2digit = u("[%s%s][%s]") % (lowercase, uppercase, digits)
         digit2letter = u("[%s][%s%s]") % (digits, lowercase, uppercase)
         if splitwords and splitnums:
-            splitpat = u("(%s|%s|%s)") % (lower2upper, letter2digit, digit2letter)
+            splitpat = u("(%s|%s|%s)") % (lower2upper, letter2digit,
+                                          digit2letter)
             self.boundary = re.compile(splitpat, re.UNICODE)
         elif splitwords:
             self.boundary = re.compile(text_type(lower2upper), re.UNICODE)
         elif splitnums:
             numpat = u("(%s|%s)") % (letter2digit, digit2letter)
             self.boundary = re.compile(numpat, re.UNICODE)
-        
+
         self.splitting = splitwords or splitnums
         self.mergewords = mergewords
         self.mergenums = mergenums
-    
+
     def __eq__(self, other):
         return other and self.__class__ is other.__class__\
         and self.__dict__ == other.__dict__
-    
+
     def _split(self, string):
         bound = self.boundary
-        
+
         # Yields (startchar, endchar) pairs for each indexable substring in
         # the given string, e.g. "WikiWord" -> (0, 4), (4, 8)
-        
+
         # Whether we're splitting on transitions (case changes, letter -> num,
         # num -> letter, etc.)
         splitting = self.splitting
-        
-        # Make a list (dispos, for "dispossessed") of (startchar, endchar) pairs
-        # for runs of text between "'s"
+
+        # Make a list (dispos, for "dispossessed") of (startchar, endchar)
+        # pairs for runs of text between "'s"
         if "'" in string:
             # Split on possessive 's
             dispos = []
@@ -1255,15 +1266,15 @@ class IntraWordFilter(Filter):
                 dispos.append((prev, len(string)))
         else:
             # Shortcut if there's no apostrophe in the string
-            dispos = ((0, len(string)), )
-        
+            dispos = ((0, len(string)),)
+
         # For each run between 's
         for sc, ec in dispos:
             # Split on boundary characters
             for part_match in self.between.finditer(string, sc, ec):
                 part_start = part_match.start()
                 part_end = part_match.end()
-                
+
                 if splitting:
                     # The point to start splitting at
                     prev = part_start
@@ -1275,18 +1286,18 @@ class IntraWordFilter(Filter):
                         yield (prev, pivot)
                         # Make the transition the new starting point
                         prev = pivot
-                    
+
                     # If there's leftover text at the end, yield it too
                     if prev < part_end:
                         yield (prev, part_end)
                 else:
                     # Not splitting on transitions, just yield the part
                     yield (part_start, part_end)
-            
+
     def _merge(self, parts):
         mergewords = self.mergewords
         mergenums = self.mergenums
-        
+
         # Current type (1=alpah, 2=digit)
         last = 0
         # Where to insert a merged term in the original list
@@ -1295,24 +1306,24 @@ class IntraWordFilter(Filter):
         buf = []
         # Iterate on a copy of the parts list so we can modify the original as
         # we go
-        
+
         def insert_item(buf, at, newpos):
             newtext = "".join(item[0] for item in buf)
             newsc = buf[0][2]  # start char of first item in buffer
-            newec = buf[-1][3] # end char of last item in buffer
+            newec = buf[-1][3]  # end char of last item in buffer
             parts.insert(insertat, (newtext, newpos, newsc, newec))
-        
+
         for item in parts[:]:
             # item = (text, pos, startchar, endchar)
             text = item[0]
             pos = item[1]
-            
+
             # Set the type of this part
             if text.isalpha():
                 this = 1
             elif text.isdigit():
                 this = 2
-            
+
             # Is this the same type as the previous part?
             if (buf and (this == last == 1 and mergewords)
                 or (this == last == 2 and mergenums)):
@@ -1330,22 +1341,22 @@ class IntraWordFilter(Filter):
                 buf = [item]
                 last = this
             insertat += 1
-        
+
         # If there are parts left in the buffer at the end, merge them and add
         # them to the original list.
         if len(buf) > 1:
             insert_item(buf, len(parts), pos)
-    
+
     def __call__(self, tokens):
         mergewords = self.mergewords
         mergenums = self.mergenums
-        
+
         # This filter renumbers tokens as it expands them. New position
         # counter.
         newpos = None
         for t in tokens:
             text = t.text
-            
+
             # If this is the first token we've seen, use it to set the new
             # position counter
             if newpos is None:
@@ -1354,8 +1365,9 @@ class IntraWordFilter(Filter):
                 else:
                     # Token doesn't have positions, just use 0
                     newpos = 0
-            
-            if (text.isalpha() and (text.islower() or text.isupper())) or text.isdigit():
+
+            if ((text.isalpha() and (text.islower() or text.isupper()))
+                or text.isdigit()):
                 # Short-circuit the common cases of no delimiters, no case
                 # transitions, only digits, etc.
                 t.pos = newpos
@@ -1368,14 +1380,14 @@ class IntraWordFilter(Filter):
                 ranges = self._split(text)
                 parts = [(text[sc:ec], i + newpos, sc, ec)
                          for i, (sc, ec) in enumerate(ranges)]
-                
+
                 # Did the split yield more than one part?
                 if len(parts) > 1:
                     # If the options are set, merge consecutive runs of all-
                     # letters and/or all-numbers.
                     if mergewords or mergenums:
                         self._merge(parts)
-                    
+
                 # Yield tokens for the parts
                 chars = t.chars
                 if chars:
@@ -1387,7 +1399,7 @@ class IntraWordFilter(Filter):
                         t.startchar = base + startchar
                         t.endchar = base + endchar
                     yield t
-                
+
                 if parts:
                     # Set the new position counter based on the last part
                     newpos = parts[-1][1] + 1
@@ -1413,7 +1425,7 @@ class CompoundWordFilter(Filter):
     >>> [t.text for t in analyzer("I do not like greeneggs and ham")
     ["I", "do", "not", "like", "green", "eggs", "and", "ham"]
     """
-    
+
     def __init__(self, wordset, keep_compound=True):
         """
         :param wordset: an object with a ``__contains__`` method, such as a
@@ -1421,16 +1433,16 @@ class CompoundWordFilter(Filter):
         :param keep_compound: if True (the default), the original compound
             token will be retained in the stream before the subwords.
         """
-        
+
         self.wordset = wordset
         self.keep_compound = keep_compound
-    
+
     def subwords(self, s, memo):
         if s in self.wordset:
             return [s]
         if s in memo:
             return memo[s]
-        
+
         for i in xrange(1, len(s)):
             prefix = s[:i]
             if prefix in self.wordset:
@@ -1439,10 +1451,10 @@ class CompoundWordFilter(Filter):
                 if suffix_subs:
                     result = [prefix] + suffix_subs
                     memo[s] = result
-                    return result 
-        
+                    return result
+
         return None
-    
+
     def __call__(self, tokens):
         keep_compound = self.keep_compound
         memo = {}
@@ -1457,7 +1469,7 @@ class CompoundWordFilter(Filter):
                     yield t
             else:
                 yield t
-        
+
 
 class BiWordFilter(Filter):
     """Merges adjacent tokens into "bi-word" tokens, so that for example::
@@ -1476,56 +1488,56 @@ class BiWordFilter(Filter):
     The ``BiWordFilter`` is much faster than using the otherwise equivalent
     ``ShingleFilter(2)``.
     """
-    
+
     def __init__(self, sep="-"):
         self.sep = sep
-        
+
     def __call__(self, tokens):
         sep = self.sep
         prev_text = None
         prev_startchar = None
         prev_pos = None
         atleastone = False
-        
+
         for token in tokens:
             # Save the original text of this token
             text = token.text
-            
+
             # Save the original position
             positions = token.positions
             if positions:
                 ps = token.pos
-            
+
             # Save the original start char
             chars = token.chars
             if chars:
                 sc = token.startchar
-            
+
             if prev_text is not None:
                 # Use the pos and startchar from the previous token
                 if positions:
                     token.pos = prev_pos
                 if chars:
                     token.startchar = prev_startchar
-                
+
                 # Join the previous token text and the current token text to
                 # form the biword token
                 token.text = "".join((prev_text, sep, text))
                 yield token
                 atleastone = True
-            
+
             # Save the originals and the new "previous" values
             prev_text = text
             if chars:
                 prev_startchar = sc
             if positions:
                 prev_pos = ps
-        
+
         # If no bi-words were emitted, that is, the token stream only had
         # a single token, then emit that single token.
         if not atleastone:
             yield token
-        
+
 
 class ShingleFilter(Filter):
     """Merges a certain number of adjacent tokens into multi-word tokens, so
@@ -1547,31 +1559,31 @@ class ShingleFilter(Filter):
     equivalent ``BiWordFilter`` instead because it's faster than
     ``ShingleFilter``.
     """
-    
+
     def __init__(self, size=2, sep="-"):
         self.size = size
         self.sep = sep
-        
+
     def __call__(self, tokens):
         size = self.size
         sep = self.sep
         buf = deque()
         atleastone = False
-        
+
         def make_token():
             tk = buf[0]
             tk.text = sep.join([t.text for t in buf])
             if tk.chars:
                 tk.endchar = buf[-1].endchar
             return tk
-        
+
         for token in tokens:
             buf.append(token.copy())
             if len(buf) == size:
                 atleastone = True
                 yield make_token()
                 buf.popleft()
-        
+
         # If no shingles were emitted, that is, the token stream had fewer than
         # 'size' tokens, then emit a single token with whatever tokens there
         # were
@@ -1581,7 +1593,7 @@ class ShingleFilter(Filter):
 
 class BoostTextFilter(Filter):
     "This filter is deprecated, use :class:`DelimitedAttributeFilter` instead."
-    
+
     def __init__(self, expression, group=1, default=1.0):
         """
         :param expression: a compiled regular expression object representing
@@ -1592,22 +1604,22 @@ class BoostTextFilter(Filter):
         :param default: the default boost to use for tokens that don't have
             the marker.
         """
-        
+
         self.expression = expression
         self.group = group
         self.default = default
-    
+
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
                 and self.expression == other.expression
                 and self.default == other.default
                 and self.group == other.group)
-    
+
     def __call__(self, tokens):
         expression = self.expression
         groupnum = self.group
         default = self.default
-    
+
         for t in tokens:
             text = t.text
             m = expression.match(text)
@@ -1616,7 +1628,7 @@ class BoostTextFilter(Filter):
                 t.boost = float(m.group(groupnum))
             else:
                 t.boost = default
-                
+
             yield t
 
 
@@ -1638,7 +1650,7 @@ class DelimitedAttributeFilter(Filter):
     Note that you need to make sure your tokenizer includes the delimiter and
     data as part of the token!
     """
-    
+
     def __init__(self, delimiter="^", attribute="boost", default=1.0,
                  type=float):
         """
@@ -1652,24 +1664,24 @@ class DelimitedAttributeFilter(Filter):
             This is used to convert the string value of the data before
             storing it in the attribute.
         """
-        
+
         self.delim = delimiter
         self.attr = attribute
         self.default = default
         self.type = type
-        
+
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
                 and self.delim == other.delim
                 and self.attr == other.attr
                 and self.default == other.default)
-    
+
     def __call__(self, tokens):
         delim = self.delim
         attr = self.attr
         default = self.default
         typ = self.type
-        
+
         for t in tokens:
             text = t.text
             pos = text.find(delim)
@@ -1678,7 +1690,7 @@ class DelimitedAttributeFilter(Filter):
                 t.text = text[:pos]
             else:
                 setattr(t, attr, default)
-            
+
             yield t
 
 
@@ -1689,9 +1701,9 @@ class DoubleMetaphoneFilter(Filter):
     fields containing the names of people and places, and other uses where
     tolerance of spelling differences is desireable.
     """
-    
+
     is_morph = True
-    
+
     def __init__(self, primary_boost=1.0, secondary_boost=0.5, combine=False):
         """
         :param primary_boost: the boost to apply to the token containing the
@@ -1701,25 +1713,25 @@ class DoubleMetaphoneFilter(Filter):
         :param combine: if True, the original unencoded tokens are kept in the
             stream, preceding the encoded tokens.
         """
-        
+
         self.primary_boost = primary_boost
         self.secondary_boost = secondary_boost
         self.combine = combine
-        
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
                 and self.primary_boost == other.primary_boost)
-    
+
     def __call__(self, tokens):
         primary_boost = self.primary_boost
         secondary_boost = self.secondary_boost
         combine = self.combine
-        
+
         for t in tokens:
             if combine:
                 yield t
-            
+
             primary, secondary = double_metaphone(t.text)
             b = t.boost
             # Overwrite the token's text and boost and yield it
@@ -1731,7 +1743,7 @@ class DoubleMetaphoneFilter(Filter):
                 t.text = secondary
                 t.boost = b * secondary_boost
                 yield t
-                
+
 
 class SubstitutionFilter(Filter):
     """Performs a regular expression substitution on the token text.
@@ -1742,34 +1754,37 @@ class SubstitutionFilter(Filter):
         ana = RegexTokenizer(r"\\S+") | SubstitutionFilter("-", "")
         
     Because it has the full power of the re.sub() method behind it, this filter
-    can perform some fairly complex transformations. For example, to take tokens
-    like ``'a=b', 'c=d', 'e=f'`` and change them to ``'b=a', 'd=c', 'f=e'``::
+    can perform some fairly complex transformations. For example, to take
+    tokens like ``'a=b', 'c=d', 'e=f'`` and change them to ``'b=a', 'd=c',
+    'f=e'``::
     
         # Analyzer that swaps the text on either side of an equal sign
-        ana = RegexTokenizer(r"\\S+") | SubstitutionFilter("([^/]*)/(./*)", r"\\2/\\1")
+        rt = RegexTokenizer(r"\\S+")
+        sf = SubstitutionFilter("([^/]*)/(./*)", r"\\2/\\1")
+        ana = rt | sf
     """
-    
+
     def __init__(self, pattern, replacement):
         """
         :param pattern: a pattern string or compiled regular expression object
             describing the text to replace.
         :param replacement: the substitution text.
         """
-        
+
         if isinstance(pattern, string_type):
             pattern = re.compile(pattern, re.UNICODE)
         self.pattern = pattern
         self.replacement = replacement
-    
+
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
                 and self.pattern == other.pattern
                 and self.replacement == other.replacement)
-    
+
     def __call__(self, tokens):
         pattern = self.pattern
         replacement = self.replacement
-        
+
         for t in tokens:
             t.text = pattern.sub(replacement, t.text)
             yield t
@@ -1780,7 +1795,7 @@ class SubstitutionFilter(Filter):
 class Analyzer(Composable):
     """ Abstract base class for analyzers.
     """
-    
+
     def __repr__(self):
         return "%s()" % self.__class__.__name__
 
@@ -1791,10 +1806,10 @@ class Analyzer(Composable):
 
     def __call__(self, value, **kwargs):
         raise NotImplementedError
-    
+
     def clean(self):
         pass
-    
+
 
 class CompositeAnalyzer(Analyzer):
     def __init__(self, *composables):
@@ -1804,11 +1819,11 @@ class CompositeAnalyzer(Analyzer):
                 self.items.extend(comp.items)
             else:
                 self.items.append(comp)
-    
+
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__,
                            ", ".join(repr(item) for item in self.items))
-    
+
     def __call__(self, value, no_morph=False, **kwargs):
         items = self.items
         # Start with tokenizer
@@ -1818,23 +1833,23 @@ class CompositeAnalyzer(Analyzer):
             if not (no_morph and hasattr(item, "is_morph") and item.is_morph):
                 gen = item(gen)
         return gen
-    
+
     def __getitem__(self, item):
         return self.items.__getitem__(item)
-    
+
     def __len__(self):
         return len(self.items)
-    
+
     def __eq__(self, other):
         return (other
                 and self.__class__ is other.__class__
                 and self.items == other.items)
-    
+
     def clean(self):
         for item in self.items:
             if hasattr(item, "clean"):
                 item.clean()
-    
+
     def has_morph(self):
         return any(item.is_morph for item in self.items)
 
@@ -1843,7 +1858,7 @@ def IDAnalyzer(lowercase=False):
     """Deprecated, just use an IDTokenizer directly, with a LowercaseFilter if
     desired.
     """
-    
+
     tokenizer = IDTokenizer()
     if lowercase:
         tokenizer = tokenizer | LowercaseFilter()
@@ -1855,13 +1870,14 @@ def KeywordAnalyzer(lowercase=False, commas=False):
     """Parses whitespace- or comma-separated tokens.
     
     >>> ana = KeywordAnalyzer()
-    >>> [token.text for token in ana(u("Hello there, this is a TEST"))] == [u("Hello"), u("there,"), u("this"), u("is"), u("a"), u("TEST")]
-    True
+    >>> [token.text for token in ana("Hello there, this is a TEST")]
+    ["Hello", "there,", "this", "is", "a", "TEST"]
     
     :param lowercase: whether to lowercase the tokens.
-    :param commas: if True, items are separated by commas rather than whitespace.
+    :param commas: if True, items are separated by commas rather than
+        whitespace.
     """
-    
+
     if commas:
         tokenizer = CommaSeparatedTokenizer()
     else:
@@ -1875,7 +1891,7 @@ KeywordAnalyzer.__inittypes__ = dict(lowercase=bool, commas=bool)
 def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
     """Deprecated, just use a RegexTokenizer directly.
     """
-    
+
     return RegexTokenizer(expression=expression, gaps=gaps)
 RegexAnalyzer.__inittypes__ = dict(expression=text_type, gaps=bool)
 
@@ -1884,14 +1900,14 @@ def SimpleAnalyzer(expression=default_pattern, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter.
     
     >>> ana = SimpleAnalyzer()
-    >>> [token.text for token in ana(u("Hello there, this is a TEST"))] == [u("hello"), u("there"), u("this"), u("is"), u("a"), u("test")]
-    True
+    >>> [token.text for token in ana("Hello there, this is a TEST")]
+    ["hello", "there", "this", "is", "a", "test"]
     
     :param expression: The regular expression pattern to use to extract tokens.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
-    
+
     return RegexTokenizer(expression=expression, gaps=gaps) | LowercaseFilter()
 SimpleAnalyzer.__inittypes__ = dict(expression=text_type, gaps=bool)
 
@@ -1902,8 +1918,8 @@ def StandardAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
     StopFilter.
     
     >>> ana = StandardAnalyzer()
-    >>> [token.text for token in ana(u("Testing is testing and testing"))] == [u("testing"), u("testing"), u("testing")]
-    True
+    >>> [token.text for token in ana("Testing is testing and testing")]
+    ["testing", "testing", "testing"]
 
     :param expression: The regular expression pattern to use to extract tokens.
     :param stoplist: A list of stop words. Set this to None to disable
@@ -1913,7 +1929,7 @@ def StandardAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
-    
+
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     chain = ret | LowercaseFilter()
     if stoplist is not None:
@@ -1931,8 +1947,8 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
     filter, and a stemming filter.
     
     >>> ana = StemmingAnalyzer()
-    >>> [token.text for token in ana(u("Testing is testing and testing"))] == [u("test"), u("test"), u("test")]
-    True
+    >>> [token.text for token in ana("Testing is testing and testing")]
+    ["test", "test", "test"]
     
     :param expression: The regular expression pattern to use to extract tokens.
     :param stoplist: A list of stop words. Set this to None to disable
@@ -1946,13 +1962,14 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
         this number, the faster stemming will be but the more memory it will
         use.
     """
-    
+
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     chain = ret | LowercaseFilter()
     if stoplist is not None:
         chain = chain | StopFilter(stoplist=stoplist, minsize=minsize,
                                    maxsize=maxsize)
-    return chain | StemFilter(stemfn=stemfn, ignore=ignore, cachesize=cachesize)
+    return chain | StemFilter(stemfn=stemfn, ignore=ignore,
+                              cachesize=cachesize)
 StemmingAnalyzer.__inittypes__ = dict(expression=text_type, gaps=bool,
                                       stoplist=list, minsize=int, maxsize=int)
 
@@ -1964,8 +1981,8 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
     StopFilter.
     
     >>> ana = FancyAnalyzer()
-    >>> [token.text for token in ana(u("Should I call getInt or get_real?"))] == [u("should"), u("call"), u("getInt"), u("get"), u("int"), u("get_real"), u("get"), u("real")]
-    True
+    >>> [token.text for token in ana("Should I call getInt or get_real?")]
+    ["should", "call", "getInt", "get", "int", "get_real", "get", "real"]
     
     :param expression: The regular expression pattern to use to extract tokens.
     :param stoplist: A list of stop words. Set this to None to disable
@@ -1975,13 +1992,13 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
     """
-    
+
     ret = RegexTokenizer(expression=expression, gaps=gaps)
     iwf = IntraWordFilter(splitwords=splitwords, splitnums=splitnums,
                           mergewords=mergewords, mergenums=mergenums)
     lcf = LowercaseFilter()
     swf = StopFilter(stoplist=stoplist, minsize=minsize)
-    
+
     return ret | iwf | lcf | swf
 FancyAnalyzer.__inittypes__ = dict(expression=text_type, gaps=bool,
                                    stoplist=list, minsize=int, maxsize=int)
@@ -1991,10 +2008,10 @@ def NgramAnalyzer(minsize, maxsize=None):
     """Composes an NgramTokenizer and a LowercaseFilter.
     
     >>> ana = NgramAnalyzer(4)
-    >>> [token.text for token in ana(u("hi there"))] == [u("hi t"), u("i th"), u(" the"), u("ther"), u("here")]
-    True
+    >>> [token.text for token in ana("hi there")]
+    ["hi t", "i th", " the", "ther", "here"]
     """
-    
+
     return NgramTokenizer(minsize, maxsize=maxsize) | LowercaseFilter()
 NgramAnalyzer.__inittypes__ = dict(minsize=int, maxsize=int)
 
@@ -2003,3 +2020,5 @@ def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
     if not tokenizer:
         tokenizer = RegexTokenizer()
     return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
+
+

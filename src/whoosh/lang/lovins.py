@@ -549,7 +549,7 @@ _doubles = frozenset(("dd", "gg", "ll", "mm", "nn", "pp", "rr", "ss", "tt"))
 def fix_ending(word):
     if word[-2:] in _doubles:
         word = word[:-1]
-    
+
     for endingrule in _endingrules[word[-1]]:
         target, newend = endingrule[:2]
         if word.endswith(target):
@@ -558,9 +558,9 @@ def fix_ending(word):
                 c = word[0 - (len(target) + 1)]
                 if c in exceptafter:
                     return word
-            
+
             return word[:0 - len(target)] + newend
-    
+
     return word
 
 

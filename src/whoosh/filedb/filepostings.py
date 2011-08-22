@@ -37,7 +37,7 @@ from whoosh.filedb.filetables import FileTermInfo
 
 class FilePostingWriter(PostingWriter):
     blockclass = postblocks.current
-    
+
     def __init__(self, postfile, stringids=False, blocklimit=128,
                  compression=3):
         self.postfile = postfile
@@ -50,11 +50,11 @@ class FilePostingWriter(PostingWriter):
         self.blocklimit = blocklimit
         self.compression = compression
         self.block = None
-        
+
     def _reset_block(self):
         self.block = self.blockclass(self.postfile, self.format.posting_size,
                                      stringids=self.stringids)
-        
+
     def start(self, format):
         if self.block is not None:
             raise Exception("Called start() in a block")
@@ -63,12 +63,12 @@ class FilePostingWriter(PostingWriter):
         self.blockcount = 0
         self.startoffset = self.postfile.tell()
         self.terminfo = FileTermInfo()
-        
+
         # Magic number
         self.postfile.write_int(self.blockclass.magic)
         # Placeholder for block count
         self.postfile.write_uint(0)
-        
+
         self._reset_block()
         return self.startoffset
 
@@ -84,7 +84,7 @@ class FilePostingWriter(PostingWriter):
 
         block = self.block
         terminfo = self.terminfo
-        
+
         if self.blockcount < 1 and block and len(block) <= inlinelimit:
             terminfo.add_block(block)
             vals = None if not block.values else tuple(block.values)
@@ -92,7 +92,7 @@ class FilePostingWriter(PostingWriter):
         else:
             if block:
                 self._write_block()
-    
+
             # Seek back to the start of this list of posting blocks and write the
             # number of blocks
             pf = self.postfile
@@ -102,9 +102,9 @@ class FilePostingWriter(PostingWriter):
             pf.write_uint(self.blockcount)
             pf.seek(offset)
             postings = self.startoffset
-        
+
         self.block = None
-        
+
         terminfo.postings = postings
         return terminfo
 
@@ -126,10 +126,10 @@ class FilePostingWriter(PostingWriter):
 class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorer=None, term=None,
                  stringids=False):
-        
+
         assert isinstance(offset, integer_types), "offset is %r/%s" % (offset, type(offset))
         assert isinstance(format, Format), "format is %r/%s" % (format, type(format))
-        
+
         self.postfile = postfile
         self.startoffset = offset
         self.format = format
@@ -138,10 +138,10 @@ class FilePostingReader(Matcher):
         self.scorer = scorer
         self._term = term
         self.stringids = stringids
-        
+
         self.magic = postfile.get_int(offset)
         self.blockclass = postblocks.magic_map[self.magic]
-        
+
         self.blockcount = postfile.get_uint(offset + _INT_SIZE)
         self.baseoffset = offset + _INT_SIZE * 2
         self._active = True
@@ -166,7 +166,7 @@ class FilePostingReader(Matcher):
 
     def is_active(self):
         return self._active
-    
+
     def reset(self):
         self.currentblock = -1
         self._next_block()
@@ -209,7 +209,7 @@ class FilePostingReader(Matcher):
             return 1.0
         else:
             return weights[self.i]
-    
+
     def all_ids(self):
         nextoffset = self.baseoffset
         for _ in xrange(self.blockcount):
@@ -230,12 +230,12 @@ class FilePostingReader(Matcher):
     def skip_to(self, id):
         if not self.is_active():
             raise ReadTooFar
-        
+
         i = self.i
         # If we're already in the block with the target ID, do nothing
         if id <= self.block.ids[i]:
             return
-        
+
         # Skip to the block that would contain the target ID
         if id > self.block.maxid:
             self._skip_to_block(lambda: id > self.block.maxid)
@@ -258,7 +258,7 @@ class FilePostingReader(Matcher):
         pf.seek(offset)
         return self.blockclass.from_file(pf, self.format.posting_size,
                                          stringids=self.stringids)
-        
+
     def _consume_block(self):
         self.block.read_ids()
         self.block.read_weights()
@@ -267,7 +267,7 @@ class FilePostingReader(Matcher):
     def _next_block(self, consume=True):
         if not (self.currentblock < self.blockcount):
             raise Exception("No next block")
-        
+
         self.currentblock += 1
         if self.currentblock == self.blockcount:
             self._active = False
@@ -290,36 +290,36 @@ class FilePostingReader(Matcher):
 
         if self._active:
             self._consume_block()
-        
+
         return skipped
-    
+
     def supports_block_quality(self):
         return self.scorer and self.scorer.supports_block_quality()
-    
+
     def max_quality(self):
         return self.scorer.max_quality
-    
+
     def skip_to_quality(self, minquality):
         bq = self.block_quality
         if bq() > minquality:
             return 0
         return self._skip_to_block(lambda: bq() <= minquality)
-    
+
     def block_min_length(self):
         return self.block.min_length()
-    
+
     def block_max_length(self):
         return self.block.max_length()
-    
+
     def block_max_weight(self):
         return self.block.max_weight()
-    
+
     def block_max_wol(self):
         return self.block.max_wol()
-    
+
     def score(self):
         return self.scorer.score(self)
-    
+
     def block_quality(self):
         return self.scorer.block_quality(self)
 

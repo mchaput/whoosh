@@ -49,10 +49,10 @@ def relative_days(current_wday, wday, dir):
     :param dir: -1 for the "last" (past) weekday, 1 for the "next" (future)
         weekday.
     """
-    
+
     if current_wday == wday:
         return 7 * dir
-    
+
     if dir == 1:
         return (wday + 7 - current_wday) % 7
     else:
@@ -70,7 +70,7 @@ def datetime_to_long(dt):
     """Converts a datetime object to a long integer representing the number
     of microseconds since ``datetime.min``.
     """
-    
+
     return timedelta_to_usecs(dt - dt.min)
 
 
@@ -78,13 +78,13 @@ def long_to_datetime(x):
     """Converts a long integer representing the number of microseconds since
     ``datetime.min`` to a datetime object.
     """
-    
+
     days = x // 86400000000  # Microseconds in a day
     x -= days * 86400000000
-    
+
     seconds = x // 1000000  # Microseconds in a second
     x -= seconds * 1000000
-    
+
     return datetime.min + timedelta(days=days, seconds=seconds, microseconds=x)
 
 
@@ -95,9 +95,9 @@ class adatetime(object):
     ``datetime.datetime`` object but can have any of its attributes set to
     None, meaning unspecified.
     """
-    
+
     units = frozenset(("year", "month", "day", "hour", "minute", "second", "microsecond"))
-    
+
     def __init__(self, year=None, month=None, day=None, hour=None, minute=None,
                  second=None, microsecond=None):
         if isinstance(year, datetime):
@@ -107,13 +107,13 @@ class adatetime(object):
         else:
             if month is not None and (month < 1 or month > 12):
                 raise TimeError("month must be in 1..12")
-            
+
             if day is not None and  day < 1:
                 raise TimeError("day must be greater than 1")
             if (year is not None and month is not None and day is not None
                 and day > calendar.monthrange(year, month)[1]):
                 raise TimeError("day is out of range for month")
-            
+
             if hour is not None and (hour < 0 or hour > 23):
                 raise TimeError("hour must be in 0..23")
             if minute is not None and (minute < 0 or minute > 59):
@@ -122,11 +122,11 @@ class adatetime(object):
                 raise TimeError("second must be in 0..59")
             if microsecond is not None and (microsecond < 0 or microsecond > 999999):
                 raise TimeError("microsecond must be in 0..999999")
-                
+
             self.year, self.month, self.day = year, month, day
             self.hour, self.minute, self.second = hour, minute, second
             self.microsecond = microsecond
-    
+
     def __eq__(self, other):
         if not other.__class__ is self.__class__:
             if not is_ambiguous(self) and isinstance(other, datetime):
@@ -135,26 +135,26 @@ class adatetime(object):
                 return False
         return all(getattr(self, unit) == getattr(other, unit)
                    for unit in self.units)
-    
+
     def __repr__(self):
         return "%s%r" % (self.__class__.__name__, self.tuple())
-    
+
     def tuple(self):
         """Returns the attributes of the ``adatetime`` object as a tuple of
         ``(year, month, day, hour, minute, second, microsecond)``.
         """
-        
+
         return (self.year, self.month, self.day, self.hour, self.minute,
                 self.second, self.microsecond)
-    
+
     def date(self):
         return date(self.year, self.month, self.day)
-    
+
     def copy(self):
         return adatetime(year=self.year, month=self.month, day=self.day,
                      hour=self.hour, minute=self.minute, second=self.second,
                      microsecond=self.microsecond)
-    
+
     def replace(self, **kwargs):
         """Returns a copy of this object with the attributes given as keyword
         arguments replaced.
@@ -163,7 +163,7 @@ class adatetime(object):
         >>> adt.replace(year=2010)
         (2010, 10, 31, None, None, None, None)
         """
-        
+
         newadatetime = self.copy()
         for key, value in iteritems(kwargs):
             if key in self.units:
@@ -182,13 +182,13 @@ class adatetime(object):
         >>> adt.floor()
         datetime.datetime(2009, 5, 1, 0, 0, 0, 0)
         """
-        
-        year, month, day, hour, minute, second, microsecond =\
+
+        year, month, day, hour, minute, second, microsecond = \
         self.year, self.month, self.day, self.hour, self.minute, self.second, self.microsecond
-        
+
         if year is None:
             raise ValueError("Date has no year")
-        
+
         if month is None:
             month = 1
         if day is None:
@@ -202,7 +202,7 @@ class adatetime(object):
         if microsecond is None:
             microsecond = 0
         return datetime(year, month, day, hour, minute, second, microsecond)
-    
+
     def ceil(self):
         """Returns a ``datetime`` version of this object with all unspecified
         (None) attributes replaced by their highest values.
@@ -213,13 +213,13 @@ class adatetime(object):
         >>> adt.floor()
         datetime.datetime(2009, 5, 30, 23, 59, 59, 999999)
         """
-        
-        year, month, day, hour, minute, second, microsecond =\
+
+        year, month, day, hour, minute, second, microsecond = \
         self.year, self.month, self.day, self.hour, self.minute, self.second, self.microsecond
-        
+
         if year is None:
             raise ValueError("Date has no year")
-        
+
         if month is None:
             month = 12
         if day is None:
@@ -233,7 +233,7 @@ class adatetime(object):
         if microsecond is None:
             microsecond = 999999
         return datetime(year, month, day, hour, minute, second, microsecond)
-    
+
     def disambiguated(self, basedate):
         """Returns either a ``datetime`` or unambiguous ``timespan`` version
         of this object.
@@ -248,7 +248,7 @@ class adatetime(object):
         >>> adt.disambiguated()
         timespan(datetime.datetime(2009, 10, 31, 0, 0, 0, 0), datetime.datetime(2009, 10, 31, 23, 59 ,59, 999999)
         """
-        
+
         dt = self
         if not is_ambiguous(dt):
             return fix(dt)
@@ -260,7 +260,7 @@ class adatetime(object):
 class timespan(object):
     """A span of time between two ``datetime`` or ``adatetime`` objects.
     """
-    
+
     def __init__(self, start, end):
         """
         :param start: a ``datetime`` or ``adatetime`` object representing the
@@ -268,23 +268,23 @@ class timespan(object):
         :param end: a ``datetime`` or ``adatetime`` object representing the
             end of the time span.
         """
-        
+
         if not isinstance(start, (datetime, adatetime)):
             raise TimeError("%r is not a datetime object" % start)
         if not isinstance(end, (datetime, adatetime)):
             raise TimeError("%r is not a datetime object" % end)
-        
+
         self.start = copy.copy(start)
         self.end = copy.copy(end)
-        
+
     def __eq__(self, other):
         if not other.__class__ is self.__class__:
             return False
         return self.start == other.start and self.end == other.end
-    
+
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.start, self.end)
-    
+
     def disambiguated(self, basedate, debug=0):
         """Returns an unambiguous version of this object.
         
@@ -296,7 +296,7 @@ class timespan(object):
         >>> td.disambiguated(datetime.now())
         timespan(datetime.datetime(2009, 2, 28, 0, 0, 0, 0), datetime.datetime(2009, 10, 31, 23, 59 ,59, 999999)
         """
-        
+
         #- If year is in start but not end, use basedate.year for end
         #-- If year is in start but not end, but startdate is > basedate,
         #   use "next <monthname>" to get end month/year
@@ -306,7 +306,7 @@ class timespan(object):
         start, end = copy.copy(self.start), copy.copy(self.end)
         start_year_was_amb = start.year is None
         end_year_was_amb = end.year is None
-        
+
         if has_no_date(start) and has_no_date(end):
             # The start and end points are just times, so use the basedate
             # for the date information.
@@ -319,7 +319,7 @@ class timespan(object):
             # arbitrary. I've used a heuristic here based on how the range
             # "reads", but it may only be reasonable in English. And maybe
             # even just to me.
-            
+
             if start.year is None and end.year is None:
                 # No year on either side, use the basedate
                 start.year = end.year = basedate.year
@@ -328,7 +328,7 @@ class timespan(object):
                 start.year = end.year
             elif end.year is None:
                 end.year = max(start.year, basedate.year)
-        
+
         if start.year == end.year:
             # Once again, if one side has a month and day but the other side
             # doesn't, the disambiguation is arbitrary. Does "3 am to 5 am
@@ -351,7 +351,7 @@ class timespan(object):
             elif start_dm and not end_dm:
                 end.month = basedate.month
                 end.day = basedate.day
-        
+
         if floor(start).date() > ceil(end).date():
             # If the disambiguated dates are out of order:
             # - If no start year was given, reduce the start year to put the
@@ -365,15 +365,15 @@ class timespan(object):
                 end.year = start.year + 1
             else:
                 start, end = end, start
-        
+
         start = floor(start)
         end = ceil(end)
-            
+
         if start.date() == end.date() and start.time() > end.time():
             # If the start and end are on the same day, but the start time
             # is after the end time, move the end time to the next day
             end += timedelta(days=1)
-            
+
         return timespan(start, end)
 
 
@@ -395,10 +395,10 @@ def fill_in(at, basedate, units=adatetime.units):
     """Returns a copy of ``at`` with any unspecified (None) units filled in
     with values from ``basedate``.
     """
-    
+
     if isinstance(at, datetime):
         return at
-    
+
     args = {}
     for unit in units:
         v = getattr(at, unit)
@@ -407,12 +407,12 @@ def fill_in(at, basedate, units=adatetime.units):
         args[unit] = v
     return fix(adatetime(**args))
 
-    
+
 def has_no_date(at):
     """Returns True if the given object is an ``adatetime`` where ``year``,
     ``month``, and ``day`` are all None.
     """
-    
+
     if isinstance(at, datetime):
         return False
     return at.year is None and at.month is None and at.day is None
@@ -422,7 +422,7 @@ def has_no_time(at):
     """Returns True if the given object is an ``adatetime`` where ``hour``,
     ``minute``, ``second`` and ``microsecond`` are all None.
     """
-    
+
     if isinstance(at, datetime):
         return False
     return at.hour is None and at.minute is None and at.second is None and at.microsecond is None
@@ -432,7 +432,7 @@ def is_ambiguous(at):
     """Returns True if the given object is an ``adatetime`` with any of its
     attributes equal to None.
     """
-    
+
     if isinstance(at, datetime):
         return False
     return any((getattr(at, attr) is None) for attr in adatetime.units)
@@ -442,7 +442,7 @@ def is_void(at):
     """Returns True if the given object is an ``adatetime`` with all of its
     attributes equal to None.
     """
-    
+
     if isinstance(at, datetime):
         return False
     return all((getattr(at, attr) is None) for attr in adatetime.units)
@@ -454,7 +454,7 @@ def fix(at):
     ``datetime`` version of it. Otherwise returns the ``adatetime`` object
     unchanged.
     """
-    
+
     if is_ambiguous(at) or isinstance(at, datetime):
         return at
     return datetime(year=at.year, month=at.month, day=at.day, hour=at.hour,

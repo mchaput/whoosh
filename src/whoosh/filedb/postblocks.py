@@ -45,54 +45,54 @@ class BlockBase(object):
         self.postfile = postfile
         self.postingsize = postingsize
         self.stringids = stringids
-        
+
         # Create lists/arrays to hold the ids and weights
         self.ids = [] if stringids else array("I")
         self.weights = array("f")
         # Start off not storing values... if append() is called with a valid
         # value, we'll replace this with a list
         self.values = None
-        
+
         self._minlength = minlength  # (as byte)
         self._maxlength = maxlength  # (as byte)
         self._maxweight = maxweight
         self._maxwol = maxwol
-    
+
     def __del__(self):
         try:
             del self.postfile
         except:
             pass
-    
+
     def __len__(self):
         return len(self.ids)
-    
+
     def __nonzero__(self):
         return bool(self.ids)
-    
+
     def min_length(self):
         return byte_to_length(self._minlength or 0)
-    
+
     def max_length(self):
         return byte_to_length(self._maxlength)
-    
+
     def max_weight(self):
         return self._maxweight
-    
+
     def max_wol(self):
         return self._maxwol
-    
+
     def append(self, id, weight, valuestring, dfl):
         self.ids.append(id)
         self.weights.append(weight)
         if weight > self._maxweight:
             self._maxweight = weight
-        
+
         if valuestring:
             if self.values is None:
                 self.values = []
             self.values.append(valuestring)
-        
+
         if dfl:
             length_byte = length_to_byte(dfl)
             if self._minlength is None or length_byte < self._minlength:
@@ -108,7 +108,7 @@ class BlockBase(object):
 
 class Block2(BlockBase):
     magic = 1114401586  # "Blk2"
-    
+
     # Offset  Type  Desc
     # ------  ----  -------
     # 0       i     Delta to next block
@@ -128,19 +128,19 @@ class Block2(BlockBase):
     # Followed by either an unsigned int or string indicating the last ID in
     # this block
     _struct = Struct("<iBBcBiiffHBBB")
-    
+
     @classmethod
     def from_file(cls, postfile, postingsize, stringids=False):
         start = postfile.tell()
-        
+
         # Read the block header information from the posting file
         header = cls._struct.unpack(postfile.read(cls._struct.size))
-        
+
         # Create the base block object
         block = cls(postfile, postingsize, stringids=stringids,
                     maxweight=header[7], maxwol=header[8],
                     maxlength=header[11], minlength=header[12])
-        
+
         # Fill in the attributes needed by this block implementation
         block.nextoffset = start + header[0]
         block.compression = header[1]
@@ -148,17 +148,17 @@ class Block2(BlockBase):
         block.typecode = header[3]
         block.idslen = header[5]
         block.weightslen = header[6]
-        
+
         if PY3:
             block.typecode = block.typecode.decode('latin-1')
-        
+
         # Read the "maximum ID" part of the header, based on whether we're
         # using string IDs
         if stringids:
             block.maxid = load(postfile)
         else:
             block.maxid = postfile.read_uint()
-        
+
         # The position after the header
         block.dataoffset = postfile.tell()
         return block
@@ -168,7 +168,7 @@ class Block2(BlockBase):
         ids_string = self.postfile.map[dataoffset:dataoffset + self.idslen]
         if self.compression:
             ids_string = decompress(ids_string)
-        
+
         if self.stringids:
             ids = loads(ids_string)
         else:
@@ -176,10 +176,10 @@ class Block2(BlockBase):
             ids.fromstring(ids_string)
             if not IS_LITTLE:
                 ids.byteswap()
-        
+
         self.ids = ids
         return ids
-    
+
     def read_weights(self):
         if self.weightslen == 0:
             weights = [1.0] * self.postcount
@@ -192,10 +192,10 @@ class Block2(BlockBase):
             weights.fromstring(weights_string)
             if not IS_LITTLE:
                 weights.byteswap()
-        
+
         self.weights = weights
         return weights
-    
+
     def read_values(self):
         postingsize = self.postingsize
         if postingsize == 0:
@@ -210,10 +210,10 @@ class Block2(BlockBase):
             else:
                 values = [values_string[i:i + postingsize]
                           for i in xrange(0, len(values_string), postingsize)]
-        
+
         self.values = values
         return values
-    
+
     def write(self, compression=3):
         postfile = self.postfile
         stringids = self.stringids
@@ -221,17 +221,17 @@ class Block2(BlockBase):
         weights = self.weights
         values = self.values
         postcount = len(ids)
-        
+
         if postcount <= 4 or not can_compress:
             compression = 0
-        
+
         # Max ID
         maxid = ids[-1]
         if stringids:
             maxid_string = dumps(maxid, -1)[2:]
         else:
             maxid_string = pack_uint(maxid)
-        
+
         # IDs
         typecode = "I"
         if stringids:
@@ -249,7 +249,7 @@ class Block2(BlockBase):
             ids_string = ids.tostring()
         if compression:
             ids_string = compress(ids_string, compression)
-        
+
         # Weights
         if all(w == 1.0 for w in weights):
             weights_string = b('')
@@ -259,7 +259,7 @@ class Block2(BlockBase):
             weights_string = weights.tostring()
         if weights_string and compression:
             weights_string = compress(weights_string, compression)
-        
+
         # Values
         postingsize = self.postingsize
         if postingsize < 0:
@@ -270,7 +270,7 @@ class Block2(BlockBase):
             values_string = b("").join(values)
         if values_string and compression:
             values_string = compress(values_string, compression)
-        
+
         # Header
         flags = 1 if compression else 0
         blocksize = sum((self._struct.size, len(maxid_string), len(ids_string),
@@ -279,7 +279,7 @@ class Block2(BlockBase):
                                    0, len(ids_string), len(weights_string),
                                    self.max_weight(), self.max_wol(), 0, 0,
                                    self._maxlength, self._minlength or 0)
-        
+
         postfile.write(header)
         postfile.write(maxid_string)
         postfile.write(ids_string)
@@ -313,40 +313,40 @@ class Block1(BlockBase):
     #
     # Followed by either an unsigned int or string indicating the last ID in
     # this block
-    
+
     _struct = Struct("!BBHiHHBfffB")
     magic = -48626
-    
+
     @classmethod
     def from_file(cls, postfile, stringids=False):
         pos = postfile.tell()
         block = cls(postfile, stringids=stringids)
-        
+
         encoded_header = postfile.read(cls._struct.size)
         header = cls._struct.unpack(encoded_header)
         (flags, _, _, nextoffset, block.idslen, block.weightslen,
          block.postcount, block.maxweight, block.maxwol, _, minlength) = header
-        
+
         block.nextoffset = pos + nextoffset
         block.minlength = byte_to_length(minlength)
-        
+
         assert block.postcount > 0, "postcount=%r" % block.postcount
-        
+
         if stringids:
             block.maxid = utf8decode(postfile.read_string())[0]
         else:
             block.maxid = postfile.read_uint()
-        
+
         block.dataoffset = postfile.tell()
-        
+
         return block
-    
+
     def read_ids(self):
         postfile = self.postfile
         offset = self.dataoffset
         postcount = self.postcount
         postfile.seek(offset)
-        
+
         if self.stringids:
             rs = postfile.read_string
             ids = [utf8decode(rs())[0] for _ in xrange(postcount)]
@@ -371,7 +371,7 @@ class Block1(BlockBase):
         postfile.seek(offset)
         weightslen = self.weightslen
         postcount = self.postcount
-        
+
         if weightslen == 1:
             weights = None
             newoffset = offset
@@ -384,7 +384,7 @@ class Block1(BlockBase):
         else:
             weights = postfile.get_array(offset, "f", postcount)
             newoffset = offset + _FLOAT_SIZE * postcount
-        
+
         self.weights = weights
         self.values_offset = newoffset
         return weights
@@ -398,17 +398,17 @@ class Block1(BlockBase):
         postingsize = self.postingsize
         if postingsize != 0:
             values_string = postfile.map[startoffset:endoffset]
-            
+
             if self.weightslen:
                 # Values string is compressed
                 values_string = decompress(values_string)
-            
+
             if postingsize < 0:
                 # Pull the array of value lengths off the front of the string
                 lengths = array("i")
                 lengths.fromstring(values_string[:_INT_SIZE * postcount])
                 values_string = values_string[_INT_SIZE * postcount:]
-                
+
             # Chop up the block string into individual valuestrings
             if postingsize > 0:
                 # Format has a fixed posting size, just chop up the values

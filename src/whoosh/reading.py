@@ -52,7 +52,7 @@ class TermInfo(object):
     :meth:`IndexReader.term_info`. These statistics may be useful for
     optimizations and scoring algorithms.
     """
-    
+
     def __init__(self, weight=0, df=0, minlength=0,
                  maxlength=0, maxweight=0, maxwol=0, minid=0, maxid=0):
         self._weight = weight
@@ -63,57 +63,57 @@ class TermInfo(object):
         self._maxwol = maxwol
         self._minid = minid
         self._maxid = maxid
-    
+
     def weight(self):
         """Returns the total frequency of the term across all documents.
         """
-        
+
         return self._weight
 
     def doc_frequency(self):
         """Returns the number of documents the term appears in.
         """
-        
+
         return self._df
-    
+
     def min_length(self):
         """Returns the length of the shortest field value the term appears
         in.
         """
-        
+
         return self._minlength
-    
+
     def max_length(self):
         """Returns the length of the longest field value the term appears
         in.
         """
-        
+
         return self._maxlength
-    
+
     def max_weight(self):
         """Returns the number of times the term appears in the document in
         which it appears the most.
         """
-        
+
         return self._maxweight
-    
+
     def max_wol(self):
         """Returns the maximum "weight divided by length" value for the term
         across all documents.
         """
-        
+
         return self._maxwol
-    
+
     def min_id(self):
         """Returns the lowest document ID this term appears in.
         """
-        
+
         return self._minid
-    
+
     def max_id(self):
         """Returns the highest document ID this term appears in.
         """
-        
+
         return self._maxid
 
 
@@ -136,14 +136,14 @@ class IndexReader(ClosableMixin):
     def close(self):
         """Closes the open files associated with this reader.
         """
-        
+
         pass
 
     def generation(self):
         """Returns the generation of the index being read, or -1 if the backend
         is not versioned.
         """
-        
+
         return -1
 
     @abstractmethod
@@ -157,7 +157,7 @@ class IndexReader(ClosableMixin):
         """Yields (fieldname, text) tuples for every term in the index starting
         at the given prefix.
         """
-        
+
         # The default implementation just scans the whole list of terms
         for fname, text in self.all_terms():
             if fname < fieldname or text < prefix:
@@ -169,7 +169,7 @@ class IndexReader(ClosableMixin):
         """Returns a :class:`TermInfo` object allowing access to various
         statistics about the given term.
         """
-        
+
         raise NotImplementedError
 
     def expand_prefix(self, fieldname, prefix):
@@ -194,7 +194,7 @@ class IndexReader(ClosableMixin):
         """Yields ((fieldname, text), terminfo) tuples for each term in the
         reader, in lexical order.
         """
-        
+
         term_info = self.term_info
         for term in self.all_terms():
             yield (term, term_info(*term))
@@ -232,27 +232,27 @@ class IndexReader(ClosableMixin):
         """Returns True if the underlying index/segment has deleted
         documents.
         """
-        
+
         raise NotImplementedError
 
     def all_doc_ids(self):
         """Returns an iterator of all (undeleted) document IDs in the reader.
         """
-        
+
         # This default implementation works for backends like filedb that use
         # a continuous 0-N range of numbers to address documents, but will need
         # to be overridden if a backend, e.g., looks up documents using
         # persistent ID strings.
-        
+
         is_deleted = self.is_deleted
         return (docnum for docnum in xrange(self.doc_count_all())
                 if not is_deleted(docnum))
-    
+
     @abstractmethod
     def is_deleted(self, docnum):
         """Returns True if the given document number is marked deleted.
         """
-        
+
         raise NotImplementedError
 
     @abstractmethod
@@ -262,13 +262,13 @@ class IndexReader(ClosableMixin):
         :param numerickeys: use field numbers as the dictionary keys instead of
             field names.
         """
-        
+
         raise NotImplementedError
 
     def all_stored_fields(self):
         """Yields the stored fields for all documents.
         """
-        
+
         for docnum in xrange(self.doc_count_all()):
             if not self.is_deleted(docnum):
                 yield self.stored_fields(docnum)
@@ -278,14 +278,14 @@ class IndexReader(ClosableMixin):
         """Returns the total number of documents, DELETED OR UNDELETED,
         in this reader.
         """
-        
+
         raise NotImplementedError
 
     @abstractmethod
     def doc_count(self):
         """Returns the total number of UNDELETED documents in this reader.
         """
-        
+
         raise NotImplementedError
 
     @abstractmethod
@@ -321,7 +321,7 @@ class IndexReader(ClosableMixin):
         is used by some scoring algorithms.
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     def doc_field_length(self, docnum, fieldname, default=0):
         """Returns the number of terms in the given field in the given
@@ -333,7 +333,7 @@ class IndexReader(ClosableMixin):
         """Returns the first ID in the posting list for the given term. This
         may be optimized in certain backends.
         """
-        
+
         p = self.postings(fieldname, text)
         if p.is_active():
             return p.id()
@@ -416,26 +416,26 @@ class IndexReader(ClosableMixin):
         it, allowing suggestions for correcting mis-typed words and fast fuzzy
         term searching.
         """
-        
+
         return False
-    
+
     def word_graph(self, fieldname):
         """Returns the root :class:`whoosh.support.dawg.BaseNode` for the given
         field, if the field has a stored word graph (otherwise raises an
         exception). You can check whether a field has a word graph using
         :meth:`IndexReader.has_word_graph`.
         """
-        
+
         return None
-    
+
     def corrector(self, fieldname):
         """Returns a :class:`whoosh.spelling.Corrector` object that suggests
         corrections based on the terms in the given field.
         """
-        
+
         from whoosh.spelling import ReaderCorrector
         return ReaderCorrector(self, fieldname)
-    
+
     def terms_within(self, fieldname, text, maxdist, prefix=0, seen=None):
         """Returns a generator of words in the given field within ``maxdist``
         Damerau-Levenshtein edit distance of the given text.
@@ -449,7 +449,7 @@ class IndexReader(ClosableMixin):
         :param seen: an optional set object. Words that appear in the set will
             not be yielded.
         """
-        
+
         if self.has_word_graph(fieldname):
             node = self.word_graph(fieldname)
             for word in within(node, text, maxdist, prefix=prefix, seen=seen):
@@ -460,50 +460,51 @@ class IndexReader(ClosableMixin):
             for word in self.expand_prefix(fieldname, text[:prefix]):
                 if word in seen:
                     continue
-                if word == text or distance(word, text, limit=maxdist) <= maxdist:
+                if (word == text
+                    or distance(word, text, limit=maxdist) <= maxdist):
                     yield word
                     seen.add(word)
-    
+
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
         list of (frequency, text) tuples.
         """
 
-        return nlargest(number, ((terminfo.weight(), text)
-                                 for text, terminfo
-                                 in self.iter_prefix(fieldname, prefix)))
+        gen = ((terminfo.weight(), text) for text, terminfo
+               in self.iter_prefix(fieldname, prefix))
+        return nlargest(number, gen)
 
     def most_distinctive_terms(self, fieldname, number=5, prefix=None):
         """Returns the top 'number' terms with the highest `tf*idf` scores as
         a list of (score, text) tuples.
         """
 
-        return nlargest(number, ((terminfo.weight() * (1.0 / terminfo.doc_frequency()), text)
-                                 for text, terminfo
-                                 in self.iter_prefix(fieldname, prefix)))
-    
+        gen = ((terminfo.weight() * (1.0 / terminfo.doc_frequency()), text)
+               for text, terminfo in self.iter_prefix(fieldname, prefix))
+        return nlargest(number, gen)
+
     def leaf_readers(self):
         """Returns a list of (IndexReader, docbase) pairs for the child readers
         of this reader if it is a composite reader. If this is not a composite
         reader, it returns `[(self, 0)]`.
         """
-        
+
         return [(self, 0)]
-    
+
     #
-    
+
     def supports_caches(self):
         """Returns True if this reader supports the field cache protocol.
         """
-        
+
         return False
-    
+
     def set_caching_policy(self, *args, **kwargs):
         """Sets the field caching policy for this reader.
         """
-        
+
         pass
-        
+
 
 # Fake IndexReader class for empty indexes
 
@@ -513,58 +514,58 @@ class EmptyReader(IndexReader):
 
     def __contains__(self, term):
         return False
-    
+
     def __iter__(self):
         return iter([])
-    
+
     def all_terms(self):
         return iter([])
-    
+
     def term_info(self, fieldname, text):
         raise TermNotFound((fieldname, text))
-    
+
     def iter_from(self, fieldname, text):
         return iter([])
-    
+
     def iter_field(self, fieldname):
         return iter([])
-    
+
     def iter_prefix(self, fieldname):
         return iter([])
-    
+
     def lexicon(self, fieldname):
         return iter([])
-    
+
     def has_deletions(self):
         return False
-    
+
     def is_deleted(self, docnum):
         return False
-    
+
     def stored_fields(self, docnum):
         raise KeyError("No document number %s" % docnum)
-    
+
     def all_stored_fields(self):
         return iter([])
-    
+
     def doc_count_all(self):
         return 0
-    
+
     def doc_count(self):
         return 0
-    
+
     def frequency(self, fieldname, text):
         return 0
-    
+
     def doc_frequency(self, fieldname, text):
         return 0
-    
+
     def field_length(self, fieldname):
         return 0
 
     def min_field_length(self, fieldname):
         return 0
-    
+
     def max_field_length(self, fieldname):
         return 0
 
@@ -585,7 +586,7 @@ class EmptyReader(IndexReader):
 
     def most_distinctive_terms(self, fieldname, number=5, prefix=None):
         return iter([])
-    
+
 
 # Multisegment reader class
 
@@ -596,19 +597,19 @@ class MultiReader(IndexReader):
     def is_atomic(self):
         return False
 
-    def __init__(self, readers, generation=-1):
+    def __init__(self, readers, generation= -1):
         self.readers = readers
         self._gen = generation
         self.schema = None
         if readers:
             self.schema = readers[0].schema
-        
+
         self.doc_offsets = []
         self.base = 0
         for r in self.readers:
             self.doc_offsets.append(self.base)
             self.base += r.doc_count_all()
-        
+
         self.is_closed = False
 
     def __contains__(self, term):
@@ -672,7 +673,7 @@ class MultiReader(IndexReader):
 
     def all_terms(self):
         return self._merge_terms([r.all_terms() for r in self.readers])
-    
+
     def terms_from(self, fieldname, prefix):
         return self._merge_terms([r.terms_from(fieldname, prefix)
                                   for r in self.readers])
@@ -735,7 +736,7 @@ class MultiReader(IndexReader):
 
     def min_field_length(self, fieldname):
         return min(r.min_field_length(fieldname) for r in self.readers)
-    
+
     def max_field_length(self, fieldname):
         return max(r.max_field_length(fieldname) for r in self.readers)
 
@@ -743,7 +744,7 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         reader = self.readers[segmentnum]
         return reader.doc_field_length(segmentdoc, fieldname, default=default)
-    
+
     # max_field_length
 
     def first_id(self, fieldname, text):
@@ -757,23 +758,23 @@ class MultiReader(IndexReader):
                     raise TermNotFound((fieldname, text))
                 else:
                     return self.doc_offsets[i] + id
-        
+
         raise TermNotFound((fieldname, text))
 
     def postings(self, fieldname, text, scorer=None):
         postreaders = []
         docoffsets = []
         term = (fieldname, text)
-        
+
         for i, r in enumerate(self.readers):
             if term in r:
                 offset = self.doc_offsets[i]
-                
+
                 # Get a posting reader for the term and add it to the list
                 pr = r.postings(fieldname, text, scorer=scorer)
                 postreaders.append(pr)
                 docoffsets.append(offset)
-        
+
         if not postreaders:
             raise TermNotFound(fieldname, text)
         else:
@@ -789,18 +790,19 @@ class MultiReader(IndexReader):
 
     def vector_as(self, astype, docnum, fieldname):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
-        return self.readers[segmentnum].vector_as(astype, segmentdoc, fieldname)
+        return self.readers[segmentnum].vector_as(astype, segmentdoc,
+                                                  fieldname)
 
     def has_word_graph(self, fieldname):
         return any(r.has_word_graph(fieldname) for r in self.readers)
-    
+
     def word_graph(self, fieldname):
         from whoosh.support.dawg import UnionNode
         from whoosh.util import make_binary_tree
-        
+
         if not self.has_word_graph(fieldname):
             raise Exception("No word graph for field %r" % fieldname)
-        
+
         graphs = [r.word_graph(fieldname) for r in self.readers
                   if r.has_word_graph(fieldname)]
         if len(graphs) == 1:
@@ -827,7 +829,7 @@ class MultiReader(IndexReader):
 
     # most_frequent_terms
     # most_distinctive_terms
-    
+
     def leaf_readers(self):
         return zip_(self.readers, self.doc_offsets)
 

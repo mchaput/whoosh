@@ -31,7 +31,7 @@ class DatastoreFile(db.Model):
     """A file-like object that is backed by a BytesIO() object whose contents
     is loaded from a BlobProperty in the app engine datastore.
     """
-    
+
     value = db.BlobProperty()
 
     def __init__(self, *args, **kwargs):
@@ -78,19 +78,19 @@ class DatastoreFile(db.Model):
 class MemcacheLock(object):
     def __init__(self, name):
         self.name = name
-        
+
     def acquire(self, blocking=False):
         val = memcache.add(self.name, "L", 360, namespace="whooshlocks")
-        
+
         if blocking and not val:
             # Simulate blocking by retrying the acquire over and over
             import time
             while not val:
                 time.sleep(0.1)
                 val = memcache.add(self.name, "", 360, namespace="whooshlocks")
-        
+
         return val
-    
+
     def release(self):
         memcache.delete(self.name, namespace="whooshlocks")
 
@@ -103,7 +103,7 @@ class DatastoreStorage(Storage):
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
         if self.readonly:
             raise ReadOnlyError
-        
+
         _create_index(self, schema, indexname)
         return FileIndex(self, schema, indexname)
 
