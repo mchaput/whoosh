@@ -50,12 +50,12 @@ class SyntaxNode(object):
     ``endchar``
         The character position in the original text at which this node ended.
     """
-    
+
     has_fieldname = False
     has_text = False
     has_boost = False
     _parent = None
-    
+
     def __repr__(self):
         r = "<"
         if self.has_fieldname:
@@ -65,37 +65,37 @@ class SyntaxNode(object):
             r += " ^%s" % self.boost
         r += ">"
         return r
-    
+
     def r(self):
         """Returns a basic representation of this node. The base class's
         ``__repr__`` method calls this, then does the extra busy work of adding
         fieldname and boost where appropriate.
         """
-        
+
         return "%s %r" % (self.__class__.__name__, self.__dict__)
-    
+
     def apply(self, fn):
         return self
-    
+
     def accept(self, fn):
         def fn_wrapper(n):
             return fn(n.apply(fn_wrapper))
-        
+
         return fn_wrapper(self)
-    
+
     def query(self, parser):
         """Returns a :class:`whoosh.query.Query` instance corresponding to this
         syntax tree node.
         """
-        
+
         raise NotImplementedError(self.__class__.__name__)
-    
+
     def is_ws(self):
         """Returns True if this node is ignorable whitespace.
         """
-        
+
         return False
-    
+
     def set_fieldname(self, name, override=False):
         """Sets the fieldname associated with this node. If ``override`` is
         False (the default), the fieldname will only be replaced if this node
@@ -103,49 +103,49 @@ class SyntaxNode(object):
         
         For nodes that don't have a fieldname, this is a no-op.
         """
-        
+
         if not self.has_fieldname:
             return
-        
+
         if self.fieldname is None or override:
             self.fieldname = name
         return self
-    
+
     def set_boost(self, boost):
         """Sets the boost associated with this node.
         
         For nodes that don't have a boost, this is a no-op.
         """
-        
+
         if not self.has_boost:
             return
         self.boost = boost
         return self
-        
+
     def set_range(self, startchar, endchar):
         """Sets the character range associated with this node.
         """
-        
+
         self.startchar = startchar
         self.endchar = endchar
         return self
-    
+
     # Navigation methods
-    
+
     def parent(self):
         if self._parent:
             return self._parent()
-    
+
     def next_sibling(self):
         p = self.parent()
         if p:
             return p.node_after(self)
-    
+
     def prev_sibling(self):
         p = self.parent()
         if p:
             return p.node_before(self)
-    
+
     def bake(self, parent):
         self._parent = weakref.ref(parent)
 
@@ -153,7 +153,7 @@ class SyntaxNode(object):
 class MarkerNode(SyntaxNode):
     """Base class for nodes that only exist to mark places in the tree.
     """
-    
+
     def r(self):
         return self.__class__.__name__
 
@@ -161,10 +161,10 @@ class MarkerNode(SyntaxNode):
 class Whitespace(MarkerNode):
     """Abstract syntax tree node for ignorable whitespace.
     """
-    
+
     def r(self):
         return " "
-    
+
     def is_ws(self):
         return True
 
@@ -172,16 +172,16 @@ class Whitespace(MarkerNode):
 class FieldnameNode(SyntaxNode):
     """Abstract syntax tree node for field name assignments.
     """
-    
+
     has_fieldname = True
-    
+
     def __init__(self, fieldname, original):
         self.fieldname = fieldname
         self.original = original
-        
+
     def __repr__(self):
         return "<%r:>" % self.fieldname
-    
+
 
 class GroupNode(SyntaxNode):
     """Base class for abstract syntax tree node types that group together
@@ -199,43 +199,43 @@ class GroupNode(SyntaxNode):
     This class implements a number of list methods for operating on the
     subnodes.
     """
-    
+
     has_boost = True
     merging = True
     qclass = None
-    
+
     def __init__(self, nodes=None, boost=1.0, **kwargs):
         self.nodes = nodes or []
         self.boost = boost
         self.kwargs = kwargs
-    
+
     def r(self):
         return "%s %s" % (self.__class__.__name__,
                           ", ".join(repr(n) for n in self.nodes))
-    
+
     @property
     def startchar(self):
         if not self.nodes:
             return None
         return self.nodes[0].startchar
-    
+
     @property
     def endchar(self):
         if not self.nodes:
             return None
         return self.nodes[-1].endchar
-    
+
     def apply(self, fn):
         return self.__class__(self.type, [fn(node) for node in self.nodes],
                               boost=self.boost, **self.kwargs)
-    
+
     def query(self, parser):
         subs = []
         for node in self.nodes:
             subq = node.query(parser)
             if subq is not None:
                 subs.append(subq)
-        
+
         q = self.qclass(subs, boost=self.boost, **self.kwargs)
         return attach(q, self)
 
@@ -253,7 +253,7 @@ class GroupNode(SyntaxNode):
                         newgroup.append(node)
                 return newgroup
         """
-        
+
         c = self.__class__(**self.kwargs)
         if self.has_boost:
             c.boost = self.boost
@@ -267,54 +267,54 @@ class GroupNode(SyntaxNode):
         SyntaxNode.set_fieldname(self, name, override=override)
         for node in self.nodes:
             node.set_fieldname(name, override=override)
-    
+
     # List-like methods
 
     def __nonzero__(self):
         return bool(self.nodes)
-    
+
     __bool__ = __nonzero__
-    
+
     def __iter__(self):
         return iter(self.nodes)
-    
+
     def __len__(self):
         return len(self.nodes)
-    
+
     def __getitem__(self, n):
         return self.nodes.__getitem__(n)
-    
+
     def __setitem__(self, n, v):
         self.nodes.__setitem__(n, v)
-    
+
     def __delitem__(self, n):
         self.nodes.__delitem__(n)
-    
+
     def insert(self, n, v):
         self.nodes.insert(n, v)
-    
+
     def append(self, v):
         self.nodes.append(v)
-    
+
     def extend(self, vs):
         self.nodes.extend(vs)
-    
+
     def pop(self):
         return self.nodes.pop()
-    
+
     def reverse(self):
         self.nodes.reverse()
-    
+
     def index(self, v):
         return self.nodes.index(v)
-    
+
     # Navigation methods
-    
+
     def bake(self, parent):
         SyntaxNode.bake(self, parent)
         for node in self.nodes:
             node.bake(self)
-    
+
     def node_before(self, n):
         try:
             i = self.nodes.index(n)
@@ -322,7 +322,7 @@ class GroupNode(SyntaxNode):
             return
         if i > 0:
             return self.nodes[i - 1]
-    
+
     def node_after(self, n):
         try:
             i = self.nodes.index(n)
@@ -330,16 +330,16 @@ class GroupNode(SyntaxNode):
             return
         if i < len(self.nodes) - 2:
             return self.nodes[i + 1]
-    
+
 
 class BinaryGroup(GroupNode):
     """Intermediate base class for group nodes that have two subnodes and
     whose ``qclass`` initializer takes two arguments instead of a list.
     """
-    
+
     merging = False
     has_boost = False
-    
+
     def query(self, parser):
         assert len(self.nodes) == 2
         q = self.qclass(self.nodes[0].query(parser),
@@ -350,9 +350,9 @@ class BinaryGroup(GroupNode):
 class Wrapper(GroupNode):
     """Intermediate base class for nodes that wrap a single sub-node.
     """
-    
+
     merging = False
-    
+
     def query(self, parser):
         return attach(self.qclass(self.nodes[0].query(parser)), self)
 
@@ -361,24 +361,24 @@ class ErrorNode(SyntaxNode):
     def __init__(self, message, node=None):
         self.message = message
         self.node = node
-    
+
     def r(self):
         return "ERR %r %r" % (self.node, self.message)
-    
+
     @property
     def startchar(self):
         return self.node.startchar
-    
+
     @property
     def endchar(self):
         return self.node.endchar
-    
+
     def query(self, parser):
         if self.node:
             q = self.node.query(parser)
         else:
             q = query.NullQuery
-        
+
         return attach(query.error_query(self.message, q), self)
 
 
@@ -412,14 +412,14 @@ class RequireGroup(BinaryGroup):
 
 class NotGroup(Wrapper):
     qclass = query.Not
-    
+
 
 class RangeNode(SyntaxNode):
     """Syntax node for range queries.
     """
-    
+
     has_fieldname = True
-    
+
     def __init__(self, start, end, startexcl, endexcl):
         self.start = start
         self.end = end
@@ -428,17 +428,17 @@ class RangeNode(SyntaxNode):
         self.boost = 1.0
         self.fieldname = None
         self.kwargs = {}
-    
+
     def r(self):
         b1 = "{" if self.startexcl else "["
         b2 = "}" if self.endexcl else "]"
         return "%s%r %r%s" % (b1, self.start, self.end, b2)
-    
+
     def query(self, parser):
         fieldname = self.fieldname or parser.fieldname
         start = self.start
         end = self.end
-        
+
         if parser.schema and fieldname in parser.schema:
             field = parser.schema[fieldname]
             if field.self_parsing():
@@ -451,14 +451,14 @@ class RangeNode(SyntaxNode):
                 except QueryParserError:
                     e = sys.exc_info()[1]
                     return attach(query.error_query(e), self)
-            
+
             if start:
                 start = get_single_text(field, start, tokenize=False,
                                         removestops=False)
             if end:
                 end = get_single_text(field, end, tokenize=False,
                                       removestops=False)
-        
+
         q = query.TermRange(fieldname, start, end, self.startexcl,
                             self.endexcl, boost=self.boost)
         return attach(q, self)
@@ -481,14 +481,14 @@ class TextNode(SyntaxNode):
         analyzer has a stop word filter, stop words will be removed from the
         text before constructing the query.
     """
-    
+
     has_fieldname = True
     has_text = True
     has_boost = True
     qclass = None
-    tokenize=False
-    removestops=False
-    
+    tokenize = False
+    removestops = False
+
     def __init__(self, text):
         self.fieldname = None
         self.text = text
@@ -509,10 +509,10 @@ class TextNode(SyntaxNode):
 class WordNode(TextNode):
     """Syntax node for term queries.
     """
-    
+
     tokenize = True
     removestops = True
-    
+
     def r(self):
         return repr(self.text)
 
@@ -526,7 +526,7 @@ class Operator(SyntaxNode):
     the previous node, for infix operator, the nodes on either side, etc.) into
     a group node. The group provides the code for what to do with the nodes.
     """
-    
+
     def __init__(self, text, grouptype, leftassoc=True):
         """
         :param text: the text of the operator in the query string.
@@ -536,23 +536,23 @@ class Operator(SyntaxNode):
             associative. use ``leftassoc=False`` for right-associative infix
             operators.
         """
-        
+
         self.text = text
         self.grouptype = grouptype
         self.leftassoc = leftassoc
-    
+
     def r(self):
         return "OP %r" % self.text
-    
+
     def replace_self(self, parser, group, position):
         """Called with the parser, a group, and the position at which the
         operator occurs in that group. Should return a group with the operator
         replaced by whatever effect the operator has (e.g. for an infix op,
         replace the op and the nodes on either side with a sub-group).
         """
-        
+
         raise NotImplementedError
-    
+
 
 class PrefixOperator(Operator):
     def replace_self(self, parser, group, position):
@@ -576,11 +576,11 @@ class InfixOperator(Operator):
         la = self.leftassoc
         gtype = self.grouptype
         merging = gtype.merging
-        
+
         if position > 0 and position < len(group) - 1:
             left = group[position - 1]
             right = group[position + 1]
-            
+
             # The first two clauses check whether the "strong" side is already
             # a group of the type we are going to create. If it is, we just
             # append the "weak" side to the "strong" side instead of creating
@@ -598,7 +598,7 @@ class InfixOperator(Operator):
                 group[position - 1:position + 2] = [gtype([left, right])]
         else:
             del group[position]
-        
+
         return position
 
 

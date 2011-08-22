@@ -2,7 +2,7 @@ import sys
 
 if sys.version_info[0] < 3:
     PY3 = False
-    
+
     def b(s):
         return s
 
@@ -69,4 +69,4 @@ else:
         return ns["_WhooshBase"]
 
     xrange = range
-    zip_ = lambda *args: list(zip(*args))
+    zip_ = lambda * args: list(zip(*args))

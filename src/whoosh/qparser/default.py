@@ -50,7 +50,7 @@ class QueryParser(object):
     >>> parser.parse(u"hello there")
     And([Term("content", u"hello"), Term("content", u"there")])
     """
-    
+
     def __init__(self, fieldname, schema, plugins=None, termclass=query.Term,
                  phraseclass=query.Phrase, group=syntax.AndGroup):
         """
@@ -72,14 +72,14 @@ class QueryParser(object):
         :param group: the default grouping. ``AndGroup`` makes terms required
             by default. ``OrGroup`` makes terms optional by default.
         """
-        
+
         self.fieldname = fieldname
         self.schema = schema
         self.termclass = termclass
         self.phraseclass = phraseclass
         self.group = group
         self.plugins = []
-        
+
         if not plugins:
             plugins = self.default_set()
         self._add_ws_plugin()
@@ -88,9 +88,9 @@ class QueryParser(object):
     def default_set(self):
         """Returns the default list of plugins to use.
         """
-        
+
         from whoosh.qparser import plugins
-        
+
         return [plugins.WhitespacePlugin(),
                 plugins.SingleQuotePlugin(),
                 plugins.FieldsPlugin(),
@@ -107,35 +107,35 @@ class QueryParser(object):
         """Adds the given list of plugins to the list of plugins in this
         parser.
         """
-        
+
         for pin in pins:
             self.add_plugin(pin)
-    
+
     def add_plugin(self, pin):
         """Adds the given plugin to the list of plugins in this parser.
         """
-        
+
         if isinstance(pin, type):
             pin = pin()
         self.plugins.append(pin)
-    
+
     def _add_ws_plugin(self):
         from whoosh.qparser.plugins import WhitespacePlugin
         self.add_plugin(WhitespacePlugin())
-    
+
     def remove_plugin(self, pi):
         """Removes the given plugin object from the list of plugins in this
         parser.
         """
-        
+
         self.plugins.remove(pi)
-    
+
     def remove_plugin_class(self, cls):
         """Removes any plugins of the given class from this parser.
         """
-        
+
         self.plugins = [pi for pi in self.plugins if not isinstance(pi, cls)]
-    
+
     def replace_plugin(self, plugin):
         """Removes any plugins of the class of the given plugin and then adds
         it. This is a convenience method to keep from having to call
@@ -145,7 +145,7 @@ class QueryParser(object):
         >>> qp = qparser.QueryParser("content", schema)
         >>> qp.replace_plugin(qparser.NotPlugin("(^| )-"))
         """
-        
+
         self.remove_plugin_class(plugin.__class__)
         self.add_plugin(plugin)
 
@@ -162,7 +162,7 @@ class QueryParser(object):
         items_and_priorities.sort(key=lambda x: x[1])
         # Return the sorted list without the priorities
         return [item for item, _ in items_and_priorities]
-    
+
     def multitoken_query(self, spec, texts, fieldname, termclass, boost):
         """Returns a query for multiple texts. This method implements the
         intention specified in the field's ``multitoken_query`` attribute,
@@ -178,7 +178,7 @@ class QueryParser(object):
         :param boost: the original term's boost in the query string, should be
             applied to the returned query object.
         """
-        
+
         spec = spec.lower()
         if spec == "first":
             # Throw away all but the first token
@@ -197,16 +197,16 @@ class QueryParser(object):
                 raise QueryParserError("Unknown multitoken_query value %r" % spec)
             return qclass([termclass(fieldname, t, boost=boost)
                            for t in texts])
-    
+
     def term_query(self, fieldname, text, termclass, boost=1.0, tokenize=True,
                    removestops=True):
         """Returns the appropriate query object for a single term in the query
         string.
         """
-        
+
         if self.schema and fieldname in self.schema:
             field = self.schema[fieldname]
-            
+
             # If this field type wants to parse queries itself, let it do so
             # and return early
             if field.self_parsing():
@@ -215,43 +215,43 @@ class QueryParser(object):
                 except:
                     e = sys.exc_info()[1]
                     return query.error_query(e)
-            
+
             # Otherwise, ask the field to process the text into a list of
             # tokenized strings
             texts = list(field.process_text(text, mode="query",
                                             tokenize=tokenize,
                                             removestops=removestops))
-            
+
             # If the analyzer returned more than one token, use the field's
             # multitoken_query attribute to decide what query class, if any, to
             # use to put the tokens together
             if len(texts) > 1:
                 return self.multitoken_query(field.multitoken_query, texts,
                                              fieldname, termclass, boost)
-                
+
             # It's possible field.process_text() will return an empty list (for
             # example, on a stop word)
             if not texts:
                 return None
-            
+
             text = texts[0]
-        
+
         return termclass(fieldname, text, boost=boost)
 
     def taggers(self):
         """Returns a priorized list of tagger objects provided by the parser's
         currently configured plugins.
         """
-        
+
         return self._priorized("taggers")
-    
+
     def filters(self):
         """Returns a priorized list of filter functions provided by the
         parser's currently configured plugins.
         """
-        
+
         return self._priorized("filters")
-    
+
     def tag(self, text, pos=0, debug=False):
         """Returns a group of syntax nodes corresponding to the given text,
         created by matching the Taggers provided by the parser's plugins.
@@ -259,7 +259,7 @@ class QueryParser(object):
         :param text: the text to tag.
         :param pos: the position in the text to start tagging at.
         """
-        
+
         # The list out output tags
         stack = []
         # End position of the previous match
@@ -267,7 +267,7 @@ class QueryParser(object):
         # Priorized list of taggers provided by the parser's plugins
         taggers = self.taggers()
         print_debug(debug, "Taggers: %r" % taggers)
-        
+
         # Define a function that will make a WordNode from the "interstitial"
         # text between matches
         def inter(startchar, endchar):
@@ -275,7 +275,7 @@ class QueryParser(object):
             n.startchar = startchar
             n.endchar = endchar
             return n
-        
+
         while pos < len(text):
             node = None
             # Try each tagger to see if it matches at the current position
@@ -288,7 +288,7 @@ class QueryParser(object):
                         tween = inter(prev, pos)
                         print_debug(debug, "Tween: %r" % tween)
                         stack.append(tween)
-                        
+
                     print_debug(debug, "Tagger: %r at %s: %r" % (tagger, pos, node))
                     stack.append(node)
                     prev = pos = node.endchar
@@ -297,21 +297,21 @@ class QueryParser(object):
             if not node:
                 # No taggers matched, move forward
                 pos += 1
-        
+
         # If there's unmatched text left over on the end, put it in a WordNode
         if prev < len(text):
             stack.append(inter(prev, len(text)))
-        
+
         # Wrap the list of nodes in a group node
         group = self.group(stack)
         print_debug(debug, "Tagged group: %r" % group)
         return group
-    
+
     def filterize(self, nodes, debug=False):
         """Takes a group of nodes and runs the filters provided by the parser's
         plugins.
         """
-        
+
         # Call each filter in the priorized list of plugin filters
         print_debug(debug, "Pre-filtered group: %r" % nodes)
         for f in self.filters():
@@ -329,7 +329,7 @@ class QueryParser(object):
         :param text: the text to tag.
         :param pos: the position in the text to start tagging at.
         """
-        
+
         nodes = self.tag(text, pos=pos, debug=debug)
         nodes = self.filterize(nodes, debug=debug)
         return nodes
@@ -344,20 +344,20 @@ class QueryParser(object):
             debug the parser output.
         :rtype: :class:`whoosh.query.Query`
         """
-        
+
         nodes = self.process(text, debug=debug)
         print_debug(debug, "Syntax tree: %r" % nodes)
-        
+
         q = nodes.query(self)
         if not q:
             q = query.NullQuery
         print_debug(debug, "Pre-normalized query: %r" % q)
-        
+
         if normalize:
             q = q.normalize()
             print_debug(debug, "Normalized query: %r" % q)
         return q
-    
+
     def parse_(self, text, normalize=True):
         pass
 
@@ -377,9 +377,9 @@ def MultifieldParser(fieldnames, schema, fieldboosts=None, **kwargs):
     :param fieldnames: a list of field names to search.
     :param fieldboosts: an optional dictionary mapping field names to boosts.
     """
-    
+
     from whoosh.qparser.plugins import MultifieldPlugin
-    
+
     p = QueryParser(None, schema, **kwargs)
     mfp = MultifieldPlugin(fieldnames, fieldboosts=fieldboosts)
     p.add_plugin(mfp)
@@ -390,9 +390,9 @@ def SimpleParser(fieldname, schema, **kwargs):
     """Returns a QueryParser configured to support only +, -, and phrase
     syntax.
     """
-    
+
     from whoosh.qparser import plugins
-    
+
     pins = [plugins.WhitespacePlugin,
             plugins.PlusMinusPlugin,
             plugins.PhrasePlugin]
@@ -406,9 +406,9 @@ def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
     
     :param fieldboosts: a dictionary mapping field names to boosts.
     """
-    
+
     from whoosh.qparser import plugins
-    
+
     mfp = plugins.MultifieldPlugin(list(fieldboosts.keys()),
                                    fieldboosts=fieldboosts,
                                    group=syntax.DisMaxGroup)

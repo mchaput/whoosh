@@ -1307,7 +1307,7 @@ def charset_table_to_dict(tablestring):
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
-    
+
     #map = {}
     map = defaultdict(lambda: None)
     for line in tablestring.split("\n"):
@@ -1331,7 +1331,7 @@ def charset_table_to_dict(tablestring):
                 except ValueError:
                     pass
                 continue
-            
+
             match = _char_map.match(item)
             if match:
                 fromord = charspec_to_int(match.group(1))
@@ -1341,7 +1341,7 @@ def charset_table_to_dict(tablestring):
                 except ValueError:
                     pass
                 continue
-            
+
             match = _stray_char.match(item)
             if match:
                 ord = charspec_to_int(match.group(0))
@@ -1350,7 +1350,7 @@ def charset_table_to_dict(tablestring):
                 except ValueError:
                     pass
                 continue
-            
+
             match = _stray_range.match(item)
             if match:
                 start = charspec_to_int(match.group(1))
@@ -1361,7 +1361,7 @@ def charset_table_to_dict(tablestring):
                 except ValueError:
                     pass
                 continue
-                    
+
             match = _checker_range.match(item)
             if match:
                 fromord = charspec_to_int(match.group(1))
@@ -1374,6 +1374,6 @@ def charset_table_to_dict(tablestring):
                     except ValueError:
                         pass
                 continue
-            
+
             raise Exception("Don't know what to do with %r" % item)
     return map

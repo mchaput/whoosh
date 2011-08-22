@@ -65,64 +65,64 @@ class BaseNode(object):
     * ``all_edges()`` returns a dictionary of the node's outgoing edges, where
       the keys are the edge labels and the values are the connected nodes.
     """
-    
+
     def __contains__(self, key):
         raise NotImplementedError
-    
+
     def __iter__(self):
         raise NotImplementedError
-    
+
     def __len__(self):
         raise NotImplementedError
-    
+
     def keys(self):
         """Returns a list of the outgoing edge labels.
         """
-        
+
         return list(self)
-    
+
     def edge(self, key, expand=True):
         """Returns the node connected to the outgoing edge with the given label.
         """
-        
+
         raise NotImplementedError
-    
+
     def all_edges(self):
         """Returns a dictionary mapping outgoing edge labels to nodes.
         """
-        
+
         e = self.edge
         return dict((key, e(key)) for key in self)
-    
+
     def edge_count(self):
         """Returns the recursive count of edges in this node and the tree under
         it.
         """
-        
+
         return len(self) + sum(self.edge(key).edge_count() for key in self)
 
 
 class NullNode(BaseNode):
     """An empty node. This is sometimes useful for representing an empty graph.
     """
-    
+
     final = False
-    
+
     def __containts__(self, key):
         return False
-    
+
     def __iter__(self):
         return iter([])
-    
+
     def __len__(self):
         return 0
-    
+
     def edge(self, key, expand=True):
         raise KeyError(key)
-    
+
     def all_edges(self):
         return {}
-    
+
     def edge_count(self):
         return 0
 
@@ -130,7 +130,7 @@ class NullNode(BaseNode):
 class BuildNode(object):
     """Node type used by DawgBuilder when constructing a graph from scratch.
     """
-    
+
     def __init__(self):
         self.final = False
         self._edges = {}
@@ -160,29 +160,29 @@ class BuildNode(object):
             if key not in theirs or not mine[key] == theirs[key]:
                 return False
         return True
-    
+
     def __ne__(self, other):
         return not(self.__eq__(other))
-    
+
     def __contains__(self, key):
         return key in self._edges
-    
+
     def __iter__(self):
         return iter(self._edges)
-    
+
     def __len__(self):
         return len(self._edges)
-    
+
     def put(self, key, node):
         self._hash = None  # Invalidate the cached hash value
         self._edges[key] = node
-    
+
     def edge(self, key, expand=True):
         return self._edges[key]
-    
+
     def all_edges(self):
         return self._edges
-    
+
 
 class DawgBuilder(object):
     """Class for building a graph from scratch.
@@ -195,7 +195,7 @@ class DawgBuilder(object):
     This class does not have the cleanest API, because it was cobbled together
     to support the spelling correction system.
     """
-    
+
     def __init__(self, reduced=True, field_root=False):
         """
         :param dbfile: an optional StructFile. If you pass this argument to the
@@ -207,23 +207,23 @@ class DawgBuilder(object):
             preventing them from being reduced and allowing them to be inserted
             out-of-order.
         """
-        
+
         self._reduced = reduced
         self._field_root = field_root
-        
+
         self.lastword = None
         # List of nodes that have not been checked for duplication.
         self.unchecked = []
         # List of unique nodes that have been checked for duplication.
         self.minimized = {}
-        
+
         self.root = BuildNode()
-    
+
     def insert(self, word):
         """Add the given "word" (a string or list of strings) to the graph.
         Words must be inserted in sorted order.
         """
-        
+
         lw = self.lastword
         prefixlen = 0
         if lw:
@@ -278,15 +278,15 @@ class DawgBuilder(object):
         a graph to use in memory. Otherwise it is automatically called by
         the write() method.
         """
-        
+
         self._minimize(0)
         if self._reduced:
             self.reduce(self.root, self._field_root)
-                    
+
     def write(self, dbfile):
         self.finish()
         DawgWriter(dbfile).write(self.root)
-    
+
     @staticmethod
     def reduce(root, field_root=False):
         if not field_root:
@@ -301,25 +301,25 @@ class DawgWriter(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
         self.offsets = {}
-    
+
     def write(self, root):
         """Write the graph to the given StructFile. If you passed a file to
         the initializer, you don't have to pass it here.
         """
-        
+
         dbfile = self.dbfile
         dbfile.write(b("GR01"))  # Magic number
         dbfile.write_int(0)  # File flags
         dbfile.write_uint(0)  # Pointer to root node
-        
+
         offset = self._write_node(dbfile, root)
-        
+
         # Seek back and write the pointer to the root node
         dbfile.flush()
         dbfile.seek(_INT_SIZE * 2)
         dbfile.write_uint(offset)
         dbfile.close()
-    
+
     def _write_node(self, dbfile, node):
         keys = node._edges.keys()
         ptrs = array("I")
@@ -331,9 +331,9 @@ class DawgWriter(object):
                 ptr = self._write_node(dbfile, sn)
                 self.offsets[id(sn)] = ptr
                 ptrs.append(ptr)
-        
+
         start = dbfile.tell()
-        
+
         # The low bit indicates whether this node represents the end of a word
         flags = int(node.final)
         # The second lowest bit = whether this node has children
@@ -346,7 +346,7 @@ class DawgWriter(object):
             sbytes = all(ord(key) <= 255 for key in keys)
             flags |= sbytes << 3
         dbfile.write_byte(flags)
-        
+
         if keys:
             dbfile.write_varint(len(keys))
             dbfile.write_array(ptrs)
@@ -360,7 +360,7 @@ class DawgWriter(object):
             else:
                 for key in keys:
                     dbfile.write_string(utf8encode(key)[0])
-        
+
         return start
 
 
@@ -368,7 +368,7 @@ class DiskNode(BaseNode):
     def __init__(self, dbfile, offset, expand=True):
         self.id = offset
         self.dbfile = dbfile
-        
+
         dbfile.seek(offset)
         flags = dbfile.read_byte()
         self.final = bool(flags & 1)
@@ -376,9 +376,9 @@ class DiskNode(BaseNode):
         if flags & 2:
             singles = flags & 4
             bytes = flags & 8
-            
+
             nkeys = dbfile.read_varint()
-            
+
             ptrs = dbfile.read_array("I", nkeys)
             for i in xrange(nkeys):
                 ptr = ptrs[i]
@@ -394,21 +394,21 @@ class DiskNode(BaseNode):
                         self._edges[key[0]] = PatNode(dbfile, key[1:], ptr)
                     else:
                         self._edges[key] = ptr
-    
+
     def __repr__(self):
         return "<%s %s:%s %s>" % (self.__class__.__name__, self.id,
                                   ",".join(sorted(self._edges.keys())),
                                   self.final)
-    
+
     def __contains__(self, key):
         return key in self._edges
-    
+
     def __iter__(self):
         return iter(self._edges)
-    
+
     def __len__(self):
         return len(self._edges)
-    
+
     def edge(self, key, expand=True):
         v = self._edges[key]
         if not isinstance(v, BaseNode):
@@ -417,7 +417,7 @@ class DiskNode(BaseNode):
             #if self.caching:
             self._edges[key] = v
         return v
-    
+
     @classmethod
     def load(cls, dbfile, expand=True):
         dbfile.seek(0)
@@ -426,38 +426,38 @@ class DiskNode(BaseNode):
             raise Exception("%r does not seem to be a graph file" % dbfile)
         _ = dbfile.read_int()  # File flags (currently unused)
         return DiskNode(dbfile, dbfile.read_uint(), expand=expand)
-    
+
 
 class PatNode(BaseNode):
     final = False
-    
+
     def __init__(self, dbfile, label, nextptr, i=0):
         self.dbfile = dbfile
         self.label = label
         self.nextptr = nextptr
         self.i = i
-    
+
     def __repr__(self):
         return "<%r(%d) %s>" % (self.label, self.i, self.final)
-    
+
     def __contains__(self, key):
         if self.i < len(self.label) and key == self.label[self.i]:
             return True
         else:
             return False
-    
+
     def __iter__(self):
         if self.i < len(self.label):
             return iter(self.label[self.i])
         else:
             return []
-    
+
     def __len__(self):
         if self.i < len(self.label):
             return 1
         else:
             return 0
-    
+
     def edge(self, key, expand=True):
         label = self.label
         i = self.i
@@ -469,7 +469,7 @@ class PatNode(BaseNode):
                 return DiskNode(self.dbfile, self.nextptr)
         else:
             raise KeyError(key)
-        
+
     def edge_count(self):
         return DiskNode(self.dbfile, self.nextptr).edge_count()
 
@@ -480,32 +480,32 @@ class ComboNode(BaseNode):
     Concrete subclasses need to implement the ``edge()`` method and possibly
     the ``final`` property.
     """
-    
+
     def __init__(self, a, b):
         self.a = a
         self.b = b
-    
+
     def __repr__(self):
         return "<%s %r %r>" % (self.__class__.__name__, self.a, self.b)
-    
+
     def __contains__(self, key):
         return key in self.a or key in self.b
-    
+
     def __iter__(self):
         return iter(set(self.a) | set(self.b))
-    
+
     def __len__(self):
         return len(set(self.a) | set(self.b))
-    
+
     @property
     def final(self):
         return self.a.final or self.b.final
-    
+
 
 class UnionNode(ComboNode):
     """Makes two graphs appear to be the union of the two graphs.
     """
-    
+
     def edge(self, key, expand=True):
         a = self.a
         b = self.b
@@ -515,12 +515,12 @@ class UnionNode(ComboNode):
             return a.edge(key)
         else:
             return b.edge(key)
-        
+
 
 class IntersectionNode(ComboNode):
     """Makes two graphs appear to be the intersection of the two graphs.
     """
-    
+
     def edge(self, key, expand=True):
         a = self.a
         b = self.b
@@ -539,7 +539,7 @@ def reduce(node):
                 skey, ssn = list(sn._edges.items())[0]
                 del edges[key]
                 edges[key + skey] = ssn
-                
+
 
 def edge_count(node):
     c = len(node)
@@ -555,7 +555,7 @@ def flatten(node, sofar=""):
 
 
 def dump_dawg(node, tab=0):
-    print("%s%s %s" %  (" " * tab, hex(id(node)), node.final))
+    print("%s%s %s" % (" " * tab, hex(id(node)), node.final))
     for key in sorted(node):
         print("%s%r:" % (" " * tab, key))
         dump_dawg(node.edge(key), tab + 1)
@@ -564,32 +564,32 @@ def dump_dawg(node, tab=0):
 def within(node, text, k=1, prefix=0, seen=None):
     if seen is None:
         seen = set()
-    
+
     sofar = ""
     if prefix:
         node = skip_prefix(node, text, prefix)
         if node is None:
             return
         sofar, text = text[:prefix], text[prefix:]
-    
+
     for sug in _within(node, text, k, sofar=sofar):
         if sug in seen:
             continue
         yield sug
         seen.add(sug)
-            
+
 
 def _within(node, word, k=1, i=0, sofar=""):
     assert k >= 0
-    
+
     if i == len(word) and node.final:
         yield sofar
-    
+
     # Match
     if i < len(word) and word[i] in node:
         for w in _within(node.edge(word[i]), word, k, i + 1, sofar + word[i]):
             yield w
-    
+
     if k > 0:
         dk = k - 1
         ii = i + 1
@@ -597,22 +597,22 @@ def _within(node, word, k=1, i=0, sofar=""):
         for key in node:
             for w in _within(node.edge(key), word, dk, i, sofar + key):
                 yield w
-        
+
         if i < len(word):
             char = word[i]
-            
+
             # Transposition
             if i < len(word) - 1 and char != word[ii] and word[ii] in node:
-                second = node.edge(word[i+1])
+                second = node.edge(word[i + 1])
                 if char in second:
                     for w in _within(second.edge(char), word, dk, i + 2,
                                      sofar + word[ii] + char):
                         yield w
-            
+
             # Deletion
             for w in _within(node, word, dk, ii, sofar):
                 yield w
-            
+
             # Replacements
             for key in node:
                 if key != char:
@@ -640,7 +640,7 @@ def find_nearest(node, prefix):
             break
     sofar.extend(run_out(node, sofar))
     return "".join(sofar)
-    
+
 
 def run_out(node, sofar):
     sofar = []

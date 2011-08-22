@@ -166,29 +166,29 @@ def split_range(valsize, step, start, end):
     for the edges of the range are generated at high precision and large blocks
     in the middle are generated at low precision.
     """
-    
+
     shift = 0
     while True:
         diff = 1 << (shift + step)
         mask = ((1 << step) - 1) << shift
         setbits = lambda x: x | ((1 << shift) - 1)
-        
+
         haslower = (start & mask) != 0
         hasupper = (end & mask) != mask
-        
+
         not_mask = ~mask & ((1 << valsize + 1) - 1)
         nextstart = (start + diff if haslower else start) & not_mask
         nextend = (end - diff if hasupper else end) & not_mask
-        
+
         if shift + step >= valsize or nextstart > nextend:
             yield (start, setbits(end), shift)
             break
-        
+
         if haslower:
             yield (start, setbits(start | mask), shift)
         if hasupper:
             yield (end & not_mask, setbits(end), shift)
-        
+
         start = nextstart
         end = nextend
         shift += step
@@ -214,7 +214,7 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
             start = float_to_sortable_long(start, signed)
         if startexcl:
             start += 1
-    
+
     if end is None:
         end = _max_sortable_int if valsize == 32 else _max_sortable_long
     else:
@@ -226,16 +226,16 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
             end = float_to_sortable_long(end, signed)
         if endexcl:
             end -= 1
-    
+
     if numtype is int and not PY3:
         to_text = sortable_int_to_text
     else:
         to_text = sortable_long_to_text
-    
+
     if not shift_step:
         yield (to_text(start), to_text(end))
         return
-    
+
     # Yield the term ranges for the different resolutions
     for rstart, rend, shift in split_range(valsize, shift_step, start, end):
         starttext = to_text(rstart, shift=shift)
@@ -256,7 +256,7 @@ for i in range(len(_b85chars)):
 
 def to_base85(x, islong=False):
     "Encodes the given integer using base 85."
-    
+
     size = 10 if islong else 5
     rems = ""
     for i in xrange(size):

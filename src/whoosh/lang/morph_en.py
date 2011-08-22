@@ -20,7 +20,7 @@ exceptions = [
         "acid acids acidic acidity acidities",
         "across",
         "act acts acted acting actor actors",
-        "ad ads", 
+        "ad ads",
         "add adds added adding addings addition additions adder adders",
         "advertise advertises advertised advertising advertiser advertisers advertisement advertisements advertisings",
         "after",
@@ -102,7 +102,7 @@ exceptions = [
         "blow blows blew blown blowing blowings blower blowers",
         "bookshelf bookshelves",
         "both",
-        "bound bounds bounded bounding boundings bounder bounders boundless", 
+        "bound bounds bounded bounding boundings bounder bounders boundless",
         "bourgeois bourgeoisie",
         "bra bras",
         "brahman brahmans",
@@ -260,7 +260,7 @@ exceptions = [
         "hear hears heard hearing hearings hearer hearers",
         "here",
         "hide hides hid hidden hiding hidings hider hiders",
-        "hippopotamus hippopotami hippopotamuses", 
+        "hippopotamus hippopotami hippopotamuses",
         "hold holds held holding holdings holder holders",
         "honorarium honoraria honorariums",
         "hoof hoofs hooves hoofed hoofing hoofer hoofers",
@@ -608,7 +608,7 @@ cons = "bcdfghjklmnpqrstvwxyz"
 
 rules = (
          # Words ending in S
-         
+
          # (e.g., happiness, business)
          (r"[%s].*[%s](iness)" % (vowels, cons), "y,ies,ier,iers,iest,ied,ying,yings,ily,inesses,iment,iments,iless,iful"),
          # (e.g., baseless, shoeless)
@@ -672,9 +672,9 @@ rules = (
          (r"ss()", ""),
          # (e.g., cds, lcds, m-16s) no vowel (can be a plural noun, but not verb)
          (r"[%s].*[%s1234567890](s)" % (cons, cons), ""),
-         
+
          # Words ending in E
-         
+
          # (e.g., apple, so it doesn't include apply)
          (r"appl(e)", "es,er,ers,est,ed,ing,ings,ely,eness,enesses,ement,ements,eless,eful"),
          # (e.g., supple, so it doesn't include supply)
@@ -695,9 +695,9 @@ rules = (
          (r"[%s].*[%s](ise)" % (vowels, cons), "ize,izes,izer,izers,ized,izing,izings,ization,izations,ises,iser,isers,ised,ising,isings,isation,isations"),
          # (e.g., tree, agree, rage, horse, hoarse)
          (r"[%s].*[%s](e)" % (vowels, cons), "es,er,ers,est,ed,ing,ings,eing,eings,ely,eness,enesses,ement,ements,eless,eful"),
-         
+
          # Words ending in -ED
-         
+
          # (e.g., agreed, freed, decreed, treed)
          (r"ree(d)", "ds,der,ders,ded,ding,dings,dly,dness,dnesses,dment,dments,dless,dful,,*"),
          # (e.g., feed, seed, Xweed)
@@ -720,9 +720,9 @@ rules = (
          (r"[%s].*(ed)" % vowels, ",e,s,es,er,ers,est,ing,ings,ly,ely,ness,eness,nesses,enesses,ment,ement,ments,ements,less,eless,ful,eful"),
          # (e.g., bed, sled) words with a single e as the only vowel
          (r"ed()", "s,&er,&ers,&est,&ed,&ing,&ings,ly,ness,nesses,ment,ments,less,ful"),
-         
+
          # Words ending in -ER
-         
+
          # (e.g., altimeter, ammeter, odometer, perimeter)
          (r"meter()", "s,er,ers,ed,ing,ings,ly,ness,nesses,ment,ments,less,ful"),
          # (e.g., agreer, beer, budgeteer, engineer, freer)
@@ -741,9 +741,9 @@ rules = (
          (r"[%s].*[%s](iser)" % (vowels, cons), "ize,izes,izer,izers,ized,izing,izings,ization,izations,ises,ise,isers,ised,ising,isings,isation,isations"),
          #(e.g., actioner, atoner, icer, trader, accruer, churchgoer, prefer)
          (r"[%s].*(er)" % vowels, ",e,s,es,est,ed,ing,ings,ly,ely,ness,eness,nesses,enesses,ment,ments,less,ful,ement,ements,eless,eful,ers,ered,erred,ering,erring,erings,errings,erly,erness,ernesses,erment,erments,erless,erful,erer,erers,erest,errer,errers,errest"),
-         
+
          # Words ending in -EST
-         
+
          # (e.g., sliest, happiest, wittiest)
          (r"[%s](iest)" % cons, "y,ies,ier,iers,ied,ying,yings,ily,yly,iness,yness,inesses,ynesses,iment,iments,iless,iful"),
          # (e.g., fullest)
@@ -760,24 +760,24 @@ rules = (
          (r"[%s].*(est)" % vowels, ",e,s,es,er,ers,ed,ing,ings,ly,ely,ness,eness,nesses,enesses,ment,ments,less,ful,ement,ements,eless,eful,ests,ester,esters,ested,esting,estings,estly,estness,estnesses,estment,estments,estless,estful"),
          # (e.g., rest, test)
          (r"est", "s,er,ers,ed,ing,ings,ly,ness,nesses,ment,ments,less,ful"),
-         
+
          # Words ending in -FUL
-         
+
          # (e.g., beautiful, plentiful)
          (r"[%s].*[%s](iful)" % (vowels, cons), "ifully,ifulness,*y"),
          # (e.g., hopeful, sorrowful)
          (r"[%s].*(ful)" % vowels, "fully,fulness,,*"),
-         
+
          # Words ending in -ICAL
-         
+
          (r"[%s].*(ical)" % vowels, "ic,ics,ically"),
-         
+
          # Words ending in -IC
-         
+
          (r"[%s].*(ic)" % vowels, "ics,ical,ically"),
-         
+
          # Words ending in -ING
-         
+
          # (e.g., dying, crying, supplying)
          (r"[%s](ying)" % cons, "yings,ie,y,ies,ier,iers,iest,ied,iely,yly,ieness,yness,ienesses,ynesses,iment,iments,iless,iful"),
          # (e.g., pulling, filling, fulling)
@@ -812,15 +812,15 @@ rules = (
          (r"[%s].*(ing)" % vowels, ",*,*e,ings,inger,ingers,ingest,inged,inging,ingings,ingly,ingness,ingnesses,ingment,ingments,ingless,ingful"),
          # (e.g., wing, thing) monosyllables
          (r"(ing)", "ings,inger,ingers,ingest,inged,inging,ingings,ingly,ingness,ingnesses,ingment,ingments,ingless,ingful"),
-         
+
          # -LEAF rules omitted
-         
+
          # Words ending in -MAN
          # (e.g., policewomen, hatchetmen, dolmen)
          (r"(man)", "man,mens,mener,meners,menest,mened,mening,menings,menly,menness,mennesses,menless,menful"),
-         
+
          # Words ending in -MENT
-         
+
          # (e.g., segment, bisegment, cosegment, pigment, depigment, repigment)
          (r"segment|pigment", "s,ed,ing,ings,er,ers,ly,ness,nesses,less,ful"),
          # (e.g., judgment, abridgment)
@@ -829,21 +829,21 @@ rules = (
          (r"[%s].*[%s](iment)" % (vowels, cons), "*y"),
          # (e.g., atonement, entrapment)
          (r"[%s].*[%s](ment)" % (vowels, cons), ",*"),
-         
+
          # Words ending in -O
-         
+
          # (e.g., taboo, rodeo)
          (r"[%s]o()" % vowels, "s,er,ers,est,ed,ing,ings,ly,ness,nesses,ment,ments,less,ful"),
          # (e.g., tomato, bonito)
          (r"[%s].*o()" % vowels, "s,es,er,ers,est,ed,ing,ings,ly,ness,nesses,ment,ments,less,ful"),
-         
+
          # Words ending in -UM
-         
+
          # (e.g., datum, quantum, tedium, strum, [oil]drum, vacuum)
          (r"[%s].*(um)" % vowels, "a,ums,umer,ummer,umers,ummers,umed,ummed,uming,umming,umings,ummings,umness,umments,umless,umful"),
-         
+
          # Words ending in -Y
-         
+
          # (e.g., ably, horribly, wobbly)
          (r"[%s].*b(ly)" % vowels, "le,les,ler,lers,lest,led,ling,lings,leness,lenesses,lement,lements,leless,leful"),
          # (e.g., happily, dizzily)
@@ -860,9 +860,9 @@ rules = (
          (r"[%s](y)" % cons, "ies,ier,iers,iest,ied,ying,yings,ily,yness,iness,ynesses,inesses,iment,iments,iless,iful,yment,yments,yless,yful"),
          # (e.g., betray, gay, stay)
          (r"[%s]y()" % vowels, "s,er,ers,est,ed,ing,ings,ly,ness,nesses,ment,ments,less,ful"),
-         
+
          # Root rules
-         
+
          # (e.g., fix, arch, rash)
          (r"[%s].*(ch|sh|[jxz])()" % vowels, "es,er,ers,est,ed,ing,ings,ly,ness,nesses,ment,ments,less,ful"),
          # (e.g., unflag, open, besot)
@@ -903,7 +903,7 @@ def variations(word):
     >>> variations("pull")
     set(['pull', 'pullings', 'pullnesses', 'pullful', 'pullment', 'puller', ... ])
     """
-    
+
     if word in _exdict:
         return _exdict[word].split(" ")
 
@@ -917,9 +917,9 @@ def variations(word):
             # positional groups are None)
             groups = [g for g in match.groups() if g is not None]
             ending = groups[-1]
-            root = word[:0 - len(ending)] if ending else word 
+            root = word[:0 - len(ending)] if ending else word
 
-            out = set((word, ))
+            out = set((word,))
             results = rules[i * _partition_size + num][1]
             for result in results.split(","):
                 if result.startswith("&"):

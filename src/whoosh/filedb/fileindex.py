@@ -82,7 +82,7 @@ def _create_index(storage, schema, indexname=_DEF_INDEX_NAME):
     for filename in storage:
         if filename.startswith(prefix):
             storage.delete_file(filename)
-    
+
     schema = ensure_schema(schema)
     # Write a TOC file with an empty list of segments
     _write_toc(storage, schema, indexname, 0, 0, [])
@@ -120,13 +120,13 @@ class Toc(object):
     def __init__(self, **kwargs):
         for name, value in iteritems(kwargs):
             setattr(self, name, value)
-        
+
 
 def _read_toc(storage, schema, indexname):
     gen = _latest_generation(storage, indexname)
     if gen < 0:
         raise EmptyIndexError("Index %r does not exist in %r" % (indexname, storage))
-    
+
     # Read the content of this index from the .toc file.
     tocfilename = _toc_filename(indexname, gen)
     stream = storage.open_file(tocfilename)
@@ -148,7 +148,7 @@ def _read_toc(storage, schema, indexname):
     if version != _INDEX_VERSION:
         raise IndexVersionError("Can't read format %s" % version, version)
     release = (stream.read_varint(), stream.read_varint(), stream.read_varint())
-    
+
     # If the user supplied a schema object with the constructor, don't load
     # the pickled schema from the saved index.
     if schema:
@@ -156,14 +156,14 @@ def _read_toc(storage, schema, indexname):
     else:
         schema = pickle.loads(stream.read_string())
     schema = ensure_schema(schema)
-    
+
     # Generation
     index_gen = stream.read_int()
     assert gen == index_gen
-    
+
     segment_counter = stream.read_int()
     segments = stream.read_pickle()
-    
+
     stream.close()
     return Toc(version=version, release=release, schema=schema,
                segment_counter=segment_counter, segments=segments,
@@ -174,11 +174,11 @@ def _next_segment_name(self):
     #Returns the name of the next segment in sequence.
     if self.segment_num_lock is None:
         self.segment_num_lock = Lock()
-    
+
     if self.segment_num_lock.acquire():
         try:
             self.segment_counter += 1
-            return 
+            return
         finally:
             self.segment_num_lock.release()
     else:
@@ -207,7 +207,7 @@ def _clean_files(storage, indexname, gen, segments):
             name = segm.group(1)
             if name not in current_segment_names:
                 todelete.add(filename)
-    
+
     for filename in todelete:
         try:
             storage.delete_file(filename)
@@ -224,14 +224,14 @@ class FileIndex(Index):
             raise ValueError("%r is not a Storage object" % storage)
         if not isinstance(indexname, string_type):
             raise ValueError("indexname %r is not a string" % indexname)
-        
+
         if schema:
             schema = ensure_schema(schema)
-        
+
         self.storage = storage
         self._schema = schema
         self.indexname = indexname
-        
+
         # Try reading the TOC to see if it's possible
         _read_toc(self.storage, self._schema, self.indexname)
 
@@ -244,13 +244,13 @@ class FileIndex(Index):
 
     # add_field
     # remove_field
-    
+
     def latest_generation(self):
         return _latest_generation(self.storage, self.indexname)
-    
+
     # refresh
     # up_to_date
-    
+
     def last_modified(self):
         gen = self.latest_generation()
         filename = _toc_filename(self.indexname, gen)
@@ -258,13 +258,13 @@ class FileIndex(Index):
 
     def is_empty(self):
         return len(self._read_toc().segments) == 0
-    
+
     def optimize(self):
         w = self.writer()
         w.commit(optimize=True)
 
     # searcher
-    
+
     def writer(self, **kwargs):
         from whoosh.filedb.filewriting import SegmentWriter
         return SegmentWriter(self, **kwargs)
@@ -273,7 +273,7 @@ class FileIndex(Index):
         """Returns a lock object that you can try to call acquire() on to
         lock the index.
         """
-        
+
         return self.storage.lock(self.indexname + "_" + name)
 
     def _read_toc(self):
@@ -281,10 +281,10 @@ class FileIndex(Index):
 
     def _segments(self):
         return self._read_toc().segments
-    
+
     def _current_schema(self):
         return self._read_toc().schema
-    
+
     @property
     def schema(self):
         return self._current_schema()
@@ -292,20 +292,20 @@ class FileIndex(Index):
     @classmethod
     def _reader(self, storage, schema, segments, generation, reuse=None):
         from whoosh.filedb.filereading import SegmentReader
-        
+
         reusable = {}
         try:
             if len(segments) == 0:
                 # This index has no segments! Return an EmptyReader object,
                 # which simply returns empty or zero to every method
                 return EmptyReader(schema)
-            
+
             if reuse:
                 # Put all atomic readers in a dictionary keyed by their
                 # generation, so we can re-use them if them if possible
                 readers = [r for r, _ in reuse.leaf_readers()]
                 reusable = dict((r.generation(), r) for r in readers)
-            
+
             # Make a function to open readers, which reuses reusable readers.
             # It removes any readers it reuses from the "reusable" dictionary,
             # so later we can close any readers left in the dictionary.
@@ -317,7 +317,7 @@ class FileIndex(Index):
                     return r
                 else:
                     return SegmentReader(storage, schema, segment)
-            
+
             if len(segments) == 1:
                 # This index has one segment, so return a SegmentReader object
                 # for the segment
@@ -326,7 +326,7 @@ class FileIndex(Index):
                 # This index has multiple segments, so create a list of
                 # SegmentReaders for the segments, then composite them with a
                 # MultiReader
-                
+
                 readers = [segreader(segment) for segment in segments]
                 return MultiReader(readers, generation=generation)
         finally:
@@ -374,9 +374,9 @@ class Segment(object):
                   "termposts": "pst",
                   "vectorindex": "vec",
                   "vectorposts": "vps"}
-    
+
     generation = 0
-    
+
     def __init__(self, name, generation, doccount, fieldlength_totals,
                  fieldlength_mins, fieldlength_maxes, deleted=None):
         """
@@ -400,7 +400,7 @@ class Segment(object):
         assert fieldlength_totals is None or isinstance(fieldlength_totals, dict), "fl_totals=%r" % fieldlength_totals
         assert fieldlength_maxes is None or isinstance(fieldlength_mins, dict), "fl_mins=%r" % fieldlength_maxes
         assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
-        
+
         self.name = name
         self.generation = generation
         self.doccount = doccount
@@ -409,7 +409,7 @@ class Segment(object):
         self.fieldlength_maxes = fieldlength_maxes
         self.deleted = deleted
         self.uuid = uuid.uuid4()
-        
+
     def __repr__(self):
         return "<%s %r %s>" % (self.__class__.__name__, self.name,
                                getattr(self, "uuid", ""))
@@ -422,7 +422,7 @@ class Segment(object):
             basename = name[:0 - len(ext)]
             if basename in self.EXTENSIONS:
                 return self.make_filename(self.EXTENSIONS[basename])
-        
+
         raise AttributeError(name)
 
     def copy(self):
@@ -474,7 +474,7 @@ class Segment(object):
         """Returns the maximum length of the given field in any of the
         documents in the segment.
         """
-        
+
         return self.fieldlength_mins.get(fieldname, default)
 
     def max_field_length(self, fieldname, default=0):

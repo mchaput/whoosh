@@ -31,7 +31,7 @@ def soundex_en(word):
                 if code != prevcode:
                     r += code
                 prevcode = code
-        
+
         # Replace first digit with first alpha character
         r = fc + r[1:]
 
@@ -50,15 +50,15 @@ _esp_codes = (("\\Aw?[uh]?([aeiou])", ""),
               ("[dpc]t", "t"),
               ("c[aouáóú]|ck|q", "k"),
               ("v", "b"),
-              ("d$", "t"),  # Change a trailing d to a t
+              ("d$", "t"), # Change a trailing d to a t
               )
-_esp_codes = tuple((re.compile(pat), repl) for pat, repl in _esp_codes)    
+_esp_codes = tuple((re.compile(pat), repl) for pat, repl in _esp_codes)
 
 
 def soundex_esp(word):
     word = word.lower()
     r = ""
-    
+
     prevcode = None
     i = 0
     while i < len(word):
@@ -69,17 +69,17 @@ def soundex_esp(word):
                 i = match.end()
                 code = ecode
                 break
-                
+
         if code is None:
             code = word[i]
             i += 1
-        
+
         if code != prevcode:
             r += code
         prevcode = code
-    
+
     return r
- 
+
 
 # This version of soundex for Arabic is translated to Python from Tammam
 # Koujan's C# version here:
@@ -102,7 +102,7 @@ for chars, code in iteritems({'\u0627\u0623\u0625\u0622\u062d\u062e\u0647\u0639\
 def soundex_ar(word):
     if word[0] in "\u0627\u0623\u0625\u0622":
         word = word[1:]
-    
+
     r = "0"
     prevcode = "0"
     if len(word) > 1:

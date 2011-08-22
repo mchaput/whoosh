@@ -48,7 +48,7 @@ except ImportError:
 
 try:
     from persistent import Persistent
-    
+
     class ZDoc(Persistent):
         def __init__(self, d):
             self.__dict__.update(d)
@@ -61,19 +61,19 @@ class Module(object):
         self.bench = bench
         self.options = options
         self.args = args
-    
+
     def __repr__(self):
         return self.__class__.__name__
-    
+
     def indexer(self, **kwargs):
         pass
-    
+
     def index_document(self, d):
         raise NotImplementedError
-    
+
     def finish(self, **kwargs):
         pass
-    
+
     def _process_result(self, d):
         attrname = "process_result_%s" % self.options.lib
         if hasattr(self.bench.spec, attrname):
@@ -83,19 +83,19 @@ class Module(object):
         else:
             self._process_result = lambda x: x
             return d
-    
+
     def searcher(self):
         pass
-    
+
     def query(self):
         raise NotImplementedError
-    
+
     def find(self, q):
         raise NotImplementedError
-    
+
     def findterms(self, terms):
         raise NotImplementedError
-    
+
     def results(self, r):
         for hit in r:
             yield self._process_result(hit)
@@ -104,17 +104,17 @@ class Module(object):
 class Spec(object):
     headline_field = "title"
     main_field = "body"
-    
+
     def __init__(self, options, args):
         self.options = options
         self.args = args
-        
+
     def documents(self):
         raise NotImplementedError
-    
+
     def setup(self):
         pass
-    
+
     def print_results(self, ls):
         showbody = self.options.showbody
         snippets = self.options.snippets
@@ -122,7 +122,7 @@ class Spec(object):
         for i, hit in enumerate(ls):
             if i >= limit:
                 break
-            
+
             print("%d. %s" % (i + 1, hit.get(self.headline_field)))
             if snippets:
                 print(self.show_snippet(hit))
@@ -134,28 +134,28 @@ class WhooshModule(Module):
     def indexer(self, create=True):
         schema = self.bench.spec.whoosh_schema()
         path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
-        
+
         if not os.path.exists(path):
             os.mkdir(path)
         if create:
             ix = index.create_in(path, schema)
         else:
             ix = index.open_dir(path)
-        
+
         poolclass = None
         if self.options.pool:
             poolclass = find_object(self.options.pool)
-        
+
         kwargs = dict(limitmb=int(self.options.limitmb), poolclass=poolclass,
                       dir=self.options.tempdir, procs=int(self.options.procs),
                       batchsize=int(self.options.batch))
-        
+
         if self.options.expw:
             from whoosh.filedb.multiproc import MultiSegmentWriter
             self.writer = MultiSegmentWriter(ix, **kwargs)
         else:
             self.writer = ix.writer(**kwargs)
-        
+
         self._procdoc = None
         if hasattr(self.bench.spec, "process_document_whoosh"):
             self._procdoc = self.bench.spec.process_document_whoosh
@@ -168,20 +168,20 @@ class WhooshModule(Module):
 
     def finish(self, merge=True, optimize=False):
         self.writer.commit(merge=merge, optimize=optimize)
-        
+
     def searcher(self):
         path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
         ix = index.open_dir(path)
         self.srch = ix.searcher()
         self.parser = qparser.QueryParser(self.bench.spec.main_field, schema=ix.schema)
-        
+
     def query(self):
         qstring = " ".join(self.args).decode("utf8")
         return self.parser.parse(qstring)
-    
+
     def find(self, q):
         return self.srch.search(q, limit=int(self.options.limit))
-    
+
     def findterms(self, terms):
         limit = int(self.options.limit)
         s = self.srch
@@ -189,14 +189,14 @@ class WhooshModule(Module):
         for term in terms:
             q.text = term
             yield s.search(q, limit=limit)
-            
+
 
 class XappyModule(Module):
     def indexer(self, **kwargs):
         path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
         conn = self.bench.spec.xappy_connection(path)
         return conn
-    
+
     def index_document(self, conn, d):
         if hasattr(self.bench, "process_document_xappy"):
             self.bench.process_document_xappy(d)
@@ -210,36 +210,36 @@ class XappyModule(Module):
 
     def finish(self, conn):
         conn.flush()
-        
+
     def searcher(self):
         path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
         return xappy.SearchConnection(path)
-        
+
     def query(self, conn):
         return conn.query_parse(" ".join(self.args))
-    
+
     def find(self, conn, q):
         return conn.search(q, 0, int(self.options.limit))
-    
+
     def findterms(self, conn, terms):
         limit = int(self.options.limit)
         for term in terms:
             q = conn.query_field(self.bench.spec.main_field, term)
             yield conn.search(q, 0, limit)
-    
+
     def results(self, r):
         hf = self.bench.spec.headline_field
         mf = self.bench.spec.main_field
         for hit in r:
             yield self._process_result({hf: hit.data[hf], mf: hit.data[mf]})
-        
+
 
 class XapianModule(Module):
     def indexer(self, **kwargs):
         path = os.path.join(self.options.dir, "%s_xapian" % self.options.indexname)
         self.database = xapian.WritableDatabase(path, xapian.DB_CREATE_OR_OPEN)
         self.ixer = xapian.TermGenerator()
-        
+
     def index_document(self, d):
         if hasattr(self.bench, "process_document_xapian"):
             self.bench.process_document_xapian(d)
@@ -249,31 +249,31 @@ class XapianModule(Module):
         self.ixer.set_document(doc)
         self.ixer.index_text(d[self.bench.spec.main_field])
         self.database.add_document(doc)
-        
+
     def finish(self, **kwargs):
         self.database.flush()
-        
+
     def searcher(self):
         path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
         self.db = xapian.Database(path)
         self.enq = xapian.Enquire(self.db)
         self.qp = xapian.QueryParser()
         self.qp.set_database(self.db)
-        
+
     def query(self):
         return self.qp.parse_query(" ".join(self.args))
-    
+
     def find(self, q):
         self.enq.set_query(q)
         return self.enq.get_mset(0, int(self.options.limit))
-    
+
     def findterms(self, terms):
         limit = int(self.options.limit)
         for term in terms:
             q = self.qp.parse_query(term)
             self.enq.set_query(q)
             yield self.enq.get_mset(0, limit)
-    
+
     def results(self, matches):
         hf = self.bench.spec.headline_field
         mf = self.bench.spec.main_field
@@ -288,33 +288,33 @@ class SolrModule(Module):
         self.conn = pysolr.Solr(self.options.url)
         self.conn.delete("*:*")
         self.conn.commit()
-    
+
     def index_document(self, d):
         self.solr_doclist.append(d)
         if len(self.solr_doclist) >= int(self.options.batch):
             self.conn.add(self.solr_doclist, commit=False)
             self.solr_doclist = []
-        
+
     def finish(self, **kwargs):
         if self.solr_doclist:
             self.conn.add(self.solr_doclist)
         del self.solr_doclist
         self.conn.optimize(block=True)
-        
+
     def searcher(self):
         self.solr = pysolr.Solr(self.options.url)
-    
+
     def query(self):
         return " ".join(self.args)
-    
+
     def find(self, q):
         return self.solr.search(q, limit=int(self.options.limit))
-    
+
     def findterms(self, terms):
         limit = int(self.options.limit)
         for term in terms:
             yield self.solr.search("body:" + term, limit=limit)
-    
+
 
 class ZcatalogModule(Module):
     def indexer(self, **kwargs):
@@ -323,23 +323,23 @@ class ZcatalogModule(Module):
         from zcatalog import catalog  #@UnresolvedImport
         from zcatalog import indexes  #@UnresolvedImport
         import transaction  #@UnresolvedImport
-        
+
         dir = os.path.join(self.options.dir, "%s_zcatalog" % self.options.indexname)
         if os.path.exists(dir):
             rmtree(dir)
         os.mkdir(dir)
-        
+
         storage = FileStorage(os.path.join(dir, "index"))
         db = DB(storage)
         conn = db.open()
-        
+
         self.cat = catalog.Catalog()
         self.bench.spec.zcatalog_setup(self.cat)
         conn.root()["cat"] = self.cat
         transaction.commit()
-        
+
         self.zcatalog_count = 0
-    
+
     def index_document(self, d):
         if hasattr(self.bench, "process_document_zcatalog"):
             self.bench.process_document_zcatalog(d)
@@ -350,36 +350,36 @@ class ZcatalogModule(Module):
             import transaction  #@UnresolvedImport
             transaction.commit()
             self.zcatalog_count = 0
-        
+
     def finish(self, **kwargs):
         import transaction  #@UnresolvedImport
         transaction.commit()
         del self.zcatalog_count
-        
+
     def searcher(self):
         from ZODB.FileStorage import FileStorage  #@UnresolvedImport
         from ZODB.DB import DB  #@UnresolvedImport
         from zcatalog import catalog  #@UnresolvedImport
         from zcatalog import indexes  #@UnresolvedImport
         import transaction  #@UnresolvedImport
-        
+
         path = os.path.join(self.options.dir, "%s_zcatalog" % self.options.indexname, "index")
         storage = FileStorage(path)
         db = DB(storage)
         conn = db.open()
-        
+
         self.cat = conn.root()["cat"]
-    
+
     def query(self):
         return " ".join(self.args)
-    
+
     def find(self, q):
         return self.cat.searchResults(body=q)
-    
+
     def findterms(self, terms):
         for term in terms:
             yield self.cat.searchResults(body=term)
-    
+
     def results(self, r):
         hf = self.bench.spec.headline_field
         mf = self.bench.spec.main_field
@@ -393,7 +393,7 @@ class NucularModule(Module):
     def indexer(self, create=True):
         import shutil
         from nucular import Nucular
-        
+
         dir = os.path.join(self.options.dir, "%s_nucular" % self.options.indexname)
         if create:
             if os.path.exists(dir):
@@ -403,7 +403,7 @@ class NucularModule(Module):
         if create:
             self.archive.create()
         self.count = 0
-    
+
     def index_document(self, d):
         try:
             self.archive.indexDictionary(str(self.count), d)
@@ -415,40 +415,40 @@ class NucularModule(Module):
             t = now()
             self.archive.store(lazy=True)
             self.indexer(create=False)
-    
+
     def finish(self, **kwargs):
         self.archive.store(lazy=False)
         self.archive.aggregateRecent(fast=False, verbose=True)
         self.archive.moveTransientToBase(verbose=True)
         self.archive.cleanUp()
-    
+
     def searcher(self):
         from nucular import Nucular
-        
+
         dir = os.path.join(self.options.dir, "%s_nucular" % self.options.indexname)
         self.archive = Nucular.Nucular(dir)
-    
+
     def query(self):
         return " ".join(self.args)
-    
+
     def find(self, q):
         return self.archive.dictionaries(q)
-        
+
     def findterms(self, terms):
         for term in terms:
             q = self.archive.Query()
             q.anyWord(term)
             yield q.resultDictionaries()
-            
-    
+
+
 class Bench(object):
     libs = {"whoosh": WhooshModule, "xappy": XappyModule,
             "xapian": XapianModule, "solr": SolrModule,
             "zcatalog": ZcatalogModule, "nucular": NucularModule}
-    
+
     def index(self, lib):
         print("Indexing with %s..." % lib)
-        
+
         options = self.options
         every = None if options.every is None else int(options.every)
         merge = options.merge
@@ -457,11 +457,11 @@ class Bench(object):
         upto = int(options.upto)
         count = 0
         skipc = skip
-        
+
         starttime = chunkstarttime = now()
-        
+
         lib.indexer()
-        
+
         for d in self.spec.documents():
             skipc -= 1
             if not skipc:
@@ -479,7 +479,7 @@ class Bench(object):
                     print("----Commit")
                     lib.finish(merge=merge)
                     lib.indexer(create=False)
-        
+
         spooltime = now()
         print("Spool time:", spooltime - starttime)
         lib.finish(merge=merge)
@@ -488,25 +488,25 @@ class Bench(object):
         totaltime = committime - starttime
         print("Total time to index %d documents: %0.3f secs (%0.3f minutes)" % (count, totaltime, totaltime / 60.0))
         print("Indexed %0.3f docs/s" % (count / totaltime))
-    
+
     def search(self, lib):
         lib.searcher()
-        
+
         t = now()
         q = lib.query()
         print("Query:", q)
         r = lib.find(q)
         print("Search time:", now() - t)
-        
+
         t = now()
         self.spec.print_results(lib.results(r))
         print("Print time:", now() - t)
-    
+
     def search_file(self, lib):
         f = open(self.options.termfile, "rb")
         terms = [line.strip() for line in f]
         f.close()
-        
+
         print("Searching %d terms with %s" % (len(terms), lib))
         lib.searcher()
         starttime = now()
@@ -514,7 +514,7 @@ class Bench(object):
             pass
         searchtime = now() - starttime
         print("Search time:", searchtime, "searches/s:", float(len(terms)) / searchtime)
-    
+
     def _parser(self, name):
         p = OptionParser()
         p.add_option("-x", "--lib", dest="lib",
@@ -571,24 +571,24 @@ class Bench(object):
                      help="Store the body text in index", default=False)
         p.add_option("-q", "--snippets", dest="snippets", action="store_true",
                      help="Show highlighted snippets", default=False)
-        
+
         return p
-    
+
     def run(self, specclass):
         parser = self._parser(specclass.name)
         options, args = parser.parse_args()
         self.options = options
         self.args = args
-        
+
         if options.lib not in self.libs:
             raise Exception("Unknown library: %r" % options.lib)
         lib = self.libs[options.lib](self, options, args)
-        
+
         self.spec = specclass(options, args)
-        
+
         if options.setup:
             self.spec.setup()
-        
+
         action = self.search
         if options.index:
             action = self.index
@@ -596,5 +596,5 @@ class Bench(object):
             action = self.search_file
         if options.generate:
             action = self.generate_search_file
-        
+
         action(lib)

@@ -50,11 +50,13 @@ from whoosh.support.times import datetime_to_long
 # fields. There's no "out-of-band" value possible (except for floats, where we
 # use NaN), so we try to be conspicuous at least by using the maximum possible
 # value
-NUMERIC_DEFAULTS = {"b": 2**7-1, "B": 2**8-1, "h": 2**15-1, "H": 2**16-1,
-                    "i": 2**31-1, "I": 2**32-1, "q": 2**63-1, "Q": 2**64-1,
-                    "f": float("nan"), "d": float("nan"),
+NUMERIC_DEFAULTS = {"b": 2 ** 7 - 1, "B": 2 ** 8 - 1, "h": 2 ** 15 - 1,
+                    "H": 2 ** 16 - 1, "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
+                    "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1, "f": float("nan"),
+                    "d": float("nan"),
                     }
 DEFAULT_LONG = NUMERIC_DEFAULTS["q"]
+
 
 # Exceptions
 
@@ -107,21 +109,21 @@ class FieldType(object):
     configured field format, vector format, and scorable and stored values.
     Subclasses may configure some or all of this for you.
     """
-    
+
     analyzer = format = vector = scorable = stored = unique = None
     indexed = True
     multitoken_query = "default"
     sortable_typecode = None
     spelling = False
-    
+
     __inittypes__ = dict(format=formats.Format, vector=formats.Format,
                          scorable=bool, stored=bool, unique=bool)
-    
+
     def __init__(self, format, analyzer, vector=None, scorable=False,
                  stored=False, unique=False, multitoken_query="default"):
         assert isinstance(format, formats.Format)
         assert isinstance(analyzer, Analyzer)
-        
+
         self.format = format
         self.analyzer = analyzer
         self.vector = vector
@@ -129,12 +131,12 @@ class FieldType(object):
         self.stored = stored
         self.unique = unique
         self.multitoken_query = multitoken_query
-    
+
     def __repr__(self):
         temp = "%s(format=%r, vector=%r, scorable=%s, stored=%s, unique=%s)"
         return temp % (self.__class__.__name__, self.format, self.vector,
                        self.scorable, self.stored, self.unique)
-    
+
     def __eq__(self, other):
         return all((isinstance(other, FieldType),
                     (self.format == other.format),
@@ -142,22 +144,24 @@ class FieldType(object):
                     (self.scorable == other.scorable),
                     (self.stored == other.stored),
                     (self.unique == other.unique)))
-    
+
     def __setstate__(self, state):
         # Fix old fields pickled back when the analyzer was on the format
         analyzer = state.get("analyzer")
         format = state.get("format")
-        if analyzer is None and format is not None and hasattr(format, "analyzer"):
+        if (analyzer is None
+            and format is not None
+            and hasattr(format, "analyzer")):
             state["analyzer"] = format.analyzer
             del format.analyzer
         self.__dict__.update(state)
-    
+
     def on_add(self, schema, fieldname):
         pass
-    
+
     def on_remove(self, schema, fieldname):
         pass
-    
+
     def supports(self, name):
         """Returns True if the underlying format supports the given posting
         value type.
@@ -168,59 +172,61 @@ class FieldType(object):
         >>> field.supports("characters")
         False
         """
-        
+
         return self.format.supports(name)
-    
+
     def clean(self):
         """Clears any cached information in the field and any child objects.
         """
-        
+
         if self.format and hasattr(self.format, "clean"):
             self.format.clean()
         if self.vector and hasattr(self.vector, "clean"):
             self.vector.clean()
-    
+
     def has_morph(self):
         """Returns True if this field by default performs morphological
         transformations on its terms, e.g. stemming.
         """
-        
+
         if self.analyzer:
             return self.analyzer.has_morph()
         else:
             return False
-    
+
     def sortable_default(self):
         """Returns a default value to use for "missing" values when sorting or
         faceting in this field.
         """
-        
+
         return u('\uFFFF')
-    
+
     def to_text(self, value):
         """Returns a textual representation of the value. Non-textual fields
         (such as NUMERIC and DATETIME) will override this to encode objects
         as text.
         """
-        
+
         return value
-    
+
     def index(self, value, **kwargs):
         """Returns an iterator of (termtext, frequency, weight, encoded_value)
         tuples for each unique word in the input value.
         """
-        
+
         if not self.format:
-            raise Exception("%s field %r cannot index without a format" % (self.__class__.__name__, self))
+            raise Exception("%s field %r cannot index without a format"
+                            % (self.__class__.__name__, self))
         if not isinstance(value, (text_type, list, tuple)):
             raise ValueError("%r is not unicode or sequence" % value)
         assert isinstance(self.format, formats.Format), type(self.format)
-        return self.format.word_values(value, self.analyzer, mode="index", **kwargs)
-    
+        return self.format.word_values(value, self.analyzer, mode="index",
+                                       **kwargs)
+
     def index_(self, fieldname, value, **kwargs):
         for w, freq, weight, value in self.index(value, **kwargs):
             yield fieldname, w, freq, weight, value
-    
+
     def process_text(self, qstring, mode='', **kwargs):
         """Analyzes the given string and returns an iterator of token strings.
         
@@ -228,21 +234,21 @@ class FieldType(object):
         >>> list(field.process_text("The ides of March"))
         ["ides", "march"]
         """
-        
+
         if not self.format:
             raise Exception("%s field has no format" % self)
         return (t.text for t in self.tokenize(qstring, mode=mode, **kwargs))
-    
+
     def tokenize(self, value, **kwargs):
         """Analyzes the given string and returns an iterator of Token objects
         (note: for performance reasons, actually the same token yielded over
         and over with different attributes).
         """
-        
+
         if not self.analyzer:
             raise Exception("%s field has no analyzer" % self.__class__)
         return self.analyzer(value, **kwargs)
-    
+
     def self_parsing(self):
         """Subclasses should override this method to return True if they want
         the query parser to call the field's ``parse_query()`` method instead
@@ -250,25 +256,26 @@ class FieldType(object):
         the field needs full control over how queries are interpreted, such
         as in the numeric field type.
         """
-        
+
         return False
-    
+
     def parse_query(self, fieldname, qstring, boost=1.0):
         """When ``self_parsing()`` returns True, the query parser will call
         this method to parse basic query text.
         """
-        
+
         raise NotImplementedError(self.__class__.__name__)
-    
-    def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
+
+    def parse_range(self, fieldname, start, end, startexcl, endexcl,
+                    boost=1.0):
         """When ``self_parsing()`` returns True, the query parser will call
         this method to parse range query text. If this method returns None
         instead of a query object, the parser will fall back to parsing the
         start and end terms using process_text().
         """
-        
+
         return None
-    
+
     def sortable_values(self, ixreader, fieldname):
         """Returns an iterator of (term_text, sortable_value) pairs for the
         terms in the given reader and field. The sortable values can be used
@@ -279,9 +286,9 @@ class FieldType(object):
         in a field are not useful for sorting, and where the sortable values
         can be expressed more compactly as numbers.
         """
-        
+
         return ((text, text) for text in ixreader.lexicon(fieldname))
-    
+
     def separate_spelling(self):
         """Returns True if this field requires special handling of the words
         that go into the field's word graph.
@@ -294,7 +301,7 @@ class FieldType(object):
         This method should return False if the field does not support spelling
         (i.e. the ``spelling`` attribute is False).
         """
-        
+
         if not self.spelling:
             # If the field doesn't support spelling, it doesn't support
             # separate spelling
@@ -310,7 +317,7 @@ class FieldType(object):
             return True
         else:
             return False
-    
+
     def spellable_words(self, value):
         """Returns an iterator of each unique word (in sorted order) in the
         input value, suitable for inclusion in the field's word graph.
@@ -321,26 +328,27 @@ class FieldType(object):
         original form of the words. Excotic field types may need to override
         this behavior.
         """
-        
+
         wordset = sorted(set(token.text for token
                              in self.analyzer(value, no_morph=True)))
         return iter(wordset)
-    
+
 
 class ID(FieldType):
     """Configured field type that indexes the entire value of the field as one
     token. This is useful for data you don't want to tokenize, such as the path
     of a file.
     """
-    
+
     __inittypes__ = dict(stored=bool, unique=bool, field_boost=float)
-    
+
     def __init__(self, stored=False, unique=False, field_boost=1.0,
                  spelling=False):
         """
-        :param stored: Whether the value of this field is stored with the document.
+        :param stored: Whether the value of this field is stored with the
+            document.
         """
-        
+
         self.analyzer = IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored
@@ -352,9 +360,10 @@ class IDLIST(FieldType):
     """Configured field type for fields containing IDs separated by whitespace
     and/or punctuation (or anything else, using the expression param).
     """
-    
-    __inittypes__ = dict(stored=bool, unique=bool, expression=bool, field_boost=float)
-    
+
+    __inittypes__ = dict(stored=bool, unique=bool, expression=bool,
+                         field_boost=float)
+
     def __init__(self, stored=False, unique=False, expression=None,
                  field_boost=1.0, spelling=False):
         """
@@ -365,7 +374,7 @@ class IDLIST(FieldType):
             tokens. The default expression breaks tokens on CRs, LFs, tabs,
             spaces, commas, and semicolons.
         """
-        
+
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
         self.analyzer = RegexAnalyzer(expression=expression)
         self.format = formats.Existence(field_boost=field_boost)
@@ -402,7 +411,7 @@ class NUMERIC(FieldType):
     >>> w.add_document(path="/a", position=Decimal("123.45")
     >>> w.commit()
     """
-    
+
     def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
                  decimal_places=0, shift_step=4, signed=True):
         """
@@ -420,7 +429,7 @@ class NUMERIC(FieldType):
         :param signed: Whether the numbers stored in this field may be
             negative.
         """
-        
+
         self.type = type
         if self.type is long_type:
             # This will catch the Python 3 int type
@@ -441,7 +450,7 @@ class NUMERIC(FieldType):
         else:
             raise TypeError("%s field type can't store %r" % (self.__class__,
                                                               self.type))
-        
+
         self.stored = stored
         self.unique = unique
         self.decimal_places = decimal_places
@@ -449,20 +458,20 @@ class NUMERIC(FieldType):
         self.signed = signed
         self.analyzer = IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
-    
+
     def sortable_default(self):
         return NUMERIC_DEFAULTS[self.sortable_typecode]
-    
+
     def _tiers(self, num):
         t = self.type
         if t is int and not PY3:
             bitlen = 32
         else:
             bitlen = 64
-        
+
         for shift in xrange(0, bitlen, self.shift_step):
             yield self.to_text(num, shift=shift)
-    
+
     def index(self, num):
         # If the user gave us a list of numbers, recurse on the list
         if isinstance(num, (list, tuple)):
@@ -470,13 +479,13 @@ class NUMERIC(FieldType):
             for n in num:
                 items.extend(self.index(n))
             return items
-        
+
         # word, freq, weight, valuestring
         if self.shift_step:
             return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
         else:
             return [(self.to_text(num), 1, 1.0, '')]
-    
+
     def prepare_number(self, x):
         if x is None:
             return x
@@ -485,44 +494,46 @@ class NUMERIC(FieldType):
             x *= 10 ** self.decimal_places
         x = self.type(x)
         return x
-    
+
     def unprepare_number(self, x):
-        if self.decimal_places:
+        dc = self.decimal_places
+        if dc:
             s = str(x)
-            x = Decimal(s[:-self.decimal_places] + "." + s[-self.decimal_places:])
+            x = Decimal(s[:-dc] + "." + s[-dc:])
         return x
-    
+
     def to_text(self, x, shift=0):
         return self._to_text(self.prepare_number(x), shift=shift)
-    
+
     def from_text(self, t):
         x = self._from_text(t)
         return self.unprepare_number(x)
-    
+
     def process_text(self, text, **kwargs):
         return (self.to_text(text),)
-    
+
     def self_parsing(self):
         return True
-    
+
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        
+
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
-        
+
         try:
             text = self.to_text(qstring)
         except Exception:
             e = sys.exc_info()[1]
             return query.error_query(e)
-        
+
         return query.Term(fieldname, text, boost=boost)
-    
-    def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
+
+    def parse_range(self, fieldname, start, end, startexcl, endexcl,
+                    boost=1.0):
         from whoosh import query
         from whoosh.qparser.common import QueryParserError
-        
+
         try:
             if start is not None:
                 start = self.from_text(self.to_text(start))
@@ -531,18 +542,18 @@ class NUMERIC(FieldType):
         except Exception:
             e = sys.exc_info()[1]
             raise QueryParserError(e)
-        
+
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
                                   boost=boost)
-    
+
     def sortable_values(self, ixreader, fieldname):
         from_text = self._from_text
-        
+
         for text in ixreader.lexicon(fieldname):
             if text[0] != "\x00":
                 # Only yield the full-precision values
                 break
-            
+
             yield (text, from_text(text))
 
 
@@ -563,40 +574,40 @@ class DATETIME(NUMERIC):
     >>> w.add_document(path="/a", date=datetime.now())
     >>> w.commit()
     """
-    
+
     __inittypes__ = dict(stored=bool, unique=bool)
-    
+
     def __init__(self, stored=False, unique=False):
         """
         :param stored: Whether the value of this field is stored with the
             document.
         :param unique: Whether the value of this field is unique per-document.
         """
-        
+
         super(DATETIME, self).__init__(type=long_type, stored=stored,
                                        unique=unique, shift_step=8)
-    
+
     def to_text(self, x, shift=0):
         from whoosh.support.times import floor
         try:
             if isinstance(x, string_type):
-                # for indexing, support same strings as for query parsing
+                # For indexing, support same strings as for query parsing
                 x = self._parse_datestring(x)
-                x = floor(x) # this makes most sense (unspecified = lowest possible value)
+                x = floor(x)  # this makes most sense (unspecified = lowest)
             if isinstance(x, datetime.datetime):
                 x = datetime_to_long(x)
             elif not isinstance(x, integer_types):
                 raise TypeError()
         except Exception:
-            raise ValueError("DATETIME.to_text can't convert from %r" % (x, ))
-        
+            raise ValueError("DATETIME.to_text can't convert from %r" % (x,))
+
         return super(DATETIME, self).to_text(x, shift=shift)
-    
+
     def _parse_datestring(self, qstring):
         # This method parses a very simple datetime representation of the form
         # YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
         from whoosh.support.times import adatetime, fix, is_void
-        
+
         qstring = qstring.replace(" ", "").replace("-", "").replace(".", "")
         year = month = day = hour = minute = second = microsecond = None
         if len(qstring) >= 4:
@@ -613,45 +624,47 @@ class DATETIME(NUMERIC):
             second = int(qstring[12:14])
         if len(qstring) == 20:
             microsecond = int(qstring[14:])
-        
-        at = fix(adatetime(year, month, day, hour, minute, second, microsecond))
+
+        at = fix(adatetime(year, month, day, hour, minute, second,
+                           microsecond))
         if is_void(at):
             raise Exception("%r is not a parseable date" % qstring)
         return at
-    
+
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
         from whoosh.support.times import is_ambiguous
-        
+
         try:
             at = self._parse_datestring(qstring)
         except:
             e = sys.exc_info()[1]
             return query.error_query(e)
-        
+
         if is_ambiguous(at):
             startnum = datetime_to_long(at.floor())
             endnum = datetime_to_long(at.ceil())
             return query.NumericRange(fieldname, startnum, endnum)
         else:
             return query.Term(fieldname, self.to_text(at), boost=boost)
-    
-    def parse_range(self, fieldname, start, end, startexcl, endexcl, boost=1.0):
+
+    def parse_range(self, fieldname, start, end, startexcl, endexcl,
+                    boost=1.0):
         from whoosh import query
-        
+
         if start is None and end is None:
             return query.Every(fieldname, boost=boost)
-        
+
         if start is not None:
             startdt = self._parse_datestring(start).floor()
             start = datetime_to_long(startdt)
-        
+
         if end is not None:
             enddt = self._parse_datestring(end).ceil()
             end = datetime_to_long(enddt)
-        
+
         return query.NumericRange(fieldname, start, end, boost=boost)
-        
+
 
 class BOOLEAN(FieldType):
     """Special field type that lets you index boolean values (True and False).
@@ -663,65 +676,64 @@ class BOOLEAN(FieldType):
     >>> w.add_document(path="/a", done=False)
     >>> w.commit()
     """
-    
-    strings = (u("f"), u("t"))    
+
+    strings = (u("f"), u("t"))
     trues = frozenset((u("t"), u("true"), u("yes"), u("1")))
     falses = frozenset((u("f"), u("false"), u("no"), u("0")))
-    
+
     __inittypes__ = dict(stored=bool, field_boost=float)
-    
+
     def __init__(self, stored=False, field_boost=1.0):
         """
         :param stored: Whether the value of this field is stored with the
             document.
         """
-        
+
         self.stored = stored
         self.field_boost = field_boost
         self.format = formats.Existence(field_boost=field_boost)
-    
+
     def to_text(self, bit):
         if isinstance(bit, string_type):
             bit = bit in self.trues
         elif not isinstance(bit, bool):
             raise ValueError("%r is not a boolean")
         return self.strings[int(bit)]
-    
+
     def index(self, bit):
         bit = bool(bit)
         # word, freq, weight, valuestring
         return [(self.strings[int(bit)], 1, 1.0, '')]
-    
+
     def self_parsing(self):
         return True
-    
+
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
         text = None
-        
+
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
-        
+
         try:
             text = self.to_text(qstring)
         except ValueError:
             e = sys.exc_info()[1]
             return query.error_query(e)
-        
-        return query.Term(fieldname, text, boost=boost)
 
+        return query.Term(fieldname, text, boost=boost)
 
 
 class STORED(FieldType):
     """Configured field type for fields you want to store but not index.
     """
-    
+
     indexed = False
     stored = True
-    
+
     def __init__(self):
         pass
-    
+
 
 class KEYWORD(FieldType):
     """Configured field type for fields containing space-separated or
@@ -729,12 +741,13 @@ class KEYWORD(FieldType):
     store positional information (so phrase searching is not allowed in this
     field) and to not make the field scorable.
     """
-    
-    __inittypes__ = dict(stored=bool, lowercase=bool, commas=bool, scorable=bool,
-                         unique=bool, field_boost=float)
-    
+
+    __inittypes__ = dict(stored=bool, lowercase=bool, commas=bool,
+                         scorable=bool, unique=bool, field_boost=float)
+
     def __init__(self, stored=False, lowercase=False, commas=False,
-                 scorable=False, unique=False, field_boost=1.0, spelling=False):
+                 scorable=False, unique=False, field_boost=1.0,
+                 spelling=False):
         """
         :param stored: Whether to store the value of the field with the
             document.
@@ -742,7 +755,7 @@ class KEYWORD(FieldType):
             (the default), it is treated as a space-separated field.
         :param scorable: Whether this field is scorable.
         """
-        
+
         self.analyzer = KeywordAnalyzer(lowercase=lowercase, commas=commas)
         self.format = formats.Frequency(field_boost=field_boost)
         self.scorable = scorable
@@ -756,10 +769,10 @@ class TEXT(FieldType):
     article). The default is to store positional information to allow phrase
     searching. This field type is always scorable.
     """
-    
+
     __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=object,
                          stored=bool, field_boost=float)
-    
+
     def __init__(self, analyzer=None, phrase=True, chars=False, vector=None,
                  stored=False, field_boost=1.0, multitoken_query="default",
                  spelling=False):
@@ -782,9 +795,9 @@ class TEXT(FieldType):
         :param spelling: Whether to generate word graphs for this field to make
             spelling suggestions much faster.
         """
-        
+
         self.analyzer = analyzer or StandardAnalyzer()
-        
+
         if chars:
             formatclass = formats.Characters
         elif phrase:
@@ -792,7 +805,7 @@ class TEXT(FieldType):
         else:
             formatclass = formats.Frequency
         self.format = formatclass(field_boost=field_boost)
-        
+
         if vector:
             if type(vector) is type:
                 vector = vector()
@@ -803,7 +816,7 @@ class TEXT(FieldType):
         else:
             vector = None
         self.vector = vector
-        
+
         self.multitoken_query = multitoken_query
         self.scorable = True
         self.stored = stored
@@ -818,11 +831,11 @@ class NGRAM(FieldType):
     for a field type that breaks the text into words first before chopping the
     words into N-grams.
     """
-    
+
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
                          field_boost=float, queryor=bool, phrase=bool)
     scorable = True
-    
+
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
                  queryor=False, phrase=False):
         """
@@ -837,26 +850,26 @@ class NGRAM(FieldType):
         :param phrase: store positions on the N-grams to allow exact phrase
             searching. The default is off.
         """
-        
+
         formatclass = formats.Frequency
         if phrase:
             formatclass = formats.Positions
-        
+
         self.analyzer = NgramAnalyzer(minsize, maxsize)
         self.format = formatclass(field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
-        
+
     def self_parsing(self):
         return True
-    
+
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        
+
         terms = [query.Term(fieldname, g)
                  for g in self.process_text(qstring, mode='query')]
         cls = query.Or if self.queryor else query.And
-        
+
         return cls(terms, boost=boost)
 
 
@@ -864,12 +877,12 @@ class NGRAMWORDS(NGRAM):
     """Configured field that chops text into words using a tokenizer,
     lowercases the words, and then chops the words into N-grams.
     """
-    
+
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
                          field_boost=float, tokenizer=Tokenizer, at=str,
                          queryor=bool)
     scorable = True
-    
+
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
                  tokenizer=None, at=None, queryor=False):
         """
@@ -887,7 +900,7 @@ class NGRAMWORDS(NGRAM):
         :param queryor: if True, combine the N-grams with an Or query. The
             default is to combine N-grams with an And query.
         """
-        
+
         self.analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
         self.format = formats.Frequency(field_boost=field_boost)
         self.stored = stored
@@ -902,14 +915,14 @@ class MetaSchema(type):
         if not any(b for b in bases if isinstance(b, MetaSchema)):
             # If this isn't a subclass of MetaSchema, don't do anything special
             return super_new(cls, name, bases, attrs)
-        
+
         # Create the class
         special_attrs = {}
         for key in list(attrs.keys()):
             if key.startswith("__"):
                 special_attrs[key] = attrs.pop(key)
         new_class = super_new(cls, name, bases, special_attrs)
-        
+
         fields = {}
         for b in bases:
             if hasattr(b, "_clsfields"):
@@ -917,7 +930,7 @@ class MetaSchema(type):
         fields.update(attrs)
         new_class._clsfields = fields
         return new_class
-    
+
     def schema(self):
         return Schema(**self._clsfields)
 
@@ -930,7 +943,7 @@ class Schema(object):
     compactness. This class has several methods for converting between the
     field name, field number, and field object itself.
     """
-    
+
     def __init__(self, **fields):
         """ All keyword arguments to the constructor are treated as fieldname =
         fieldtype pairs. The fieldtype can be an instantiated FieldType object,
@@ -943,56 +956,56 @@ class Schema(object):
                        title = TEXT(stored = True),
                        tags = KEYWORD(stored = True))
         """
-        
+
         self._fields = {}
         self._dyn_fields = {}
-        
+
         for name in sorted(fields.keys()):
             self.add(name, fields[name])
-    
+
     def copy(self):
         """Returns a shallow copy of the schema. The field instances are not
         deep copied, so they are shared between schema copies.
         """
-        
+
         return self.__class__(**self._fields)
-    
+
     def __eq__(self, other):
         return (other.__class__ is self.__class__
                 and list(self.items()) == list(other.items()))
-    
+
     def __repr__(self):
         return "<%s: %r>" % (self.__class__.__name__, self.names())
-    
+
     def __iter__(self):
         """Returns the field objects in this schema.
         """
-        
+
         return iter(itervalues(self._fields))
-    
+
     def __getitem__(self, name):
         """Returns the field associated with the given field name.
         """
-        
+
         if name in self._fields:
             return self._fields[name]
-        
+
         for expr, fieldtype in itervalues(self._dyn_fields):
             if expr.match(name):
                 return fieldtype
-        
-        raise KeyError("No field named %r" % (name, ))
-        
+
+        raise KeyError("No field named %r" % (name,))
+
     def __len__(self):
         """Returns the number of fields in this schema.
         """
-        
+
         return len(self._fields)
-    
+
     def __contains__(self, fieldname):
         """Returns True if a field by the given name is in this schema.
         """
-        
+
         # Defined in terms of __getitem__ so that there's only one method to
         # override to provide dynamic fields
         try:
@@ -1000,23 +1013,23 @@ class Schema(object):
             return field is not None
         except KeyError:
             return False
-    
+
     def items(self):
         """Returns a list of ("fieldname", field_object) pairs for the fields
         in this schema.
         """
-        
+
         return sorted(self._fields.items())
-        
+
     def names(self):
         """Returns a list of the names of the fields in this schema.
         """
         return sorted(self._fields.keys())
-    
+
     def clean(self):
         for field in self:
             field.clean()
-    
+
     def add(self, name, fieldtype, glob=False):
         """Adds a field to this schema.
         
@@ -1027,15 +1040,17 @@ class Schema(object):
             pass a FieldType subclass, the schema will automatically
             instantiate it with the default constructor.
         """
-        
+
         # Check field name
         if name.startswith("_"):
-            raise FieldConfigurationError("Field names cannot start with an underscore")
+            raise FieldConfigurationError("Field names cannot start with an "
+                                          "underscore")
         if " " in name:
             raise FieldConfigurationError("Field names cannot contain spaces")
         if name in self._fields or (glob and name in self._dyn_fields):
-            raise FieldConfigurationError("Schema already has a field %r" % name)
-        
+            raise FieldConfigurationError("Schema already has a field %r"
+                                          % name)
+
         # If the user passed a type rather than an instantiated field object,
         # instantiate it automatically
         if type(fieldtype) is type:
@@ -1043,18 +1058,20 @@ class Schema(object):
                 fieldtype = fieldtype()
             except:
                 e = sys.exc_info()[1]
-                raise FieldConfigurationError("Error: %s instantiating field %r: %r" % (e, name, fieldtype))
-        
+                raise FieldConfigurationError("Error: %s instantiating field "
+                                              "%r: %r" % (e, name, fieldtype))
+
         if not isinstance(fieldtype, FieldType):
-                raise FieldConfigurationError("%r is not a FieldType object" % fieldtype)
-        
+                raise FieldConfigurationError("%r is not a FieldType object"
+                                              % fieldtype)
+
         if glob:
             expr = re.compile(fnmatch.translate(name))
             self._dyn_fields[name] = (expr, fieldtype)
         else:
             fieldtype.on_add(self, name)
             self._fields[name] = fieldtype
-        
+
     def remove(self, fieldname):
         if fieldname in self._fields:
             self._fields[fieldname].on_remove(self, fieldname)
@@ -1063,47 +1080,47 @@ class Schema(object):
             del self._dyn_fields[fieldname]
         else:
             raise KeyError("No field named %r" % fieldname)
-        
+
     def has_vectored_fields(self):
         """Returns True if any of the fields in this schema store term vectors.
         """
-        
+
         return any(ftype.vector for ftype in self)
-    
+
     def has_scorable_fields(self):
         return any(ftype.scorable for ftype in self)
-    
+
     def stored_names(self):
         """Returns a list of the names of fields that are stored.
         """
-        
+
         return [name for name, field in self.items() if field.stored]
 
     def scorable_names(self):
         """Returns a list of the names of fields that store field
         lengths.
         """
-        
+
         return [name for name, field in self.items() if field.scorable]
 
     def vector_names(self):
         """Returns a list of the names of fields that store vectors.
         """
-        
+
         return [name for name, field in self.items() if field.vector]
-    
+
     def separate_spelling_names(self):
         """Returns a list of the names of fields that require special handling
         for generating spelling graphs... either because they store graphs but
         aren't indexed, or because the analyzer is stemmed.
         """
-        
+
         return [name for name, field in self.items()
                 if field.spelling and field.separate_spelling()]
 
 
 class SchemaClass(with_metaclass(MetaSchema, Schema)):
-    
+
     """Allows you to define a schema using declarative syntax, similar to
     Django models::
     
@@ -1130,19 +1147,19 @@ class SchemaClass(with_metaclass(MetaSchema, Schema)):
     >>> class MySchema(SchemaClass):
     ...     title = TEXT(stored=True)
     ...     content = TEXT
-    ... 
+    ...
     >>> s = MySchema()
     >>> type(s)
     <class 'whoosh.fields.Schema'>
     """
-    
+
     def __new__(cls, *args, **kwargs):
         obj = super(Schema, cls).__new__(Schema)
         kw = getattr(cls, "_clsfields", {})
         kw.update(kwargs)
         obj.__init__(*args, **kw)
         return obj
-    
+
 
 def ensure_schema(schema):
     if isinstance(schema, type) and issubclass(schema, Schema):
@@ -1150,3 +1167,5 @@ def ensure_schema(schema):
     if not isinstance(schema, Schema):
         raise FieldConfigurationError("%r is not a Schema" % schema)
     return schema
+
+

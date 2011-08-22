@@ -48,14 +48,16 @@ from whoosh.util import now, lru_cache
 class TimeLimit(Exception):
     pass
 
+
 class NoTermsException(Exception):
     """Exception raised you try to access matched terms on a :class:`Results`
     object was created without them. To record which terms matched in which
     document, you need to call the :meth:`Searcher.search` method with
     ``terms=True``.
     """
-    
+
     message = "Results were created without recording terms"
+
 
 # Searcher class
 
@@ -82,7 +84,7 @@ class Searcher(object):
         self.is_closed = False
         self._closereader = closereader
         self._ix = fromindex
-        
+
         if parent:
             self.parent = weakref.ref(parent)
             self.schema = parent.schema
@@ -109,14 +111,14 @@ class Searcher(object):
                                  in self.leafreaders]
 
         # Copy attributes/methods from wrapped reader
-        for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
-                     "lexicon", "frequency", "doc_frequency", "term_info",
-                     "doc_field_length", "corrector"):
+        for name in ("stored_fields", "all_stored_fields", "vector",
+                     "vector_as", "lexicon", "frequency", "doc_frequency",
+                     "term_info", "doc_field_length", "corrector"):
             setattr(self, name, getattr(self.ixreader, name))
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *exc_info):
         self.close()
 
@@ -130,14 +132,14 @@ class Searcher(object):
     def doc_count(self):
         """Returns the number of UNDELETED documents in the index.
         """
-        
+
         return self.ixreader.doc_count()
 
     def doc_count_all(self):
         """Returns the total number of documents, DELETED OR UNDELETED, in
         the index.
         """
-        
+
         return self._doccount
 
     def field_length(self, fieldname):
@@ -145,7 +147,7 @@ class Searcher(object):
             return self.parent().field_length(fieldname)
         else:
             return self.reader().field_length(fieldname)
-        
+
     def max_field_length(self, fieldname):
         if self.parent:
             return self.parent().max_field_length(fieldname)
@@ -156,9 +158,10 @@ class Searcher(object):
         """Returns True if this Searcher represents the latest version of the
         index, for backends that support versioning.
         """
-        
+
         if not self._ix:
-            raise Exception("This searcher was not created with a reference to its index")
+            raise Exception("This searcher was not created with a reference "
+                            "to its index")
         return self._ix.latest_generation() == self.ixreader.generation()
 
     def refresh(self):
@@ -173,12 +176,13 @@ class Searcher(object):
         by the refreshed searcher, so you CANNOT continue to use the original
         searcher after calling ``refresh()`` on it.
         """
-        
+
         if not self._ix:
-            raise Exception("This searcher was not created with a reference to its index")
+            raise Exception("This searcher was not created with a reference "
+                            "to its index")
         if self._ix.latest_generation() == self.reader().generation():
             return self
-        
+
         # Get a new reader, re-using resources from the current reader if
         # possible
         self.is_closed = True
@@ -209,7 +213,7 @@ class Searcher(object):
             # Scoring functions tend to cache information that isn't available
             # on an empty index.
             return None
-        
+
         s = self.parent() if self.parent else self
         return self.weighting.scorer(s, fieldname, text, qf=qf)
 
@@ -219,7 +223,7 @@ class Searcher(object):
         method, this method automatically sets the scoring functions on the
         matcher from the searcher's weighting object.
         """
-        
+
         scorer = self.scorer(fieldname, text, qf=qf)
         return self.ixreader.postings(fieldname, text, scorer=scorer)
 
@@ -231,7 +235,7 @@ class Searcher(object):
         # This method just calls the Weighting object's idf() method, but
         # caches the result. So Weighting objects should call *this* method
         # which will then call *their own* idf() methods.
-        
+
         cache = self._idf_cache
         term = (fieldname, text)
         if term in cache:
@@ -309,7 +313,7 @@ class Searcher(object):
 
         # In the common case where only one keyword was given, just use
         # first_id() instead of building a query.
-        
+
         self._kw_to_text(kw)
         if len(kw) == 1:
             k, v = list(kw.items())[0]
@@ -327,12 +331,12 @@ class Searcher(object):
         the given keyword arguments, where the keyword keys are field names and
         the values are terms that must appear in the field.
         
-        >>> docnums = list(searcher.document_numbers(emailto=u"matt@whoosh.ca"))
+        >>> docnums = list(searcher.document_numbers(emailto="matt@whoosh.ca"))
         """
 
         if len(kw) == 0:
             return []
-        
+
         self._kw_to_text(kw)
         return self.docs_for_query(self._query_for_kw(kw))
 
@@ -361,10 +365,11 @@ class Searcher(object):
         elif isinstance(obj, query.Query):
             c = self._query_to_comb(obj)
         else:
-            raise Exception("Don't know what to do with filter object %r" % obj)
-        
+            raise Exception("Don't know what to do with filter object %r"
+                            % obj)
+
         return c
-    
+
     def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0):
         """Returns a sorted list of suggested corrections for the given
         mis-typed word ``text`` based on the contents of the given field::
@@ -391,10 +396,10 @@ class Searcher(object):
             prefix dramatically decreases the time it takes to generate the
             list of words.
         """
-        
+
         c = self.reader().corrector(fieldname)
         return c.suggest(text, limit=limit, maxdist=maxdist, prefix=prefix)
-    
+
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
         """Returns the 'numterms' most important terms from the documents
@@ -438,7 +443,7 @@ class Searcher(object):
         :param model: The classify.ExpansionModel to use. See the classify
             module.
         """
-        
+
         expander = classify.Expander(self.ixreader, fieldname, model=model)
         expander.add_text(text)
         return expander.expanded_terms(numterms, normalize=normalize)
@@ -474,7 +479,7 @@ class Searcher(object):
         :param filter: a query, Results object, or set of docnums. The results
             will only contain documents that are also in the filter object.
         """
-        
+
         if text:
             kts = self.key_terms_from_text(fieldname, text, numterms=numterms,
                                            model=model, normalize=normalize)
@@ -484,7 +489,7 @@ class Searcher(object):
         # Create an Or query from the key terms
         q = query.Or([query.Term(fieldname, word, boost=weight)
                       for word, weight in kts])
-        
+
         return self.search(q, limit=top, filter=filter, mask=set([docnum]))
 
     def search_page(self, query, pagenum, pagelen=10, **kwargs):
@@ -534,10 +539,10 @@ class Searcher(object):
         :param pagelen: the number of results per page.
         :returns: :class:`ResultsPage`
         """
-        
+
         if pagenum < 1:
             raise ValueError("pagenum must be >= 1")
-        
+
         results = self.search(query, limit=pagenum * pagelen, **kwargs)
         return ResultsPage(results, pagenum, pagelen)
 
@@ -555,7 +560,7 @@ class Searcher(object):
         
         See :doc:`/facets`.
         """
-        
+
         return sorting.Sorter(self, *args, **kwargs)
 
     def add_facet_field(self, name, facet, save=False):
@@ -592,13 +597,12 @@ class Searcher(object):
             across searchers. The default is False, which only creates the
             field cache in memory.
         """
-        
-        
+
         if self.subsearchers:
             ss = self.subsearchers
         else:
             ss = [(self, 0)]
-        
+
         for s, offset in ss:
             doclists = defaultdict(list)
             catter = facet.categorizer(self)
@@ -607,12 +611,12 @@ class Searcher(object):
                 key = catter.key_for_id(docnum)
                 doclists[key].append(docnum)
             s.reader().define_facets(name, doclists, save=save)
-        
+
     def docs_for_query(self, q):
         """Returns an iterator of document numbers for documents matching the
         given :class:`whoosh.query.Query` object.
         """
-        
+
         if self.subsearchers:
             for s, offset in self.subsearchers:
                 for docnum in q.docs(s):
@@ -620,7 +624,7 @@ class Searcher(object):
         else:
             for docnum in q.docs(self):
                 yield docnum
-    
+
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
                optimize=True, filter=None, mask=None, groupids=True,
                terms=False):
@@ -659,13 +663,13 @@ class Searcher(object):
         collector = Collector(limit=limit, usequality=optimize,
                               groupedby=groupedby, groupids=groupids,
                               terms=terms)
-        
+
         if sortedby:
             return collector.sort(self, q, sortedby, reverse=reverse,
                                   allow=filter, restrict=mask)
         else:
             return collector.search(self, q, allow=filter, restrict=mask)
-    
+
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
         """Returns a corrected version of the given user query using a default
@@ -739,7 +743,7 @@ class Searcher(object):
             slow.
         :rtype: :class:`whoosh.spelling.Correction`
         """
-        
+
         if correctors is None:
             correctors = {}
 
@@ -751,18 +755,18 @@ class Searcher(object):
         for fieldname in fieldnames:
             if fieldname not in correctors:
                 correctors[fieldname] = self.corrector(fieldname)
-        
+
         if terms is None:
             terms = []
             for token in q.all_tokens():
                 if token.fieldname in correctors:
                     terms.append((token.fieldname, token.text))
-        
+
         from whoosh import spelling
-        
+
         sqc = spelling.SimpleQueryCorrector(correctors, terms)
         return sqc.correct_query(q, qstring)
-        
+
 
 class Collector(object):
     """A Collector finds the matching documents, scores them, collects them
@@ -796,7 +800,7 @@ class Collector(object):
     If the ``greedy`` keyword is ``True``, the collector will finish adding
     the most recent hit before raising the ``TimeLimit`` exception.
     """
-    
+
     def __init__(self, limit=10, usequality=True, groupedby=None,
                  groupids=True, timelimit=None, greedy=False, terms=False,
                  replace=10):
@@ -815,7 +819,7 @@ class Collector(object):
             recent hit before raising the ``TimeLimit`` exception.
         :param terms: if ``True``, record which terms matched in each document.
         """
-        
+
         self.limit = limit
         self.usequality = usequality
         self.replace = replace
@@ -823,35 +827,35 @@ class Collector(object):
         self.greedy = greedy
         self.groupids = groupids
         self.termlists = defaultdict(set) if terms else None
-        
+
         self.facets = None
         if groupedby:
             self.facets = sorting.Facets.from_groupedby(groupedby)
-    
+
     def should_add_all(self):
         """Returns True if this collector needs to add all found documents (for
         example, if ``limit=None``), or False if this collector should only
         add the top N found documents.
         """
-        
+
         limit = self.limit
         if limit:
             limit = min(limit, self.searcher.doc_count_all())
         return not limit
-    
+
     def use_block_quality(self, searcher, matcher=None):
         """Returns True if this collector can use block quality optimizations
         (usequality is True, the matcher supports block quality, the weighting
         does not use the final() method, etc.).
         """
-        
+
         use = (self.usequality
                and not searcher.weighting.use_final
                and not self.should_add_all())
         if matcher:
             use = use and matcher.supports_block_quality()
         return use
-    
+
     def _score_fn(self, searcher):
         w = searcher.weighting
         if w.use_final:
@@ -861,21 +865,21 @@ class Collector(object):
         else:
             scorefn = None
         return scorefn
-    
+
     def _set_categorizers(self, searcher, offset):
         groups = self.groups
         if self.facets:
             self.categorizers = dict((name, facet.categorizer(searcher))
                                      for name, facet in self.facets.items())
-            
+
             for name, catter in self.categorizers.items():
                 if self.groupids and name not in groups:
                     groups[name] = defaultdict(list)
                 elif name not in groups:
                     groups[name] = defaultdict(int)
-                
+
                 catter.set_searcher(searcher, offset)
-    
+
     def _set_filters(self, allow, restrict):
         if allow:
             allow = self.searcher._filter_to_comb(allow)
@@ -883,21 +887,21 @@ class Collector(object):
         if restrict:
             restrict = self.searcher._filter_to_comb(restrict)
         self.restrict = restrict
-    
+
     def _set_timer(self):
         # If this collector is time limited, start the timer thread
         self.timer = None
         if self.timelimit:
             self.timer = threading.Timer(self.timelimit, self._timestop)
             self.timer.start()
-    
+
     def _reset(self):
         self.groups = {}
         self.items = []
         self.timedout = False
         self.runtime = -1
         self.minscore = None
-    
+
     def _timestop(self):
         # Called by the Timer when the time limit expires. Set an attribute on
         # the collector to indicate that the timer has expired and the
@@ -905,18 +909,18 @@ class Collector(object):
         # state.
         self.timer = None
         self.timedout = True
-    
+
     def _add_to_group(self, name, key, offsetid):
         if self.groupids:
             self.groups[name][key].append(offsetid)
         else:
             self.groups[name][key] += 1
-    
+
     def collect(self, id, offsetid):
         docset = self.docset
         if docset is not None:
             docset.add(offsetid)
-        
+
         if self.facets is not None:
             add = self._add_to_group
             for name, catter in self.categorizers.items():
@@ -926,7 +930,7 @@ class Collector(object):
                 else:
                     key = catter.key_to_name(catter.key_for_id(id))
                     add(name, key, offsetid)
-    
+
     def search(self, searcher, q, allow=None, restrict=None):
         """Top-level method call which uses the given :class:`Searcher` and
         :class:`whoosh.query.Query` objects to return a :class:`Results`
@@ -940,51 +944,51 @@ class Collector(object):
         for each sub-searcher in a collective searcher. You should only call
         this method on a top-level searcher.
         """
-        
+
         self.searcher = searcher
         self.q = q
         self._set_filters(allow, restrict)
         self._reset()
         self._set_timer()
-        
+
         # If we're not using block quality, then we can add every document
         # number to a set as we see it, because we're not skipping low-quality
         # blocks
         self.docset = set() if not self.use_block_quality(searcher) else None
-        
+
         # Perform the search
         t = now()
-        
+
         if searcher.is_atomic():
             searchers = [(searcher, 0)]
         else:
             searchers = searcher.subsearchers
-            
+
         for s, offset in searchers:
             scorefn = self._score_fn(s)
             self.subsearcher = s
             self._set_categorizers(s, offset)
             self.add_matches(q, offset, scorefn)
-        
+
         # If we started a time limit timer thread, cancel it
         if self.timelimit and self.timer:
             self.timer.cancel()
-        
+
         self.runtime = now() - t
         return self.results()
-    
+
     def add_matches(self, q, offset, scorefn):
         items = self.items
         limit = self.limit
         addall = self.should_add_all()
-        
+
         for score, offsetid in self.pull_matches(q, offset, scorefn):
             # Document numbers are negated before putting them in the heap so
             # that higher document numbers have lower "priority" in the queue.
             # Lower document numbers should always come before higher document
             # numbers with the same score to keep the order stable.
             negated_offsetid = 0 - offsetid
-            
+
             if addall:
                 # We're just adding all matches
                 items.append((score, negated_offsetid))
@@ -997,12 +1001,12 @@ class Collector(object):
                 if score > items[0][0]:
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
-    
+
     def pull_matches(self, q, offset, scorefn):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.
         """
-        
+
         allow = self.allow
         restrict = self.restrict
         replace = self.replace
@@ -1010,21 +1014,21 @@ class Collector(object):
         minscore = self.minscore
         replacecounter = 0
         timelimited = bool(self.timelimit)
-        
+
         matcher = q.matcher(self.subsearcher)
         usequality = self.use_block_quality(self.subsearcher, matcher)
-        
+
         termlists = self.termlists
         recordterms = termlists is not None
         if recordterms:
             termmatchers = list(matcher.term_matchers())
         else:
             termmatchers = None
-        
+
         # A flag to indicate whether we should check block quality at the start
         # of the next loop
         checkquality = True
-        
+
         while matcher.is_active():
             # If the replacement counter has reached 0, try replacing the
             # matcher with a more efficient version
@@ -1033,17 +1037,18 @@ class Collector(object):
                     matcher = matcher.replace(minscore or 0)
                     if not matcher.is_active():
                         break
-                    usequality = self.use_block_quality(self.subsearcher, matcher)
+                    usequality = self.use_block_quality(self.subsearcher,
+                                                        matcher)
                     replacecounter = replace
                     minscore = self.minscore
                     if recordterms:
                         termmatchers = list(matcher.term_matchers())
                 replacecounter -= 1
-            
+
             # Check whether the time limit expired since the last match
             if timelimited and self.timedout and not self.greedy:
                 raise TimeLimit
-            
+
             # If we're using block quality optimizations, and the checkquality
             # flag is true, try to skip ahead to the next block with the
             # minimum required quality
@@ -1053,11 +1058,11 @@ class Collector(object):
                 # posting list
                 if not matcher.is_active():
                     break
-            
+
             # The current document ID 
             id = matcher.id()
             offsetid = id + offset
-            
+
             # Check whether the document is filtered
             if ((not allow or offsetid in allow)
                 and (not restrict or offsetid not in restrict)):
@@ -1068,22 +1073,22 @@ class Collector(object):
                 else:
                     score = matcher.score()
                 yield (score, offsetid)
-            
+
             # If recording terms, add the document to the termlists
             if recordterms:
                 for m in termmatchers:
                     if m.is_active() and m.id() == id:
                         termlists[m.term()].add(offsetid)
-            
+
             # Check whether the time limit expired
             if timelimited and self.timedout:
                 raise TimeLimit
-            
+
             # Move to the next document. This method returns True if the
             # matcher has entered a new block, so we should check block quality
             # again.
             checkquality = matcher.next()
-    
+
     def sort(self, searcher, q, sortedby, reverse=False, allow=None,
              restrict=None):
         self.searcher = searcher
@@ -1092,84 +1097,85 @@ class Collector(object):
         self._set_filters(allow, restrict)
         self._reset()
         self._set_timer()
-        
+
         items = self.items
         limit = self.limit
         heapfn = nlargest if reverse else nsmallest
         addall = self.should_add_all()
-        
+
         facet = sorting.MultiFacet.from_sortedby(sortedby)
         catter = facet.categorizer(searcher)
         t = now()
-        
+
         if searcher.is_atomic():
             searchers = [(searcher, 0)]
         else:
             searchers = searcher.subsearchers
-            
+
         for s, offset in searchers:
             self.subsearcher = s
             self._set_categorizers(s, offset)
             catter.set_searcher(s, offset)
-            
+
             if catter.requires_matcher or self.termlists:
                 ls = list(self.pull_matches(q, offset, catter.key_for_matcher))
             else:
-                ls = list(self.pull_unscored_matches(q, offset, catter.key_for_id))
-            
+                ls = list(self.pull_unscored_matches(q, offset,
+                                                     catter.key_for_id))
+
             if addall:
                 items.extend(ls)
             else:
                 items = heapfn(limit, items + ls)
-        
+
         self.items = items
         self.runtime = now() - t
         return self.results(scores=False, reverse=reverse)
-    
+
     def pull_unscored_matches(self, q, offset, keyfn):
         allow = self.allow
         restrict = self.restrict
         collect = self.collect
         timelimited = bool(self.timelimit)
-        
+
         matcher = q.matcher(self.subsearcher)
         for id in matcher.all_ids():
             # Check whether the time limit expired since the last match
             if timelimited and self.timedout and not self.greedy:
                 raise TimeLimit
-            
+
             # The current document ID 
             offsetid = id + offset
-            
+
             # Check whether the document is filtered
             if ((not allow or offsetid in allow)
                 and (not restrict or offsetid not in restrict)):
                 # Collect and yield this document
                 collect(id, offsetid)
                 yield (keyfn(id), offsetid)
-            
+
             # Check whether the time limit expired
             if timelimited and self.timedout:
                 raise TimeLimit
-    
+
     def results(self, scores=True, reverse=False):
         """Returns the current results from the collector. This is useful for
         getting the results out of a collector that was stopped by a time
         limit exception.
         """
-        
+
         if scores:
             # Docnums are stored as negative for reasons too obscure to go into
             # here, re-negate them before returning
             items = [(x[0], 0 - x[1]) for x in self.items]
-        
+
             # Sort by negated scores so that higher scores go first, then by
             # document number to keep the order stable when documents have the
             # same score
             items.sort(key=lambda x: (0 - x[0], x[1]))
         else:
             items = sorted(self.items, reverse=reverse)
-        
+
         return Results(self.searcher, self.q, items, self.docset,
                        groups=self.groups, runtime=self.runtime,
                        filter=self.allow, mask=self.restrict,
@@ -1187,7 +1193,7 @@ class Results(object):
     so keeps all files used by it open.
     """
 
-    def __init__(self, searcher, q, top_n, docset, groups=None, runtime=-1,
+    def __init__(self, searcher, q, top_n, docset, groups=None, runtime= -1,
                  filter=None, mask=None, termlists=None, highlighter=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
@@ -1206,10 +1212,10 @@ class Results(object):
         self._filter = filter
         self._mask = mask
         self._termlists = termlists
-        
+
         self.highlighter = highlighter or highlight.Highlighter()
         self._char_cache = {}
-    
+
     def __repr__(self):
         return "<Top %s Results for %r runtime=%s>" % (len(self.top_n),
                                                        self.q,
@@ -1228,7 +1234,7 @@ class Results(object):
         :meth:`Results.estimated_min_length` to display an estimated size of
         the result set instead of an exact number.
         """
-        
+
         if self.docset is None:
             self._load_docs()
         return len(self.docset)
@@ -1244,34 +1250,34 @@ class Results(object):
     def __iter__(self):
         """Yields a :class:`Hit` object for each result in ranked order.
         """
-        
+
         for i in xrange(len(self.top_n)):
             yield Hit(self, self.top_n[i][1], i, self.top_n[i][0])
-    
+
     def __contains__(self, docnum):
         """Returns True if the given document number matched the query.
         """
-        
+
         if self.docset is None:
             self._load_docs()
         return docnum in self.docset
 
     def __nonzero__(self):
         return not self.is_empty()
-        
+
     __bool__ = __nonzero__
 
     def is_empty(self):
         """Returns True if not documents matched the query.
         """
-        
+
         return self.scored_length() == 0
 
     def items(self):
         """Returns an iterator of (docnum, score) pairs for the scored
         documents in the results.
         """
-        
+
         return ((docnum, score) for score, docnum in self.top_n)
 
     def fields(self, n):
@@ -1279,9 +1285,9 @@ class Results(object):
         in the results. Use :meth:`Results.docnum` if you want the raw
         document number instead of the stored fields.
         """
-        
+
         return self.searcher.stored_fields(self.top_n[n][1])
-    
+
     def groups(self, name):
         """If you generating groupings for the results by using the `groups`
         keyword to the `search()` method, you can use this method to retrieve
@@ -1299,11 +1305,12 @@ class Results(object):
         You can then use :meth:`Searcher.stored_fields` to get the stored
         fields associated with a document ID.
         """
-        
+
         if name not in self._groups:
-            raise KeyError("%r not in group names %r" % (name, self._groups.keys()))
+            raise KeyError("%r not in group names %r"
+                           % (name, self._groups.keys()))
         return dict(self._groups[name])
-    
+
     def _load_docs(self):
         # If self.docset is None, that means this results object was created
         # block optimizations on, which means we didn't record the matching
@@ -1311,42 +1318,42 @@ class Results(object):
         # go back and use docs_for_query to get just the matching docnums. This
         # is much faster than getting the scored results, but might still be
         # noticeable for complex queries and/or a large index.
-        
+
         docset = set(self.searcher.docs_for_query(self.q))
-        
+
         # Apply the filter and mask, if any, from the original search
         if self._filter:
             docset.intersection_update(self._filter)
         if self._mask:
             docset.difference_update(self._mask)
-        
+
         self.docset = docset
 
     def has_exact_length(self):
         """Returns True if this results object already knows the exact number
         of matching documents.
         """
-        
+
         return self.docset is not None
 
     def estimated_length(self):
         """The estimated maximum number of matching documents, or the
         exact number of matching documents if it's known.
         """
-        
+
         if self.docset is not None:
             return len(self.docset)
         return self.q.estimate_size(self.searcher.reader())
-    
+
     def estimated_min_length(self):
         """The estimated minimum number of matching documents, or the
         exact number of matching documents if it's known.
         """
-        
+
         if self.docset is not None:
             return len(self.docset)
         return self.q.estimate_min_size(self.searcher.reader())
-    
+
     def scored_length(self):
         """Returns the number of scored documents in the results, equal to or
         less than the ``limit`` keyword argument to the search.
@@ -1360,14 +1367,14 @@ class Results(object):
         This may be fewer than the total number of documents that match the
         query, which is what ``len(Results)`` returns.
         """
-        
+
         return len(self.top_n)
 
     def docs(self):
         """Returns a set-like object containing the document numbers that
         matched the query.
         """
-        
+
         if self.docset is None:
             self._load_docs()
         return self.docset
@@ -1375,14 +1382,15 @@ class Results(object):
     def copy(self):
         """Returns a copy of this results object.
         """
-        
+
         return self.__class__(self.searcher, self.q, self.top_n[:],
                               copy.copy(self.docset), runtime=self.runtime,
                               filter=self._filter, mask=self._mask)
 
     def score(self, n):
         """Returns the score for the document at the Nth position in the list
-        of ranked documents. If the search was not scored, this may return None.
+        of ranked documents. If the search was not scored, this may return
+        None.
         """
 
         return self.top_n[n][0]
@@ -1405,7 +1413,7 @@ class Results(object):
         False
         >>> 
         """
-        
+
         return self._termlists is not None
 
     def matched_terms(self):
@@ -1426,33 +1434,41 @@ class Results(object):
         >>> q.all_terms() - results.terms()
         set([("content", "bravo")])
         """
-        
+
         if self._termlists is None:
             raise NoTermsException
         return set(self._termlists.keys())
 
     def _get_fragmenter(self):
         return self.highlighter.fragmenter
+
     def _set_fragmenter(self, f):
         self.highlighter.fragmenter = f
+
     fragmenter = property(_get_fragmenter, _set_fragmenter)
-    
+
     def _get_formatter(self):
         return self.highlighter.formatter
+
     def _set_formatter(self, f):
         self.highlighter.formatter = f
+
     formatter = property(_get_formatter, _set_formatter)
-    
+
     def _get_scorer(self):
         return self.highlighter.scorer
+
     def _set_scorer(self, s):
         self.highlighter.scorer = s
+
     scorer = property(_get_scorer, _set_scorer)
-    
+
     def _get_order(self):
         return self.highlighter.order
+
     def _set_order(self, o):
         self.highlighter.order = o
+
     order = property(_get_order, _set_order)
 
     def key_terms(self, fieldname, docs=10, numterms=5,
@@ -1482,20 +1498,20 @@ class Results(object):
             expander.add_document(docnum)
 
         return expander.expanded_terms(numterms, normalize=normalize)
-    
+
     def extend(self, results):
         """Appends hits from 'results' (that are not already in this
         results object) to the end of these results.
         
         :param results: another results object.
         """
-        
+
         docs = self.docs()
         for item in results.top_n:
             if item[1] not in docs:
                 self.top_n.append(item)
         self.docset = docs | results.docs()
-    
+
     def filter(self, results):
         """Removes any hits that are not also in the other results object.
         """
@@ -1507,7 +1523,7 @@ class Results(object):
         items = [item for item in self.top_n if item[1] in otherdocs]
         self.docset = self.docs() & otherdocs
         self.top_n = items
-        
+
     def upgrade(self, results, reverse=False):
         """Re-sorts the results so any hits that are also in 'results' appear
         before hits not in 'results', otherwise keeping their current relative
@@ -1530,9 +1546,9 @@ class Results(object):
             items = notin + arein
         else:
             items = arein + notin
-        
+
         self.top_n = items
-        
+
     def upgrade_and_extend(self, results):
         """Combines the effects of extend() and increase(): hits that are also
         in 'results' are raised. Then any hits from the other results object
@@ -1576,7 +1592,7 @@ class Hit(object):
     >>> r[0].keys()
     ["title"]
     """
-    
+
     def __init__(self, results, docnum, pos=None, score=None):
         """
         :param results: the Results object this hit belongs to.
@@ -1585,23 +1601,23 @@ class Hit(object):
         :param docnum: the document number of this hit.
         :param score: the score of this hit.
         """
-        
+
         self.results = results
         self.searcher = results.searcher
         self.pos = self.rank = pos
         self.docnum = docnum
         self.score = score
         self._fields = None
-    
+
     def fields(self):
         """Returns a dictionary of the stored fields of the document this
         object represents.
         """
-        
+
         if self._fields is None:
             self._fields = self.searcher.stored_fields(self.docnum)
         return self._fields
-    
+
     def matched_terms(self):
         """Returns the set of ``("fieldname", "text")`` tuples representing
         terms from the query that matched in this document. You can
@@ -1618,11 +1634,11 @@ class Hit(object):
         ...   print("Contains:", hit.matched_terms())
         ...   print("Doesn't contain:", q.all_terms() - hit.matched_terms())
         """
-        
+
         termlists = self.results._termlists
         if termlists is None:
             raise NoTermsException
-        
+
         # termlists maps terms->set of docnums, so we have to check every term
         # to see if this document is in its list
         s = set()
@@ -1630,7 +1646,7 @@ class Hit(object):
             if self.docnum in termlists[term]:
                 s.add(term)
         return s
-    
+
     def highlights(self, fieldname, text=None, top=3):
         """Returns highlighted snippets from the given field::
         
@@ -1662,10 +1678,10 @@ class Hit(object):
             a database), you can supply it using the ``text`` parameter.
         :param top: the maximum number of fragments to return.
         """
-        
+
         hliter = self.results.highlighter
         return hliter.highlight_hit(self, fieldname, text=text, top=top)
-    
+
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):
         """Returns a new Results object containing documents similar to this
@@ -1693,28 +1709,28 @@ class Hit(object):
             to compute "key terms".
         :param normalize: whether to normalize term weights.
         """
-        
+
         return self.searcher.more_like(self.docnum, fieldname, text=text,
                                        top=top, numterms=numterms, model=model,
                                        normalize=normalize, filter=filter)
-    
+
     def contains_term(self, fieldname, text):
         """Returns True if the given query term exists in this document. This
         only works for terms that were in the original query.
         """
-        
+
         termlists = self.results._termlists
         if termlists is not None:
             term = (fieldname, text)
             if term in termlists:
                 docset = termlists[term]
                 return self.docnum in docset
-        
+
         return False
-    
+
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())
-    
+
     def __eq__(self, other):
         if isinstance(other, Hit):
             return self.fields() == other.fields()
@@ -1722,52 +1738,52 @@ class Hit(object):
             return self.fields() == other
         else:
             return False
-    
+
     def __len__(self):
         return len(self.fields())
-    
+
     def __iter__(self):
         return iterkeys(self.fields())
-    
+
     def __getitem__(self, key):
         return self.fields().__getitem__(key)
-    
+
     def __contains__(self, key):
         return key in self.fields()
-    
+
     def items(self):
         return list(self.fields().items())
-    
+
     def keys(self):
         return list(self.fields().keys())
-    
+
     def values(self):
         return list(self.fields().values())
-    
+
     def iteritems(self):
         return iteritems(self.fields())
 
     def iterkeys(self):
         return iterkeys(self.fields())
-    
+
     def itervalues(self):
         return itervalues(self.fields())
-    
+
     def get(self, key, default=None):
         return self.fields().get(key, default)
-    
+
     def __setitem__(self, key, value):
         raise NotImplementedError("You cannot modify a search result")
-    
+
     def __delitem__(self, key, value):
         raise NotImplementedError("You cannot modify a search result")
-    
+
     def clear(self):
         raise NotImplementedError("You cannot modify a search result")
-    
+
     def update(self, dict=None, **kwargs):
         raise NotImplementedError("You cannot modify a search result")
-    
+
 
 class ResultsPage(object):
     """Represents a single page out of a longer list of results, as returned
@@ -1814,17 +1830,18 @@ class ResultsPage(object):
         :param pagenum: which page of the results to use, numbered from ``1``.
         :param pagelen: the number of hits per page.
         """
-        
+
         self.results = results
         self.total = len(results)
-        
+
         if pagenum < 1:
             raise ValueError("pagenum must be >= 1")
-        
+
         self.pagecount = int(ceil(self.total / pagelen))
         if pagenum > 1 and pagenum > self.pagecount:
-            raise ValueError("Asked for page %s of %s" % (pagenum, self.pagecount))
-        
+            raise ValueError("Asked for page %s of %s"
+                             % (pagenum, self.pagecount))
+
         self.pagenum = pagenum
 
         offset = (pagenum - 1) * pagelen
@@ -1837,7 +1854,8 @@ class ResultsPage(object):
         offset = self.offset
         if isinstance(n, slice):
             start, stop, step = n.indices(self.pagelen)
-            return self.results.__getitem__(slice(start + offset, stop + offset, step))
+            return self.results.__getitem__(slice(start + offset,
+                                                  stop + offset, step))
         else:
             return self.results.__getitem__(n + offset)
 
@@ -1860,9 +1878,9 @@ class ResultsPage(object):
         page.
         """
         return self.results.docnum(n + self.offset)
-    
+
     def is_last_page(self):
         """Returns True if this object represents the last page of results.
         """
-        
+
         return self.pagecount == 0 or self.pagenum == self.pagecount

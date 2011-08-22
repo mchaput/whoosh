@@ -331,13 +331,13 @@ Here is the behavior of operations with relativedelta:
                              microsecond=other.second or self.microsecond)
 
     def __neg__(self):
-        return relativedelta(years=-self.years,
-                             months=-self.months,
-                             days=-self.days,
-                             hours=-self.hours,
-                             minutes=-self.minutes,
-                             seconds=-self.seconds,
-                             microseconds=-self.microseconds,
+        return relativedelta(years= -self.years,
+                             months= -self.months,
+                             days= -self.days,
+                             hours= -self.hours,
+                             minutes= -self.minutes,
+                             seconds= -self.seconds,
+                             microseconds= -self.microseconds,
                              leapdays=self.leapdays,
                              year=self.year,
                              month=self.month,

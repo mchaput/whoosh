@@ -36,14 +36,14 @@ def versionstring(build=True, extra=True):
         checked if build is True.
     :rtype: str
     """
-    
+
     if build:
         first = 3
     else:
         first = 2
-    
+
     s = ".".join(str(n) for n in __version__[:first])
     if build and extra:
         s += "".join(str(n) for n in __version__[3:])
-    
+
     return s

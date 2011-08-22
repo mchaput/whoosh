@@ -18,19 +18,19 @@ silent_starts = re.compile("GN|KN|PN|WR|PS")
 def double_metaphone(text):
     text = text.upper()
     slavo_germanic = bool(slavo_germ_exp.search(text))
-    
+
     length = len(text)
     text = "--" + text + "     "
     first = pos = 2
     last = first + length - 1
     primary = secondary = ""
-    
+
     if silent_starts.match(text, pos):
         pos += 1
-    
+
     while pos < length + 2:
         ch = text[pos]
-        
+
         if ch in vowels:
             # all init vowels now map to 'A'
             if pos != first:
@@ -395,7 +395,7 @@ def double_metaphone(text):
                 next = next + (1,)
         else:
             next = (None, 1)
-                
+
         if len(next) == 2:
             if next[0]:
                 primary += next[0]
@@ -407,7 +407,7 @@ def double_metaphone(text):
             if next[1]:
                 secondary += next[1]
             pos += next[2]
-        
+
     if primary == secondary:
         return (primary, None)
     else:
@@ -416,7 +416,7 @@ def double_metaphone(text):
 if __name__ == '__main__':
     names = {'maurice': ('MRS', None), 'aubrey': ('APR', None), 'cambrillo': ('KMPRL', 'KMPR'),
         'heidi': ('HT', None), 'katherine': ('K0RN', 'KTRN'), 'Thumbail': ('0MPL', 'TMPL'),
-        'catherine': ('K0RN', 'KTRN'), 'richard': ('RXRT', 'RKRT'), 'bob': ('PP', None),\
+        'catherine': ('K0RN', 'KTRN'), 'richard': ('RXRT', 'RKRT'), 'bob': ('PP', None), \
         'eric': ('ARK', None), 'geoff': ('JF', 'KF'), 'Through': ('0R', 'TR'), 'Schwein': ('XN', 'XFN'),
         'dave': ('TF', None), 'ray': ('R', None), 'steven': ('STFN', None), 'bryce': ('PRS', None),
         'randy': ('RNT', None), 'bryan': ('PRN', None), 'Rapelje': ('RPL', None),

@@ -38,14 +38,14 @@ from whoosh.util import rcompile
 class Plugin(object):
     """Base class for parser plugins.
     """
-    
+
     def taggers(self, parser):
         """Should return a list of ``(Tagger, priority)`` tuples to add to the
         syntax the parser understands. Lower priorities run first.
         """
-        
+
         return ()
-    
+
     def filters(self, parser):
         """Should return a list of ``(filter_function, priority)`` tuples to
         add to parser.
@@ -53,7 +53,7 @@ class Plugin(object):
         Filter functions will be called with ``(parser, groupnode)`` and should
         return a group node.
         """
-        
+
         return ()
 
 
@@ -66,18 +66,18 @@ class TaggingPlugin(RegexTagger):
     override ``create()``, the base class will call ``self.nodetype`` with the
     Match object's named groups as keyword arguments.
     """
-    
+
     priority = 0
-    
+
     def __init__(self, expr=None):
         self.expr = rcompile(expr or self.expr)
-        
+
     def taggers(self, parser):
         return [(self, self.priority)]
-    
+
     def filters(self, parser):
         return ()
-    
+
     def create(self, parser, match):
         # Groupdict keys can be unicode sometimes apparently? Convert them to
         # str for use as keyword arguments. This should be Py3-safe.
@@ -91,16 +91,16 @@ class WhitespacePlugin(TaggingPlugin):
     query, it should run with priority lower than 500 (before removal of
     whitespace) or higher than 500 (after removal of whitespace).
     """
-    
+
     nodetype = syntax.Whitespace
     priority = 100
-    
+
     def __init__(self, expr=r"\s+"):
         TaggingPlugin.__init__(self, expr)
-    
+
     def filters(self, parser):
         return [(self.remove_whitespace, 500)]
-    
+
     def remove_whitespace(self, parser, group):
         newgroup = group.empty_copy()
         for node in group:
@@ -115,10 +115,10 @@ class SingleQuotePlugin(TaggingPlugin):
     """Adds the ability to specify single "terms" containing spaces by
     enclosing them in single quotes.
     """
-    
-    expr=r"(^|(?<=\W))'(?P<text>.*?)'(?=\s|\]|[)}]|$)"
+
+    expr = r"(^|(?<=\W))'(?P<text>.*?)'(?=\s|\]|[)}]|$)"
     nodetype = syntax.WordNode
-    
+
 
 class PrefixPlugin(TaggingPlugin):
     """Adds the ability to specify prefix queries by ending a term with an
@@ -133,30 +133,30 @@ class PrefixPlugin(TaggingPlugin):
     >>> qp.add_plugin(qparser.PrefixPlugin())
     >>> q = qp.parse("pre*")
     """
-    
+
     class PrefixNode(syntax.TextNode):
         qclass = query.Prefix
-        
+
         def r(self):
             return "%r*" % self.text
-    
-    expr="(?P<text>[^ \t\r\n*]+)[*](?= |$|\\))"
+
+    expr = "(?P<text>[^ \t\r\n*]+)[*](?= |$|\\))"
     nodetype = PrefixNode
-    
+
 
 class WildcardPlugin(TaggingPlugin):
     class WildcardNode(syntax.TextNode):
         qclass = query.Wildcard
-        
+
         def r(self):
             return "Wild %r" % self.text
-    
+
     # Any number of word chars, followed by at least one question mark or
     # star, followed by any number of word chars, question marks, or stars
     # \u055E = Armenian question mark
     # \u061F = Arabic question mark
     # \u1367 = Ethiopic question mark
-    expr=u("(?P<text>\\w*[*?\u055E\u061F\u1367](\\w|[*?\u055E\u061F\u1367])*)")
+    expr = u("(?P<text>\\w*[*?\u055E\u061F\u1367](\\w|[*?\u055E\u061F\u1367])*)")
     nodetype = WildcardNode
 
 
@@ -166,17 +166,17 @@ class BoostPlugin(TaggingPlugin):
     >>> qp = qparser.QueryParser("content", myschema)
     >>> q = qp.parse("hello there^2")    
     """
-    
+
     expr = "\\^(?P<boost>[0-9]*(\\.[0-9]+)?)($|(?=[ \t\r\n)]))"
-    
+
     class BoostNode(syntax.SyntaxNode):
         def __init__(self, original, boost):
             self.original = original
             self.boost = boost
-        
+
         def r(self):
             return "^ %s" % self.boost
-        
+
     def create(self, parser, match):
         # Override create so we can grab group 0
         original = match.group(0)
@@ -188,30 +188,30 @@ class BoostPlugin(TaggingPlugin):
             node = syntax.WordNode(original)
         else:
             node = self.BoostNode(original, boost)
-            
+
         return node
-    
+
     def filters(self, parser):
         return [(self.clean_boost, 0), (self.do_boost, 700)]
-    
+
     def clean_boost(self, parser, group):
         """This filter finds any BoostNodes in positions where they can't boost
         the previous node (e.g. at the very beginning, after whitespace, or
         after another BoostNode) and turns them into WordNodes.
         """
-        
+
         bnode = self.BoostNode
         for i, node in enumerate(group):
             if isinstance(node, bnode):
                 if (not i or not group[i - 1].has_boost):
                     group[i] = syntax.to_word(node)
         return group
-    
+
     def do_boost(self, parser, group):
         """This filter finds BoostNodes and applies the boost to the previous
         node.
         """
-        
+
         newgroup = group.empty_copy()
         for node in group:
             if isinstance(node, syntax.GroupNode):
@@ -231,33 +231,33 @@ class BoostPlugin(TaggingPlugin):
 class GroupPlugin(Plugin):
     """Adds the ability to group clauses using parentheses.
     """
-    
+
     # Marker nodes for open and close bracket
-    
+
     class OpenBracket(syntax.SyntaxNode):
         def r(self):
             return "("
-    
+
     class CloseBracket(syntax.SyntaxNode):
         def r(self):
             return ")"
-    
+
     def __init__(self, openexpr="\\(", closeexpr="\\)"):
         self.openexpr = openexpr
         self.closeexpr = closeexpr
-    
+
     def taggers(self, parser):
         return [(FnTagger(self.openexpr, self.OpenBracket), 0),
                 (FnTagger(self.closeexpr, self.CloseBracket), 0)]
-    
+
     def filters(self, parser):
         return [(self.do_groups, 0)]
-    
+
     def do_groups(self, parser, group):
         """This filter finds open and close bracket markers in a flat group
         and uses them to organize the nodes into a hierarchy.
         """
-        
+
         ob, cb = self.OpenBracket, self.CloseBracket
         # Group hierarchy stack
         stack = [parser.group()]
@@ -274,7 +274,7 @@ class GroupPlugin(Plugin):
             else:
                 # Anything else: add it to the current level of hierarchy
                 stack[-1].append(node)
-        
+
         top = stack[0]
         # If the parens were unbalanced (more opens than closes), just take
         # whatever levels of hierarchy were left on the stack and tack them on
@@ -282,26 +282,26 @@ class GroupPlugin(Plugin):
         if len(stack) > 1:
             for ls in stack[1:]:
                 top.extend(ls)
-        
+
         if len(top) == 1 and isinstance(top[0], syntax.GroupNode):
             boost = top.boost
             top = top[0]
             top.boost = boost
-            
+
         return top
 
 
 class EveryPlugin(TaggingPlugin):
     expr = "[*]:[*]"
     priority = -1
-    
+
     def create(self, parser, match):
         return self.EveryNode()
-        
+
     class EveryNode(syntax.SyntaxNode):
         def r(self):
             return "*:*"
-        
+
         def query(self, parser):
             return query.Every()
 
@@ -309,41 +309,41 @@ class EveryPlugin(TaggingPlugin):
 class FieldsPlugin(TaggingPlugin):
     """Adds the ability to specify the field of a clause.
     """
-    
+
     class FieldnameTagger(RegexTagger):
         def create(self, parser, match):
             return syntax.FieldnameNode(match.group("text"), match.group(0))
-    
+
     def __init__(self, expr=r"(?P<text>\w+|[*]):", remove_unknown=True):
         """
         :param expr: the regular expression to use for tagging fields.
         :param remove_unknown: if True, converts field specifications for
             fields that aren't in the schema into regular text.
         """
-        
+
         self.expr = expr
         self.removeunknown = remove_unknown
-    
+
     def taggers(self, parser):
         return [(self.FieldnameTagger(self.expr), 0)]
-    
+
     def filters(self, parser):
         return [(self.do_fieldnames, 100)]
-    
+
     def do_fieldnames(self, parser, group):
         """This filter finds FieldnameNodes in the tree and applies their
         fieldname to the next node.
         """
-        
+
         fnclass = syntax.FieldnameNode
-        
+
         if self.removeunknown and parser.schema:
             # Look for field nodes that aren't in the schema and convert them
             # to text
             schema = parser.schema
             newgroup = group.empty_copy()
             prev_field_node = None
-            
+
             for node in group:
                 if isinstance(node, fnclass) and node.fieldname not in schema:
                     prev_field_node = node
@@ -361,7 +361,7 @@ class FieldsPlugin(TaggingPlugin):
             if prev_field_node:
                 newgroup.append(syntax.to_word(prev_field_node))
             group = newgroup
-        
+
         newgroup = group.empty_copy()
         # Iterate backwards through the stream, looking for field-able objects
         # with field nodes in front of them
@@ -376,46 +376,46 @@ class FieldsPlugin(TaggingPlugin):
                 node = syntax.to_word(node)
             elif isinstance(node, syntax.GroupNode):
                 node = self.do_fieldnames(parser, node)
-            
+
             if i > 0 and not node.is_ws() and isinstance(group[i - 1], fnclass):
                 node.set_fieldname(group[i - 1].fieldname, override=False)
                 i -= 1
-            
+
             newgroup.append(node)
         newgroup.reverse()
         return newgroup
-    
+
 
 class PhrasePlugin(Plugin):
     """Adds the ability to specify phrase queries inside double quotes.
     """
-    
+
     # Didn't use TaggingPlugin because I need to add slop parsing at some
     # point
-    
+
     # Expression used to find words if a schema isn't available
     wordexpr = rcompile(r'\S+')
-    
+
     class PhraseNode(syntax.TextNode):
         def __init__(self, text, textstartchar, slop=1):
             syntax.TextNode.__init__(self, text)
             self.textstartchar = textstartchar
             self.slop = slop
-        
+
         def r(self):
             return "%s %r~%s" % (self.__class__.__name__, self.text, self.slop)
-        
+
         def apply(self, fn):
             return self.__class__(self.type, [fn(node) for node in self.nodes],
                                   slop=self.slop, boost=self.boost)
-        
+
         def query(self, parser):
             text = self.text
             fieldname = self.fieldname or parser.fieldname
-            
+
             # We want to process the text of the phrase into "words" (tokens),
             # and also record the startchar and endchar of each word
-            
+
             sc = self.textstartchar
             if parser.schema and fieldname in parser.schema:
                 field = parser.schema[fieldname]
@@ -442,20 +442,20 @@ class PhrasePlugin(Plugin):
                 for match in PhrasePlugin.wordexpr.finditer(text):
                     words.append(match.group(0))
                     char_ranges.append((sc + match.start(), sc + match.end()))
-            
+
             qclass = parser.phraseclass
             q = qclass(fieldname, words, slop=self.slop, boost=self.boost,
                        char_ranges=char_ranges)
             return attach(q, self)
-    
+
     class PhraseTagger(RegexTagger):
         def create(self, parser, match):
             return PhrasePlugin.PhraseNode(match.group("text"),
                                            match.start("text"))
-    
+
     def __init__(self, expr='"(?P<text>.*?)"'):
         self.expr = expr
-    
+
     def taggers(self, parser):
         return [(self.PhraseTagger(self.expr), 0)]
 
@@ -463,7 +463,7 @@ class PhrasePlugin(Plugin):
 class RangePlugin(Plugin):
     """Adds the ability to specify term ranges.
     """
-    
+
     expr = rcompile(r"""
     (?P<open>\{|\[)               # Open paren
     (?P<start>
@@ -479,13 +479,13 @@ class RangePlugin(Plugin):
     )?
     (?P<close>}|])                # Close paren
     """, verbose=True)
-    
+
     class RangeTagger(RegexTagger):
         def __init__(self, expr, excl_start, excl_end):
             self.expr = expr
             self.excl_start = excl_start
             self.excl_end = excl_end
-        
+
         def create(self, parser, match):
             start = match.group("start")
             end = match.group("end")
@@ -504,20 +504,20 @@ class RangePlugin(Plugin):
             # What kind of open and close brackets were used?
             startexcl = match.group("open") == self.excl_start
             endexcl = match.group("close") == self.excl_end
-            
+
             rn = syntax.RangeNode(start, end, startexcl, endexcl)
             return rn
-    
+
     def __init__(self, expr=None, excl_start="{", excl_end="}"):
         self.expr = expr or self.expr
         self.excl_start = excl_start
         self.excl_end = excl_end
-    
+
     def taggers(self, parser):
         tagger = self.RangeTagger(self.expr, self.excl_start, self.excl_end)
         return [(tagger, 1)]
-    
-            
+
+
 class OperatorsPlugin(Plugin):
     """By default, adds the AND, OR, ANDNOT, ANDMAYBE, and NOT operators to
     the parser syntax. This plugin scans the token stream for subclasses of
@@ -539,7 +539,7 @@ class OperatorsPlugin(Plugin):
     argument to the initializer to use custom operators. See :ref:`custom-op`
     for more information on this.
     """
-    
+
     class OpTagger(RegexTagger):
         def __init__(self, expr, grouptype, optype=syntax.InfixOperator,
                      leftassoc=True):
@@ -547,10 +547,10 @@ class OperatorsPlugin(Plugin):
             self.grouptype = grouptype
             self.optype = optype
             self.leftassoc = leftassoc
-        
+
         def create(self, parser, match):
             return self.optype(match.group(0), self.grouptype, self.leftassoc)
-    
+
     def __init__(self, ops=None, clean=False, And=r"\sAND\s", Or=r"\sOR\s",
                  AndNot=r"\sANDNOT\s", AndMaybe=r"\sANDMAYBE\s",
                  Not=r"(^|(?<= ))NOT\s", Require=r"(^|(?<= ))REQUIRE\s"):
@@ -558,7 +558,7 @@ class OperatorsPlugin(Plugin):
             ops = list(ops)
         else:
             ops = []
-        
+
         if not clean:
             ot = self.OpTagger
             if Not:
@@ -573,25 +573,25 @@ class OperatorsPlugin(Plugin):
                 ops.append((ot(AndMaybe, syntax.AndMaybeGroup), -5))
             if Require:
                 ops.append((ot(Require, syntax.RequireGroup), 0))
-        
+
         self.ops = ops
-    
+
     def taggers(self, parser):
         return self.ops
-    
+
     def filters(self, parser):
         return [(self.do_operators, 600)]
-    
+
     def do_operators(self, parser, group):
         """This filter finds PrefixOperator, PostfixOperator, and InfixOperator
         nodes in the tree and calls their logic to rearrange the nodes.
         """
-        
+
         for tagger, _ in self.ops:
             # Get the operators created by the configured taggers
             optype = tagger.optype
             gtype = tagger.grouptype
-            
+
             # Left-associative infix operators are replaced left-to-right, and
             # right-associative infix operators are replaced right-to-left.
             # Most of the work is done in the different implementations of
@@ -611,12 +611,12 @@ class OperatorsPlugin(Plugin):
                     if isinstance(t, optype):
                         i = t.replace_self(parser, group, i)
                     i -= 1
-        
+
         # Descend into the groups and recursively call do_operators
         for i, t in enumerate(group):
             if isinstance(t, syntax.GroupNode):
                 group[i] = self.do_operators(parser, t)
-        
+
         return group
 
 
@@ -629,28 +629,31 @@ class PlusMinusPlugin(Plugin):
     This is the basis for the parser configuration returned by
     ``SimpleParser()``.
     """
-    
+
     # Marker nodes for + and -
-    
-    class Plus(syntax.MarkerNode): pass
-    class Minus(syntax.MarkerNode): pass
-    
+
+    class Plus(syntax.MarkerNode):
+        pass
+
+    class Minus(syntax.MarkerNode):
+        pass
+
     def __init__(self, plusexpr="\\+", minusexpr="-"):
         self.plusexpr = plusexpr
         self.minusexpr = minusexpr
-    
+
     def taggers(self, parser):
         return [(FnTagger(self.plusexpr, self.Plus), 0),
                 (FnTagger(self.minusexpr, self.Minus), 0)]
-    
+
     def filters(self, parser):
         return [(self.do_plusminus, 510)]
-    
+
     def do_plusminus(self, parser, group):
         """This filter sorts nodes in a flat group into "required", "optional",
         and "banned" subgroups based on the presence of plus and minus nodes.
         """
-        
+
         required = syntax.AndGroup()
         optional = syntax.OrGroup()
         banned = syntax.OrGroup()
@@ -669,7 +672,7 @@ class PlusMinusPlugin(Plugin):
                 next.append(node)
                 # Reset to putting things in the optional group by default
                 next = optional
-        
+
         group = optional
         if required:
             group = syntax.AndMaybeGroup([required, group])
@@ -696,25 +699,25 @@ class GtLtPlugin(TaggingPlugin):
         
     This plugin requires the FieldsPlugin and RangePlugin to work.
     """
-    
+
     class GtLtNode(syntax.SyntaxNode):
         def __init__(self, rel):
             self.rel = rel
-        
+
         def __repr__(self):
             return "(%s)" % self.rel
-    
-    expr=r"(?P<rel>(<=|>=|<|>|=<|=>))"
+
+    expr = r"(?P<rel>(<=|>=|<|>|=<|=>))"
     nodetype = GtLtNode
-    
+
     def filters(self, parser):
         # Run before the fields filter removes FilenameNodes at priority 100.
         return [(self.do_gtlt, 99)]
-    
+
     def do_gtlt(self, parser, group):
         """This filter translate FieldnameNode/GtLtNode pairs into RangeNodes.
         """
-        
+
         fname = syntax.FieldnameNode
         newgroup = group.empty_copy()
         i = 0
@@ -737,9 +740,9 @@ class GtLtPlugin(TaggingPlugin):
                 # If it's not a GtLtNode, add it to the filtered group
                 newgroup.append(node)
             i += 1
-        
+
         return newgroup
-            
+
     def make_range(self, node, rel):
         text = node.text
         if rel == "<":
@@ -764,7 +767,7 @@ class MultifieldPlugin(Plugin):
     
     This plugin is the basis for the ``MultifieldParser``.
     """
-    
+
     def __init__(self, fieldnames, fieldboosts=None, group=syntax.OrGroup):
         """
         :param fieldnames: a list of fields to search.
@@ -773,16 +776,16 @@ class MultifieldPlugin(Plugin):
         :param group: the group to use to relate the fielded terms to each
             other.
         """
-        
+
         self.fieldnames = fieldnames
         self.boosts = fieldboosts or {}
         self.group = group
-    
+
     def filters(self, parser):
         # Run after the fields filter applies explicit fieldnames (at priority
         # 100)
         return [(self.do_multifield, 110)]
-    
+
     def do_multifield(self, parser, group):
         for i, node in enumerate(group):
             if isinstance(node, syntax.GroupNode):
@@ -814,17 +817,17 @@ class FieldAliasPlugin(Plugin):
     >>> parser.parse("text:hello")
     Term("content", "hello")
     """
-    
+
     def __init__(self, fieldmap):
         self.fieldmap = fieldmap
         self.reverse = {}
         for key, values in iteritems(fieldmap):
             for value in values:
                 self.reverse[value] = key
-    
+
     def filters(self, parser):
         return [(self.do_aliases, 90)]
-    
+
     def do_aliases(self, parser, group):
         for i, node in enumerate(group):
             if isinstance(node, syntax.GroupNode):
@@ -859,7 +862,7 @@ class CopyFieldPlugin(Plugin):
     
         hello name:matt author:matt
     """
-    
+
     def __init__(self, map, group=syntax.OrGroup, mirror=False):
         """
         :param map: a dictionary mapping names of fields to copy to the
@@ -871,17 +874,17 @@ class CopyFieldPlugin(Plugin):
             specifies a query in the 'toname' field, it will be copied to
             the 'fromname' field.
         """
-        
+
         self.map = map
         self.group = group
         if mirror:
             # Add in reversed mappings
             map.update(dict((v, k) for k, v in iteritems(map)))
-    
+
     def filters(self, parser):
         # Run after the fieldname filter (100) but before multifield (110)
         return [(self.do_copyfield, 109)]
-    
+
     def do_copyfield(self, parser, group):
         map = self.map
         newgroup = group.empty_copy()

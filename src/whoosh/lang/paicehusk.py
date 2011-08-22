@@ -21,7 +21,7 @@ from collections import defaultdict
 class PaiceHuskStemmer(object):
     """Implements the Paice-Husk stemming algorithm.
     """
-    
+
     rule_expr = re.compile(r"""
     ^(?P<ending>\w+)
     (?P<intact>[*]?)
@@ -29,9 +29,9 @@ class PaiceHuskStemmer(object):
     (?P<append>\w*)
     (?P<cont>[.>])
     """, re.UNICODE | re.VERBOSE)
-    
+
     stem_expr = re.compile("^\w+", re.UNICODE)
-    
+
     def __init__(self, ruletable):
         """
         :param ruletable: a string containing the rule data, separated
@@ -39,16 +39,16 @@ class PaiceHuskStemmer(object):
         """
         self.rules = defaultdict(list)
         self.read_rules(ruletable)
-    
+
     def read_rules(self, ruletable):
         rule_expr = self.rule_expr
         rules = self.rules
-        
+
         for line in ruletable.split("\n"):
             line = line.strip()
             if not line:
                 continue
-            
+
             match = rule_expr.match(line)
             if match:
                 ending = match.group("ending")[::-1]
@@ -57,7 +57,7 @@ class PaiceHuskStemmer(object):
                 num = int(match.group("num"))
                 append = match.group("append")
                 cont = match.group("cont") == ">"
-                
+
                 rules[lastchar].append((ending, intact, num, append, cont))
             else:
                 raise Exception("Bad rule: %r" % line)
@@ -80,13 +80,13 @@ class PaiceHuskStemmer(object):
     def stem(self, word):
         """Returns a stemmed version of the argument string.
         """
-        
+
         rules = self.rules
         match = self.stem_expr.match(word)
         if not match:
             return word
         stem = self.strip_prefix(match.group(0))
-        
+
         is_intact = True
         continuing = True
         while continuing:
@@ -94,27 +94,27 @@ class PaiceHuskStemmer(object):
             rulelist = rules.get(stem[-1])
             if not rulelist:
                 break
-            
+
             continuing = False
             for ending, intact, num, append, cont in rulelist:
                 if stem.endswith(ending):
                     if intact and not is_intact:
                         continue
                     newlen = len(stem) - num + len(append)
-                    
+
                     if ((pfv == 0 and newlen < 2)
                         or (pfv > 0 and newlen < 3)):
                         # If word starts with vowel, minimum stem length is 2.
                         # If word starts with consonant, minimum stem length is
                         # 3.
                             continue
-                    
+
                     is_intact = False
                     stem = stem[:0 - num] + append
-                    
+
                     continuing = cont
                     break
-        
+
         return stem
 
 # The default rules for the Paice-Husk stemming algorithm
