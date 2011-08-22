@@ -178,6 +178,7 @@ class FieldCache(object):
 
         # Compact the order array if possible
         if hastexts:
+            newcode = order.typecode
             if len(texts) < 255:
                 newcode = "B"
             elif len(texts) < 65535:
