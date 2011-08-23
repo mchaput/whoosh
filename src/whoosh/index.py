@@ -33,8 +33,6 @@ from __future__ import division
 import os.path
 import sys
 
-from whoosh import fields, store
-
 
 _DEF_INDEX_NAME = "MAIN"
 
