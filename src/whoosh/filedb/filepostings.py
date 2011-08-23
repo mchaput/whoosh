@@ -93,8 +93,8 @@ class FilePostingWriter(PostingWriter):
             if block:
                 self._write_block()
 
-            # Seek back to the start of this list of posting blocks and write the
-            # number of blocks
+            # Seek back to the start of this list of posting blocks and write
+            # the number of blocks
             pf = self.postfile
             pf.flush()
             offset = pf.tell()
@@ -127,8 +127,8 @@ class FilePostingReader(Matcher):
     def __init__(self, postfile, offset, format, scorer=None, term=None,
                  stringids=False):
 
-        assert isinstance(offset, integer_types), "offset is %r/%s" % (offset, type(offset))
-        assert isinstance(format, Format), "format is %r/%s" % (format, type(format))
+        assert isinstance(offset, integer_types)
+        assert isinstance(format, Format)
 
         self.postfile = postfile
         self.startoffset = offset
@@ -201,7 +201,8 @@ class FilePostingReader(Matcher):
         elif self.supports_poses:
             return [Span(pos) for pos in self.value_as("positions")]
         else:
-            raise Exception("Field does not support positions (%r)" % self._term)
+            raise Exception("Field does not support positions (%r)"
+                            % self._term)
 
     def weight(self):
         weights = self.block.weights

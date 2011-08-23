@@ -278,7 +278,8 @@ class SegmentReader(IndexReader):
         postings = terminfo.postings
         if isinstance(postings, integer_types):
             postreader = FilePostingReader(self.postfile, postings, format,
-                                           scorer=scorer, term=(fieldname, text))
+                                           scorer=scorer,
+                                           term=(fieldname, text))
         else:
             docids, weights, values = postings
             postreader = ListMatcher(docids, weights, values, format,
@@ -304,7 +305,8 @@ class SegmentReader(IndexReader):
             raise Exception("No vector found for document"
                             " %s field %r" % (docnum, fieldname))
 
-        return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
+        return FilePostingReader(self.vpostfile, offset, vformat,
+                                 stringids=True)
 
     # DAWG methods
 
@@ -339,7 +341,8 @@ class SegmentReader(IndexReader):
             # Use the default caching policy but turn off saving caches to disk
             reader.set_caching_policy(save=False)
             
-            # Use the default caching policy but save caches to a custom storage
+            # Use the default caching policy but save caches to a custom
+            # storage
             from whoosh.filedb.filestore import FileStorage
             mystorage = FileStorage("path/to/cachedir")
             reader.set_caching_policy(storage=mystorage)

@@ -32,7 +32,8 @@ from threading import Lock
 from whoosh import __version__
 from whoosh.compat import pickle, integer_types, string_type, iteritems
 from whoosh.fields import ensure_schema
-from whoosh.index import Index, EmptyIndexError, IndexVersionError, _DEF_INDEX_NAME
+from whoosh.index import (Index, EmptyIndexError, IndexVersionError,
+                          _DEF_INDEX_NAME)
 from whoosh.reading import EmptyReader, MultiReader
 from whoosh.store import Storage, LockError
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
@@ -125,7 +126,8 @@ class Toc(object):
 def _read_toc(storage, schema, indexname):
     gen = _latest_generation(storage, indexname)
     if gen < 0:
-        raise EmptyIndexError("Index %r does not exist in %r" % (indexname, storage))
+        raise EmptyIndexError("Index %r does not exist in %r"
+                              % (indexname, storage))
 
     # Read the content of this index from the .toc file.
     tocfilename = _toc_filename(indexname, gen)
@@ -135,7 +137,8 @@ def _read_toc(storage, schema, indexname):
         sz = stream.read_varint()
         if sz != target:
             raise IndexError("Index was created on different architecture:"
-                             " saved %s = %s, this computer = %s" % (name, sz, target))
+                             " saved %s = %s, this computer = %s"
+                             % (name, sz, target))
 
     check_size("int", _INT_SIZE)
     check_size("long", _LONG_SIZE)
@@ -147,7 +150,8 @@ def _read_toc(storage, schema, indexname):
     version = stream.read_int()
     if version != _INDEX_VERSION:
         raise IndexVersionError("Can't read format %s" % version, version)
-    release = (stream.read_varint(), stream.read_varint(), stream.read_varint())
+    release = (stream.read_varint(), stream.read_varint(),
+               stream.read_varint())
 
     # If the user supplied a schema object with the constructor, don't load
     # the pickled schema from the saved index.
@@ -397,9 +401,10 @@ class Segment(object):
 
         assert isinstance(name, string_type)
         assert isinstance(doccount, integer_types)
-        assert fieldlength_totals is None or isinstance(fieldlength_totals, dict), "fl_totals=%r" % fieldlength_totals
-        assert fieldlength_maxes is None or isinstance(fieldlength_mins, dict), "fl_mins=%r" % fieldlength_maxes
-        assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict), "fl_maxes=%r" % fieldlength_maxes
+        assert (fieldlength_totals is None
+                or isinstance(fieldlength_totals, dict))
+        assert fieldlength_maxes is None or isinstance(fieldlength_mins, dict)
+        assert fieldlength_maxes is None or isinstance(fieldlength_maxes, dict)
 
         self.name = name
         self.generation = generation

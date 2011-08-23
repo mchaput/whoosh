@@ -130,13 +130,14 @@ class SegmentWriter(IndexWriter):
         self.writelock = None
         if _lk:
             self.writelock = ix.lock("WRITELOCK")
-            if not try_for(self.writelock.acquire, timeout=timeout, delay=delay):
+            if not try_for(self.writelock.acquire, timeout=timeout,
+                           delay=delay):
                 raise LockError
 
         info = ix._read_toc()
         self.schema = info.schema
         self.segments = info.segments
-        self.storage = ix.storage
+        self.storage = storage = ix.storage
         self.indexname = ix.indexname
         self.is_closed = False
 
@@ -150,7 +151,8 @@ class SegmentWriter(IndexWriter):
             self._doc_offsets.append(base)
             base += s.doc_count_all()
 
-        self.name = name or Segment.basename(self.indexname, self.segment_number)
+        self.name = name or Segment.basename(self.indexname,
+                                             self.segment_number)
         self.docnum = 0
         self.fieldlength_totals = defaultdict(int)
         self._added = False
@@ -163,36 +165,36 @@ class SegmentWriter(IndexWriter):
         self.wordsets = {}
         self.dawg = None
         if any(field.spelling for field in self.schema):
-            self.dawgfile = self.storage.create_file(segment.dawg_filename)
+            self.dawgfile = storage.create_file(segment.dawg_filename)
             self.dawg = DawgBuilder(field_root=True)
 
         # Terms index
-        tf = self.storage.create_file(segment.termsindex_filename)
+        tf = storage.create_file(segment.termsindex_filename)
         ti = TermIndexWriter(tf)
         # Term postings file
-        pf = self.storage.create_file(segment.termposts_filename)
+        pf = storage.create_file(segment.termposts_filename)
         pw = FilePostingWriter(pf, blocklimit=blocklimit)
         # Terms writer
         self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
 
         if self.schema.has_vectored_fields():
             # Vector index
-            vf = self.storage.create_file(segment.vectorindex_filename)
+            vf = storage.create_file(segment.vectorindex_filename)
             self.vectorindex = TermVectorWriter(vf)
 
             # Vector posting file
-            vpf = self.storage.create_file(segment.vectorposts_filename)
+            vpf = storage.create_file(segment.vectorposts_filename)
             self.vpostwriter = FilePostingWriter(vpf, stringids=True)
         else:
             self.vectorindex = None
             self.vpostwriter = None
 
         # Stored fields file
-        sf = self.storage.create_file(segment.storedfields_filename)
+        sf = storage.create_file(segment.storedfields_filename)
         self.storedfields = StoredFieldWriter(sf, self.schema.stored_names())
 
         # Field lengths file
-        self.lengthfile = self.storage.create_file(segment.fieldlengths_filename)
+        self.lengthfile = storage.create_file(segment.fieldlengths_filename)
 
         # Create the pool
         if poolclass is None:
@@ -296,13 +298,15 @@ class SegmentWriter(IndexWriter):
                 for fieldname in reader.schema.scorable_names():
                     length = reader.doc_field_length(docnum, fieldname)
                     if length and fieldname in fieldnames:
-                        self.pool.add_field_length(self.docnum, fieldname, length)
+                        self.pool.add_field_length(self.docnum, fieldname,
+                                                   length)
 
                 for fieldname in reader.schema.vector_names():
                     if (fieldname in fieldnames
                         and reader.has_vector(docnum, fieldname)):
                         vpostreader = reader.vector(docnum, fieldname)
-                        self._add_vector_reader(self.docnum, fieldname, vpostreader)
+                        self._add_vector_reader(self.docnum, fieldname,
+                                                vpostreader)
 
                 self.docnum += 1
 
@@ -343,7 +347,8 @@ class SegmentWriter(IndexWriter):
         # Check if the caller gave us a bogus field
         for name in fieldnames:
             if name not in schema:
-                raise UnknownFieldError("No field named %r in %s" % (name, schema))
+                raise UnknownFieldError("No field named %r in %s"
+                                        % (name, schema))
 
         storedvalues = {}
 
@@ -429,7 +434,8 @@ class SegmentWriter(IndexWriter):
         offset = vpostwriter.start(self.schema[fieldname].vector)
         while vreader.is_active():
             # text, weight, valuestring, fieldlen
-            vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(), 0)
+            vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(),
+                              0)
             vreader.next()
         vpostwriter.finish()
 
@@ -504,7 +510,8 @@ class SegmentWriter(IndexWriter):
                 # Tell the pool we're finished adding information, it should
                 # add its accumulated data to the lengths, terms index, and
                 # posting files.
-                self.pool.finish(self.termswriter, self.docnum, self.lengthfile)
+                self.pool.finish(self.termswriter, self.docnum,
+                                 self.lengthfile)
 
                 # Write out spelling files
                 if self.dawg:

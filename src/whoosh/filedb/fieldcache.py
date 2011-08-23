@@ -459,7 +459,8 @@ class FieldCachingPolicy(object):
     def is_loaded(self, key):
         """Returns True if an object exists in memory for the given key. This
         might be useful for scenarios where code can use a field cache if it's
-        already loaded, but is not important enough to load it for its own sake.
+        already loaded, but is not important enough to load it for its own
+        sake.
         """
 
         raise NotImplementedError
@@ -568,7 +569,8 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         filename = self._filename(key)
         gzfilename = filename + ".gz"
         gzipped = False
-        if storage.file_exists(gzfilename) and not storage.file_exists(filename):
+        if (storage.file_exists(gzfilename)
+            and not storage.file_exists(filename)):
             filename = gzfilename
             gzipped = True
 

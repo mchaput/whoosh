@@ -36,8 +36,8 @@ from whoosh.compat import load as load_pickle
 from whoosh.compat import integer_types, b
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_byte, pack_sbyte, pack_ushort, pack_int,
-                           pack_uint, pack_long, pack_float,
-                           unpack_byte, unpack_sbyte, unpack_ushort, unpack_int,
+                           pack_uint, pack_long, pack_float, unpack_byte,
+                           unpack_sbyte, unpack_ushort, unpack_int,
                            unpack_uint, unpack_long, unpack_float, IS_LITTLE)
 from whoosh.util import (varint, read_varint, signed_varint,
                          decode_signed_varint, float_to_byte, byte_to_float)
@@ -86,7 +86,8 @@ class StructFile(object):
                 import mmap
 
                 try:
-                    self.map = mmap.mmap(fd, self.size, access=mmap.ACCESS_READ)
+                    self.map = mmap.mmap(fd, self.size,
+                                         access=mmap.ACCESS_READ)
                 except OSError:
                     self._setup_fake_map()
         else:
@@ -168,12 +169,14 @@ class StructFile(object):
         self.file.write(signed_varint(i))
 
     def read_varint(self):
-        """Reads a variable-length encoded unsigned integer from the wrapped file.
+        """Reads a variable-length encoded unsigned integer from the wrapped
+        file.
         """
         return read_varint(self.file.read)
 
     def read_svarint(self):
-        """Reads a variable-length encoded signed integer from the wrapped file.
+        """Reads a variable-length encoded signed integer from the wrapped
+        file.
         """
         return decode_signed_varint(read_varint(self.file.read))
 

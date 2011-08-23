@@ -96,14 +96,16 @@ class adatetime(object):
     None, meaning unspecified.
     """
 
-    units = frozenset(("year", "month", "day", "hour", "minute", "second", "microsecond"))
+    units = frozenset(("year", "month", "day", "hour", "minute", "second",
+                       "microsecond"))
 
     def __init__(self, year=None, month=None, day=None, hour=None, minute=None,
                  second=None, microsecond=None):
         if isinstance(year, datetime):
-            self.year, self.month, self.day = year.year, year.month, year.day
-            self.hour, self.minute, self.second = year.hour, year.minute, year.second
-            self.microsecond = year.microsecond
+            dt = year
+            self.year, self.month, self.day = dt.year, dt.month, dt.day
+            self.hour, self.minute, self.second = dt.hour, dt.minute, dt.second
+            self.microsecond = dt.microsecond
         else:
             if month is not None and (month < 1 or month > 12):
                 raise TimeError("month must be in 1..12")
@@ -120,7 +122,8 @@ class adatetime(object):
                 raise TimeError("minute must be in 0..59")
             if second is not None and (second < 0 or second > 59):
                 raise TimeError("second must be in 0..59")
-            if microsecond is not None and (microsecond < 0 or microsecond > 999999):
+            if microsecond is not None and (microsecond < 0
+                                            or microsecond > 999999):
                 raise TimeError("microsecond must be in 0..999999")
 
             self.year, self.month, self.day = year, month, day
@@ -183,25 +186,25 @@ class adatetime(object):
         datetime.datetime(2009, 5, 1, 0, 0, 0, 0)
         """
 
-        year, month, day, hour, minute, second, microsecond = \
-        self.year, self.month, self.day, self.hour, self.minute, self.second, self.microsecond
+        y, m, d, h, mn, s, ms = (self.year, self.month, self.day, self.hour,
+                                 self.minute, self.second, self.microsecond)
 
-        if year is None:
+        if y is None:
             raise ValueError("Date has no year")
 
-        if month is None:
-            month = 1
-        if day is None:
-            day = 1
-        if hour is None:
-            hour = 0
-        if minute is None:
-            minute = 0
-        if second is None:
-            second = 0
-        if microsecond is None:
-            microsecond = 0
-        return datetime(year, month, day, hour, minute, second, microsecond)
+        if m is None:
+            m = 1
+        if d is None:
+            d = 1
+        if h is None:
+            h = 0
+        if mn is None:
+            mn = 0
+        if s is None:
+            s = 0
+        if ms is None:
+            ms = 0
+        return datetime(y, m, d, h, mn, s, ms)
 
     def ceil(self):
         """Returns a ``datetime`` version of this object with all unspecified
@@ -214,25 +217,25 @@ class adatetime(object):
         datetime.datetime(2009, 5, 30, 23, 59, 59, 999999)
         """
 
-        year, month, day, hour, minute, second, microsecond = \
-        self.year, self.month, self.day, self.hour, self.minute, self.second, self.microsecond
+        y, m, d, h, mn, s, ms = (self.year, self.month, self.day, self.hour,
+                                 self.minute, self.second, self.microsecond)
 
-        if year is None:
+        if y is None:
             raise ValueError("Date has no year")
 
-        if month is None:
-            month = 12
-        if day is None:
-            day = calendar.monthrange(year, month)[1]
-        if hour is None:
-            hour = 23
-        if minute is None:
-            minute = 59
-        if second is None:
-            second = 59
-        if microsecond is None:
-            microsecond = 999999
-        return datetime(year, month, day, hour, minute, second, microsecond)
+        if m is None:
+            m = 12
+        if d is None:
+            d = calendar.monthrange(y, m)[1]
+        if h is None:
+            h = 23
+        if mn is None:
+            mn = 59
+        if s is None:
+            s = 59
+        if ms is None:
+            ms = 999999
+        return datetime(y, m, d, h, mn, s, ms)
 
     def disambiguated(self, basedate):
         """Returns either a ``datetime`` or unambiguous ``timespan`` version
@@ -246,7 +249,7 @@ class adatetime(object):
         
         >>> adt = adatetime(year=2009, month=10, day=31)
         >>> adt.disambiguated()
-        timespan(datetime.datetime(2009, 10, 31, 0, 0, 0, 0), datetime.datetime(2009, 10, 31, 23, 59 ,59, 999999)
+        timespan(datetime(2009, 10, 31, 0, 0, 0, 0), datetime(2009, 10, 31, 23, 59 ,59, 999999)
         """
 
         dt = self
@@ -294,7 +297,7 @@ class timespan(object):
         >>> ts
         timespan(adatetime(2009, 2, None, None, None, None, None), adatetime(2009, 10, None, None, None, None, None))
         >>> td.disambiguated(datetime.now())
-        timespan(datetime.datetime(2009, 2, 28, 0, 0, 0, 0), datetime.datetime(2009, 10, 31, 23, 59 ,59, 999999)
+        timespan(datetime(2009, 2, 28, 0, 0, 0, 0), datetime(2009, 10, 31, 23, 59 ,59, 999999)
         """
 
         #- If year is in start but not end, use basedate.year for end
@@ -425,7 +428,8 @@ def has_no_time(at):
 
     if isinstance(at, datetime):
         return False
-    return at.hour is None and at.minute is None and at.second is None and at.microsecond is None
+    return (at.hour is None and at.minute is None and at.second is None
+            and at.microsecond is None)
 
 
 def is_ambiguous(at):
@@ -458,4 +462,5 @@ def fix(at):
     if is_ambiguous(at) or isinstance(at, datetime):
         return at
     return datetime(year=at.year, month=at.month, day=at.day, hour=at.hour,
-                    minute=at.minute, second=at.second, microsecond=at.microsecond)
+                    minute=at.minute, second=at.second,
+                    microsecond=at.microsecond)

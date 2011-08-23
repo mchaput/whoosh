@@ -68,7 +68,8 @@ except ImportError:
         """Merge-sorts items from a list of iterators.
         """
 
-        _heappop, _heapreplace, _StopIteration = heappop, heapreplace, StopIteration
+        _heappop, _heapreplace, _StopIteration = (heappop, heapreplace,
+                                                  StopIteration)
 
         h = []
         h_append = h.append
@@ -83,12 +84,12 @@ except ImportError:
         while 1:
             try:
                 while 1:
-                    v, itnum, next = s = h[0]   # raises IndexError when h is empty
+                    v, itnum, next = s = h[0]
                     yield v
-                    s[0] = next()               # raises StopIteration when exhausted
-                    _heapreplace(h, s)          # restore heap condition
+                    s[0] = next()
+                    _heapreplace(h, s)
             except _StopIteration:
-                _heappop(h)                     # remove empty iterator
+                _heappop(h)
             except IndexError:
                 return
 
@@ -234,7 +235,8 @@ class TempfilePool(PoolBase):
         # putting the tuple in the postings list
         #self.size += 48 + sum(getsizeof(o) for o in tup) + 4
         valsize = len(valuestring) if valuestring else 0
-        self.size += 48 + len(fieldname) + 22 + len(text) + 26 + 16 + 16 + valsize + 22 + 4
+        self.size += (48 + len(fieldname) + 22 + len(text)
+                      + 26 + 16 + 16 + valsize + 22 + 4)
         self.postings.append(tup)
         self.count += 1
 
@@ -311,7 +313,8 @@ class SqlitePool(PoolBase):
         con.execute("PRAGMA synchronous=OFF")
         if name not in self.fieldnames:
             self.fieldnames.add(name)
-            con.execute("create table postings (token text, docnum int, weight float, value blob)")
+            con.execute("create table postings "
+                        "(token text, docnum int, weight float, value blob)")
             #con.execute("create index postix on postings (token, docnum)")
         return con
 
@@ -336,7 +339,8 @@ class SqlitePool(PoolBase):
 
         for name in sorted(self.fieldnames):
             con = self._con(name)
-            for text, docnum, weight, valuestring in con.execute("select * from postings order by token, docnum"):
+            cmd = "select * from postings order by token, docnum"
+            for text, docnum, weight, valuestring in con.execute(cmd):
                 yield (name, text, docnum, weight, valuestring)
             con.close()
             os.remove(self._field_filename(name))

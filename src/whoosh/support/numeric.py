@@ -248,7 +248,8 @@ def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
 # Instead of using the character set from the ascii85 algorithm, I put the
 # characters in order so that the encoded text sorts properly (my life would be
 # a lot easier if they had just done that from the start)
-_b85chars = "!$%&*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz{|}~"
+_b85chars = ("!$%&*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+             "^_abcdefghijklmnopqrstuvwxyz{|}~")
 _b85dec = {}
 for i in range(len(_b85chars)):
     _b85dec[_b85chars[i]] = i

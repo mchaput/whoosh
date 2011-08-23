@@ -61,7 +61,8 @@ class RegexTagger(Tagger):
         if match:
             node = self.create(parser, match)
             if node is None:
-                raise Exception("%s.match() did not return a node" % (self.__class__.__name__))
+                raise Exception("%s.match() did not return a node"
+                                % (self.__class__.__name__))
             return node.set_range(match.start(), match.end())
 
     def create(self, parser, match):

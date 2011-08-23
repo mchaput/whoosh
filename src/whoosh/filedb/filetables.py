@@ -667,14 +667,16 @@ class LengthWriter(object):
         for docnum, fieldname, byte in items:
             if byte:
                 if fieldname not in lengths:
-                    lengths[fieldname] = array("B", (0 for _ in xrange(self.doccount)))
+                    zeros = (0 for _ in xrange(self.doccount))
+                    lengths[fieldname] = array("B", zeros)
                 lengths[fieldname][docnum] = byte
 
     def add(self, docnum, fieldname, byte):
         lengths = self.lengths
         if byte:
             if fieldname not in lengths:
-                lengths[fieldname] = array("B", (0 for _ in xrange(self.doccount)))
+                zeros = (0 for _ in xrange(self.doccount))
+                lengths[fieldname] = array("B", zeros)
             lengths[fieldname][docnum] = byte
 
     def reader(self):
@@ -786,14 +788,16 @@ class StoredFieldReader(object):
 
     def __getitem__(self, num):
         if num > self.length - 1:
-            raise IndexError("Tried to get document %s, file has %s" % (num, self.length))
+            raise IndexError("Tried to get document %s, file has %s"
+                             % (num, self.length))
 
         dbfile = self.dbfile
         start = self.directory_offset + num * stored_pointer_size
         dbfile.seek(start)
         ptr = dbfile.read(stored_pointer_size)
         if len(ptr) != stored_pointer_size:
-            raise Exception("Error reading %r @%s %s < %s" % (dbfile, start, len(ptr), stored_pointer_size))
+            raise Exception("Error reading %r @%s %s < %s"
+                            % (dbfile, start, len(ptr), stored_pointer_size))
         position, length = unpack_stored_pointer(ptr)
         vlist = loads(dbfile.map[position:position + length] + b("."))
 
@@ -817,7 +821,7 @@ NO_ID = 0xffffffff
 
 
 class FileTermInfo(TermInfo):
-    # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
+    # Freq, Doc freq, min len, max length, max weight, max WOL, min ID, max ID
     struct = Struct("!fIBBffII")
 
     def __init__(self, weight=0.0, docfreq=0, minlength=None, maxlength=0,
@@ -899,12 +903,13 @@ class FileTermInfo(TermInfo):
     def from_string(cls, s):
         hbyte = ord(s[0:1])
         if hbyte < 2:
-            # Freq, Doc freq, min length, max length, max weight, max WOL, min ID, max ID
-            f, df, ml, xl, xw, xwol, mid, xid = cls.struct.unpack(s[1:cls.struct.size + 1])
+            st = cls.struct
+            # Freq, Doc freq, min len, max len, max w, max WOL, min ID, max ID
+            f, df, ml, xl, xw, xwol, mid, xid = st.unpack(s[1:st.size + 1])
             mid = None if mid == NO_ID else mid
             xid = None if xid == NO_ID else xid
             # Postings
-            pstr = s[cls.struct.size + 1:]
+            pstr = s[st.size + 1:]
             if hbyte == 0:
                 p = unpack_long(pstr)[0]
             else:

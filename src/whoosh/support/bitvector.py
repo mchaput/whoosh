@@ -38,8 +38,8 @@ class BitVector(object):
     >>> bv
     <BitVector 0000010000>
     
-    You can initialize the BitVector using an iterable of integers representing bit
-    positions to turn on.
+    You can initialize the BitVector using an iterable of integers representing
+    bit positions to turn on.
     
     >>> bv2 = BitVector(10, [2, 4, 7])
     >>> bv2
@@ -48,8 +48,8 @@ class BitVector(object):
     True
     
     BitVector supports bit-wise logic operations & (and), | (or), and ^ (xor)
-    between itself and another BitVector of equal size, or itself and a collection of
-    integers (usually a set() or frozenset()).
+    between itself and another BitVector of equal size, or itself and a
+    collection of integers (usually a set() or frozenset()).
     
     >>> bv | bv2
     <BitVector 00101101000>
@@ -154,7 +154,8 @@ class BitVector(object):
         return self._logic(operator.__xor__, other)
 
     def __invert__(self):
-        return BitVector(self.size, source=(x for x in xrange(self.size) if x not in self))
+        return BitVector(self.size, source=(x for x in xrange(self.size)
+                                            if x not in self))
 
     def count(self):
         """Returns the number of "on" bits in the bit array."""
@@ -167,7 +168,8 @@ class BitVector(object):
         """Turns the bit at the given position on."""
 
         if index >= self.size:
-            raise IndexError("Position %s greater than the size of the vector" % repr(index))
+            raise IndexError("Position %s greater than the size of the vector"
+                             % repr(index))
         self.bits[index >> 3] |= 1 << (index & 7)
         self.bcount = None
 
@@ -228,7 +230,8 @@ class BitSet(object):
         return n in self._back
 
     def __repr__(self):
-        return "<%s %s/%s>" % (self.__class__.__name__, len(self._back), self.size)
+        return "<%s %s/%s>" % (self.__class__.__name__, len(self._back),
+                               self.size)
 
     def __len__(self):
         return len(self._back)
@@ -246,7 +249,8 @@ class BitSet(object):
         return self.__and__(other)
 
     def invert(self):
-        return BitSet(self.size, (x for x in xrange(self.size) if x not in self))
+        return BitSet(self.size, (x for x in xrange(self.size)
+                                  if x not in self))
 
     def __and__(self, other):
         return BitSet(self.size, self._back.intersection(other))

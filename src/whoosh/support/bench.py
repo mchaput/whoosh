@@ -133,7 +133,8 @@ class Spec(object):
 class WhooshModule(Module):
     def indexer(self, create=True):
         schema = self.bench.spec.whoosh_schema()
-        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        path = os.path.join(self.options.dir, "%s_whoosh"
+                            % self.options.indexname)
 
         if not os.path.exists(path):
             os.mkdir(path)
@@ -170,10 +171,12 @@ class WhooshModule(Module):
         self.writer.commit(merge=merge, optimize=optimize)
 
     def searcher(self):
-        path = os.path.join(self.options.dir, "%s_whoosh" % self.options.indexname)
+        path = os.path.join(self.options.dir, "%s_whoosh"
+                            % self.options.indexname)
         ix = index.open_dir(path)
         self.srch = ix.searcher()
-        self.parser = qparser.QueryParser(self.bench.spec.main_field, schema=ix.schema)
+        self.parser = qparser.QueryParser(self.bench.spec.main_field,
+                                          schema=ix.schema)
 
     def query(self):
         qstring = " ".join(self.args).decode("utf8")
@@ -193,7 +196,8 @@ class WhooshModule(Module):
 
 class XappyModule(Module):
     def indexer(self, **kwargs):
-        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        path = os.path.join(self.options.dir, "%s_xappy"
+                            % self.options.indexname)
         conn = self.bench.spec.xappy_connection(path)
         return conn
 
@@ -212,7 +216,8 @@ class XappyModule(Module):
         conn.flush()
 
     def searcher(self):
-        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        path = os.path.join(self.options.dir, "%s_xappy"
+                            % self.options.indexname)
         return xappy.SearchConnection(path)
 
     def query(self, conn):
@@ -236,7 +241,8 @@ class XappyModule(Module):
 
 class XapianModule(Module):
     def indexer(self, **kwargs):
-        path = os.path.join(self.options.dir, "%s_xapian" % self.options.indexname)
+        path = os.path.join(self.options.dir, "%s_xapian"
+                            % self.options.indexname)
         self.database = xapian.WritableDatabase(path, xapian.DB_CREATE_OR_OPEN)
         self.ixer = xapian.TermGenerator()
 
@@ -254,7 +260,8 @@ class XapianModule(Module):
         self.database.flush()
 
     def searcher(self):
-        path = os.path.join(self.options.dir, "%s_xappy" % self.options.indexname)
+        path = os.path.join(self.options.dir, "%s_xappy"
+                            % self.options.indexname)
         self.db = xapian.Database(path)
         self.enq = xapian.Enquire(self.db)
         self.qp = xapian.QueryParser()
@@ -324,7 +331,8 @@ class ZcatalogModule(Module):
         from zcatalog import indexes  #@UnresolvedImport
         import transaction  #@UnresolvedImport
 
-        dir = os.path.join(self.options.dir, "%s_zcatalog" % self.options.indexname)
+        dir = os.path.join(self.options.dir, "%s_zcatalog"
+                           % self.options.indexname)
         if os.path.exists(dir):
             rmtree(dir)
         os.mkdir(dir)
@@ -363,7 +371,8 @@ class ZcatalogModule(Module):
         from zcatalog import indexes  #@UnresolvedImport
         import transaction  #@UnresolvedImport
 
-        path = os.path.join(self.options.dir, "%s_zcatalog" % self.options.indexname, "index")
+        path = os.path.join(self.options.dir, "%s_zcatalog"
+                            % self.options.indexname, "index")
         storage = FileStorage(path)
         db = DB(storage)
         conn = db.open()
@@ -394,7 +403,8 @@ class NucularModule(Module):
         import shutil
         from nucular import Nucular
 
-        dir = os.path.join(self.options.dir, "%s_nucular" % self.options.indexname)
+        dir = os.path.join(self.options.dir, "%s_nucular"
+                           % self.options.indexname)
         if create:
             if os.path.exists(dir):
                 shutil.rmtree(dir)
@@ -425,7 +435,8 @@ class NucularModule(Module):
     def searcher(self):
         from nucular import Nucular
 
-        dir = os.path.join(self.options.dir, "%s_nucular" % self.options.indexname)
+        dir = os.path.join(self.options.dir, "%s_nucular"
+                           % self.options.indexname)
         self.archive = Nucular.Nucular(dir)
 
     def query(self):
