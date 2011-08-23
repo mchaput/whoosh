@@ -300,10 +300,11 @@ class SegmentReader(IndexReader):
             raise Exception("No vectors are stored for field %r" % fieldname)
 
         self._open_vectors()
-        offset = self.vectorindex.get((docnum, fieldname))
-        if offset is None:
-            raise Exception("No vector found for document"
-                            " %s field %r" % (docnum, fieldname))
+        try:
+            offset = self.vectorindex.get((docnum, fieldname))
+        except KeyError:
+            raise KeyError("No vector found for document "
+                           "%s field %r" % (docnum, fieldname))
 
         return FilePostingReader(self.vpostfile, offset, vformat,
                                  stringids=True)

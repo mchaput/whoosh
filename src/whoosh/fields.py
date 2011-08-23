@@ -746,7 +746,7 @@ class KEYWORD(FieldType):
                          scorable=bool, unique=bool, field_boost=float)
 
     def __init__(self, stored=False, lowercase=False, commas=False,
-                 scorable=False, unique=False, field_boost=1.0,
+                 vector=None, scorable=False, unique=False, field_boost=1.0,
                  spelling=False):
         """
         :param stored: Whether to store the value of the field with the
@@ -762,6 +762,17 @@ class KEYWORD(FieldType):
         self.stored = stored
         self.unique = unique
         self.spelling = spelling
+
+        if vector:
+            if type(vector) is type:
+                vector = vector()
+            elif isinstance(vector, formats.Format):
+                pass
+            else:
+                vector = self.format
+        else:
+            vector = None
+        self.vector = vector
 
 
 class TEXT(FieldType):

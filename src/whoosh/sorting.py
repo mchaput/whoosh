@@ -259,6 +259,7 @@ class FieldFacet(FacetType):
 
         def __init__(self, fieldname):
             self.fieldname = fieldname
+            self.use_vectors = False
 
         def set_searcher(self, searcher, docoffset):
             fieldname = self.fieldname
@@ -266,21 +267,44 @@ class FieldFacet(FacetType):
             field = searcher.schema[fieldname]
             reader = searcher.reader()
 
-            self.lists = [[] for _ in xrange(dc)]
-            for t, _ in field.sortable_values(reader, fieldname):
-                postings = reader.postings(fieldname, t)
-                for docid in postings.all_ids():
-                    self.lists[docid].append(t)
+            if field.vector:
+                # If the field was indexed with term vectors, use the vectors
+                # to get the list of values in each matched document
+                self.use_vectors = True
+                self.searcher = searcher
+            else:
+                # Otherwise, cache the values in each document in a huge list
+                # of lists
+                self.use_vectors = False
+                self.lists = [[] for _ in xrange(dc)]
+                for t, _ in field.sortable_values(reader, fieldname):
+                    postings = reader.postings(fieldname, t)
+                    for docid in postings.all_ids():
+                        self.lists[docid].append(t)
 
         def keys_for_id(self, docid):
-            return self.lists[docid] or None
+            if self.use_vectors:
+                try:
+                    v = self.searcher.vector(docid, self.fieldname)
+                    return list(v.all_ids())
+                except KeyError:
+                    return None
+            else:
+                return self.lists[docid] or None
 
         def key_for_id(self, docid):
-            ls = self.lists[docid]
-            if ls:
-                return ls[0]
+            if self.use_vectors:
+                try:
+                    v = self.searcher.vector(docid, self.fieldname)
+                    return v.id()
+                except KeyError:
+                    return None
             else:
-                return None
+                ls = self.lists[docid]
+                if ls:
+                    return ls[0]
+                else:
+                    return None
 
 
 class QueryFacet(FacetType):
@@ -505,25 +529,54 @@ class FunctionFacet(FacetType):
 
 class StoredFieldFacet(FacetType):
     """Lets you sort/group using the value in an unindexed, stored field (e.g.
-    STORED). This is slower than using an indexed field.
+    STORED). This is usually slower than using an indexed field.
+    
+    For fields where the stored value is a space-separated list of keywords,
+    (e.g. ``"tag1 tag2 tag3"``), you can use the ``allow_overlap`` keyword
+    argument to allow overlapped faceting on the result of calling the
+    ``split()`` method on the field value (or calling a custom split function
+    if one is supplied).
     """
 
-    def __init__(self, fieldname):
+    def __init__(self, fieldname, allow_overlap=False, split_fn=None):
+        """
+        :param fieldname: the name of the stored field.
+        :param allow_overlap: if True, when grouping, allow documents to appear
+            in multiple groups when they have multiple terms in the field. The
+            categorizer uses ``string.split()`` or the custom ``split_fn`` to
+            convert the stored value into a list of facet values.
+        :param split_fn: a custom function to split a stored field value into
+            facet values. If not supplied, the categorizer simply calls the
+            value's ``split()`` method.
+        """
+
         self.fieldname = fieldname
+        self.allow_overlap = allow_overlap
+        self.split_fn = None
 
     def categorizer(self, searcher):
-        return self.StoredFieldCategorizer(self.fieldname)
+        return self.StoredFieldCategorizer(self.fieldname, self.allow_overlap,
+                                           self.split_fn)
 
     class StoredFieldCategorizer(Categorizer):
-        def __init__(self, fieldname):
+        def __init__(self, fieldname, allow_overlap, split_fn):
             self.fieldname = fieldname
+            self.allow_overlap = allow_overlap
+            self.split_fn = split_fn
 
         def set_searcher(self, searcher, docoffset):
             self.searcher = searcher
 
+        def keys_for_id(self, docid):
+            value = self.searcher.stored_fields(docid).get(self.fieldname)
+            if self.split_fn:
+                return self.split_fn(value)
+            else:
+                return value.split()
+
         def key_for_id(self, docid):
             fields = self.searcher.stored_fields(docid)
-            return fields[self.fieldname]
+            return fields.get(self.fieldname)
 
 
 class MultiFacet(FacetType):
