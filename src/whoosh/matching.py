@@ -1196,7 +1196,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
         if minquality:
             a_max = a.max_quality()
             b_max = b.max_quality()
-            if minquality and a_max + b_max < minquality:
+            if a_max + b_max < minquality:
                 # If the combined quality of the sub-matchers can't contribute,
                 # return an inactive matcher
                 return NullMatcher()
