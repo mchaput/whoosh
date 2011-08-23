@@ -54,7 +54,8 @@ class DatastoreFile(db.Model):
         self.value = self.getvalue()
         if oldvalue != self.value:
             self.put()
-            memcache.set(self.key().id_or_name(), self.value, namespace="DatastoreFile")
+            memcache.set(self.key().id_or_name(), self.value,
+                         namespace="DatastoreFile")
 
     def tell(self):
         return self.data.tell()

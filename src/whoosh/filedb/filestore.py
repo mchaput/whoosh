@@ -83,7 +83,8 @@ class FileStorage(Storage):
 
     def open_file(self, name, *args, **kwargs):
         try:
-            f = StructFile(open(self._fpath(name), "rb"), name=name, *args, **kwargs)
+            f = StructFile(open(self._fpath(name), "rb"), name=name, *args,
+                           **kwargs)
         except IOError:
             #print("Tried to open %r, files=%r" % (name, self.list()))
             raise
@@ -186,7 +187,8 @@ class RamStorage(FileStorage):
     def open_file(self, name, *args, **kwargs):
         if name not in self.files:
             raise NameError("No such file %r" % name)
-        return StructFile(BytesIO(self.files[name]), name=name, *args, **kwargs)
+        return StructFile(BytesIO(self.files[name]), name=name, *args,
+                          **kwargs)
 
     def lock(self, name):
         if name not in self.locks:

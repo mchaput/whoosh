@@ -82,7 +82,8 @@ class BaseNode(object):
         return list(self)
 
     def edge(self, key, expand=True):
-        """Returns the node connected to the outgoing edge with the given label.
+        """Returns the node connected to the outgoing edge with the given
+        label.
         """
 
         raise NotImplementedError
@@ -616,7 +617,8 @@ def _within(node, word, k=1, i=0, sofar=""):
             # Replacements
             for key in node:
                 if key != char:
-                    for w in _within(node.edge(key), word, dk, ii, sofar + key):
+                    for w in _within(node.edge(key), word, dk, ii,
+                                     sofar + key):
                         yield w
 
 

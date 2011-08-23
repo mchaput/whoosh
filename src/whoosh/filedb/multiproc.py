@@ -215,7 +215,8 @@ class PoolWritingTask(Process):
     def run(self):
         jobqueue = self.jobqueue
         rqueue = self.resultqueue
-        subpool = self.subpool = TempfilePool(self.schema, limitmb=self.limitmb,
+        subpool = self.subpool = TempfilePool(self.schema,
+                                              limitmb=self.limitmb,
                                               dir=self.dir)
 
         if self.firstjob:
@@ -254,7 +255,8 @@ class MultiPool(PoolBase):
 
     def _new_task(self, firstjob):
         task = PoolWritingTask(self.schema, self.dir, self.jobqueue,
-                               self.resultqueue, self.limitmb, firstjob=firstjob)
+                               self.resultqueue, self.limitmb,
+                               firstjob=firstjob)
         self.tasks.append(task)
         task.start()
         return task
@@ -317,8 +319,8 @@ class MultiPool(PoolBase):
         runs = []
         lenfilenames = []
         for task in self.tasks:
-            taskruns, flentotals, flenmins, flenmaxes, lenfilename = rqueue.get()
-            runs.extend(taskruns)
+            truns, flentotals, flenmins, flenmaxes, lenfilename = rqueue.get()
+            runs.extend(truns)
             lenfilenames.append(lenfilename)
             for fieldname, total in iteritems(flentotals):
                 _fieldlength_totals[fieldname] += total
@@ -336,7 +338,8 @@ class MultiPool(PoolBase):
 
         lw = LengthWriter(lengthfile, doccount)
         for lenfilename in lenfilenames:
-            sublengths = LengthReader(StructFile(open(lenfilename, "rb")), doccount)
+            sublengths = LengthReader(StructFile(open(lenfilename, "rb")),
+                                      doccount)
             lw.add_all(sublengths)
             os.remove(lenfilename)
         lw.close()
@@ -354,7 +357,7 @@ class MultiPool(PoolBase):
 #                runs = pool.map(merge_runs, runs2)
 #            pool.close()
 
-        iterator = imerge([read_run(runname, count) for runname, count in runs])
+        iterator = imerge([read_run(rname, count) for rname, count in runs])
         total = sum(count for runname, count in runs)
         termswriter.add_iter(iterator, lengths.get)
         for runname, count in runs:

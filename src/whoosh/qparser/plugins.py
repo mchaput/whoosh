@@ -156,7 +156,8 @@ class WildcardPlugin(TaggingPlugin):
     # \u055E = Armenian question mark
     # \u061F = Arabic question mark
     # \u1367 = Ethiopic question mark
-    expr = u("(?P<text>\\w*[*?\u055E\u061F\u1367](\\w|[*?\u055E\u061F\u1367])*)")
+    qms = u("\u055E\u061F\u1367")
+    expr = u("(?P<text>\\w*[*?%s](\\w|[*?%s])*)") % (qms, qms)
     nodetype = WildcardNode
 
 
@@ -377,7 +378,8 @@ class FieldsPlugin(TaggingPlugin):
             elif isinstance(node, syntax.GroupNode):
                 node = self.do_fieldnames(parser, node)
 
-            if i > 0 and not node.is_ws() and isinstance(group[i - 1], fnclass):
+            if i > 0 and not node.is_ws() and isinstance(group[i - 1],
+                                                         fnclass):
                 node.set_fieldname(group[i - 1].fieldname, override=False)
                 i -= 1
 
@@ -532,7 +534,8 @@ class OperatorsPlugin(Plugin):
     a compiled expression, or None to remove the operator::
     
         qp = qparser.QueryParser("content", schema)
-        cp = qparser.OperatorsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not=None)
+        cp = qparser.OperatorsPlugin(And="&", Or="\\|", AndNot="&!",
+                                     AndMaybe="&~", Not=None)
         qp.replace_plugin(cp)
     
     You can also specify a list of ``(OpTagger, priority)`` pairs as the first
@@ -562,7 +565,8 @@ class OperatorsPlugin(Plugin):
         if not clean:
             ot = self.OpTagger
             if Not:
-                ops.append((ot(Not, syntax.NotGroup, syntax.PrefixOperator), 0))
+                ops.append((ot(Not, syntax.NotGroup, syntax.PrefixOperator),
+                            0))
             if And:
                 ops.append((ot(And, syntax.AndGroup), 0))
             if Or:

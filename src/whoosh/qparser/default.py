@@ -194,7 +194,8 @@ class QueryParser(object):
             elif spec == "or":
                 qclass = query.Or
             else:
-                raise QueryParserError("Unknown multitoken_query value %r" % spec)
+                raise QueryParserError("Unknown multitoken_query value %r"
+                                       % spec)
             return qclass([termclass(fieldname, t, boost=boost)
                            for t in texts])
 
@@ -283,13 +284,15 @@ class QueryParser(object):
                 node = tagger.match(self, text, pos)
                 if node:
                     if node.endchar <= pos:
-                        raise Exception("Token %r did not move cursor forward. (%r, %s)" % (tagger, text, pos))
+                        raise Exception("Token %r did not move cursor forward."
+                                        " (%r, %s)" % (tagger, text, pos))
                     if prev < pos:
                         tween = inter(prev, pos)
                         print_debug(debug, "Tween: %r" % tween)
                         stack.append(tween)
 
-                    print_debug(debug, "Tagger: %r at %s: %r" % (tagger, pos, node))
+                    print_debug(debug, "Tagger: %r at %s: %r"
+                                % (tagger, pos, node))
                     stack.append(node)
                     prev = pos = node.endchar
                     break

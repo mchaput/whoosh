@@ -103,7 +103,8 @@ class MultiBase(ParserBase):
         self.name = name
 
     def __repr__(self):
-        return "%s<%s>%r" % (self.__class__.__name__, self.name or '', self.elements)
+        return "%s<%s>%r" % (self.__class__.__name__, self.name or '',
+                             self.elements)
 
 
 class Sequence(MultiBase):
@@ -136,7 +137,8 @@ class Sequence(MultiBase):
         foundall = False
         failed = False
 
-        print_debug(debug, "Seq %s sep=%r text=%r", self.name, self.sep_pattern, text[pos:])
+        print_debug(debug, "Seq %s sep=%r text=%r", self.name,
+                    self.sep_pattern, text[pos:])
         for e in self.elements:
             print_debug(debug, "Seq %s text=%r", self.name, text[pos:])
             if self.sep_expr and not first:
@@ -211,10 +213,12 @@ class Combo(Sequence):
         dates = []
         first = True
 
-        print_debug(debug, "Combo %s sep=%r text=%r", self.name, self.sep_pattern, text[pos:])
+        print_debug(debug, "Combo %s sep=%r text=%r", self.name,
+                    self.sep_pattern, text[pos:])
         for e in self.elements:
             if self.sep_expr and not first:
-                print_debug(debug, "Combo %s looking for sep at %r", self.name, text[pos:])
+                print_debug(debug, "Combo %s looking for sep at %r",
+                            self.name, text[pos:])
                 m = self.sep_expr.match(text, pos)
                 if m:
                     pos = m.end()
@@ -524,9 +528,11 @@ class Daynames(Regex):
     def __init__(self, next, last, daynames):
         self.next_pattern = next
         self.last_pattern = last
-        self._dayname_exprs = tuple(rcompile(pat, re.IGNORECASE) for pat in daynames)
+        self._dayname_exprs = tuple(rcompile(pat, re.IGNORECASE)
+                                    for pat in daynames)
         dn_pattern = "|".join(daynames)
-        self.pattern = "(?P<dir>%s|%s) +(?P<day>%s)(?=(\\W|$))" % (next, last, dn_pattern)
+        self.pattern = ("(?P<dir>%s|%s) +(?P<day>%s)(?=(\\W|$))"
+                        % (next, last, dn_pattern))
         self.expr = rcompile(self.pattern, re.IGNORECASE)
 
     def props_to_date(self, p, dt):
@@ -548,7 +554,9 @@ class Daynames(Regex):
 
 class Time12(Regex):
     def __init__(self):
-        self.pattern = "(?P<hour>[1-9]|10|11|12)(:(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?\\s*(?P<ampm>am|pm)(?=(\\W|$))"
+        self.pattern = ("(?P<hour>[1-9]|10|11|12)(:(?P<mins>[0-5][0-9])"
+                        "(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?)?"
+                        "\\s*(?P<ampm>am|pm)(?=(\\W|$))")
         self.expr = rcompile(self.pattern, re.IGNORECASE)
 
     def props_to_date(self, p, dt):
@@ -577,8 +585,11 @@ class DateParser(object):
                 lambda p, dt: adatetime(day=p.day))
     year = Regex("(?P<year>[0-9]{4})(?=(\\W|$))",
                  lambda p, dt: adatetime(year=p.year))
-    time24 = Regex("(?P<hour>([0-1][0-9])|(2[0-3])):(?P<mins>[0-5][0-9])(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?(?=(\\W|$))",
-                   lambda p, dt: adatetime(hour=p.hour, minute=p.mins, second=p.secs, microsecond=p.usecs))
+    time24 = Regex("(?P<hour>([0-1][0-9])|(2[0-3])):(?P<mins>[0-5][0-9])"
+                   "(:(?P<secs>[0-5][0-9])(\\.(?P<usecs>[0-9]{1,5}))?)?"
+                   "(?=(\\W|$))",
+                   lambda p, dt: adatetime(hour=p.hour, minute=p.mins,
+                                           second=p.secs, microsecond=p.usecs))
     time12 = Time12()
 
     def __init__(self):
@@ -590,9 +601,10 @@ class DateParser(object):
         simple_second = "(?P<second>[0-5][0-9])"
         simple_usec = "(?P<microsecond>[0-9]{6})"
 
-        simple_seq = Sequence((simple_year, simple_month, simple_day, simple_hour,
-                               simple_minute, simple_second, simple_usec),
-                               sep="[- .:/]*", name="simple", progressive=True)
+        tup = (simple_year, simple_month, simple_day, simple_hour,
+               simple_minute, simple_second, simple_usec)
+        simple_seq = Sequence(tup, sep="[- .:/]*", name="simple",
+                              progressive=True)
         self.simple = Sequence((simple_seq, "(?=(\\s|$))"), sep='')
 
         self.setup()
@@ -647,10 +659,18 @@ class English(DateParser):
                                  "friday|fri|fr", "saturday|sat|sa",
                                  "sunday|sun|su"))
 
-        midnight = Regex("midnight", lambda p, dt: adatetime(hour=0, minute=0, second=0, microsecond=0))
-        noon = Regex("noon", lambda p, dt: adatetime(hour=12, minute=0, second=0, microsecond=0))
+        midnight_l = lambda p, dt: adatetime(hour=0, minute=0, second=0,
+                                             microsecond=0)
+        midnight = Regex("midnight", midnight_l)
+
+        noon_l = lambda p, dt: adatetime(hour=12, minute=0, second=0,
+                                         microsecond=0)
+        noon = Regex("noon", noon_l)
+
         now = Regex("now", lambda p, dt: dt)
-        self.time = Choice((self.time12, self.time24, midnight, noon, now), name="time")
+
+        self.time = Choice((self.time12, self.time24, midnight, noon, now),
+                           name="time")
 
         def tomorrow_to_date(p, dt):
             d = dt.date() + timedelta(days= +1)
@@ -663,21 +683,29 @@ class English(DateParser):
         yesterday = Regex("yesterday", yesterday_to_date)
 
         thisyear = Regex("this year", lambda p, dt: adatetime(year=dt.year))
-        thismonth = Regex("this month", lambda p, dt: adatetime(year=dt.year, month=dt.month))
-        today = Regex("today", lambda p, dt: adatetime(year=dt.year, month=dt.month, day=dt.day))
+        thismonth = Regex("this month",
+                          lambda p, dt: adatetime(year=dt.year,
+                                                  month=dt.month))
+        today = Regex("today",
+                      lambda p, dt: adatetime(year=dt.year, month=dt.month,
+                                              day=dt.day))
 
         self.month = Month("january|jan", "february|febuary|feb", "march|mar",
-                           "april|apr", "may", "june|jun", "july|jul", "august|aug",
-                           "september|sept|sep", "october|oct", "november|nov",
-                           "december|dec")
+                           "april|apr", "may", "june|jun", "july|jul",
+                           "august|aug", "september|sept|sep", "october|oct",
+                           "november|nov", "december|dec")
 
         # If you specify a day number you must also specify a month... this
         # Choice captures that constraint
 
-        self.dmy = Choice((Sequence((self.day, self.month, self.year), name="dmy"),
-                           Sequence((self.month, self.day, self.year), name="mdy"),
-                           Sequence((self.year, self.month, self.day), name="ymd"),
-                           Sequence((self.year, self.day, self.month), name="ydm"),
+        self.dmy = Choice((Sequence((self.day, self.month, self.year),
+                                    name="dmy"),
+                           Sequence((self.month, self.day, self.year),
+                                    name="mdy"),
+                           Sequence((self.year, self.month, self.day),
+                                    name="ymd"),
+                           Sequence((self.year, self.day, self.month),
+                                    name="ydm"),
                            Sequence((self.day, self.month), name="dm"),
                            Sequence((self.month, self.day), name="md"),
                            Sequence((self.month, self.year), name="my"),
@@ -686,7 +714,8 @@ class English(DateParser):
                            ), name="date")
 
         self.datetime = Bag((self.time, self.dmy), name="datetime")
-        self.bundle = Choice((self.plusdate, self.datetime, self.simple), name="bundle")
+        self.bundle = Choice((self.plusdate, self.datetime, self.simple),
+                             name="bundle")
         self.torange = Combo((self.bundle, "to", self.bundle), name="torange")
 
         self.all = Choice((self.torange, self.bundle), name="all")
@@ -859,7 +888,8 @@ class DateRangeNode(syntax.SyntaxNode):
         from whoosh import query
 
         fieldname = self.fieldname or parser.fieldname
-        return query.DateRange(fieldname, self.start, self.end, boost=self.boost)
+        return query.DateRange(fieldname, self.start, self.end,
+                               boost=self.boost)
 
 
 class DateTagger(Tagger):

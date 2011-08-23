@@ -41,7 +41,8 @@ class TempStorage(object):
         self.dir = None
 
     def _mkdir(self):
-        self.dir = os.path.join(self.parentdir, "tmp", self.basename + ".tmpix")
+        self.dir = os.path.join(self.parentdir, "tmp",
+                                self.basename + ".tmpix")
         if not os.path.exists(self.dir):
             os.makedirs(self.dir)
 
@@ -117,7 +118,8 @@ def is_abstract_method(attr):
     """Returns True if the given object has __isabstractmethod__ == True.
     """
 
-    return hasattr(attr, "__isabstractmethod__") and getattr(attr, "__isabstractmethod__")
+    return (hasattr(attr, "__isabstractmethod__")
+            and getattr(attr, "__isabstractmethod__"))
 
 
 def check_abstract_methods(base, subclass):
@@ -131,4 +133,6 @@ def check_abstract_methods(base, subclass):
         attr = getattr(base, attrname)
         if is_abstract_method(attr):
             oattr = getattr(subclass, attrname)
-            assert not is_abstract_method(oattr), "%s.%s not overridden" % (subclass.__name__, attrname)
+            if is_abstract_method(oattr):
+                raise Exception("%s.%s not overridden"
+                                % (subclass.__name__, attrname))
