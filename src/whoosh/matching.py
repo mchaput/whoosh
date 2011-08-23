@@ -346,6 +346,9 @@ class NullMatcher(Matcher):
     def copy(self):
         return self
 
+    def max_quality(self):
+        return 0
+
 
 class ListMatcher(Matcher):
     """Synthetic matcher backed by a list of IDs.
@@ -1189,13 +1192,23 @@ class IntersectionMatcher(AdditiveBiMatcher):
         if not (a_active and b_active):
             # Intersection matcher requires that both sub-matchers be active
             return NullMatcher()
-        elif minquality and a.max_quality() + b.max_quality() < minquality:
-            # If the combined quality of the sub-matchers can't contribute,
-            # return an inactive matcher
-            return NullMatcher()
 
-        a = a.replace(minquality - b.max_quality() if minquality else 0)
-        b = b.replace(minquality - a.max_quality() if minquality else 0)
+        if minquality:
+            a_max = a.max_quality()
+            b_max = b.max_quality()
+            if minquality and a_max + b_max < minquality:
+                # If the combined quality of the sub-matchers can't contribute,
+                # return an inactive matcher
+                return NullMatcher()
+            # Require that the replacements be able to contribute results
+            # higher than the minquality
+            a_min = minquality - b_max
+            b_min = minquality - a_max
+        else:
+            a_min = b_min = 0
+
+        a = a.replace(a_min)
+        b = b.replace(b_min)
         a_active = a.is_active()
         b_active = b.is_active()
         if not (a_active or b_active):
