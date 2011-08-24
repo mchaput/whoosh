@@ -263,7 +263,8 @@ multi-valued fields, use the ``allow_overlap=True`` keyword argument::
 
 This supports overlapping group membership where documents have more than one
 term in a field (e.g. KEYWORD fields). If you don't need overlapping, don't
-use ``allow_overlap`` because it's slower and less memory-efficient.
+use ``allow_overlap`` because it's *much* slower and uses more memory (see
+the secion on ``allow_overlap`` below.
 
 
 QueryFacet
@@ -399,6 +400,18 @@ having equal occurances of two terms::
     results = searcher.search(myquery, sortedby=facet)
 
 
+StoredFieldFacet
+----------------
+
+This facet lets you use stored field values as the sorting/grouping key for
+documents. This is
+
+:class:`~whoosh.sorting.StoredFieldFacet` supports ``allow_overlap`` by
+splitting the stored value into separate keys. By default it calls the value's
+``split()`` method (since most stored values are strings), but you can supply
+a custom split function. See the section on ``allow_overlap`` below.
+
+
 MultiFacet
 ==========
 
@@ -432,6 +445,65 @@ Missing values
 
 * When grouping, "missing" documents will appear in a group with the
   key ``None``.
+
+
+Using overlapping groups
+========================
+
+The common supported workflow for grouping and sorting is where the given field
+has *one value for document*, for example a ``path`` field containing the file
+path of the original document. By default, facets are set up to support this
+single-value approach.
+
+Of course, there are situations where you want documents to be sorted into
+multiple groups based on a field with multiple terms per document. The most
+common example would be a ``tags`` field. The ``allow_overlap`` keyword
+argument to the :class:`~whoosh.sorting.FieldFacet`,
+:class:`~whoosh.sorting.QueryFacet`, and
+:class:`~whoosh.sorting.StoredFieldFacet` allows this multi-value approach.
+
+However, there is an important caveat: using ``allow_overlap=True`` is slower
+than the default, potentially *much* slower for very large result sets. This is
+because Whoosh must read every posting of every term in the field to
+create a temporary "forward index" mapping documents to terms.
+
+If a field is indexed with *term vectors*, ``FieldFacet`` will use them to
+speed up ``allow_overlap`` faceting for small result sets, but for large result
+sets, where Whoosh has to open the vector list for every matched document, this
+can still be very slow.
+
+For very large indexes and result sets, if a field is stored, you can get
+faster overlapped faceting using :class:`~whoosh.sorting.StoredFieldFacet`
+instead of ``FieldFacet``. While reading stored values is usually slower than
+using the index, in this case avoiding the overhead of opening large numbers of
+posting readers can make it worthwhile.
+
+``StoredFieldFacet`` supports ``allow_overlap`` by loading the stored value for
+the given field and splitting it into multiple values. The default is to call
+the value's ``split()`` method.
+
+For example, if you've stored the ``tags`` field as a string like
+``"tag1 tag2 tag3"``::
+
+    schema = fields.Schema(name=fields.TEXT(stored=True),
+                           tags=fields.KEYWORD(stored=True))
+    ix = index.create_in("indexdir")
+    with ix.writer() as w:
+        w.add_document(name="A Midsummer Night's Dream", tags="comedy fairies")
+        w.add_document(name="Hamlet", tags="tragedy denmark")
+        # etc.
+
+...Then you can use a ``StoredFieldFacet`` like this::
+
+    ix = index.open_dir("indexdir")
+    with ix.searcher() as s:
+        sff = sorting.StoredFieldFacet("tags", allow_overlap=True)
+        results = s.search(myquery, groupedby={"tags": sff})
+
+For stored Python objects other than strings, you can supply a split function
+(using the ``split_fn`` keyword argument to ``StoredFieldFacet``). The function
+should accept a single argument (the stored value) and return a list or tuple
+of grouping keys.
 
 
 Expert: writing your own facet

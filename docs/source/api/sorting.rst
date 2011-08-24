@@ -25,6 +25,7 @@ Facet types
 .. autoclass:: ScoreFacet
 .. autoclass:: FunctionFacet
 .. autoclass:: MultiFacet
+.. autoclass:: StoredFieldFacet
 
 
 Facets object
