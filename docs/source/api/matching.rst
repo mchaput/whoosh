@@ -1,5 +1,5 @@
 ===================
-``postings`` module
+``matching`` module
 ===================
 
 .. automodule:: whoosh.matching

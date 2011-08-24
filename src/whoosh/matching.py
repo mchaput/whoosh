@@ -25,37 +25,41 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from itertools import repeat
-import sys
-
-from whoosh.compat import izip, xrange
-from whoosh.util import abstractmethod
-
 """
 This module contains "matcher" classes. Matchers deal with posting lists. The
 most basic matcher, which reads the list of postings for a term, will be
 provided by the backend implementation (for example,
-``whoosh.filedb.filepostings.FilePostingReader``). The classes in this module
-provide additional functionality, such as combining the results of two
+:class:`whoosh.filedb.filepostings.FilePostingReader`). The classes in this
+module provide additional functionality, such as combining the results of two
 matchers, or modifying the results of a matcher.
 
 You do not need to deal with the classes in this module unless you need to
 write your own Matcher implementation to provide some new functionality. These
 classes are not instantiated by the user. They are usually created by a
-:class:`~whoosh.query.Query` object's ``matcher()`` method, which returns the
-appropriate matcher to implement the query (for example, the ``Or`` query's
-``matcher()`` method returns a ``UnionMatcher`` object).
+:class:`~whoosh.query.Query` object's :meth:`~whoosh.query.Query.matcher()`
+method, which returns the appropriate matcher to implement the query (for
+example, the :class:`~whoosh.query.Or` query's
+:meth:`~whoosh.query.Or.matcher()` method returns a
+:py:class:`~whoosh.matching.UnionMatcher` object).
 
 Certain backends support "quality" optimizations. These backends have the
 ability to skip ahead if it knows the current block of postings can't
 contribute to the top N documents. If the matcher tree and backend support
-these optimizations, the matcher's ``supports_block_quality()`` method will
-return ``True``.
+these optimizations, the matcher's :meth:`Matcher.supports_block_quality()`
+method will return ``True``.
 """
+
+import sys
+from itertools import repeat
+
+from whoosh.compat import izip, xrange
+from whoosh.util import abstractmethod
 
 
 class ReadTooFar(Exception):
-    """Raised when next() or skip_to() is called on an inactive matchers.
+    """Raised when :meth:`~whoosh.matching.Matcher.next()` or
+    :meth:`~whoosh.matching.Matcher.skip_to()` are called on an inactive
+    matcher.
     """
 
 
@@ -82,15 +86,16 @@ class Matcher(object):
     @abstractmethod
     def reset(self):
         """Returns to the start of the posting list.
-        
-        Note that reset() may not do what you've used Matcher.replace() and
-        therefore aren't actually calling reset() on the original matcher.
+
+        Note that reset() may not do what you expect after you call
+        :meth:`Matcher.replace()`, since this can mean calling reset() not on
+        the original matcher, but on an optimized replacement.
         """
 
         raise NotImplementedError
 
     def term(self):
-        """Returns a ("fieldname", "termtext") tuple for the term this matcher
+        """Returns a ``("fieldname", "termtext")`` tuple for the term this matcher
         matches, or None if this matcher is not a term matcher.
         """
 
@@ -108,8 +113,8 @@ class Matcher(object):
                     yield m
 
     def matching_terms(self, id=None):
-        """Returns an iterator of ("fieldname", "termtext") tuples for the
-        CURRENTLY MATCHING term matchers in this tree.
+        """Returns an iterator of ``("fieldname", "termtext")`` tuples for the
+        **currently matching** term matchers in this tree.
         """
 
         if not self.is_active():
@@ -182,7 +187,7 @@ class Matcher(object):
 
     def all_ids(self):
         """Returns a generator of all IDs in the matcher.
-        
+
         What this method returns for a matcher that has already read some
         postings (whether it only yields the remaining postings or all postings
         from the beginning) is undefined, so it's best to only use this method
@@ -200,7 +205,7 @@ class Matcher(object):
 
     def all_items(self):
         """Returns a generator of all (ID, encoded value) pairs in the matcher.
-        
+
         What this method returns for a matcher that has already read some
         postings (whether it only yields the remaining postings or all postings
         from the beginning) is undefined, so it's best to only use this method
@@ -218,7 +223,7 @@ class Matcher(object):
 
     def items_as(self, astype):
         """Returns a generator of all (ID, decoded value) pairs in the matcher.
-        
+
         What this method returns for a matcher that has already read some
         postings (whether it only yields the remaining postings or all postings
         from the beginning) is undefined, so it's best to only use this method
@@ -367,8 +372,8 @@ class ListMatcher(Matcher):
             format of the field.
         :param scorer: a :class:`whoosh.scoring.BaseScorer` object for scoring
             the postings.
-        :param term: a ("fieldname", "text") tuple, or None if this is not a
-            term matcher.
+        :param term: a ``("fieldname", "text")`` tuple, or None if this is not
+            a term matcher.
         """
 
         self._ids = ids
@@ -727,8 +732,8 @@ class FilterMatcher(WrappingMatcher):
         :param child: the child matcher.
         :param ids: a set of IDs to filter by.
         :param exclude: by default, only IDs from the wrapped matcher that are
-            IN the set are used. If this argument is True, only IDs from the
-            wrapped matcher that are NOT IN the set are used.
+            **in** the set are used. If this argument is True, only IDs from
+            the wrapped matcher that are **not in** the set are used.
         """
 
         super(FilterMatcher, self).__init__(child)
@@ -1723,7 +1728,7 @@ class ConstantScoreMatcher(WrappingMatcher):
 #    """Matches postings where a list of sub-matchers occur next to each other
 #    in order.
 #    """
-#    
+#
 #    def __init__(self, wordmatchers, slop=1, boost=1.0):
 #        self.wordmatchers = wordmatchers
 #        self.child = make_binary_tree(IntersectionMatcher, wordmatchers)
@@ -1731,16 +1736,16 @@ class ConstantScoreMatcher(WrappingMatcher):
 #        self.boost = boost
 #        self._spans = None
 #        self._find_next()
-#    
+#
 #    def copy(self):
 #        return self.__class__(self.wordmatchers[:], slop=self.slop,
 #                              boost=self.boost)
-#    
+#
 #    def replace(self, minquality=0):
 #        if not self.is_active():
 #            return NullMatcher()
 #        return self
-#    
+#
 #    def all_ids(self):
 #        # Need to redefine this because the WrappingMatcher parent class
 #        # forwards to the submatcher, which in this case is just the
@@ -1748,17 +1753,17 @@ class ConstantScoreMatcher(WrappingMatcher):
 #        while self.is_active():
 #            yield self.id()
 #            self.next()
-#    
+#
 #    def next(self):
 #        ri = self.child.next()
 #        rn = self._find_next()
 #        return ri or rn
-#    
+#
 #    def skip_to(self, id):
 #        rs = self.child.skip_to(id)
 #        rn = self._find_next()
 #        return rs or rn
-#    
+#
 #    def skip_to_quality(self, minquality):
 #        skipped = 0
 #        while self.is_active() and self.quality() <= minquality:
@@ -1766,37 +1771,37 @@ class ConstantScoreMatcher(WrappingMatcher):
 #            skipped += self.child.skip_to_quality(minquality/self.boost)
 #            self._find_next()
 #        return skipped
-#    
+#
 #    def positions(self):
 #        if not self.is_active():
 #            raise ReadTooFar
 #        if not self.wordmatchers:
 #            return []
 #        return self.wordmatchers[0].positions()
-#    
+#
 #    def _find_next(self):
 #        isect = self.child
 #        slop = self.slop
-#        
+#
 #        # List of "active" positions
 #        current = []
-#        
+#
 #        while not current and isect.is_active():
 #            # [[list of positions for word 1],
 #            #  [list of positions for word 2], ...]
 #            poses = [m.positions() for m in self.wordmatchers]
-#            
+#
 #            # Set the "active" position list to the list of positions of the
 #            # first word. We well then iteratively update this list with the
 #            # positions of subsequent words if they are within the "slop"
 #            # distance of the positions in the active list.
 #            current = poses[0]
-#            
+#
 #            # For each list of positions for the subsequent words...
 #            for poslist in poses[1:]:
 #                # A list to hold the new list of active positions
 #                newposes = []
-#                
+#
 #                # For each position in the list of positions in this next word
 #                for newpos in poslist:
 #                    # Use bisect to only check the part of the current list
@@ -1804,19 +1809,19 @@ class ConstantScoreMatcher(WrappingMatcher):
 #                    # of the new position
 #                    start = bisect_left(current, newpos - slop)
 #                    end = bisect_right(current, newpos)
-#                    
-#                    # 
+#
+#                    #
 #                    for curpos in current[start:end]:
 #                        delta = newpos - curpos
 #                        if delta > 0 and delta <= slop:
 #                            newposes.append(newpos)
-#                    
+#
 #                current = newposes
 #                if not current: break
-#            
+#
 #            if not current:
 #                isect.next()
-#        
+#
 #        self._count = len(current)
 #
 #
@@ -1824,7 +1829,7 @@ class ConstantScoreMatcher(WrappingMatcher):
 #    """Phrase matcher for fields with a vector with positions (i.e. Positions
 #    or CharacterPositions format).
 #    """
-#    
+#
 #    def __init__(self, searcher, fieldname, words, isect, slop=1, boost=1.0):
 #        """
 #        :param searcher: a Searcher object.
@@ -1832,9 +1837,9 @@ class ConstantScoreMatcher(WrappingMatcher):
 #        :param words: a sequence of token texts representing the words in the
 #            phrase.
 #        :param isect: an intersection matcher for the words in the phrase.
-#        :param slop: 
+#        :param slop:
 #        """
-#        
+#
 #        decodefn = searcher.field(fieldname).vector.decoder("positions")
 #        self.reader = searcher.reader()
 #        self.fieldname = fieldname
@@ -1842,7 +1847,7 @@ class ConstantScoreMatcher(WrappingMatcher):
 #        self.sortedwords = sorted(self.words)
 #        super(VectorPhraseMatcher, self).__init__(isect, decodefn, slop=slop,
 #                                                  boost=boost)
-#    
+#
 #    def _poses(self):
 #        vreader = self.reader.vector(self.child.id(), self.fieldname)
 #        poses = {}

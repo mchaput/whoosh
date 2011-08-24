@@ -10,6 +10,10 @@ Scoring algorithm classes
 .. autoclass:: Weighting
     :members:
 
+.. autoclass:: BaseScorer
+.. autoclass:: WeightScorer
+.. autoclass:: WeightLengthScorer
+
 .. autoclass:: BM25F
 
 .. autoclass:: TF_IDF
