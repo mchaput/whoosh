@@ -49,7 +49,7 @@ def test_searching():
         def _runq(q, result, **kwargs):
             r = s.search(q, **kwargs)
             assert_equal([d["id"] for d in r], result)
-        
+
         _runq(query.Term("text", u("format")), ["format", "vector"])
         _runq(query.Term("text", u("the")), ["fieldtype", "format", "const", "vector", "stored"])
         _runq(query.Prefix("text", u("st")), ["format", "vector", "stored"])
@@ -68,7 +68,7 @@ def test_update():
         ix.update_document(id=word[0], text=word)
     for word in u("apple burrito cat dollhouse").split():
         ix.update_document(id=word[0], text=word)
-    
+
     assert ix.has_deletions()
     assert_equal(ix.deleted, set([0, 1, 2, 3]))
     assert_equal(ix.doc_count(), 4)
@@ -107,9 +107,9 @@ def test_delete_doc():
 
 def test_stored():
     r = make_index().reader()
-    
+
     assert_equal(r.stored_fields(2), {"id": "vector", "subs": 23})
-    
+
     target = [{"id": "fieldtype", "subs": 56},
               {"id": "format", "subs": 100},
               {"id": "vector", "subs": 23},
@@ -129,20 +129,20 @@ def test_field_length():
     assert_equal(r.field_length("text"), 59)
     assert_equal(r.max_field_length("text"), 11)
     assert_equal(r.doc_field_length(3, "text"), 8)
-    
+
     assert_equal(r.field_length("text"), 59)
     assert_equal(r.max_field_length("text"), 11)
     assert_equal(r.doc_field_length(3, "text"), 8)
-    
+
     assert_equal(r.doc_frequency("text", "the"), 5)
     assert_equal(r.frequency("text", "the"), 9)
 
 def test_deleting():
     ix = make_index()
     ix.delete_by_term("id", u("vector"))
-    
+
     assert ix.has_deletions()
-    
+
     with ix.searcher() as s:
         q = query.Term("text", "format")
         r = s.search(q)
@@ -160,10 +160,10 @@ def _fstats(r):
 
 def test_iter():
     r = make_index().reader()
-    
+
     everything = [("id", u('const'), 1, 1), ("id", u('fieldtype'), 1, 1), ("id", u('format'), 1, 1),
                   ("id", u('scorable'), 1, 1), ("id", u('stored'), 1, 1), ("id", u('unique'), 1, 1),
-                  ("id", u('vector'), 1, 1),  ("text", u('against'), 1, 1),
+                  ("id", u('vector'), 1, 1), ("text", u('against'), 1, 1),
                   ("text", u('attributes'), 1, 1), ("text", u('base'), 1, 1), ("text", u('be'), 1, 1),
                   ("text", u('constructor'), 1, 1), ("text", u('content'), 1, 1), ("text", u('contents'), 1, 1),
                   ("text", u('document'), 2, 2), ("text", u('each'), 2, 2), ("text", u('field'), 6, 6),
@@ -175,7 +175,7 @@ def test_iter():
                   ("text", u('supports'), 1, 1), ("text", u('the'), 5, 9), ("text", u('this'), 3, 3),
                   ("text", u('to'), 1, 1), ("text", u('type'), 1, 1), ("text", u('unique'), 1, 1),
                   ("text", u('value'), 1, 1), ("text", u('vectors'), 1, 1), ("text", u('whether'), 3, 3)]
-    
+
     assert_equal([item for item in _stats(r) if item[0] != 'subs'], everything)
     assert_equal(_stats(r.iter_from("text", u("su"))), everything[32:])
     assert_equal(list(r.lexicon("text")), [x[1] for x in everything if x[0] == "text"])
@@ -185,10 +185,10 @@ def test_iter():
 def test_vectors():
     ix = make_index()
     r = ix.reader()
-    
+
     assert not r.has_vector(0, "id")
     assert r.has_vector(0, "text")
-    
+
     target = [(u('contents'), 1), (u('field'), 1), (u('for'), 1), (u('format'), 1),
               (u('storage'), 1), (u('the'), 2)]
     vec = list(r.vector_as("frequency", 1, "text"))
@@ -201,33 +201,33 @@ def test_todisk():
         w = fix.writer()
         w.add_reader(ix.reader())
         w.commit()
-        
+
 def test_threaded():
     from threading import Thread
-    
+
     class TWriter(Thread):
         def __init__(self, ix):
             Thread.__init__(self)
             self.ix = ix
-            
+
         def run(self):
             ix = self.ix
             for i in xrange(1000):
                 ix.update_document(id=text_type(i), key=u("a"))
-    
+
     class TReader(Thread):
         def __init__(self, ix):
             Thread.__init__(self)
             self.ix = ix
             self.go = True
-        
+
         def run(self):
             s = self.ix.searcher()
             while self.go:
                 r = s.search(query.Term("key", u("a")))
                 assert_equal(len(r), 1)
-    
-    schema = fields.Schema(id=fields.ID(stored=True),key=fields.ID(unique=True, stored=True))
+
+    schema = fields.Schema(id=fields.ID(stored=True), key=fields.ID(unique=True, stored=True))
     ix = RamIndex(schema)
     tw = TWriter(ix)
     tr = TReader(ix)
@@ -236,7 +236,7 @@ def test_threaded():
     tw.join()
     tr.go = False
     tr.join()
-    
+
     assert_equal(ix.doc_count(), 1)
     with ix.searcher() as s:
         assert_equal(len(list(s.documents(key="a"))), 1)
@@ -252,7 +252,7 @@ def test_empty_field():
     ix.add_document(id=u("golf"), text=u(""))
     ix.add_document(id=u(""), text=u("hotel"))
     ix.add_document(id=u(""), text=u(""))
-    
+
 def test_missing_term_docfreq():
     schema = fields.Schema(id=fields.ID)
     ix = RamIndex(schema)
@@ -283,3 +283,29 @@ def test_block_info():
     assert_equal(p.block_min_length(), 2)
     assert_equal(p.block_max_length(), 8)
     assert_equal(p.block_max_wol(), 0.5)
+
+def test_sorting():
+    from whoosh import sorting
+
+    schema = fields.Schema(id=fields.STORED, name=fields.ID(stored=True),
+                           size=fields.NUMERIC)
+    ix = RamIndex(schema)
+
+    with ix.writer() as w:
+        w.add_document(id=0, name=u("bravo"), size=10)
+        w.add_document(id=1, name=u("alfa"), size=9)
+        w.add_document(id=2, name=u("delta"), size=8)
+        w.add_document(id=3, name=u("charlie"), size=7)
+
+    with ix.searcher() as s:
+        q = query.Every()
+        r = s.search(q, sortedby="name")
+        assert_equal([hit["id"] for hit in r], [1, 0, 3, 2])
+
+        r = s.search(q, sortedby="size")
+        assert_equal([hit["id"] for hit in r], [3, 2, 1, 0])
+
+        facet = sorting.FieldFacet("size", reverse=True)
+        r = s.search(q, sortedby=facet)
+        assert_equal([hit["id"] for hit in r], [0, 1, 2, 3])
+
