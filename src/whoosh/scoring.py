@@ -292,9 +292,12 @@ class BM25F(WeightingModel):
 
 class BM25FScorer(WeightLengthScorer):
     def __init__(self, searcher, fieldname, text, B, K1, qf=1):
-        parent = searcher.get_parent()
+        # IDF and average field length are global statistics, so get them from
+        # the top-level searcher
+        parent = searcher.get_parent()  # Returns self if no parent
         self.idf = parent.idf(fieldname, text)
         self.avgfl = parent.avg_field_length(fieldname) or 1
+
         self.B = B
         self.K1 = K1
         self.qf = qf
@@ -341,9 +344,12 @@ class DFree(WeightingModel):
 
 class DFreeScorer(WeightLengthScorer):
     def __init__(self, searcher, fieldname, text, qf=1):
-        parent = searcher.get_parent()
+        # Total term weight and total field length are global statistics, so
+        # get them from the top-level searcher
+        parent = searcher.get_parent()  # Returns self if no parent
         self.cf = parent.weight(fieldname, text)
         self.fl = parent.field_length(fieldname)
+
         self.qf = qf
         self.setup(searcher, fieldname, text)
 
@@ -392,10 +398,13 @@ class PL2(WeightingModel):
 
 class PL2Scorer(WeightLengthScorer):
     def __init__(self, searcher, fieldname, text, c, qf=1):
-        parent = searcher.get_parent()
+        # Total term weight, document count, and average field length are
+        # global statistics, so get them from the top-level searcher
+        parent = searcher.get_parent()  # Returns self if no parent
         self.cf = parent.frequency(fieldname, text)
         self.dc = parent.doc_count_all()
         self.avgfl = parent.avg_field_length(fieldname) or 1
+
         self.c = c
         self.qf = qf
         self.setup(searcher, fieldname, text)
@@ -415,8 +424,10 @@ class Frequency(WeightingModel):
 
 class TF_IDF(WeightingModel):
     def scorer(self, searcher, fieldname, text, qf=1):
-        parent = searcher.get_parent()
+        # IDF is a global statistic, so get it from the top-level searcher
+        parent = searcher.get_parent()  # Returns self if no parent
         idf = parent.idf(fieldname, text)
+
         maxweight = searcher.term_info(fieldname, text).max_weight()
         return TF_IDFScorer(maxweight, idf)
 
@@ -442,17 +453,6 @@ class Weighting(WeightingModel):
     """This class provides backwards-compatibility with the old weighting
     class architecture, so any existing custom scorers don't need to be
     rewritten.
-    
-    It may also be useful for quick experimentation since you only need to
-    override the ``score()`` method to try a scoring algorithm, without having
-    to create an inner Scorer class::
-    
-        class MyWeighting(Weighting):
-            def score(searcher, fieldname, text, docnum, weight):
-                # Return the docnum as the score, for some reason
-                return docnum
-                
-        mysearcher = myindex.searcher(weighting=MyWeighting)
     """
 
     def scorer(self, searcher, fieldname, text, qf=1):
@@ -471,6 +471,49 @@ class Weighting(WeightingModel):
         def score(self, matcher):
             return self.scoremethod(self.searcher, self.fieldname, self.text,
                                     matcher.id(), matcher.weight())
+
+
+class FunctionWeighting(WeightingModel):
+    """Uses a supplied function to do the scoring. For simple scoring functions
+    and experiments this may be simpler to use than writing a full weighting
+    model class and scorer class.
+    
+    The function should accept the arguments
+    ``searcher, fieldname, text, matcher``.
+    
+    For example, the following function will score documents based on the
+    earliest position of the query term in the document::
+    
+        def pos_score_fn(searcher, fieldname, text, matcher):
+            poses = matcher.value_as("positions")
+            return 1.0 / (poses[0] + 1)
+        
+        pos_weighting = scoring.FunctionWeighting(pos_score_fn)
+        searcher = myindex.searcher(weighting=pos_weighting)
+        
+    Note that the searcher passed to the function may be a per-segment searcher
+    for performance reasons. If you want to get global statistics inside the
+    function, you should use ``searcher.get_parent()`` to get the top-level
+    searcher. (However, if you are using global statistics, you should probably
+    write a real model/scorer combo so you can cache them on the object.)
+    """
+
+    def __init__(self, fn):
+        self.fn = fn
+
+    def scorer(self, searcher, fieldname, text, qf=1):
+        return self.FunctionScorer(self.fn, searcher, fieldname, text, qf=qf)
+
+    class FunctionScorer(BaseScorer):
+        def __init__(self, fn, searcher, fieldname, text, qf=1):
+            self.fn = fn
+            self.searcher = searcher
+            self.fieldname = fieldname
+            self.text = text
+            self.qf = qf
+
+        def score(self, matcher):
+            return self.fn(self.searcher, self.fieldname, self.text, matcher)
 
 
 class MultiWeighting(WeightingModel):

@@ -1169,4 +1169,27 @@ def test_scorer():
                        ('key', 'alfa', 2, 2.0, 2), ('key', 'alfa', 0, 6.0, 6),
                        ('key', 'alfa', 1, 1.0, 1), ('key', 'alfa', 2, 5.0, 5)])
 
+def test_pos_scorer():
+    ana = analysis.SimpleAnalyzer()
+    schema = fields.Schema(id=fields.STORED, key=fields.TEXT(analyzer=ana))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=0, key=u("0 0 1 0 0 0"))
+    w.add_document(id=1, key=u("0 0 0 1 0 0"))
+    w.add_document(id=2, key=u("0 1 0 0 0 0"))
+    w.commit()
+    w = ix.writer()
+    w.add_document(id=3, key=u("0 0 0 0 0 1"))
+    w.add_document(id=4, key=u("1 0 0 0 0 0"))
+    w.add_document(id=5, key=u("0 0 0 0 1 0"))
+    w.commit(merge=False)
+
+    def pos_score_fn(searcher, fieldname, text, matcher):
+        poses = matcher.value_as("positions")
+        return 1.0 / (poses[0] + 1)
+    pos_weighting = scoring.FunctionWeighting(pos_score_fn)
+
+    s = ix.searcher(weighting=pos_weighting)
+    r = s.search(query.Term("key", "1"))
+    assert_equal([hit["id"] for hit in r], [4, 2, 0, 1, 5, 3])
 
