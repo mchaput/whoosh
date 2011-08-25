@@ -148,25 +148,28 @@ class FieldFacet(FacetType):
         field = None
         if fieldname in searcher.schema:
             field = searcher.schema[fieldname]
+        hascache = searcher.reader().supports_caches()
 
         if self.allow_overlap:
             return self.OverlappingFieldCategorizer(fieldname)
 
-        elif isinstance(field, DATETIME):
+        elif hascache and isinstance(field, DATETIME):
             # Return a subclass of NumericFieldCategorizer that formats dates
             return self.DateFieldCategorizer(fieldname, self.reverse)
 
-        elif isinstance(field, NUMERIC):
+        elif hascache and isinstance(field, NUMERIC):
             # Numeric fields are naturally reversible
             return self.NumericFieldCategorizer(fieldname, self.reverse)
 
-        elif self.reverse:
-            # If we need to "reverse" a string field, we need to do more work
-            return self.RevFieldCategorizer(searcher, fieldname, self.reverse)
-
-        else:
+        elif hascache and not self.reverse:
             # Straightforward: use the field cache to sort/categorize
             return self.FieldCategorizer(fieldname)
+
+        else:
+            # If the reader does not support field caches or we need to
+            # reverse-sort a string field, we need to do more work
+            return self.NoCacheFieldCategorizer(searcher, fieldname,
+                                                self.reverse)
 
     class FieldCategorizer(Categorizer):
         """Categorizer for regular, unreversed fields. Just uses the
@@ -224,20 +227,22 @@ class FieldFacet(FacetType):
             else:
                 return long_to_datetime(key)
 
-    class RevFieldCategorizer(Categorizer):
-        """Categorizer for reversed fields. Since keys for non-numeric fields
-        are arbitrary data, it's not possible to "negate" them to reverse the
-        sort order. So, this object builds an array caching the order of
-        all documents according to the field, then uses the cached order as a
-        numeric key.
+    class NoCacheFieldCategorizer(Categorizer):
+        """This object builds an array caching the order of all documents
+        according to the field, then uses the cached order as a numeric key.
+        This is useful when a field cache is not available, and also for
+        reversed fields (since field cache keys for non- numeric fields are
+        arbitrary data, it's not possible to "negate" them to reverse the sort
+        order).
         """
 
-        def __init__(self, reader, fieldname, reverse):
+        def __init__(self, searcher, fieldname, reverse):
             # Cache the relative positions of all docs with the given field
             # across the entire index
+            reader = searcher.reader()
             dc = reader.doc_count_all()
             arry = array("i", [dc + 1] * dc)
-            field = self.searcher.schema[fieldname]
+            field = searcher.schema[fieldname]
             values = field.sortable_values(reader, fieldname)
             for i, (t, _) in enumerate(values):
                 if reverse:
@@ -248,7 +253,6 @@ class FieldFacet(FacetType):
             self.array = arry
 
         def set_searcher(self, searcher, docoffset):
-            self.searcher = searcher
             self.docoffset = docoffset
 
         def key_for_id(self, docid):
