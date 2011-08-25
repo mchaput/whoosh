@@ -2,6 +2,24 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.2
+==========
+
+* Fixes several bugs, including a bad bug in BM25F scoring.
+
+* Added ``allow_overlap`` option to :class:`whoosh.sorting.StoredFieldFacet`.
+
+* In :meth:`~whoosh.writing.IndexWriter.add_document`, You can now pass
+  query-like strings for BOOLEAN and DATETIME fields (e.g ``boolfield="true"``
+  and ``dtfield="20101131-16:01"``) as an alternative to actual ``bool`` or
+  ``datetime`` objects. The implementation of this is incomplete: it only works
+  in the default ``filedb`` backend, and if the field is stored, the stored
+  value will be the string, not the parsed object.
+
+* Added :class:`whoosh.analysis.CompoundWordFilter` and
+  :class:`whoosh.analysis.TeeFilter`.
+
+
 Whoosh 2.1
 ==========
 
