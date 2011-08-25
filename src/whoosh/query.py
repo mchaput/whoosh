@@ -43,7 +43,7 @@ from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
-                             WrappingMatcher, AndNotMatcher)
+                             WrappingMatcher, AndNotMatcher, NullMatcherClass)
 from whoosh.reading import TermNotFound
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
@@ -1921,7 +1921,7 @@ class ConstantScoreQuery(WrappingQuery):
 
     def matcher(self, searcher):
         m = self.child.matcher(searcher)
-        if isinstance(m, NullMatcher):
+        if isinstance(m, NullMatcherClass):
             return m
         else:
             ids = array("I", m.all_ids())
