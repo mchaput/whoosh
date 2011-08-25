@@ -90,10 +90,27 @@ Look up documents by a field value
         ...
 
 
-Sorting
-=======
+Sorting and scoring
+===================
 
 See :doc:`facets`.
+
+
+Score results based on the position of the matched term
+-------------------------------------------------------
+
+The following scoring function uses the position of the first occurance of a
+term in each document to calculate the score, so documents with the given term
+earlier in the document will score higher::
+
+    from whoosh import scoring
+
+    def pos_score_fn(searcher, fieldname, text, matcher):
+        poses = matcher.value_as("positions")
+        return 1.0 / (poses[0] + 1)
+        
+    pos_weighting = scoring.FunctionWeighting(pos_score_fn)
+    searcher = myindex.searcher(weighting=pos_weighting)    
 
 
 Results

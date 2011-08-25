@@ -4,15 +4,22 @@
 
 .. automodule:: whoosh.scoring
 
-Scoring algorithm classes
-=========================
 
-.. autoclass:: Weighting
+Base classes
+============
+
+.. autoclass:: WeightingModel
     :members:
 
 .. autoclass:: BaseScorer
+    :members:
+
 .. autoclass:: WeightScorer
 .. autoclass:: WeightLengthScorer
+
+
+Scoring algorithm classes
+=========================
 
 .. autoclass:: BM25F
 
@@ -23,6 +30,8 @@ Scoring algorithm classes
 
 Scoring utility classes
 =======================
+
+.. autoclass:: FunctionWeighting
 
 .. autoclass:: MultiWeighting
 
