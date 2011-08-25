@@ -189,7 +189,6 @@ class WeightLengthScorer(BaseScorer):
         return True
 
     def score(self, matcher):
-        print("matcher=", matcher, "id=", matcher.id(), "weight=", matcher.weight(), "len=", self.dfl(matcher.id()))
         return self._score(matcher.weight(), self.dfl(matcher.id()))
 
     def block_quality(self, matcher):
