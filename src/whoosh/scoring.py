@@ -434,7 +434,7 @@ class TF_IDFScorer(BaseScorer):
         return matcher.weight() * self.idf
 
     def block_quality(self, matcher):
-        return matcher.block_maxweight() * self.idf
+        return matcher.block_max_weight() * self.idf
 
 
 # Utility models
