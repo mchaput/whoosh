@@ -326,9 +326,12 @@ class Matcher(object):
         return self.__eq__(other) or self.__gt__(other)
 
 
-class NullMatcher(Matcher):
+class NullMatcherClass(Matcher):
     """Matcher with no postings which is never active.
     """
+
+    def __call__(self):
+        return self
 
     def supports_block_quality(self):
         return True
@@ -353,6 +356,10 @@ class NullMatcher(Matcher):
 
     def max_quality(self):
         return 0
+
+
+# Singleton instance
+NullMatcher = NullMatcherClass()
 
 
 class ListMatcher(Matcher):

@@ -19,12 +19,12 @@ def test_score_retrieval():
     writer.add_document(title=u("Snow White"),
                         content=u("Snow white lived in the forest with seven dwarfs"))
     writer.commit()
-    
+
     with ix.searcher() as s:
         results = s.search(query.Term("content", "white"))
         assert_equal(len(results), 2)
-        assert_equal(results[0]['title'], u("Snow White"))
-        assert_equal(results[1]['title'], u("Miss Mary"))
+        assert_equal(results[0]['title'], u("Miss Mary"))
+        assert_equal(results[1]['title'], u("Snow White"))
         assert_not_equal(results.score(0), None)
         assert_not_equal(results.score(0), 0)
         assert_not_equal(results.score(0), 1)
@@ -33,25 +33,25 @@ def test_resultcopy():
     schema = fields.Schema(a=fields.TEXT(stored=True))
     st = RamStorage()
     ix = st.create_index(schema)
-    
+
     w = ix.writer()
     w.add_document(a=u("alfa bravo charlie"))
     w.add_document(a=u("bravo charlie delta"))
     w.add_document(a=u("charlie delta echo"))
     w.add_document(a=u("delta echo foxtrot"))
     w.commit()
-    
+
     with ix.searcher() as s:
         r = s.search(qparser.QueryParser("a", None).parse(u("charlie")))
         assert_equal(len(r), 3)
         rcopy = r.copy()
         assert_equal(r.top_n, rcopy.top_n)
-    
+
 def test_resultslength():
     schema = fields.Schema(id=fields.ID(stored=True),
                            value=fields.TEXT)
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     w.add_document(id=u("1"), value=u("alfa alfa alfa alfa alfa"))
     w.add_document(id=u("2"), value=u("alfa alfa alfa alfa"))
@@ -60,7 +60,7 @@ def test_resultslength():
     w.add_document(id=u("5"), value=u("alfa"))
     w.add_document(id=u("6"), value=u("bravo"))
     w.commit()
-    
+
     with ix.searcher() as s:
         r = s.search(query.Term("value", u("alfa")), limit=3)
         assert_equal(len(r), 5)
@@ -81,18 +81,18 @@ def test_combine():
     w.add_document(id=u("7"), value=u("juliet alfa bravo all"))
     w.add_document(id=u("8"), value=u("charlie charlie charlie all"))
     w.commit()
-    
+
     with ix.searcher() as s:
         def idsof(r):
             return "".join(hit["id"] for hit in r)
-        
+
         def check(r1, methodname, r2, ids):
             getattr(r1, methodname)(r2)
             assert_equal(idsof(r1), ids)
-        
+
         def rfor(t):
             return s.search(query.Term("value", t))
-        
+
         assert_equal(idsof(rfor(u("foxtrot"))), "345")
         check(rfor(u("foxtrot")), "extend", rfor("charlie"), "345812")
         check(rfor(u("foxtrot")), "filter", rfor("juliet"), "5")
@@ -113,12 +113,12 @@ def test_results_filter():
     w.add_document(id="6", words=u("charlie bottom"))
     w.add_document(id="7", words=u("charlie bottom"))
     w.commit()
-    
+
     with ix.searcher() as s:
         def check(r, target):
             result = "".join(s.stored_fields(d)["id"] for d in r.docs())
             assert_equal(result, target)
-        
+
         r = s.search(query.Term("words", u("alfa")))
         r.filter(s.search(query.Term("words", u("bottom"))))
         check(r, "4")
@@ -133,7 +133,7 @@ def test_extend_empty():
     w.add_document(id=4, words=u("delta echo foxtrot"))
     w.add_document(id=5, words=u("echo foxtrot golf"))
     w.commit()
-    
+
     with ix.searcher() as s:
         # Get an empty results object
         r1 = s.search(query.Term("words", u("hotel")))
@@ -158,18 +158,18 @@ def test_extend_filtered():
     w.add_document(id=4, text=u("delta bravo alfa"))
     w.add_document(id=5, text=u("foxtrot sierra tango"))
     w.commit()
-    
+
     hits = lambda result: [hit["id"] for hit in result]
-    
+
     with ix.searcher() as s:
         r1 = s.search(query.Term("text", u("alfa")), filter=set([1, 4]))
         assert_equal(r1._filter, set([1, 4]))
         assert_equal(len(r1.top_n), 0)
-        
+
         r2 = s.search(query.Term("text", u("bravo")))
         assert_equal(len(r2.top_n), 3)
         assert_equal(hits(r2), [1, 2, 4])
-        
+
         r3 = r1.copy()
         assert_equal(r3._filter, set([1, 4]))
         assert_equal(len(r3.top_n), 0)
@@ -179,10 +179,10 @@ def test_extend_filtered():
 
 def test_pages():
     from whoosh.scoring import Frequency
-    
+
     schema = fields.Schema(id=fields.ID(stored=True), c=fields.TEXT)
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     w.add_document(id=u("1"), c=u("alfa alfa alfa alfa alfa alfa"))
     w.add_document(id=u("2"), c=u("alfa alfa alfa alfa alfa"))
@@ -191,14 +191,14 @@ def test_pages():
     w.add_document(id=u("5"), c=u("alfa alfa"))
     w.add_document(id=u("6"), c=u("alfa"))
     w.commit()
-    
+
     with ix.searcher(weighting=Frequency) as s:
         q = query.Term("c", u("alfa"))
         r = s.search(q)
         assert_equal([d["id"] for d in r], ["1", "2", "3", "4", "5", "6"])
         r = s.search_page(q, 2, pagelen=2)
         assert_equal([d["id"] for d in r], ["3", "4"])
-        
+
         r = s.search_page(q, 2, pagelen=4)
         assert_equal(r.total, 6)
         assert_equal(r.pagenum, 2)
@@ -211,44 +211,44 @@ def test_extra_slice():
     for char in u("abcdefghijklmnopqrstuvwxyz"):
         w.add_document(key=char)
     w.commit()
-    
+
     with ix.searcher() as s:
         r = s.search(query.Every(), limit=5)
         assert_equal(r[6:7], [])
 
 def test_page_counts():
     from whoosh.scoring import Frequency
-    
+
     schema = fields.Schema(id=fields.ID(stored=True))
     st = RamStorage()
     ix = st.create_index(schema)
-    
+
     w = ix.writer()
     for i in xrange(10):
         w.add_document(id=text_type(i))
     w.commit()
-    
+
     with ix.searcher(weighting=Frequency) as s:
         q = query.Every("id")
-        
+
         r = s.search(q)
         assert_equal(len(r), 10)
-        
+
         assert_raises(ValueError, s.search_page, q, 0)
-        
+
         r = s.search_page(q, 1, 5)
         assert_equal(len(r), 10)
         assert_equal(r.pagecount, 2)
-        
+
         r = s.search_page(q, 1, 5)
         assert_equal(len(r), 10)
         assert_equal(r.pagecount, 2)
-        
+
         r = s.search_page(q, 2, 5)
         assert_equal(len(r), 10)
         assert_equal(r.pagecount, 2)
         assert_equal(r.pagenum, 2)
-        
+
         r = s.search_page(q, 1, 10)
         assert_equal(len(r), 10)
         assert_equal(r.pagecount, 1)
@@ -257,36 +257,36 @@ def test_page_counts():
 def test_resultspage():
     schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
     ix = RamStorage().create_index(schema)
-    
+
     domain = ("alfa", "bravo", "bravo", "charlie", "delta")
     w = ix.writer()
     for i, lst in enumerate(permutations(domain, 3)):
         w.add_document(id=text_type(i), content=u(" ").join(lst))
     w.commit()
-    
+
     with ix.searcher() as s:
         q = query.Term("content", u("bravo"))
         r = s.search(q, limit=10)
         tops = list(r)
-        
+
         rp = s.search_page(q, 1, pagelen=5)
         assert_equal(rp.scored_length(), 5)
         assert_equal(list(rp), tops[0:5])
         assert_equal(rp[10:], [])
-        
+
         rp = s.search_page(q, 2, pagelen=5)
         assert_equal(list(rp), tops[5:10])
-        
+
         rp = s.search_page(q, 1, pagelen=10)
         assert_equal(len(rp), 54)
         assert_equal(rp.pagecount, 6)
         rp = s.search_page(q, 6, pagelen=10)
         assert_equal(len(list(rp)), 4)
         assert rp.is_last_page()
-        
+
         assert_raises(ValueError, s.search_page, q, 0)
         assert_raises(ValueError, s.search_page, q, 7)
-        
+
         rp = s.search_page(query.Term("content", "glonk"), 1)
         assert_equal(len(rp), 0)
         assert rp.is_last_page()
@@ -297,7 +297,7 @@ def test_highlight_setters():
     w = ix.writer()
     w.add_document(text=u("Hello"))
     w.commit()
-    
+
     r = ix.searcher().search(query.Term("text", "hello"))
     hl = highlight.Highlighter()
     ucf = highlight.UppercaseFormatter()
@@ -306,7 +306,7 @@ def test_highlight_setters():
     r.formatter = ucf
     print r.formatter
     assert hl.formatter is ucf
-    
+
 def test_snippets():
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(text=fields.TEXT(stored=True, analyzer=ana))
@@ -318,18 +318,18 @@ def test_snippets():
     w.add_document(text=u("Keying everything gives quick, immediate results. But it can become difficult to tweak the animation later, especially for complex characters."))
     w.add_document(text=u("Copy the current pose to create the next one: pose the character, key everything, then copy the keyframe in the playbar to another frame, and key everything at that frame."))
     w.commit()
-    
+
     target = ["Set KEY frames on everything that's KEY-able",
               "Copy the current pose to create the next one: pose the character, KEY everything, then copy the keyframe in the playbar to another frame, and KEY everything at that frame",
               "KEYING everything gives quick, immediate results"]
-    
+
     with ix.searcher() as s:
         qp = qparser.QueryParser("text", ix.schema)
         q = qp.parse(u("key"))
         r = s.search(q, terms=True)
         r.fragmenter = highlight.SentenceFragmenter()
         r.formatter = highlight.UppercaseFormatter()
-        
+
         assert_equal(sorted([hit.highlights("text", top=1) for hit in r]), sorted(target))
 
 def test_keyterms():
@@ -341,25 +341,25 @@ def test_keyterms():
     st = RamStorage()
     ix = st.create_index(schema)
     w = ix.writer()
-    w.add_document(path=u("a"),content=u("This is some generic content"))
-    w.add_document(path=u("b"),content=u("This is some distinctive content"))
+    w.add_document(path=u("a"), content=u("This is some generic content"))
+    w.add_document(path=u("b"), content=u("This is some distinctive content"))
     w.commit()
-    
+
     with ix.searcher() as s:
         docnum = s.document_number(path=u("b"))
         keyterms = list(s.key_terms([docnum], "content"))
         assert len(keyterms) > 0
         assert_equal(keyterms[0][0], "distinctive")
-        
+
         r = s.search(query.Term("path", u("b")))
         keyterms2 = list(r.key_terms("content"))
         assert len(keyterms2) > 0
         assert_equal(keyterms2[0][0], "distinctive")
-    
+
 def test_lengths():
     schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     w.add_document(id=1, text=u("alfa bravo charlie delta echo"))
     w.add_document(id=2, text=u("bravo charlie delta echo foxtrot"))
@@ -370,7 +370,7 @@ def test_lengths():
     w.add_document(id=7, text=u("golf needle india juliet kilo"))
     w.add_document(id=8, text=u("hotel india juliet needle lima"))
     w.commit()
-    
+
     with ix.searcher() as s:
         q = query.Or([query.Term("text", u("needle")), query.Term("text", u("charlie"))])
         r = s.search(q, limit=2)
@@ -391,12 +391,12 @@ def test_lengths2():
                 count += 1
             w.add_document(text=u(" ").join(ls))
         w.commit(merge=False)
-    
+
     with ix.searcher() as s:
         q = query.Or([query.Term("text", u("bravo")), query.Term("text", u("charlie"))])
         r = s.search(q, limit=None)
         assert_equal(len(r), count)
-        
+
         r = s.search(q, limit=3)
         assert_equal(len(r), count)
 
@@ -408,7 +408,7 @@ def test_stability():
     for ls in permutations(domain, 3):
         w.add_document(text=u(" ").join(ls))
     w.commit()
-    
+
     with ix.searcher() as s:
         q = query.Term("text", u("bravo"))
         last = []
@@ -428,7 +428,7 @@ def test_contains():
     w.add_document(text=u("charlie delta echo"))
     w.add_document(text=u("delta echo foxtrot"))
     w.commit()
-    
+
     q = query.Or([query.Term("text", "bravo"), query.Term("text", "charlie")])
     r = ix.searcher().search(q, terms=True)
     for hit in r:
@@ -446,14 +446,14 @@ def test_terms():
     w.add_document(text=u("charlie delta echo"))
     w.add_document(text=u("delta echo foxtrot"))
     w.commit()
-    
+
     qp = qparser.QueryParser("text", ix.schema)
     q = qp.parse(u("(bravo AND charlie) OR foxtrot OR missing"))
     r = ix.searcher().search(q, terms=True)
-    
+
     def txts(tset):
         return sorted(t[1] for t in tset)
-    
+
     assert_equal(txts(r.matched_terms()), ["bravo", "charlie", "foxtrot"])
     for hit in r:
         value = hit["text"]
