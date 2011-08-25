@@ -126,8 +126,26 @@ class Searcher(object):
         return self.__class__(reader, fromindex=self._ix,
                               weighting=self.weighting, parent=self)
 
+    def _offset_for_subsearcher(self, subsearcher):
+        for ss, offset in self.subsearchers:
+            if ss is subsearcher:
+                return offset
+
     def is_atomic(self):
         return self.reader().is_atomic()
+
+    def has_parent(self):
+        return self.parent is not None
+
+    def get_parent(self):
+        """Returns the parent of this searcher (if has_parent() is True), or
+        else self.
+        """
+
+        if self.has_parent():
+            return self.parent()
+        else:
+            return self
 
     def doc_count(self):
         """Returns the number of UNDELETED documents in the index.
@@ -214,8 +232,7 @@ class Searcher(object):
             # on an empty index.
             return None
 
-        s = self.parent() if self.parent else self
-        return self.weighting.scorer(s, fieldname, text, qf=qf)
+        return self.weighting.scorer(self, fieldname, text, qf=qf)
 
     def postings(self, fieldname, text, qf=1):
         """Returns a :class:`whoosh.matching.Matcher` for the postings of the

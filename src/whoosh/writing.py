@@ -195,7 +195,11 @@ class IndexWriter(object):
         
             writer.add_document(a="alfa", b="bravo", c="charlie",
                                 _boost=2.0, _c_boost=3.0)
-            
+        
+        Note that some scoring algroithms, including Whoosh's default BM25F,
+        do not work with term weights less than 1, so you should generally not
+        use a boost factor less than 1.
+        
         See also :meth:`Writer.update_document`.
         """
 
