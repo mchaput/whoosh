@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 import copy
@@ -25,21 +23,21 @@ def test_all_terms():
 def test_existing_terms():
     s = fields.Schema(key=fields.ID, value=fields.TEXT)
     ix = RamStorage().create_index(s)
-    
+
     w = ix.writer()
     w.add_document(key=u("a"), value=u("alfa bravo charlie delta echo"))
     w.add_document(key=u("b"), value=u("foxtrot golf hotel india juliet"))
     w.commit()
-    
+
     r = ix.reader()
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
-    
+
     ts = q.existing_terms(r, phrases=False)
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
-    
+
     ts = q.existing_terms(r)
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "bravo"), ("value", "hotel")])
-    
+
     ts = set()
     q.existing_terms(r, ts, reverse=True)
     assert_equal(sorted(ts), [("value", "sierra"), ("value", "tango")])
@@ -47,39 +45,39 @@ def test_existing_terms():
 def test_wildcard_existing_terms():
     s = fields.Schema(key=fields.ID, value=fields.TEXT)
     ix = RamStorage().create_index(s)
-    
+
     w = ix.writer()
     w.add_document(key=u("a"), value=u("alfa bravo bear charlie delta"))
     w.add_document(key=u("a"), value=u("boggle echo render rendering renders"))
     w.commit()
     r = ix.reader()
     qp = QueryParser("value", ix.schema)
-    
+
     def words(terms):
         z = []
         for t in terms:
             assert t[0] == "value"
             z.append(t[1])
         return " ".join(sorted(z))
-    
+
     q = qp.parse(u("b*"))
     ts = q.existing_terms(r)
     assert_equal(ts, set())
     ts = q.existing_terms(r, expand=True)
     assert_equal(words(ts), "bear boggle bravo")
-    
+
     q = qp.parse(u("[a TO f]"))
     ts = q.existing_terms(r)
     assert_equal(ts, set())
     ts = q.existing_terms(r, expand=True)
     assert_equal(words(ts), "alfa bear boggle bravo charlie delta echo")
-    
+
     q = query.Variations("value", "render")
     ts = q.existing_terms(r, expand=False)
     assert_equal(ts, set())
     ts = q.existing_terms(r, expand=True)
     assert_equal(words(ts), "render rendering renders")
-    
+
 def test_replace():
     q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2), Variations("a", "b", boost=2.0)])
     q = q.replace("a", "b", "BB")
@@ -92,12 +90,12 @@ def test_apply():
             q.text = q.text.upper()
             return q
         return q.apply(visit)
-    
+
     before = And([Not(Term("a", u("b"))), Variations("a", u("c")), Not(FuzzyTerm("a", u("d")))])
     after = visit(before)
     assert_equal(after, And([Not(Term("a", u("B"))), Variations("a", u("C")),
                              Not(FuzzyTerm("a", u("D")))]))
-    
+
     def term2var(q):
         if isinstance(q, Term):
             return Variations(q.fieldname, q.text)
@@ -114,7 +112,7 @@ def test_accept():
         if isinstance(q, Phrase):
             q.boost *= 2.0
         return q
-    
+
     before = And([Term("a", u("b")), Or([Term("c", u("d")), Phrase("a", [u("e"), u("f")])]),
                   Phrase("a", [u("g"), u("h")], boost=0.25)])
     after = before.accept(boost_phrases)
@@ -129,49 +127,49 @@ def test_accept():
 def test_simplify():
     s = fields.Schema(k=fields.ID, v=fields.TEXT)
     ix = RamStorage().create_index(s)
-    
+
     w = ix.writer()
     w.add_document(k=u("1"), v=u("aardvark apple allan alfa bear bee"))
     w.add_document(k=u("2"), v=u("brie glue geewhiz goop julia"))
     w.commit()
-    
+
     r = ix.reader()
     q1 = And([Prefix("v", "b", boost=2.0), Term("v", "juliet")])
     q2 = And([Or([Term('v', u('bear'), boost=2.0), Term('v', u('bee'), boost=2.0),
                   Term('v', u('brie'), boost=2.0)]), Term('v', 'juliet')])
     assert_equal(q1.simplify(r), q2)
-    
+
 def test_merge_ranges():
     q = And([TermRange("f1", u("a"), None), TermRange("f1", None, u("z"))])
     assert_equal(q.normalize(), TermRange("f1", u("a"), u("z")))
-    
+
     q = And([NumericRange("f1", None, u("aaaaa")), NumericRange("f1", u("zzzzz"), None)])
     assert_equal(q.normalize(), q)
-    
+
     q = And([TermRange("f1", u("a"), u("z")), TermRange("f1", "b", "x")])
     assert_equal(q.normalize(), TermRange("f1", u("a"), u("z")))
-    
+
     q = And([TermRange("f1", u("a"), u("m")), TermRange("f1", u("f"), u("q"))])
     assert_equal(q.normalize(), TermRange("f1", u("f"), u("m")))
-    
+
     q = Or([TermRange("f1", u("a"), u("m")), TermRange("f1", u("f"), u("q"))])
     assert_equal(q.normalize(), TermRange("f1", u("a"), u("q")))
-    
+
     q = Or([TermRange("f1", u("m"), None), TermRange("f1", None, u("n"))])
     assert_equal(q.normalize(), Every("f1"))
-    
+
     q = And([Every("f1"), Term("f1", "a"), Variations("f1", "b")])
     assert_equal(q.normalize(), Every("f1"))
-    
+
     q = Or([Term("f1", u("q")), TermRange("f1", u("m"), None), TermRange("f1", None, u("n"))])
     assert_equal(q.normalize(), Every("f1"))
-    
+
     q = And([Or([Term("f1", u("a")), Term("f1", u("b"))]), Every("f1")])
     assert_equal(q.normalize(), Every("f1"))
-    
+
     q = And([Term("f1", u("a")), And([Or([Every("f1")])])])
     assert_equal(q.normalize(), Every("f1"))
-    
+
 def test_normalize_compound():
     def oq():
         return Or([Term("a", u("a")), Term("a", u("b"))])
@@ -179,8 +177,8 @@ def test_normalize_compound():
         if level == 0:
             return oq()
         else:
-            return Or([nq(level-1), nq(level-1), nq(level-1)])
-    
+            return Or([nq(level - 1), nq(level - 1), nq(level - 1)])
+
     q = nq(7)
     q = q.normalize()
     assert_equal(q, Or([Term("a", u("a")), Term("a", u("b"))]))
@@ -188,16 +186,16 @@ def test_normalize_compound():
 def test_duplicates():
     q = And([Term("a", u("b")), Term("a", u("b"))])
     assert_equal(q.normalize(), Term("a", u("b")))
-    
+
     q = And([Prefix("a", u("b")), Prefix("a", u("b"))])
     assert_equal(q.normalize(), Prefix("a", u("b")))
-    
+
     q = And([Variations("a", u("b")), And([Variations("a", u("b")), Term("a", u("b"))])])
     assert_equal(q.normalize(), And([Variations("a", u("b")), Term("a", u("b"))]))
-    
+
     q = And([Term("a", u("b")), Prefix("a", u("b")), Term("a", u("b"), boost=1.1)])
     assert_equal(q.normalize(), q)
-    
+
     # Wildcard without * or ? normalizes to Term
     q = And([Wildcard("a", u("b")), And([Wildcard("a", u("b")), Term("a", u("b"))])])
     assert_equal(q.normalize(), Term("a", u("b")))
@@ -210,7 +208,7 @@ def test_query_copy_hash():
         assert_equal(q1, q1a)
         assert_equal(hash(q1), hash(q1a))
         assert_not_equal(q1, q2)
-        
+
     do(Term("a", u("b"), boost=1.1), Term("a", u("b"), boost=1.5))
     do(And([Term("a", u("b")), Term("c", u("d"))], boost=1.1),
        And([Term("a", u("b")), Term("c", u("d"))], boost=1.5))
@@ -258,7 +256,7 @@ def test_query_copy_hash():
     # do(AndMaybe)
     # do(AndNot)
     # do(Otherwise)
-    
+
     do(SpanFirst(Term("a", u("b")), limit=1), SpanFirst(Term("a", u("b")), limit=2))
     do(SpanNear(Term("a", u("b")), Term("c", u("d"))),
        SpanNear(Term("a", u("b")), Term("c", u("e"))))
@@ -287,34 +285,34 @@ def test_requires():
 
 def test_highlight_daterange():
     from datetime import datetime
-    
+
     schema = fields.Schema(id=fields.ID(unique=True, stored=True),
                            title=fields.TEXT(stored=True),
                            content=fields.TEXT(stored=True),
                            released=fields.DATETIME(stored=True))
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     w.update_document(
         id=u('1'),
         title=u('Life Aquatic'),
         content=u('A nautic film crew sets out to kill a gigantic shark.'),
-        released=datetime(2004,12,25)
+        released=datetime(2004, 12, 25)
     )
     w.update_document(
         id=u('2'),
         title=u('Darjeeling Limited'),
         content=u('Three brothers meet in India for a life changing train journey.'),
-        released=datetime(2007,10,27)
+        released=datetime(2007, 10, 27)
     )
     w.commit()
-    
+
     s = ix.searcher()
     r = s.search(Term('content', u('train')), terms=True)
     assert_equal(len(r), 1)
     assert_equal(r[0]["id"], "2")
     assert_equal(r[0].highlights("content"), 'for a life changing <b class="match term0">train</b> journey')
-    
-    r = s.search(DateRange('released', datetime(2007,1,1), None))
+
+    r = s.search(DateRange('released', datetime(2007, 1, 1), None))
     assert_equal(len(r), 1)
     assert_equal(r[0].highlights("content"), '')
