@@ -1153,6 +1153,28 @@ class PatternQuery(MultiTerm):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
                 ^ hash(self.constantscore))
 
+    def _get_pattern(self):
+        raise NotImplementedError
+
+    def _find_prefix(self, text):
+        specialchars = self.SPECIAL_CHARS
+        for i, char in enumerate(self.text):
+            if char in specialchars:
+                break
+        return self.text[:i]
+
+    def _words(self, ixreader):
+        exp = re.compile(self._get_pattern())
+        prefix = self._find_prefix(self.text)
+        if prefix:
+            candidates = ixreader.expand_prefix(self.fieldname, prefix)
+        else:
+            candidates = ixreader.lexicon(self.fieldname)
+
+        for text in candidates:
+            if exp.match(text):
+                yield text
+
 
 class Prefix(PatternQuery):
     """Matches documents that contain any terms that start with the given text.
@@ -1171,40 +1193,21 @@ class Prefix(PatternQuery):
 
 
 class Wildcard(PatternQuery):
-    """Matches documents that contain any terms that match a wildcard
-    expression.
+    """Matches documents that contain any terms that match a "glob" pattern.
+    See the Python ``fnmatch`` module for information about globs.
     
     >>> Wildcard("content", u"in*f?x")
     """
+
+    SPECIAL_CHARS = frozenset("*?")
 
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
 
     __str__ = __unicode__
 
-    def _words(self, ixreader):
-        exp = re.compile(fnmatch.translate(self.text))
-
-        # Get the "prefix" -- the substring before the first wildcard.
-        qm = self.text.find("?")
-        st = self.text.find("*")
-        if qm < 0 and st < 0:
-            prefix = ""
-        elif qm < 0:
-            prefix = self.text[:st]
-        elif st < 0:
-            prefix = self.text[:qm]
-        else:
-            prefix = self.text[:min(st, qm)]
-
-        if prefix:
-            candidates = ixreader.expand_prefix(self.fieldname, prefix)
-        else:
-            candidates = ixreader.lexicon(self.fieldname)
-
-        for text in candidates:
-            if exp.match(text):
-                yield text
+    def _get_pattern(self):
+        return fnmatch.translate(self.text)
 
     def normalize(self):
         # If there are no wildcard characters in this "wildcard", turn it into
@@ -1215,15 +1218,38 @@ class Wildcard(PatternQuery):
         if "*" not in text and "?" not in text:
             # If no wildcard chars, convert to a normal term.
             return Term(self.fieldname, self.text, boost=self.boost)
-        elif ("?" not in text
-              and text.endswith("*")
-              and text.find("*") == len(text) - 1
-              and (len(text) < 2 or text[-2] != "\\")):
+        elif ("?" not in text and text.endswith("*")
+              and text.find("*") == len(text) - 1):
             # If the only wildcard char is an asterisk at the end, convert to a
             # Prefix query.
             return Prefix(self.fieldname, self.text[:-1], boost=self.boost)
         else:
             return self
+
+
+class Regex(PatternQuery):
+    """Matches documents that contain any terms that match a regular
+    expression. See the Python ``re`` module for information about regular
+    expressions.
+    """
+
+    SPECIAL_CHARS = frozenset("{}()[].?+^$\\")
+
+    def __unicode__(self):
+        return '%s:r"%s"' % (self.fieldname, self.text)
+
+    __str__ = __unicode__
+
+    def _get_pattern(self, text):
+        return text
+
+    def _get_prefix(self, text):
+        if "|" in text:
+            return ""
+        if text.startswith("^") or text.startswith("\\A"):
+            text = text[1:]
+
+        return PatternQuery._find_prefx(self, text)
 
 
 class ExpandingTerm(MultiTerm):
