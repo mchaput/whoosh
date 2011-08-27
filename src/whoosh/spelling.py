@@ -37,14 +37,7 @@ from whoosh.support import dawg
 from whoosh.support.levenshtein import distance
 
 
-# Suggestion scorers
-
-def simple_scorer(word, cost):
-    """Ranks suggestions by the edit distance.
-    """
-
-    return (cost, 0)
-
+# Corrector objects
 
 class Corrector(object):
     """Base class for spelling correction objects. Concrete sub-classes should
@@ -53,7 +46,8 @@ class Corrector(object):
 
     def suggest(self, text, limit=5, maxdist=2, prefix=0):
         """
-        :param text: the text to check.
+        :param text: the text to check. This word will **not** be added to the
+            suggestions, even if it appears in the word graph.
         :param limit: only return up to this many suggestions. If there are not
             enough terms in the field within ``maxdist`` of the given word, the
             returned list will be shorter than this number.
@@ -69,12 +63,13 @@ class Corrector(object):
         _suggestions = self._suggestions
 
         heap = []
-        seen = set()
+        seen = set([text])
         for k in xrange(1, maxdist + 1):
             for item in _suggestions(text, k, prefix, seen):
+                # Note that the *higher* scores (item[0]) are better!
                 if len(heap) < limit:
                     heappush(heap, item)
-                elif item < heap[0]:
+                elif item > heap[0]:
                     heapreplace(heap, item)
 
             # If the heap is already at the required length, don't bother going
@@ -82,7 +77,8 @@ class Corrector(object):
             if len(heap) >= limit:
                 break
 
-        return [sug for _, sug in sorted(heap)]
+        sugs = sorted(heap, key=lambda item: (0 - item[0], item[1]))
+        return [sug for _, sug in sugs]
 
     def _suggestions(self, text, maxdist, prefix, seen):
         """Low-level method that yields a series of (score, "suggestion")
@@ -114,7 +110,9 @@ class ReaderCorrector(Corrector):
         freq = self.reader.frequency
         for sug in self.reader.terms_within(fieldname, text, maxdist,
                                             prefix=prefix, seen=seen):
-            yield ((maxdist, 0 - freq(fieldname, sug)), sug)
+            # Higher scores are better, so negate the distance and frequency
+            score = 0 - (maxdist + (1.0 / freq(fieldname, sug) * 0.5))
+            yield (score, sug)
 
 
 class GraphCorrector(Corrector):
@@ -123,15 +121,14 @@ class GraphCorrector(Corrector):
     By default ranks suggestions based on the edit distance.
     """
 
-    def __init__(self, word_graph, ranking=None):
+    def __init__(self, word_graph):
         self.word_graph = word_graph
-        self.ranking = ranking or simple_scorer
 
     def _suggestions(self, text, maxdist, prefix, seen):
-        ranking = self.ranking
         for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
                                seen=seen):
-            yield (ranking(sug, maxdist), sug)
+            # Higher scores are better, so negate the edit distance
+            yield (0 - maxdist, sug)
 
     def to_file(self, f):
         """
@@ -144,19 +141,19 @@ class GraphCorrector(Corrector):
         dawg.DawgWriter(f).write(root)
 
     @classmethod
-    def from_word_list(cls, wordlist, ranking=None, strip=True):
+    def from_word_list(cls, wordlist, strip=True):
         dw = dawg.DawgBuilder(reduced=False)
         for word in wordlist:
             if strip:
                 word = word.strip()
             dw.insert(word)
         dw.finish()
-        return cls(dw.root, ranking=ranking)
+        return cls(dw.root)
 
     @classmethod
-    def from_graph_file(cls, dbfile, ranking=None):
+    def from_graph_file(cls, dbfile):
         dr = dawg.DiskNode.load(dbfile)
-        return cls(dr, ranking=ranking)
+        return cls(dr)
 
 
 class MultiCorrector(Corrector):

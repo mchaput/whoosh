@@ -434,6 +434,7 @@ class IndexReader(ClosableMixin):
         """
 
         from whoosh.spelling import ReaderCorrector
+
         return ReaderCorrector(self, fieldname)
 
     def terms_within(self, fieldname, text, maxdist, prefix=0, seen=None):
@@ -460,8 +461,8 @@ class IndexReader(ClosableMixin):
             for word in self.expand_prefix(fieldname, text[:prefix]):
                 if word in seen:
                     continue
-                if (word == text
-                    or distance(word, text, limit=maxdist) <= maxdist):
+                k = distance(word, text, limit=maxdist)
+                if k <= maxdist:
                     yield word
                     seen.add(word)
 
