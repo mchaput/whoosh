@@ -404,7 +404,9 @@ StoredFieldFacet
 ----------------
 
 This facet lets you use stored field values as the sorting/grouping key for
-documents. This is
+documents. This is usually slower than using an indexed field, but when using
+``allow_overlap`` it can actually be faster for large indexes just because it
+avoids the overhead of reading posting lists.
 
 :class:`~whoosh.sorting.StoredFieldFacet` supports ``allow_overlap`` by
 splitting the stored value into separate keys. By default it calls the value's
