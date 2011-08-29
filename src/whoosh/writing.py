@@ -282,13 +282,22 @@ class IndexWriter(object):
 
         # Delete the set of documents matching the unique terms
         unique_fields = self._unique_fields(fields)
-        with self.searcher() as s:
-            for docnum in s._find_unique([(name, fields[name])
-                                          for name in unique_fields]):
-                self.delete_document(docnum)
+        if unique_fields:
+            with self.searcher() as s:
+                for docnum in s._find_unique([(name, fields[name])
+                                              for name in unique_fields]):
+                    self.delete_document(docnum)
 
         # Add the given fields
         self.add_document(**fields)
+
+    def add_document_group(self, docs):
+        for doc in docs:
+            self.add_document(**doc)
+
+    def update_document_group(self, docs):
+        for doc in docs:
+            self.update_document(**doc)
 
     def commit(self):
         """Finishes writing and unlocks the index.

@@ -2128,13 +2128,17 @@ class NestedDocument(WrappingQuery):
     def matcher(self, searcher):
         comb = searcher._filter_to_comb(self.parents)
         m = self.child.matcher(searcher)
-        return self.NestedDocumentMatcher(comb, m)
+        return self.NestedDocumentMatcher(comb, m, self.score_fn)
 
     class NestedDocumentMatcher(Matcher):
-        def __init__(self, comb, child):
-            WrappingMatcher.__init__(self, child)
+        def __init__(self, comb, child, score_fn):
             self.comb = comb
+            self.child = child
+            self.score_fn = score_fn
             self._gather()
+
+        def is_active(self):
+            return self._nextdoc is not None
 
         def supports_block_quality(self):
             return False
@@ -2154,7 +2158,7 @@ class NestedDocument(WrappingQuery):
                    and self._parent(child.id()) == parent):
                 scores.append(child.score())
                 child.next()
-            self._nextwt = self.score_fn(scores)
+            self._nextscore = self.score_fn(scores)
 
         def id(self):
             return self._nextdoc
@@ -2167,12 +2171,15 @@ class NestedDocument(WrappingQuery):
             self._gather()
 
         def next(self):
-            if not self.child.is_active():
-                from whoosh.matching import ReadTooFar
+            if self.child.is_active():
+                self._gather()
+            else:
+                if self._nextdoc is None:
+                    from whoosh.matching import ReadTooFar
 
-                raise ReadTooFar
-
-            self._gather()
+                    raise ReadTooFar
+                else:
+                    self._nextdoc = None
 
         def skip_to(self, id):
             self.child.skip_to(id)

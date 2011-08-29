@@ -155,6 +155,13 @@ class MultiSegmentWriter(IndexWriter):
         if len(self.docbuffer) >= self.bufferlimit:
             self._enqueue()
 
+    def add_document_group(self, docs):
+        # Add the documents to the doc buffer all at once
+        self.docbuffer.extend(docs)
+        # THEN check if the buffer is too big
+        if len(self.docbuffer) >= self.bufferlimit:
+            self._enqueue()
+
     def commit(self, **kwargs):
         try:
             # index the remaining stuff in self.docbuffer
