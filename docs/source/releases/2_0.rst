@@ -2,6 +2,22 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.3
+==========
+
+* Added a :class:`whoosh.query.Regex` term query type, similar to
+  :class:`whoosh.query.Wildcard`. The parser does not allow regex term queries
+  by default. You need to add the :class:`whoosh.qparser.RegexPlugin` plugin.
+  After you add the plugin, you can use ``r"expression"`` query syntax for
+  regular expression term queries. For example, ``r"foo.*bar"``.
+
+* Added the :class:`whoosh.qparser.PseudoFieldPlugin` parser plugin. This
+  plugin lets you create "pseudo-fields" that run a transform function on
+  whatever query syntax the user applies the field to. This is fairly advanced
+  functionality right now; I'm trying to think of ways to make its power easier
+  to access.
+
+
 Whoosh 2.2
 ==========
 

@@ -33,6 +33,7 @@ Query classes
 .. autoclass:: Not
 .. autoclass:: Prefix
 .. autoclass:: Wildcard
+.. autoclass:: Regex
 .. autoclass:: TermRange
 .. autoclass:: NumericRange
 .. autoclass:: DateRange
