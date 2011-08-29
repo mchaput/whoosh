@@ -258,7 +258,7 @@ def test_correct_query():
     assert_equal(c.string, 'alfa b:("brovo november" a:delta) detail')
 
     hf = highlight.HtmlFormatter(classname="c")
-    assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:<strong class="c term1">delta</strong>) detail')
+    assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:delta) detail')
 
 def test_bypass_stemming():
     from whoosh.support.dawg import flatten
