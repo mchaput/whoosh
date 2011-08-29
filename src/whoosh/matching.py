@@ -1330,8 +1330,7 @@ class AndNotMatcher(BiMatcher):
         self._find_first()
 
     def _find_first(self):
-        if (self.a.is_active()
-            and self.b.is_active()
+        if (self.a.is_active() and self.b.is_active()
             and self.a.id() == self.b.id()):
             self._find_next()
 

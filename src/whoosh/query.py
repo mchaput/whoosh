@@ -43,7 +43,8 @@ from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
-                             WrappingMatcher, AndNotMatcher, NullMatcherClass)
+                             WrappingMatcher, AndNotMatcher, NullMatcherClass,
+                             Matcher)
 from whoosh.reading import TermNotFound
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
@@ -2104,6 +2105,82 @@ class Otherwise(BinaryQuery):
         if not m.is_active():
             m = self.b.matcher(searcher)
         return m
+
+
+class NestedDocument(WrappingQuery):
+    def __init__(self, parents, q, score_fn=sum):
+        self.parents = parents
+        self.child = q
+        self.score_fn = score_fn
+
+    def normalize(self):
+        p = self.parents.normalize()
+        q = self.q.normalize()
+
+        if p is NullQuery or q is NullQuery:
+            return NullQuery
+
+        return self.__class__(p, q)
+
+    def requires(self):
+        return self.q.requires()
+
+    def matcher(self, searcher):
+        comb = searcher._filter_to_comb(self.parents)
+        m = self.child.matcher(searcher)
+        return self.NestedDocumentMatcher(comb, m)
+
+    class NestedDocumentMatcher(Matcher):
+        def __init__(self, comb, child):
+            WrappingMatcher.__init__(self, child)
+            self.comb = comb
+            self._gather()
+
+        def supports_block_quality(self):
+            return False
+
+        def _parent(self, docid):
+            comb = self.comb
+            while docid > 0 and docid not in comb:
+                docid -= 1
+            return docid
+
+        def _gather(self):
+            child = self.child
+            scores = [child.score()]
+            self._nextdoc = parent = self._parent(child.id())
+
+            while (child.is_active()
+                   and self._parent(child.id()) == parent):
+                scores.append(child.score())
+                child.next()
+            self._nextwt = self.score_fn(scores)
+
+        def id(self):
+            return self._nextdoc
+
+        def score(self):
+            return self._nextscore
+
+        def reset(self):
+            self.child.reset()
+            self._gather()
+
+        def next(self):
+            if not self.child.is_active():
+                from whoosh.matching import ReadTooFar
+
+                raise ReadTooFar
+
+            self._gather()
+
+        def skip_to(self, id):
+            self.child.skip_to(id)
+            self._gather()
+
+        def value(self):
+            raise NotImplementedError(self.__class__)
+
 
 
 def BooleanQuery(required, should, prohibited):
