@@ -28,10 +28,7 @@
 """ Contains functions and classes related to fields.
 """
 
-import datetime
-import fnmatch
-import re
-import sys
+import datetime, fnmatch, re, struct, sys
 from decimal import Decimal
 
 from whoosh import formats
@@ -50,10 +47,11 @@ from whoosh.support.times import datetime_to_long
 # fields. There's no "out-of-band" value possible (except for floats, where we
 # use NaN), so we try to be conspicuous at least by using the maximum possible
 # value
+NaN = struct.unpack("<f", '\x00\x00\xc0\xff')[0]
 NUMERIC_DEFAULTS = {"b": 2 ** 7 - 1, "B": 2 ** 8 - 1, "h": 2 ** 15 - 1,
                     "H": 2 ** 16 - 1, "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
-                    "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1, "f": float("nan"),
-                    "d": float("nan"),
+                    "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1, "f": NaN,
+                    "d": NaN,
                     }
 DEFAULT_LONG = NUMERIC_DEFAULTS["q"]
 
