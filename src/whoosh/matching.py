@@ -418,7 +418,7 @@ class ListMatcher(Matcher):
             return self
 
     def max_quality(self):
-        return self._scorer.max_quality
+        return self.block_max_weight()
 
     def supports_block_quality(self):
         return (self._scorer is not None
