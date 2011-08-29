@@ -2108,9 +2108,10 @@ class Otherwise(BinaryQuery):
 
 
 class NestedDocument(WrappingQuery):
-    def __init__(self, parents, q, score_fn=sum):
+    def __init__(self, parents, q, per_parent_limit=None, score_fn=sum):
         self.parents = parents
         self.child = q
+        self.per_parent_limit = per_parent_limit
         self.score_fn = score_fn
 
     def normalize(self):
@@ -2128,12 +2129,14 @@ class NestedDocument(WrappingQuery):
     def matcher(self, searcher):
         comb = searcher._filter_to_comb(self.parents)
         m = self.child.matcher(searcher)
-        return self.NestedDocumentMatcher(comb, m, self.score_fn)
+        return self.NestedDocumentMatcher(comb, m, self.per_parent_limit,
+                                          self.score_fn)
 
     class NestedDocumentMatcher(Matcher):
-        def __init__(self, comb, child, score_fn):
+        def __init__(self, comb, child, per_parent_limit, score_fn):
             self.comb = comb
             self.child = child
+            self.per_parent_limit = per_parent_limit
             self.score_fn = score_fn
             self._gather()
 
@@ -2151,13 +2154,25 @@ class NestedDocument(WrappingQuery):
 
         def _gather(self):
             child = self.child
+            pplimit = self.per_parent_limit
             scores = [child.score()]
             self._nextdoc = parent = self._parent(child.id())
 
+            count = 1
             while (child.is_active()
                    and self._parent(child.id()) == parent):
+                if pplimit and count > pplimit:
+                    comb = self.comb
+                    docid = child.id()
+                    while docid not in comb:
+                        docid += 1
+                    child.skip_to(docid)
+                    break
+
                 scores.append(child.score())
                 child.next()
+                count += 1
+
             self._nextscore = self.score_fn(scores)
 
         def id(self):
