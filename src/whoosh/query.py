@@ -1246,10 +1246,12 @@ class Regex(PatternQuery):
     def _get_prefix(self, text):
         if "|" in text:
             return ""
-        if text.startswith("^") or text.startswith("\\A"):
+        if text.startswith("^"):
             text = text[1:]
+        elif text.startswith("\\A"):
+            text = text[2:]
 
-        return PatternQuery._find_prefx(self, text)
+        return PatternQuery._find_prefix(self, text)
 
 
 class ExpandingTerm(MultiTerm):

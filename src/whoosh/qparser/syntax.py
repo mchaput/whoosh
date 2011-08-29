@@ -268,6 +268,11 @@ class GroupNode(SyntaxNode):
         for node in self.nodes:
             node.set_fieldname(name, override=override)
 
+    def set_range(self, startchar, endchar):
+        for node in self.nodes:
+            node.set_range(startchar, endchar)
+        return self
+
     # List-like methods
 
     def __nonzero__(self):

@@ -31,6 +31,7 @@ Plug-ins
 .. autoclass:: SingleQuotePlugin
 .. autoclass:: PrefixPlugin
 .. autoclass:: WildcardPlugin
+.. autoclass:: RegexPlugin
 .. autoclass:: BoostPlugin
 .. autoclass:: GroupPlugin
 .. autoclass:: EveryPlugin
