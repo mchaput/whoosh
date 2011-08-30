@@ -4,6 +4,8 @@
 
 .. automodule:: whoosh.support.bitvector
 
-.. autoclass:: BitVector
+.. autoclass:: Bits
 	:members:
 
+.. autoclass:: BitSet
+    :members:

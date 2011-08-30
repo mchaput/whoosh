@@ -41,7 +41,7 @@ from whoosh import classify, highlight, query, scoring, sorting
 from whoosh.compat import (iteritems, itervalues, iterkeys, xrange, text_type,
                            string_type)
 from whoosh.reading import TermNotFound
-from whoosh.support.bitvector import BitSet, BitVector
+from whoosh.support.bitvector import BitSet, Bits
 from whoosh.util import now, lru_cache
 
 
@@ -373,7 +373,7 @@ class Searcher(object):
     def _filter_to_comb(self, obj):
         if obj is None:
             return None
-        if isinstance(obj, (set, BitVector, BitSet)):
+        if isinstance(obj, (set, Bits, BitSet)):
             c = obj
         elif isinstance(obj, Results):
             c = obj.docset

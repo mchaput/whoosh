@@ -7,6 +7,7 @@ from array import array
 
 from whoosh.compat import xrange
 
+
 #: Table of the number of '1' bits in each byte (0-255)
 BYTE_COUNTS = array('B', [
     0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
@@ -27,90 +28,108 @@ BYTE_COUNTS = array('B', [
     4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8])
 
 
-class BitVector(object):
-    """
-    Implements a memory-efficient array of bits.
+class Bits(object):
+    """A set of positive integers backed by an array of bits. This can be
+    useful for storing document numbers, or as a bit array (e.g. for a Bloom
+    filter). It is much more memory efficient than a large Python set of
+    integers, but wastes memory for sparse sets, and is slower than the
+    built-in set object.
     
-    >>> bv = BitVector(10)
-    >>> bv
-    <BitVector 0000000000>
-    >>> bv[5] = True
-    >>> bv
-    <BitVector 0000010000>
+    >>> b = Bits(10)
+    >>> b
+    <Bits 0000000000>
+    >>> b.add(5)
+    >>> b
+    <Bits 0000010000>
     
-    You can initialize the BitVector using an iterable of integers representing
-    bit positions to turn on.
+    You can initialize the Bits using a sequence of integers.
     
-    >>> bv2 = BitVector(10, [2, 4, 7])
-    >>> bv2
-    <BitVector 00101001000>
-    >>> bv[2]
+    >>> b2 = Bits(10, [2, 4, 7])
+    >>> b2
+    <Bits 00101001000>
+    >>> 2 in b2
     True
     
-    BitVector supports bit-wise logic operations & (and), | (or), and ^ (xor)
-    between itself and another BitVector of equal size, or itself and a
+    Bits supports bit-wise logic operations & (and), | (or), and ^ (xor)
+    between itself and another Bits of equal size, or itself and a
     collection of integers (usually a set() or frozenset()).
     
-    >>> bv | bv2
-    <BitVector 00101101000>
+    >>> b | b2
+    <Bits 00101101000>
     
-    Note that ``BitVector.__len__()`` returns the number of "on" bits, not
-    the size of the bit array. This is to make BitVector interchangeable with
-    a set()/frozenset() of integers. To get the size, use BitVector.size.
+    Note that ``Bits.__len__()`` returns the count of integers in the set (that
+    is, the number of "on" bits in the array), not the size. To get the size,
+    use Bits.size.
+    
+    >>> len(b)
+    1
+    >>> b.size
+    10
     """
 
     def __init__(self, size, source=None, bits=None):
-        self.size = size
+        """
+        :param size: maximum integer this set can store (in other words, the
+            number of bits in the array).
+        :param source: an iterable of positive integers to add to this set.
+        :param bits: an array of unsigned bytes ("B") to use as the underlying
+            bit array. This is used by some of the object's methods.
+        """
 
+        self.size = size
+        self.bcount = None
         if bits:
             self.bits = bits
         else:
-            self.bits = array("B", ([0x00] * ((size >> 3) + 1)))
+            self.bits = array("B", (0 for _ in xrange(size // 8 + 1)))
 
         if source:
-            set = self.set
+            add = self.add
             for num in source:
-                set(num)
-
-        self.bcount = None
+                add(num)
 
     def __eq__(self, other):
-        if isinstance(other, BitVector):
+        if isinstance(other, Bits):
             return self.bits == other.bits
         return False
 
+    def __neq__(self, other):
+        return not self == other
+
+    def bin_digits(self):
+        """Returns a string of ones and zeros (e.g. ``"00010011100"``)
+        representing the underlying bit array. This is sometimes useful when
+        debugging.
+        """
+
+        contains = self.__contains__
+        return "".join("1" if contains(i) else "0"
+                       for i in xrange(0, self.size))
+
     def __repr__(self):
-        return "<BitVector %s/%s>" % (len(self), self.size)
+        r = "<Bits %s>" % self.bin_digits()
+        return r
 
     def __len__(self):
         # This returns the count of "on" bits instead of the size to
-        # make BitVector exchangeable with a set() object.
-        return self.count()
-
-    def __contains__(self, index):
-        byte = self.bits[index >> 3]
-        if not byte:
-            return False
-        return byte & (1 << (index & 7)) != 0
+        # make Bits exchangeable with a set() object.
+        if self.bcount is None:
+            self.bcount = sum(BYTE_COUNTS[b & 0xFF] for b in self.bits)
+        return self.bcount
 
     def __iter__(self):
-        get = self.__getitem__
+        contains = self.__contains__
         for i in xrange(0, self.size):
-            if get(i):
+            if contains(i):
                 yield i
 
-    def __str__(self):
-        get = self.__getitem__
-        return "".join("1" if get(i) else "0"
-                       for i in xrange(0, self.size))
-
     def __nonzero__(self):
-        return self.count() > 0
+        return any(n for n in self.bits)
 
     __bool__ = __nonzero__
 
     def __getitem__(self, index):
-        return self.bits[index >> 3] & (1 << (index & 7)) != 0
+        return self.bits[index // 8] & (1 << (index & 7)) != 0
 
     def __setitem__(self, index, value):
         if value:
@@ -120,8 +139,8 @@ class BitVector(object):
 
     def _logic(self, op, bitv):
         if self.size != bitv.size:
-            raise ValueError("Can't combine bitvectors of different sizes")
-        res = BitVector(size=self.size)
+            raise ValueError("Can't combine Bitss of different sizes")
+        res = Bits(size=self.size)
         lpb = list(map(op, self.bits, bitv.bits))
         res.bits = array('B', lpb)
         return res
@@ -133,13 +152,13 @@ class BitVector(object):
         return self.__and__(other)
 
     def __and__(self, other):
-        if not isinstance(other, BitVector):
-            other = BitVector(self.size, source=other)
+        if not isinstance(other, Bits):
+            other = Bits(self.size, source=other)
         return self._logic(operator.__and__, other)
 
     def __or__(self, other):
-        if not isinstance(other, BitVector):
-            other = BitVector(self.size, source=other)
+        if not isinstance(other, Bits):
+            other = Bits(self.size, source=other)
         return self._logic(operator.__or__, other)
 
     def __ror__(self, other):
@@ -149,34 +168,27 @@ class BitVector(object):
         return self.__and__(other)
 
     def __xor__(self, other):
-        if not isinstance(other, BitVector):
-            other = BitVector(self.size, source=other)
+        if not isinstance(other, Bits):
+            other = Bits(self.size, source=other)
         return self._logic(operator.__xor__, other)
 
     def __invert__(self):
-        return BitVector(self.size, source=(x for x in xrange(self.size)
-                                            if x not in self))
+        return Bits(self.size, bits=array("B", (~b & 0xFF for b in self.bits)))
 
-    def count(self):
-        """Returns the number of "on" bits in the bit array."""
+    def __contains__(self, index):
+        byte = self.bits[index // 8]
+        return byte and (byte & (1 << (index & 7)))
 
-        if self.bcount is None:
-            self.bcount = sum(BYTE_COUNTS[b & 0xFF] for b in self.bits)
-        return self.bcount
-
-    def set(self, index):
+    def add(self, index):
         """Turns the bit at the given position on."""
 
-        if index >= self.size:
-            raise IndexError("Position %s greater than the size of the vector"
-                             % repr(index))
-        self.bits[index >> 3] |= 1 << (index & 7)
+        self.bits[index // 8] |= 1 << (index & 7)
         self.bcount = None
 
-    def clear(self, index):
+    def remove(self, index):
         """Turns the bit at the given position off."""
 
-        self.bits[index >> 3] &= ~(1 << (index & 7))
+        self.bits[index // 8] &= ~(1 << (index & 7))
         self.bcount = None
 
     def update(self, iterable):
@@ -184,20 +196,70 @@ class BitVector(object):
         on the bits at those positions.
         """
 
-        set = self.set
+        add = self.add
         for index in iterable:
-            set(index)
+            add(index)
 
-    def copy(self):
-        """Returns a copy of this BitArray."""
+    def after(self, index):
+        """Returns the next integer in the set after ``index``, or None.
+        """
 
-        return BitVector(self.size, bits=self.bits)
+        size = self.size
+        bits = self.bits
+        if index >= size:
+            return None
+        elif index < 0:
+            index = 0
+        else:
+            index += 1
+        bucket = index // 8
 
+        while index < size:
+            byte = bits[bucket]
+            if not byte:
+                bucket += 1
+                index = bucket * 8
+                continue
+            if byte & (1 << (index & 7)):
+                return index
+            index += 1
+            if index % 8 == 0:
+                bucket += 1
+
+        return None
+
+    def before(self, index):
+        """Returns the previous integer in the set before ``index``, or None.
+        """
+
+        size = self.size
+        bits = self.bits
+        if index <= 0:
+            return None
+        elif index >= size:
+            index = size - 1
+        else:
+            index -= 1
+        bucket = index // 8
+
+        while index >= 0:
+            byte = bits[bucket]
+            if not byte:
+                bucket -= 1
+                index = bucket * 8 + 7
+                continue
+            if byte & (1 << (index & 7)):
+                return index
+            if index % 8 == 0:
+                bucket -= 1
+            index -= 1
+
+        return None
 
 class BitSet(object):
     """A set-like object for holding positive integers. It is dynamically
-    backed by either a set or BitVector depending on how many numbers are in
-    the set.
+    backed by either a set or a Bits object depending on how many numbers are
+    in the set, to save memory.
     
     Provides ``add``, ``remove``, ``union``, ``intersection``,
     ``__contains__``, ``__len__``, ``__iter__``, ``__and__``, ``__or__``, and
@@ -220,8 +282,8 @@ class BitSet(object):
             self.add = self._set_add
             self.remove = self._back.remove
         else:
-            self._back = BitVector(self.size, source=self._back)
-            self.add = self._back.set
+            self._back = Bits(self.size, source=self._back)
+            self.add = self._back.add
             self.remove = self._vec_remove
 
         self.update = self._back.update
