@@ -153,3 +153,4 @@ def test_bits():
     b = Bits(50, [49])
     assert_equal(b.after(0), 49)
 
+

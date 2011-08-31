@@ -44,7 +44,7 @@ class Bits(object):
     
     You can initialize the Bits using a sequence of integers.
     
-    >>> b2 = Bits(10, [2, 4, 7])
+    >>> b2 = Bits([2, 4, 7])
     >>> b2
     <Bits 00101001000>
     >>> 2 in b2
@@ -57,44 +57,72 @@ class Bits(object):
     >>> b | b2
     <Bits 00101101000>
     
-    Note that ``Bits.__len__()`` returns the count of integers in the set (that
-    is, the number of "on" bits in the array), not the size. To get the size,
-    use Bits.size.
-    
-    >>> len(b)
-    1
-    >>> b.size
-    10
+    Note that ``len(Bits)`` returns the count of integers in the set (that
+    is, the number of "on" bits in the array), not the size of the underlying
+    bytes array.
     """
 
-    def __init__(self, size, source=None, bits=None):
+    def __init__(self, maxsize, source=None, bits=None):
         """
-        :param size: maximum integer this set can store (in other words, the
-            number of bits in the array).
+        :param maxsize: the maximum size of the bit array.
         :param source: an iterable of positive integers to add to this set.
         :param bits: an array of unsigned bytes ("B") to use as the underlying
             bit array. This is used by some of the object's methods.
         """
 
-        self.size = size
+        self.size = maxsize
         self.bcount = None
         if bits:
             self.bits = bits
         else:
-            self.bits = array("B", (0 for _ in xrange(size // 8 + 1)))
+            self.bits = array("B")  #, (0 for _ in xrange(maxsize // 8 + 1)))
 
         if source:
             add = self.add
             for num in source:
                 add(num)
 
+    def trim(self):
+        bits = self.bits
+        last = len(self.bits) - 1
+        while last >= 0 and not bits[last]:
+            last -= 1
+        del self.bits[last + 1:]
+
+    def _resize(self, tosize):
+        curlength = len(self.bits)
+        newlength = tosize // 8 + 1
+        if newlength > curlength:
+            self.bits.extend(0 for _ in xrange(newlength - curlength))
+        elif newlength < curlength:
+            del self.bits[newlength + 1:]
+
+    def _fill(self):
+        curlength = len(self.bits)
+        fulllength = self.size // 8 + 1
+        if curlength < fulllength:
+            self.bits.extend(0 for _ in xrange(fulllength - curlength))
+        return self
+
+    def saving(self):
+        return (self.size // 8 + 1) - len(self.bits)
+
     def __eq__(self, other):
-        if isinstance(other, Bits):
-            return self.bits == other.bits
-        return False
+        from itertools import izip
+
+        if not isinstance(other, Bits):
+            return False
+        if self.size != other.size:
+            return False
+
+        for a, b in izip(self, other):
+            if a != b:
+                return False
+
+        return True
 
     def __neq__(self, other):
-        return not self == other
+        return not self.__eq__(other)
 
     def bin_digits(self):
         """Returns a string of ones and zeros (e.g. ``"00010011100"``)
@@ -107,14 +135,14 @@ class Bits(object):
                        for i in xrange(0, self.size))
 
     def __repr__(self):
-        r = "<Bits %s>" % self.bin_digits()
+        r = "<Bits %r>" % (list(self),)
         return r
 
     def __len__(self):
         # This returns the count of "on" bits instead of the size to
         # make Bits exchangeable with a set() object.
         if self.bcount is None:
-            self.bcount = sum(BYTE_COUNTS[b & 0xFF] for b in self.bits)
+            self.bcount = sum(BYTE_COUNTS[b] for b in self.bits)
         return self.bcount
 
     def __iter__(self):
@@ -137,19 +165,14 @@ class Bits(object):
         else:
             self.clear(index)
 
-    def _logic(self, op, bitv):
-        if self.size != bitv.size:
-            raise ValueError("Can't combine Bitss of different sizes")
-        res = Bits(size=self.size)
-        lpb = list(map(op, self.bits, bitv.bits))
-        res.bits = array('B', lpb)
-        return res
-
-    def union(self, other):
-        return self.__or__(other)
-
-    def intersection(self, other):
-        return self.__and__(other)
+    def _logic(self, op, other):
+        a, b = self, other
+        if len(a.bits) > len(b.bits):
+            b = Bits(a.size, bits=array("B", b.bits))._fill()
+        elif len(a.bits) < len(b.bits):
+            a = Bits(b.size, bits=array("B", a.bits))._fill()
+        b = Bits(a.size, bits=array('B', map(op, a.bits, b.bits)))
+        return b
 
     def __and__(self, other):
         if not isinstance(other, Bits):
@@ -176,19 +199,31 @@ class Bits(object):
         return Bits(self.size, bits=array("B", (~b & 0xFF for b in self.bits)))
 
     def __contains__(self, index):
-        byte = self.bits[index // 8]
+        bits = self.bits
+        bucket = index // 8
+        if bucket >= len(bits):
+            return False
+        byte = bits[bucket]
         return byte and (byte & (1 << (index & 7)))
 
     def add(self, index):
         """Turns the bit at the given position on."""
 
-        self.bits[index // 8] |= 1 << (index & 7)
+        bits = self.bits
+        bucket = index // 8
+        if bucket >= len(bits):
+            self._resize(index)
+        bits[bucket] |= 1 << (index & 7)
         self.bcount = None
 
     def remove(self, index):
         """Turns the bit at the given position off."""
 
-        self.bits[index // 8] &= ~(1 << (index & 7))
+        bits = self.bits
+        bucket = index // 8
+        self.bits[bucket] &= ~(1 << (index & 7))
+        if bucket == len(bits) - 1:
+            self.trim()
         self.bcount = None
 
     def update(self, iterable):
@@ -204,8 +239,8 @@ class Bits(object):
         """Returns the next integer in the set after ``index``, or None.
         """
 
-        size = self.size
         bits = self.bits
+        size = min(len(bits) * 8, self.size)
         if index >= size:
             return None
         elif index < 0:
@@ -232,8 +267,8 @@ class Bits(object):
         """Returns the previous integer in the set before ``index``, or None.
         """
 
-        size = self.size
         bits = self.bits
+        size = min(len(bits) * 8, self.size)
         if index <= 0:
             return None
         elif index >= size:
@@ -255,6 +290,12 @@ class Bits(object):
             index -= 1
 
         return None
+
+    def union(self, other):
+        return self.__or__(other)
+
+    def intersection(self, other):
+        return self.__and__(other)
 
 class BitSet(object):
     """A set-like object for holding positive integers. It is dynamically
