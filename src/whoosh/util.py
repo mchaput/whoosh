@@ -71,6 +71,22 @@ except ImportError:
             else:
                 return
 
+try:
+    from itertools import izip_longest  #@UnusedImport
+except ImportError:
+    from itertools import chain, izip, repeat
+    # This function was only added to itertools in 2.6...
+    def izip_longest(*args, **kwds):
+        fillvalue = kwds.get('fillvalue')
+        def sentinel(counter=([fillvalue]*(len(args) - 1)).pop):
+            yield counter()
+        fillers = repeat(fillvalue)
+        iters = [chain(it, sentinel(), fillers) for it in args]
+        try:
+            for tup in izip(*iters):
+                yield tup
+        except IndexError:
+            pass
 
 try:
     from operator import methodcaller  #@UnusedImport

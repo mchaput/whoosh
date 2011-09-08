@@ -2148,9 +2148,7 @@ class NestedDocument(WrappingQuery):
 
         def _parent(self, docid):
             comb = self.comb
-            while docid > 0 and docid not in comb:
-                docid -= 1
-            return docid
+            return comb.before(docid + 1)
 
         def _gather(self):
             child = self.child
