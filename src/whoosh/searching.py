@@ -311,7 +311,11 @@ class Searcher(object):
         subqueries = []
         for key, value in iteritems(kw):
             subqueries.append(query.Term(key, value))
-        return query.And(subqueries).normalize()
+        if subqueries:
+            q = query.And(subqueries).normalize()
+        else:
+            q = query.Every()
+        return q
 
     def document_number(self, **kw):
         """Returns the document number of the document matching the given
@@ -350,9 +354,6 @@ class Searcher(object):
         
         >>> docnums = list(searcher.document_numbers(emailto="matt@whoosh.ca"))
         """
-
-        if len(kw) == 0:
-            return []
 
         self._kw_to_text(kw)
         return self.docs_for_query(self._query_for_kw(kw))
