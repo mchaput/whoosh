@@ -75,6 +75,31 @@ class TempIndex(TempStorage):
         return fstore.create_index(self.schema, indexname=self.basename)
 
 
+class Timing(object):
+    def __init__(self, name=None, number=1, compare=None):
+        self.name = name
+        self.number = number
+        self.compare = compare
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tv):
+        if exc_type is None:
+            import inspect, timeit
+
+            frame = inspect.currentframe(1)
+            timed_fn = frame.f_locals["_"]
+            self.runtime = timeit.timeit(timed_fn, number=self.number)
+            sys.stdout.write("%s: %0.08f\n" % (self.name, self.runtime))
+
+            if self.compare:
+                ctime = self.compare.runtime
+                sys.stdout.write(" " * len(self.name) + ": ")
+                sys.stdout.write("%0.04f %0.04f\n" % (self.runtime / ctime,
+                                                      ctime / self.runtime))
+
+
 def skip_if(cond):
     """A Nose test decorator that skips the decorated test if the given
     function returns True at runtime.
