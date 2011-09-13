@@ -51,8 +51,9 @@ def test_empty_index():
 def test_docs_method():
     ix = make_index()
     with ix.searcher() as s:
-        assert_equal(_get_keys(s.documents(name="yellow")), [u("A"), u("E")])
-        assert_equal(_get_keys(s.documents(value="red")), [u("A"), u("D")])
+        assert_equal(_get_keys(s.documents(name="yellow")), ["A", "E"])
+        assert_equal(_get_keys(s.documents(value="red")), ["A", "D"])
+        assert_equal(_get_keys(s.documents()), ["A", "B", "C", "D", "E"])
 
 def test_term():
     _run_query(Term("name", u("yellow")), [u("A"), u("E")])
