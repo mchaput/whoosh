@@ -932,13 +932,13 @@ class Collector(object):
         self.timer = None
         self.timedout = True
 
-    def _add_to_group(self, name, key, offsetid):
+    def _add_to_group(self, name, key, offsetid, sortkey):
         if self.groupids:
-            self.groups[name][key].append(offsetid)
+            self.groups[name][key].append((sortkey, offsetid))
         else:
             self.groups[name][key] += 1
 
-    def collect(self, id, offsetid):
+    def collect(self, id, offsetid, sortkey):
         docset = self.docset
         if docset is not None:
             docset.add(offsetid)
@@ -948,10 +948,10 @@ class Collector(object):
             for name, catter in self.categorizers.items():
                 if catter.allow_overlap:
                     for key in catter.keys_for_id(id):
-                        add(name, catter.key_to_name(key), offsetid)
+                        add(name, catter.key_to_name(key), offsetid, sortkey)
                 else:
                     key = catter.key_to_name(catter.key_for_id(id))
-                    add(name, key, offsetid)
+                    add(name, key, offsetid, sortkey)
 
     def search(self, searcher, q, allow=None, restrict=None):
         """Top-level method call which uses the given :class:`Searcher` and
@@ -1089,11 +1089,12 @@ class Collector(object):
             if ((not allow or offsetid in allow)
                 and (not restrict or offsetid not in restrict)):
                 # Collect and yield this document
-                collect(id, offsetid)
                 if scorefn:
                     score = scorefn(matcher)
+                    collect(id, offsetid, score)
                 else:
                     score = matcher.score()
+                    collect(id, offsetid, 0 - score)
                 yield (score, offsetid)
 
             # If recording terms, add the document to the termlists
@@ -1173,8 +1174,9 @@ class Collector(object):
             if ((not allow or offsetid in allow)
                 and (not restrict or offsetid not in restrict)):
                 # Collect and yield this document
-                collect(id, offsetid)
-                yield (keyfn(id), offsetid)
+                key = keyfn(id)
+                collect(id, offsetid, key)
+                yield (key, offsetid)
 
             # Check whether the time limit expired
             if timelimited and self.timedout:
@@ -1331,7 +1333,12 @@ class Results(object):
         if name not in self._groups:
             raise KeyError("%r not in group names %r"
                            % (name, self._groups.keys()))
-        return dict(self._groups[name])
+        # Sort the groups and remove the sort keys before returning them
+        groups = self._groups[name]
+        d = {}
+        for key, items in iteritems(groups):
+            d[key] = [docnum for _, docnum in sorted(items)]
+        return d
 
     def _load_docs(self):
         # If self.docset is None, that means this results object was created
