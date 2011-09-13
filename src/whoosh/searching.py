@@ -288,11 +288,13 @@ class Searcher(object):
 
     def documents(self, **kw):
         """Convenience method returns the stored fields of a document
-        matching the given keyword arguments, where the keyword keys are
-        field names and the values are terms that must appear in the field.
+        matching the given keyword arguments, where the keyword keys are field
+        names and the values are terms that must appear in the field.
         
-        Returns a generator of dictionaries containing the
-        stored fields of any documents matching the keyword arguments.
+        Returns a generator of dictionaries containing the stored fields of any
+        documents matching the keyword arguments. If you do not specify any
+        arguments (``Searcher.documents()``), this method will yield **all**
+        documents.
         
         >>> for stored_fields in searcher.documents(emailto=u"matt@whoosh.ca"):
         ...   print "Email subject:", stored_fields['subject']
@@ -350,7 +352,9 @@ class Searcher(object):
     def document_numbers(self, **kw):
         """Returns a generator of the document numbers for documents matching
         the given keyword arguments, where the keyword keys are field names and
-        the values are terms that must appear in the field.
+        the values are terms that must appear in the field. If you do not
+        specify any arguments (``Searcher.document_numbers()``), this method
+        will yield **all** document numbers.
         
         >>> docnums = list(searcher.document_numbers(emailto="matt@whoosh.ca"))
         """
