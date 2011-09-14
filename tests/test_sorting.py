@@ -691,7 +691,43 @@ def test_sorted_groups():
         assert_equal(gs["apple"], [4, 2, 0])
         assert_equal(gs["bear"], [5, 3, 1])
 
+def test_group_types():
+    schema = fields.Schema(a=fields.STORED, b=fields.TEXT, c=fields.ID)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=0, b=u("blah"), c=u("apple"))
+        w.add_document(a=1, b=u("blah blah"), c=u("bear"))
+        w.add_document(a=2, b=u("blah blah blah"), c=u("apple"))
+        w.add_document(a=3, b=u("blah blah blah blah"), c=u("bear"))
+        w.add_document(a=4, b=u("blah blah blah blah blah"), c=u("apple"))
+        w.add_document(a=5, b=u("blah blah blah blah blah blah"), c=u("bear"))
+        w.add_document(a=6, b=u("blah blah blah blah blah blah blah"), c=u("apple"))
 
+    with ix.searcher() as s:
+        q = query.Term("b", "blah")
+
+        f = sorting.FieldFacet("c", maptype=sorting.UnorderedList)
+        r = s.search(q, groupedby=f)
+        gs = r.groups("c")
+        assert_equal(gs["apple"], [0, 2, 4, 6])
+        assert_equal(gs["bear"], [1, 3, 5])
+
+        f = sorting.FieldFacet("c", maptype=sorting.Count)
+        r = s.search(q, groupedby=f)
+        gs = r.groups("c")
+        assert_equal(gs["apple"], 4)
+        assert_equal(gs["bear"], 3)
+
+        f = sorting.FieldFacet("c", maptype=sorting.Best)
+        r = s.search(q, groupedby=f)
+        gs = r.groups()
+        assert_equal(gs["apple"], 6)
+        assert_equal(gs["bear"], 5)
+
+        r = s.search(q, groupedby="c", maptype=sorting.Count)
+        gs = r.groups()
+        assert_equal(gs["apple"], 4)
+        assert_equal(gs["bear"], 3)
 
 
 
