@@ -34,3 +34,15 @@ Facets object
 .. autoclass:: Facets
     :members:
 
+
+FacetType objects
+=================
+
+.. autoclass:: FacetMap
+    :members:
+.. autoclass:: OrderedList
+.. autoclass:: UnorderedList
+.. autoclass:: Count
+.. autoclass:: Best
+
+

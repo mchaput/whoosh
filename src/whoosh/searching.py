@@ -648,8 +648,8 @@ class Searcher(object):
                 yield docnum
 
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, filter=None, mask=None, groupids=True,
-               terms=False):
+               optimize=True, filter=None, mask=None, terms=False,
+               maptype=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -668,14 +668,17 @@ class Searcher(object):
             will only contain documents that are also in the filter object.
         :param mask: a query, Results object, or set of docnums. The results
             will not contain documents that are also in the mask object.
-        :param groupids: by default, faceting groups map keys to lists of
-            document numbers associated with that key. To map to a simple count
-            of the number of documents instead of a list, use
-            ``groupids=False``.
         :param terms: if True, record which terms were found in each matching
             document. You can use :meth:`Results.contains_term` or
             :meth:`Hit.contains_term` to check whether a hit contains a
             particular term.
+        :param maptype: by default, the results of faceting with ``groupedby``
+            is a dictionary mapping group names to ordered lists of document
+            numbers in the group. You can pass a
+            :class:`whoosh.sorting.FacetMap` subclass to this keyword argument
+            to specify a different (usually faster) method for grouping. For
+            example, ``maptype=sorting.Count`` would store only the count of
+            documents in each group, instead of the full list of document IDs.
         :rtype: :class:`Results`
         """
 
@@ -683,8 +686,8 @@ class Searcher(object):
             raise ValueError("limit must be >= 1")
 
         collector = Collector(limit=limit, usequality=optimize,
-                              groupedby=groupedby, groupids=groupids,
-                              terms=terms)
+                              groupedby=groupedby, terms=terms,
+                              maptype=maptype)
 
         if sortedby:
             return collector.sort(self, q, sortedby, reverse=reverse,
@@ -824,22 +827,22 @@ class Collector(object):
     """
 
     def __init__(self, limit=10, usequality=True, groupedby=None,
-                 groupids=True, timelimit=None, greedy=False, terms=False,
-                 replace=10):
+                 timelimit=None, greedy=False, terms=False, replace=10,
+                 maptype=None):
         """
         :param limit: the maximum number of hits to collect. If this is None,
             collect all hits.
         :param usequality: whether to use block quality optimizations when
             available. This is mostly useful for debugging purposes.
         :param groupedby: see :doc:`/facets` for information.
-        :param groupids: if True, saves lists of document IDs for facets. If
-            False, only saves a count of the number of documents in each group.
         :param timelimit: the maximum amount of time (in possibly fractional
             seconds) to allow for searching. If the search takes longer than
             this, it will raise a ``TimeLimit`` exception.
         :param greedy: if ``True``, the collector will finish adding the most
             recent hit before raising the ``TimeLimit`` exception.
         :param terms: if ``True``, record which terms matched in each document.
+        :param maptype: a :class:`whoosh.sorting.FacetMap` type to use for all
+            facets that don't specify their own.
         """
 
         self.limit = limit
@@ -847,7 +850,7 @@ class Collector(object):
         self.replace = replace
         self.timelimit = timelimit
         self.greedy = greedy
-        self.groupids = groupids
+        self.maptype = maptype
         self.termlists = defaultdict(set) if terms else None
 
         self.facets = None
@@ -889,18 +892,12 @@ class Collector(object):
         return scorefn
 
     def _set_categorizers(self, searcher, offset):
-        groups = self.groups
         if self.facets:
-            self.categorizers = dict((name, facet.categorizer(searcher))
-                                     for name, facet in self.facets.items())
-
-            for name, catter in self.categorizers.items():
-                if self.groupids and name not in groups:
-                    groups[name] = defaultdict(list)
-                elif name not in groups:
-                    groups[name] = defaultdict(int)
-
+            self.categorizers = {}
+            for name, facet in self.facets.items():
+                catter = facet.categorizer(searcher)
                 catter.set_searcher(searcher, offset)
+                self.categorizers[name] = catter
 
     def _set_filters(self, allow, restrict):
         if allow:
@@ -918,11 +915,16 @@ class Collector(object):
             self.timer.start()
 
     def _reset(self):
-        self.groups = {}
+        self.facetmaps = {}
         self.items = []
         self.timedout = False
         self.runtime = -1
         self.minscore = None
+        if self.facets:
+            self.facetmaps = dict((facetname, facet.map(self.maptype))
+                                  for facetname, facet in self.facets.items())
+        else:
+            self.facetmaps = {}
 
     def _timestop(self):
         # Called by the Timer when the time limit expires. Set an attribute on
@@ -932,26 +934,20 @@ class Collector(object):
         self.timer = None
         self.timedout = True
 
-    def _add_to_group(self, name, key, offsetid, sortkey):
-        if self.groupids:
-            self.groups[name][key].append((sortkey, offsetid))
-        else:
-            self.groups[name][key] += 1
-
     def collect(self, id, offsetid, sortkey):
         docset = self.docset
         if docset is not None:
             docset.add(offsetid)
 
         if self.facets is not None:
-            add = self._add_to_group
             for name, catter in self.categorizers.items():
+                add = self.facetmaps[name].add
                 if catter.allow_overlap:
                     for key in catter.keys_for_id(id):
-                        add(name, catter.key_to_name(key), offsetid, sortkey)
+                        add(catter.key_to_name(key), offsetid, sortkey)
                 else:
                     key = catter.key_to_name(catter.key_for_id(id))
-                    add(name, key, offsetid, sortkey)
+                    add(key, offsetid, sortkey)
 
     def search(self, searcher, q, allow=None, restrict=None):
         """Top-level method call which uses the given :class:`Searcher` and
@@ -1201,7 +1197,7 @@ class Collector(object):
             items = sorted(self.items, reverse=reverse)
 
         return Results(self.searcher, self.q, items, self.docset,
-                       groups=self.groups, runtime=self.runtime,
+                       facetmaps=self.facetmaps, runtime=self.runtime,
                        filter=self.allow, mask=self.restrict,
                        termlists=self.termlists)
 
@@ -1217,7 +1213,7 @@ class Results(object):
     so keeps all files used by it open.
     """
 
-    def __init__(self, searcher, q, top_n, docset, groups=None, runtime= -1,
+    def __init__(self, searcher, q, top_n, docset, facetmaps=None, runtime= -1,
                  filter=None, mask=None, termlists=None, highlighter=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
@@ -1231,7 +1227,7 @@ class Results(object):
         self.q = q
         self.top_n = top_n
         self.docset = docset
-        self._groups = groups or {}
+        self._facetmaps = facetmaps or {}
         self.runtime = runtime
         self._filter = filter
         self._mask = mask
@@ -1312,33 +1308,60 @@ class Results(object):
 
         return self.searcher.stored_fields(self.top_n[n][1])
 
-    def groups(self, name):
-        """If you generating groupings for the results by using the `groups`
-        keyword to the `search()` method, you can use this method to retrieve
-        the groups.
+    def facet_names(self):
+        """Returns the available facet names, for use with the ``groups()``
+        method.
+        """
+
+        return self._facetmaps.keys()
+
+    def groups(self, name=None):
+        """If you generated facet groupings for the results using the
+        `groupedby` keyword argument to the ``search()`` method, you can use
+        this method to retrieve the groups. You can use the ``facet_names()``
+        method to get the list of available facet names.
         
-        >>> results = searcher.search(my_query, groups=["tag"])
+        >>> results = searcher.search(my_query, groupedby=["tag", "price"])
+        >>> results.facet_names()
+        ["tag", "price"]
         >>> results.groups("tag")
+        {"new": [12, 1, 4], "apple": [3, 10, 5], "search": [11]}
         
-        Returns a dictionary mapping category names to lists of document IDs.
+        If you only used one facet, you can call the method without a facet
+        name to get the groups for the facet.
         
-        >>> groups = results.groups("tag")
-        >>> groups['new']
-        set([1, 4, 12])
+        >>> results = searcher.search(my_query, groupedby="tag")
+        >>> results.groups()
+        {"new": [12, 1, 4], "apple": [3, 10, 5, 0], "search": [11]}
+        
+        By default, this returns a dictionary mapping category names to a list
+        of document numbers, in the same relative order as they appear in the
+        results.
+        
+        >>> results = mysearcher.search(myquery, groupedby="tag")
+        >>> docnums = results.groups()
+        >>> docnums['new']
+        [12, 1, 4]
         
         You can then use :meth:`Searcher.stored_fields` to get the stored
         fields associated with a document ID.
+        
+        If you specified a different ``maptype`` for the facet when you
+        searched, the values in the dictionary depend on the
+        :class:`whoosh.sorting.FacetMap`.
+        
+        >>> myfacet = sorting.FieldFacet("tag", maptype=sorting.Count)
+        >>> results = mysearcher.search(myquery, groupedby=myfacet)
+        >>> counts = results.groups()
+        {"new": 3, "apple": 4, "search": 1}
         """
 
-        if name not in self._groups:
-            raise KeyError("%r not in group names %r"
-                           % (name, self._groups.keys()))
-        # Sort the groups and remove the sort keys before returning them
-        groups = self._groups[name]
-        d = {}
-        for key, items in iteritems(groups):
-            d[key] = [docnum for _, docnum in sorted(items)]
-        return d
+        if (name is None or name == "facet") and len(self._facetmaps) == 1:
+            name = self._facetmaps.keys()[0]
+        elif name not in self._facetmaps:
+            raise KeyError("%r not in facet names %r"
+                           % (name, self.facet_names()))
+        return self._facetmaps[name].as_dict()
 
     def _load_docs(self):
         # If self.docset is None, that means this results object was created
