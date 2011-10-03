@@ -423,10 +423,9 @@ class SegmentWriter(IndexWriter):
         vpostwriter = self.vpostwriter
         offset = vpostwriter.start(self.schema[fieldname].vector)
         for text, weight, valuestring in vlist:
-            assert isinstance(text, text_type), "%r is not unicode" % text
+            #assert isinstance(text, text_type), "%r is not unicode" % text
             vpostwriter.write(text, weight, valuestring, 0)
-        vpostwriter.finish()
-
+        vpostwriter.finish(inlinelimit=0)
         self.vectorindex.add((docnum, fieldname), offset)
 
     def _add_vector_reader(self, docnum, fieldname, vreader):
@@ -437,8 +436,7 @@ class SegmentWriter(IndexWriter):
             vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(),
                               0)
             vreader.next()
-        vpostwriter.finish()
-
+        vpostwriter.finish(inlinelimit=0)
         self.vectorindex.add((docnum, fieldname), offset)
 
     def _close_all(self):
