@@ -93,6 +93,29 @@ def test_cached_lexicon():
 
 # 
 
+def test_persistent_cache():
+    schema = fields.Schema(id=fields.ID(stored=True))
+    st = RamStorage()
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        for term in u("charlie alfa echo bravo delta").split():
+            w.add_document(id=term)
+
+    ix = st.open_index()
+    with ix.reader() as r:
+        _ = r.fieldcache("id")
+        del _
+
+    ix = st.open_index()
+    with ix.reader() as r:
+        assert r.fieldcache_available("id")
+        assert not r.fieldcache_loaded("id")
+        fc = r.fieldcache("id")
+        assert r.fieldcache_loaded("id")
+        assert_equal(list(fc.order), [3, 1, 5, 2, 4])
+        assert_equal(list(fc.texts), [u('\uffff'), u'alfa', u'bravo',
+                                      u'charlie', u'delta', u'echo'])
+
 def test_float_cache():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=float))
     with TempIndex(schema, "floatcache") as ix:
