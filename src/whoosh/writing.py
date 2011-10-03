@@ -222,9 +222,6 @@ class IndexWriter(object):
         # Check which of the supplied fields are unique
         unique_fields = [name for name, field in self.schema.items()
                          if name in fields and field.unique]
-        if not unique_fields:
-            raise IndexingError("None of the fields in %r"
-                                " are unique" % list(fields.keys()))
         return unique_fields
 
     def update_document(self, **fields):
@@ -282,10 +279,11 @@ class IndexWriter(object):
 
         # Delete the set of documents matching the unique terms
         unique_fields = self._unique_fields(fields)
-        with self.searcher() as s:
-            for docnum in s._find_unique([(name, fields[name])
-                                          for name in unique_fields]):
-                self.delete_document(docnum)
+        if unique_fields:
+            with self.searcher() as s:
+                for docnum in s._find_unique([(name, fields[name])
+                                              for name in unique_fields]):
+                    self.delete_document(docnum)
 
         # Add the given fields
         self.add_document(**fields)
