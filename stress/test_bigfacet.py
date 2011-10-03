@@ -8,7 +8,7 @@ from whoosh.util import now
 
 tagcount = 100
 doccount = 500000
-dirname = "tagindex"
+dirname = "testindex"
 
 schema = fields.Schema(tags=fields.KEYWORD(stored=True, vector=formats.Existence()))
 
