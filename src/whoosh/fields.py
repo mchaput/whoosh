@@ -73,12 +73,12 @@ class FieldType(object):
     
     The FieldType object supports the following attributes:
     
-    * format (fields.Format): the storage format for the field's contents.
+    * format (formats.Format): the storage format for the field's contents.
     
     * analyzer (analysis.Analyzer): the analyzer to use to turn text into
       terms.
     
-    * vector (fields.Format): the storage format for the field's vectors
+    * vector (formats.Format): the storage format for the field's vectors
       (forward index), or None if the field should not store vectors.
     
     * scorable (boolean): whether searches against this field may be scored.
