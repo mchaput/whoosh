@@ -92,12 +92,13 @@ class FieldCache(object):
         :param default: the value to use for documents without the field.
         """
 
-        self.order = order or array(self.code)
+        self.order = order or array(typecode)
+        self.typecode = typecode
+
         self.hastexts = hastexts
         self.texts = None
         if hastexts:
             self.texts = texts or [default]
-        self.typecode = typecode
 
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
@@ -580,11 +581,7 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         return cache
 
     def is_loaded(self, key):
-        if key in self.caches:
-            return True
-
-        with self.sharedlock:
-            return key in self.shared_cache
+        return key in self.caches or key in self.shared_cache
 
     def put(self, key, cache, save=True):
         self.caches[key] = cache
@@ -605,7 +602,9 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
 
         if self._file_exists(key):
             try:
-                return self._load(key)
+                fc = self._load(key)
+                self.put(key, fc)
+                return fc
             except (OSError, BadFieldCache):
                 return None
 
