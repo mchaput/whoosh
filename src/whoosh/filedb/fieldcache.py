@@ -75,6 +75,21 @@ def read_qsafe_array(typecode, size, dbfile):
     return arry
 
 
+def make_array(typecode, size=0, default=None):
+    if typecode.lower() == "q":
+        # Python does not support arrays of long long see Issue 1172711
+        if default is not None and size:
+            arry = [default] * size
+        else:
+            arry = []
+    else:
+        if default is not None and size:
+            arry = array(typecode, (default for _ in xrange(size)))
+        else:
+            arry = array(typecode)
+    return arry
+
+
 class FieldCache(object):
     """Keeps a list of the sorted text values of a field and an array of ints
     where each place in the array corresponds to a document, and the value
@@ -92,7 +107,7 @@ class FieldCache(object):
         :param default: the value to use for documents without the field.
         """
 
-        self.order = order or array(typecode)
+        self.order = order or make_array(typecode)
         self.typecode = typecode
 
         self.hastexts = hastexts
@@ -159,11 +174,7 @@ class FieldCache(object):
             defaultnum = field.sortable_default()
 
         doccount = ixreader.doc_count_all()
-        # Python does not support arrays of long long see Issue 1172711
-        if typecode.lower() == "q":
-            order = [defaultnum] * doccount
-        else:
-            order = array(typecode, [defaultnum] * doccount)
+        order = make_array(typecode, doccount, defaultnum)
 
         enum = enumerate(field.sortable_values(ixreader, fieldname))
         for i, (text, sortable) in enum:
@@ -371,9 +382,9 @@ class FieldCacheWriter(object):
     def __init__(self, dbfile, size=0, hastexts=True, code="I",
                  default=u('\uFFFF')):
         self.dbfile = dbfile
-        self.order = array(self.code, [0] * size)
         self.hastexts = hastexts
         self.code = code
+        self.order = make_array(code, size, 0)
 
         self.key = 0
         self.keycount = 1

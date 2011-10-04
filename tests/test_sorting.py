@@ -127,7 +127,10 @@ def test_float_cache():
 
         with ix.reader() as r:
             r.fieldcache("num")
+            assert r.fieldcache_loaded("num")
             r.unload_fieldcache("num")
+            assert not r.fieldcache_loaded("num")
+            assert r.fieldcache_available("num")
 
             fc = r.fieldcache("num")
             assert not fc.hastexts
@@ -146,7 +149,10 @@ def test_long_cache():
 
         with ix.reader() as r:
             r.fieldcache("num")
+            assert r.fieldcache_loaded("num")
             r.unload_fieldcache("num")
+            assert not r.fieldcache_loaded("num")
+            assert r.fieldcache_available("num")
 
             fc = r.fieldcache("num")
             assert not fc.hastexts
