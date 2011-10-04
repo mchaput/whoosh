@@ -794,3 +794,19 @@ def test_star_paren():
     assert_equal(q[1].fieldname, "title")
     assert_equal(q[0].text, "*john*")
     assert_equal(q[1].text, "blog")
+
+def test_dash():
+    ana = analysis.StandardAnalyzer("[ \t\r\n()*?]+")
+    schema = fields.Schema(title=fields.TEXT(analyzer=ana),
+                           text=fields.TEXT(analyzer=ana), time=fields.ID)
+    qtext = u("*Ben-Hayden*")
+
+    qp = default.QueryParser("text", schema)
+    q = qp.parse(qtext)
+    assert_equal(repr(q), "Wildcard('text', u'*ben-hayden*')")
+
+    qp = default.MultifieldParser(["title", "text", "time"], schema)
+    q = qp.parse(qtext)
+    assert_equal(repr(q), "Or([Wildcard('title', u'*ben-hayden*'), Wildcard('text', u'*ben-hayden*'), Wildcard('time', u'*Ben-Hayden*')])")
+
+
