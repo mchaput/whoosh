@@ -17,6 +17,37 @@ Whoosh 2.3
   functionality right now; I'm trying to think of ways to make its power easier
   to access.
 
+* The documents in the lists in the dictionary returned by ``Results.groups()``
+  by default are now in the same relative order as in the results. This makes
+  it much easier to display the "top N" results in each category, for example.
+
+* The ``groupids`` keyword argument to ``Searcher.search`` has been removed.
+  Instead you can now pass a :class:`whoosh.sorting.FacetMap` object to the
+  ``Searcher.search`` method's ``maptype`` argument to control how faceted
+  documents are grouped, and/or set the ``maptype`` argument on individual
+  :class:`whoosh.sorting.FacetType`` objects to set custom grouping per facet.
+  See :doc:`../facets` for more information.
+
+* Calling ``Searcher.documents()`` or ``Searcher.document_numbers()`` with no
+  arguments now yields all documents/numbers.
+
+* Calling ``Writer.update_document()`` with no unique fields is now equivalent
+  to calling ``Writer.add_document()`` with the same arguments.
+
+* Fixed a problem with keyword expansion where the code was building a cache
+  that was fast on small indexes, but unacceptably slow on large indexes.
+
+* Added the hyphen (``-``) to the list of characters that match a "wildcard"
+  token, to make parsing slightly more predictable. A true fix will have to
+  wait for another parser rewrite.
+
+* Fixed an unused ``__future__`` import and use of ``float("nan")`` which were
+  breaking under Python 2.5.
+
+* Fixed a bug where vectored fields with only one term stored an empty term
+  vector.
+
+* Various other bug fixes.
 
 Whoosh 2.2
 ==========
