@@ -146,6 +146,14 @@ class PrefixPlugin(TaggingPlugin):
 
 class WildcardPlugin(TaggingPlugin):
     class WildcardNode(syntax.TextNode):
+        # Note that this node inherits tokenize = False from TextNode,
+        # so the text in this node will not be analyzed... just passed
+        # straight to the query
+
+        # TODO: instead of parsing a "wildcard word", create marker nodes for
+        # individual ? and * characters. This will have to wait for a more
+        # advanced wikiparser-like parser.
+
         qclass = query.Wildcard
 
         def r(self):
@@ -157,7 +165,7 @@ class WildcardPlugin(TaggingPlugin):
     # \u061F = Arabic question mark
     # \u1367 = Ethiopic question mark
     qms = u("\u055E\u061F\u1367")
-    expr = u("(?P<text>\\w*[*?%s](\\w|[*?%s])*)") % (qms, qms)
+    expr = u("(?P<text>(\\w|[-])*[*?%s](\\w|[-*?%s])*)") % (qms, qms)
     nodetype = WildcardNode
 
 
