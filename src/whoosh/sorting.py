@@ -26,8 +26,9 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from array import array
+from collections import defaultdict
 
-from whoosh.compat import string_type, u, xrange
+from whoosh.compat import string_type, u, xrange, iteritems
 from whoosh.fields import DEFAULT_LONG
 from whoosh.support.times import (long_to_datetime, datetime_to_long,
                                   timedelta_to_usecs)
@@ -39,11 +40,28 @@ class FacetType(object):
     """Base class for "facets", aspects that can be sorted/faceted.
     """
 
+    maptype = None
+
     def categorizer(self, searcher):
         """Returns a :class:`Categorizer` corresponding to this facet.
         """
 
         raise NotImplementedError
+
+    def map(self, default=None):
+        t = self.maptype
+        if t is None:
+            t = default
+
+        if t is None:
+            return OrderedList()
+        elif type(t) is type:
+            return t()
+        else:
+            return t
+
+    def default_name(self):
+        return "facet"
 
 
 class Categorizer(object):
@@ -125,7 +143,8 @@ class FieldFacet(FacetType):
     This facet returns different categorizers based on the field type.
     """
 
-    def __init__(self, fieldname, reverse=False, allow_overlap=False):
+    def __init__(self, fieldname, reverse=False, allow_overlap=False,
+                 maptype=None):
         """
         :param fieldname: the name of the field to sort/facet on.
         :param reverse: if True, when sorting, reverse the sort order of this
@@ -137,6 +156,10 @@ class FieldFacet(FacetType):
         self.fieldname = fieldname
         self.reverse = reverse
         self.allow_overlap = allow_overlap
+        self.maptype = maptype
+
+    def default_name(self):
+        return self.fieldname
 
     def categorizer(self, searcher):
         from whoosh.fields import NUMERIC, DATETIME
@@ -315,7 +338,8 @@ class QueryFacet(FacetType):
     """Sorts/facets based on the results of a series of queries.
     """
 
-    def __init__(self, querydict, other=None, allow_overlap=False):
+    def __init__(self, querydict, other=None, allow_overlap=False,
+                 maptype=None):
         """
         :param querydict: a dictionary mapping keys to
             :class:`whoosh.query.Query` objects.
@@ -325,6 +349,7 @@ class QueryFacet(FacetType):
 
         self.querydict = querydict
         self.other = other
+        self.maptype = maptype
 
     def categorizer(self, searcher):
         return self.QueryCategorizer(self.querydict, self.other)
@@ -372,7 +397,8 @@ class RangeFacet(QueryFacet):
     at the end.
     """
 
-    def __init__(self, fieldname, start, end, gap, hardend=False):
+    def __init__(self, fieldname, start, end, gap, hardend=False,
+                 maptype=None):
         """
         :param fieldname: the numeric field to sort/facet on.
         :param start: the start of the entire range.
@@ -392,7 +418,11 @@ class RangeFacet(QueryFacet):
         self.end = end
         self.gap = gap
         self.hardend = hardend
+        self.maptype = maptype
         self._queries()
+
+    def default_name(self):
+        return self.fieldname
 
     def _rangetype(self):
         from whoosh import query
@@ -513,8 +543,9 @@ class FunctionFacet(FacetType):
         lengths = FunctionFacet(fn)
     """
 
-    def __init__(self, fn):
+    def __init__(self, fn, maptype=None):
         self.fn = fn
+        self.maptype = maptype
 
     def categorizer(self, searcher):
         return self.FunctionCategorizer(searcher, self.fn)
@@ -542,7 +573,8 @@ class StoredFieldFacet(FacetType):
     if one is supplied).
     """
 
-    def __init__(self, fieldname, allow_overlap=False, split_fn=None):
+    def __init__(self, fieldname, allow_overlap=False, split_fn=None,
+                 maptype=None):
         """
         :param fieldname: the name of the stored field.
         :param allow_overlap: if True, when grouping, allow documents to appear
@@ -557,6 +589,10 @@ class StoredFieldFacet(FacetType):
         self.fieldname = fieldname
         self.allow_overlap = allow_overlap
         self.split_fn = None
+        self.maptype = maptype
+
+    def default_name(self):
+        return self.fieldname
 
     def categorizer(self, searcher):
         return self.StoredFieldCategorizer(self.fieldname, self.allow_overlap,
@@ -606,11 +642,12 @@ class MultiFacet(FacetType):
                          "n-z": TermRange("name", "n", "z")})
     """
 
-    def __init__(self, items=None):
+    def __init__(self, items=None, maptype=None):
         self.facets = []
         if items:
             for item in items:
                 self._add(item)
+        self.maptype = maptype
 
     @classmethod
     def from_sortedby(cls, sortedby):
@@ -710,7 +747,7 @@ class Facets(object):
         elif isinstance(groupedby, string_type):
             facets.add_field(groupedby)
         elif isinstance(groupedby, FacetType):
-            facets.add_facet("facet", groupedby)
+            facets.add_facet(groupedby.default_name(), groupedby)
         elif isinstance(groupedby, (list, tuple)):
             for item in groupedby:
                 facets.add_facets(cls.from_groupedby(item))
@@ -720,6 +757,12 @@ class Facets(object):
 
         return facets
 
+    def names(self):
+        """Returns an iterator of the facet names in this object.
+        """
+
+        return iter(self.facets)
+
     def items(self):
         """Returns a list of (facetname, facetobject) tuples for the facets in
         this object.
@@ -727,16 +770,15 @@ class Facets(object):
 
         return self.facets.items()
 
-    def add_field(self, fieldname, allow_overlap=False):
+    def add_field(self, fieldname, **kwargs):
         """Adds a :class:`FieldFacet` for the given field name (the field name
         is automatically used as the facet name).
         """
 
-        self.facets[fieldname] = FieldFacet(fieldname,
-                                            allow_overlap=allow_overlap)
+        self.facets[fieldname] = FieldFacet(fieldname, **kwargs)
         return self
 
-    def add_query(self, name, querydict, other=None, allow_overlap=False):
+    def add_query(self, name, querydict, **kwargs):
         """Adds a :class:`QueryFacet` under the given ``name``.
         
         :param name: a name for the facet.
@@ -744,8 +786,7 @@ class Facets(object):
             :class:`whoosh.query.Query` objects.
         """
 
-        self.facets[name] = QueryFacet(querydict, other=other,
-                                       allow_overlap=allow_overlap)
+        self.facets[name] = QueryFacet(querydict, **kwargs)
         return self
 
     def add_facet(self, name, facet):
@@ -768,6 +809,123 @@ class Facets(object):
             if replace or name not in self.facets:
                 self.facets[name] = facet
         return self
+
+
+# Objects for holding facet groups
+
+class FacetMap(object):
+    """Base class for objects holding the results of grouping search results by
+    a Facet. Use an object's ``as_dict()`` method to access the results.
+    
+    You can pass a subclass of this to the ``maptype`` keyword argument when
+    creating a ``FacetType`` object to specify what information the facet
+    should record about the group. For example::
+    
+        # Record each document in each group in its sorted order
+        myfacet = FieldFacet("size", maptype=OrderedList)
+        
+        # Record only the count of documents in each group
+        myfacet = FieldFacet("size", maptype=Count)
+    """
+
+    def add(self, groupname, docid, sortkey):
+        """Adds a document to the facet results.
+        
+        :param groupname: the name of the group to add this document to.
+        :param docid: the document number of the document to add.
+        :param sortkey: a value representing the sort position of the document
+            in the full results.
+        """
+
+        raise NotImplementedError
+
+    def as_dict(self):
+        """Returns a dictionary object mapping group names to
+        implementation-specific values. For example, the value might be a list
+        of document numbers, or a integer representing the number of documents
+        in the group.
+        """
+
+        raise NotImplementedError
+
+
+class OrderedList(FacetMap):
+    """Stores a list of document numbers for each group, in the same order as
+    they appear in the search results.
+    
+    The ``as_dict`` method returns a dictionary mapping group names to lists
+    of document numbers.
+    """
+
+    def __init__(self):
+        self.dict = defaultdict(list)
+
+    def add(self, groupname, docid, sortkey):
+        self.dict[groupname].append((sortkey, docid))
+
+    def as_dict(self):
+        d = {}
+        for key, items in iteritems(self.dict):
+            d[key] = [docnum for _, docnum in sorted(items)]
+        return d
+
+
+class UnorderedList(FacetMap):
+    """Stores a list of document numbers for each group, in arbitrary order.
+    This is slightly faster and uses less memory than
+    :class:`OrderedListResult` if you don't care about the ordering of the
+    documents within groups.
+    
+    The ``as_dict`` method returns a dictionary mapping group names to lists
+    of document numbers.
+    """
+
+    def __init__(self):
+        self.dict = defaultdict(list)
+
+    def add(self, groupname, docid, sortkey):
+        self.dict[groupname].append(docid)
+
+    def as_dict(self):
+        return dict(self.dict)
+
+
+class Count(FacetMap):
+    """Stores the number of documents in each group.
+    
+    The ``as_dict`` method returns a dictionary mapping group names to
+    integers.
+    """
+
+    def __init__(self):
+        self.dict = defaultdict(int)
+
+    def add(self, groupname, docid, sortkey):
+        self.dict[groupname] += 1
+
+    def as_dict(self):
+        return dict(self.dict)
+
+
+class Best(FacetMap):
+    """Stores the "best" document in each group (that is, the one that appears
+    highest in the results).
+    
+    The ``as_dict`` method returns a dictionary mapping group names to
+    docnument numbers.
+    """
+
+    def __init__(self):
+        self.bestids = {}
+        self.bestkeys = {}
+
+    def add(self, groupname, docid, sortkey):
+        if groupname not in self.bestids or sortkey < self.bestkeys[groupname]:
+            self.bestids[groupname] = docid
+            self.bestkeys[groupname] = sortkey
+
+    def as_dict(self):
+        return self.bestids
 
 
 #

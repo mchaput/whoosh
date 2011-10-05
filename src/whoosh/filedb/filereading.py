@@ -361,7 +361,7 @@ class SegmentReader(IndexReader):
         if not cp:
             if save and storage is None:
                 storage = self.storage
-            else:
+            elif not save:
                 storage = None
             cp = DefaultFieldCachingPolicy(self.segment.name, storage=storage)
 

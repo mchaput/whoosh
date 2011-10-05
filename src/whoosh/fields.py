@@ -73,12 +73,12 @@ class FieldType(object):
     
     The FieldType object supports the following attributes:
     
-    * format (fields.Format): the storage format for the field's contents.
+    * format (formats.Format): the storage format for the field's contents.
     
     * analyzer (analysis.Analyzer): the analyzer to use to turn text into
       terms.
     
-    * vector (fields.Format): the storage format for the field's vectors
+    * vector (formats.Format): the storage format for the field's vectors
       (forward index), or None if the field should not store vectors.
     
     * scorable (boolean): whether searches against this field may be scored.
@@ -1178,3 +1178,28 @@ def ensure_schema(schema):
     return schema
 
 
+def merge_fielddict(d1, d2):
+    keyset = set(d1.keys()) | set(d2.keys())
+    out = {}
+    for name in keyset:
+        field1 = d1.get(name)
+        field2 = d2.get(name)
+        if field1 and field2 and field1 != field2:
+            raise Exception("Inconsistent field %r: %r != %r"
+                            % (name, field1, field2))
+        out[name] = field1 or field2
+    return out
+
+
+def merge_schema(s1, s2):
+    schema = Schema()
+    schema._fields = merge_fielddict(s1._fields, s2._fields)
+    schema._dyn_fields = merge_fielddict(s1._dyn_fields, s2._dyn_fields)
+    return schema
+
+
+def merge_schemas(schemas):
+    schema = schemas[0]
+    for i in xrange(1, len(schemas)):
+        schema = merge_schema(schema, schemas[i])
+    return schema

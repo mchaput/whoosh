@@ -111,12 +111,6 @@ class Expander(object):
                           self.ixreader.field_length(fieldname))
         self.model = model
 
-        # Cache the collection frequency of every term in this field. This
-        # turns out to be much faster than reading each individual weight
-        # from the term index as we add words.
-        self.collection_freq = dict((word, ti.weight()) for word, ti
-                                    in self.ixreader.iter_field(fieldname))
-
         # Maps words to their weight in the top N documents.
         self.topN_weight = defaultdict(float)
 
@@ -162,14 +156,19 @@ class Expander(object):
         """
 
         model = self.model
+        fieldname = self.fieldname
+        ixreader = self.ixreader
         tlist = []
         maxweight = 0
-        collection_freq = self.collection_freq
+
+        # If no terms have been added, return an empty list
+        if not self.topN_weight:
+            return []
 
         for word, weight in iteritems(self.topN_weight):
-            if word in collection_freq:
-                score = model.score(weight, collection_freq[word],
-                                    self.top_total)
+            if (fieldname, word) in ixreader:
+                cf = ixreader.frequency(fieldname, word)
+                score = model.score(weight, cf, self.top_total)
                 if score > maxweight:
                     maxweight = score
                 tlist.append((score, word))
