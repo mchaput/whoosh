@@ -234,14 +234,15 @@ class Searcher(object):
 
         return self.weighting.scorer(self, fieldname, text, qf=qf)
 
-    def postings(self, fieldname, text, qf=1):
+    def postings(self, fieldname, text, weighting=None, qf=1):
         """Returns a :class:`whoosh.matching.Matcher` for the postings of the
         given term. Unlike the :func:`whoosh.reading.IndexReader.postings`
         method, this method automatically sets the scoring functions on the
         matcher from the searcher's weighting object.
         """
 
-        scorer = self.scorer(fieldname, text, qf=qf)
+        weighting = weighting or self.weighting
+        scorer = weighting.scorer(self, fieldname, text, qf=qf)
         return self.ixreader.postings(fieldname, text, scorer=scorer)
 
     def idf(self, fieldname, text):
@@ -649,7 +650,7 @@ class Searcher(object):
 
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
                optimize=True, filter=None, mask=None, terms=False,
-               maptype=None):
+               maptype=None, weighting=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
         
@@ -693,7 +694,8 @@ class Searcher(object):
             return collector.sort(self, q, sortedby, reverse=reverse,
                                   allow=filter, restrict=mask)
         else:
-            return collector.search(self, q, allow=filter, restrict=mask)
+            return collector.search(self, q, allow=filter, restrict=mask,
+                                    weighting=weighting)
 
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
@@ -915,12 +917,19 @@ class Collector(object):
             self.timer.start()
 
     def _reset(self):
+        self.skipped = 0
         self.facetmaps = {}
         self.items = []
         self.timedout = False
         self.runtime = -1
         self.minscore = None
+        self.weighting = None
         if self.facets:
+            # Call the .map() method on each facet to get a mapping object for
+            # each facet, which is used to keep track of facet groupings. The
+            # map() method takes a default mapping type as an argument, which
+            # will be used if the facet type doesn't have its own mapping type
+            # explicity set.
             self.facetmaps = dict((facetname, facet.map(self.maptype))
                                   for facetname, facet in self.facets.items())
         else:
@@ -949,7 +958,7 @@ class Collector(object):
                     key = catter.key_to_name(catter.key_for_id(id))
                     add(key, offsetid, sortkey)
 
-    def search(self, searcher, q, allow=None, restrict=None):
+    def search(self, searcher, q, allow=None, restrict=None, weighting=None):
         """Top-level method call which uses the given :class:`Searcher` and
         :class:`whoosh.query.Query` objects to return a :class:`Results`
         object.
@@ -964,6 +973,7 @@ class Collector(object):
         """
 
         self.searcher = searcher
+        self.weighting = weighting
         self.q = q
         self._set_filters(allow, restrict)
         self._reset()
@@ -1033,7 +1043,7 @@ class Collector(object):
         replacecounter = 0
         timelimited = bool(self.timelimit)
 
-        matcher = q.matcher(self.subsearcher)
+        matcher = q.matcher(self.subsearcher, weighting=self.weighting)
         usequality = self.use_block_quality(self.subsearcher, matcher)
 
         termlists = self.termlists
@@ -1071,7 +1081,7 @@ class Collector(object):
             # flag is true, try to skip ahead to the next block with the
             # minimum required quality
             if usequality and checkquality and minscore is not None:
-                matcher.skip_to_quality(minscore)
+                self.skipped += matcher.skip_to_quality(minscore)
                 # Skipping ahead might have moved the matcher to the end of the
                 # posting list
                 if not matcher.is_active():

@@ -28,6 +28,7 @@
 from __future__ import with_statement
 import threading
 import time
+from contextlib import contextmanager
 
 from whoosh.store import LockError
 from whoosh.util import abstractmethod, synchronized
@@ -37,6 +38,15 @@ from whoosh.util import abstractmethod, synchronized
 
 class IndexingError(Exception):
     pass
+
+
+# 
+
+@contextmanager
+def groupmanager(writer):
+    writer.start_group()
+    yield
+    writer.end_group()
 
 
 # Base class
@@ -67,6 +77,62 @@ class IndexWriter(object):
             self.cancel()
         else:
             self.commit()
+
+    def group(self):
+        """Returns a context manager that calls
+        :meth:`~IndexWriter.start_group` and :meth:`~IndexWriter.end_group` for
+        you, allowing you to use a ``with`` statement to group hierarchical
+        documents::
+        
+            with myindex.writer() as w:
+                with w.group():
+                    w.add_document(kind="class", name="Accumulator")
+                    w.add_document(kind="method", name="add")
+                    w.add_document(kind="method", name="get_result")
+                    w.add_document(kind="method", name="close")
+                
+                with w.group():
+                    w.add_document(kind="class", name="Calculator")
+                    w.add_document(kind="method", name="add")
+                    w.add_document(kind="method", name="multiply")
+                    w.add_document(kind="method", name="get_result")
+                    w.add_document(kind="method", name="close")
+        """
+
+        return groupmanager(self)
+
+    def start_group(self):
+        """Start indexing a group of hierarchical documents. The backend should
+        ensure that these documents are all added to the same segment::
+        
+            with myindex.writer() as w:
+                w.start_group()
+                w.add_document(kind="class", name="Accumulator")
+                w.add_document(kind="method", name="add")
+                w.add_document(kind="method", name="get_result")
+                w.add_document(kind="method", name="close")
+                w.end_group()
+                
+                w.start_group()
+                w.add_document(kind="class", name="Calculator")
+                w.add_document(kind="method", name="add")
+                w.add_document(kind="method", name="multiply")
+                w.add_document(kind="method", name="get_result")
+                w.add_document(kind="method", name="close")
+                w.end_group()
+        
+        A more convenient way to group documents is to use the
+        :meth:`~IndexWriter.group` method and the ``with`` statement.
+        """
+
+        pass
+
+    def end_group(self):
+        """Finish indexing a group of hierarchical documents. See
+        :meth:`~IndexWriter.start_group`.
+        """
+
+        pass
 
     def add_field(self, fieldname, fieldtype, **kwargs):
         """Adds a field to the index's schema.
@@ -222,9 +288,6 @@ class IndexWriter(object):
         # Check which of the supplied fields are unique
         unique_fields = [name for name, field in self.schema.items()
                          if name in fields and field.unique]
-        if not unique_fields:
-            raise IndexingError("None of the fields in %r"
-                                " are unique" % list(fields.keys()))
         return unique_fields
 
     def update_document(self, **fields):
@@ -290,14 +353,6 @@ class IndexWriter(object):
 
         # Add the given fields
         self.add_document(**fields)
-
-    def add_document_group(self, docs):
-        for doc in docs:
-            self.add_document(**doc)
-
-    def update_document_group(self, docs):
-        for doc in docs:
-            self.update_document(**doc)
 
     def commit(self):
         """Finishes writing and unlocks the index.

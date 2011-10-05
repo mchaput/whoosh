@@ -530,34 +530,7 @@ def test_doc_boost():
         r = s.search(query.Term("a", "alfa"))
         assert_equal([hit["id"] for hit in r], [1, 0, 3, 2])
 
-def test_nested():
-    schema = fields.Schema(name=fields.ID(stored=True), type=fields.ID,
-                           part=fields.ID, price=fields.NUMERIC)
-    ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
-        w.add_document(name=u("iPad"), type=u("product"))
-        w.add_document(part=u("screen"), price=100)
-        w.add_document(part=u("battery"), price=50)
-        w.add_document(part=u("case"), price=20)
 
-        w.add_document(name=u("iPhone"), type=u("product"))
-        w.add_document(part=u("screen"), price=60)
-        w.add_document(part=u("battery"), price=30)
-        w.add_document(part=u("case"), price=10)
-
-        w.add_document(name=u("Mac mini"), type=u("product"))
-        w.add_document(part=u("hard drive"), price=50)
-        w.add_document(part=u("case"), price=50)
-
-    with ix.searcher() as s:
-        price = s.schema["price"]
-
-        pq = query.Term("type", "product")
-        cq = query.Term("price", price.to_text(50))
-        q = query.NestedDocument(pq, cq)
-
-        r = s.search(q)
-        assert_equal(sorted([hit["name"] for hit in r]), ["Mac mini", "iPad"])
 
 
 

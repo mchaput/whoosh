@@ -105,6 +105,7 @@ class MultiSegmentWriter(IndexWriter):
         self.jobqueue = Queue(self.procs * 4)
         self.resultqueue = Queue()
         self.docbuffer = []
+        self._grouping = 0
 
         self.writelock = ix.lock("WRITELOCK")
         self.writelock.acquire()
@@ -150,16 +151,17 @@ class MultiSegmentWriter(IndexWriter):
         finally:
             self.writelock.release()
 
+    def start_group(self):
+        self._grouping += 1
+
+    def end_group(self):
+        if not self._grouping:
+            raise Exception("Unbalanced end_group")
+        self._grouping -= 1
+
     def add_document(self, **fields):
         self.docbuffer.append(fields)
-        if len(self.docbuffer) >= self.bufferlimit:
-            self._enqueue()
-
-    def add_document_group(self, docs):
-        # Add the documents to the doc buffer all at once
-        self.docbuffer.extend(docs)
-        # THEN check if the buffer is too big
-        if len(self.docbuffer) >= self.bufferlimit:
+        if not self._grouping and len(self.docbuffer) >= self.bufferlimit:
             self._enqueue()
 
     def commit(self, **kwargs):
@@ -259,6 +261,7 @@ class MultiPool(PoolBase):
         self.tasks = []
         self.buffer = []
         self.bufferlimit = batchsize
+        self._grouping = 0
 
     def _new_task(self, firstjob):
         task = PoolWritingTask(self.schema, self.dir, self.jobqueue,
@@ -286,8 +289,16 @@ class MultiPool(PoolBase):
 
     def _append(self, item):
         self.buffer.append(item)
-        if len(self.buffer) > self.bufferlimit:
+        if not self._grouping and len(self.buffer) > self.bufferlimit:
             self._enqueue()
+
+    def start_group(self):
+        self._grouping += 1
+
+    def end_group(self):
+        if not self._grouping:
+            raise Exception("Unbalanced end_group")
+        self._grouping -= 1
 
     def add_content(self, *args):
         self._append((0, args))
