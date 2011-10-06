@@ -2123,7 +2123,7 @@ class Otherwise(BinaryQuery):
         return m
 
 
-class NestedDocument(WrappingQuery):
+class Nested(WrappingQuery):
     def __init__(self, parentq, q, per_parent_limit=None, score_fn=sum):
         self.parentq = parentq
         self.child = q
@@ -2143,15 +2143,21 @@ class NestedDocument(WrappingQuery):
         return self.child.requires()
 
     def matcher(self, searcher, weighting=None):
-        bits = BitSet(searcher.doc_count_all(), self.parentq.docs(searcher))
-        m = self.child.matcher(searcher, weighting=weighting)
-        return self.NestedDocumentMatcher(bits, m, self.per_parent_limit)
+        pm = self.parentq.matcher(searcher)
+        if not pm.is_active():
+            return matching.NullMatcher
+        bits = BitSet(searcher.doc_count_all(), pm.all_ids())
 
-    class NestedDocumentMatcher(matching.Matcher):
-        def __init__(self, comb, child, per_parent_limit):
+        m = self.child.matcher(searcher, weighting=weighting)
+        return self.NestedMatcher(bits, m, self.per_parent_limit,
+                                  searcher.doc_count_all())
+
+    class NestedMatcher(matching.Matcher):
+        def __init__(self, comb, child, per_parent_limit, maxdoc):
             self.comb = comb
             self.child = child
             self.per_parent_limit = per_parent_limit
+            self.maxdoc = maxdoc
 
             self._nextdoc = None
             if self.child.is_active():
@@ -2163,20 +2169,23 @@ class NestedDocument(WrappingQuery):
         def supports_block_quality(self):
             return False
 
-        def _parent(self, docid):
-            comb = self.comb
-            return comb.before(docid + 1)
-
         def _gather(self):
+            # This is where the magic happens ;)
             child = self.child
             pplimit = self.per_parent_limit
-            self._nextdoc = self._parent(child.id())
 
-            nextparent = self.comb.after(child.id())
+            # The next document returned by this matcher is the parent of the
+            # child's current document. We don't have to worry about whether
+            # the parent is deleted, because the query that gave us the parents
+            # wouldn't return deleted documents.
+            self._nextdoc = self.comb.before(child.id() + 1)
+            # The next parent after the child matcher's current document
+            nextparent = self.comb.after(child.id()) or self.maxdoc
+
+            # Sum the scores of all matching documents under the parent
             count = 1
             score = 0
-            while (child.is_active() and
-                   (nextparent is None or child.id() < nextparent)):
+            while child.is_active() and child.id() < nextparent:
                 if pplimit and count > pplimit:
                     child.skip_to(nextparent)
                     break
