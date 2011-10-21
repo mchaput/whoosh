@@ -13,17 +13,29 @@ from whoosh.util import permutations
 
 
 def test_dawg():
-    from whoosh.support.dawg import DawgBuilder
-
     with TempStorage() as st:
         df = st.create_file("test.dawg")
 
-        dw = DawgBuilder(field_root=True)
+        dw = dawg.DawgBuilder(field_root=True)
         dw.insert(["test"] + list("special"))
         dw.insert(["test"] + list("specials"))
         dw.write(df)
 
         assert_equal(list(dawg.flatten(dw.root.edge("test"))), ["special", "specials"])
+
+def test_node_eq():
+    st = RamStorage()
+    df = st.create_file("test.dawg")
+    dw = dawg.DawgBuilder()
+    dw.insert("alfa")
+    dw.insert("alpaca")
+    dw.insert("alpha")
+    dw.insert("bravo")
+    dw.insert("brief")
+    dw.insert("bro")
+
+    r = dw.root
+    assert r == r
 
 def test_fields_out_of_order():
     dw = dawg.DawgBuilder()
