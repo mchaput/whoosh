@@ -152,9 +152,11 @@ class BuildNode(object):
         return h
 
     def __eq__(self, other):
+        if self is other:
+            return True
         if self.final != other.final:
             return False
-        mine, theirs = self._edges, other._edges
+        mine, theirs = self.all_edges(), other.all_edges()
         if len(mine) != len(theirs):
             return False
         for key in iterkeys(mine):
