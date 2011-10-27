@@ -347,12 +347,12 @@ class AsyncWriter(threading.Thread, IndexWriter):
     
     For example, to get an aynchronous writer, instead of this:
     
-    >>> writer = myindex.writer(postlimitmb=128)
+    >>> writer = myindex.writer()
     
     Do this:
     
     >>> from whoosh.writing import AsyncWriter
-    >>> writer = AsyncWriter(myindex, )
+    >>> writer = AsyncWriter(myindex)
     """
 
     def __init__(self, index, delay=0.25, writerargs=None):

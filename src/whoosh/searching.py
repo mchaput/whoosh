@@ -178,8 +178,7 @@ class Searcher(object):
         """
 
         if not self._ix:
-            raise Exception("This searcher was not created with a reference "
-                            "to its index")
+            raise Exception("No reference to index")
         return self._ix.latest_generation() == self.ixreader.generation()
 
     def refresh(self):
@@ -196,8 +195,7 @@ class Searcher(object):
         """
 
         if not self._ix:
-            raise Exception("This searcher was not created with a reference "
-                            "to its index")
+            raise Exception("No reference to index")
         if self._ix.latest_generation() == self.reader().generation():
             return self
 

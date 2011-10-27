@@ -300,21 +300,7 @@ class FieldType(object):
         (i.e. the ``spelling`` attribute is False).
         """
 
-        if not self.spelling:
-            # If the field doesn't support spelling, it doesn't support
-            # separate spelling
-            return False
-        elif not self.indexed:
-            # The field is marked as supporting spelling, but isn't indexed, so
-            # we need to generate the spelling words separately from indexing
-            return True
-        elif self.analyzer.has_morph():
-            # The analyzer has morphological transformations (e.g. stemming),
-            # so the words that go into the word graph need to be generated
-            # separately without the transformations.
-            return True
-        else:
-            return False
+        return self.spelling and self.analyzer.has_morph()
 
     def spellable_words(self, value):
         """Returns an iterator of each unique word (in sorted order) in the

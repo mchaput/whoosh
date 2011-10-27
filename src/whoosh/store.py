@@ -25,6 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import random
+
 
 class LockError(Exception):
     pass
@@ -47,6 +49,10 @@ class Storage(object):
 
     def create_file(self, name):
         raise NotImplementedError
+
+    def create_temp(self):
+        name = hex(random.getrandbits(128))[2:] + ".tmp"
+        return name, self.create_file(name)
 
     def open_file(self, name, *args, **kwargs):
         raise NotImplementedError
