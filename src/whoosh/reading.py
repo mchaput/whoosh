@@ -144,7 +144,7 @@ class IndexReader(ClosableMixin):
         is not versioned.
         """
 
-        return -1
+        return None
 
     @abstractmethod
     def all_terms(self):
@@ -598,7 +598,7 @@ class MultiReader(IndexReader):
     def is_atomic(self):
         return False
 
-    def __init__(self, readers, generation= -1):
+    def __init__(self, readers, generation=None):
         self.readers = readers
         self._gen = generation
         self.schema = None

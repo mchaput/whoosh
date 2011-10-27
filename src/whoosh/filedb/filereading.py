@@ -30,10 +30,11 @@ from heapq import nlargest, nsmallest
 from threading import Lock
 
 from whoosh.compat import iteritems, string_type, integer_types, xrange
+from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.filedb.filepostings import FilePostingReader
 from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
-                                      LengthReader, TermVectorReader)
+                                      TermVectorReader, Lengths)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.support.dawg import DiskNode
@@ -47,16 +48,16 @@ SAVE_BY_DEFAULT = True
 class SegmentReader(IndexReader):
     GZIP_CACHES = False
 
-    def __init__(self, storage, schema, segment):
+    def __init__(self, storage, schema, segment, generation=None):
         self.storage = storage
         self.schema = schema
         self.segment = segment
+        self._gen = generation
 
-        if hasattr(self.segment, "uuid"):
-            self.uuid_string = str(self.segment.uuid)
+        if hasattr(self.segment, "segment_id"):
+            self.segid = str(self.segment.segment_id())
         else:
-            import uuid
-            self.uuid_string = str(uuid.uuid4())
+            self.segid = Segment.random_id()
 
         # Term index
         tf = storage.open_file(segment.termsindex_filename)
@@ -74,7 +75,7 @@ class SegmentReader(IndexReader):
         self.fieldlengths = None
         if self.schema.has_scorable_fields():
             flf = storage.open_file(segment.fieldlengths_filename)
-            self.fieldlengths = LengthReader(flf, segment.doc_count_all())
+            self.fieldlengths = Lengths.from_file(flf, segment.doc_count_all())
 
         # Copy info from underlying segment
         self._has_deletions = segment.has_deletions()
@@ -96,9 +97,7 @@ class SegmentReader(IndexReader):
         assert self.dc == self.storedfields.length
 
         self.set_caching_policy()
-
         self.is_closed = False
-        self._sync_lock = Lock()
 
     def has_deletions(self):
         return self._has_deletions
@@ -110,7 +109,7 @@ class SegmentReader(IndexReader):
         return self.segment.is_deleted(docnum)
 
     def generation(self):
-        return self.segment.generation
+        return self._gen
 
     def _open_vectors(self):
         if self.vectorindex:
@@ -164,13 +163,13 @@ class SegmentReader(IndexReader):
                 yield sf(docnum)
 
     def field_length(self, fieldname):
-        return self.segment.field_length(fieldname)
+        return self.fieldlengths.field_length(fieldname)
 
     def min_field_length(self, fieldname):
-        return self.segment.min_field_length(fieldname)
+        return self.fieldlengths.min_field_length(fieldname)
 
     def max_field_length(self, fieldname):
-        return self.segment.max_field_length(fieldname)
+        return self.fieldlengths.max_field_length(fieldname)
 
     def doc_field_length(self, docnum, fieldname, default=0):
         if self.fieldlengths is None:
@@ -363,15 +362,15 @@ class SegmentReader(IndexReader):
                 storage = self.storage
             elif not save:
                 storage = None
-            cp = DefaultFieldCachingPolicy(self.segment.name, storage=storage)
-
+            cp = DefaultFieldCachingPolicy(self.segment.segment_id(),
+                                           storage=storage)
         if type(cp) is type:
             cp = cp()
 
         self.caching_policy = cp
 
     def _fieldkey(self, fieldname):
-        return "%s/%s" % (self.uuid_string, fieldname)
+        return "%s/%s" % (self.segid, fieldname)
 
     def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
         """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for

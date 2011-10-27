@@ -653,61 +653,108 @@ class TermVectorReader(TermIndexReader):
         return unpack_long(v)[0]
 
 
-class LengthWriter(object):
-    def __init__(self, dbfile, doccount, lengths=None):
-        self.dbfile = dbfile
+class Lengths(object):
+    def __init__(self, doccount=0, lengths=None, totals=None):
         self.doccount = doccount
-        if lengths is not None:
-            self.lengths = lengths
-        else:
-            self.lengths = {}
+        self.lengths = lengths if lengths is not None else {}
+        self.totals = totals if totals is not None else defaultdict(int)
+        self.mins = {}
+        self.maxes = {}
 
-    def add_all(self, items):
-        lengths = self.lengths
-        for docnum, fieldname, byte in items:
-            if byte:
-                if fieldname not in lengths:
-                    zeros = (0 for _ in xrange(self.doccount))
-                    lengths[fieldname] = array("B", zeros)
-                lengths[fieldname][docnum] = byte
-
-    def add(self, docnum, fieldname, byte):
-        lengths = self.lengths
-        if byte:
-            if fieldname not in lengths:
-                zeros = (0 for _ in xrange(self.doccount))
-                lengths[fieldname] = array("B", zeros)
-            lengths[fieldname][docnum] = byte
-
-    def reader(self):
-        return LengthReader(None, self.doccount, lengths=self.lengths)
-
-    def close(self):
-        self.dbfile.write_ushort(len(self.lengths))
-        for fieldname, arry in iteritems(self.lengths):
-            self.dbfile.write_string(fieldname.encode('utf-8'))
-            self.dbfile.write_array(arry)
-        self.dbfile.close()
-
-
-class LengthReader(object):
-    def __init__(self, dbfile, doccount, lengths=None):
-        self.doccount = doccount
-
-        if lengths is not None:
-            self.lengths = lengths
-        else:
-            self.lengths = {}
-            count = dbfile.read_ushort()
-            for _ in xrange(count):
-                fieldname = dbfile.read_string().decode('utf-8')
-                self.lengths[fieldname] = dbfile.read_array("B", self.doccount)
-            dbfile.close()
+    def _create_field(self, fieldname, docnum):
+        dc = max(self.doccount, docnum + 1)
+        self.lengths[fieldname] = array("B", (0 for _ in xrange(dc)))
 
     def __iter__(self):
         for fieldname in self.lengths.keys():
             for docnum, byte in enumerate(self.lengths[fieldname]):
                 yield docnum, fieldname, byte
+
+    @classmethod
+    def from_file(cls, dbfile, doccount):
+        lengths = {}
+        totals = {}
+
+        # Read header byte and version
+        if dbfile.read(1) != "\xFF":
+            # Old format starts directly with number of fields at byte 0
+            version = 0
+            dbfile.seek(0)
+        else:
+            version = dbfile.read_int()
+            dc = dbfile.read_uint()  # Number of documents saved
+            if doccount is None:
+                # This allows you to do Lengths.from_file(dbfile, None) to open
+                # the lengths file without knowing the doccount, which is
+                # sometimes useful for
+                doccount = dc
+            # Sanity check: make sure the doccount that was saved with the file
+            # equals what the caller thinks the doccount is now
+            assert dc == doccount
+
+        # Read number of fields
+        fieldcount = dbfile.read_ushort()
+        # Read each field name and array
+        for _ in xrange(fieldcount):
+            # Fieldname
+            fieldname = dbfile.read_string().decode('utf-8')
+            # Length byte array
+            arry = dbfile.read_array("B", doccount)
+            lengths[fieldname] = arry
+            # Total length
+            if version:
+                totals[fieldname] = dbfile.read_uint()
+            else:
+                # Old format didn't store totals in the length file, fake it
+                # by adding up the byte approximations
+                totals[fieldname] = sum(byte_to_length(b) for b in arry)
+
+        dbfile.close()
+        return cls(doccount, lengths, totals)
+
+    def field_length(self, fieldname):
+        return self.totals.get(fieldname, 0)
+
+    def min_field_length(self, fieldname):
+        if fieldname in self.mins:
+            return self.maxes[fieldname]
+        mn = byte_to_length(min(b for b in self.lengths[fieldname]))
+        self.mins[fieldname] = mn
+        return mn
+
+    def max_field_length(self, fieldname):
+        if fieldname in self.maxes:
+            return self.maxes[fieldname]
+        mx = byte_to_length(max(b for b in self.lengths[fieldname]))
+        self.maxes[fieldname] = mx
+        return mx
+
+    def add_all(self, items):
+        lengths = self.lengths
+        totals = self.totals
+        for docnum, fieldname, length in items:
+            if length:
+                if fieldname not in lengths:
+                    self._create_field(fieldname, docnum)
+                byte = length_to_byte(length)
+                lengths[fieldname][docnum] = byte
+                totals[fieldname] += length
+
+    def add(self, docnum, fieldname, length):
+        lengths = self.lengths
+        if length:
+            if fieldname not in lengths:
+                self._create_field(fieldname, docnum)
+
+            arry = self.lengths[fieldname]
+            count = docnum + 1
+            if len(arry) < count:
+                for _ in xrange(count - len(arry)):
+                    arry.append(0)
+
+            byte = length_to_byte(length)
+            arry[docnum] = byte
+            self.totals[fieldname] += length
 
     def get(self, docnum, fieldname, default=0):
         lengths = self.lengths
@@ -715,6 +762,28 @@ class LengthReader(object):
             return default
         byte = lengths[fieldname][docnum] or default
         return byte_to_length(byte)
+
+    def field_names(self):
+        return self.lengths.keys()
+
+    def to_file(self, dbfile, doccount):
+        # Pad out arrays to full length
+        for fieldname in self.lengths.keys():
+            arry = self.lengths[fieldname]
+            if len(arry) < doccount:
+                for _ in xrange(doccount - len(arry)):
+                    arry.append(0)
+
+        dbfile.write("\xFF")  # Header byte
+        dbfile.write_int(1)  # Format version number
+        dbfile.write_uint(doccount)  # Number of documents
+        dbfile.write_ushort(len(self.lengths))  # Number of fields
+
+        for fieldname, arry in iteritems(self.lengths):
+            dbfile.write_string(fieldname.encode('utf-8'))  # Fieldname
+            dbfile.write_array(arry)  # Length byte array
+            dbfile.write_uint(self.totals[fieldname])  # Total length
+        dbfile.close()
 
 
 _stored_pointer_struct = Struct("!qI")  # offset, length

@@ -53,15 +53,16 @@ class FileStorage(Storage):
             raise IOError("Directory %s does not exist" % path)
 
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
+        from whoosh.filedb.fileindex import TOC, FileIndex
+
         if self.readonly:
             raise ReadOnlyError
-
-        from whoosh.filedb.fileindex import _create_index, FileIndex
-        _create_index(self, schema, indexname)
+        TOC.create(self, schema, indexname)
         return FileIndex(self, schema, indexname)
 
     def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
         from whoosh.filedb.fileindex import FileIndex
+
         return FileIndex(self, schema=schema, indexname=indexname)
 
     def create_file(self, name, excl=False, mode="wb", **kwargs):
