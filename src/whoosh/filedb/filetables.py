@@ -37,7 +37,7 @@ from hashlib import md5  #@UnresolvedImport
 from struct import Struct, pack
 
 from whoosh.compat import (loads, dumps, long_type, xrange, iteritems,
-                           b, text_type)
+                           itervalues, b, text_type)
 from whoosh.reading import TermInfo
 from whoosh.system import (_INT_SIZE, _LONG_SIZE, _FLOAT_SIZE, pack_ushort,
                            pack_long, unpack_ushort, unpack_long)
@@ -712,12 +712,19 @@ class Lengths(object):
         dbfile.close()
         return cls(doccount, lengths, totals)
 
+    def doc_count(self):
+        if not self.lengths:
+            return 0
+        return max(len(arry) for arry in itervalues(self.lengths))
+
     def field_length(self, fieldname):
         return self.totals.get(fieldname, 0)
 
     def min_field_length(self, fieldname):
         if fieldname in self.mins:
             return self.maxes[fieldname]
+        if not self.lengths:
+            return 0
         mn = byte_to_length(min(b for b in self.lengths[fieldname]))
         self.mins[fieldname] = mn
         return mn
@@ -725,6 +732,8 @@ class Lengths(object):
     def max_field_length(self, fieldname):
         if fieldname in self.maxes:
             return self.maxes[fieldname]
+        if not self.lengths:
+            return 0
         mx = byte_to_length(max(b for b in self.lengths[fieldname]))
         self.maxes[fieldname] = mx
         return mx
@@ -756,6 +765,22 @@ class Lengths(object):
             arry[docnum] = byte
             self.totals[fieldname] += length
 
+    def add_other(self, other):
+        lengths = self.lengths
+        totals = self.totals
+        doccount = self.doc_count()
+        for fname in other.lengths:
+            if fname not in lengths:
+                lengths[fname] = array("B")
+        self._pad_arrays(doccount)
+
+        for fname in other.lengths:
+            lengths[fname].extend(other.lengths[fname])
+        self._pad_arrays(self.doc_count())
+
+        for fname in other.totals:
+            totals[fname] += other.totals[fname]
+
     def get(self, docnum, fieldname, default=0):
         lengths = self.lengths
         if fieldname not in lengths:
@@ -766,13 +791,16 @@ class Lengths(object):
     def field_names(self):
         return self.lengths.keys()
 
-    def to_file(self, dbfile, doccount):
+    def _pad_arrays(self, doccount):
         # Pad out arrays to full length
         for fieldname in self.lengths.keys():
             arry = self.lengths[fieldname]
             if len(arry) < doccount:
                 for _ in xrange(doccount - len(arry)):
                     arry.append(0)
+
+    def to_file(self, dbfile, doccount):
+        self._pad_arrays(doccount)
 
         dbfile.write("\xFF")  # Header byte
         dbfile.write_int(1)  # Format version number
@@ -890,18 +918,16 @@ NO_ID = 0xffffffff
 
 
 class FileTermInfo(TermInfo):
-    # Freq, Doc freq, min len, max length, max weight, max WOL, min ID, max ID
+    # Freq, Doc freq, min len, max length, max weight, unused, min ID, max ID
     struct = Struct("!fIBBffII")
 
     def __init__(self, weight=0.0, docfreq=0, minlength=None, maxlength=0,
-                 maxweight=0.0, maxwol=0.0, minid=None, maxid=None,
-                 postings=None):
+                 maxweight=0.0, minid=None, maxid=None, postings=None):
         self._weight = weight
         self._df = docfreq
         self._minlength = minlength  # (as byte)
         self._maxlength = maxlength  # (as byte)
         self._maxweight = maxweight
-        self._maxwol = maxwol
         self._minid = minid
         self._maxid = maxid
         self.postings = postings
@@ -930,7 +956,6 @@ class FileTermInfo(TermInfo):
         self._maxlength = max(self._maxlength, xl)
 
         self._maxweight = max(self._maxweight, block.max_weight())
-        self._maxwol = max(self._maxwol, block.max_wol())
 
         if self._minid is None:
             self._minid = block.ids[0]
@@ -949,7 +974,7 @@ class FileTermInfo(TermInfo):
 
         # Pack the term info into bytes
         st = self.struct.pack(self._weight, self._df, ml, xl,
-                              self._maxweight, self._maxwol, mid, xid)
+                              self._maxweight, 0, mid, xid)
 
         if isinstance(self.postings, tuple):
             # Postings are inlined - dump them using the pickle protocol
@@ -973,8 +998,8 @@ class FileTermInfo(TermInfo):
         hbyte = ord(s[0:1])
         if hbyte < 2:
             st = cls.struct
-            # Freq, Doc freq, min len, max len, max w, max WOL, min ID, max ID
-            f, df, ml, xl, xw, xwol, mid, xid = st.unpack(s[1:st.size + 1])
+            # Freq, Doc freq, min len, max len, max w, unused, min ID, max ID
+            f, df, ml, xl, xw, _, mid, xid = st.unpack(s[1:st.size + 1])
             mid = None if mid == NO_ID else mid
             xid = None if xid == NO_ID else xid
             # Postings
@@ -998,11 +1023,10 @@ class FileTermInfo(TermInfo):
             ml = 1
             xl = 106374
             xw = 999999999
-            xwol = 999999999
             mid = -1
             xid = -1
 
-        return cls(f, df, ml, xl, xw, xwol, mid, xid, p)
+        return cls(f, df, ml, xl, xw, mid, xid, p)
 
     @classmethod
     def read_weight(cls, dbfile, datapos):
@@ -1024,7 +1048,3 @@ class FileTermInfo(TermInfo):
         weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
         return dbfile.get_float(weightspos)
 
-    @classmethod
-    def read_max_wol(cls, dbfile, datapos):
-        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
-        return dbfile.get_float(weightspos + _FLOAT_SIZE)

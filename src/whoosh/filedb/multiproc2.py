@@ -25,11 +25,13 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os, tempfile
+import marshal, os, tempfile
 from multiprocessing import Process, Queue, cpu_count
 
-from whoosh.compat import xrange, iteritems, dump, load
+from whoosh.compat import xrange, iteritems, pickle
+from whoosh.filedb.filetables import Lengths
 from whoosh.filedb.filewriting import SegmentWriter
+from whoosh.support.externalsort import imerge
 from whoosh.writing import IndexWriter
 
 
@@ -47,6 +49,7 @@ class SubWriterTask(Process):
 
     def _process_file(self, filename, length):
         writer = self.writer
+        load = pickle.load
         f = open(filename, "rb")
         for _ in xrange(length):
             code, args = load(f)
@@ -85,12 +88,14 @@ class SubWriterTask(Process):
 
 
 class MpWriter(IndexWriter):
-    def __init__(self, ix, procs=None, batchsize=100, subargs=None, **kwargs):
+    def __init__(self, ix, procs=None, batchsize=100, subargs=None,
+                 combine=True, ** kwargs):
         self.index = ix
         self.writer = self.index.writer(**kwargs)
         self.procs = procs or cpu_count()
         self.batchsize = batchsize
         self.subargs = subargs if subargs else kwargs
+        self.combine = combine
 
         self.tasks = []
         self.jobqueue = Queue(self.procs * 4)
@@ -110,6 +115,7 @@ class MpWriter(IndexWriter):
 
     def _enqueue(self):
         docbuffer = self.docbuffer
+        dump = pickle.dump
         length = len(docbuffer)
         fd, filename = tempfile.mkstemp(".doclist")
         f = os.fdopen(fd, "wb")
@@ -139,7 +145,23 @@ class MpWriter(IndexWriter):
         if len(self.docbuffer) >= self.batchsize:
             self._enqueue()
 
+    def _read_and_renumber_run(self, path, offset):
+        load = marshal.load
+        f = open(path, "rb")
+        try:
+            while True:
+                fname, text, docnum, weight, value = load(f)
+                yield (fname, text, docnum + offset, weight, value)
+        except EOFError:
+            return
+        finally:
+            f.close()
+            os.remove(path)
+
     def commit(self, **kwargs):
+        writer = self.writer
+        pool = writer.pool
+
         # Index the remaining documents in the doc buffer
         self._enqueue()
         # Tell the tasks to finish
@@ -151,7 +173,28 @@ class MpWriter(IndexWriter):
         # Get the results
         results = []
         for task in self.tasks:
+            # runname, doccount, lenname
             results.append(self.resultqueue.get(timeout=5))
+
+        if results:
+            print "Combining results"
+            from whoosh.util import now
+            t = now()
+            for runname, doccount, lenname in results:
+                f = writer.storage.open_file(lenname)
+                lengths = Lengths.from_file(f, doccount)
+                writer.lengths.add_other(lengths)
+                writer.storage.delete_file(lenname)
+
+            base = results[0][1]
+            runreaders = [pool._read_run(results[0][0])]
+            for runname, doccount, lenname in results[1:]:
+                rr = self._read_and_renumber_run(runname, base)
+                runreaders.append(rr)
+                base += doccount
+            writer.termswriter.add_iter(imerge(runreaders), writer.lengths)
+            print "Combining took", now() - t
+
 
 
 
