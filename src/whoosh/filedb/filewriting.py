@@ -122,11 +122,37 @@ def OPTIMIZE(writer, segments):
 #    return segments
 
 
+class PostingPool(SortingPool):
+    # Subclass whoosh.support.externalsort.SortingPool to use knowledge of
+    # postings to set run size in bytes instead of items
+
+    def __init__(self, limitmb=128, **kwargs):
+        SortingPool.__init__(self, **kwargs)
+        self.limit = limitmb * 1024 * 1024
+        self.currentsize = 0
+
+    def add(self, item):
+        # item = (fieldname, text, docnum, weight, valuestring)
+        size = (28 + 4 * 5  # tuple = 28 + 4 * length
+                + 21 + len(item[0])  # fieldname = str = 21 + length
+                + 26 + len(item[1]) * 2  # text = unicode = 26 + 2 * length
+                + 18  # docnum = long = 18
+                + 16  # weight = float = 16
+                + 21 + len(item[4]))  # valuestring
+        self.currentsize += size
+        if self.currentsize > self.limit:
+            self.save()
+
+    def save(self):
+        SortingPool.save(self)
+        self.currentsize = 0
+
+
 # Writer object
 
 class SegmentWriter(IndexWriter):
     def __init__(self, ix, poolclass=None, blocklimit=128, timeout=0.0,
-                 delay=0.1, _lk=True, poolsize=100000, docbase=0, **kwargs):
+                 delay=0.1, _lk=True, limitmb=128, docbase=0, **kwargs):
         self.is_closed = False
         self.writelock = None
         self._added = False
@@ -188,7 +214,8 @@ class SegmentWriter(IndexWriter):
         self.lengths = Lengths()
 
         # Create the posting pool
-        self.pool = SortingPool(maxsize=poolsize, prefix=self.indexname)
+        self.pool = PostingPool(limitmb=limitmb,
+                                prefix="whoosh_%s_" % self.indexname)
 
     def _check_state(self):
         if self.is_closed:
@@ -403,8 +430,6 @@ class SegmentWriter(IndexWriter):
 
         self.termswriter.close()
         self.storedfields.close()
-        if not self.lengthfile.is_closed:
-            self.lengthfile.close()
         if self.vectorindex:
             self.vectorindex.close()
         if self.vpostwriter:
