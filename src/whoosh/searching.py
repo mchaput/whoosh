@@ -111,9 +111,10 @@ class Searcher(object):
                                  in self.leafreaders]
 
         # Copy attributes/methods from wrapped reader
-        for name in ("stored_fields", "all_stored_fields", "vector",
-                     "vector_as", "lexicon", "frequency", "doc_frequency",
-                     "term_info", "doc_field_length", "corrector"):
+        for name in ("stored_fields", "all_stored_fields", "has_vector",
+                     "vector", "vector_as", "lexicon", "frequency",
+                     "doc_frequency", "term_info", "doc_field_length",
+                     "corrector"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -1263,6 +1264,9 @@ class Results(object):
             return [Hit(self, self.top_n[i][1], i, self.top_n[i][0])
                     for i in xrange(start, stop, step)]
         else:
+            if n >= len(self.top_n):
+                raise IndexError("results[%r]: Results only has %s hits"
+                                 % (n, len(self.top_n)))
             return Hit(self, self.top_n[n][1], n, self.top_n[n][0])
 
     def __iter__(self):
@@ -1433,9 +1437,11 @@ class Results(object):
         """Returns a copy of this results object.
         """
 
-        return self.__class__(self.searcher, self.q, self.top_n[:],
-                              copy.copy(self.docset), runtime=self.runtime,
-                              filter=self._filter, mask=self._mask)
+        topcopy = list(self.top_n)
+        setcopy = copy.copy(self.docset)
+        return self.__class__(self.searcher, self.q, topcopy, setcopy,
+                              runtime=self.runtime, filter=self._filter,
+                              mask=self._mask)
 
     def score(self, n):
         """Returns the score for the document at the Nth position in the list

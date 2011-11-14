@@ -15,18 +15,17 @@ from whoosh.util import permutations
 def test_dawg():
     with TempStorage() as st:
         df = st.create_file("test.dawg")
-
-        dw = dawg.DawgBuilder(field_root=True)
+        dw = dawg.DawgBuilder(df, field_root=True)
         dw.insert(["test"] + list("special"))
         dw.insert(["test"] + list("specials"))
-        dw.write(df)
+        dw.close()
 
         assert_equal(list(dawg.flatten(dw.root.edge("test"))), ["special", "specials"])
 
 def test_node_eq():
     st = RamStorage()
     df = st.create_file("test.dawg")
-    dw = dawg.DawgBuilder()
+    dw = dawg.DawgBuilder(df)
     dw.insert("alfa")
     dw.insert("alpaca")
     dw.insert("alpha")
@@ -38,13 +37,13 @@ def test_node_eq():
     assert r == r
 
 def test_fields_out_of_order():
-    dw = dawg.DawgBuilder()
+    dw = dawg.DawgBuilder(None)
     dw.insert("alfa")
     dw.insert("bravo")
     assert_raises(Exception, dw.insert, "baker")
     dw.finish()
 
-    dw = dawg.DawgBuilder(field_root=True)
+    dw = dawg.DawgBuilder(None, field_root=True)
     dw.insert(["bravo"] + list("test"))
     dw.insert(["alfa"] + list("test"))
     assert_raises(Exception, dw.insert, ["alfa"] + list("before"))
@@ -137,6 +136,7 @@ def test_multisegment():
 
     with ix.reader() as r:
         assert not r.is_atomic()
+        assert r.has_word_graph("text")
         words = list(dawg.flatten(r.word_graph("text")))
         assert_equal(words, sorted(domain))
 

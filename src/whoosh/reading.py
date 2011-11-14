@@ -53,14 +53,13 @@ class TermInfo(object):
     optimizations and scoring algorithms.
     """
 
-    def __init__(self, weight=0, df=0, minlength=0,
-                 maxlength=0, maxweight=0, maxwol=0, minid=0, maxid=0):
+    def __init__(self, weight=0, df=0, minlength=None,
+                 maxlength=0, maxweight=0, minid=None, maxid=0):
         self._weight = weight
         self._df = df
         self._minlength = minlength
         self._maxlength = maxlength
         self._maxweight = maxweight
-        self._maxwol = maxwol
         self._minid = minid
         self._maxid = maxid
 
@@ -96,13 +95,6 @@ class TermInfo(object):
         """
 
         return self._maxweight
-
-    def max_wol(self):
-        """Returns the maximum "weight divided by length" value for the term
-        across all documents.
-        """
-
-        return self._maxwol
 
     def min_id(self):
         """Returns the lowest document ID this term appears in.
@@ -405,8 +397,8 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), vec.weight())
                 vec.next()
         else:
-            format = self.schema[fieldname].format
-            decoder = format.decoder(astype)
+            format_ = self.schema[fieldname].format
+            decoder = format_.decoder(astype)
             while vec.is_active():
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
@@ -702,13 +694,12 @@ class MultiReader(IndexReader):
         ml = min(ti.min_length() for ti, _ in tis)
         xl = max(ti.max_length() for ti, _ in tis)
         xw = max(ti.max_weight() for ti, _ in tis)
-        xwol = max(ti.max_wol() for ti, _ in tis)
 
         # For min and max ID, we need to add the doc offsets
         mid = min(ti.min_id() + offset for ti, offset in tis)
         xid = max(ti.max_id() + offset for ti, offset in tis)
 
-        return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
+        return TermInfo(w, df, ml, xl, xw, mid, xid)
 
     def has_deletions(self):
         return any(r.has_deletions() for r in self.readers)

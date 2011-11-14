@@ -59,19 +59,44 @@ def test_vector_merge():
             assert_equal(vec, [(u('along'), 1), (u('book'), 1), (u('read'), 1)])
 
 def test_vector_unicode():
-    schema = fields.Schema(content=fields.TEXT(vector=formats.Frequency()))
+    schema = fields.Schema(content=fields.TEXT(vector=True))
     ix = RamStorage().create_index(schema)
 
     writer = ix.writer()
-    writer.add_document(content=u("\u1234\u2345\u3456 \u4567\u5678\u6789"))
-    writer.add_document(content=u("\u0123\u1234\u4567 \u4567\u5678\u6789"))
+    writer.add_document(content=u("\u13a0\u13a1\u13a2 \u13a3\u13a4\u13a5"))
+    writer.add_document(content=u("\u13a6\u13a7\u13a8 \u13a9\u13aa\u13ab"))
     writer.commit()
 
     writer = ix.writer()
-    writer.add_document(content=u("\u2345\u3456\u4567 \u789a\u789b\u789c"))
-    writer.add_document(content=u("\u0123\u1234\u4567 \u2345\u3456\u4567"))
+    writer.add_document(content=u("\u13ac\u13ad\u13ae \u13af\u13b0\u13b1"))
+    writer.add_document(content=u("\u13b2\u13b3\u13b4 \u13b5\u13b6\u13b7"))
     writer.commit()
 
     with ix.reader() as r:
+        for x in r.all_terms():
+            print x
         vec = list(r.vector_as("frequency", 0, "content"))
-        assert_equal(vec, [(u('\u3456\u4567'), 1), (u('\u789a\u789b\u789c'), 1)])
+        assert_equal(vec, [(u('\u13ac\u13ad\u13ae'), 1),
+                           (u('\u13af\u13b0\u13b1'), 1)])
+
+def test_add_vectored_field():
+    schema = fields.Schema(id=fields.ID(stored=True), f1=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=u("a"), f1=u("Testing one two three"))
+
+    with ix.writer() as w:
+        w.add_field("f2", fields.TEXT(vector=True))
+        w.add_document(id=u("b"), f2=u("Frosting four five six"))
+
+    with ix.searcher() as s:
+        docnum1 = s.document_number(id="a")
+        assert not s.has_vector(docnum1, "f1")
+
+        docnum2 = s.document_number(id="b")
+        assert not s.has_vector(docnum2, "f1")
+        assert s.has_vector(docnum2, "f2")
+
+
+
+

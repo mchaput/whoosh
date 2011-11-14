@@ -217,9 +217,11 @@ class FieldType(object):
                             % (self.__class__.__name__, self))
         if not isinstance(value, (text_type, list, tuple)):
             raise ValueError("%r is not unicode or sequence" % value)
-        assert isinstance(self.format, formats.Format), type(self.format)
-        return self.format.word_values(value, self.analyzer, mode="index",
-                                       **kwargs)
+        assert isinstance(self.format, formats.Format)
+
+        if "mode" not in kwargs:
+            kwargs["mode"] = "index"
+        return self.format.word_values(value, self.analyzer, **kwargs)
 
     def index_(self, fieldname, value, **kwargs):
         for w, freq, weight, value in self.index(value, **kwargs):
@@ -456,7 +458,7 @@ class NUMERIC(FieldType):
         for shift in xrange(0, bitlen, self.shift_step):
             yield self.to_text(num, shift=shift)
 
-    def index(self, num):
+    def index(self, num, **kwargs):
         # If the user gave us a list of numbers, recurse on the list
         if isinstance(num, (list, tuple)):
             items = []
@@ -684,7 +686,7 @@ class BOOLEAN(FieldType):
             raise ValueError("%r is not a boolean")
         return self.strings[int(bit)]
 
-    def index(self, bit):
+    def index(self, bit, **kwargs):
         bit = bool(bit)
         # word, freq, weight, valuestring
         return [(self.strings[int(bit)], 1, 1.0, '')]

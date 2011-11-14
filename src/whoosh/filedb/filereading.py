@@ -26,18 +26,12 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from bisect import bisect_left
-from heapq import nlargest, nsmallest
-from threading import Lock
 
 from whoosh.compat import iteritems, string_type, integer_types, xrange
 from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
-from whoosh.filedb.filepostings import FilePostingReader
-from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
-                                      TermVectorReader, Lengths)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
-from whoosh.support.dawg import DiskNode
 
 
 SAVE_BY_DEFAULT = True
@@ -48,62 +42,52 @@ SAVE_BY_DEFAULT = True
 class SegmentReader(IndexReader):
     GZIP_CACHES = False
 
-    def __init__(self, storage, schema, segment, generation=None):
+    def __init__(self, storage, schema, segment, generation=None, codec=None):
         self.storage = storage
         self.schema = schema
         self.segment = segment
         self._gen = generation
-
+        self.is_closed = False
+        # Copy info from underlying segment
+        self._has_deletions = segment.has_deletions()
+        self._dc = segment.doc_count()
+        self._dc_all = segment.doc_count_all()
         if hasattr(self.segment, "segment_id"):
             self.segid = str(self.segment.segment_id())
         else:
-            self.segid = Segment.random_id()
+            self.segid = Segment._random_id()
 
-        # Term index
-        tf = storage.open_file(segment.termsindex_filename)
-        self.termsindex = TermIndexReader(tf)
-
-        # Term vector index, and vector postings: lazy load
-        self.vectorindex = None
-        self.vpostfile = None
-
-        # Stored fields file
-        sf = storage.open_file(segment.storedfields_filename, mapped=False)
-        self.storedfields = StoredFieldReader(sf)
-
-        # Field length file
-        self.fieldlengths = None
-        if self.schema.has_scorable_fields():
-            flf = storage.open_file(segment.fieldlengths_filename)
-            self.fieldlengths = Lengths.from_file(flf, segment.doc_count_all())
-
-        # Copy info from underlying segment
-        self._has_deletions = segment.has_deletions()
-        self._doc_count = segment.doc_count()
-
-        # Postings file
-        self.postfile = self.storage.open_file(segment.termposts_filename,
-                                               mapped=False)
-
-        # Dawg file
-        self.dawg = None
-        if any(field.spelling for field in self.schema):
-            fname = segment.dawg_filename
-            if self.storage.file_exists(fname):
-                dawgfile = self.storage.open_file(fname, mapped=False)
-                self.dawg = DiskNode.load(dawgfile, expand=False)
-
-        self.dc = segment.doc_count_all()
-        assert self.dc == self.storedfields.length
+        # Get microreaders from codec
+        if codec is None:
+            from whoosh.codec.standard import StdCodec
+            codec = StdCodec(self.storage)
+        self._codec = codec
+        self._terms = codec.terms_reader(self.segment)
+        self._lengths = codec.lengths_reader(self.segment)
+        self._stored = codec.stored_fields_reader(self.segment)
+        self._vectors = None  # Lazy open with self._open_vectors()
+        self._dawg = None  # Lazy open with self._open_dawg()
 
         self.set_caching_policy()
-        self.is_closed = False
+
+    def _open_vectors(self):
+        if self._vectors:
+            return
+        self._vectors = self._codec.vector_reader(self.segment)
+
+    def _open_dawg(self):
+        if self._dawg:
+            return
+        self._dawg = self._codec.word_graph(self.segment)
 
     def has_deletions(self):
         return self._has_deletions
 
     def doc_count(self):
-        return self._doc_count
+        return self._dc
+
+    def doc_count_all(self):
+        return self._dc_all
 
     def is_deleted(self, docnum):
         return self.segment.is_deleted(docnum)
@@ -111,75 +95,53 @@ class SegmentReader(IndexReader):
     def generation(self):
         return self._gen
 
-    def _open_vectors(self):
-        if self.vectorindex:
-            return
-
-        storage, segment = self.storage, self.segment
-
-        # Vector index
-        vf = storage.open_file(segment.vectorindex_filename)
-        self.vectorindex = TermVectorReader(vf)
-
-        # Vector postings file
-        self.vpostfile = storage.open_file(segment.vectorposts_filename,
-                                           mapped=False)
-
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
 
     def __contains__(self, term):
-        return term in self.termsindex
+        return term in self._terms
 
     def close(self):
-        self.storedfields.close()
-        self.termsindex.close()
-        if self.postfile:
-            self.postfile.close()
-        if self.vectorindex:
-            self.vectorindex.close()
-        if self.vpostfile:
-            self.vpostfile.close()
-        #if self.fieldlengths:
-        #    self.fieldlengths.close()
+        self._terms.close()
+        self._lengths.close()
+        self._stored.close()
+        if self._vectors:
+            self._vectors.close()
+        #if self._dawg:
+        #    self._dawg.close()
+
         self.caching_policy = None
         self.is_closed = True
-
-    def doc_count_all(self):
-        return self.dc
 
     def stored_fields(self, docnum):
         assert docnum >= 0
         schema = self.schema
-        return dict(item for item
-                    in iteritems(self.storedfields[docnum])
+        return dict(item for item in iteritems(self._stored[docnum])
                     if item[0] in schema)
 
     def all_stored_fields(self):
         is_deleted = self.segment.is_deleted
         sf = self.stored_fields
-        for docnum in xrange(self.segment.doc_count_all()):
+        for docnum in xrange(self._dc_all):
             if not is_deleted(docnum):
                 yield sf(docnum)
 
     def field_length(self, fieldname):
-        return self.fieldlengths.field_length(fieldname)
+        return self._lengths.field_length(fieldname)
 
     def min_field_length(self, fieldname):
-        return self.fieldlengths.min_field_length(fieldname)
+        return self._lengths.min_field_length(fieldname)
 
     def max_field_length(self, fieldname):
-        return self.fieldlengths.max_field_length(fieldname)
+        return self._lengths.max_field_length(fieldname)
 
     def doc_field_length(self, docnum, fieldname, default=0):
-        if self.fieldlengths is None:
-            return default
-        return self.fieldlengths.get(docnum, fieldname, default=default)
+        return self._lengths.get(docnum, fieldname, default=default)
 
     def has_vector(self, docnum, fieldname):
         if self.schema[fieldname].vector:
             self._open_vectors()
-            return (docnum, fieldname) in self.vectorindex
+            return (docnum, fieldname) in self._vectors
         else:
             return False
 
@@ -191,21 +153,20 @@ class SegmentReader(IndexReader):
 
     def all_terms(self):
         schema = self.schema
-        return ((fieldname, text) for fieldname, text
-                in self.termsindex.keys()
+        return ((fieldname, text) for fieldname, text in self._terms.keys()
                 if fieldname in schema)
 
     def terms_from(self, fieldname, prefix):
         self._test_field(fieldname)
         schema = self.schema
         return ((fname, text) for fname, text
-                in self.termsindex.keys_from((fieldname, prefix))
+                in self._terms.keys_from((fieldname, prefix))
                 if fname in schema)
 
     def term_info(self, fieldname, text):
         self._test_field(fieldname)
         try:
-            return self.termsindex[fieldname, text]
+            return self._terms[fieldname, text]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
@@ -228,6 +189,7 @@ class SegmentReader(IndexReader):
         if self.fieldcache_loaded(fieldname):
             return self._texts_in_fieldcache(fieldname, prefix)
         else:
+            # Call super
             return IndexReader.expand_prefix(self, fieldname, prefix)
 
     def lexicon(self, fieldname):
@@ -237,18 +199,18 @@ class SegmentReader(IndexReader):
         if self.fieldcache_loaded(fieldname):
             return self._texts_in_fieldcache(fieldname)
         else:
+            # Call super
             return IndexReader.lexicon(self, fieldname)
 
     def __iter__(self):
         schema = self.schema
-        return ((term, terminfo) for term, terminfo
-                in self.termsindex.items()
+        return ((term, terminfo) for term, terminfo in self._terms.items()
                 if term[0] in schema)
 
     def iter_from(self, fieldname, text):
         schema = self.schema
         self._test_field(fieldname)
-        for term, terminfo in self.termsindex.items_from((fieldname, text)):
+        for term, terminfo in self._terms.items_from((fieldname, text)):
             if term[0] not in schema:
                 continue
             yield (term, terminfo)
@@ -256,40 +218,26 @@ class SegmentReader(IndexReader):
     def frequency(self, fieldname, text):
         self._test_field(fieldname)
         try:
-            return self.termsindex.frequency((fieldname, text))
+            return self._terms.frequency((fieldname, text))
         except KeyError:
             return 0
 
     def doc_frequency(self, fieldname, text):
         self._test_field(fieldname)
         try:
-            return self.termsindex.doc_frequency((fieldname, text))
+            return self._terms.doc_frequency((fieldname, text))
         except KeyError:
             return 0
 
     def postings(self, fieldname, text, scorer=None):
-        try:
-            terminfo = self.termsindex[fieldname, text]
-        except KeyError:
-            raise TermNotFound("%s:%r" % (fieldname, text))
-
-        format = self.schema[fieldname].format
-        postings = terminfo.postings
-        if isinstance(postings, integer_types):
-            postreader = FilePostingReader(self.postfile, postings, format,
-                                           scorer=scorer,
-                                           term=(fieldname, text))
-        else:
-            docids, weights, values = postings
-            postreader = ListMatcher(docids, weights, values, format,
-                                     scorer=scorer, term=(fieldname, text),
-                                     terminfo=terminfo)
-
+        if fieldname not in self.schema:
+            raise TermNotFound("No  field %r" % fieldname)
+        format_ = self.schema[fieldname].format
+        matcher = self._terms.matcher(fieldname, text, format_, scorer=scorer)
         deleted = self.segment.deleted
         if deleted:
-            postreader = FilterMatcher(postreader, deleted, exclude=True)
-
-        return postreader
+            matcher = FilterMatcher(matcher, deleted, exclude=True)
+        return matcher
 
     def vector(self, docnum, fieldname):
         if fieldname not in self.schema:
@@ -299,14 +247,7 @@ class SegmentReader(IndexReader):
             raise Exception("No vectors are stored for field %r" % fieldname)
 
         self._open_vectors()
-        try:
-            offset = self.vectorindex.get((docnum, fieldname))
-        except KeyError:
-            raise KeyError("No vector found for document "
-                           "%s field %r" % (docnum, fieldname))
-
-        return FilePostingReader(self.vpostfile, offset, vformat,
-                                 stringids=True)
+        return self._vectors.matcher(docnum, fieldname, vformat)
 
     # DAWG methods
 
@@ -315,14 +256,13 @@ class SegmentReader(IndexReader):
             return False
         if not self.schema[fieldname].spelling:
             return False
-        if self.dawg:
-            return fieldname in self.dawg
-        return False
+        self._open_dawg()
+        return fieldname in self._dawg
 
     def word_graph(self, fieldname):
         if not self.has_word_graph(fieldname):
             raise Exception("No word graph for field %r" % fieldname)
-        return self.dawg.edge(fieldname)
+        return self._dawg.edge(fieldname)
 
     # Field cache methods
 

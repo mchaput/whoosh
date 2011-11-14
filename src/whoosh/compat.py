@@ -20,6 +20,7 @@ if sys.version_info[0] < 3:
     from cPickle import dumps, loads, dump, load
     string_type = basestring
     text_type = unicode
+    bytes_type = str
     unichr = unichr
     from urllib import urlretrieve
 
@@ -56,6 +57,7 @@ else:
     StringIO = io.StringIO
     string_type = str
     text_type = str
+    bytes_tyep = bytes
     unichr = chr
     from urllib.request import urlretrieve
 

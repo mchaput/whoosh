@@ -177,9 +177,6 @@ class MpWriter(IndexWriter):
             results.append(self.resultqueue.get(timeout=5))
 
         if results:
-            print "Combining results"
-            from whoosh.util import now
-            t = now()
             for runname, doccount, lenname in results:
                 f = writer.storage.open_file(lenname)
                 lengths = Lengths.from_file(f, doccount)
@@ -193,7 +190,6 @@ class MpWriter(IndexWriter):
                 runreaders.append(rr)
                 base += doccount
             writer.termswriter.add_iter(imerge(runreaders), writer.lengths)
-            print "Combining took", now() - t
 
 
 

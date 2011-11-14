@@ -6,7 +6,6 @@ from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 from whoosh import analysis, fields, query, writing
 from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filetables import TermIndexReader
 from whoosh.support.testing import TempIndex
 
 
@@ -264,34 +263,6 @@ def test_delete_nonexistant():
             assert_raises(IndexingError, w.delete_document, 5)
         finally:
             w.cancel()
-
-def test_read_inline():
-    schema = fields.Schema(a=fields.TEXT)
-    assert schema["a"].scorable
-    with TempIndex(schema, "readinline") as ix:
-        w = ix.writer()
-        w.add_document(a=u("alfa"))
-        w.add_document(a=u("bravo"))
-        w.add_document(a=u("charlie"))
-        w.commit()
-
-        print ix.storage.list()
-
-        trname = None
-        for fname in ix.storage.list():
-            if fname.endswith(".trm"):
-                trname = fname
-        assert trname
-
-        tr = TermIndexReader(ix.storage.open_file(trname))
-        for i, (_, terminfo) in enumerate(tr.items()):
-            assert_equal(terminfo.postings[0], (i,))
-            assert_equal(terminfo.postings[1], (1.0,))
-        tr.close()
-
-        with ix.reader() as r:
-            pr = r.postings("a", "bravo")
-            assert_equal(pr.id(), 1)
 
 def test_add_field():
     schema = fields.Schema(a=fields.TEXT)
