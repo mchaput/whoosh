@@ -155,13 +155,13 @@ class RamIndex(IndexReader, IndexWriter):
     def term_info(self, fieldname, text):
         w = self.frequency(fieldname, text)
         df = self.doc_frequency(fieldname, text)
-        ml, xl, xw, xwol = self.termstats[fieldname, text]
+        ml, xl, xw, _ = self.termstats[fieldname, text]
 
         plist = self.invindex[fieldname][text]
         mid = plist[0][0]
         xid = plist[-1][0]
 
-        return TermInfo(w, df, ml, xl, xw, xwol, mid, xid)
+        return TermInfo(w, df, ml, xl, xw, mid, xid)
 
     def all_terms(self):
         invindex = self.invindex

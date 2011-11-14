@@ -79,17 +79,17 @@ def _check_writer(name, writer_fn):
 def test_simple():
     _check_writer("simplew", lambda ix: ix.writer())
 
-@skip_if_unavailable("multiprocessing")
-@skip_if(no_queue_support)
-@skip_if(lambda: PY3)
-def test_multipool():
-    _check_writer("multipool", lambda ix: ix.writer(procs=4))
-
-@skip_if_unavailable("multiprocessing")
-@skip_if(no_queue_support)
-def test_multisegwriter():
-    from whoosh.filedb.multiproc import MultiSegmentWriter
-    _check_writer("multisegw", lambda ix: MultiSegmentWriter(ix, procs=4))
+#@skip_if_unavailable("multiprocessing")
+#@skip_if(no_queue_support)
+#@skip_if(lambda: PY3)
+#def test_multipool():
+#    _check_writer("multipool", lambda ix: ix.writer(procs=4))
+#
+#@skip_if_unavailable("multiprocessing")
+#@skip_if(no_queue_support)
+#def test_multisegwriter():
+#    from whoosh.filedb.multiproc import MultiSegmentWriter
+#    _check_writer("multisegw", lambda ix: MultiSegmentWriter(ix, procs=4))
 
 def test_integrity():
     s = fields.Schema(name=fields.TEXT, value=fields.TEXT)
@@ -326,14 +326,12 @@ def test_update():
                            text=fields.TEXT)
 
     with TempIndex(schema, "update") as ix:
-        writer = ix.writer()
-        for doc in SAMPLE_DOCS:
-            writer.add_document(**doc)
-        writer.commit()
+        with ix.writer() as w:
+            for doc in SAMPLE_DOCS:
+                w.add_document(**doc)
 
-        writer = ix.writer()
-        writer.update_document(id=u("test2"), path=u("test/1"), text=u("Replacement"))
-        writer.commit()
+        with ix.writer() as w:
+            w.update_document(id=u("test2"), path=u("test/1"), text=u("Replacement"))
 
 def test_update2():
     schema = fields.Schema(key=fields.ID(unique=True, stored=True),

@@ -486,9 +486,6 @@ class ListMatcher(Matcher):
         else:
             return 1.0
 
-    def block_max_wol(self):
-        return self._terminfo.max_wol()
-
     def score(self):
         if self._scorer:
             return self._scorer.score(self)

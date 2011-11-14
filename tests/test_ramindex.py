@@ -282,7 +282,6 @@ def test_block_info():
     assert p.supports_block_quality()
     assert_equal(p.block_min_length(), 2)
     assert_equal(p.block_max_length(), 8)
-    assert_equal(p.block_max_wol(), 0.5)
 
 def test_sorting():
     from whoosh import sorting

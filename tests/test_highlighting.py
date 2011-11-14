@@ -20,7 +20,7 @@ def test_null_fragment():
 
 def test_sentence_fragment():
     text = u("This is the first sentence. This one doesn't have the word. This sentence is the second. Third sentence here.")
-    terms = ("sentence", )
+    terms = ("sentence",)
     sa = analysis.StandardAnalyzer(stoplist=None)
     sf = highlight.SentenceFragmenter()
     uc = highlight.UppercaseFormatter()
@@ -71,7 +71,7 @@ def test_workflow_easy():
     schema = fields.Schema(id=fields.ID(stored=True),
                            title=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     w.add_document(id=u("1"), title=u("The man who wasn't there"))
     w.add_document(id=u("2"), title=u("The dog who barked at midnight"))
@@ -79,14 +79,14 @@ def test_workflow_easy():
     w.add_document(id=u("4"), title=u("The girl with the dragon tattoo"))
     w.add_document(id=u("5"), title=u("The woman who disappeared"))
     w.commit()
-    
+
     with ix.searcher() as s:
         # Parse the user query
         parser = qparser.QueryParser("title", schema=ix.schema)
         q = parser.parse(u("man"))
         r = s.search(q, terms=True)
         assert_equal(len(r), 2)
-        
+
         r.fragmenter = highlight.WholeFragmenter()
         r.formatter = highlight.UppercaseFormatter()
         outputs = [hit.highlights("title") for hit in r]
@@ -96,7 +96,7 @@ def test_workflow_manual():
     schema = fields.Schema(id=fields.ID(stored=True),
                            title=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     w.add_document(id=u("1"), title=u("The man who wasn't there"))
     w.add_document(id=u("2"), title=u("The dog who barked at midnight"))
@@ -104,46 +104,46 @@ def test_workflow_manual():
     w.add_document(id=u("4"), title=u("The girl with the dragon tattoo"))
     w.add_document(id=u("5"), title=u("The woman who disappeared"))
     w.commit()
-    
+
     with ix.searcher() as s:
         # Parse the user query
         parser = qparser.QueryParser("title", schema=ix.schema)
         q = parser.parse(u("man"))
-        
+
         # Extract the terms the user used in the field we're interested in
         terms = [text for fieldname, text in q.all_terms()
                  if fieldname == "title"]
-        
+
         # Perform the search
         r = s.search(q)
         assert_equal(len(r), 2)
-        
+
         # Use the same analyzer as the field uses. To be sure, you can
         # do schema[fieldname].analyzer. Be careful not to do this
         # on non-text field types such as DATETIME.
         analyzer = schema["title"].analyzer
-        
+
         # Since we want to highlight the full title, not extract fragments,
         # we'll use WholeFragmenter.
         nf = highlight.WholeFragmenter()
-        
+
         # In this example we'll simply uppercase the matched terms
         fmt = highlight.UppercaseFormatter()
-        
+
         outputs = []
         for d in r:
             text = d["title"]
             outputs.append(highlight.highlight(text, terms, analyzer, nf, fmt))
-        
+
         assert_equal(outputs, ["The invisible MAN", "The MAN who wasn't there"])
-        
+
 def test_unstored():
     schema = fields.Schema(text=fields.TEXT, tags=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(text=u("alfa bravo charlie"), tags=u("delta echo"))
     w.commit()
-    
+
     hit = ix.searcher().search(query.Term("text", "bravo"))[0]
     assert_raises(KeyError, hit.highlights, "tags")
 
@@ -157,8 +157,11 @@ def test_multifilter():
     w = ix.writer()
     w.add_document(text=u("Our BabbleTron5000 is great"))
     w.commit()
-    
+
     with ix.searcher() as s:
+        for x in s.lexicon("text"):
+            print x
+        assert ("text", "5000") in s.reader()
         hit = s.search(query.Term("text", "5000"))[0]
         assert_equal(hit.highlights("text"), 'Our BabbleTron<b class="match term0">5000</b> is great')
 
@@ -170,21 +173,21 @@ def test_pinpoint():
     w = ix.writer()
     w.add_document(text=domain)
     w.commit()
-    
+
     assert ix.schema["text"].supports("characters")
     with ix.searcher() as s:
         r = s.search(query.Term("text", "juliet"), terms=True)
         hit = r[0]
         hi = highlight.Highlighter()
         hi.formatter = highlight.UppercaseFormatter()
-        
+
         assert not hi.can_load_chars(r, "text")
         assert_equal(hi.highlight_hit(hit, "text"), "golf hotel india JULIET kilo lima mike november")
-        
+
         hi.fragmenter = highlight.PinpointFragmenter()
         assert hi.can_load_chars(r, "text")
         assert_equal(hi.highlight_hit(hit, "text"), "ot golf hotel india JULIET kilo lima mike nove")
-        
+
         hi.fragmenter.autotrim = True
         assert_equal(hi.highlight_hit(hit, "text"), "golf hotel india JULIET kilo lima mike")
 
@@ -193,7 +196,7 @@ def test_highlight_wildcards():
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         w.add_document(text=u("alfa bravo charlie delta cookie echo"))
-    
+
     with ix.searcher() as s:
         qp = qparser.QueryParser("text", ix.schema)
         q = qp.parse(u("c*"))

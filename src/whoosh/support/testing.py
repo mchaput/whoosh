@@ -29,6 +29,7 @@ import os.path, shutil, sys, random
 from functools import wraps
 
 from whoosh.filedb.filestore import FileStorage
+from whoosh.util import now
 
 
 class TempDir(object):
@@ -137,3 +138,16 @@ def check_abstract_methods(base, subclass):
             if is_abstract_method(oattr):
                 raise Exception("%s.%s not overridden"
                                 % (subclass.__name__, attrname))
+
+
+class Timing(object):
+    def __init__(self):
+        pass
+
+    def __enter__(self):
+        self.t = now()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not exc_type:
+            print "%0.8f" % (now() - self.t)
+

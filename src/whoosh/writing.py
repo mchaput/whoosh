@@ -300,34 +300,6 @@ class IndexWriter(object):
         pass
 
 
-class PostingWriter(object):
-    @abstractmethod
-    def start(self, format):
-        """Start a new set of postings for a new term. Implementations may
-        raise an exception if this is called without a corresponding call to
-        finish().
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def write(self, id, weight, valuestring):
-        """Add a posting with the given ID and value.
-        """
-        raise NotImplementedError
-
-    def finish(self):
-        """Finish writing the postings for the current term. Implementations
-        may raise an exception if this is called without a preceding call to
-        start().
-        """
-        pass
-
-    def close(self):
-        """Finish writing all postings and close the underlying file.
-        """
-        pass
-
-
 class AsyncWriter(threading.Thread, IndexWriter):
     """Convenience wrapper for a writer object that might fail due to locking
     (i.e. the ``filedb`` writer). This object will attempt once to obtain the

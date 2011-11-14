@@ -111,7 +111,10 @@ class ReaderCorrector(Corrector):
         for sug in self.reader.terms_within(fieldname, text, maxdist,
                                             prefix=prefix, seen=seen):
             # Higher scores are better, so negate the distance and frequency
-            score = 0 - (maxdist + (1.0 / freq(fieldname, sug) * 0.5))
+            f = freq(fieldname, sug)
+            print "fieldname=", fieldname, "sug=", sug, "f=", f
+            assert f
+            score = 0 - (maxdist + (1.0 / f * 0.5))
             yield (score, sug)
 
 
@@ -142,7 +145,7 @@ class GraphCorrector(Corrector):
 
     @classmethod
     def from_word_list(cls, wordlist, strip=True):
-        dw = dawg.DawgBuilder(reduced=False)
+        dw = dawg.DawgBuilder(None, reduced=False)
         for word in wordlist:
             if strip:
                 word = word.strip()

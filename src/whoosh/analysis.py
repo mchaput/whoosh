@@ -1313,7 +1313,7 @@ class IntraWordFilter(Filter):
             newec = buf[-1][3]  # end char of last item in buffer
             parts.insert(insertat, (newtext, newpos, newsc, newec))
 
-        for item in parts[:]:
+        for item in list(parts):
             # item = (text, pos, startchar, endchar)
             text = item[0]
             pos = item[1]
@@ -1680,13 +1680,15 @@ class DelimitedAttributeFilter(Filter):
         delim = self.delim
         attr = self.attr
         default = self.default
-        typ = self.type
+        type_ = self.type
 
         for t in tokens:
             text = t.text
             pos = text.find(delim)
             if pos > -1:
-                setattr(t, attr, typ(text[pos + 1:]))
+                setattr(t, attr, type_(text[pos + 1:]))
+                if t.chars:
+                    t.endchar -= len(t.text) - pos
                 t.text = text[:pos]
             else:
                 setattr(t, attr, default)

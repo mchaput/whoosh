@@ -614,7 +614,7 @@ def test_sort_filter():
         source.append({"key": key, "group": group})
     source.sort(key=lambda x: (x["key"], x["group"]))
 
-    sample = source[:]
+    sample = list(source)
     random.shuffle(sample)
 
     with TempIndex(schema, "sortfilter") as ix:
@@ -657,14 +657,13 @@ def test_custom_sort():
                            quant=fields.NUMERIC)
 
     with TempIndex(schema, "customsort") as ix:
-        w = ix.writer()
-        w.add_document(name=u("A"), price=200, quant=9)
-        w.add_document(name=u("E"), price=300, quant=4)
-        w.add_document(name=u("F"), price=200, quant=8)
-        w.add_document(name=u("D"), price=150, quant=5)
-        w.add_document(name=u("B"), price=250, quant=11)
-        w.add_document(name=u("C"), price=200, quant=10)
-        w.commit()
+        with ix.writer() as w:
+            w.add_document(name=u("A"), price=200, quant=9)
+            w.add_document(name=u("E"), price=300, quant=4)
+            w.add_document(name=u("F"), price=200, quant=8)
+            w.add_document(name=u("D"), price=150, quant=5)
+            w.add_document(name=u("B"), price=250, quant=11)
+            w.add_document(name=u("C"), price=200, quant=10)
 
         with ix.searcher() as s:
             cs = s.sorter()

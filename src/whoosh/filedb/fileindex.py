@@ -168,7 +168,7 @@ class TOC(object):
         storage.rename_file(tempfilename, tocfilename, safe=True)
 
 
-def _clean_files(storage, indexname, gen, segments):
+def clean_files(storage, indexname, gen, segments):
     # Attempts to remove unused index files (called when a new generation
     # is created). If existing Index and/or reader objects have the files
     # open, they may not be deleted immediately (i.e. on Windows) but will
@@ -357,20 +357,13 @@ class Segment(object):
     along the way).
     """
 
-    EXTENSIONS = {"dawg": "dag",
-                  "fieldlengths": "fln",
-                  "storedfields": "sto",
-                  "termsindex": "trm",
-                  "termposts": "pst",
-                  "vectorindex": "vec",
-                  "vectorposts": "vps"}
     IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
 
     @classmethod
     def _random_id(cls, size=12):
         return "".join(random.choice(cls.IDCHARS) for _ in xrange(size))
 
-    def __init__(self, indexname, doccount, segid=None, deleted=None):
+    def __init__(self, indexname, doccount=0, segid=None, deleted=None):
         """
         :param name: The name of the segment (the Index object computes this
             from its name and the generation).
@@ -388,19 +381,7 @@ class Segment(object):
         self.deleted = deleted
 
     def __repr__(self):
-        return "<%s %r %s>" % (self.__class__.__name__, self.name,
-                               getattr(self, "segid", ""))
-
-    def __getattr__(self, name):
-        # Capture accesses to e.g. Segment.fieldlengths_filename and return
-        # the appropriate filename
-        part2 = "_filename"
-        if name.endswith(part2):
-            part1 = name[:0 - len(part2)]
-            if part1 in self.EXTENSIONS:
-                return self.make_filename(self.EXTENSIONS[part1])
-
-        raise AttributeError(name)
+        return "<%s %s>" % (self.__class__.__name__, getattr(self, "segid", ""))
 
     def segment_id(self):
         if hasattr(self, "name"):
@@ -410,7 +391,25 @@ class Segment(object):
             return "%s_%s" % (self.indexname, self.segid)
 
     def make_filename(self, ext):
-        return "%s.%s" % (self.segment_id(), ext)
+        return "%s%s" % (self.segment_id(), ext)
+
+    def create_file(self, storage, ext, **kwargs):
+        """Convenience method to create a new file in the given storage named
+        with this segment's ID and the given extension. Any keyword arguments
+        are passed to the storage's create_file method.
+        """
+
+        fname = self.make_filename(ext)
+        return storage.create_file(fname, **kwargs)
+
+    def open_file(self, storage, ext, **kwargs):
+        """Convenience method to open a file in the given storage named with
+        this segment's ID and the given extension. Any keyword arguments are
+        passed to the storage's open_file method.
+        """
+
+        fname = self.make_filename(ext)
+        return storage.open_file(fname, **kwargs)
 
     def doc_count_all(self):
         """
