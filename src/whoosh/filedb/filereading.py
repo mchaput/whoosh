@@ -32,6 +32,7 @@ from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
+from whoosh.support import dawg
 
 
 SAVE_BY_DEFAULT = True
@@ -66,7 +67,7 @@ class SegmentReader(IndexReader):
         self._lengths = codec.lengths_reader(self.segment)
         self._stored = codec.stored_fields_reader(self.segment)
         self._vectors = None  # Lazy open with self._open_vectors()
-        self._dawg = None  # Lazy open with self._open_dawg()
+        self._graph = None  # Lazy open with self._open_dawg()
 
         self.set_caching_policy()
 
@@ -76,9 +77,9 @@ class SegmentReader(IndexReader):
         self._vectors = self._codec.vector_reader(self.segment)
 
     def _open_dawg(self):
-        if self._dawg:
+        if self._graph:
             return
-        self._dawg = self._codec.word_graph(self.segment)
+        self._graph = self._codec.graph_reader(self.segment)
 
     def has_deletions(self):
         return self._has_deletions
@@ -107,8 +108,6 @@ class SegmentReader(IndexReader):
         self._stored.close()
         if self._vectors:
             self._vectors.close()
-        #if self._dawg:
-        #    self._dawg.close()
 
         self.caching_policy = None
         self.is_closed = True
@@ -257,12 +256,21 @@ class SegmentReader(IndexReader):
         if not self.schema[fieldname].spelling:
             return False
         self._open_dawg()
-        return fieldname in self._dawg
+        return self._graph.has_root(fieldname)
 
     def word_graph(self, fieldname):
         if not self.has_word_graph(fieldname):
-            raise Exception("No word graph for field %r" % fieldname)
-        return self._dawg.edge(fieldname)
+            raise KeyError("No word graph for field %r" % fieldname)
+        return dawg.Node(self._graph, self._graph.root(fieldname))
+
+    def terms_within(self, fieldname, text, maxdist, prefix=0):
+        if not self.has_word_graph(fieldname):
+            # This reader doesn't have a graph stored, use the slow method
+            return IndexReader.terms_within(self, fieldname, text, maxdist,
+                                            prefix=prefix)
+
+        return self._graph.within(text, k=maxdist, prefix=prefix,
+                                  address=self._graph.root(fieldname))
 
     # Field cache methods
 

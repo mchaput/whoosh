@@ -40,7 +40,7 @@ from whoosh.filedb.fileindex import TOC, clean_files
 from whoosh.filedb.filetables import CodedOrderedWriter, CodedOrderedReader
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermNotFound
-from whoosh.support.dawg import DawgBuilder, DiskNode
+from whoosh.support.dawg import GraphWriter, GraphReader
 from whoosh.system import (pack_ushort, pack_long, unpack_ushort, unpack_long,
                            _INT_SIZE, _LONG_SIZE)
 from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
@@ -110,9 +110,9 @@ class StdCodec(base.Codec):
         sffile = segment.open_file(self.storage, self.STORED_EXT, mapped=False)
         return StoredFieldReader(sffile)
 
-    def word_graph(self, segment):
+    def graph_reader(self, segment):
         dawgfile = segment.open_file(self.storage, self.DAWG_EXT, mapped=False)
-        return DiskNode.load(dawgfile, expand=False)
+        return GraphReader(dawgfile)
 
     # Generations
 
@@ -253,7 +253,7 @@ class StdFieldWriter(base.FieldWriter):
 
     def _make_dawg_files(self):
         dawgfile = self.segment.create_file(self.storage, StdCodec.DAWG_EXT)
-        self.dawg = DawgBuilder(dawgfile, field_root=True)
+        self.dawg = GraphWriter(dawgfile)
 
     def _reset_block(self):
         self.block = StdBlock(self.format.posting_size)
@@ -295,6 +295,10 @@ class StdFieldWriter(base.FieldWriter):
         self.field = fieldobj
         self.format = fieldobj.format
         self.spelling = fieldobj.spelling and not fieldobj.separate_spelling()
+        if self.spelling or fieldobj.separate_spelling():
+            if self.dawg is None:
+                self._make_dawg_files()
+            self.dawg.start_field(fieldname)
 
     def start_term(self, text):
         if self.block is not None:
@@ -302,9 +306,7 @@ class StdFieldWriter(base.FieldWriter):
         self.text = text
         self.terminfo = base.FileTermInfo()
         if self.spelling:
-            if self.dawg is None:
-                self._make_dawg_files()
-            self.dawg.insert((self.fieldname,) + tuple(text))
+            self.dawg.insert(utf8encode(text)[0])
         self._start_blocklist()
 
     def add(self, docnum, weight, valuestring, length):
@@ -315,7 +317,7 @@ class StdFieldWriter(base.FieldWriter):
     def add_spell_word(self, fieldname, text):
         if self.dawg is None:
             self._make_dawg_files()
-        self.dawg.insert((fieldname,) + tuple(text))
+        self.dawg.insert(utf8encode(text)[0])
 
     def finish_term(self):
         if self.block is None:
@@ -334,6 +336,10 @@ class StdFieldWriter(base.FieldWriter):
         self.block = None
         terminfo.postings = postings
         self.termsindex.add((self.fieldname, self.text), terminfo)
+
+    def finish_field(self):
+        if self.dawg:
+            self.dawg.finish_field()
 
     def close(self):
         self.termsindex.close()
@@ -519,7 +525,7 @@ class StdTermsReader(PostingIndexBase):
         return base.FileTermInfo.read_doc_freq(self.dbfile, datapos)
 
 
-# Vector index
+# Vectors
 
 # docnum, fieldnum
 _vectorkey_struct = Struct("!IH")

@@ -31,10 +31,9 @@ from bisect import bisect_right
 from whoosh.fields import UnknownFieldError
 from whoosh.filedb.fileindex import Segment
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgBuilder
 from whoosh.support.filelock import try_for
 from whoosh.support.externalsort import SortingPool
-from whoosh.util import fib
+from whoosh.util import fib, utf8encode
 from whoosh.writing import IndexWriter, IndexingError
 
 
@@ -107,6 +106,11 @@ class PostingPool(SortingPool):
         if self.currentsize > self.limit:
             self.save()
         self.current.append(item)
+
+    def iter_postings(self):
+        # This is just an alias for items() to be consistent with the
+        # iter_postings()/add_postings() interface of a lot of other classes
+        return self.items()
 
     def save(self):
         SortingPool.save(self)
@@ -224,20 +228,38 @@ class SegmentWriter(IndexWriter):
         return FileIndex._reader(self.storage, self.schema, self.segments,
                                  self.generation, reuse=reuse)
 
+    def iter_postings(self):
+        return self.pool.iter_postings()
+
+    def add_postings(self, lengths, items, startdoc, docmap):
+        # fieldname, text, docnum, weight, valuestring
+        schema = self.schema
+        def gen():
+            for fieldname, text, docnum, weight, valuestring in items:
+                if fieldname not in schema:
+                    continue
+                if docmap is not None:
+                    newdoc = docmap[docnum]
+                else:
+                    newdoc = startdoc + docnum
+                yield (fieldname, text, newdoc, weight, valuestring)
+        self.fieldwriter.add_postings(schema, lengths, gen())
+
     def add_reader(self, reader):
         self._check_state()
+        schema = self.schema
         perdocwriter = self.perdocwriter
-        startdoc = newdoc = self.docnum
-
         hasdel = reader.has_deletions()
         if hasdel:
             # Documents will be renumbered because the deleted documents will
             # be skipped, so keep a mapping between old and new docnums
             docmap = {}
-        newfields = dict(self.schema.items())
-        sharedfields = set(newfields) & set(reader.schema.names())
+        else:
+            docmap = None
+        sharedfields = set(schema.names()) & set(reader.schema.names())
 
         # Add per-document values
+        startdoc = newdoc = self.docnum
         for docnum in reader.all_doc_ids():
             # Skip deleted documents
             if (not hasdel) or (not reader.is_deleted(docnum)):
@@ -251,7 +273,7 @@ class SegmentWriter(IndexWriter):
                 # For each field in the document, copy its stored value,
                 # length, and vectors (if any) to the writer
                 for fieldname in sharedfields:
-                    field = newfields[fieldname]
+                    field = schema[fieldname]
                     length = (reader.doc_field_length(docnum, fieldname, 0)
                               if field.scorable else 0)
                     perdocwriter.add_field(fieldname, field, d.get(fieldname),
@@ -267,20 +289,11 @@ class SegmentWriter(IndexWriter):
         # Add inverted index postings to the pool, renumbering document number
         # references as necessary
         add_post = self.pool.add
-        for fieldname, text in reader.all_terms():
-            if fieldname in newfields:
-                pr = reader.postings(fieldname, text)
-                while pr.is_active():
-                    # Read the current values
-                    docnum = pr.id()
-                    weight = pr.weight()
-                    valuestring = pr.value()
-                    # Remap the document number if necessary
-                    newdoc = docmap[docnum] if hasdel else startdoc + docnum
-                    # Add the posting to the pool
-                    add_post((fieldname, text, newdoc, weight, valuestring))
-                    # Advanced the matcher
-                    pr.next()
+        for fieldname, text, docnum, weight, value in reader.iter_postings():
+            # Remap the document number if necessary
+            newdoc = docmap[docnum] if hasdel else startdoc + docnum
+            # Add the posting to the pool
+            add_post((fieldname, text, newdoc, weight, value))
 
         self._added = True
 
@@ -422,7 +435,8 @@ class SegmentWriter(IndexWriter):
                 # Output the sorted pool postings to the terms index and
                 # posting files
                 lengths = self.perdocwriter.lengths_reader()
-                self.fieldwriter.add_iter(schema, lengths, self.pool.items())
+                self.fieldwriter.add_postings(schema, lengths,
+                                              self.pool.iter_postings())
 
                 # Add the new segment to the list of remaining segments
                 # returned by the merge policy function
@@ -466,6 +480,7 @@ def add_spelling(ix, fieldnames, commit=True):
     """
 
     from whoosh.filedb.filereading import SegmentReader
+    from whoosh.support import dawg
 
     writer = ix.writer()
     storage = writer.storage
@@ -475,12 +490,13 @@ def add_spelling(ix, fieldnames, commit=True):
     for segment in segments:
         r = SegmentReader(storage, schema, segment)
         f = segment.create_file(storage, ".dag")
-        dawg = DawgBuilder(f, field_root=True)
+        gw = dawg.GraphWriter(f)
         for fieldname in fieldnames:
-            ft = (fieldname,)
+            gw.start_field(fieldname)
             for word in r.lexicon(fieldname):
-                dawg.insert(ft + tuple(word))
-        dawg.close()
+                gw.insert(utf8encode(word)[0])
+            gw.finish_field()
+        gw.close()
 
     for fieldname in fieldnames:
         schema[fieldname].spelling = True

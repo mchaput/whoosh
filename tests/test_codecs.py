@@ -416,8 +416,6 @@ def test_skip():
         assert_equal(m.id(), 1800)
 
 def test_spelled_field():
-    from whoosh.support.dawg import flatten
-
     field = fields.TEXT(spelling=True)
     codec, seg = _make_codec()
 
@@ -432,12 +430,11 @@ def test_spelled_field():
     fw.finish_field()
     fw.close()
 
-    g = codec.word_graph(seg)
-    assert_equal(list(g.keys()), ["text"])
-    assert_equal(list(flatten(g.edge("text"))), ["special", "specific"])
+    gr = codec.graph_reader(seg)
+    assert gr.has_root("text")
+    assert_equal(list(gr.flatten(gr.root("text"))), ["special", "specific"])
 
 def test_special_spelled_field():
-    from whoosh.support.dawg import flatten
     from whoosh.analysis import StemmingAnalyzer
 
     field = fields.TEXT(analyzer=StemmingAnalyzer(), spelling=True)
@@ -459,7 +456,7 @@ def test_special_spelled_field():
     tr = codec.terms_reader(seg)
     assert_equal(list(tr.keys()), [("text", "special"), ("text", "specific")])
 
-    g = codec.word_graph(seg)
-    assert_equal(list(flatten(g.edge("text"))), ["specials", "specifically"])
+    gr = codec.graph_reader(seg)
+    assert_equal(list(gr.flatten(gr.root("text"))), ["specials", "specifically"])
 
 

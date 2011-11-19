@@ -12,42 +12,13 @@ from whoosh.support.testing import TempStorage
 from whoosh.util import permutations
 
 
-def test_dawg():
-    with TempStorage() as st:
-        df = st.create_file("test.dawg")
-        dw = dawg.DawgBuilder(df, field_root=True)
-        dw.insert(["test"] + list("special"))
-        dw.insert(["test"] + list("specials"))
-        dw.close()
-
-        assert_equal(list(dawg.flatten(dw.root.edge("test"))), ["special", "specials"])
-
-def test_node_eq():
+def words_to_corrector(words):
     st = RamStorage()
-    df = st.create_file("test.dawg")
-    dw = dawg.DawgBuilder(df)
-    dw.insert("alfa")
-    dw.insert("alpaca")
-    dw.insert("alpha")
-    dw.insert("bravo")
-    dw.insert("brief")
-    dw.insert("bro")
+    f = st.create_file("test")
+    spelling.wordlist_to_graph_file(words, f)
+    f = st.open_file("test")
+    return spelling.GraphCorrector(dawg.GraphReader(f))
 
-    r = dw.root
-    assert r == r
-
-def test_fields_out_of_order():
-    dw = dawg.DawgBuilder(None)
-    dw.insert("alfa")
-    dw.insert("bravo")
-    assert_raises(Exception, dw.insert, "baker")
-    dw.finish()
-
-    dw = dawg.DawgBuilder(None, field_root=True)
-    dw.insert(["bravo"] + list("test"))
-    dw.insert(["alfa"] + list("test"))
-    assert_raises(Exception, dw.insert, ["alfa"] + list("before"))
-    dw.finish()
 
 def test_graph_corrector():
     wordlist = sorted(["render", "animation", "animate", "shader",
@@ -62,7 +33,7 @@ def test_graph_corrector():
                        "vale", "brown", "neat", "meat", "reduction",
                        "blunder", "preaction"])
 
-    sp = spelling.GraphCorrector.from_word_list(wordlist)
+    sp = words_to_corrector(wordlist)
     sugs = sp.suggest("reoction", maxdist=2)
     assert_equal(sugs, ["reaction", "preaction", "reduction"])
 
@@ -137,7 +108,7 @@ def test_multisegment():
     with ix.reader() as r:
         assert not r.is_atomic()
         assert r.has_word_graph("text")
-        words = list(dawg.flatten(r.word_graph("text")))
+        words = list(r.word_graph("text").flatten())
         assert_equal(words, sorted(domain))
 
         corr = r.corrector("text")
@@ -148,7 +119,7 @@ def test_multisegment():
         assert r.is_atomic()
         assert_equal(list(r.lexicon("text")), sorted(domain))
         assert r.has_word_graph("text")
-        words = list(dawg.flatten(r.word_graph("text")))
+        words = list(r.word_graph("text").flatten())
         assert_equal(words, sorted(domain))
 
         corr = r.corrector("text")
@@ -166,7 +137,7 @@ def test_multicorrector():
     c1 = ix.reader().corrector("text")
 
     wordlist = sorted(u("bear bare beer sprung").split())
-    c2 = spelling.GraphCorrector.from_word_list(wordlist)
+    c2 = words_to_corrector(wordlist)
 
     mc = spelling.MultiCorrector([c1, c2])
     assert_equal(mc.suggest("specail"), ["special", "specials"])
@@ -175,7 +146,7 @@ def test_multicorrector():
 
 def test_wordlist():
     domain = sorted("special specious spectacular spongy spring specials".split())
-    cor = spelling.GraphCorrector.from_word_list(domain)
+    cor = words_to_corrector(domain)
     assert_equal(cor.suggest("specail", maxdist=1), ["special"])
 
 def test_wordfile():
@@ -194,22 +165,9 @@ def test_wordfile():
     if not os.path.exists(path):
         return
     wordfile = gzip.open(path, "r")
-    cor = spelling.GraphCorrector.from_word_list(word.decode("latin-1")
-                                                 for word in wordfile)
+    cor = words_to_corrector(wordfile)
     wordfile.close()
-
-    #dawg.dump_dawg(cor.word_graph)
     assert_equal(cor.suggest("specail"), ["special"])
-
-    st = RamStorage()
-    gf = st.create_file("test.dawg")
-    cor.to_file(gf)
-
-    gf = st.open_file("test.dawg")
-    cor = spelling.GraphCorrector.from_graph_file(gf)
-
-    assert_equal(cor.suggest("specail", maxdist=1), ["special"])
-    gf.close()
 
 def test_query_highlight():
     qp = QueryParser("a", None)
@@ -273,8 +231,6 @@ def test_correct_query():
     assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:delta) detail')
 
 def test_bypass_stemming():
-    from whoosh.support.dawg import flatten
-
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(text=fields.TEXT(analyzer=ana, spelling=True))
     ix = RamStorage().create_index(schema)
@@ -283,8 +239,10 @@ def test_bypass_stemming():
     w.commit()
 
     with ix.reader() as r:
-        assert_equal(list(r.lexicon("text")), ["model", "reaction", "render", "shade"])
-        assert_equal(list(flatten(r.word_graph("text"))), ["modeling", "reactions", "rendering", "shading"])
+        assert_equal(list(r.lexicon("text")),
+                     ["model", "reaction", "render", "shade"])
+        assert_equal(list(r.word_graph("text").flatten()),
+                     ["modeling", "reactions", "rendering", "shading"])
 
 def test_spelling_field_order():
     ana = analysis.StemmingAnalyzer()
@@ -302,7 +260,12 @@ def test_spelling_field_order():
 
 def test_find_self():
     wordlist = sorted(u("book bake bike bone").split())
-    gc = spelling.GraphCorrector.from_word_list(wordlist)
+    st = RamStorage()
+    f = st.create_file("test")
+    spelling.wordlist_to_graph_file(wordlist, f)
+
+    gr = dawg.GraphReader(st.open_file("test"))
+    gc = spelling.GraphCorrector(gr)
     assert_not_equal(gc.suggest("book")[0], "book")
     assert_not_equal(gc.suggest("bake")[0], "bake")
     assert_not_equal(gc.suggest("bike")[0], "bike")

@@ -25,464 +25,100 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""
-This module contains classes and functions for working with Directed Acyclic
-Word Graphs (DAWGs). This structure is used to efficiently store a list of
-words.
 
-This code should be considered an implementation detail and may change in
-future releases.
-
-TODO: try to find a way to traverse the term index efficiently to do within()
-instead of storing a DAWG separately.
-"""
-
+import sys
 from array import array
+from hashlib import sha1  #@UnresolvedImport
 
-from whoosh.compat import b, xrange, iteritems, iterkeys, unichr
-from whoosh.system import _INT_SIZE
-from whoosh.util import utf8encode, utf8decode
+from whoosh.compat import u, b, BytesIO, xrange, iteritems, iterkeys
+from whoosh.system import _INT_SIZE, pack_byte, pack_uint, pack_long
 
 
-class BaseNode(object):
-    """This is the base class for objects representing nodes in a directed
-    acyclic word graph (DAWG).
-    
-    * ``final`` is a property which is True if this node represents the end of
-      a word.
-      
-    * ``__contains__(label)`` returns True if the node has an edge with the
-      given label.
-      
-    * ``__iter__()`` returns an iterator of the labels for the node's outgoing
-      edges. ``keys()`` is available as a convenient shortcut to get a list.
-      
-    * ``__len__()`` returns the number of outgoing edges.
-    
-    * ``edge(label)`` returns the Node connected to the edge with the given
-      label.
-      
-    * ``all_edges()`` returns a dictionary of the node's outgoing edges, where
-      the keys are the edge labels and the values are the connected nodes.
+class FileVersionError(Exception):
+    pass
+
+
+# Value types
+
+class ValueType(object):
+    def write(self, dbfile, value):
+        pass
+
+    def read(self, dbfile):
+        pass
+
+    def skip(self, dbfile):
+        pass
+
+    def common(self, v1, v2):
+        pass
+
+    def merge(self, v1, v2):
+        pass
+
+
+# Node-like interface wrappers
+
+class Node(object):
+    """A slow but easier-to-use wrapper for FSA/DAWGs. Translates the low-level
+    arc-based interface of GraphReader into Node objects with methods to follow
+    edges.
     """
 
-    def __contains__(self, key):
-        raise NotImplementedError
+    def __init__(self, owner, address, accept=False):
+        self.owner = owner
+        self.address = address
+        self._edges = None
+        self.accept = accept
 
     def __iter__(self):
-        raise NotImplementedError
+        if not self._edges:
+            self._load()
+        return iterkeys(self._edges)
 
-    def __len__(self):
-        raise NotImplementedError
+    def __contains__(self, key):
+        if self._edges is None:
+            self._load()
+        return key in self._edges
+
+    def _load(self):
+        owner = self.owner
+        if self.address is None:
+            d = {}
+        else:
+            d = dict((arc.label, Node(owner, arc.target, arc.accept))
+                     for arc in self.owner.iter_arcs(self.address))
+        self._edges = d
 
     def keys(self):
-        """Returns a list of the outgoing edge labels.
-        """
-
-        return list(self)
-
-    def edge(self, key, expand=True):
-        """Returns the node connected to the outgoing edge with the given
-        label.
-        """
-
-        raise NotImplementedError
+        if self._edges is None:
+            self._load()
+        return self._edges.keys()
 
     def all_edges(self):
-        """Returns a dictionary mapping outgoing edge labels to nodes.
-        """
-
-        e = self.edge
-        return dict((key, e(key)) for key in self)
-
-    def edge_count(self):
-        """Returns the recursive count of edges in this node and the tree under
-        it.
-        """
-
-        return len(self) + sum(self.edge(key).edge_count() for key in self)
-
-
-class NullNode(BaseNode):
-    """An empty node. This is sometimes useful for representing an empty graph.
-    """
-
-    final = False
-
-    def __containts__(self, key):
-        return False
-
-    def __iter__(self):
-        return iter([])
-
-    def __len__(self):
-        return 0
-
-    def edge(self, key, expand=True):
-        raise KeyError(key)
-
-    def all_edges(self):
-        return {}
-
-    def edge_count(self):
-        return 0
-
-
-class BuildNode(object):
-    """Node type used by DawgBuilder when constructing a graph from scratch.
-    """
-
-    def __init__(self):
-        self.final = False
-        self._edges = {}
-        self._hash = None
-
-    def __repr__(self):
-        return "<%s:%s %s>" % (self.__class__.__name__,
-                               ",".join(sorted(self._edges.keys())),
-                               self.final)
-
-    def __hash__(self):
-        if self._hash is not None:
-            return self._hash
-        h = int(self.final)
-        for key, node in iteritems(self._edges):
-            h ^= hash(key) ^ hash(node)
-        self._hash = h
-        return h
-
-    def __eq__(self, other):
-        if self is other:
-            return True
-        if self.final != other.final:
-            return False
-        mine, theirs = self.all_edges(), other.all_edges()
-        if len(mine) != len(theirs):
-            return False
-        for key in iterkeys(mine):
-            if key not in theirs or not mine[key] == theirs[key]:
-                return False
-        return True
-
-    def __ne__(self, other):
-        return not(self.__eq__(other))
-
-    def __contains__(self, key):
-        return key in self._edges
-
-    def __iter__(self):
-        return iter(self._edges)
-
-    def __len__(self):
-        return len(self._edges)
-
-    def put(self, key, node):
-        self._hash = None  # Invalidate the cached hash value
-        self._edges[key] = node
-
-    def edge(self, key, expand=True):
-        return self._edges[key]
-
-    def all_edges(self):
+        if self._edges is None:
+            self._load()
         return self._edges
 
+    def edge(self, key):
+        if self._edges is None:
+            self._load()
+        return self._edges[key]
 
-class DawgBuilder(object):
-    """Class for building a graph from scratch.
-    
-    >>> db = DawgBuilder()
-    >>> db.insert(u"alfa")
-    >>> db.insert(u"bravo")
-    >>> db.write(dbfile)
-    
-    This class does not have the cleanest API, because it was cobbled together
-    to support the spelling correction system.
-    """
-
-    def __init__(self, dbfile, reduced=True, field_root=False):
-        """
-        :param dbfile: an optional StructFile. If you pass this argument to the
-            initializer, you don't have to pass a file to the ``write()``
-            method after you construct the graph.
-        :param reduced: when the graph is finished, branches of single-edged
-            nodes will be collapsed into single nodes to form a Patricia tree.
-        :param field_root: treats the root node edges as field names,
-            preventing them from being reduced and allowing them to be inserted
-            out-of-order.
-        """
-
-        self.dbfile = dbfile
-        self._reduced = reduced
-        self._field_root = field_root
-
-        self.lastword = None
-        # List of nodes that have not been checked for duplication.
-        self.unchecked = []
-        # List of unique nodes that have been checked for duplication.
-        self.minimized = {}
-
-        self.root = BuildNode()
-
-    def insert(self, word):
-        """Add the given "word" (a string or list of strings) to the graph.
-        Words must be inserted in sorted order.
-        """
-
-        lw = self.lastword
-        prefixlen = 0
-        if lw:
-            if self._field_root and lw[0] != word[0]:
-                # If field_root == True, caller can add entire fields out-of-
-                # order (but not individual terms)
-                pass
-            elif word < lw:
-                raise Exception("Out of order %r..%r." % (self.lastword, word))
-            else:
-                # find common prefix between word and previous word
-                for i in xrange(min(len(word), len(lw))):
-                    if word[i] != lw[i]: break
-                    prefixlen += 1
-
-        # Check the unchecked for redundant nodes, proceeding from last
-        # one down to the common prefix size. Then truncate the list at
-        # that point.
-        self._minimize(prefixlen)
-
-        # Add the suffix, starting from the correct node mid-way through the
-        # graph
-        if not self.unchecked:
-            node = self.root
-        else:
-            node = self.unchecked[-1][2]
-
-        for letter in word[prefixlen:]:
-            nextnode = BuildNode()
-            node.put(letter, nextnode)
-            self.unchecked.append((node, letter, nextnode))
-            node = nextnode
-
-        node.final = True
-        self.lastword = word
-
-    def _minimize(self, downto):
-        # Proceed from the leaf up to a certain point
-        for i in xrange(len(self.unchecked) - 1, downto - 1, -1):
-            (parent, letter, child) = self.unchecked[i];
-            if child in self.minimized:
-                # Replace the child with the previously encountered one
-                parent.put(letter, self.minimized[child])
-            else:
-                # Add the state to the minimized nodes.
-                self.minimized[child] = child;
-            self.unchecked.pop()
-
-    def finish(self):
-        """Minimize the graph by merging duplicates, and reduce branches of
-        single-edged nodes. You can call this explicitly if you are building
-        a graph to use in memory. Otherwise it is automatically called by
-        the write() method.
-        """
-
-        self._minimize(0)
-        if self._reduced:
-            self.reduce(self.root, self._field_root)
-
-    def close(self):
-        self.finish()
-        DawgWriter(self.dbfile).write(self.root)
-
-    @staticmethod
-    def reduce(root, field_root=False):
-        if not field_root:
-            reduce(root)
-        else:
-            for key in root:
-                v = root.edge(key)
-                reduce(v)
+    def flatten(self, sofar=""):
+        if self.accept:
+            yield sofar
+        for key in sorted(self):
+            node = self.edge(key)
+            for result in node.flatten(sofar + key):
+                yield result
 
 
-class DawgWriter(object):
-    def __init__(self, dbfile):
-        self.dbfile = dbfile
-        self.offsets = {}
-
-    def write(self, root):
-        """Write the graph to the given StructFile. If you passed a file to
-        the initializer, you don't have to pass it here.
-        """
-
-        dbfile = self.dbfile
-        dbfile.write(b("GR01"))  # Magic number
-        dbfile.write_int(0)  # File flags
-        dbfile.write_uint(0)  # Pointer to root node
-
-        offset = self._write_node(dbfile, root)
-
-        # Seek back and write the pointer to the root node
-        dbfile.flush()
-        dbfile.seek(_INT_SIZE * 2)
-        dbfile.write_uint(offset)
-        dbfile.close()
-
-    def _write_node(self, dbfile, node):
-        keys = node._edges.keys()
-        ptrs = array("I")
-        for key in keys:
-            sn = node._edges[key]
-            if id(sn) in self.offsets:
-                ptrs.append(self.offsets[id(sn)])
-            else:
-                ptr = self._write_node(dbfile, sn)
-                self.offsets[id(sn)] = ptr
-                ptrs.append(ptr)
-
-        start = dbfile.tell()
-
-        # The low bit indicates whether this node represents the end of a word
-        flags = int(node.final)
-        # The second lowest bit = whether this node has children
-        flags |= bool(keys) << 1
-        # The third lowest bit = whether all keys are single chars
-        singles = all(len(k) == 1 for k in keys)
-        flags |= singles << 2
-        # The fourth lowest bit = whether all keys are one byte
-        if singles:
-            sbytes = all(ord(key) <= 255 for key in keys)
-            flags |= sbytes << 3
-        dbfile.write_byte(flags)
-
-        if keys:
-            dbfile.write_varint(len(keys))
-            dbfile.write_array(ptrs)
-            if singles:
-                for key in keys:
-                    o = ord(key)
-                    if sbytes:
-                        dbfile.write_byte(o)
-                    else:
-                        dbfile.write_ushort(o)
-            else:
-                for key in keys:
-                    dbfile.write_string(utf8encode(key)[0])
-
-        return start
-
-
-class DiskNode(BaseNode):
-    def __init__(self, dbfile, offset, expand=True):
-        self.id = offset
-        self.dbfile = dbfile
-
-        dbfile.seek(offset)
-        flags = dbfile.read_byte()
-        self.final = bool(flags & 1)
-        self._edges = {}
-        if flags & 2:
-            singles = flags & 4
-            bytes = flags & 8
-
-            nkeys = dbfile.read_varint()
-
-            ptrs = dbfile.read_array("I", nkeys)
-            for i in xrange(nkeys):
-                ptr = ptrs[i]
-                if singles:
-                    if bytes:
-                        charnum = dbfile.read_byte()
-                    else:
-                        charnum = dbfile.read_ushort()
-                    self._edges[unichr(charnum)] = ptr
-                else:
-                    key = utf8decode(dbfile.read_string())[0]
-                    if len(key) > 1 and expand:
-                        self._edges[key[0]] = PatNode(dbfile, key[1:], ptr)
-                    else:
-                        self._edges[key] = ptr
-
-    def __repr__(self):
-        return "<%s %s:%s %s>" % (self.__class__.__name__, self.id,
-                                  ",".join(sorted(self._edges.keys())),
-                                  self.final)
-
-    def __contains__(self, key):
-        return key in self._edges
-
-    def __iter__(self):
-        return iter(self._edges)
-
-    def __len__(self):
-        return len(self._edges)
-
-    def edge(self, key, expand=True):
-        v = self._edges[key]
-        if not isinstance(v, BaseNode):
-            # Convert pointer to disk node
-            v = DiskNode(self.dbfile, v, expand=expand)
-            #if self.caching:
-            self._edges[key] = v
-        return v
-
-    @classmethod
-    def load(cls, dbfile, expand=True):
-        dbfile.seek(0)
-        magic = dbfile.read(4)
-        if magic != b("GR01"):
-            raise Exception("%r does not seem to be a graph file" % dbfile)
-        _ = dbfile.read_int()  # File flags (currently unused)
-        return DiskNode(dbfile, dbfile.read_uint(), expand=expand)
-
-
-class PatNode(BaseNode):
-    final = False
-
-    def __init__(self, dbfile, label, nextptr, i=0):
-        self.dbfile = dbfile
-        self.label = label
-        self.nextptr = nextptr
-        self.i = i
-
-    def __repr__(self):
-        return "<%r(%d) %s>" % (self.label, self.i, self.final)
-
-    def __contains__(self, key):
-        if self.i < len(self.label) and key == self.label[self.i]:
-            return True
-        else:
-            return False
-
-    def __iter__(self):
-        if self.i < len(self.label):
-            return iter(self.label[self.i])
-        else:
-            return []
-
-    def __len__(self):
-        if self.i < len(self.label):
-            return 1
-        else:
-            return 0
-
-    def edge(self, key, expand=True):
-        label = self.label
-        i = self.i
-        if i < len(label) and key == label[i]:
-            i += 1
-            if i < len(self.label):
-                return PatNode(self.dbfile, label, self.nextptr, i)
-            else:
-                return DiskNode(self.dbfile, self.nextptr)
-        else:
-            raise KeyError(key)
-
-    def edge_count(self):
-        return DiskNode(self.dbfile, self.nextptr).edge_count()
-
-
-class ComboNode(BaseNode):
-    """Base class for DAWG nodes that blend the nodes of two different graphs.
+class ComboNode(Node):
+    """Base class for nodes that blend the nodes of two different graphs.
     
     Concrete subclasses need to implement the ``edge()`` method and possibly
-    the ``final`` property.
+    override the ``accept`` property.
     """
 
     def __init__(self, a, b):
@@ -498,19 +134,16 @@ class ComboNode(BaseNode):
     def __iter__(self):
         return iter(set(self.a) | set(self.b))
 
-    def __len__(self):
-        return len(set(self.a) | set(self.b))
-
     @property
-    def final(self):
-        return self.a.final or self.b.final
+    def accept(self):
+        return self.a.accept or self.b.accept
 
 
 class UnionNode(ComboNode):
     """Makes two graphs appear to be the union of the two graphs.
     """
 
-    def edge(self, key, expand=True):
+    def edge(self, key):
         a = self.a
         b = self.b
         if key in a and key in b:
@@ -525,132 +158,625 @@ class IntersectionNode(ComboNode):
     """Makes two graphs appear to be the intersection of the two graphs.
     """
 
-    def edge(self, key, expand=True):
+    def edge(self, key):
         a = self.a
         b = self.b
         if key in a and key in b:
             return IntersectionNode(a.edge(key), b.edge(key))
 
 
-# Functions
+# Graph reader
 
-def reduce(node):
-    edges = node._edges
-    if edges:
-        for key, sn in edges.items():
-            reduce(sn)
-            if len(sn) == 1 and not sn.final:
-                skey, ssn = list(sn._edges.items())[0]
-                del edges[key]
-                edges[key + skey] = ssn
+class BaseGraphReader(object):
+    def has_root(self, rootname):
+        raise NotImplementedError
 
+    def root(self, rootname):
+        raise NotImplementedError
 
-def edge_count(node):
-    c = len(node)
-    return c + sum(edge_count(node.edge(key)) for key in node)
+    def arc_at(self, address):
+        raise NotImplementedError
 
+    def iter_arcs(self, address):
+        raise NotImplementedError
 
-def flatten(node, sofar=""):
-    if node.final:
-        yield sofar
-    for key in sorted(node):
-        for word in flatten(node.edge(key, expand=False), sofar + key):
-            yield word
+    def find_arc(self, address, label):
+        for arc in self.iter_arcs(address):
+            if arc.label == label:
+                return arc
 
+    # Convenience methods
 
-def dump_dawg(node, tab=0):
-    print("%s%s %s" % (" " * tab, hex(id(node)), node.final))
-    for key in sorted(node):
-        print("%s%r:" % (" " * tab, key))
-        dump_dawg(node.edge(key), tab + 1)
+    def list_arcs(self, address):
+        return list(self.iter_arcs(address))
+
+    def arc_dict(self, address):
+        return dict((arc.label, arc) for arc in self.iter_arcs(address))
 
 
-def within(node, text, k=1, prefix=0, seen=None):
-    if seen is None:
-        seen = set()
 
-    sofar = ""
-    if prefix:
-        node = skip_prefix(node, text, prefix)
-        if node is None:
-            return
-        sofar, text = text[:prefix], text[prefix:]
+class GraphReader(BaseGraphReader):
+    def __init__(self, dbfile, rootname=None, labelsize=1, vtype=None,
+                 filebase=0):
+        self.dbfile = dbfile
+        self.labelsize = labelsize
+        self.vtype = vtype
+        self.filebase = filebase
 
-    for sug in _within(node, text, k, sofar=sofar):
-        if sug in seen:
-            continue
-        yield sug
-        seen.add(sug)
+        dbfile.seek(filebase)
+        magic = dbfile.read(4)
+        if magic != b("GRPH"):
+            raise FileVersionError
+        self.version = dbfile.read_int()
+        dbfile.seek(dbfile.read_uint())
+        self.roots = dbfile.read_pickle()
 
+        self._root = None
+        if rootname is None and len(self.roots) == 1:
+            rootname = self.roots.keys()[0]
+        if rootname is not None:
+            self._root = self.root(rootname)
 
-def _within(node, word, k=1, i=0, sofar=""):
-    assert k >= 0
+    # Overrides
 
-    if i == len(word) and node.final:
-        yield sofar
+    def has_root(self, rootname):
+        return rootname in self.roots
 
-    # Match
-    if i < len(word) and word[i] in node:
-        for w in _within(node.edge(word[i]), word, k, i + 1, sofar + word[i]):
-            yield w
+    def root(self, rootname):
+        return self.roots[rootname]
 
-    if k > 0:
-        dk = k - 1
-        ii = i + 1
-        # Insertions
-        for key in node:
-            for w in _within(node.edge(key), word, dk, i, sofar + key):
-                yield w
+    def set_root(self, rootname):
+        self._root = self.root(rootname)
 
-        if i < len(word):
-            char = word[i]
+    def arc_at(self, address):
+        self.dbfile.seek(address)
+        return self._read_arc()
 
-            # Transposition
-            if i < len(word) - 1 and char != word[ii] and word[ii] in node:
-                second = node.edge(word[i + 1])
-                if char in second:
-                    for w in _within(second.edge(char), word, dk, i + 2,
-                                     sofar + word[ii] + char):
-                        yield w
+    def iter_arcs(self, address):
+        _read_arc = self._read_arc
 
-            # Deletion
-            for w in _within(node, word, dk, ii, sofar):
-                yield w
+        self.dbfile.seek(address)
+        while True:
+            arc = _read_arc()
+            yield arc
+            if arc.lastarc:
+                break
 
-            # Replacements
-            for key in node:
-                if key != char:
-                    for w in _within(node.edge(key), word, dk, ii,
-                                     sofar + key):
-                        yield w
+    def find_arc(self, address, label):
+        dbfile = self.dbfile
+        dbfile.seek(address)
 
+        # If records are fixed size, we can do a binary search
+        finfo = self._read_fixed_info()
+        if finfo:
+            size, count = finfo
+            address = dbfile.tell()
+            if count > 2:
+                return self._binary_search(address, size, count, label)
 
-def skip_prefix(node, text, prefix):
-    for key in text[:prefix]:
-        if key in node:
-            node = node.edge(key)
+        # If records aren't fixed size, fall back to the parent's linear
+        # search method
+        return BaseGraphReader.find_arc(self, address, label)
+
+    # Implementations
+
+    def _read_arc(self):
+        dbfile = self.dbfile
+        flags = dbfile.read_byte()
+        if flags == 255:
+            # FIXED_SIZE
+            dbfile.seek(_INT_SIZE * 2, 1)
+            flags = dbfile.read_byte()
+        label = dbfile.read(self.labelsize)
+        return self._read_arc_data(flags, label)
+
+    def _read_fixed_info(self):
+        dbfile = self.dbfile
+
+        flags = dbfile.read_byte()
+        if flags == 255:
+            size = dbfile.read_int()
+            count = dbfile.read_int()
+            return (size, count)
         else:
             return None
-    return node
+
+    def _read_arc_data(self, flags, label):
+        dbfile = self.dbfile
+        arc = Arc(label)
+        arc.accept = bool(flags & 2)
+        if flags & 1:  # LAST_ARC
+            arc.lastarc = True
+        if not flags & 4:  # STOP_NODE
+            arc.target = dbfile.read_uint()
+        if flags & 8:  # ARC_HAS_VALUE
+            arc.value = self.vtype.read(dbfile)
+        return arc
+
+    def _binary_search(self, address, size, count, label):
+        dbfile = self.dbfile
+        labelsize = self.labelsize
+
+        lo = 0
+        hi = count
+        while lo < hi:
+            mid = (lo + hi) // 2
+            midaddr = address + mid * size
+            dbfile.seek(midaddr)
+            flags = dbfile.read_byte()
+            midlabel = dbfile.read(labelsize)
+            if midlabel == label:
+                return self._read_arc_data(flags, midlabel)
+            elif midlabel < label:
+                lo = mid + 1
+            else:
+                hi = mid
+        if lo == count:
+            return None
+
+    # High-level methods
+
+    def dump(self, address=None, tab=0, out=None):
+        if address is None:
+            address = self._root
+        if out is None:
+            out = sys.stdout
+
+        here = "%06d" % address
+        for i, arc in enumerate(self.list_arcs(address)):
+            if i == 0:
+                out.write(here)
+            else:
+                out.write(" " * 6)
+            out.write("  " * tab)
+            out.write("%r %r %s\n" % (arc.label, arc.target, arc.accept))
+            if arc.target is not None:
+                self.dump(arc.target, tab + 1, out=out)
+
+    def within(self, text, k=1, prefix=0, address=None):
+        if address is None:
+            address = self._root
+
+        sofar = ""
+        accept = False
+        if prefix:
+            sofar = text[:prefix]
+            arc = self.follow(sofar, address)
+            if arc is None:
+                return
+            address, accept = arc.target, arc.accept
+
+        stack = [(address, k, prefix, sofar, accept)]
+        seen = set()
+        while stack:
+            state = stack.pop()
+            # Have we already tried this state?
+            if state in seen:
+                continue
+            seen.add(state)
+
+            address, k, i, sofar, accept = state
+            # If we're at the end of the text (or deleting enough chars would
+            # get us to the end and still within K), and we're in the accept
+            # state, yield the current result
+            if (len(text) - i <= k) and accept:
+                yield sofar
+            # If we're in the stop state, give up
+            if address is None:
+                continue
+
+            # Exact match
+            if i < len(text):
+                arc = self.find_arc(address, text[i])
+                if arc:
+                    stack.append((arc.target, k, i + 1, sofar + text[i], arc.accept))
+            # If K is already 0, can't do any more edits
+            if k < 1:
+                continue
+            k -= 1
+
+            arcs = self.arc_dict(address)
+            # Insertions
+            stack.extend((arc.target, k, i, sofar + char, arc.accept)
+                         for char, arc in iteritems(arcs))
+
+            # Deletion, replacement, and transpo only work before the end
+            if i >= len(text):
+                continue
+            char = text[i]
+
+            # Deletion
+            stack.append((address, k, i + 1, sofar, False))
+            # Replacement
+            for char2, arc in iteritems(arcs):
+                if char2 != char:
+                    stack.append((arc.target, k, i + 1, sofar + char2, arc.accept))
+            # Transposition
+            if i < len(text) - 1:
+                char2 = text[i + 1]
+                if char != char2 and char2 in arcs:
+                    # Find arc from next char to this char
+                    target = arcs[char2].target
+                    if target:
+                        arc = self.find_arc(target, char)
+                        if arc:
+                            stack.append((arc.target, k, i + 2, sofar + char2 + char, arc.accept))
+
+    def flatten(self, address=None):
+        if address is None:
+            address = self._root
+
+        arry = array("c")
+        stack = [self.list_arcs(address)]
+
+        while stack:
+            if not stack[-1]:
+                stack.pop()
+                if arry:
+                    arry.pop()
+                continue
+            arc = stack[-1].pop(0)
+            if arc.accept:
+                yield arry.tostring() + arc.label
+
+            if arc.target:
+                arry.append(arc.label)
+                stack.append(self.list_arcs(arc.target))
+
+    def follow(self, key, address=None):
+        if address is None:
+            address = self._root
+
+        for lab in key:
+            if address is None:
+                return None
+            arc = self.find_arc(address, lab)
+            if arc is None:
+                return None
+            address = arc.target
+        return arc
+
+    #    def follow_upto(self, key, address=None):
+    #        if address is None:
+    #            address = self._root
+    #
+    #        previous = None
+    #        for lab in key:
+    #            if address is None:
+    #                return previous
+    #            arc = self.find_arc(address, lab)
+    #            if arc is None:
+    #                return previous
+    #            address = arc.target
+    #            previous = arc
+    #        return previous
+    #
+    #    def next_node(self):
+    #        dbfile = self.dbfile
+    #        labelsize = self.labelsize
+    #        vtype = self.vtype
+    #
+    #        while True:
+    #            flags = dbfile.read_byte()
+    #            if flags == 255:
+    #                dbfile.seek(_INT_SIZE * 2, 1)
+    #                continue
+    #
+    #            dbfile.seek(labelsize, 1)
+    #            if not flags & 4:  # STOP_NODE
+    #                dbfile.seek(_INT_SIZE, 1)
+    #            if flags & 8:  # ARC_HAS_VALUE
+    #                vtype.skip(dbfile)
+    #            if flags & 1:  # LAST_ARC
+    #                return
+    #    def flatten(self, target, sofar="", accept=False):
+    #        if accept:
+    #            yield sofar
+    #        if target is None:
+    #            return
+    #
+    #        for label, target, _, accept in self.list_arcs(target):
+    #            for word in self.flatten(target, sofar + label, accept):
+    #                yield word
+    #
+    #    def follow_first(self, address):
+    #        labels = []
+    #        while address is not None:
+    #            arc = self.arc_at(address)
+    #            labels.append(arc.label)
+    #            if arc.accept:
+    #                break
+    #            address = arc.target
+    #        return labels
 
 
-def find_nearest(node, prefix):
-    sofar = []
-    for i in xrange(len(prefix)):
-        char = prefix[i]
-        if char in node:
-            sofar.apped(char)
-            node = node.edge(char)
+# Graph writer
+
+class UncompiledNode(object):
+    compiled = False
+
+    def __init__(self, owner):
+        self.owner = owner
+        self.clear()
+
+    def __repr__(self):
+        return "<%r>" % ([arc.label for arc in self.arcs],)
+
+    def digest(self):
+        d = sha1()
+        for arc in self.arcs:
+            d.update(arc.label)
+            if arc.target:
+                d.update(pack_long(arc.target))
+            else:
+                d.update("z")
+            if arc.value:
+                d.update(arc.value)
+            if arc.accept:
+                d.update(b("T"))
+        return d.digest()
+
+    def clear(self):
+        self.arcs = []
+        self.value = None
+        self.accept = False
+        self.inputcount = 0
+
+    def edges(self):
+        return self.arcs
+
+    def last_value(self, label):
+        assert self.arcs[-1].label == label
+        return self.arcs[-1].value
+
+    def add_arc(self, label, target):
+        self.arcs.append(Arc(label, target))
+
+    def replace_last(self, label, target, accept):
+        arc = self.arcs[-1]
+        assert arc.label == label, "%r != %r" % (arc.label, label)
+        arc.target = target
+        arc.accept = accept
+
+    def delete_last(self, label, target):
+        arc = self.arcs.pop()
+        assert arc.label == label
+        assert arc.target == target
+
+    def set_last_value(self, label, value):
+        arc = self.arcs[-1]
+        assert arc.label == label
+        arc.value = value
+
+    def prepend_value(self, prefix):
+        owner = self.owner
+        for arc in self.arcs:
+            arc.value = owner.concat(prefix, arc.value)
+        if self.accept:
+            self.value = owner.concat(prefix, self.value)
+
+    def write(self):
+        vtype = self.owner.vtype
+        dbfile = self.owner.dbfile
+        arcs = self.arcs
+        numarcs = len(arcs)
+
+        if not numarcs:
+            if self.accept:
+                return None
+            else:
+                # I'm not sure what it means for an arc to stop but not be
+                # final
+                raise Exception
+
+        buf = BytesIO()
+        nodestart = dbfile.tell()
+        #self.count += 1
+        #self.arccount += numarcs
+
+        fixedsize = -1
+        arcstart = buf.tell()
+        for i, arc in enumerate(arcs):
+            target = arc.target
+
+            flags = 0
+            if i == numarcs - 1:
+                flags += 1  # LAST_ARC
+            if arc.accept:
+                flags += 2    # FINAL_ARC
+            if target is None:
+                # Target has no arcs
+                flags += 4  # STOP_NODE
+            if arc.value is not None:
+                flags += 8  # ARC_HAS_VALUE
+
+            buf.write(pack_byte(flags))
+            buf.write(arc.label)
+            if target >= 0:
+                buf.write(pack_uint(target))
+            if vtype and arc.value is not None:
+                vtype.write(buf, arc.value)
+
+            here = buf.tell()
+            thissize = here - arcstart
+            arcstart = here
+            if fixedsize == -1:
+                fixedsize = thissize
+            elif fixedsize > 0 and thissize != fixedsize:
+                fixedsize = 0
+
+        if fixedsize > 0:
+            # Write a fake arc containing the fixed size and number of arcs
+            dbfile.write_byte(255)  # FIXED_SIZE
+            dbfile.write_int(fixedsize)
+            dbfile.write_int(numarcs)
+        dbfile.write(buf.getvalue())
+
+        return nodestart
+
+
+class Arc(object):
+    __slots__ = ("label", "target", "accept", "value", "lastarc")
+
+    def __init__(self, label=None, target=None, value=None, accept=False):
+        self.label = label
+        self.target = target
+        self.value = value
+        self.accept = accept
+        self.lastarc = None
+
+    def __repr__(self):
+        return "<%r-%s%s>" % (self.label, self.target,
+                              "." if self.accept else "")
+
+    def __eq__(self, other):
+        if (isinstance(other, self.__class__) and self.accept == other.accept
+            and self.lastarc == other.lastarc and self.target == other.target
+            and self.value == other.value and self.label == other.label):
+            return True
+        return False
+
+
+class GraphWriter(object):
+    version = 1
+
+    def __init__(self, dbfile, vtype=None):
+        self.dbfile = dbfile
+        self.vtype = vtype
+        self.fieldroots = {}
+
+        dbfile.write(b("GRPH"))
+        dbfile.write_int(self.version)
+        dbfile.write_uint(0)
+
+        self.fieldname = None
+        self.start_field("_")
+
+    def start_field(self, fieldname):
+        if not fieldname:
+            raise ValueError("Field name cannot be equivalent to False")
+        if self.fieldname is not None:
+            self.finish_field()
+        self.fieldname = fieldname
+        self.seen = {}
+        self.current = [UncompiledNode(self)]
+        self.lastkey = ''
+        self._inserted = False
+
+    def finish_field(self):
+        if self._inserted:
+            self.fieldroots[self.fieldname] = self._finish()
+        self.fieldname = None
+
+    def close(self):
+        if self.fieldname is not None:
+            self.finish_field()
+        dbfile = self.dbfile
+        here = dbfile.tell()
+        dbfile.write_pickle(self.fieldroots)
+        dbfile.flush()
+        dbfile.seek(4 + _INT_SIZE)  # Seek past magic and version number
+        dbfile.write_uint(here)
+        dbfile.close()
+
+    def insert(self, key, value=None):
+        if self.fieldname is None:
+            raise Exception("Inserted %r before starting a field" % key)
+        self._inserted = True
+
+        vtype = self.vtype
+        lastkey = self.lastkey
+        current = self.current
+        if len(key) < 1:
+            raise KeyError("Can't store a null key %r" % key)
+        if self.lastkey > key:
+            raise KeyError("Keys out of order %r..%r" % (self.lastkey, key))
+
+        prefixlen = 0
+        for i in xrange(min(len(lastkey), len(key))):
+            if lastkey[i] != key[i]:
+                break
+            prefixlen += 1
+        self._freeze_tail(prefixlen + 1)
+
+        for char in key[prefixlen:]:
+            node = UncompiledNode(self)
+            current[-1].add_arc(char, node)
+            current.append(node)
+        lastnode = current[-1]
+        lastnode.accept = True
+
+        # Push conflicting values forward as needed
+        if vtype:
+            for i in xrange(1, prefixlen):
+                node = current[i]
+                parent = current[i - 1]
+                lastvalue = parent.last_value(key[i - 1])
+                if lastvalue is not None:
+                    common = vtype.common(value, lastvalue)
+                    suffix = vtype.subtract(lastvalue, common)
+                    parent.set_last_value(key[i - 1], common)
+                    node.prepend_value(suffix)
+                else:
+                    common = suffix = None
+                value = vtype.subtract(value, common)
+
+            if key == lastkey:
+                lastnode.value = vtype.merge(lastnode.value, value)
+            else:
+                current[prefixlen - 1].set_last_value(key[prefixlen - 1],
+                                                      value)
+        elif value:
+            raise Exception("Called with value %r but no value type" % value)
+        self.lastkey = key
+
+    def _freeze_tail(self, prefixlen):
+        current = self.current
+        lastkey = self.lastkey
+        downto = max(1, prefixlen)
+
+        while len(current) > downto:
+            node = current.pop()
+            parent = current[-1]
+            inlabel = lastkey[len(current) - 1]
+
+            self._compile_targets(node)
+            accept = node.accept or len(node.arcs) == 0
+            address = self._compile_node(node)
+            parent.replace_last(inlabel, address, accept)
+
+    def _finish(self):
+        current = self.current
+        root = current[0]
+        # Minimize nodes in the last word's suffix
+        self._freeze_tail(0)
+        # Compile remaining targets
+        self._compile_targets(root)
+        return self._compile_node(root)
+
+    def _compile_targets(self, node):
+        for arc in node.arcs:
+            if isinstance(arc.target, UncompiledNode):
+                n = arc.target
+                if len(n.arcs) == 0:
+                    arc.accept = n.accept = True
+                arc.target = self._compile_node(n)
+
+    def _compile_node(self, ucnode):
+        seen = self.seen
+
+        if len(ucnode.arcs) == 0:
+            # Leaf node
+            address = ucnode.write()
         else:
-            break
-    sofar.extend(run_out(node, sofar))
-    return "".join(sofar)
+            d = ucnode.digest()
+            address = seen.get(d)
+            if address is None:
+                address = ucnode.write()
+                seen[d] = address
+        return address
 
 
-def run_out(node, sofar):
-    sofar = []
-    while not node.final:
-        first = min(node.keys())
-        sofar.append(first)
-        node = node.edge(first)
-    return sofar
+
+
+
