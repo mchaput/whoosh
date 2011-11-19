@@ -73,7 +73,7 @@ class Codec(object):
     def stored_fields_reader(self, segment):
         raise NotImplementedError
 
-    def word_graph_reader(self, segment):
+    def graph_reader(self, segment):
         raise NotImplementedError
 
     # Generations
@@ -105,12 +105,17 @@ class PerDocumentWriter(object):
 
 
 class FieldWriter(object):
-    def add_iter(self, schema, lengths, items):
+    def add_postings(self, schema, lengths, items):
+        start_field = self.start_field
+        start_term = self.start_term
+        add = self.add
+        finish_term = self.finish_term
+        finish_field = self.finish_field
+
         # items = (fieldname, text, docnum, weight, valuestring) ...
         lastfn = None
         lasttext = None
         getlen = lengths.get
-        add = self.add
         for fieldname, text, docnum, weight, valuestring in items:
             # Items where docnum is None indicate words that should be added
             # to the spelling graph
@@ -125,19 +130,19 @@ class FieldWriter(object):
                                 (lastfn, lasttext, fieldname, text))
             if fieldname != lastfn or text != lasttext:
                 if lasttext is not None:
-                    self.finish_term()
+                    finish_term()
                 if fieldname != lastfn:
                     if lastfn is not None:
-                        self.finish_field()
-                    self.start_field(fieldname, schema[fieldname])
+                        finish_field()
+                    start_field(fieldname, schema[fieldname])
                     lastfn = fieldname
-                self.start_term(text)
+                start_term(text)
                 lasttext = text
             length = getlen(docnum, fieldname)
             add(docnum, weight, valuestring, length)
         if lasttext is not None:
-            self.finish_term()
-            self.finish_field()
+            finish_term()
+            finish_field()
 
     def start_field(self, fieldname, fieldobj):
         raise NotImplementedError
@@ -170,7 +175,7 @@ class TermsReader(object):
     def terminfo(self, fieldname, text):
         raise NotImplementedError
 
-    def word_graph(self, fieldname, text):
+    def graph_reader(self, fieldname, text):
         raise NotImplementedError
 
     def matcher(self, fieldname, text, fmt):

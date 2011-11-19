@@ -35,6 +35,7 @@ from whoosh import analysis, fields, highlight, query, scoring
 from whoosh.compat import xrange, string_type
 from whoosh.support import dawg
 from whoosh.support.levenshtein import distance
+from whoosh.util import utf8encode
 
 
 # Corrector objects
@@ -65,7 +66,11 @@ class Corrector(object):
         heap = []
         seen = set([text])
         for k in xrange(1, maxdist + 1):
-            for item in _suggestions(text, k, prefix, seen):
+            for item in _suggestions(text, k, prefix):
+                if item[1] in seen:
+                    continue
+                seen.add(item[1])
+
                 # Note that the *higher* scores (item[0]) are better!
                 if len(heap) < limit:
                     heappush(heap, item)
@@ -80,7 +85,7 @@ class Corrector(object):
         sugs = sorted(heap, key=lambda item: (0 - item[0], item[1]))
         return [sug for _, sug in sugs]
 
-    def _suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix):
         """Low-level method that yields a series of (score, "suggestion")
         tuples.
         
@@ -88,7 +93,6 @@ class Corrector(object):
         :param maxdist: the maximum edit distance.
         :param prefix: require suggestions to share a prefix of this length
             with the given word.
-        :param seen: a set object with which to track already-seen words.
         """
 
         raise NotImplementedError
@@ -105,58 +109,32 @@ class ReaderCorrector(Corrector):
         self.reader = reader
         self.fieldname = fieldname
 
-    def _suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix):
         fieldname = self.fieldname
         freq = self.reader.frequency
         for sug in self.reader.terms_within(fieldname, text, maxdist,
-                                            prefix=prefix, seen=seen):
+                                            prefix=prefix):
             # Higher scores are better, so negate the distance and frequency
             f = freq(fieldname, sug)
-            print "fieldname=", fieldname, "sug=", sug, "f=", f
             assert f
             score = 0 - (maxdist + (1.0 / f * 0.5))
             yield (score, sug)
 
 
 class GraphCorrector(Corrector):
-    """Suggests corrections based on the content of a word list.
+    """Suggests corrections based on the content of a raw
+    :class:`whoosh.support.dawg.GraphReader` object.
     
     By default ranks suggestions based on the edit distance.
     """
 
-    def __init__(self, word_graph):
-        self.word_graph = word_graph
+    def __init__(self, graph):
+        self.graph = graph
 
-    def _suggestions(self, text, maxdist, prefix, seen):
-        for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
-                               seen=seen):
+    def _suggestions(self, text, maxdist, prefix):
+        for sug in self.graph.within(text, k=maxdist, prefix=prefix):
             # Higher scores are better, so negate the edit distance
             yield (0 - maxdist, sug)
-
-    def to_file(self, f):
-        """
-        
-        This method closes the file when it's done.
-        """
-
-        root = self.word_graph
-        dawg.DawgBuilder.reduce(root)
-        dawg.DawgWriter(f).write(root)
-
-    @classmethod
-    def from_word_list(cls, wordlist, strip=True):
-        dw = dawg.DawgBuilder(None, reduced=False)
-        for word in wordlist:
-            if strip:
-                word = word.strip()
-            dw.insert(word)
-        dw.finish()
-        return cls(dw.root)
-
-    @classmethod
-    def from_graph_file(cls, dbfile):
-        dr = dawg.DiskNode.load(dbfile)
-        return cls(dr)
 
 
 class MultiCorrector(Corrector):
@@ -166,13 +144,13 @@ class MultiCorrector(Corrector):
     def __init__(self, correctors):
         self.correctors = correctors
 
-    def _suggestions(self, text, maxdist, prefix, seen):
+    def _suggestions(self, text, maxdist, prefix):
         for corr in self.correctors:
-            for item in corr._suggestions(text, maxdist, prefix, seen):
+            for item in corr._suggestions(text, maxdist, prefix):
                 yield item
 
 
-def wordlist_to_graph_file(wordlist, dbfile, strip=True):
+def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
     """Writes a word graph file from a list of words.
     
     >>> # Open a word list file with one word on each line, and write the
@@ -182,20 +160,21 @@ def wordlist_to_graph_file(wordlist, dbfile, strip=True):
     :param wordlist: an iterable containing the words for the graph. The words
         must be in sorted order.
     :param dbfile: a filename string or file-like object to write the word
-        graph to. If you pass a file-like object, it will be closed when the
-        function completes.
+        graph to. This function will close the file.
     """
 
     from whoosh.filedb.structfile import StructFile
-
-    g = GraphCorrector.from_word_list(wordlist, strip=strip)
-
     if isinstance(dbfile, string_type):
         dbfile = open(dbfile, "wb")
     if not isinstance(dbfile, StructFile):
         dbfile = StructFile(dbfile)
 
-    g.to_file(dbfile)
+    gw = dawg.GraphWriter(dbfile)
+    for word in wordlist:
+        if strip:
+            word = word.strip()
+        gw.insert(utf8encode(word)[0])
+    gw.close()
 
 
 # Query correction
