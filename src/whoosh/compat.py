@@ -57,7 +57,7 @@ else:
     StringIO = io.StringIO
     string_type = str
     text_type = str
-    bytes_tyep = bytes
+    bytes_type = bytes
     unichr = chr
     from urllib.request import urlretrieve
 
