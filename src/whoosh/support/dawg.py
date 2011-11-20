@@ -25,36 +25,298 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+This module implements an FST/FSA writer and reader. An FST (Finite State
+Transducer) stores a directed acyclic graph with values associated with the
+leaves. Common elements of the values are pushed inside the tree. An FST that
+does not store values is a regular FSA.
+
+The format of the leaf values is pluggable using subclasses of the Values
+class.
+
+Whoosh uses these structures to store a directed acyclic word graph (DAWG) for
+use in (at least) spell checking.
+"""
+
 
 import sys
 from array import array
 from hashlib import sha1  #@UnresolvedImport
 
-from whoosh.compat import u, b, BytesIO, xrange, iteritems, iterkeys
-from whoosh.system import _INT_SIZE, pack_byte, pack_uint, pack_long
+from whoosh.compat import b, BytesIO, xrange, iteritems, iterkeys, bytes_type
+from whoosh.filedb.structfile import StructFile
+from whoosh.system import _INT_SIZE, pack_byte, pack_int, pack_uint, pack_long
 
 
 class FileVersionError(Exception):
     pass
 
+emptybytes = b("")
 
-# Value types
 
-class ValueType(object):
-    def write(self, dbfile, value):
-        pass
+# FST Value types
 
-    def read(self, dbfile):
-        pass
+class Values(object):
+    @classmethod
+    def is_valid(cls, v):
+        """Returns True if v is a valid object that can be stored by this
+        class.
+        """
 
-    def skip(self, dbfile):
-        pass
+        raise NotImplementedError
 
-    def common(self, v1, v2):
-        pass
+    @classmethod
+    def common(cls, v1, v2):
+        """Returns the "common" part of the two values, for whatever "common"
+        means for this class. For example, a string implementation would return
+        the common shared prefix, for an int implementation it would return
+        the minimum of the two numbers.
+        
+        If there is no common part, this method should return None.
+        """
 
-    def merge(self, v1, v2):
-        pass
+        raise NotImplementedError
+
+    @classmethod
+    def add(cls, prefix, v):
+        """Adds the given prefix (the result of a call to common()) to the
+        given value.
+        """
+
+        raise NotImplementedError
+
+    @classmethod
+    def subtract(cls, v, prefix):
+        """Subtracts the "common" part (the prefix) from the given value.
+        """
+
+        raise NotImplementedError
+
+    @classmethod
+    def write(cls, dbfile, v):
+        """Writes value v to a file.
+        """
+
+        raise NotImplementedError
+
+    @classmethod
+    def read(cls, dbfile):
+        """Reads a value from the given file.
+        """
+
+        raise NotImplementedError
+
+    @classmethod
+    def skip(cls, dbfile):
+        """Skips over a value in the given file.
+        """
+
+        cls.read(dbfile)
+
+    @classmethod
+    def to_bytes(cls, v):
+        """Returns a str (Python 2.x) or bytes (Python 3) representation of
+        the given value. This is used for calculating node digests, so it
+        should be unique but fast to calculate, and does not have to be
+        parseable.
+        """
+
+        raise NotImplementedError
+
+    @classmethod
+    def merge(cls, v1, v2):
+        raise NotImplementedError
+
+
+class IntValues(Values):
+    @classmethod
+    def is_valid(self, v):
+        return isinstance(v, int) and v >= 0
+
+    @classmethod
+    def common(cls, v1, v2):
+        if v1 is None or v2 is None:
+            return None
+        if v1 == v2:
+            return v1
+        return min(v1, v2)
+
+    @classmethod
+    def add(cls, base, v):
+        if base is None:
+            return v
+        if v is None:
+            return base
+        return base + v
+
+    @classmethod
+    def subtract(cls, v, base):
+        if v is None:
+            return None
+        if base is None:
+            return v
+        return v - base
+
+    @classmethod
+    def write(cls, dbfile, v):
+        dbfile.write_uint(v)
+
+    @classmethod
+    def read(cls, dbfile):
+        return dbfile.read_uint()
+
+    @classmethod
+    def skip(cls, dbfile):
+        dbfile.seek(_INT_SIZE, 1)
+
+    @classmethod
+    def to_bytes(cls, v):
+        return pack_int(v)
+
+
+class SequenceValues(Values):
+    @classmethod
+    def is_valid(cls, v):
+        return isinstance(self, (list, tuple))
+
+    @classmethod
+    def common(cls, v1, v2):
+        if v1 is None or v2 is None:
+            return None
+
+        i = 0
+        while i < len(v1) and i < len(v2):
+            if v1[i] != v2[i]:
+                break
+            i += 1
+
+        if i == 0:
+            return None
+        if i == len(v1):
+            return v1
+        if i == len(v2):
+            return v2
+        return v1[:i]
+
+    @classmethod
+    def add(cls, prefix, v):
+        if prefix is None:
+            return v
+        if v is None:
+            return prefix
+        return prefix + v
+
+    @classmethod
+    def subtract(cls, v, prefix):
+        if prefix is None:
+            return v
+        if v is None:
+            return None
+        if len(v) == len(prefix):
+            return None
+        if len(v) < len(prefix) or len(prefix) == 0:
+            raise ValueError((v, prefix))
+        return v[len(prefix):]
+
+    @classmethod
+    def write(cls, dbfile, v):
+        dbfile.write_pickle(v)
+
+    @classmethod
+    def read(cls, dbfile):
+        return dbfile.read_pickle()
+
+    @classmethod
+    def to_bytes(cls, v):
+        return b(str(v))
+
+
+class BytesValues(SequenceValues):
+    @classmethod
+    def is_valid(self, v):
+        return isinstance(v, bytes_type)
+
+    @classmethod
+    def write(cls, dbfile, v):
+        dbfile.write_int(len(v))
+        dbfile.write(v)
+
+    @classmethod
+    def read(cls, dbfile):
+        length = dbfile.read_int()
+        return dbfile.read(length)
+
+    @classmethod
+    def skip(cls, dbfile):
+        length = dbfile.read_int()
+        dbfile.seek(length, 1)
+
+    @classmethod
+    def to_bytes(cls, v):
+        return v
+
+
+class ArrayValues(SequenceValues):
+    @classmethod
+    def is_valid(self, v):
+        return isinstance(v, array)
+
+    @classmethod
+    def write(cls, dbfile, v):
+        dbfile.write(b(v.typecode))
+        dbfile.write_int(len(v))
+        dbfile.write_array(v)
+
+    @classmethod
+    def read(cls, dbfile):
+        typecode = b(dbfile.read(1))
+        length = dbfile.read_int()
+        return dbfile.read_array(typecode, length)
+
+    @classmethod
+    def skip(dbfile):
+        typecode = b(dbfile.read(1))
+        length = dbfile.read_int()
+        a = array(typecode)
+        dbfile.seek(length * a.itemsize, 1)
+
+    @classmethod
+    def to_bytes(cls, v):
+        return v.tostring()
+
+
+class IntListValues(SequenceValues):
+    @classmethod
+    def is_valid(self, v):
+        if isinstance(v, (list, tuple)):
+            if len(v) < 2:
+                return True
+            for i in xrange(1, len(v)):
+                if not isinstance(v[i], int) or v[i] < v[i - 1]:
+                    return False
+            return True
+        return False
+
+    @classmethod
+    def write(cls, dbfile, v):
+        base = 0
+        dbfile.write_varint(len(v))
+        for x in v:
+            delta = x - base
+            assert delta >= 0
+            dbfile.write_varint(delta)
+            base = x
+
+    @classmethod
+    def read(cls, dbfile):
+        length = dbfile.read_varint()
+        result = []
+        if length > 0:
+            base = 0
+            for _ in xrange(length):
+                base += dbfile.read_varint()
+                result.append(base)
+        return result
 
 
 # Node-like interface wrappers
@@ -105,7 +367,7 @@ class Node(object):
             self._load()
         return self._edges[key]
 
-    def flatten(self, sofar=""):
+    def flatten(self, sofar=emptybytes):
         if self.accept:
             yield sofar
         for key in sorted(self):
@@ -291,6 +553,8 @@ class GraphReader(BaseGraphReader):
             arc.target = dbfile.read_uint()
         if flags & 8:  # ARC_HAS_VALUE
             arc.value = self.vtype.read(dbfile)
+        if flags & 16:  # ARC_HAS_ACCEPT_VALUE
+            arc.acceptval = self.vtype.read(dbfile)
         return arc
 
     def _binary_search(self, address, size, count, label):
@@ -329,7 +593,7 @@ class GraphReader(BaseGraphReader):
             else:
                 out.write(" " * 6)
             out.write("  " * tab)
-            out.write("%r %r %s\n" % (arc.label, arc.target, arc.accept))
+            out.write("%r %r %s %r\n" % (arc.label, arc.target, arc.accept, arc.value))
             if arc.target is not None:
                 self.dump(arc.target, tab + 1, out=out)
 
@@ -337,7 +601,7 @@ class GraphReader(BaseGraphReader):
         if address is None:
             address = self._root
 
-        sofar = ""
+        sofar = emptybytes
         accept = False
         if prefix:
             sofar = text[:prefix]
@@ -436,6 +700,25 @@ class GraphReader(BaseGraphReader):
             address = arc.target
         return arc
 
+    def flatten_v(self, address= -1, key=emptybytes, value=None, accept=False,
+                  acceptval=None):
+        vtype = self.vtype
+
+        if address == -1:
+            address = self._root
+        if accept:
+            yield (key, vtype.add(value, acceptval))
+        if address is None:
+            return
+
+        add = self.vtype.add
+        for arc in self.list_arcs(address):
+            for result in self.flatten_v(arc.target, key + arc.label,
+                                         add(value, arc.value), arc.accept,
+                                         arc.acceptval):
+                yield result
+
+
     #    def follow_upto(self, key, address=None):
     #        if address is None:
     #            address = self._root
@@ -499,11 +782,18 @@ class UncompiledNode(object):
         self.owner = owner
         self.clear()
 
+    def clear(self):
+        self.arcs = []
+        self.value = None
+        self.accept = False
+        self.inputcount = 0
+
     def __repr__(self):
-        return "<%r>" % ([arc.label for arc in self.arcs],)
+        return "<%r>" % ([(a.label, a.value) for a in self.arcs],)
 
     def digest(self):
         d = sha1()
+        vtype = self.owner.vtype
         for arc in self.arcs:
             d.update(arc.label)
             if arc.target:
@@ -511,16 +801,10 @@ class UncompiledNode(object):
             else:
                 d.update("z")
             if arc.value:
-                d.update(arc.value)
+                d.update(vtype.to_bytes(arc.value))
             if arc.accept:
                 d.update(b("T"))
         return d.digest()
-
-    def clear(self):
-        self.arcs = []
-        self.value = None
-        self.accept = False
-        self.inputcount = 0
 
     def edges(self):
         return self.arcs
@@ -532,11 +816,12 @@ class UncompiledNode(object):
     def add_arc(self, label, target):
         self.arcs.append(Arc(label, target))
 
-    def replace_last(self, label, target, accept):
+    def replace_last(self, label, target, accept, acceptval=None):
         arc = self.arcs[-1]
         assert arc.label == label, "%r != %r" % (arc.label, label)
         arc.target = target
         arc.accept = accept
+        arc.acceptval = acceptval
 
     def delete_last(self, label, target):
         arc = self.arcs.pop()
@@ -545,89 +830,33 @@ class UncompiledNode(object):
 
     def set_last_value(self, label, value):
         arc = self.arcs[-1]
-        assert arc.label == label
+        assert arc.label == label, "%r->%r" % (arc.label, label)
         arc.value = value
 
     def prepend_value(self, prefix):
-        owner = self.owner
+        add = self.owner.vtype.add
         for arc in self.arcs:
-            arc.value = owner.concat(prefix, arc.value)
+            arc.value = add(prefix, arc.value)
         if self.accept:
-            self.value = owner.concat(prefix, self.value)
-
-    def write(self):
-        vtype = self.owner.vtype
-        dbfile = self.owner.dbfile
-        arcs = self.arcs
-        numarcs = len(arcs)
-
-        if not numarcs:
-            if self.accept:
-                return None
-            else:
-                # I'm not sure what it means for an arc to stop but not be
-                # final
-                raise Exception
-
-        buf = BytesIO()
-        nodestart = dbfile.tell()
-        #self.count += 1
-        #self.arccount += numarcs
-
-        fixedsize = -1
-        arcstart = buf.tell()
-        for i, arc in enumerate(arcs):
-            target = arc.target
-
-            flags = 0
-            if i == numarcs - 1:
-                flags += 1  # LAST_ARC
-            if arc.accept:
-                flags += 2    # FINAL_ARC
-            if target is None:
-                # Target has no arcs
-                flags += 4  # STOP_NODE
-            if arc.value is not None:
-                flags += 8  # ARC_HAS_VALUE
-
-            buf.write(pack_byte(flags))
-            buf.write(arc.label)
-            if target >= 0:
-                buf.write(pack_uint(target))
-            if vtype and arc.value is not None:
-                vtype.write(buf, arc.value)
-
-            here = buf.tell()
-            thissize = here - arcstart
-            arcstart = here
-            if fixedsize == -1:
-                fixedsize = thissize
-            elif fixedsize > 0 and thissize != fixedsize:
-                fixedsize = 0
-
-        if fixedsize > 0:
-            # Write a fake arc containing the fixed size and number of arcs
-            dbfile.write_byte(255)  # FIXED_SIZE
-            dbfile.write_int(fixedsize)
-            dbfile.write_int(numarcs)
-        dbfile.write(buf.getvalue())
-
-        return nodestart
+            self.value = add(prefix, self.value)
 
 
 class Arc(object):
-    __slots__ = ("label", "target", "accept", "value", "lastarc")
+    __slots__ = ("label", "target", "accept", "value", "lastarc", "acceptval")
 
-    def __init__(self, label=None, target=None, value=None, accept=False):
+    def __init__(self, label=None, target=None, value=None, accept=False,
+                 acceptval=None):
         self.label = label
         self.target = target
         self.value = value
         self.accept = accept
         self.lastarc = None
+        self.acceptval = acceptval
 
     def __repr__(self):
-        return "<%r-%s%s>" % (self.label, self.target,
-                              "." if self.accept else "")
+        return "<%r-%s %s %r>" % (self.label, self.target,
+                                  "." if self.accept else "",
+                                  self.value if self.value else "")
 
     def __eq__(self, other):
         if (isinstance(other, self.__class__) and self.accept == other.accept
@@ -640,9 +869,18 @@ class Arc(object):
 class GraphWriter(object):
     version = 1
 
-    def __init__(self, dbfile, vtype=None):
+    def __init__(self, dbfile, vtype=None, merge=None):
+        """
+        :param dbfile: the file to write to.
+        :param vtype: a :class:`Values` class to use for storing values. This
+            is only necessary if you will be storing values for the keys.
+        :param merge: a function that takes two values and returns a single
+            value. This is called if you insert two identical keys with values.
+        """
+
         self.dbfile = dbfile
         self.vtype = vtype
+        self.merge = merge
         self.fieldroots = {}
 
         dbfile.write(b("GRPH"))
@@ -692,23 +930,32 @@ class GraphWriter(object):
         if self.lastkey > key:
             raise KeyError("Keys out of order %r..%r" % (self.lastkey, key))
 
+        # Find the common prefix shared by this key and the previous one
         prefixlen = 0
         for i in xrange(min(len(lastkey), len(key))):
             if lastkey[i] != key[i]:
                 break
             prefixlen += 1
+        # Compile the nodes after the prefix, since they're not shared
         self._freeze_tail(prefixlen + 1)
 
+        # Create new nodes for the parts of this key after the shared prefix
         for char in key[prefixlen:]:
             node = UncompiledNode(self)
+            # Create an arc to this node on the previous node
             current[-1].add_arc(char, node)
             current.append(node)
+        # Mark the last node as an accept state
         lastnode = current[-1]
         lastnode.accept = True
 
-        # Push conflicting values forward as needed
         if vtype:
-            for i in xrange(1, prefixlen):
+            if value is not None and not vtype.is_valid(value):
+                raise ValueError("%r is not valid for %s" % (value, vtype))
+
+            # Push value commonalities through the tree
+            common = None
+            for i in xrange(1, prefixlen + 1):
                 node = current[i]
                 parent = current[i - 1]
                 lastvalue = parent.last_value(key[i - 1])
@@ -722,12 +969,14 @@ class GraphWriter(object):
                 value = vtype.subtract(value, common)
 
             if key == lastkey:
-                lastnode.value = vtype.merge(lastnode.value, value)
+                # If this key is a duplicate, merge its value with the value of
+                # the previous (same) key
+                lastnode.value = self.merge(lastnode.value, value)
             else:
-                current[prefixlen - 1].set_last_value(key[prefixlen - 1],
-                                                      value)
+                current[prefixlen].set_last_value(key[prefixlen], value)
         elif value:
-            raise Exception("Called with value %r but no value type" % value)
+            raise Exception("Value %r but no value type" % value)
+
         self.lastkey = key
 
     def _freeze_tail(self, prefixlen):
@@ -743,7 +992,7 @@ class GraphWriter(object):
             self._compile_targets(node)
             accept = node.accept or len(node.arcs) == 0
             address = self._compile_node(node)
-            parent.replace_last(inlabel, address, accept)
+            parent.replace_last(inlabel, address, accept, node.value)
 
     def _finish(self):
         current = self.current
@@ -762,20 +1011,81 @@ class GraphWriter(object):
                     arc.accept = n.accept = True
                 arc.target = self._compile_node(n)
 
-    def _compile_node(self, ucnode):
+    def _compile_node(self, uncnode):
         seen = self.seen
 
-        if len(ucnode.arcs) == 0:
+        if len(uncnode.arcs) == 0:
             # Leaf node
-            address = ucnode.write()
+            address = self._write_node(uncnode)
         else:
-            d = ucnode.digest()
+            d = uncnode.digest()
             address = seen.get(d)
             if address is None:
-                address = ucnode.write()
+                address = self._write_node(uncnode)
                 seen[d] = address
         return address
 
+    def _write_node(self, uncnode):
+        vtype = self.vtype
+        dbfile = self.dbfile
+        arcs = uncnode.arcs
+        numarcs = len(arcs)
+
+        if not numarcs:
+            if uncnode.accept:
+                return None
+            else:
+                # What does it mean for an arc to stop but not be final?
+                raise Exception
+
+        buf = StructFile(BytesIO())
+        nodestart = dbfile.tell()
+        #self.count += 1
+        #self.arccount += numarcs
+
+        fixedsize = -1
+        arcstart = buf.tell()
+        for i, arc in enumerate(arcs):
+            target = arc.target
+
+            flags = 0
+            if i == numarcs - 1:
+                flags += 1  # LAST_ARC
+            if arc.accept:
+                flags += 2    # FINAL_ARC
+            if target is None:
+                # Target has no arcs
+                flags += 4  # STOP_NODE
+            if arc.value is not None:
+                flags += 8  # ARC_HAS_VALUE
+            if arc.acceptval is not None:
+                flags += 16  # ARC_HAS_ACCEPT_VAL
+
+            buf.write(pack_byte(flags))
+            buf.write(arc.label)
+            if target >= 0:
+                buf.write(pack_uint(target))
+            if arc.value is not None:
+                vtype.write(buf, arc.value)
+            if arc.acceptval is not None:
+                vtype.write(buf, arc.acceptval)
+
+            here = buf.tell()
+            thissize = here - arcstart
+            arcstart = here
+            if fixedsize == -1:
+                fixedsize = thissize
+            elif fixedsize > 0 and thissize != fixedsize:
+                fixedsize = 0
+
+        if fixedsize > 0:
+            # Write a fake arc containing the fixed size and number of arcs
+            dbfile.write_byte(255)  # FIXED_SIZE
+            dbfile.write_int(fixedsize)
+            dbfile.write_int(numarcs)
+        dbfile.write(buf.file.getvalue())
+
+        return nodestart
 
 
 

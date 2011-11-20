@@ -51,6 +51,141 @@ def test_duplicate_keys():
     gr = greader(st)
     assert_equal(list(gr.flatten()), ["alfa", "bravo", "charlie"])
 
+def test_types():
+    st = RamStorage()
+
+    types = ((dawg.IntValues, 100, 0),
+             (dawg.BytesValues, b('abc'), b('')),
+             (dawg.ArrayValues, array("i", [0, 123, 42]), array("i")),
+             (dawg.IntListValues, [0, 6, 97], []))
+
+    for t, v, z in types:
+        assert_equal(t.common(None, v), None)
+        assert_equal(t.common(v, None), None)
+        assert_equal(t.common(None, None), None)
+        assert_equal(t.subtract(v, None), v)
+        assert_equal(t.subtract(None, v), None)
+        assert_equal(t.subtract(None, None), None)
+        assert_equal(t.add(v, None), v)
+        assert_equal(t.add(None, v), v)
+        assert_equal(t.add(None, None), None)
+        f = st.create_file("test")
+        t.write(f, v)
+        t.write(f, z)
+        f.close()
+        f = st.open_file("test")
+        assert_equal(t.read(f), v)
+        assert_equal(t.read(f), z)
+
+    assert_equal(dawg.IntValues.common(100, 20), 20)
+    assert_equal(dawg.IntValues.add(20, 80), 100)
+    assert_equal(dawg.IntValues.subtract(100, 80), 20)
+
+    assert_equal(dawg.BytesValues.common(b("abc"), b("abc")), b("abc"))
+    assert_equal(dawg.BytesValues.common(b("abcde"), b("abfgh")), b("ab"))
+    assert_equal(dawg.BytesValues.common(b("abcde"), b("ab")), b("ab"))
+    assert_equal(dawg.BytesValues.common(b("ab"), b("abcde")), b("ab"))
+    assert_equal(dawg.BytesValues.common(None, b("abcde")), None)
+    assert_equal(dawg.BytesValues.common(b("ab"), None), None)
+
+    a1 = array("i", [0, 12, 123, 42])
+    a2 = array("i", [0, 12, 420])
+    cm = array("i", [0, 12])
+    assert_equal(dawg.ArrayValues.common(a1, a1), a1)
+    assert_equal(dawg.ArrayValues.common(a1, a2), cm)
+    assert_equal(dawg.ArrayValues.common(a2, a1), cm)
+    assert_equal(dawg.ArrayValues.common(None, a1), None)
+    assert_equal(dawg.ArrayValues.common(a2, None), None)
+
+def _fst_roundtrip(domain, t):
+    with TempStorage() as st:
+        f = st.create_file("test")
+        gw = dawg.GraphWriter(f, vtype=t)
+        for key, value in domain:
+            gw.insert(key, value)
+        gw.close()
+
+        f = st.open_file("test")
+        gr = dawg.GraphReader(f, vtype=t)
+        assert_equal(list(gr.flatten_v()), domain)
+
+def test_fst_int():
+    domain = [(b("aaab"), 0), (b("aabc"), 12), (b("abcc"), 23), (b("bcab"), 30),
+              (b("bcbc"), 31), (b("caaa"), 70), (b("cbba"), 80), (b("ccca"), 101)]
+    _fst_roundtrip(domain, dawg.IntValues)
+
+def test_fst_bytes():
+    domain = [(b("aaab"), b("000")), (b("aabc"), b("001")), (b("abcc"), b("010")),
+              (b("bcab"), b("011")), (b("bcbc"), b("100")), (b("caaa"), b("101")),
+              (b("cbba"), b("110")), (b("ccca"), b("111"))]
+    _fst_roundtrip(domain, dawg.BytesValues)
+
+def test_fst_array():
+    domain = [(b("000"), array("i", [10, 231, 36, 40])),
+              (b("001"), array("i", [1, 22, 12, 15])),
+              (b("010"), array("i", [18, 16, 18, 20])),
+              (b("011"), array("i", [52, 3, 4, 5])),
+              (b("100"), array("i", [353, 4, 56, 62])),
+              (b("101"), array("i", [3, 42, 5, 6])),
+              (b("110"), array("i", [894, 9, 101, 11])),
+              (b("111"), array("i", [1030, 200, 1000, 2000])),
+              ]
+    _fst_roundtrip(domain, dawg.ArrayValues)
+
+def test_fst_intlist():
+    domain = [(b("000"), [1, 2, 3, 4]),
+              (b("001"), [1, 2, 12, 15]),
+              (b("010"), [1, 16, 18, 20]),
+              (b("011"), [2, 3, 4, 5]),
+              (b("100"), [3, 4, 5, 6]),
+              (b("101"), [3, 4, 5, 6]),
+              (b("110"), [8, 9, 10, 11]),
+              (b("111"), [100, 200, 1000, 2000]),
+              ]
+    _fst_roundtrip(domain, dawg.IntListValues)
+
+def test_fst_nones():
+    domain = [(b("000"), [1, 2, 3, 4]),
+              (b("001"), None),
+              (b("010"), [1, 16, 18, 20]),
+              (b("011"), None),
+              (b("100"), [3, 4, 5, 6]),
+              (b("101"), None),
+              (b("110"), [8, 9, 10, 11]),
+              (b("111"), None),
+              ]
+    _fst_roundtrip(domain, dawg.IntListValues)
+
+def test_fst_accept():
+    domain = [(b("a"), [1, 2, 3, 4]),
+              (b("aa"), [1, 2, 12, 15]),
+              (b("aaa"), [1, 16, 18, 20]),
+              (b("aaaa"), [2, 3, 4, 5]),
+              (b("b"), [3, 4, 5, 6]),
+              (b("bb"), [3, 4, 5, 6]),
+              (b("bbb"), [8, 9, 10, 11]),
+              (b("bbbb"), [100, 200, 1000, 2000]),
+              ]
+    _fst_roundtrip(domain, dawg.IntListValues)
+
+#def test_fst_merge():
+#    # 2; 3; 5; 7; 11; 13; 17; 19
+#    ins = [(b("000"), 2), (b("000"), 2), (b("001"), 3), (b("010"), 5),
+#           (b("010"), 5), (b("011"), 7), (b("100"), 11), (b("101"), 13),
+#           (b("101"), 13), (b("110"), 17), (b("111"), 19), (b("111"), 19)]
+#    outs = [(b("000"), 4), (b("001"), 3), (b("010"), 10), (b("011"), 7),
+#            (b("100"), 11), (b("101"), 26), (b("110"), 17), (b("111"), 38)]
+#
+#    with TempStorage() as st:
+#        f = st.create_file("test")
+#        gw = dawg.GraphWriter(f, vtype=dawg.IntValues,
+#                              merge=lambda v1, v2: v1 + v2)
+#        for key, value in ins:
+#            gw.insert(key, value)
+#        gw.close()
+#
+#        f = st.open_file("test")
+
 def test_words():
     words = enlist("alfa alpaca amtrak bellow fellow fiona zebulon")
     with TempStorage() as st:
@@ -68,9 +203,11 @@ def test_random():
 
     with TempStorage() as st:
         gwrite(keys, st)
-
         gr = greader(st)
-        assert_equal(list(gr.flatten()), sorted(set(keys)))
+        s1 = gr.flatten()
+        s2 = sorted(set(keys))
+        for i, (k1, k2) in enumerate(zip(s1, s2)):
+            assert k1 == k2, "%s: %r != %r" % (i, k1, k2)
 
         sample = list(keys)
         random.shuffle(keys)
