@@ -455,11 +455,23 @@ class Cursor(object):
     def label(self):
         return self.current.label
 
-    def labels(self):
+    def prefix(self):
         return (arc.label for arc in self.stack)
 
-    def keystring(self):
+    def prefix_bytes(self):
         return emptybytes.join(arc.label for arc in self.stack)
+
+    def peek_key(self):
+        for label in self.prefix():
+            yield label
+        arc = copy.copy(self.current)
+        graph = self.graph
+        while not arc.accept and arc.target is not None:
+            graph.arc_at(arc.target, arc)
+            yield arc.label
+
+    def peek_key_bytes(self):
+        return emptybytes.join(self.peek_key())
 
     def target(self):
         return self.current.target
@@ -506,7 +518,7 @@ class Cursor(object):
     def pop_to_prefix(self, key):
         stack = self.stack
         i = 0
-        maxpre = min(len(stack, len(key)))
+        maxpre = min(len(stack), len(key))
         while i < maxpre and key[i] == stack[i].label:
             i += 1
         if stack[i].label > key[i]:
@@ -514,15 +526,23 @@ class Cursor(object):
             raise EndOfCursor
         while len(stack) > i + 1:
             self._pop()
-        self._switch_to(key[i])
+        self.next_arc()
+        return i
 
-    def seek(self, key):
+    def skip_to(self, key):
         i = self.pop_to_prefix(key)
-        if not i:
-            self.reset()
-        return self.follow_path(key[i:])
+        while i < len(key):
+            curlabel = self.current.label
+            keylabel = key[i]
+            if curlabel == keylabel:
+                self.follow()
+                i += 1
+            elif curlabel > keylabel:
+                return
+            else:
+                self.next_arc()
 
-    def follow_path(self, path):
+    def find_path(self, path):
         _switch_to = self._switch_to
         follow = self.follow
 
@@ -569,13 +589,13 @@ class Cursor(object):
     def flatten(self):
         follow = self.follow
         next_arc = self.next_arc
-        keystring = self.keystring
+        prefix_bytes = self.prefix_bytes
 
         try:
             while True:
                 current = self.current
                 if current.accept:
-                    yield keystring()
+                    yield prefix_bytes()
                 if current.target:
                     follow()
                     continue
@@ -587,20 +607,30 @@ class Cursor(object):
         for key in self.flatten():
             yield key, self.value()
 
+    def follow_firsts(self):
+        while self.current.target is not None:
+            self.follow()
+
+    def follow_last(self):
+        while True:
+            while not self.current.lastarc:
+                self.next_arc()
+            if self.current.target is not None:
+                self.follow()
+            else:
+                return
+
 
 # Graph reader
 
 class BaseGraphReader(object):
-    def cursor(self, rootname):
+    def cursor(self, rootname=None):
         return Cursor(self, self.root(rootname))
 
     def has_root(self, rootname):
         raise NotImplementedError
 
-    def root(self, rootname):
-        raise NotImplementedError
-
-    def default_root(self):
+    def root(self, rootname=None):
         raise NotImplementedError
 
     # Low level methods
@@ -657,8 +687,11 @@ class GraphReader(BaseGraphReader):
     def has_root(self, rootname):
         return rootname in self.roots
 
-    def root(self, rootname):
-        return self.roots[rootname]
+    def root(self, rootname=None):
+        if rootname is None:
+            return self._root
+        else:
+            return self.roots[rootname]
 
     def default_root(self):
         return self._root
@@ -772,10 +805,10 @@ def within(graph, text, k=1, prefix=0, address=None):
         sofar = text[:prefix]
         # This function duplicates a lot of arc-following functionality from
         # Cursor, but here we have to instantiate a Cursor just to use its
-        # follow_path method.
+        # find_path method.
         # TODO: find a better way
         cur = Cursor(graph, address)
-        if not cur.follow_path(sofar):
+        if not cur.find_path(sofar):
             return
         address, accept = cur.target(), cur.accept()
 
