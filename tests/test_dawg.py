@@ -214,9 +214,8 @@ def test_random():
         random.shuffle(sample)
         for key in sample:
             cur.reset()
-            print "@", cur.stack
-            cur.follow_path(key)
-            assert_equal(b("").join(cur.labels()), key)
+            cur.find_path(key)
+            assert_equal(cur.prefix_bytes(), key)
 
 def test_shared_suffix():
     st = gwrite(enlist("blowing blue glowing"))
@@ -225,8 +224,8 @@ def test_shared_suffix():
     cur1 = dawg.Cursor(gr)
     cur2 = dawg.Cursor(gr)
 
-    cur1.follow_path(b("blo"))
-    cur2.follow_path(b("glo"))
+    cur1.find_path(b("blo"))
+    cur2.find_path(b("glo"))
     assert_equal(cur1.current.target, cur2.current.target)
 
 def test_fields():
@@ -247,67 +246,89 @@ def test_fields():
         gr = dawg.GraphReader(st.open_file("test"))
         cur1 = dawg.Cursor(gr, gr.root("f1"))
         cur2 = dawg.Cursor(gr, gr.root("f2"))
-        assert_equal(list(cur1.flatten()), ["a", "aa", "ab"])
-        assert_equal(list(cur2.flatten()), ["ba", "baa", "bab"])
+        assert_equal(list(cur1.flatten()), [b("a"), b("aa"), b("ab")])
+        assert_equal(list(cur2.flatten()), [b("ba"), b("baa"), b("bab")])
 
 def test_within():
     with TempStorage() as st:
         gwrite(enlist("0 00 000 001 01 010 011 1 10 100 101 11 110 111"), st)
         gr = greader(st)
         s = set(dawg.within(gr, "01", k=1))
-    assert_equal(s, set(["0", "00", "01", "011", "010", "001", "10", "101", "1", "11"]))
+    assert_equal(s, set([b("0"), b("00"), b("01"), b("011"), b("010"),
+                         b("001"), b("10"), b("101"), b("1"), b("11")]))
 
 def test_within_match():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(dawg.within(gr, "def")), set(["def"]))
+    assert_equal(set(dawg.within(gr, b("def"))), set([b("def")]))
 
 def test_within_insert():
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
     s = set(dawg.within(gr, "0"))
-    assert_equal(s, set(["00", "01", "10"]))
+    assert_equal(s, set([b("00"), b("01"), b("10")]))
 
 def test_within_delete():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(dawg.within(gr, "df")), set(["def"]))
+    assert_equal(set(dawg.within(gr, b("df"))), set([b("def")]))
 
     st = gwrite(enlist("0"))
     gr = greader(st)
-    assert_equal(list(dawg.within(gr, "01")), ["0"])
+    assert_equal(list(dawg.within(gr, b("01"))), [b("0")])
 
 def test_within_replace():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(dawg.within(gr, "dez")), set(["def"]))
+    assert_equal(set(dawg.within(gr, b("dez"))), set([b("def")]))
 
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
-    s = set(dawg.within(gr, "00"))
-    assert_equal(s, set(["00", "10", "01"]), s)
+    s = set(dawg.within(gr, b("00")))
+    assert_equal(s, set([b("00"), b("10"), b("01")]), s)
 
 def test_within_transpose():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    s = set(dawg.within(gr, "dfe"))
-    assert_equal(s, set(["def"]))
+    s = set(dawg.within(gr, b("dfe")))
+    assert_equal(s, set([b("def")]))
 
 def test_within_k2():
     st = gwrite(enlist("abc bac cba"))
     gr = greader(st)
-    s = set(dawg.within(gr, "cb", k=2))
-    assert_equal(s, set(["abc", "cba"]))
+    s = set(dawg.within(gr, b("cb"), k=2))
+    assert_equal(s, set([b("abc"), b("cba")]))
 
 def test_within_prefix():
     st = gwrite(enlist("aabc aadc babc badc"))
     gr = greader(st)
-    s = set(dawg.within(gr, "aaxc", prefix=2))
-    assert_equal(s, set(["aabc", "aadc"]))
+    s = set(dawg.within(gr, b("aaxc"), prefix=2))
+    assert_equal(s, set([b("aabc"), b("aadc")]))
 
+def test_skip():
+    st = gwrite(enlist("abcd abfg cdqr1 cdqr12 cdxy wxyz"))
+    gr = greader(st)
+    cur = gr.cursor()
+    cur.follow_firsts()
+    assert_equal(cur.prefix_bytes(), b("abcd"))
+    assert cur.accept()
+    cur.pop_to_prefix("abzz")
+    assert_equal(cur.prefix_bytes(), b("abf"))
 
+    cur = gr.cursor()
+    cur.follow_firsts()
+    assert_equal(cur.prefix_bytes(), b("abcd"))
+    cur.skip_to(b("cdaa"))
+    assert_equal(cur.peek_key_bytes(), b("cdqr1"))
+    assert_equal(cur.prefix_bytes(), b("cdq"))
 
+    cur = gr.cursor()
+    cur.follow_firsts()
+    assert_raises(dawg.EndOfCursor, cur.skip_to, b("z"))
 
+    cur = gr.cursor()
+    cur.follow_lasts()
+    assert_equal(cur.prefix_bytes(), b("wxyz"))
 
 
 
