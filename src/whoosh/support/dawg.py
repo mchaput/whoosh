@@ -39,7 +39,7 @@ use in (at least) spell checking.
 """
 
 
-import sys
+import sys, copy
 from array import array
 from hashlib import sha1  #@UnresolvedImport
 
@@ -427,34 +427,207 @@ class IntersectionNode(ComboNode):
             return IntersectionNode(a.edge(key), b.edge(key))
 
 
+# Cursor
+
+class EndOfCursor(Exception):
+    pass
+
+
+class Cursor(object):
+    def __init__(self, graph, root=None, stack=None):
+        self.graph = graph
+        self.vtype = graph.vtype
+        self.root = root if root is not None else graph.default_root()
+        if stack:
+            self.stack = stack
+            self.current = self.stack[-1]
+        else:
+            self.reset()
+
+    def reset(self):
+        self.stack = []
+        self.sums = [None]
+        self._push(self.graph.arc_at(self.root))
+
+    def copy(self):
+        return self.__class__(self.graph, self.root, copy.deepcopy(self.stack))
+
+    def label(self):
+        return self.current.label
+
+    def labels(self):
+        return (arc.label for arc in self.stack)
+
+    def keystring(self):
+        return emptybytes.join(arc.label for arc in self.stack)
+
+    def target(self):
+        return self.current.target
+
+    def value(self):
+        vtype = self.vtype
+        if not vtype:
+            raise Exception("No value type")
+        v = self.sums[-1]
+        current = self.current
+        if current.value:
+            v = vtype.add(v, current.value)
+        if current.accept and current.acceptval is not None:
+            v = vtype.add(v, current.acceptval)
+        return v
+
+    def accept(self):
+        return self.current.accept
+
+    def lastarc(self):
+        return self.current.lastarc
+
+    def can_follow(self):
+        return self.current.target is not None
+
+    def _push(self, arc):
+        if self.vtype and self.stack:
+            sums = self.sums
+            sums.append(self.vtype.add(sums[-1], self.stack[-1].value))
+        self.stack.append(arc)
+        self.current = arc
+
+    def _pop(self):
+        stack = self.stack
+        stack.pop()
+        if self.vtype:
+            self.sums.pop()
+        if stack:
+            self.current = stack[-1]
+        else:
+            self.current = None
+            raise EndOfCursor
+
+    def pop_to_prefix(self, key):
+        stack = self.stack
+        i = 0
+        maxpre = min(len(stack, len(key)))
+        while i < maxpre and key[i] == stack[i].label:
+            i += 1
+        if stack[i].label > key[i]:
+            self.current = None
+            raise EndOfCursor
+        while len(stack) > i + 1:
+            self._pop()
+        self._switch_to(key[i])
+
+    def seek(self, key):
+        i = self.pop_to_prefix(key)
+        if not i:
+            self.reset()
+        return self.follow_path(key[i:])
+
+    def follow_path(self, path):
+        _switch_to = self._switch_to
+        follow = self.follow
+
+        first = True
+        for i, label in enumerate(path):
+            if not first:
+                follow()
+            arc = _switch_to(label)
+            if arc is None:
+                return False
+            if arc.target is None:
+                if i < len(path) - 1:
+                    return False
+            first = False
+        return True
+
+    def follow(self):
+        address = self.current.target
+        if address is None:
+            raise Exception("Can't follow a stop arc")
+        self._push(self.graph.arc_at(address))
+
+    def _switch_to(self, label):
+        current = self.current
+        if label == current.label:
+            return current
+        else:
+            arc = self.graph.find_arc(current.endpos, label, current)
+            return arc
+
+    def follow_label(self, label):
+        arc = self._switch_to(label)
+        if arc:
+            self._push(arc)
+        return arc
+
+    def next_arc(self):
+        stack = self.stack
+        while stack and stack[-1].lastarc:
+            self._pop()
+        self.current = stack[-1]
+        self.graph.arc_at(self.current.endpos, self.current)
+
+    def flatten(self):
+        follow = self.follow
+        next_arc = self.next_arc
+        keystring = self.keystring
+
+        try:
+            while True:
+                current = self.current
+                if current.accept:
+                    yield keystring()
+                if current.target:
+                    follow()
+                    continue
+                next_arc()
+        except EndOfCursor:
+            return
+
+    def flatten_v(self):
+        for key in self.flatten():
+            yield key, self.value()
+
+
 # Graph reader
 
 class BaseGraphReader(object):
+    def cursor(self, rootname):
+        return Cursor(self, self.root(rootname))
+
     def has_root(self, rootname):
         raise NotImplementedError
 
     def root(self, rootname):
         raise NotImplementedError
 
-    def arc_at(self, address):
+    def default_root(self):
         raise NotImplementedError
 
-    def iter_arcs(self, address):
+    # Low level methods
+
+    def arc_at(self, address, arc):
         raise NotImplementedError
 
-    def find_arc(self, address, label):
-        for arc in self.iter_arcs(address):
-            if arc.label == label:
+    def iter_arcs(self, address, arc=None):
+        raise NotImplementedError
+
+    def find_arc(self, address, label, arc=None):
+        arc = arc or Arc()
+        for arc in self.iter_arcs(address, arc):
+            thislabel = arc.label
+            if thislabel == label:
                 return arc
+            elif thislabel > label:
+                return None
 
     # Convenience methods
 
     def list_arcs(self, address):
-        return list(self.iter_arcs(address))
+        return list(copy.copy(arc) for arc in self.iter_arcs(address))
 
     def arc_dict(self, address):
-        return dict((arc.label, arc) for arc in self.iter_arcs(address))
-
+        return dict((arc.label, copy.copy(arc))
+                    for arc in self.iter_arcs(address))
 
 
 class GraphReader(BaseGraphReader):
@@ -487,24 +660,27 @@ class GraphReader(BaseGraphReader):
     def root(self, rootname):
         return self.roots[rootname]
 
-    def set_root(self, rootname):
-        self._root = self.root(rootname)
+    def default_root(self):
+        return self._root
 
-    def arc_at(self, address):
+    def arc_at(self, address, arc=None):
+        arc = arc or Arc()
         self.dbfile.seek(address)
-        return self._read_arc()
+        return self._read_arc(arc)
 
-    def iter_arcs(self, address):
+    def iter_arcs(self, address, arc=None):
+        arc = arc or Arc()
         _read_arc = self._read_arc
 
         self.dbfile.seek(address)
         while True:
-            arc = _read_arc()
+            _read_arc(arc)
             yield arc
             if arc.lastarc:
                 break
 
-    def find_arc(self, address, label):
+    def find_arc(self, address, label, arc=None):
+        arc = arc or Arc()
         dbfile = self.dbfile
         dbfile.seek(address)
 
@@ -514,23 +690,24 @@ class GraphReader(BaseGraphReader):
             size, count = finfo
             address = dbfile.tell()
             if count > 2:
-                return self._binary_search(address, size, count, label)
+                return self._binary_search(address, size, count, label, arc)
 
         # If records aren't fixed size, fall back to the parent's linear
         # search method
-        return BaseGraphReader.find_arc(self, address, label)
+        return BaseGraphReader.find_arc(self, address, label, arc)
 
     # Implementations
 
-    def _read_arc(self):
+    def _read_arc(self, toarc=None):
+        toarc = toarc or Arc()
         dbfile = self.dbfile
         flags = dbfile.read_byte()
         if flags == 255:
             # FIXED_SIZE
             dbfile.seek(_INT_SIZE * 2, 1)
             flags = dbfile.read_byte()
-        label = dbfile.read(self.labelsize)
-        return self._read_arc_data(flags, label)
+        toarc.label = dbfile.read(self.labelsize)
+        return self._read_arc_data(flags, toarc)
 
     def _read_fixed_info(self):
         dbfile = self.dbfile
@@ -543,21 +720,24 @@ class GraphReader(BaseGraphReader):
         else:
             return None
 
-    def _read_arc_data(self, flags, label):
+    def _read_arc_data(self, flags, arc):
         dbfile = self.dbfile
-        arc = Arc(label)
-        arc.accept = bool(flags & 2)
-        if flags & 1:  # LAST_ARC
-            arc.lastarc = True
-        if not flags & 4:  # STOP_NODE
+        accept = arc.accept = bool(flags & 2)
+        arc.lastarc = flags & 1
+        if flags & 4:  # STOP_NODE
+            arc.target = None
+        else:
             arc.target = dbfile.read_uint()
         if flags & 8:  # ARC_HAS_VALUE
             arc.value = self.vtype.read(dbfile)
-        if flags & 16:  # ARC_HAS_ACCEPT_VALUE
+        else:
+            arc.value = None
+        if accept and flags & 16:  # ARC_HAS_ACCEPT_VALUE
             arc.acceptval = self.vtype.read(dbfile)
+        arc.endpos = dbfile.tell()
         return arc
 
-    def _binary_search(self, address, size, count, label):
+    def _binary_search(self, address, size, count, label, arc):
         dbfile = self.dbfile
         labelsize = self.labelsize
 
@@ -570,7 +750,8 @@ class GraphReader(BaseGraphReader):
             flags = dbfile.read_byte()
             midlabel = dbfile.read(labelsize)
             if midlabel == label:
-                return self._read_arc_data(flags, midlabel)
+                arc.label = midlabel
+                return self._read_arc_data(flags, arc)
             elif midlabel < label:
                 lo = mid + 1
             else:
@@ -578,199 +759,83 @@ class GraphReader(BaseGraphReader):
         if lo == count:
             return None
 
-    # High-level methods
 
-    def dump(self, address=None, tab=0, out=None):
-        if address is None:
-            address = self._root
-        if out is None:
-            out = sys.stdout
+# Within edit distance function
 
-        here = "%06d" % address
-        for i, arc in enumerate(self.list_arcs(address)):
-            if i == 0:
-                out.write(here)
-            else:
-                out.write(" " * 6)
-            out.write("  " * tab)
-            out.write("%r %r %s %r\n" % (arc.label, arc.target, arc.accept, arc.value))
-            if arc.target is not None:
-                self.dump(arc.target, tab + 1, out=out)
+def within(graph, text, k=1, prefix=0, address=None):
+    if address is None:
+        address = graph._root
 
-    def within(self, text, k=1, prefix=0, address=None):
-        if address is None:
-            address = self._root
-
-        sofar = emptybytes
-        accept = False
-        if prefix:
-            sofar = text[:prefix]
-            arc = self.follow(sofar, address)
-            if arc is None:
-                return
-            address, accept = arc.target, arc.accept
-
-        stack = [(address, k, prefix, sofar, accept)]
-        seen = set()
-        while stack:
-            state = stack.pop()
-            # Have we already tried this state?
-            if state in seen:
-                continue
-            seen.add(state)
-
-            address, k, i, sofar, accept = state
-            # If we're at the end of the text (or deleting enough chars would
-            # get us to the end and still within K), and we're in the accept
-            # state, yield the current result
-            if (len(text) - i <= k) and accept:
-                yield sofar
-            # If we're in the stop state, give up
-            if address is None:
-                continue
-
-            # Exact match
-            if i < len(text):
-                arc = self.find_arc(address, text[i])
-                if arc:
-                    stack.append((arc.target, k, i + 1, sofar + text[i], arc.accept))
-            # If K is already 0, can't do any more edits
-            if k < 1:
-                continue
-            k -= 1
-
-            arcs = self.arc_dict(address)
-            # Insertions
-            stack.extend((arc.target, k, i, sofar + char, arc.accept)
-                         for char, arc in iteritems(arcs))
-
-            # Deletion, replacement, and transpo only work before the end
-            if i >= len(text):
-                continue
-            char = text[i]
-
-            # Deletion
-            stack.append((address, k, i + 1, sofar, False))
-            # Replacement
-            for char2, arc in iteritems(arcs):
-                if char2 != char:
-                    stack.append((arc.target, k, i + 1, sofar + char2, arc.accept))
-            # Transposition
-            if i < len(text) - 1:
-                char2 = text[i + 1]
-                if char != char2 and char2 in arcs:
-                    # Find arc from next char to this char
-                    target = arcs[char2].target
-                    if target:
-                        arc = self.find_arc(target, char)
-                        if arc:
-                            stack.append((arc.target, k, i + 2, sofar + char2 + char, arc.accept))
-
-    def flatten(self, address=None):
-        if address is None:
-            address = self._root
-
-        arry = array("c")
-        stack = [self.list_arcs(address)]
-
-        while stack:
-            if not stack[-1]:
-                stack.pop()
-                if arry:
-                    arry.pop()
-                continue
-            arc = stack[-1].pop(0)
-            if arc.accept:
-                yield arry.tostring() + arc.label
-
-            if arc.target:
-                arry.append(arc.label)
-                stack.append(self.list_arcs(arc.target))
-
-    def follow(self, key, address=None):
-        if address is None:
-            address = self._root
-
-        for lab in key:
-            if address is None:
-                return None
-            arc = self.find_arc(address, lab)
-            if arc is None:
-                return None
-            address = arc.target
-        return arc
-
-    def flatten_v(self, address= -1, key=emptybytes, value=None, accept=False,
-                  acceptval=None):
-        vtype = self.vtype
-
-        if address == -1:
-            address = self._root
-        if accept:
-            yield (key, vtype.add(value, acceptval))
-        if address is None:
+    sofar = emptybytes
+    accept = False
+    if prefix:
+        sofar = text[:prefix]
+        # This function duplicates a lot of arc-following functionality from
+        # Cursor, but here we have to instantiate a Cursor just to use its
+        # follow_path method.
+        # TODO: find a better way
+        cur = Cursor(graph, address)
+        if not cur.follow_path(sofar):
             return
+        address, accept = cur.target(), cur.accept()
 
-        add = self.vtype.add
-        for arc in self.list_arcs(address):
-            for result in self.flatten_v(arc.target, key + arc.label,
-                                         add(value, arc.value), arc.accept,
-                                         arc.acceptval):
-                yield result
+    stack = [(address, k, prefix, sofar, accept)]
+    seen = set()
+    while stack:
+        state = stack.pop()
+        # Have we already tried this state?
+        if state in seen:
+            continue
+        seen.add(state)
 
+        address, k, i, sofar, accept = state
+        # If we're at the end of the text (or deleting enough chars would get
+        # us to the end and still within K), and we're in the accept state,
+        # yield the current result
+        if (len(text) - i <= k) and accept:
+            yield sofar
+        # If we're in the stop state, give up
+        if address is None:
+            continue
 
-    #    def follow_upto(self, key, address=None):
-    #        if address is None:
-    #            address = self._root
-    #
-    #        previous = None
-    #        for lab in key:
-    #            if address is None:
-    #                return previous
-    #            arc = self.find_arc(address, lab)
-    #            if arc is None:
-    #                return previous
-    #            address = arc.target
-    #            previous = arc
-    #        return previous
-    #
-    #    def next_node(self):
-    #        dbfile = self.dbfile
-    #        labelsize = self.labelsize
-    #        vtype = self.vtype
-    #
-    #        while True:
-    #            flags = dbfile.read_byte()
-    #            if flags == 255:
-    #                dbfile.seek(_INT_SIZE * 2, 1)
-    #                continue
-    #
-    #            dbfile.seek(labelsize, 1)
-    #            if not flags & 4:  # STOP_NODE
-    #                dbfile.seek(_INT_SIZE, 1)
-    #            if flags & 8:  # ARC_HAS_VALUE
-    #                vtype.skip(dbfile)
-    #            if flags & 1:  # LAST_ARC
-    #                return
-    #    def flatten(self, target, sofar="", accept=False):
-    #        if accept:
-    #            yield sofar
-    #        if target is None:
-    #            return
-    #
-    #        for label, target, _, accept in self.list_arcs(target):
-    #            for word in self.flatten(target, sofar + label, accept):
-    #                yield word
-    #
-    #    def follow_first(self, address):
-    #        labels = []
-    #        while address is not None:
-    #            arc = self.arc_at(address)
-    #            labels.append(arc.label)
-    #            if arc.accept:
-    #                break
-    #            address = arc.target
-    #        return labels
+        # Exact match
+        if i < len(text):
+            arc = graph.find_arc(address, text[i])
+            if arc:
+                stack.append((arc.target, k, i + 1, sofar + text[i],
+                              arc.accept))
+        # If K is already 0, can't do any more edits
+        if k < 1:
+            continue
+        k -= 1
+
+        arcs = graph.arc_dict(address)
+        # Insertions
+        stack.extend((arc.target, k, i, sofar + char, arc.accept)
+                     for char, arc in iteritems(arcs))
+
+        # Deletion, replacement, and transpo only work before the end
+        if i >= len(text):
+            continue
+        char = text[i]
+
+        # Deletion
+        stack.append((address, k, i + 1, sofar, False))
+        # Replacement
+        for char2, arc in iteritems(arcs):
+            if char2 != char:
+                stack.append((arc.target, k, i + 1, sofar + char2, arc.accept))
+        # Transposition
+        if i < len(text) - 1:
+            char2 = text[i + 1]
+            if char != char2 and char2 in arcs:
+                # Find arc from next char to this char
+                target = arcs[char2].target
+                if target:
+                    arc = graph.find_arc(target, char)
+                    if arc:
+                        stack.append((arc.target, k, i + 2,
+                                      sofar + char2 + char, arc.accept))
 
 
 # Graph writer
@@ -842,7 +907,8 @@ class UncompiledNode(object):
 
 
 class Arc(object):
-    __slots__ = ("label", "target", "accept", "value", "lastarc", "acceptval")
+    __slots__ = ("label", "target", "accept", "value", "lastarc", "acceptval",
+                 "endpos")
 
     def __init__(self, label=None, target=None, value=None, accept=False,
                  acceptval=None):
@@ -852,11 +918,12 @@ class Arc(object):
         self.accept = accept
         self.lastarc = None
         self.acceptval = acceptval
+        self.endpos = None
 
     def __repr__(self):
-        return "<%r-%s %s %r>" % (self.label, self.target,
-                                  "." if self.accept else "",
-                                  self.value if self.value else "")
+        return "<%r-%s %s%s>" % (self.label, self.target,
+                                 "." if self.accept else "",
+                                 (" %r" % self.value) if self.value else "")
 
     def __eq__(self, other):
         if (isinstance(other, self.__class__) and self.accept == other.accept
@@ -897,7 +964,7 @@ class GraphWriter(object):
             self.finish_field()
         self.fieldname = fieldname
         self.seen = {}
-        self.current = [UncompiledNode(self)]
+        self.nodes = [UncompiledNode(self)]
         self.lastkey = ''
         self._inserted = False
 
@@ -924,7 +991,7 @@ class GraphWriter(object):
 
         vtype = self.vtype
         lastkey = self.lastkey
-        current = self.current
+        nodes = self.nodes
         if len(key) < 1:
             raise KeyError("Can't store a null key %r" % key)
         if self.lastkey > key:
@@ -943,10 +1010,10 @@ class GraphWriter(object):
         for char in key[prefixlen:]:
             node = UncompiledNode(self)
             # Create an arc to this node on the previous node
-            current[-1].add_arc(char, node)
-            current.append(node)
+            nodes[-1].add_arc(char, node)
+            nodes.append(node)
         # Mark the last node as an accept state
-        lastnode = current[-1]
+        lastnode = nodes[-1]
         lastnode.accept = True
 
         if vtype:
@@ -956,8 +1023,8 @@ class GraphWriter(object):
             # Push value commonalities through the tree
             common = None
             for i in xrange(1, prefixlen + 1):
-                node = current[i]
-                parent = current[i - 1]
+                node = nodes[i]
+                parent = nodes[i - 1]
                 lastvalue = parent.last_value(key[i - 1])
                 if lastvalue is not None:
                     common = vtype.common(value, lastvalue)
@@ -973,21 +1040,21 @@ class GraphWriter(object):
                 # the previous (same) key
                 lastnode.value = self.merge(lastnode.value, value)
             else:
-                current[prefixlen].set_last_value(key[prefixlen], value)
+                nodes[prefixlen].set_last_value(key[prefixlen], value)
         elif value:
             raise Exception("Value %r but no value type" % value)
 
         self.lastkey = key
 
     def _freeze_tail(self, prefixlen):
-        current = self.current
+        nodes = self.nodes
         lastkey = self.lastkey
         downto = max(1, prefixlen)
 
-        while len(current) > downto:
-            node = current.pop()
-            parent = current[-1]
-            inlabel = lastkey[len(current) - 1]
+        while len(nodes) > downto:
+            node = nodes.pop()
+            parent = nodes[-1]
+            inlabel = lastkey[len(nodes) - 1]
 
             self._compile_targets(node)
             accept = node.accept or len(node.arcs) == 0
@@ -995,8 +1062,8 @@ class GraphWriter(object):
             parent.replace_last(inlabel, address, accept, node.value)
 
     def _finish(self):
-        current = self.current
-        root = current[0]
+        nodes = self.nodes
+        root = nodes[0]
         # Minimize nodes in the last word's suffix
         self._freeze_tail(0)
         # Compile remaining targets
@@ -1088,5 +1155,23 @@ class GraphWriter(object):
         return nodestart
 
 
+# Utility functions
+
+def dump_graph(graph, address=None, tab=0, out=None):
+    if address is None:
+        address = graph._root
+    if out is None:
+        out = sys.stdout
+
+    here = "%06d" % address
+    for i, arc in enumerate(graph.list_arcs(address)):
+        if i == 0:
+            out.write(here)
+        else:
+            out.write(" " * 6)
+        out.write("  " * tab)
+        out.write("%r %r %s %r\n" % (arc.label, arc.target, arc.accept, arc.value))
+        if arc.target is not None:
+            dump_graph(graph, arc.target, tab + 1, out=out)
 
 

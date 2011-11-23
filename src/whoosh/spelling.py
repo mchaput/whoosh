@@ -132,7 +132,7 @@ class GraphCorrector(Corrector):
         self.graph = graph
 
     def _suggestions(self, text, maxdist, prefix):
-        for sug in self.graph.within(text, k=maxdist, prefix=prefix):
+        for sug in dawg.within(self.graph, text, k=maxdist, prefix=prefix):
             # Higher scores are better, so negate the edit distance
             yield (0 - maxdist, sug)
 
