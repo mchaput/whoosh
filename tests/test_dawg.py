@@ -48,8 +48,8 @@ def test_keys_out_of_order():
 
 def test_duplicate_keys():
     st = gwrite(enlist("alfa bravo bravo bravo charlie"))
-    gr = greader(st)
-    assert_equal(list(gr.flatten()), ["alfa", "bravo", "charlie"])
+    cur = dawg.Cursor(greader(st))
+    assert_equal(list(cur.flatten()), ["alfa", "bravo", "charlie"])
 
 def test_types():
     st = RamStorage()
@@ -107,7 +107,8 @@ def _fst_roundtrip(domain, t):
 
         f = st.open_file("test")
         gr = dawg.GraphReader(f, vtype=t)
-        assert_equal(list(gr.flatten_v()), domain)
+        cur = dawg.Cursor(gr)
+        assert_equal(list(cur.flatten_v()), domain)
 
 def test_fst_int():
     domain = [(b("aaab"), 0), (b("aabc"), 12), (b("abcc"), 23), (b("bcab"), 30),
@@ -190,9 +191,8 @@ def test_words():
     words = enlist("alfa alpaca amtrak bellow fellow fiona zebulon")
     with TempStorage() as st:
         gwrite(words, st)
-
-        gr = greader(st)
-        assert_equal(list(gr.flatten()), words)
+        cur = dawg.Cursor(greader(st))
+        assert_equal(list(cur.flatten()), words)
 
 def test_random():
     def randstring():
@@ -204,23 +204,30 @@ def test_random():
     with TempStorage() as st:
         gwrite(keys, st)
         gr = greader(st)
-        s1 = gr.flatten()
+        cur = dawg.Cursor(gr)
+        s1 = cur.flatten()
         s2 = sorted(set(keys))
         for i, (k1, k2) in enumerate(zip(s1, s2)):
             assert k1 == k2, "%s: %r != %r" % (i, k1, k2)
 
         sample = list(keys)
-        random.shuffle(keys)
+        random.shuffle(sample)
         for key in sample:
-            assert gr.follow(key) is not None
+            cur.reset()
+            print "@", cur.stack
+            cur.follow_path(key)
+            assert_equal(b("").join(cur.labels()), key)
 
 def test_shared_suffix():
     st = gwrite(enlist("blowing blue glowing"))
 
     gr = greader(st)
-    arc1 = gr.follow(b("blo"))
-    arc2 = gr.follow(b("glo"))
-    assert_equal(arc1.target, arc2.target)
+    cur1 = dawg.Cursor(gr)
+    cur2 = dawg.Cursor(gr)
+
+    cur1.follow_path(b("blo"))
+    cur2.follow_path(b("glo"))
+    assert_equal(cur1.current.target, cur2.current.target)
 
 def test_fields():
     with TempStorage() as st:
@@ -238,62 +245,64 @@ def test_fields():
         gw.close()
 
         gr = dawg.GraphReader(st.open_file("test"))
-        assert_equal(list(gr.flatten(gr.root("f1"))), ["a", "aa", "ab"])
-        assert_equal(list(gr.flatten(gr.root("f2"))), ["ba", "baa", "bab"])
+        cur1 = dawg.Cursor(gr, gr.root("f1"))
+        cur2 = dawg.Cursor(gr, gr.root("f2"))
+        assert_equal(list(cur1.flatten()), ["a", "aa", "ab"])
+        assert_equal(list(cur2.flatten()), ["ba", "baa", "bab"])
 
 def test_within():
     with TempStorage() as st:
         gwrite(enlist("0 00 000 001 01 010 011 1 10 100 101 11 110 111"), st)
         gr = greader(st)
-        s = set(gr.within("01", k=1))
+        s = set(dawg.within(gr, "01", k=1))
     assert_equal(s, set(["0", "00", "01", "011", "010", "001", "10", "101", "1", "11"]))
 
 def test_within_match():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(gr.within("def")), set(["def"]))
+    assert_equal(set(dawg.within(gr, "def")), set(["def"]))
 
 def test_within_insert():
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
-    s = set(gr.within("0"))
+    s = set(dawg.within(gr, "0"))
     assert_equal(s, set(["00", "01", "10"]))
 
 def test_within_delete():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(gr.within("df")), set(["def"]))
+    assert_equal(set(dawg.within(gr, "df")), set(["def"]))
 
     st = gwrite(enlist("0"))
     gr = greader(st)
-    assert_equal(list(gr.within("01")), ["0"])
+    assert_equal(list(dawg.within(gr, "01")), ["0"])
 
 def test_within_replace():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(gr.within("dez")), set(["def"]))
+    assert_equal(set(dawg.within(gr, "dez")), set(["def"]))
 
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
-    s = set(gr.within("00"))
+    s = set(dawg.within(gr, "00"))
     assert_equal(s, set(["00", "10", "01"]), s)
 
 def test_within_transpose():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    s = set(gr.within("dfe"))
+    s = set(dawg.within(gr, "dfe"))
     assert_equal(s, set(["def"]))
 
 def test_within_k2():
     st = gwrite(enlist("abc bac cba"))
     gr = greader(st)
-    s = set(gr.within("cb", k=2))
+    s = set(dawg.within(gr, "cb", k=2))
     assert_equal(s, set(["abc", "cba"]))
 
 def test_within_prefix():
     st = gwrite(enlist("aabc aadc babc badc"))
     gr = greader(st)
-    s = set(gr.within("aaxc", prefix=2))
+    s = set(dawg.within(gr, "aaxc", prefix=2))
     assert_equal(s, set(["aabc", "aadc"]))
 
 

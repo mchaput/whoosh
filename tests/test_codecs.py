@@ -432,7 +432,8 @@ def test_spelled_field():
 
     gr = codec.graph_reader(seg)
     assert gr.has_root("text")
-    assert_equal(list(gr.flatten(gr.root("text"))), ["special", "specific"])
+    cur = gr.cursor("text")
+    assert_equal(list(cur.flatten()), ["special", "specific"])
 
 def test_special_spelled_field():
     from whoosh.analysis import StemmingAnalyzer
@@ -456,7 +457,7 @@ def test_special_spelled_field():
     tr = codec.terms_reader(seg)
     assert_equal(list(tr.keys()), [("text", "special"), ("text", "specific")])
 
-    gr = codec.graph_reader(seg)
-    assert_equal(list(gr.flatten(gr.root("text"))), ["specials", "specifically"])
+    cur = codec.graph_reader(seg).cursor("text")
+    assert_equal(list(cur.flatten()), ["specials", "specifically"])
 
 

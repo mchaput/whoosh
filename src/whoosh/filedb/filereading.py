@@ -269,8 +269,8 @@ class SegmentReader(IndexReader):
             return IndexReader.terms_within(self, fieldname, text, maxdist,
                                             prefix=prefix)
 
-        return self._graph.within(text, k=maxdist, prefix=prefix,
-                                  address=self._graph.root(fieldname))
+        return dawg.within(self._graph, text, k=maxdist, prefix=prefix,
+                           address=self._graph.root(fieldname))
 
     # Field cache methods
 
