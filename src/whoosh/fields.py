@@ -223,10 +223,6 @@ class FieldType(object):
             kwargs["mode"] = "index"
         return self.format.word_values(value, self.analyzer, **kwargs)
 
-    def index_(self, fieldname, value, **kwargs):
-        for w, freq, weight, value in self.index(value, **kwargs):
-            yield fieldname, w, freq, weight, value
-
     def process_text(self, qstring, mode='', **kwargs):
         """Analyzes the given string and returns an iterator of token strings.
         
