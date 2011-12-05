@@ -51,6 +51,29 @@ def test_duplicate_keys():
     cur = dawg.Cursor(greader(st))
     assert_equal(list(cur.flatten()), ["alfa", "bravo", "charlie"])
 
+def test_inactive_raise():
+    st = gwrite(enlist("alfa bravo charlie"))
+    cur = dawg.Cursor(greader(st))
+    while cur.is_active():
+        cur.next_arc()
+    assert_raises(dawg.InactiveCursor, cur.label)
+    assert_raises(dawg.InactiveCursor, cur.prefix)
+    assert_raises(dawg.InactiveCursor, cur.prefix_bytes)
+    assert_raises(dawg.InactiveCursor, list, cur.peek_key())
+    assert_raises(dawg.InactiveCursor, cur.peek_key_bytes)
+    assert_raises(dawg.InactiveCursor, cur.stopped)
+    assert_raises(dawg.InactiveCursor, cur.value)
+    assert_raises(dawg.InactiveCursor, cur.accept)
+    assert_raises(dawg.InactiveCursor, cur.at_last_arc)
+    assert_raises(dawg.InactiveCursor, cur.next_arc)
+    assert_raises(dawg.InactiveCursor, cur.follow)
+    assert_raises(dawg.InactiveCursor, cur.switch_to, b("a"))
+    assert_raises(dawg.InactiveCursor, cur.skip_to, b("a"))
+    assert_raises(dawg.InactiveCursor, list, cur.flatten())
+    assert_raises(dawg.InactiveCursor, list, cur.flatten_v())
+    assert_raises(dawg.InactiveCursor, cur.find_path, b("a"))
+    assert_raises(dawg.InactiveCursor, cur.follow_firsts)
+
 def test_types():
     st = RamStorage()
 
@@ -226,7 +249,7 @@ def test_shared_suffix():
 
     cur1.find_path(b("blo"))
     cur2.find_path(b("glo"))
-    assert_equal(cur1.current.target, cur2.current.target)
+    assert_equal(cur1.stack[-1].target, cur2.stack[-1].target)
 
 def test_fields():
     with TempStorage() as st:
@@ -312,7 +335,7 @@ def test_skip():
     cur.follow_firsts()
     assert_equal(cur.prefix_bytes(), b("abcd"))
     assert cur.accept()
-    cur.pop_to_prefix("abzz")
+    cur._pop_to_prefix("abzz")
     assert_equal(cur.prefix_bytes(), b("abf"))
 
     cur = gr.cursor()
@@ -324,11 +347,9 @@ def test_skip():
 
     cur = gr.cursor()
     cur.follow_firsts()
-    assert_raises(dawg.EndOfCursor, cur.skip_to, b("z"))
+    cur.skip_to(b("z"))
+    assert not cur.is_active()
 
-    cur = gr.cursor()
-    cur.follow_lasts()
-    assert_equal(cur.prefix_bytes(), b("wxyz"))
 
 
 
