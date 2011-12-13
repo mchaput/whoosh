@@ -63,7 +63,7 @@ The ``procs`` parameter
 
 The ``procs`` parameter to :meth:`whoosh.index.Index.writer` controls the
 number of processors the writer will use for the indexing pool (via the
-``multiprocessing`` module).
+``multiprocessing`` module)::
 
     from whoosh import index
     
