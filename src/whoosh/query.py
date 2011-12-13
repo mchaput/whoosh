@@ -1157,6 +1157,8 @@ class PatternQuery(MultiTerm):
         raise NotImplementedError
 
     def _find_prefix(self, text):
+        # Subclasses/instances should set the SPECIAL_CHARS attribute to a set
+        # of characters that mark the end of the literal prefix
         specialchars = self.SPECIAL_CHARS
         for i, char in enumerate(self.text):
             if char in specialchars:
@@ -1226,6 +1228,8 @@ class Wildcard(PatternQuery):
         else:
             return self
 
+    # _words() implemented in PatternQuery
+
 
 class Regex(PatternQuery):
     """Matches documents that contain any terms that match a regular
@@ -1243,7 +1247,7 @@ class Regex(PatternQuery):
     def _get_pattern(self):
         return self.text
 
-    def _get_prefix(self, text):
+    def _find_prefix(self, text):
         if "|" in text:
             return ""
         if text.startswith("^"):
@@ -1252,6 +1256,8 @@ class Regex(PatternQuery):
             text = text[2:]
 
         return PatternQuery._find_prefix(self, text)
+
+    # _words() implemented in PatternQuery
 
 
 class ExpandingTerm(MultiTerm):
