@@ -1,3 +1,5 @@
+from __future__ import with_statement
+
 from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
 
 import copy
@@ -316,3 +318,44 @@ def test_highlight_daterange():
     r = s.search(DateRange('released', datetime(2007, 1, 1), None))
     assert_equal(len(r), 1)
     assert_equal(r[0].highlights("content"), '')
+
+def test_patterns():
+    domain = u("aaron able acre adage aether after ago ahi aim ajax akimbo "
+               "alembic all amiga amount ampere").split()
+    schema = fields.Schema(word=fields.KEYWORD(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for word in domain:
+            w.add_document(word=word)
+
+    with ix.reader() as r:
+        assert_equal(list(r.lexicon("word")), domain)
+
+        assert_equal(list(r.expand_prefix("word", "al")), ["alembic", "all"])
+        q = query.Prefix("word", "al")
+        assert_equal(q.simplify(r).__unicode__(), "(word:alembic OR word:all)")
+
+        q = query.Wildcard("word", "a*[ae]")
+        assert_equal(q.simplify(r).__unicode__(),
+                     "(word:able OR word:acre OR word:adage OR word:amiga OR word:ampere)")
+        assert_equal(q._find_prefix(q.text), "a")
+
+        q = query.Regex("word", "am.*[ae]")
+        assert_equal(q.simplify(r).__unicode__(), "(word:amiga OR word:ampere)")
+        assert_equal(q._find_prefix(q.text), "am")
+
+        q = query.Regex("word", "able|ago")
+        assert_equal(q.simplify(r).__unicode__(), "(word:able OR word:ago)")
+        assert_equal(q._find_prefix(q.text), "")
+
+
+
+
+
+
+
+
+
+
+
+
