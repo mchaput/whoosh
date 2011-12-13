@@ -15,7 +15,7 @@ Some of Whoosh's features include:
   full-text search solution I know of.
 * Pluggable scoring algorithm (including BM25F), text analysis, storage,
   posting format, etc.
-* Powerful query language parsed by pyparsing.
+* Powerful query language.
 * Pure Python spell-checker (as far as I know, the only one). 
 
 Whoosh might be useful in the following circumstances:
