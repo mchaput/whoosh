@@ -1240,8 +1240,8 @@ class Regex(PatternQuery):
 
     __str__ = __unicode__
 
-    def _get_pattern(self, text):
-        return text
+    def _get_pattern(self):
+        return self.text
 
     def _get_prefix(self, text):
         if "|" in text:
