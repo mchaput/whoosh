@@ -941,12 +941,11 @@ class StemFilter(Filter):
                     t.text = stemfn(text)
             yield t
 
-
 class PyStemmerFilter(StemFilter):
     """This is a simple subclass of StemFilter that works with the py-stemmer
     third-party library. You must have the py-stemmer library installed to use
     this filter.
-    
+
     >>> PyStemmerFilter("spanish")
     """
 
@@ -962,12 +961,10 @@ class PyStemmerFilter(StemFilter):
         :param cachesize: the maximum number of words to cache.
         """
 
-        import Stemmer  #@UnresolvedImport
-
-        stemmer = Stemmer.Stemmer(lang)
-        stemmer.maxCacheSize = cachesize
-        self._stem = stemmer.stemWord
+        self.lang = lang
         self.ignore = frozenset() if ignore is None else frozenset(ignore)
+        self.cachesize = cachesize
+        self._stem = self._get_stemmer_fn()
 
     def algorithms(self):
         """Returns a list of stemming algorithms provided by the py-stemmer
@@ -980,6 +977,35 @@ class PyStemmerFilter(StemFilter):
 
     def cache_info(self):
         return None
+
+    def _get_stemmer_fn(self):
+        import Stemmer  #@UnresolvedImport
+
+        stemmer = Stemmer.Stemmer(self.lang)
+        stemmer.maxCacheSize = self.cachesize
+        return stemmer.stemWord
+
+    def __getstate__(self):
+        # Can't pickle a dynamic function, so we have to remove the _stem
+        # attribute from the state
+        return dict([(k, self.__dict__[k]) for k in self.__dict__
+                     if k != "_stem"])
+
+    def __setstate__(self, state):
+        # Check for old instances of StemFilter class, which didn't have a
+        # cachesize attribute and pickled the cache attribute
+        if "cachesize" not in state:
+            self.cachesize = 10000
+        if "ignores" in state:
+            self.ignore = state["ignores"]
+        elif "ignore" not in state:
+            self.ignore = frozenset()
+        if "cache" in state:
+            del state["cache"]
+
+        self.__dict__.update(state)
+        # Set the _stem attribute
+        self._stem = self._get_stemmer_fn()
 
 
 class CharsetFilter(Filter):
