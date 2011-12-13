@@ -499,13 +499,13 @@ class RangePlugin(Plugin):
     (?P<start>
         ('[^']*?'\s+)             # single-quoted 
         |                         # or
-        (.+?(?=[Tt][Oo]))         # everything until "to"
+        ([^\]}]+?(?=[Tt][Oo]))    # everything until "to"
     )?
     [Tt][Oo]                      # "to"
     (?P<end>
         (\s+'[^']*?')             # single-quoted
         |                         # or
-        ((.+?)(?=]|}))            # everything until "]" or "}"
+        ([^\]}]+?)                # everything until "]" or "}"
     )?
     (?P<close>}|])                # Close paren
     """, verbose=True)

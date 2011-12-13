@@ -565,6 +565,31 @@ def test_empty_numeric_range():
     assert_equal(q.start, None)
     assert_equal(q.end, None)
 
+def test_numrange_multi():
+    schema = fields.Schema(text=fields.TEXT, start=fields.NUMERIC, end=fields.NUMERIC)
+    qp = default.QueryParser("text", schema)
+
+    q = qp.parse("start:[2008 to]")
+    assert_equal(q.__class__, query.NumericRange)
+    assert_equal(q.fieldname, "start")
+    assert_equal(q.start, 2008)
+    assert_equal(q.end, None)
+
+    q = qp.parse("start:[2011 to 2012]")
+    assert_equal(q.__class__.__name__, "NumericRange")
+    assert_equal(q.fieldname, "start")
+    assert_equal(q.start, 2011)
+    assert_equal(q.end, 2012)
+
+    q = qp.parse("start:[2008 to] AND end:[2011 to 2012]")
+    assert_equal(q.__class__, query.And)
+    assert_equal(q[0].__class__, query.NumericRange)
+    assert_equal(q[1].__class__, query.NumericRange)
+    assert_equal(q[0].start, 2008)
+    assert_equal(q[0].end, None)
+    assert_equal(q[1].start, 2011)
+    assert_equal(q[1].end, 2012)
+
 def test_nonexistant_fieldnames():
     # Need an analyzer that won't mangle a URL
     a = analysis.SimpleAnalyzer("\\S+")
