@@ -22,7 +22,7 @@ from google.appengine.ext import db  #@UnresolvedImport
 
 from whoosh.compat import BytesIO
 from whoosh.store import Storage
-from whoosh.filedb.fileindex import _create_index, FileIndex, _DEF_INDEX_NAME
+from whoosh.filedb.fileindex import TOC, FileIndex, _DEF_INDEX_NAME
 from whoosh.filedb.filestore import ReadOnlyError
 from whoosh.filedb.structfile import StructFile
 
@@ -105,7 +105,7 @@ class DatastoreStorage(Storage):
         if self.readonly:
             raise ReadOnlyError
 
-        _create_index(self, schema, indexname)
+        TOC.create(self, schema, indexname)
         return FileIndex(self, schema, indexname)
 
     def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
