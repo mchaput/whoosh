@@ -2,6 +2,21 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.3.2
+============
+
+* Fixes bug in BM25F scoring function, leading to increased precision in search
+  results.
+
+* Fixes issues #203, #205, #206, #208, #209, #212.
+
+
+Whoosh 2.3.1
+============
+
+* Fixes issue #200.
+
+
 Whoosh 2.3
 ==========
 
