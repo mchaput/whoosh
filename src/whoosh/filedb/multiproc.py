@@ -286,10 +286,10 @@ class MultiPool(PoolBase):
         self._append((0, args))
 
     def add_posting(self, *args):
-        self.postingqueue.put((1, args))
+        self._append((1, args))
 
     def add_field_length(self, *args):
-        self.postingqueue.put((2, args))
+        self._append((2, args))
 
     def cancel(self):
         for task in self.tasks:
