@@ -246,7 +246,7 @@ def bm25(idf, tf, fl, avgfl, B, K1):
     # avgfl - average field length across documents in collection
     # B, K1 - free paramters
 
-    return idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (fl / avgfl))))
+    return idf * ((tf * (K1 + 1)) / (tf + K1 * ((1 - B) + B * fl / avgfl)))
 
 
 class BM25F(WeightingModel):
