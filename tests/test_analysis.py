@@ -252,7 +252,7 @@ def test_pystemmer():
     with ix.reader() as r:
         print list(r.lexicon("text"))
         assert_equal(list(r.lexicon("text")), ["fall", "pain", "rain", "stall",
-                                               "stang", "strong"])
+                                               "strang", "strong"])
 
 def test_url():
     sample = u("Visit http://bitbucket.org/mchaput/whoosh or urn:isbn:5930502 or http://www.apple.com/.")
