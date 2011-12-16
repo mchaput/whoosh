@@ -43,11 +43,11 @@ import sys, copy
 from array import array
 from hashlib import sha1  #@UnresolvedImport
 
-from whoosh.compat import (b, BytesIO, xrange, iteritems, iterkeys, bytes_type,
-                           izip)
+from whoosh.compat import (b, u, BytesIO, xrange, iteritems, iterkeys,
+                           bytes_type, text_type, izip)
 from whoosh.filedb.structfile import StructFile
-from whoosh.system import (_INT_SIZE, pack_byte, pack_ushort, pack_int,
-                           pack_uint, pack_long)
+from whoosh.system import (_INT_SIZE, pack_byte, pack_int, pack_uint,
+                           pack_long)
 from whoosh.util import utf8encode, utf8decode, varint
 
 
@@ -295,13 +295,13 @@ class ArrayValues(SequenceValues):
 
     @staticmethod
     def read(dbfile):
-        typecode = b(dbfile.read(1))
+        typecode = u(dbfile.read(1))
         length = dbfile.read_int()
         return dbfile.read_array(typecode, length)
 
     @staticmethod
     def skip(dbfile):
-        typecode = b(dbfile.read(1))
+        typecode = u(dbfile.read(1))
         length = dbfile.read_int()
         a = array(typecode)
         dbfile.seek(length * a.itemsize, 1)
@@ -410,6 +410,9 @@ class Node(object):
             for result in node.flatten(sofar + key):
                 yield result
 
+    def flatten_strings(self):
+        return (utf8decode(k)[0] for k in self.flatten())
+
 
 class ComboNode(Node):
     """Base class for nodes that blend the nodes of two different graphs.
@@ -495,6 +498,13 @@ class BaseCursor(object):
 
         return emptybytes.join(self.prefix())
 
+    def prefix_string(self):
+        """Returns the labels of the path from the root to the current arc as
+        a decoded unicode string.
+        """
+
+        return utf8decode(self.prefix_bytes())[0]
+
     def peek_key(self):
         """Returns a sequence of label bytes representing the next closest
         key in the graph.
@@ -512,6 +522,13 @@ class BaseCursor(object):
         """
 
         return emptybytes.join(self.peek_key())
+
+    def peek_key_string(self):
+        """Returns the next closest key in the graph as a decoded unicode
+        string.
+        """
+
+        return utf8decode(self.peek_key_bytes())[0]
 
     def stopped(self):
         """Returns True if the current arc leads to a stop state.
@@ -614,11 +631,15 @@ class BaseCursor(object):
         for key in self.flatten():
             yield key, self.value()
 
+    def flatten_strings(self):
+        return (utf8decode(k)[0] for k in self.flatten())
+
     def find_path(self, path):
         """Follows the labels in the given path, starting at the current
         position.
         """
 
+        path = to_labels(path)
         _switch_to = self.switch_to
         _follow = self.follow
         _stopped = self.stopped
@@ -741,6 +762,7 @@ class Cursor(BaseCursor):
 
     # Override: more efficient implementation manipulating the stack
     def skip_to(self, key):
+        key = to_labels(key)
         stack = self.stack
         if not stack:
             raise InactiveCursor
@@ -1018,14 +1040,14 @@ class Arc(object):
 class GraphWriter(object):
     """Writes an FSA/FST graph to disk.
     
-    Call ``insert_string(bytes)`` to insert keys into the graph. You must
+    Call ``insert(key)`` to insert keys into the graph. You must
     insert keys in sorted order. Call ``close()`` to finish the graph and close
     the file.
     
     >>> gw = GraphWriter(my_file)
-    >>> gw.insert_string("alfa")
-    >>> gw.insert_string("bravo")
-    >>> gw.insert_string("charlie")
+    >>> gw.insert("alfa")
+    >>> gw.insert("bravo")
+    >>> gw.insert("charlie")
     >>> gw.close()
     
     The graph writer can write separate graphs for multiple fields. Use
@@ -1033,11 +1055,11 @@ class GraphWriter(object):
     
     >>> gw = GraphWriter(my_file)
     >>> gw.start_field("content")
-    >>> gw.insert_u16("alfalfa")
-    >>> gw.insert_u16("apple")
+    >>> gw.insert("alfalfa")
+    >>> gw.insert("apple")
     >>> gw.finish_field()
     >>> gw.start_field("title")
-    >>> gw.insert_u16("artichoke")
+    >>> gw.insert("artichoke")
     >>> gw.finish_field()
     >>> gw.close()
     """
@@ -1105,14 +1127,9 @@ class GraphWriter(object):
         dbfile.close()
 
     def insert(self, key, value=None):
-        """Inserts the given sequence of bytestrings as a key.
+        """Inserts the given key into the graph.
         
-        This will work with Python 2 ``str`` objects but WON'T work with Python
-        3 ``bytes`` objects because they act like sequences of numbers, not
-        bytestrings. For consistency, instead use ``insert_string()`` which
-        accepts both bytes and unicode.
-        
-        :param key: a sequence of bytestrings.
+        :param key: a sequence of bytes objects, a bytes object, or a string.
         :param value: an optional value to encode in the graph along with the
             key. If the writer was not instantiated with a value type, passing
             a value here will raise an error.
@@ -1121,12 +1138,13 @@ class GraphWriter(object):
         if self.fieldname is None:
             raise Exception("Inserted %r before starting a field" % key)
         self._inserted = True
+        key = to_labels(key)  # Python 3 sucks
 
         vtype = self.vtype
         lastkey = self.lastkey
         nodes = self.nodes
         if len(key) < 1:
-            raise KeyError("Can't store a null key %r" % key)
+            raise KeyError("Can't store a null key %r" % (key,))
         if lastkey and lastkey > key:
             raise KeyError("Keys out of order %r..%r" % (lastkey, key))
 
@@ -1178,20 +1196,6 @@ class GraphWriter(object):
             raise Exception("Value %r but no value type" % value)
 
         self.lastkey = key
-
-    def insert_string(self, key, value=None):
-        """This method converts the given ``key`` string into a sequence of
-        UTF-8 encoded bytestrings for each character and passes it to the
-        ``insert()`` method. It should work with bytes and all string
-        representations.
-        """
-
-        # I hate the Python 3 bytes object so friggin much
-        if isinstance(key, bytes_type):
-            k = [key[i:i + 1] for i in xrange(len(key))]
-        else:
-            k = [utf8encode(key[i:i + 1])[0] for i in xrange(len(key))]
-        self.insert(k, value=value)
 
     def _freeze_tail(self, prefixlen):
         nodes = self.nodes
@@ -1348,6 +1352,8 @@ class BaseGraphReader(object):
                     for arc in self.iter_arcs(address))
 
     def find_path(self, path, arc=None):
+        path = to_labels(path)
+
         if arc:
             address = arc.target
         else:
@@ -1379,7 +1385,9 @@ class GraphReader(BaseGraphReader):
 
         self._root = None
         if rootname is None and len(self.roots) == 1:
-            rootname = self.roots.keys()[0]
+            # If there's only one root, just use it. Have to wrap a list around
+            # the keys() method here because of Python 3.
+            rootname = list(self.roots.keys())[0]
         if rootname is not None:
             self._root = self.root(rootname)
 
@@ -1504,6 +1512,29 @@ class GraphReader(BaseGraphReader):
             return None
 
 
+def to_labels(key):
+    """Takes a string and returns a list of bytestrings, suitable for use as
+    a key or path in an FSA/FST graph.
+    """
+
+    # Convert to tuples of bytestrings (must be tuples so they can be hashed)
+    keytype = type(key)
+
+    # I hate the Python 3 bytes object so friggin much
+    if keytype is tuple or keytype is list:
+        if not all(isinstance(e, bytes_type) for e in key):
+            raise TypeError("%r contains a non-bytestring")
+        if keytype is list:
+            key = tuple(key)
+    elif isinstance(key, bytes_type):
+        key = tuple(key[i:i + 1] for i in xrange(len(key)))
+    elif isinstance(key, text_type):
+        key = tuple(utf8encode(key[i:i + 1])[0] for i in xrange(len(key)))
+    else:
+        raise TypeError("Don't know how to convert %r" % key)
+    return key
+
+
 # Within edit distance function
 
 def within(graph, text, k=1, prefix=0, address=None):
@@ -1512,16 +1543,18 @@ def within(graph, text, k=1, prefix=0, address=None):
     ``prefix`` characters of ``text``.
     """
 
+    text = to_labels(text)
     if address is None:
         address = graph._root
 
     sofar = emptybytes
     accept = False
     if prefix:
-        sofar = text[:prefix]
-        arc = graph.find_path(sofar)
+        prefixchars = text[:prefix]
+        arc = graph.find_path(prefixchars)
         if arc is None:
             return
+        sofar = emptybytes.join(prefixchars)
         address = arc.target
         accept = arc.accept
 
@@ -1539,7 +1572,8 @@ def within(graph, text, k=1, prefix=0, address=None):
         # us to the end and still within K), and we're in the accept state,
         # yield the current result
         if (len(text) - i <= k) and accept:
-            yield sofar
+            yield utf8decode(sofar)[0]
+
         # If we're in the stop state, give up
         if address is None:
             continue

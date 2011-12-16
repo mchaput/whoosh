@@ -276,11 +276,13 @@ def test_nonexclusive_read():
             w.commit(merge=False)
 
         def fn():
-            for _ in xrange(10):
+            for _ in xrange(5):
                 r = ix.reader()
+                assert_equal(list(r.lexicon("text")),
+                             ["document", "five", "four", "one", "test", "three", "two"])
                 r.close()
 
-        ths = [threading.Thread(target=fn) for _ in xrange(10)]
+        ths = [threading.Thread(target=fn) for _ in xrange(5)]
         for th in ths:
             th.start()
         for th in ths:

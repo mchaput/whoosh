@@ -706,10 +706,10 @@ def test_multitoken_phrase():
 def test_singlequote_multitoken():
     schema = fields.Schema(text=fields.TEXT(multitoken_query="or"))
     parser = default.QueryParser("text", schema)
-    q = parser.parse(u"foo bar")
+    q = parser.parse(u("foo bar"))
     assert_equal(q.__unicode__(), "(text:foo AND text:bar)")
 
-    q = parser.parse(u"'foo bar'")  # single quotes
+    q = parser.parse(u("'foo bar'"))  # single quotes
     assert_equal(q.__unicode__(), "(text:foo OR text:bar)")
 
 def test_operator_queries():
@@ -803,10 +803,13 @@ def test_dash():
 
     qp = default.QueryParser("text", schema)
     q = qp.parse(qtext)
-    assert_equal(repr(q), "Wildcard('text', u'*ben-hayden*')")
+    assert_equal(q.__class__, query.Wildcard)
+    assert_equal(q.fieldname, "text")
+    assert_equal(q.text, "*ben-hayden*")
 
     qp = default.MultifieldParser(["title", "text", "time"], schema)
     q = qp.parse(qtext)
-    assert_equal(repr(q), "Or([Wildcard('title', u'*ben-hayden*'), Wildcard('text', u'*ben-hayden*'), Wildcard('time', u'*Ben-Hayden*')])")
+    assert_equal(q.__unicode__(),
+                 "(title:*ben-hayden* OR text:*ben-hayden* OR time:*Ben-Hayden*)")
 
 

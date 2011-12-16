@@ -652,8 +652,10 @@ class MultiFacet(FacetType):
     @classmethod
     def from_sortedby(cls, sortedby):
         multi = cls()
-        if (isinstance(sortedby, (list, tuple))
-            or hasattr(sortedby, "__iter__")):
+        if isinstance(sortedby, string_type):
+            multi._add(sortedby)
+        elif (isinstance(sortedby, (list, tuple)) or hasattr(sortedby,
+                                                             "__iter__")):
             for item in sortedby:
                 multi._add(item)
         else:

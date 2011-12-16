@@ -159,8 +159,6 @@ def test_multifilter():
     w.commit()
 
     with ix.searcher() as s:
-        for x in s.lexicon("text"):
-            print x
         assert ("text", "5000") in s.reader()
         hit = s.search(query.Term("text", "5000"))[0]
         assert_equal(hit.highlights("text"), 'Our BabbleTron<b class="match term0">5000</b> is great')

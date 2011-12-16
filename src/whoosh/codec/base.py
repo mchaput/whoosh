@@ -29,7 +29,7 @@
 from array import array
 from struct import Struct, pack
 
-from whoosh.compat import loads, dumps, b, bytes_type, string_type
+from whoosh.compat import loads, dumps, b, bytes_type, string_type, xrange
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.reading import TermInfo
 from whoosh.spans import Span
@@ -125,7 +125,11 @@ class FieldWriter(object):
                 lasttext = text
                 continue
 
-            if fieldname < lastfn or (fieldname == lastfn and text < lasttext):
+            # This comparison is so convoluted because Python 3 removed the
+            # ability to compare a string to None
+            if ((lastfn is not None and fieldname < lastfn)
+                or (fieldname == lastfn and lasttext is not None
+                    and text < lasttext)):
                 raise Exception("Postings are out of order: %r:%s .. %r:%s" %
                                 (lastfn, lasttext, fieldname, text))
             if fieldname != lastfn or text != lasttext:
@@ -593,7 +597,7 @@ def deminimize_ids(typecode, count, string, compression=0):
 
 def minimize_weights(weights, compression=0):
     if all(w == 1.0 for w in weights):
-        string = ""
+        string = b("")
     else:
         if not IS_LITTLE:
             weights.byteswap()

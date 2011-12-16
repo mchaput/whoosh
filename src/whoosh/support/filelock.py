@@ -114,6 +114,9 @@ class FcntlLock(LockBase):
             return False
 
     def release(self):
+        if self.fd is None:
+            raise Exception("Lock was not acquired")
+
         import fcntl  #@UnresolvedImport
         fcntl.flock(self.fd, fcntl.LOCK_UN)
         os.close(self.fd)

@@ -113,8 +113,8 @@ def test_persistent_cache():
         fc = r.fieldcache("id")
         assert r.fieldcache_loaded("id")
         assert_equal(list(fc.order), [3, 1, 5, 2, 4])
-        assert_equal(list(fc.texts), [u('\uffff'), u'alfa', u'bravo',
-                                      u'charlie', u'delta', u'echo'])
+        assert_equal(list(fc.texts), [u('\uffff'), 'alfa', 'bravo',
+                                      'charlie', 'delta', 'echo'])
 
 def test_float_cache():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=float))

@@ -5,7 +5,7 @@ from nose.tools import assert_equal, assert_not_equal, assert_raises  #@Unresolv
 import random
 from array import array
 
-from whoosh.compat import b, u
+from whoosh.compat import b, u, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support import dawg
 from whoosh.support.testing import TempStorage
@@ -16,7 +16,7 @@ def gwrite(keys, st=None):
     f = st.create_file("test")
     gw = dawg.GraphWriter(f)
     for key in keys:
-        gw.insert_string(key)
+        gw.insert(key)
     gw.close()
     return st
 
@@ -26,7 +26,7 @@ def greader(st):
 
 
 def enlist(string):
-    return [part.encode("utf8") for part in string.split()]
+    return string.split()
 
 #
 
@@ -39,17 +39,20 @@ def test_empty_fieldname():
 def test_empty_key():
     gw = dawg.GraphWriter(RamStorage().create_file("test"))
     assert_raises(KeyError, gw.insert, b(""))
+    assert_raises(KeyError, gw.insert, "")
+    assert_raises(KeyError, gw.insert, u(""))
+    assert_raises(KeyError, gw.insert, [])
 
 def test_keys_out_of_order():
     f = RamStorage().create_file("test")
     gw = dawg.GraphWriter(f)
-    gw.insert_string("alfa")
-    assert_raises(KeyError, gw.insert_string, "abba")
+    gw.insert("alfa")
+    assert_raises(KeyError, gw.insert, "abba")
 
 def test_duplicate_keys():
     st = gwrite(enlist("alfa bravo bravo bravo charlie"))
     cur = dawg.Cursor(greader(st))
-    assert_equal(list(cur.flatten()), ["alfa", "bravo", "charlie"])
+    assert_equal(list(cur.flatten_strings()), ["alfa", "bravo", "charlie"])
 
 def test_inactive_raise():
     st = gwrite(enlist("alfa bravo charlie"))
@@ -71,6 +74,7 @@ def test_inactive_raise():
     assert_raises(dawg.InactiveCursor, cur.skip_to, b("a"))
     assert_raises(dawg.InactiveCursor, list, cur.flatten())
     assert_raises(dawg.InactiveCursor, list, cur.flatten_v())
+    assert_raises(dawg.InactiveCursor, list, cur.flatten_strings())
     assert_raises(dawg.InactiveCursor, cur.find_path, b("a"))
 
 def test_types():
@@ -124,7 +128,7 @@ def _fst_roundtrip(domain, t):
         f = st.create_file("test")
         gw = dawg.GraphWriter(f, vtype=t)
         for key, value in domain:
-            gw.insert_string(key, value)
+            gw.insert(key, value)
         gw.close()
 
         f = st.open_file("test")
@@ -196,7 +200,7 @@ def test_words():
     with TempStorage() as st:
         gwrite(words, st)
         cur = dawg.Cursor(greader(st))
-        assert_equal(list(cur.flatten()), words)
+        assert_equal(list(cur.flatten_strings()), words)
 
 def test_random():
     def randstring():
@@ -237,77 +241,77 @@ def test_fields():
         f = st.create_file("test")
         gw = dawg.GraphWriter(f)
         gw.start_field("f1")
-        gw.insert_string("a")
-        gw.insert_string("aa")
-        gw.insert_string("ab")
+        gw.insert("a")
+        gw.insert("aa")
+        gw.insert("ab")
         gw.finish_field()
         gw.start_field("f2")
-        gw.insert_string("ba")
-        gw.insert_string("baa")
-        gw.insert_string("bab")
+        gw.insert("ba")
+        gw.insert("baa")
+        gw.insert("bab")
         gw.close()
 
         gr = dawg.GraphReader(st.open_file("test"))
         cur1 = dawg.Cursor(gr, gr.root("f1"))
         cur2 = dawg.Cursor(gr, gr.root("f2"))
-        assert_equal(list(cur1.flatten()), [b("a"), b("aa"), b("ab")])
-        assert_equal(list(cur2.flatten()), [b("ba"), b("baa"), b("bab")])
+        assert_equal(list(cur1.flatten_strings()), ["a", "aa", "ab"])
+        assert_equal(list(cur2.flatten_strings()), ["ba", "baa", "bab"])
 
 def test_within():
     with TempStorage() as st:
         gwrite(enlist("0 00 000 001 01 010 011 1 10 100 101 11 110 111"), st)
         gr = greader(st)
         s = set(dawg.within(gr, "01", k=1))
-    assert_equal(s, set([b("0"), b("00"), b("01"), b("011"), b("010"),
-                         b("001"), b("10"), b("101"), b("1"), b("11")]))
+    assert_equal(s, set(["0", "00", "01", "011", "010",
+                         "001", "10", "101", "1", "11"]))
 
 def test_within_match():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(dawg.within(gr, b("def"))), set([b("def")]))
+    assert_equal(set(dawg.within(gr, "def")), set(["def"]))
 
 def test_within_insert():
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
     s = set(dawg.within(gr, "0"))
-    assert_equal(s, set([b("00"), b("01"), b("10")]))
+    assert_equal(s, set(["00", "01", "10"]))
 
 def test_within_delete():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(dawg.within(gr, b("df"))), set([b("def")]))
+    assert_equal(set(dawg.within(gr, "df")), set(["def"]))
 
     st = gwrite(enlist("0"))
     gr = greader(st)
-    assert_equal(list(dawg.within(gr, b("01"))), [b("0")])
+    assert_equal(list(dawg.within(gr, "01")), ["0"])
 
 def test_within_replace():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(dawg.within(gr, b("dez"))), set([b("def")]))
+    assert_equal(set(dawg.within(gr, "dez")), set(["def"]))
 
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
-    s = set(dawg.within(gr, b("00")))
-    assert_equal(s, set([b("00"), b("10"), b("01")]), s)
+    s = set(dawg.within(gr, "00"))
+    assert_equal(s, set(["00", "10", "01"]), s)
 
 def test_within_transpose():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    s = set(dawg.within(gr, b("dfe")))
-    assert_equal(s, set([b("def")]))
+    s = set(dawg.within(gr, "dfe"))
+    assert_equal(s, set(["def"]))
 
 def test_within_k2():
     st = gwrite(enlist("abc bac cba"))
     gr = greader(st)
-    s = set(dawg.within(gr, b("cb"), k=2))
-    assert_equal(s, set([b("abc"), b("cba")]))
+    s = set(dawg.within(gr, "cb", k=2))
+    assert_equal(s, set(["abc", "cba"]))
 
 def test_within_prefix():
     st = gwrite(enlist("aabc aadc babc badc"))
     gr = greader(st)
-    s = set(dawg.within(gr, b("aaxc"), prefix=2))
-    assert_equal(s, set([b("aabc"), b("aadc")]))
+    s = set(dawg.within(gr, "aaxc", prefix=2))
+    assert_equal(s, set(["aabc", "aadc"]))
 
 def test_skip():
     st = gwrite(enlist("abcd abfg cdqr1 cdqr12 cdxy wxyz"))
@@ -316,8 +320,6 @@ def test_skip():
     while not cur.stopped(): cur.follow()
     assert_equal(cur.prefix_bytes(), b("abcd"))
     assert cur.accept()
-    cur._pop_to_prefix("abzz")
-    assert_equal(cur.prefix_bytes(), b("abf"))
 
     cur = gr.cursor()
     while not cur.stopped(): cur.follow()
@@ -338,7 +340,7 @@ def test_insert_bytes():
     st = RamStorage()
     gw = dawg.GraphWriter(st.create_file("test"))
     for key in domain:
-        gw.insert_string(key)
+        gw.insert(key)
     gw.close()
 
     cur = dawg.GraphReader(st.open_file("test")).cursor()
@@ -353,11 +355,11 @@ def test_insert_unicode():
     st = RamStorage()
     gw = dawg.GraphWriter(st.create_file("test"))
     for key in domain:
-        gw.insert_string(key)
+        gw.insert(key)
     gw.close()
 
     cur = dawg.GraphReader(st.open_file("test")).cursor()
-    assert_equal(list(cur.flatten()), domain)
+    assert_equal(list(cur.flatten_strings()), domain)
 
 def test_within_unicode():
     domain = [u("\u280b\u2817\u2801\u281d\u2809\u2811"),
@@ -368,7 +370,7 @@ def test_within_unicode():
     st = RamStorage()
     gw = dawg.GraphWriter(st.create_file("test"))
     for key in domain:
-        gw.insert_string(key)
+        gw.insert(key)
     gw.close()
 
     gr = dawg.GraphReader(st.open_file("test"))

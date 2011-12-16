@@ -108,7 +108,7 @@ def test_multisegment():
     with ix.reader() as r:
         assert not r.is_atomic()
         assert r.has_word_graph("text")
-        words = list(r.word_graph("text").flatten())
+        words = list(r.word_graph("text").flatten_strings())
         assert_equal(words, sorted(domain))
 
         corr = r.corrector("text")
@@ -119,7 +119,7 @@ def test_multisegment():
         assert r.is_atomic()
         assert_equal(list(r.lexicon("text")), sorted(domain))
         assert r.has_word_graph("text")
-        words = list(r.word_graph("text").flatten())
+        words = list(r.word_graph("text").flatten_strings())
         assert_equal(words, sorted(domain))
 
         corr = r.corrector("text")
@@ -241,7 +241,7 @@ def test_bypass_stemming():
     with ix.reader() as r:
         assert_equal(list(r.lexicon("text")),
                      ["model", "reaction", "render", "shade"])
-        assert_equal(list(r.word_graph("text").flatten()),
+        assert_equal(list(r.word_graph("text").flatten_strings()),
                      ["modeling", "reactions", "rendering", "shading"])
 
 def test_spelling_field_order():

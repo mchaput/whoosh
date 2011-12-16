@@ -277,9 +277,9 @@ class Searcher(object):
         
         >>> stored_fields = searcher.document(path=u"/a/b")
         >>> if stored_fields:
-        ...   print stored_fields['title']
+        ...   print(stored_fields['title'])
         ... else:
-        ...   print "There is no document with the path /a/b"
+        ...   print("There is no document with the path /a/b")
         """
 
         for p in self.documents(**kw):
@@ -296,7 +296,7 @@ class Searcher(object):
         documents.
         
         >>> for stored_fields in searcher.documents(emailto=u"matt@whoosh.ca"):
-        ...   print "Email subject:", stored_fields['subject']
+        ...   print("Email subject:", stored_fields['subject'])
         """
 
         ixreader = self.ixreader
@@ -404,7 +404,7 @@ class Searcher(object):
         
             corrector = searcher.corrector("fieldname")
             for word in words:
-                print corrector.suggest(word)
+                print(corrector.suggest(word))
         
         :param limit: only return up to this many suggestions. If there are not
             enough terms in the field within ``maxdist`` of the given word, the
@@ -479,9 +479,9 @@ class Searcher(object):
             
             r = searcher.more_like(docnum)
         
-            print "Documents like", searcher.stored_fields(docnum)["title"]
+            print("Documents like", searcher.stored_fields(docnum)["title"])
             for hit in r:
-                print hit["title"]
+                print(hit["title"])
         
         :param fieldname: the name of the field to use to test similarity.
         :param text: by default, the method will attempt to load the contents
@@ -528,12 +528,12 @@ class Searcher(object):
             pagelen = int(request.get("perpage", 10))
             
             results = searcher.search_page(query, pagenum, pagelen=pagelen)
-            print "Page %d of %d" % (results.pagenum, results.pagecount)
+            print("Page %d of %d" % (results.pagenum, results.pagecount))
             print ("Showing results %d-%d of %d" 
                    % (results.offset + 1, results.offset + results.pagelen + 1,
                       len(results)))
             for hit in results:
-                print "%d: %s" % (hit.rank + 1, hit["title"])
+                print("%d: %s" % (hit.rank + 1, hit["title"]))
         
         (Note that results.pagelen might be less than the pagelen argument if
         there aren't enough results to fill a page.)
@@ -1359,7 +1359,9 @@ class Results(object):
         """
 
         if (name is None or name == "facet") and len(self._facetmaps) == 1:
-            name = self._facetmaps.keys()[0]
+            # If there's only one facet, just use it; convert keys() to list
+            # for Python 3
+            name = list(self._facetmaps.keys())[0]
         elif name not in self._facetmaps:
             raise KeyError("%r not in facet names %r"
                            % (name, self.facet_names()))
@@ -1745,10 +1747,10 @@ class Hit(object):
         
             r = searcher.search(myquery)
             for hit in r:
-                print hit["title"]
-                print "Top 3 similar documents:"
+                print(hit["title"])
+                print("Top 3 similar documents:")
                 for subhit in hit.more_like_this("content", top=3):
-                  print "  ", subhit["title"]
+                  print("  ", subhit["title"])
                   
         :param fieldname: the name of the field to use to test similarity.
         :param text: by default, the method will attempt to load the contents

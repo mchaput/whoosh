@@ -58,9 +58,10 @@ def MERGE_SMALL(writer, segments):
     from whoosh.filedb.filereading import SegmentReader
 
     newsegments = []
-    sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
+    sorted_segment_list = sorted(segments, key=lambda s: s.doc_count_all())
     total_docs = 0
-    for i, (count, seg) in enumerate(sorted_segment_list):
+    for i, seg in enumerate(sorted_segment_list):
+        count = seg.doc_count_all()
         if count > 0:
             total_docs += count
             if total_docs < fib(i + 5):
@@ -494,7 +495,7 @@ def add_spelling(ix, fieldnames, commit=True):
         for fieldname in fieldnames:
             gw.start_field(fieldname)
             for word in r.lexicon(fieldname):
-                gw.insert_string(utf8encode(word)[0])
+                gw.insert(word)
             gw.finish_field()
         gw.close()
 

@@ -62,6 +62,8 @@ else:
     from urllib.request import urlretrieve
 
     def u(s):
+        if isinstance(s, bytes):
+            return s.decode("ascii")
         return s
 
     def with_metaclass(meta, base=object):
