@@ -90,8 +90,14 @@ else:
 # Note: these functions return a tuple of (text, length), so when you call
 # them, you have to add [0] on the end, e.g. str = utf8encode(unicode)[0]
 
-utf8encode = codecs.getencoder("utf_8")
-utf8decode = codecs.getdecoder("utf_8")
+utf8encode = codecs.getencoder("utf-8")
+utf8decode = codecs.getdecoder("utf-8")
+
+utf16encode = codecs.getencoder("utf-16-be")
+utf16decode = codecs.getdecoder("utf-16-be")
+
+utf32encode = codecs.getencoder("utf-32-be")
+utf32decode = codecs.getdecoder("utf-32-be")
 
 
 # Functions

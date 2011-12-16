@@ -173,7 +173,7 @@ def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
     for word in wordlist:
         if strip:
             word = word.strip()
-        gw.insert(utf8encode(word)[0])
+        gw.insert_string(word)
     gw.close()
 
 
