@@ -82,7 +82,7 @@ def test_types():
 
     types = ((dawg.IntValues, 100, 0),
              (dawg.BytesValues, b('abc'), b('')),
-             (dawg.ArrayValues, array("i", [0, 123, 42]), array("i")),
+             (dawg.ArrayValues("i"), array("i", [0, 123, 42]), array("i")),
              (dawg.IntListValues, [0, 6, 97], []))
 
     for t, v, z in types:
@@ -157,7 +157,7 @@ def test_fst_array():
               (b("110"), array("i", [894, 9, 101, 11])),
               (b("111"), array("i", [1030, 200, 1000, 2000])),
               ]
-    _fst_roundtrip(domain, dawg.ArrayValues)
+    _fst_roundtrip(domain, dawg.ArrayValues("i"))
 
 def test_fst_intlist():
     domain = [(b("000"), [1, 2, 3, 4]),

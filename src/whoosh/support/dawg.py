@@ -283,9 +283,12 @@ class ArrayValues(SequenceValues):
     """Stores array.array objects in an FST.
     """
 
-    @staticmethod
-    def is_valid(v):
-        return isinstance(v, array)
+    def __init__(self, typecode):
+        self.typecode = typecode
+        self.itemsize = array(self.typecode).itemsize
+
+    def is_valid(self, v):
+        return isinstance(v, array) and v.typecode == self.typecode
 
     @staticmethod
     def write(dbfile, v):
@@ -293,18 +296,14 @@ class ArrayValues(SequenceValues):
         dbfile.write_int(len(v))
         dbfile.write_array(v)
 
-    @staticmethod
-    def read(dbfile):
+    def read(self, dbfile):
         typecode = u(dbfile.read(1))
         length = dbfile.read_int()
-        return dbfile.read_array(typecode, length)
+        return dbfile.read_array(self.typecode, length)
 
-    @staticmethod
-    def skip(dbfile):
-        typecode = u(dbfile.read(1))
+    def skip(self, dbfile):
         length = dbfile.read_int()
-        a = array(typecode)
-        dbfile.seek(length * a.itemsize, 1)
+        dbfile.seek(length * self.itemsize, 1)
 
     @staticmethod
     def to_bytes(v):
