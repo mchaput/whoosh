@@ -494,7 +494,7 @@ def add_spelling(ix, fieldnames, commit=True):
         for fieldname in fieldnames:
             gw.start_field(fieldname)
             for word in r.lexicon(fieldname):
-                gw.insert(utf8encode(word)[0])
+                gw.insert_string(utf8encode(word)[0])
             gw.finish_field()
         gw.close()
 

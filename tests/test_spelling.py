@@ -161,10 +161,10 @@ def test_wordfile():
         path = fname
     else:
         return
-
     if not os.path.exists(path):
         return
-    wordfile = gzip.open(path, "r")
+
+    wordfile = gzip.open(path, "rb")
     cor = words_to_corrector(wordfile)
     wordfile.close()
     assert_equal(cor.suggest("specail"), ["special"])
