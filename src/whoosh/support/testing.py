@@ -33,7 +33,7 @@ from whoosh.util import now
 
 
 class TempDir(object):
-    def __init__(self, parentdir="tmp", basename=None, ext="",
+    def __init__(self, basename=None, parentdir="tmp", ext="",
                  suppress=frozenset(), keepdir=False):
         self.basename = basename or hex(random.randint(0, 1000000000))[2:]
         dirname = os.path.join(parentdir, self.basename + ext)
@@ -52,17 +52,18 @@ class TempDir(object):
                 shutil.rmtree(self.dir)
             except OSError:
                 e = sys.exc_info()[1]
-                print("Can't remove temp dir: " + str(e))
+                sys.stderr.write("Can't remove temp dir: " + str(e) + "\n")
 
         if exc_type is not None:
             if self.keepdir:
-                print("Temp dir=", self.dir)
+                sys.stderr.write("Temp dir=" + self.dir + "\n")
             if exc_type not in self.suppress:
                 return False
 
 
 class TempStorage(TempDir):
     def __enter__(self):
+        print("==", self.dir)
         dirpath = TempDir.__enter__(self)
         return FileStorage(dirpath)
 
