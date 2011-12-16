@@ -93,11 +93,10 @@ else:
 utf8encode = codecs.getencoder("utf-8")
 utf8decode = codecs.getdecoder("utf-8")
 
-utf16encode = codecs.getencoder("utf-16-be")
-utf16decode = codecs.getdecoder("utf-16-be")
-
-utf32encode = codecs.getencoder("utf-32-be")
-utf32decode = codecs.getdecoder("utf-32-be")
+#utf16encode = codecs.getencoder("utf-16-be")
+#utf16decode = codecs.getdecoder("utf-16-be")
+#utf32encode = codecs.getencoder("utf-32-be")
+#utf32decode = codecs.getdecoder("utf-32-be")
 
 
 # Functions
