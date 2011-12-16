@@ -63,7 +63,6 @@ class TempDir(object):
 
 class TempStorage(TempDir):
     def __enter__(self):
-        print("==", self.dir)
         dirpath = TempDir.__enter__(self)
         return FileStorage(dirpath)
 
