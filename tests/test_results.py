@@ -302,9 +302,7 @@ def test_highlight_setters():
     hl = highlight.Highlighter()
     ucf = highlight.UppercaseFormatter()
     r.highlighter = hl
-    print "fmt=", r.formatter
     r.formatter = ucf
-    print r.formatter
     assert hl.formatter is ucf
 
 def test_snippets():

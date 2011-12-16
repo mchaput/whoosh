@@ -140,14 +140,5 @@ def check_abstract_methods(base, subclass):
                                 % (subclass.__name__, attrname))
 
 
-class Timing(object):
-    def __init__(self):
-        pass
 
-    def __enter__(self):
-        self.t = now()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if not exc_type:
-            print "%0.8f" % (now() - self.t)
 

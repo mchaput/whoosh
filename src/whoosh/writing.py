@@ -495,7 +495,10 @@ class BufferedWriter(IndexWriter):
     def __del__(self):
         if hasattr(self, "writer") and self.writer:
             if not self.writer.is_closed:
-                self.writer.cancel()
+                try:
+                    self.writer.cancel()
+                except:
+                    pass
             del self.writer
 
     def _create_ramindex(self):

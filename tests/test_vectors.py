@@ -73,8 +73,6 @@ def test_vector_unicode():
     writer.commit()
 
     with ix.reader() as r:
-        for x in r.all_terms():
-            print x
         vec = list(r.vector_as("frequency", 0, "content"))
         assert_equal(vec, [(u('\u13ac\u13ad\u13ae'), 1),
                            (u('\u13af\u13b0\u13b1'), 1)])

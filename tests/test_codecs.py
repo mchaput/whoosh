@@ -1,5 +1,6 @@
 from __future__ import with_statement
 import random
+from array import array
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
@@ -40,7 +41,8 @@ def test_random_termkeys():
         return "".join(chr(random.randint(65, 90)) for _ in xrange(1, 20))
 
     def random_token():
-        return "".join(unichr(random.randint(0, 0xd7ff)) for _ in xrange(1, 20))
+        a = array("H", (random.randint(0, 0xd7ff) for _ in xrange(1, 20)))
+        return a.tostring().decode("utf-16")
 
     domain = sorted([(random_fieldname(), random_token()) for _ in xrange(1000)])
 
@@ -109,7 +111,8 @@ def test_block():
     assert_equal(block.max_id(), 4)
     assert_equal(list(block.ids), [0, 1, 2, 3, 4])
     assert_equal(list(block.read_weights()), [2.0, 5.0, 3.0, 4.0, 1.0])
-    assert_equal(list(block.read_values()), ["test1", "test2", "test3", "test4", "test5"])
+    assert_equal(list(block.read_values()), [b("test1"), b("test2"), b("test3"),
+                                             b("test4"), b("test5")])
 
     f = st.create_file("test")
     block = standard.StdBlock(0)
@@ -433,7 +436,7 @@ def test_spelled_field():
     gr = codec.graph_reader(seg)
     assert gr.has_root("text")
     cur = gr.cursor("text")
-    assert_equal(list(cur.flatten()), ["special", "specific"])
+    assert_equal(list(cur.flatten_strings()), ["special", "specific"])
 
 def test_special_spelled_field():
     from whoosh.analysis import StemmingAnalyzer
@@ -458,6 +461,6 @@ def test_special_spelled_field():
     assert_equal(list(tr.keys()), [("text", "special"), ("text", "specific")])
 
     cur = codec.graph_reader(seg).cursor("text")
-    assert_equal(list(cur.flatten()), ["specials", "specifically"])
+    assert_equal(list(cur.flatten_strings()), ["specials", "specifically"])
 
 

@@ -243,26 +243,16 @@ class Thesaurus(object):
 
 
 if __name__ == "__main__":
-    from time import clock
     from whoosh.filedb.filestore import FileStorage
     st = FileStorage("c:/testindex")
 
-#    t = clock()
 #    th = Thesaurus.from_filename("c:/wordnet/wn_s.pl")
-#    print(clock() - t)
 #    
-#    t = clock()
 #    th.to_storage(st)
-#    print(clock() - t)
 #    
 #    t = clock()
 #    print th.synonyms("light")
 #    print(clock() - t)
 
-    t = clock()
     th = Thesaurus.from_storage(st)
-    print(clock() - t)
-
-    t = clock()
     print(th.synonyms("hail"))
-    print(clock() - t)

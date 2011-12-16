@@ -33,7 +33,7 @@ from gzip import GzipFile
 
 from whoosh.compat import dump as dump_pickle
 from whoosh.compat import load as load_pickle
-from whoosh.compat import integer_types, b
+from whoosh.compat import PY3, integer_types, b
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_byte, pack_sbyte, pack_ushort, pack_int,
                            pack_uint, pack_long, pack_float, unpack_byte,
@@ -124,13 +124,13 @@ class StructFile(object):
         _self = self
 
         class fakemap(object):
-            def __getitem__(self, slice):
-                if isinstance(slice, integer_types):
-                    _self.seek(slice)
-                    return _self.read(1)
+            def __getitem__(self, slc):
+                if isinstance(slc, integer_types):
+                    _self.seek(slc)
+                    return _self.read(1)[0]
                 else:
-                    _self.seek(slice.start)
-                    return _self.read(slice.stop - slice.start)
+                    _self.seek(slc.start)
+                    return _self.read(slc.stop - slc.start)
 
         self.map = fakemap()
 
@@ -219,7 +219,11 @@ class StructFile(object):
         return ord(self.file.read(1))
 
     def get_byte(self, position):
-        return ord(self.map[position])
+        v = self.map[position]
+        if PY3:  # Getting an item returns an int
+            return v
+        else:  # Getting an item returns a 1-character str
+            return ord(v[0])
 
     def write_8bitfloat(self, f, mantissabits=5, zeroexp=2):
         """Writes a byte-sized representation of floating point value f to the

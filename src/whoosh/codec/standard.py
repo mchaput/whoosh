@@ -306,7 +306,7 @@ class StdFieldWriter(base.FieldWriter):
         self.text = text
         self.terminfo = base.FileTermInfo()
         if self.spelling:
-            self.dawg.insert_string(utf8encode(text)[0])
+            self.dawg.insert(text)
         self._start_blocklist()
 
     def add(self, docnum, weight, valuestring, length):
@@ -317,7 +317,7 @@ class StdFieldWriter(base.FieldWriter):
     def add_spell_word(self, fieldname, text):
         if self.dawg is None:
             self._make_dawg_files()
-        self.dawg.insert_string(utf8encode(text)[0])
+        self.dawg.insert(text)
 
     def finish_term(self):
         if self.block is None:

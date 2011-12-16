@@ -14,35 +14,35 @@ _ix = None
 
 def get_index():
     global _ix
-    
+
     if _ix is not None:
         return _ix
-    
+
     charfield = fields.FieldType(formats.Characters(), analysis.SimpleAnalyzer(),
                                  scorable=True, stored=True)
     schema = fields.Schema(text=charfield)
     st = RamStorage()
     _ix = st.create_index(schema)
-    
+
     w = _ix.writer()
     for ls in permutations(domain, 4):
         w.add_document(text=u(" ").join(ls), _stored_text=ls)
     w.commit()
-    
+
     return _ix
 
 def test_multimatcher():
     schema = fields.Schema(content=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
-    
+
     domain = ("alfa", "bravo", "charlie", "delta")
-    
+
     for _ in xrange(3):
         w = ix.writer()
         for ls in permutations(domain):
             w.add_document(content=u(" ").join(ls))
         w.commit(merge=False)
-    
+
     q = Term("content", "bravo")
     with ix.searcher() as s:
         m = q.matcher(s)
@@ -56,21 +56,21 @@ def test_multimatcher():
 def test_excludematcher():
     schema = fields.Schema(content=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
-    
+
     domain = ("alfa", "bravo", "charlie", "delta")
-    
+
     for _ in xrange(3):
         w = ix.writer()
         for ls in permutations(domain):
             w.add_document(content=u(" ").join(ls))
         w.commit(merge=False)
-    
+
     w = ix.writer()
     w.delete_document(5)
     w.delete_document(10)
     w.delete_document(28)
     w.commit(merge=False)
-    
+
     q = Term("content", "bravo")
     with ix.searcher() as s:
         m = q.matcher(s)
@@ -80,17 +80,17 @@ def test_excludematcher():
             for span in spans:
                 assert_equal(content[span.start], "bravo")
             m.next()
-    
+
 
 def test_span_term():
     ix = get_index()
     with ix.searcher() as s:
         alllists = [d["text"] for d in s.all_stored_fields()]
-        
+
         for word in domain:
             q = Term("text", word)
             m = q.matcher(s)
-            
+
             ids = set()
             while m.is_active():
                 id = m.id()
@@ -98,19 +98,19 @@ def test_span_term():
                 ids.add(id)
                 original = list(s.stored_fields(id)["text"])
                 assert word in original, "%r not in %r" % (word, original)
-                
+
                 if word != "bravo":
                     assert_equal(len(sps), 1)
                 assert_equal(original.index(word), sps[0].start)
                 assert_equal(original.index(word), sps[0].end)
                 m.next()
-        
+
             for i, ls in enumerate(alllists):
                 if word in ls:
                     assert i in ids
                 else:
                     assert i not in ids
-                
+
 def test_span_first():
     ix = get_index()
     with ix.searcher() as s:
@@ -125,7 +125,7 @@ def test_span_first():
                 assert_equal(sps[0].start, 0)
                 assert_equal(sps[0].end, 0)
                 m.next()
-                
+
         q = spans.SpanFirst(Term("text", "bravo"), limit=1)
         m = q.matcher(s)
         while m.is_active():
@@ -133,7 +133,7 @@ def test_span_first():
             for sp in m.spans():
                 assert_equal(orig[sp.start], "bravo")
             m.next()
-        
+
 def test_span_near():
     ix = get_index()
     with ix.searcher() as s:
@@ -142,26 +142,26 @@ def test_span_near():
             while m.is_active():
                 yield s.stored_fields(m.id())["text"], m.spans()
                 m.next()
-                
+
         for orig, sps in test(spans.SpanNear(Term("text", "alfa"), Term("text", "bravo"), ordered=True)):
             assert_equal(orig[sps[0].start], "alfa")
             assert_equal(orig[sps[0].end], "bravo")
-            
+
         for orig, sps in test(spans.SpanNear(Term("text", "alfa"), Term("text", "bravo"), ordered=False)):
             first = orig[sps[0].start]
             second = orig[sps[0].end]
             assert (first == "alfa" and second == "bravo"
                             or (first == "bravo" and second == "alfa"))
-            
+
         for orig, sps in test(spans.SpanNear(Term("text", "bravo"), Term("text", "bravo"), ordered=True)):
             text = " ".join(orig)
             assert text.find("bravo bravo") > -1
-            
+
         q = spans.SpanNear(spans.SpanNear(Term("text", "alfa"), Term("text", "charlie")), Term("text", "echo"))
         for orig, sps in test(q):
             text = " ".join(orig)
             assert text.find("alfa charlie echo") > -1
-            
+
         q = spans.SpanNear(Or([Term("text", "alfa"), Term("text", "charlie")]), Term("text", "echo"), ordered=True)
         for orig, sps in test(q):
             text = " ".join(orig)
@@ -177,13 +177,13 @@ def test_near_unordered():
     w.add_document(text=u("alfa charlie bravo delta echo"))
     w.add_document(text=u("echo delta alfa foxtrot"))
     w.commit()
-    
+
     with ix.searcher() as s:
         q = spans.SpanNear(Term("text", "bravo"), Term("text", "charlie"), ordered=False)
         r = sorted(d["text"] for d in s.search(q))
         assert_equal(r, [u('alfa bravo charlie delta echo'),
                              u('alfa charlie bravo delta echo')])
-    
+
 def test_span_near2():
     ana = analysis.SimpleAnalyzer()
     schema = fields.Schema(text=fields.TEXT(analyzer=ana, stored=True))
@@ -192,14 +192,14 @@ def test_span_near2():
     w = ix.writer()
     w.add_document(text=u("The Lucene library is by Doug Cutting and Whoosh was made by Matt Chaput"))
     w.commit()
-    
+
     nq1 = spans.SpanNear(Term("text", "lucene"), Term("text", "doug"), slop=5)
     nq2 = spans.SpanNear(nq1, Term("text", "whoosh"), slop=4)
-    
+
     with ix.searcher() as s:
         m = nq2.matcher(s)
         assert_equal(m.spans(), [spans.Span(1, 8)])
-    
+
 def test_span_not():
     ix = get_index()
     with ix.searcher() as s:
@@ -216,7 +216,7 @@ def test_span_not():
             if "bravo" in orig:
                 assert orig.index("bravo") != i1 + 1
             m.next()
-        
+
 def test_span_or():
     ix = get_index()
     with ix.searcher() as s:
@@ -234,7 +234,7 @@ def test_span_contains():
     with ix.searcher() as s:
         nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"), slop=3)
         cq = spans.SpanContains(nq, Term("text", "echo"))
-        
+
         m = cq.matcher(s)
         ls = []
         while m.is_active():
@@ -243,11 +243,11 @@ def test_span_contains():
             m.next()
         ls.sort()
         assert_equal(ls, ['alfa bravo echo charlie', 'alfa bravo echo charlie',
-                              'alfa delta echo charlie', 'alfa echo bravo charlie',
-                              'alfa echo bravo charlie', 'alfa echo charlie bravo',
-                              'alfa echo charlie bravo', 'alfa echo charlie delta',
-                              'alfa echo delta charlie', 'bravo alfa echo charlie',
-                              'bravo alfa echo charlie', 'delta alfa echo charlie'])
+                          'alfa delta echo charlie', 'alfa echo bravo charlie',
+                          'alfa echo bravo charlie', 'alfa echo charlie bravo',
+                          'alfa echo charlie bravo', 'alfa echo charlie delta',
+                          'alfa echo delta charlie', 'bravo alfa echo charlie',
+                          'bravo alfa echo charlie', 'delta alfa echo charlie'])
 
 def test_span_before():
     ix = get_index()
@@ -285,7 +285,7 @@ def test_regular_or():
                 v = orig[span.start]
                 assert v == "bravo" or v == "alfa"
             m.next()
-        
+
 def test_regular_and():
     ix = get_index()
     with ix.searcher() as s:
