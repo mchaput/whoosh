@@ -529,9 +529,9 @@ class Searcher(object):
             
             results = searcher.search_page(query, pagenum, pagelen=pagelen)
             print("Page %d of %d" % (results.pagenum, results.pagecount))
-            print ("Showing results %d-%d of %d" 
-                   % (results.offset + 1, results.offset + results.pagelen + 1,
-                      len(results)))
+            print("Showing results %d-%d of %d" 
+                  % (results.offset + 1, results.offset + results.pagelen + 1,
+                     len(results)))
             for hit in results:
                 print("%d: %s" % (hit.rank + 1, hit["title"]))
         

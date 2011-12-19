@@ -66,8 +66,8 @@ import re
 from collections import deque
 from itertools import chain
 
-from whoosh.compat import (callable, iteritems, string_type, text_type, u,
-                           xrange, next)
+from whoosh.compat import (callable, iteritems, string_type, text_type,
+                           integer_types, u, xrange, next)
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util import lru_cache, unbound_cache, rcompile
@@ -914,10 +914,11 @@ class StemFilter(Filter):
         self.clear()
 
     def clear(self):
-        if self.cachesize < 0:
-            self._stem = unbound_cache(self.stemfn)
-        elif self.cachesize > 1:
-            self._stem = lru_cache(self.cachesize)(self.stemfn)
+        if isinstance(self.cachesize, integer_types) and self.cachesize != 0:
+            if self.cachesize < 0:
+                self._stem = unbound_cache(self.stemfn)
+            elif self.cachesize > 1:
+                self._stem = lru_cache(self.cachesize)(self.stemfn)
         else:
             self._stem = self.stemfn
 
