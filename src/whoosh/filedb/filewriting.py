@@ -33,7 +33,7 @@ from whoosh.filedb.fileindex import Segment
 from whoosh.store import LockError
 from whoosh.support.filelock import try_for
 from whoosh.support.externalsort import SortingPool
-from whoosh.util import fib, utf8encode
+from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
 
 
@@ -118,11 +118,17 @@ class PostingPool(SortingPool):
         self.currentsize = 0
 
 
+def renumber_postings(reader, startdoc, docmap):
+    for fieldname, text, docnum, weight, value in reader.iter_postings():
+        newdoc = docmap[docnum] if docmap else startdoc + docnum
+        yield (fieldname, text, newdoc, weight, value)
+
+
 # Writer object
 
 class SegmentWriter(IndexWriter):
     def __init__(self, ix, poolclass=None, timeout=0.0, delay=0.1, _lk=True,
-                 limitmb=128, docbase=0, codec=None, **kwargs):
+                 limitmb=128, docbase=0, codec=None, compound=True, **kwargs):
         # Lock the index
         self.writelock = None
         if _lk:
@@ -142,19 +148,20 @@ class SegmentWriter(IndexWriter):
         self._setup_doc_offsets()
 
         # Internals
+        self.compound = compound
         poolprefix = "whoosh_%s_" % self.indexname
         self.pool = PostingPool(limitmb=limitmb, prefix=poolprefix)
-        self.newsegment = Segment(self.indexname, 0)
+        newsegment = self.newsegment = Segment(self.indexname, 0)
         self.is_closed = False
         self._added = False
 
         # Set up writers
         if codec is None:
             from whoosh.codec.standard import StdCodec
-            codec = StdCodec(self.storage)
+            codec = StdCodec()
         self.codec = codec
-        self.perdocwriter = codec.per_document_writer(self.newsegment)
-        self.fieldwriter = codec.field_writer(self.newsegment)
+        self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
+        self.fieldwriter = codec.field_writer(self.storage, newsegment)
 
     def _setup_doc_offsets(self):
         self._doc_offsets = []
@@ -246,56 +253,75 @@ class SegmentWriter(IndexWriter):
                 yield (fieldname, text, newdoc, weight, valuestring)
         self.fieldwriter.add_postings(schema, lengths, gen())
 
-    def add_reader(self, reader):
-        self._check_state()
-        schema = self.schema
-        perdocwriter = self.perdocwriter
+    def _make_docmap(self, reader, newdoc):
+        # If the reader has deletions, make a dictionary mapping the docnums
+        # of undeleted documents to new sequential docnums starting at newdoc
         hasdel = reader.has_deletions()
         if hasdel:
-            # Documents will be renumbered because the deleted documents will
-            # be skipped, so keep a mapping between old and new docnums
             docmap = {}
+            for docnum in reader.all_doc_ids():
+                if reader.is_deleted(docnum):
+                    continue
+                docmap[docnum] = newdoc
+                newdoc += 1
         else:
             docmap = None
+            newdoc += reader.doc_count_all()
+        # Return the map and the new lowest unused document number
+        return docmap, newdoc
+
+    def _merge_per_doc(self, reader, docmap):
+        schema = self.schema
+        newdoc = self.docnum
+        perdocwriter = self.perdocwriter
         sharedfields = set(schema.names()) & set(reader.schema.names())
 
-        # Add per-document values
-        startdoc = newdoc = self.docnum
         for docnum in reader.all_doc_ids():
             # Skip deleted documents
-            if (not hasdel) or (not reader.is_deleted(docnum)):
-                if hasdel:
-                    docmap[docnum] = newdoc
+            if docmap and docnum not in docmap:
+                continue
+            # Renumber around deletions
+            if docmap:
+                newdoc = docmap[docnum]
 
-                # Get the stored fields
-                d = reader.stored_fields(docnum)
-                # Start a new document in the writer
-                perdocwriter.start_doc(newdoc)
-                # For each field in the document, copy its stored value,
-                # length, and vectors (if any) to the writer
-                for fieldname in sharedfields:
-                    field = schema[fieldname]
-                    length = (reader.doc_field_length(docnum, fieldname, 0)
-                              if field.scorable else 0)
-                    perdocwriter.add_field(fieldname, field, d.get(fieldname),
-                                           length)
-                    if field.vector and reader.has_vector(docnum, fieldname):
-                        v = reader.vector(docnum, fieldname)
-                        perdocwriter.add_vector_matcher(fieldname, field, v)
-                # Finish the new document 
-                perdocwriter.finish_doc()
-                newdoc += 1
-        self.docnum = newdoc
+            # Get the stored fields
+            d = reader.stored_fields(docnum)
+            # Start a new document in the writer
+            perdocwriter.start_doc(newdoc)
+            # For each field in the document, copy its stored value,
+            # length, and vectors (if any) to the writer
+            for fieldname in sharedfields:
+                field = schema[fieldname]
+                length = (reader.doc_field_length(docnum, fieldname, 0)
+                          if field.scorable else 0)
+                perdocwriter.add_field(fieldname, field, d.get(fieldname),
+                                       length)
+                if field.vector and reader.has_vector(docnum, fieldname):
+                    v = reader.vector(docnum, fieldname)
+                    perdocwriter.add_vector_matcher(fieldname, field, v)
+            # Finish the new document 
+            perdocwriter.finish_doc()
+            newdoc += 1
 
+    def _merge_fields(self, reader, docmap):
         # Add inverted index postings to the pool, renumbering document number
         # references as necessary
         add_post = self.pool.add
-        for fieldname, text, docnum, weight, value in reader.iter_postings():
-            # Remap the document number if necessary
-            newdoc = docmap[docnum] if hasdel else startdoc + docnum
-            # Add the posting to the pool
-            add_post((fieldname, text, newdoc, weight, value))
+        # Note: iter_postings() only yields postings for undeleted docs
+        for p in renumber_postings(reader, self.docnum, docmap):
+            add_post(p)
 
+    def add_reader(self, reader):
+        self._check_state()
+
+        # Make a docnum map to renumber around deleted documents
+        docmap, newdoc = self._make_docmap(reader, self.docnum)
+        # Add per-document values
+        self._merge_per_doc(reader, docmap)
+        # Add field postings
+        self._merge_fields(reader, docmap)
+
+        self.docnum = newdoc
         self._added = True
 
     def _check_fields(self, schema, fieldnames):
@@ -414,6 +440,7 @@ class SegmentWriter(IndexWriter):
 
         self._check_state()
         schema = self.schema
+        storage = self.storage
         try:
             if mergetype:
                 pass
@@ -445,11 +472,17 @@ class SegmentWriter(IndexWriter):
             else:
                 self.pool.cleanup()
 
-            # Close all files, write a new TOC with the new segment list, and
-            # release the lock.
+            # Close all files
             self._close_all()
-            self.codec.commit_toc(self.indexname, self.schema, finalsegments,
-                                  self.generation)
+
+            if self._added and self.compound:
+                # Assemble the segment files into a compound file
+                newsegment.create_compound_file(storage)
+                newsegment.compound = True
+
+            # Write a new TOC with the new segment list (and delete old files)
+            self.codec.commit_toc(storage, self.indexname, schema,
+                                  finalsegments, self.generation)
         finally:
             if self.writelock:
                 self.writelock.release()

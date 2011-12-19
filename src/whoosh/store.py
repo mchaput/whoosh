@@ -37,6 +37,7 @@ class Storage(object):
     """
 
     readonly = False
+    supports_mmap = False
 
     def __iter__(self):
         return iter(self.list())
@@ -83,3 +84,79 @@ class Storage(object):
 
     def optimize(self):
         pass
+
+
+class OverlayStorage(Storage):
+    """Overlays two storage objects. Reads are processed from the first if it
+    has the named file, otherwise the second. Writes always go to the second.
+    """
+
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+
+    def create_index(self, *args, **kwargs):
+        self.b.create_index(*args, **kwargs)
+
+    def open_index(self, *args, **kwargs):
+        self.a.open_index(*args, **kwargs)
+
+    def create_file(self, *args, **kwargs):
+        return self.b.create_file(*args, **kwargs)
+
+    def create_temp(self, *args, **kwargs):
+        return self.b.create_temp(*args, **kwargs)
+
+    def open_file(self, name, *args, **kwargs):
+        if self.a.file_exists(name):
+            return self.a.open_file(name, *args, **kwargs)
+        else:
+            return self.b.open_file(name, *args, **kwargs)
+
+    def list(self):
+        return list(set(self.a.list()) | set(self.b.list()))
+
+    def file_exists(self, name):
+        return self.a.file_exists(name) or self.b.file_exists(name)
+
+    def file_modified(self, name):
+        if self.a.file_exists(name):
+            return self.a.file_modified(name)
+        else:
+            return self.b.file_modified(name)
+
+    def file_length(self, name):
+        if self.a.file_exists(name):
+            return self.a.file_length(name)
+        else:
+            return self.b.file_length(name)
+
+    def delete_file(self, name):
+        return self.b.delete_file(name)
+
+    def rename_file(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def lock(self, name):
+        return self.b.lock(name)
+
+    def close(self):
+        self.a.close()
+        self.b.close()
+
+    def optimize(self):
+        self.a.optimize()
+        self.b.optimize()
+
+
+
+
+
+
+
+
+
+
+
+
+

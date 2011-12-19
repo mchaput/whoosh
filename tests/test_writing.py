@@ -277,3 +277,73 @@ def test_add_field():
         with ix.searcher() as s:
             fs = s.document(b=u("india"))
             assert_equal(fs, {"b": "india", "cat": "juliet"})
+
+def test_add_reader():
+    schema = fields.Schema(i=fields.ID(stored=True, unique=True),
+                           a=fields.TEXT(stored=True, spelling=True),
+                           b=fields.TEXT(vector=True))
+    with TempIndex(schema, "addreader") as ix:
+        with ix.writer() as w:
+            w.add_document(i=u("0"), a=u("alfa bravo charlie delta"),
+                           b=u("able baker coxwell dog"))
+            w.add_document(i=u("1"), a=u("bravo charlie delta echo"),
+                           b=u("elf fabio gong hiker"))
+            w.add_document(i=u("2"), a=u("charlie delta echo foxtrot"),
+                           b=u("india joker king loopy"))
+            w.add_document(i=u("3"), a=u("delta echo foxtrot golf"),
+                           b=u("mister noogie oompah pancake"))
+
+        with ix.writer() as w:
+            w.delete_by_term("i", "1")
+            w.delete_by_term("i", "3")
+
+        with ix.writer() as w:
+            w.add_document(i=u("4"), a=u("hotel india juliet kilo"),
+                           b=u("quick rhubarb soggy trap"))
+            w.add_document(i=u("5"), a=u("india juliet kilo lima"),
+                           b=u("umber violet weird xray"))
+
+        with ix.reader() as r:
+            assert_equal(r.doc_count_all(), 4)
+
+            sfs = list(r.all_stored_fields())
+            assert_equal(sfs, [{"i": u("4"), "a": u("hotel india juliet kilo")},
+                               {"i": u("5"), "a": u("india juliet kilo lima")},
+                               {"i": u("0"), "a": u("alfa bravo charlie delta")},
+                               {"i": u("2"), "a": u("charlie delta echo foxtrot")},
+                               ])
+
+            assert_equal(list(r.lexicon("a")),
+                         ["alfa", "bravo", "charlie", "delta", "echo",
+                          "foxtrot", "hotel", "india", "juliet", "kilo", "lima"])
+
+            vs = []
+            for docnum in r.all_doc_ids():
+                v = r.vector(docnum, "b")
+                vs.append(list(v.all_ids()))
+            assert_equal(vs, [["quick", "rhubarb", "soggy", "trap"],
+                              ["umber", "violet", "weird", "xray"],
+                              ["able", "baker", "coxwell", "dog"],
+                              ["india", "joker", "king", "loopy"]
+                              ])
+
+            gr = r.word_graph("a")
+            assert_equal(list(gr.flatten_strings()),
+                         ["alfa", "bravo", "charlie", "delta", "echo",
+                          "foxtrot", "hotel", "india", "juliet", "kilo",
+                          "lima", ])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

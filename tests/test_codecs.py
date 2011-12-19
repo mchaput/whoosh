@@ -16,9 +16,9 @@ from whoosh.util import byte_to_length, length_to_byte
 
 def _make_codec(**kwargs):
     st = RamStorage()
-    codec = standard.StdCodec(st, **kwargs)
+    codec = standard.StdCodec(**kwargs)
     seg = Segment("test")
-    return codec, seg
+    return st, codec, seg
 
 def test_termkey():
     from whoosh.codec.standard import TermIndexWriter
@@ -158,24 +158,24 @@ def test_block():
 
 def test_docwriter_one():
     field = fields.TEXT(stored=True)
-    codec, seg = _make_codec()
-    dw = codec.per_document_writer(seg)
+    st, codec, seg = _make_codec()
+    dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     dw.add_field("text", field, "Testing one two three", 4)
     dw.finish_doc()
     dw.close()
     seg.doccount = 1
 
-    lr = codec.lengths_reader(seg)
-    assert_equal(lr.get(0, "text"), 4)
+    lr = codec.lengths_reader(st, seg)
+    assert_equal(lr.doc_field_length(0, "text"), 4)
 
-    sr = codec.stored_fields_reader(seg)
+    sr = codec.stored_fields_reader(st, seg)
     assert_equal(sr[0], {"text": "Testing one two three"})
 
 def test_docwriter_two():
     field = fields.TEXT(stored=True)
-    codec, seg = _make_codec()
-    dw = codec.per_document_writer(seg)
+    st, codec, seg = _make_codec()
+    dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     dw.add_field("title", field, ("a", "b"), 2)
     dw.add_field("text", field, "Testing one two three", 4)
@@ -187,20 +187,20 @@ def test_docwriter_two():
     dw.close()
     seg.doccount = 2
 
-    lr = codec.lengths_reader(seg)
-    assert_equal(lr.get(0, "title"), 2)
-    assert_equal(lr.get(0, "text"), 4)
-    assert_equal(lr.get(1, "title"), 3)
-    assert_equal(lr.get(1, "text"), 1)
+    lr = codec.lengths_reader(st, seg)
+    assert_equal(lr.doc_field_length(0, "title"), 2)
+    assert_equal(lr.doc_field_length(0, "text"), 4)
+    assert_equal(lr.doc_field_length(1, "title"), 3)
+    assert_equal(lr.doc_field_length(1, "text"), 1)
 
-    sr = codec.stored_fields_reader(seg)
+    sr = codec.stored_fields_reader(st, seg)
     assert_equal(sr[0], {"title": ("a", "b"), "text": "Testing one two three"})
     assert_equal(sr[1], {"title": "The second document", "text": 500})
 
 def test_vector():
     field = fields.TEXT(vector=True)
-    codec, seg = _make_codec()
-    dw = codec.per_document_writer(seg)
+    st, codec, seg = _make_codec()
+    dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     dw.add_field("title", field, None, 1)
     dw.add_vector_items("title", field, [(u("alfa"), 1, 1.0, "t1"),
@@ -209,10 +209,10 @@ def test_vector():
     dw.close()
     seg.doccount = 1
 
-    sf = codec.stored_fields_reader(seg)
+    sf = codec.stored_fields_reader(st, seg)
     assert_equal(sf[0], {})
 
-    vr = codec.vector_reader(seg)
+    vr = codec.vector_reader(st, seg)
     m = vr.matcher(0, "title", field.vector)
     assert m.is_active()
     ps = []
@@ -223,25 +223,25 @@ def test_vector():
 
 def test_vector_values():
     field = fields.TEXT(vector=formats.Frequency())
-    codec, seg = _make_codec()
+    st, codec, seg = _make_codec()
     content = u("alfa bravo charlie alfa")
 
-    dw = codec.per_document_writer(seg)
+    dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     vals = sorted(field.vector.word_values(content, field.analyzer))
     dw.add_vector_items("f1", field, vals)
     dw.finish_doc()
     dw.close()
 
-    vr = codec.vector_reader(seg)
+    vr = codec.vector_reader(st, seg)
     m = vr.matcher(0, "f1", field.vector)
     assert_equal(list(m.items_as("frequency")), [("alfa", 2), ("bravo", 1),
                                                  ("charlie", 1)])
 
 def test_no_lengths():
     f1 = fields.ID()
-    codec, seg = _make_codec()
-    dw = codec.per_document_writer(seg)
+    st, codec, seg = _make_codec()
+    dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     dw.add_field("name", f1, None, None)
     dw.finish_doc()
@@ -254,29 +254,29 @@ def test_no_lengths():
     dw.close()
     seg.doccount = 3
 
-    lr = codec.lengths_reader(seg)
-    assert_equal(lr.get(0, "name"), 0)
-    assert_equal(lr.get(1, "name"), 0)
-    assert_equal(lr.get(2, "name"), 0)
+    lr = codec.lengths_reader(st, seg)
+    assert_equal(lr.doc_field_length(0, "name"), 0)
+    assert_equal(lr.doc_field_length(1, "name"), 0)
+    assert_equal(lr.doc_field_length(2, "name"), 0)
 
 def test_store_zero():
     f1 = fields.ID(stored=True)
-    codec, seg = _make_codec()
-    dw = codec.per_document_writer(seg)
+    st, codec, seg = _make_codec()
+    dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     dw.add_field("name", f1, 0, None)
     dw.finish_doc()
     dw.close()
     seg.doccount = 1
 
-    sr = codec.stored_fields_reader(seg)
+    sr = codec.stored_fields_reader(st, seg)
     assert_equal(sr[0], {"name": 0})
 
 def test_fieldwriter_single_term():
     field = fields.TEXT()
-    codec, seg = _make_codec()
+    st, codec, seg = _make_codec()
 
-    fw = codec.field_writer(seg)
+    fw = codec.field_writer(st, seg)
     fw.start_field("text", field)
     fw.start_term(u("alfa"))
     fw.add(0, 1.5, b("test"), 1)
@@ -284,7 +284,7 @@ def test_fieldwriter_single_term():
     fw.finish_field()
     fw.close()
 
-    tr = codec.terms_reader(seg)
+    tr = codec.terms_reader(st, seg)
     assert ("text", "alfa") in tr
     ti = tr.terminfo("text", "alfa")
     assert_equal(ti.weight(), 1.5)
@@ -297,9 +297,9 @@ def test_fieldwriter_single_term():
 
 def test_fieldwriter_two_terms():
     field = fields.TEXT()
-    codec, seg = _make_codec()
+    st, codec, seg = _make_codec()
 
-    fw = codec.field_writer(seg)
+    fw = codec.field_writer(st, seg)
     fw.start_field("text", field)
     fw.start_term(u("alfa"))
     fw.add(0, 2.0, b("test1"), 2)
@@ -312,7 +312,7 @@ def test_fieldwriter_two_terms():
     fw.finish_field()
     fw.close()
 
-    tr = codec.terms_reader(seg)
+    tr = codec.terms_reader(st, seg)
     assert ("text", "alfa") in tr
     ti = tr.terminfo("text", "alfa")
     assert_equal(ti.weight(), 3.0)
@@ -337,9 +337,9 @@ def test_fieldwriter_two_terms():
 
 def test_fieldwriter_multiblock():
     field = fields.TEXT()
-    codec, seg = _make_codec(blocklimit=2)
+    st, codec, seg = _make_codec(blocklimit=2)
 
-    fw = codec.field_writer(seg)
+    fw = codec.field_writer(st, seg)
     fw.start_field("text", field)
     fw.start_term(u("alfa"))
     fw.add(0, 2.0, b("test1"), 2)
@@ -351,7 +351,7 @@ def test_fieldwriter_multiblock():
     fw.finish_field()
     fw.close()
 
-    tr = codec.terms_reader(seg)
+    tr = codec.terms_reader(st, seg)
     ti = tr.terminfo("text", "alfa")
     assert_equal(ti.weight(), 15.0)
     assert_equal(ti.doc_frequency(), 5)
@@ -372,10 +372,10 @@ def test_fieldwriter_multiblock():
 
 def test_term_values():
     field = fields.TEXT(phrase=False)
-    codec, seg = _make_codec()
+    st, codec, seg = _make_codec()
     content = u("alfa bravo charlie alfa")
 
-    fw = codec.field_writer(seg)
+    fw = codec.field_writer(st, seg)
     fw.start_field("f1", field)
     for text, freq, weight, val in sorted(field.index(content)):
         fw.start_term(text)
@@ -384,7 +384,7 @@ def test_term_values():
     fw.finish_field()
     fw.close()
 
-    tr = codec.terms_reader(seg)
+    tr = codec.terms_reader(st, seg)
     ps = [(text, ti.weight(), ti.doc_frequency()) for text, ti in tr.items()]
     assert_equal(ps, [(("f1", "alfa"), 2.0, 1), (("f1", "bravo"), 1.0, 1),
                       (("f1", "charlie"), 1.0, 1)])
@@ -393,11 +393,11 @@ def test_skip():
     _random_docnums = [1, 3, 12, 34, 43, 67, 68, 102, 145, 212, 283, 291, 412,
                        900, 905, 1024, 1800, 2048, 15000]
     with TempStorage("skip") as st:
-        codec = standard.StdCodec(st)
+        codec = standard.StdCodec()
         seg = Segment("")
         field = fields.TEXT()
 
-        fw = codec.field_writer(seg)
+        fw = codec.field_writer(st, seg)
         fw.start_field("f1", field)
         fw.start_term(u("test"))
         for n in _random_docnums:
@@ -406,7 +406,7 @@ def test_skip():
         fw.finish_field()
         fw.close()
 
-        tr = codec.terms_reader(seg)
+        tr = codec.terms_reader(st, seg)
         m = tr.matcher("f1", "test", field.format)
         assert_equal(m.id(), 1)
         m.skip_to(220)
@@ -420,9 +420,9 @@ def test_skip():
 
 def test_spelled_field():
     field = fields.TEXT(spelling=True)
-    codec, seg = _make_codec()
+    st, codec, seg = _make_codec()
 
-    fw = codec.field_writer(seg)
+    fw = codec.field_writer(st, seg)
     fw.start_field("text", field)
     fw.start_term(u("special"))
     fw.add(0, 1.0, b("test1"), 1)
@@ -433,7 +433,7 @@ def test_spelled_field():
     fw.finish_field()
     fw.close()
 
-    gr = codec.graph_reader(seg)
+    gr = codec.graph_reader(st, seg)
     assert gr.has_root("text")
     cur = gr.cursor("text")
     assert_equal(list(cur.flatten_strings()), ["special", "specific"])
@@ -442,9 +442,9 @@ def test_special_spelled_field():
     from whoosh.analysis import StemmingAnalyzer
 
     field = fields.TEXT(analyzer=StemmingAnalyzer(), spelling=True)
-    codec, seg = _make_codec()
+    st, codec, seg = _make_codec()
 
-    fw = codec.field_writer(seg)
+    fw = codec.field_writer(st, seg)
     fw.start_field("text", field)
     fw.start_term(u("special"))
     fw.add(0, 1.0, b("test1"), 1)
@@ -457,10 +457,10 @@ def test_special_spelled_field():
     fw.finish_field()
     fw.close()
 
-    tr = codec.terms_reader(seg)
+    tr = codec.terms_reader(st, seg)
     assert_equal(list(tr.keys()), [("text", "special"), ("text", "specific")])
 
-    cur = codec.graph_reader(seg).cursor("text")
+    cur = codec.graph_reader(st, seg).cursor("text")
     assert_equal(list(cur.flatten_strings()), ["specials", "specifically"])
 
 

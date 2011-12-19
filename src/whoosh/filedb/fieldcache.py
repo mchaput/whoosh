@@ -586,7 +586,7 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
             filename = gzfilename
             gzipped = True
 
-        f = storage.open_file(filename, mapped=False, gzip=gzipped)
+        f = storage.open_file(filename, gzip=gzipped)
         cache = self.fcclass.from_file(f)
         f.close()
         return cache

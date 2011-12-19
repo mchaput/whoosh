@@ -31,6 +31,7 @@ from time import time, sleep
 from whoosh import __version__
 from whoosh.compat import pickle, integer_types, string_type, xrange
 from whoosh.fields import ensure_schema
+from whoosh.filedb.compound import CompoundStorage
 from whoosh.index import (Index, EmptyIndexError, IndexVersionError,
                           _DEF_INDEX_NAME)
 from whoosh.reading import EmptyReader, MultiReader
@@ -55,7 +56,7 @@ class TOC(object):
 
     @classmethod
     def _segment_pattern(cls, indexname):
-        return re.compile("(_%s_[0-9a-z]+)[.][a-z]+" % indexname)
+        return re.compile("_(%s_[0-9a-z]+)[.][a-z]+" % indexname)
 
     @classmethod
     def _latest_generation(cls, storage, indexname):
@@ -175,12 +176,13 @@ def clean_files(storage, indexname, gen, segments):
     # probably be deleted eventually by a later call to clean_files.
 
     current_segment_names = set(s.segment_id() for s in segments)
-
     tocpattern = TOC._pattern(indexname)
     segpattern = TOC._segment_pattern(indexname)
 
     todelete = set()
     for filename in storage:
+        if filename.startswith("."):
+            continue
         tocm = tocpattern.match(filename)
         segm = segpattern.match(filename)
         if tocm:
@@ -242,15 +244,15 @@ class FileIndex(Index):
     def is_empty(self):
         return len(self._read_toc().segments) == 0
 
-    def optimize(self):
-        w = self.writer()
+    def optimize(self, **kwargs):
+        w = self.writer(**kwargs)
         w.commit(optimize=True)
 
     # searcher
 
     def writer(self, procs=1, **kwargs):
         if procs > 1:
-            from whoosh.filedb.multiproc2 import MpWriter
+            from whoosh.filedb.multiproc import MpWriter
             return MpWriter(self, **kwargs)
         else:
             from whoosh.filedb.filewriting import SegmentWriter
@@ -357,7 +359,10 @@ class Segment(object):
     along the way).
     """
 
+    # These must be valid separate characters in CASE-INSENSTIVE filenames
     IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
+    # Extension for compound segment files
+    COMPOUND_EXT = ".seg"
 
     @classmethod
     def _random_id(cls, size=12):
@@ -379,6 +384,7 @@ class Segment(object):
         self.doccount = doccount
         self.segid = self._random_id() if segid is None else segid
         self.deleted = deleted
+        self.compound = False
 
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, getattr(self, "segid", ""))
@@ -391,7 +397,11 @@ class Segment(object):
             return "%s_%s" % (self.indexname, self.segid)
 
     def make_filename(self, ext):
-        return "%s%s" % (self.segment_id(), ext)
+        return "_%s%s" % (self.segment_id(), ext)
+
+    def list_files(self, storage):
+        prefix = "_%s." % self.segment_id()
+        return [name for name in storage.list() if name.startswith(prefix)]
 
     def create_file(self, storage, ext, **kwargs):
         """Convenience method to create a new file in the given storage named
@@ -410,6 +420,18 @@ class Segment(object):
 
         fname = self.make_filename(ext)
         return storage.open_file(fname, **kwargs)
+
+    def create_compound_file(self, storage):
+        segfiles = self.list_files(storage)
+        assert not any(name.endswith(self.COMPOUND_EXT) for name in segfiles)
+        cfile = self.create_file(storage, self.COMPOUND_EXT)
+        CompoundStorage.assemble(cfile, storage, segfiles)
+        for name in segfiles:
+            storage.delete_file(name)
+
+    def open_compound_file(self, storage):
+        name = self.make_filename(self.COMPOUND_EXT)
+        return CompoundStorage(storage, name)
 
     def doc_count_all(self):
         """

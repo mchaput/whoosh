@@ -91,8 +91,8 @@ class Block2(base.BlockBase):
         return block
 
     def read_ids(self):
-        dataoffset = self.dataoffset
-        string = self.postfile.map[dataoffset:dataoffset + self.idslen]
+        self.postfile.seek(self.dataoffset)
+        string = self.postfile.read(self.idslen)
         self.ids = deminimize_ids(string)
 
     def read_weights(self):
@@ -100,7 +100,8 @@ class Block2(base.BlockBase):
             return [1.0] * self.count
         else:
             offset = self.dataoffset + self.idslen
-            string = self.postfile.map[offset:offset + self.weightslen]
+            self.postfile.seek(offset)
+            string = self.postfile.read(self.weightslen)
             return deminimize_weights(self.count, string, self.cmp)
 
     def read_values(self):
@@ -109,7 +110,8 @@ class Block2(base.BlockBase):
             return [None] * self.count
         else:
             offset = self.dataoffset + self.idslen + self.weightslen
-            string = self.postfile.map[offset:self.nextoffset]
+            self.postfile.seek(offset)
+            string = self.postfile.read(self.nextoffset - offset)
             return deminimize_values(postingsize, self.count, string, self.cmp)
 
 
@@ -192,7 +194,8 @@ class Block1(base.BlockBase):
 
         postingsize = self.postingsize
         if postingsize != 0:
-            values_string = postfile.map[startoffset:endoffset]
+            postfile.seek(startoffset)
+            values_string = postfile.read(endoffset - startoffset)
 
             if self.wtslen:
                 # Values string is compressed

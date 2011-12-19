@@ -28,6 +28,7 @@
 
 from array import array
 from struct import Struct, pack
+from bisect import bisect_right
 
 from whoosh.compat import loads, dumps, b, bytes_type, string_type, xrange
 from whoosh.matching import Matcher, ReadTooFar
@@ -48,37 +49,34 @@ except ImportError:
 # Base classes
 
 class Codec(object):
-    def __init__(self, storage):
-        self.storage = storage
-
     # Per document value writer
-    def per_document_writer(self, segment):
+    def per_document_writer(self, storage, segment):
         raise NotImplementedError
 
     # Inverted index writer
-    def field_writer(self, segment):
+    def field_writer(self, storage, segment):
         raise NotImplementedError
 
     # Readers
 
-    def terms_reader(self, segment):
+    def terms_reader(self, storage, segment):
         raise NotImplementedError
 
-    def lengths_reader(self, segment):
+    def lengths_reader(self, storage, segment):
         raise NotImplementedError
 
-    def vector_reader(self, segment):
+    def vector_reader(self, storage, segment):
         raise NotImplementedError
 
-    def stored_fields_reader(self, segment):
+    def stored_fields_reader(self, storage, segment):
         raise NotImplementedError
 
-    def graph_reader(self, segment):
+    def graph_reader(self, storage, segment):
         raise NotImplementedError
 
     # Generations
 
-    def commit_toc(self, indexname, schema, segments, generation):
+    def commit_toc(self, storage, indexname, schema, segments, generation):
         raise NotImplementedError
 
 
@@ -115,7 +113,7 @@ class FieldWriter(object):
         # items = (fieldname, text, docnum, weight, valuestring) ...
         lastfn = None
         lasttext = None
-        getlen = lengths.get
+        dfl = lengths.doc_field_length
         for fieldname, text, docnum, weight, valuestring in items:
             # Items where docnum is None indicate words that should be added
             # to the spelling graph
@@ -142,7 +140,7 @@ class FieldWriter(object):
                     lastfn = fieldname
                 start_term(text)
                 lasttext = text
-            length = getlen(docnum, fieldname)
+            length = dfl(docnum, fieldname)
             add(docnum, weight, valuestring, length)
         if lasttext is not None:
             finish_term()
@@ -198,7 +196,7 @@ class VectorReader(object):
 
 
 class LengthsReader(object):
-    def get(self, docnum, fieldname):
+    def doc_field_length(self, docnum, fieldname, default=0):
         raise NotImplementedError
 
     def field_length(self, fieldname):
@@ -212,6 +210,43 @@ class LengthsReader(object):
 
     def close(self):
         pass
+
+
+class MultiLengths(LengthsReader):
+    def __init__(self, lengths):
+        self.lengths = lengths
+        self.doc_offsets = []
+        self._count = 0
+        for lr in self.lengths:
+            self.doc_offsets.append(self._count)
+            self._count += lr.doc_count_all()
+        self.is_closed = False
+
+    def _document_reader(self, docnum):
+        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
+
+    def _reader_and_docnum(self, docnum):
+        lnum = self._document_reader(docnum)
+        offset = self.doc_offsets[lnum]
+        return lnum, docnum - offset
+
+    def doc_count_all(self):
+        return self._count
+
+    def doc_field_length(self, docnum, fieldname, default=0):
+        x, y = self._reader_and_docnum(docnum)
+        return self.lengths[x].doc_field_length(y, fieldname, default=default)
+
+    def min_field_length(self):
+        return min(lr.min_field_length() for lr in self.lengths)
+
+    def max_field_length(self):
+        return max(lr.max_field_length() for lr in self.lengths)
+
+    def close(self):
+        for lr in self.lengths:
+            lr.close()
+        self.is_closed = True
 
 
 class StoredFieldsReader(object):
