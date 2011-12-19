@@ -39,11 +39,27 @@ class ReadOnlyError(Exception):
     pass
 
 
+def create_index(storage, schema, indexname):
+    from whoosh.filedb.fileindex import TOC, FileIndex
+
+    if storage.readonly:
+        raise ReadOnlyError
+    TOC.create(storage, schema, indexname)
+    return FileIndex(storage, schema, indexname)
+
+
+def open_index(storage, schema, indexname):
+    from whoosh.filedb.fileindex import FileIndex
+
+    return FileIndex(storage, schema=schema, indexname=indexname)
+
 class FileStorage(Storage):
     """Storage object that stores the index as files in a directory on disk.
     """
 
-    def __init__(self, path, mapped=True, readonly=False):
+    supports_mmap = True
+
+    def __init__(self, path, mapped=False, readonly=False):
         self.folder = path
         self.mapped = mapped
         self.readonly = readonly
@@ -53,17 +69,10 @@ class FileStorage(Storage):
             raise IOError("Directory %s does not exist" % path)
 
     def create_index(self, schema, indexname=_DEF_INDEX_NAME):
-        from whoosh.filedb.fileindex import TOC, FileIndex
-
-        if self.readonly:
-            raise ReadOnlyError
-        TOC.create(self, schema, indexname)
-        return FileIndex(self, schema, indexname)
+        return create_index(self, schema, indexname)
 
     def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
-        from whoosh.filedb.fileindex import FileIndex
-
-        return FileIndex(self, schema=schema, indexname=indexname)
+        return open_index(self, schema, indexname)
 
     def create_file(self, name, excl=False, mode="wb", **kwargs):
         if self.readonly:
@@ -79,29 +88,28 @@ class FileStorage(Storage):
         else:
             fileobj = open(path, mode)
 
-        f = StructFile(fileobj, name=name, mapped=self.mapped, **kwargs)
+        f = StructFile(fileobj, name=name, **kwargs)
         return f
 
     def open_file(self, name, *args, **kwargs):
-        try:
-            f = StructFile(open(self._fpath(name), "rb"), name=name, *args,
-                           **kwargs)
-        except IOError:
-            #print("Tried to open %r, files=%r" % (name, self.list()))
-            raise
+        f = StructFile(open(self._fpath(name), "rb"), name=name, *args,
+                       **kwargs)
         return f
 
     def _fpath(self, fname):
-        return os.path.join(self.folder, fname)
+        return os.path.abspath(os.path.join(self.folder, fname))
 
     def clean(self):
+        if self.readonly:
+            raise ReadOnlyError
+
         path = self.folder
         if not os.path.exists(path):
             os.mkdir(path)
 
         files = self.list()
-        for file in files:
-            os.remove(os.path.join(path, file))
+        for fname in files:
+            os.remove(os.path.join(path, fname))
 
     def list(self):
         try:
@@ -121,15 +129,21 @@ class FileStorage(Storage):
         return os.path.getsize(self._fpath(name))
 
     def delete_file(self, name):
+        if self.readonly:
+            raise ReadOnlyError
+
         os.remove(self._fpath(name))
 
-    def rename_file(self, frm, to, safe=False):
-        if os.path.exists(self._fpath(to)):
+    def rename_file(self, oldname, newname, safe=False):
+        if self.readonly:
+            raise ReadOnlyError
+
+        if os.path.exists(self._fpath(newname)):
             if safe:
-                raise NameError("File %r exists" % to)
+                raise NameError("File %r exists" % newname)
             else:
-                os.remove(self._fpath(to))
-        os.rename(self._fpath(frm), self._fpath(to))
+                os.remove(self._fpath(newname))
+        os.rename(self._fpath(oldname), self._fpath(newname))
 
     def lock(self, name):
         return FileLock(self._fpath(name))
@@ -138,14 +152,22 @@ class FileStorage(Storage):
         return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
 
 
-class RamStorage(FileStorage):
+class RamStorage(Storage):
     """Storage object that keeps the index in memory.
     """
+
+    supports_mmap = False
 
     def __init__(self):
         self.files = {}
         self.locks = {}
         self.folder = ''
+
+    def create_index(self, schema, indexname=_DEF_INDEX_NAME):
+        return create_index(self, schema, indexname)
+
+    def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
+        return open_index(self, schema, indexname)
 
     def list(self):
         return list(self.files.keys())
@@ -161,17 +183,20 @@ class RamStorage(FileStorage):
 
     def file_length(self, name):
         if name not in self.files:
-            raise NameError
+            raise NameError(name)
         return len(self.files[name])
+
+    def file_modified(self, name):
+        return -1
 
     def delete_file(self, name):
         if name not in self.files:
-            raise NameError
+            raise NameError(name)
         del self.files[name]
 
     def rename_file(self, name, newname, safe=False):
         if name not in self.files:
-            raise NameError("File %r does not exist" % name)
+            raise NameError(name)
         if safe and newname in self.files:
             raise NameError("File %r exists" % newname)
 
@@ -187,7 +212,7 @@ class RamStorage(FileStorage):
 
     def open_file(self, name, *args, **kwargs):
         if name not in self.files:
-            raise NameError("No such file %r" % name)
+            raise NameError(name)
         return StructFile(BytesIO(self.files[name]), name=name, *args,
                           **kwargs)
 

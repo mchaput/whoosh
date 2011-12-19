@@ -13,12 +13,12 @@ from whoosh.support.testing import TempStorage
 
 def _roundtrip(content, format_, astype, ana=None):
     with TempStorage("roundtrip") as st:
-        codec = StdCodec(st)
+        codec = StdCodec()
         seg = Segment("")
         ana = ana or analysis.StandardAnalyzer()
         field = fields.FieldType(format=format_, analyzer=ana)
 
-        fw = codec.field_writer(seg)
+        fw = codec.field_writer(st, seg)
         fw.start_field("f1", field)
         for text, _, weight, valuestring in sorted(field.index(content)):
             fw.start_term(text)
@@ -27,7 +27,7 @@ def _roundtrip(content, format_, astype, ana=None):
         fw.finish_field()
         fw.close()
 
-        tr = codec.terms_reader(seg)
+        tr = codec.terms_reader(st, seg)
         ps = []
         for fieldname, text in tr.keys():
             m = tr.matcher(fieldname, text, format_)

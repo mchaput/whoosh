@@ -173,7 +173,6 @@ class HashWriter(object):
 class HashReader(object):
     def __init__(self, dbfile):
         self.dbfile = dbfile
-        self.map = dbfile.map
 
         dbfile.seek(0)
         magic = dbfile.read(4)
@@ -206,12 +205,12 @@ class HashReader(object):
     def close(self):
         if self.is_closed:
             raise Exception("Tried to close %r twice" % self)
-        del self.map
         self.dbfile.close()
         self.is_closed = True
 
     def read(self, position, length):
-        return self.map[position:position + length]
+        self.dbfile.seek(position)
+        return self.dbfile.read(length)
 
     def _ranges(self, pos=None):
         if pos is None:
