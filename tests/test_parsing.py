@@ -593,7 +593,7 @@ def test_analyzing_terms():
     assert_equal(q.__class__, query.Term)
     assert_equal(q.text, "index")
 
-def test_simple():
+def test_simple_parsing():
     parser = default.SimpleParser("x", None)
     q = parser.parse(u("alfa bravo charlie delta"))
     assert_equal(text_type(q), "(x:alfa OR x:bravo OR x:charlie OR x:delta)")

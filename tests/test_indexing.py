@@ -76,7 +76,7 @@ def _check_writer(name, writer_fn):
                 rset = sorted([hit["id"] for hit in s.search(query.Term("text", word), limit=None)])
                 assert_equal(rset, docs[word])
 
-def test_simple():
+def test_simple_indexing():
     _check_writer("simplew", lambda ix: ix.writer())
 
 #@skip_if_unavailable("multiprocessing")
