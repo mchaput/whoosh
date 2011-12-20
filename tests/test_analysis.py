@@ -250,7 +250,6 @@ def test_pystemmer():
 
     ix = st.open_index()
     with ix.reader() as r:
-        print list(r.lexicon("text"))
         assert_equal(list(r.lexicon("text")), ["fall", "pain", "rain", "stall",
                                                "strang", "strong"])
 
