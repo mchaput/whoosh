@@ -1,16 +1,19 @@
+from __future__ import with_statement
+
 from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, qparser
 from whoosh.compat import u, unichr
 from whoosh.filedb.filestore import RamStorage
+from whoosh.support.testing import skip_if_unavailable
 
 
 def test_regextokenizer():
     value = u("AAAaaaBBBbbbCCCcccDDDddd")
-    
+
     rex = analysis.RegexTokenizer("[A-Z]+")
     assert_equal([t.text for t in rex(value)], ["AAA", "BBB", "CCC", "DDD"])
-    
+
     rex = analysis.RegexTokenizer("[A-Z]+", gaps=True)
     assert_equal([t.text for t in rex(value)], ["aaa", "bbb", "ccc", "ddd"])
 
@@ -47,16 +50,16 @@ def test_composing_functions():
         for t in tokens:
             t.text = t.text.upper()
             yield t
-            
+
     analyzer = analysis.RegexTokenizer() | filter
     assert_equal([t.text for t in analyzer(u("abc def"))], ["ABC", "DEF"])
 
 def test_shared_composition():
     shared = analysis.RegexTokenizer(r"\S+") | analysis.LowercaseFilter()
-    
+
     ana1 = shared | analysis.NgramFilter(3)
     ana2 = shared | analysis.DoubleMetaphoneFilter()
-    
+
     assert_equal([t.text for t in ana1(u("hello"))], ["hel", "ell", "llo"])
     assert_equal([t.text for t in ana2(u("hello"))], ["HL"])
 
@@ -76,18 +79,18 @@ def test_tee_filter():
     ana = analysis.RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2)
     result = " ".join([t.text for t in ana(target)])
     assert_equal(result, "alfa aflA bravo ovarB charlie eilrahC")
-    
+
     class ucfilter(analysis.Filter):
         def __call__(self, tokens):
             for t in tokens:
                 t.text = t.text.upper()
                 yield t
-    
+
     f2 = analysis.ReverseTextFilter() | ucfilter()
     ana = analysis.RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2)
     result = " ".join([t.text for t in ana(target)])
     assert_equal(result, "alfa AFLA bravo OVARB charlie EILRAHC")
-    
+
     f1 = analysis.PassFilter()
     f2 = analysis.BiWordFilter()
     ana = analysis.RegexTokenizer(r"\S+") | analysis.TeeFilter(f1, f2) | analysis.LowercaseFilter()
@@ -97,10 +100,10 @@ def test_tee_filter():
 def test_intraword():
     iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
     ana = analysis.RegexTokenizer(r"\S+") | iwf
-    
+
     def check(text, ls):
         assert_equal([(t.pos, t.text) for t in ana(text)], ls)
-        
+
     check(u("PowerShot)"), [(0, "Power"), (1, "Shot"), (1, "PowerShot")])
     check(u("A's+B's&C's"), [(0, "A"), (1, "B"), (2, "C"), (2, "ABC")])
     check(u("Super-Duper-XL500-42-AutoCoder!"),
@@ -111,12 +114,12 @@ def test_intraword():
 def test_intraword_chars():
     iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
     ana = analysis.RegexTokenizer(r"\S+") | iwf | analysis.LowercaseFilter()
-    
+
     target = u("WiKiWo-rd")
     tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
     assert_equal(tokens, [("wi", 0, 2), ("ki", 2, 4), ("wo", 4, 6),
                           ("rd", 7, 9), ("wikiword", 0, 9)])
-    
+
     target = u("Zo WiKiWo-rd")
     tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
     assert_equal(tokens, [("zo", 0, 2), ("wi", 3, 5), ("ki", 5, 7),
@@ -125,7 +128,7 @@ def test_intraword_chars():
 def test_intraword_possessive():
     iwf = analysis.IntraWordFilter(mergewords=True, mergenums=True)
     ana = analysis.RegexTokenizer(r"\S+") | iwf | analysis.LowercaseFilter()
-    
+
     target = u("O'Malley's-Bar")
     tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
     assert_equal(tokens, [("o", 0, 1), ("malley", 2, 8), ("bar", 11, 14),
@@ -133,20 +136,20 @@ def test_intraword_possessive():
 
 def test_word_segments():
     wordset = set(u("alfa bravo charlie delta").split())
-    
+
     cwf = analysis.CompoundWordFilter(wordset, keep_compound=True)
     ana = analysis.RegexTokenizer(r"\S+") | cwf
     target = u("alfacharlie bravodelta delto bravo subalfa")
     tokens = [t.text for t in ana(target)]
     assert_equal(tokens, ["alfacharlie", "alfa", "charlie", "bravodelta",
                           "bravo", "delta", "delto", "bravo", "subalfa"])
-    
+
     cwf = analysis.CompoundWordFilter(wordset, keep_compound=False)
     ana = analysis.RegexTokenizer(r"\S+") | cwf
     target = u("alfacharlie bravodelta delto bravo subalfa")
     tokens = [t.text for t in ana(target)]
     assert_equal(tokens, ["alfa", "charlie", "bravo", "delta", "delto", "bravo", "subalfa"])
-    
+
     #target = u("alfacharlie bravodelta")
     #tokens = [(t.text, t.startchar, t.endchar) for t in ana(target, chars=True)]
     #assert_equal(tokens, [("alfa", 0, 4), ("charlie", 4, 11), ("bravo", 12, 17), ("delta", 17, 22)])
@@ -158,7 +161,7 @@ def test_biword():
     assert_equal(["the-sign", "sign-of", "of-four"], [t.text for t in result])
     assert_equal([(0, 8), (4, 11), (9, 16)], [(t.startchar, t.endchar) for t in result])
     assert_equal([0, 1, 2], [t.pos for t in result])
-    
+
     result = [t.copy() for t in ana(u("single"))]
     assert_equal(len(result), 1)
     assert_equal(result[0].text, "single")
@@ -173,10 +176,10 @@ def test_shingles():
     assert_equal([t.pos for t in results], list(range(len(results))))
     for t in results:
         assert_equal(t.text, source[t.startchar:t.endchar])
-    
+
 def test_unicode_blocks():
     from whoosh.support.unicode import blocks, blockname, blocknum
-    
+
     assert_equal(blockname(u('a')), 'Basic Latin')
     assert_equal(blockname(unichr(0x0b80)), 'Tamil')
     assert_equal(blockname(unichr(2048)), None)
@@ -185,12 +188,12 @@ def test_unicode_blocks():
     assert_equal(blocknum(unichr(2048)), None)
     assert_equal(blocknum(u('a')), blocks.Basic_Latin)  #@UndefinedVariable
     assert_equal(blocknum(unichr(0x0b80)), blocks.Tamil)  #@UndefinedVariable
-    
+
 def test_double_metaphone():
     mf = analysis.RegexTokenizer() | analysis.LowercaseFilter() | analysis.DoubleMetaphoneFilter()
     results = [(t.text, t.boost) for t in mf(u("Spruce View"))]
     assert_equal(results, [('SPRS', 1.0), ('F', 1.0), ('FF', 0.5)])
-    
+
     mf = analysis.RegexTokenizer() | analysis.LowercaseFilter() | analysis.DoubleMetaphoneFilter(combine=True)
     results = [(t.text, t.boost) for t in mf(u("Spruce View"))]
     assert_equal(results, [('spruce', 1.0), ('SPRS', 1.0), ('view', 1.0),
@@ -204,7 +207,7 @@ def test_substitution():
     mf = analysis.RegexTokenizer(r"\S+") | analysis.SubstitutionFilter("-", "")
     assert_equal([t.text for t in mf(u("one-two th-re-ee four"))],
                  ["onetwo", "threee", "four"])
-    
+
     mf = analysis.RegexTokenizer(r"\S+") | analysis.SubstitutionFilter("([^=]*)=(.*)", r"\2=\1")
     assert_equal([t.text for t in mf(u("a=b c=d ef"))], ["b=a", "d=c", "ef"])
 
@@ -212,26 +215,48 @@ def test_delimited_attribute():
     ana = analysis.RegexTokenizer(r"\S+") | analysis.DelimitedAttributeFilter()
     results = [(t.text, t.boost) for t in ana(u("image render^2 file^0.5"))]
     assert_equal(results, [("image", 1.0), ("render", 2.0), ("file", 0.5)])
-    
+
 def test_porter2():
     from whoosh.lang.porter2 import stem
-    
+
     plurals = ['caresses', 'flies', 'dies', 'mules', 'denied',
                'died', 'agreed', 'owned', 'humbled', 'sized',
                'meeting', 'stating', 'siezing', 'itemization',
                'sensational', 'traditional', 'reference', 'colonizer',
                'plotted']
     singles = [stem(w) for w in plurals]
-    
+
     assert_equal(singles, ['caress', 'fli', 'die', 'mule', 'deni', 'die', 'agre',
                            'own', 'humbl', 'size', 'meet', 'state', 'siez', 'item',
                            'sensat', 'tradit', 'refer', 'colon', 'plot'])
     assert_equal(stem("bill's"), "bill")
     assert_equal(stem("y's"), "y")
 
+@skip_if_unavailable("Stemmer")
+def test_pystemmer():
+    ana = (analysis.RegexTokenizer()
+           | analysis.LowercaseFilter()
+           | analysis.PyStemmerFilter())
+    schema = fields.Schema(text=fields.TEXT(analyzer=ana))
+    st = RamStorage()
+
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("rains falling strangely"))
+
+    ix = st.open_index()
+    with ix.writer() as w:
+        w.add_document(text=u("pains stalling strongly"))
+
+    ix = st.open_index()
+    with ix.reader() as r:
+        print list(r.lexicon("text"))
+        assert_equal(list(r.lexicon("text")), ["fall", "pain", "rain", "stall",
+                                               "strang", "strong"])
+
 def test_url():
     sample = u("Visit http://bitbucket.org/mchaput/whoosh or urn:isbn:5930502 or http://www.apple.com/.")
-    
+
     for ana in (analysis.SimpleAnalyzer(analysis.url_pattern),
                 analysis.StandardAnalyzer(analysis.url_pattern, stoplist=None)):
         ts = [t.text for t in ana(sample)]
@@ -244,12 +269,12 @@ def test_name_field():
            | analysis.DoubleMetaphoneFilter(combine=True))
     namefield = fields.TEXT(analyzer=ana, multitoken_query="or")
     schema = fields.Schema(id=fields.STORED, name=namefield)
-    
+
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(id=u("one"), name=u("Leif Ericson"))
     w.commit()
-    
+
     s = ix.searcher()
     qp = qparser.QueryParser("name", schema)
     q = qp.parse(u("leaf eriksen"), normalize=False)
@@ -261,7 +286,7 @@ def test_start_pos():
     ana = analysis.RegexTokenizer(r"\S+") | analysis.LowercaseFilter()
     kw = {"positions": True}
     assert_equal([t.pos for t in formats.tokens(u("alfa bravo charlie delta"), ana, kw)], [0, 1, 2, 3])
-    
+
     kw["start_pos"] = 3
     ts = [t.copy() for t in formats.tokens(u("A B C D").split(), ana, kw)]
     assert_equal(" ".join([t.text for t in ts]), "A B C D")
@@ -273,7 +298,7 @@ def test_frowny_face():
     # text is all delimiters
     tokens = [t.text for t in ana(u(":-("))]
     assert_equal(tokens, [])
-    
+
     # text has consecutive delimiters
     tokens = [t.text for t in ana(u("LOL:)"))]
     assert_equal(tokens, ["LOL"])

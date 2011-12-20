@@ -127,7 +127,6 @@ def test_date_range():
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, None)
 
-    print("!!!!!!!!!!!!!!!!!!!!")
     q = qp.parse(u("date:[30 march to next wednesday]"))
     print("q=", q)
     assert_equal(q.__class__, query.DateRange)
@@ -143,6 +142,21 @@ def test_date_range():
     assert_equal(q.__class__, query.DateRange)
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, None)
+
+def test_daterange_multi():
+    schema = fields.Schema(text=fields.TEXT, start=fields.DATETIME, end=fields.DATETIME)
+    qp = qparser.QueryParser("text", schema)
+    basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
+    qp.add_plugin(dateparse.DateParserPlugin(basedate))
+
+    q = qp.parse("start:[2008 to] AND end:[2011 to 2011]")
+    assert_equal(q.__class__, query.And)
+    assert_equal(q[0].__class__, query.DateRange)
+    assert_equal(q[1].__class__, query.DateRange)
+    assert_equal(q[0].startdate, adatetime(2008).floor())
+    assert_equal(q[0].enddate, None)
+    assert_equal(q[1].startdate, adatetime(2011).floor())
+    assert_equal(q[1].enddate, adatetime(2011).ceil())
 
 def test_daterange_empty_field():
     schema = fields.Schema(test=fields.DATETIME)
