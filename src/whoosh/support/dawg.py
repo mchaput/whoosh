@@ -47,7 +47,7 @@ from whoosh.compat import (b, u, BytesIO, xrange, iteritems, iterkeys,
                            bytes_type, text_type, izip)
 from whoosh.filedb.structfile import StructFile
 from whoosh.system import (_INT_SIZE, pack_byte, pack_int, pack_uint,
-                           pack_long)
+                           pack_long, emptybytes)
 from whoosh.util import utf8encode, utf8decode, varint
 
 
@@ -58,8 +58,6 @@ class FileVersionError(Exception):
 class InactiveCursor(Exception):
     pass
 
-
-emptybytes = b("")
 
 ARC_LAST = 1
 ARC_ACCEPT = 2
