@@ -281,7 +281,7 @@ def test_final_ranges(p=english):
                            dict(year=5001, month=1))
 
     # oct 2010 to feb -> oct 1 2010 to feb 28 2011
-    assert_unamb_span(p.date_from("oct 2010 to feb"),
+    assert_unamb_span(p.date_from("oct 2010 to feb", basedate),
                            dict(year=2010, month=10),
                            dict(year=2011, month=2))
 

@@ -5,6 +5,7 @@ syntax: glob
 
 .settings
 .coverage
+.tox
 nosetests.xml
 
 build
