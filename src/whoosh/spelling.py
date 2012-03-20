@@ -116,7 +116,7 @@ class ReaderCorrector(Corrector):
                                             prefix=prefix):
             # Higher scores are better, so negate the distance and frequency
             f = freq(fieldname, sug)
-            assert f
+            assert f, "Suggestion %s:%r not in index" % (fieldname, sug)
             score = 0 - (maxdist + (1.0 / f * 0.5))
             yield (score, sug)
 
