@@ -29,9 +29,10 @@ import mmap
 from threading import Lock
 from shutil import copyfileobj
 
-from whoosh.compat import BytesIO, PY3
+from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import StructFile
 from whoosh.filedb.filestore import FileStorage
+from whoosh.system import emptybytes
 
 
 class CompoundStorage(FileStorage):
@@ -50,27 +51,35 @@ class CompoundStorage(FileStorage):
 
         if store.supports_mmap:
             self.source = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            self.file = None
+            f.close()
         else:
-            # Can't mmap files in this storage object, so we'll have to take
-            # the hit and read the whole file as a string :(
-            f.seek(basepos)
-            self.source = f.read(self.diroffset)
-        f.close()
+            self.source = None
+            self.file = f
         self.locks = {}
 
     def __repr__(self):
         return "<%s (%s)>" % (self.__class__.__name__, self.name)
 
+    def close(self):
+        if self.source:
+            self.source.close()
+        if self.file:
+            self.file.close()
+
     def open_file(self, name, *args, **kwargs):
         info = self.dir[name]
         offset = info["offset"]
         length = info["length"]
-        if PY3:
-            buf = memoryview(self.source)[offset:offset + length]
+
+        if self.source:
+            # Create a memoryview/buffer from the mmap
+            buf = memoryview_(self.source, offset, length)
+            f = BytesIO(buf)
         else:
-            buf = buffer(self.source, offset, length)
-        f = StructFile(BytesIO(buf), name=name)
-        return f
+            # If mmap is not available, use the slower sub-file implementation
+            f = SubFile(self.file, offset, length)
+        return StructFile(f, name=name)
 
     def list(self):
         return list(self.dir.keys())
@@ -92,13 +101,13 @@ class CompoundStorage(FileStorage):
         return self.locks[name]
 
     @staticmethod
-    def assemble(out, store, names, **options):
+    def assemble(dbfile, store, names, **options):
         assert names, names
 
-        dir = {}
-        basepos = out.tell()
-        out.write_long(0)  # Directory position
-        out.write_int(0)  # Directory length
+        directory = {}
+        basepos = dbfile.tell()
+        dbfile.write_long(0)  # Directory position
+        dbfile.write_int(0)  # Directory length
 
         # Copy the files into the compound file
         for name in names:
@@ -106,27 +115,76 @@ class CompoundStorage(FileStorage):
                 raise Exception(name)
 
         for name in names:
-            offset = out.tell()
+            offset = dbfile.tell()
             length = store.file_length(name)
             modified = store.file_modified(name)
-            dir[name] = {"offset": offset, "length": length,
-                         "modified": modified}
+            directory[name] = {"offset": offset, "length": length,
+                               "modified": modified}
             f = store.open_file(name)
-            copyfileobj(f, out)
+            copyfileobj(f, dbfile)
             f.close()
 
-        dirpos = out.tell()  # Remember the start of the directory
-        out.write_pickle(dir)  # Write the directory
-        out.write_pickle(options)
-        endpos = out.tell()  # Remember the end of the directory
-        out.flush()
-        out.seek(basepos)  # Seek back to the start
-        out.write_long(dirpos)  # Directory position
-        out.write_int(endpos - dirpos)  # Directory length
+        dirpos = dbfile.tell()  # Remember the start of the directory
+        dbfile.write_pickle(directory)  # Write the directory
+        dbfile.write_pickle(options)
+        endpos = dbfile.tell()  # Remember the end of the directory
+        dbfile.flush()
+        dbfile.seek(basepos)  # Seek back to the start
+        dbfile.write_long(dirpos)  # Directory position
+        dbfile.write_int(endpos - dirpos)  # Directory length
 
-        out.close()
+        dbfile.close()
 
 
+class SubFile(object):
+    def __init__(self, parentfile, offset, length, name=None):
+        self._file = parentfile
+        self._offset = offset
+        self._length = length
+        self._pos = 0
+
+        self.name = name
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+    def read(self, size=None):
+        if size is None:
+            size = self._length - self._pos
+        else:
+            size = min(size, self._length - self._pos)
+        if size < 0:
+            size = 0
+
+        if size > 0:
+            self._file.seek(self._offset + self._pos)
+            self._pos += size
+            return self._file.read(size)
+        else:
+            return emptybytes
+
+    def readline(self):
+        maxsize = self._length - self._pos
+        self._file.seek(self._offset + self._pos)
+        data = self._file.readline()
+        if len(data) > maxsize:
+            data = data[:maxsize]
+        self._pos += len(data)
+        return data
+
+    def seek(self, where, whence=0):
+        if whence == 0:  # Absolute
+            pos = where
+        elif whence == 1:  # Relative
+            pos = self._pos + where
+        elif whence == 2:  # From end
+            pos = self._length - where
+
+        self._pos = pos
+
+    def tell(self):
+        return self._pos
 
 
 
