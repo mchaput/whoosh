@@ -604,12 +604,13 @@ def minimize_ids(arry, stringids, compression=0):
         typecode = ''
         string = dumps(arry)
     else:
-        code = arry.typecode
+        typecode = arry.typecode
         if amax <= 255:
             typecode = "B"
         elif amax <= 65535:
             typecode = "H"
-        if typecode != code:
+
+        if typecode != arry.typecode:
             arry = array(typecode, iter(arry))
         if not IS_LITTLE:
             arry.byteswap()
