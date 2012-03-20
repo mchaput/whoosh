@@ -111,6 +111,8 @@ def test_term_inspection():
                  [(6, u('aa')), (5, u('bb')), (4, u('ee')), (3, u('cc')), (2, u('dd'))])
     assert_equal(list(reader.most_frequent_terms("content", prefix="a")),
                  [(6, u('aa')), (2, u('ax')), (1, u('ab'))])
+    assert_equal(list(reader.most_distinctive_terms("content", 3)),
+                 [(1.3862943611198906, u('ax')), (0.6931471805599453, u('ab')), (0.0, u('ee'))])
 
 def test_vector_postings():
     s = fields.Schema(id=fields.ID(stored=True, unique=True),
