@@ -942,6 +942,7 @@ class StemFilter(Filter):
                     t.text = stemfn(text)
             yield t
 
+
 class PyStemmerFilter(StemFilter):
     """This is a simple subclass of StemFilter that works with the py-stemmer
     third-party library. You must have the py-stemmer library installed to use
@@ -972,7 +973,7 @@ class PyStemmerFilter(StemFilter):
         library.
         """
 
-        import Stemmer  #@UnresolvedImport
+        import Stemmer  # @UnresolvedImport
 
         return Stemmer.algorithms()
 
@@ -980,7 +981,7 @@ class PyStemmerFilter(StemFilter):
         return None
 
     def _get_stemmer_fn(self):
-        import Stemmer  #@UnresolvedImport
+        import Stemmer  # @UnresolvedImport
 
         stemmer = Stemmer.Stemmer(self.lang)
         stemmer.maxCacheSize = self.cachesize
@@ -1138,11 +1139,13 @@ class NgramFilter(Filter):
                         yield t
 
                 elif at == 1:
+                    if chars:
+                        original_startchar = t.startchar
                     start = max(0, len(text) - self.max)
                     for i in xrange(start, len(text) - self.min + 1):
                         t.text = text[i:]
                         if chars:
-                            t.startchar = t.endchar - size
+                            t.startchar = original_startchar + i
                         yield t
                 else:
                     for start in xrange(0, len(text) - self.min + 1):

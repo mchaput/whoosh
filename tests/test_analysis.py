@@ -301,3 +301,30 @@ def test_frowny_face():
     # text has consecutive delimiters
     tokens = [t.text for t in ana(u("LOL:)"))]
     assert_equal(tokens, ["LOL"])
+
+def test_ngrams():
+    s = u("abcdefg h ij klm")
+    tk = analysis.RegexTokenizer(r"\S+")
+
+    def dotest(f):
+        ana = tk | f
+        tokens = ana(s, positions=True, chars=True)
+        return "/".join(t.text for t in tokens)
+
+    f = analysis.NgramFilter(3, 4)
+    assert_equal(dotest(f), "abc/abcd/bcd/bcde/cde/cdef/def/defg/efg/klm")
+
+    f = analysis.NgramFilter(3, 4, at="start")
+    assert_equal(dotest(f), "abc/abcd/klm")
+
+    f = analysis.NgramFilter(3, 4, at="end")
+    assert_equal(dotest(f), "defg/efg/klm")
+
+    ana = tk | analysis.NgramFilter(2, 5, at="end")
+    tokens = [(t.text, t.startchar, t.endchar) for t in ana(s, chars=True)]
+    assert_equal(tokens, [("cdefg", 2, 7), ("defg", 3, 7), ("efg", 4, 7),
+                          ("fg", 5, 7), ("ij", 10, 12), ("klm", 13, 16),
+                          ("lm", 14, 16)])
+
+
+
