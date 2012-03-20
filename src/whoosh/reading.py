@@ -28,6 +28,7 @@
 """This module contains classes that allow reading from an index.
 """
 
+from math import log
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
@@ -474,12 +475,13 @@ class IndexReader(ClosableMixin):
                in self.iter_prefix(fieldname, prefix))
         return nlargest(number, gen)
 
-    def most_distinctive_terms(self, fieldname, number=5, prefix=None):
+    def most_distinctive_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' terms with the highest `tf*idf` scores as
         a list of (score, text) tuples.
         """
 
-        gen = ((terminfo.weight() * (1.0 / terminfo.doc_frequency()), text)
+        N = float(self.doc_count())
+        gen = ((terminfo.weight() * log(N / terminfo.doc_frequency()), text)
                for text, terminfo in self.iter_prefix(fieldname, prefix))
         return nlargest(number, gen)
 
