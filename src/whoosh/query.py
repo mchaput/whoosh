@@ -1729,11 +1729,14 @@ class Phrase(Query):
         if not self.words:
             return NullQuery
         if len(self.words) == 1:
-            return Term(self.fieldname, self.words[0])
+            t = Term(self.fieldname, self.words[0])
+            if self.char_ranges:
+                t.startchar, t.endchar = self.char_ranges[0]
+            return t
 
         words = [w for w in self.words if w is not None]
-        return self.__class__(self.fieldname, words, slop=self.slop,
-                              boost=self.boost, char_ranges=self.char_ranges)
+        t = self.__class__(self.fieldname, words, slop=self.slop,
+                           boost=self.boost, char_ranges=self.char_ranges)
 
     def replace(self, fieldname, oldtext, newtext):
         q = copy.copy(self)
