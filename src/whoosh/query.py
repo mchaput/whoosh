@@ -1735,8 +1735,8 @@ class Phrase(Query):
             return t
 
         words = [w for w in self.words if w is not None]
-        t = self.__class__(self.fieldname, words, slop=self.slop,
-                           boost=self.boost, char_ranges=self.char_ranges)
+        return self.__class__(self.fieldname, words, slop=self.slop,
+                              boost=self.boost, char_ranges=self.char_ranges)
 
     def replace(self, fieldname, oldtext, newtext):
         q = copy.copy(self)
