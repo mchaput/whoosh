@@ -45,7 +45,7 @@ However, the most important method on the Searcher object is
     
     with myindex.searcher() as s:
         qp = QueryParser("content", schema=myindex.schema)
-        q = queryparser.parse(u"hello world")
+        q = qp.parse(u"hello world")
         
         results = s.search(q)
 
