@@ -152,11 +152,11 @@ def test_block():
     # it was the easiest low-level method available when this test was written
     # :(
     fl = FakeLengths(a=[2, 5, 3, 4, 1])
-    fw.add_postings(schema, fl, [("a", u("b"), 0, 2.0, "test1"),
-                                 ("a", u("b"), 1, 5.0, "test2"),
-                                 ("a", u("b"), 2, 3.0, "test3"),
-                                 ("a", u("b"), 3, 4.0, "test4"),
-                                 ("a", u("b"), 4, 1.0, "test5")])
+    fw.add_postings(schema, fl, [("a", u("b"), 0, 2.0, b("test1")),
+                                 ("a", u("b"), 1, 5.0, b("test2")),
+                                 ("a", u("b"), 2, 3.0, b("test3")),
+                                 ("a", u("b"), 3, 4.0, b("test4")),
+                                 ("a", u("b"), 4, 1.0, b("test5"))])
     fw.close()
 
     tr = codec.terms_reader(st, seg)
