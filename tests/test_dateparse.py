@@ -1,4 +1,4 @@
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh.qparser.dateparse import *
 

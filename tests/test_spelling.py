@@ -37,6 +37,7 @@ def test_graph_corrector():
     sugs = sp.suggest("reoction", maxdist=2)
     assert_equal(sugs, ["reaction", "preaction", "reduction"])
 
+
 def test_reader_corrector_nograph():
     schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -50,7 +51,9 @@ def test_reader_corrector_nograph():
     with ix.reader() as r:
         sp = spelling.ReaderCorrector(r, "text")
         assert_equal(sp.suggest(u("kaola"), maxdist=1), ['koala'])
-        assert_equal(sp.suggest(u("kaola"), maxdist=2), ['koala', 'kaori', 'ooala', 'zoala'])
+        assert_equal(sp.suggest(u("kaola"), maxdist=2), ['koala', 'kaori',
+                                                         'ooala', 'zoala'])
+
 
 def test_reader_corrector():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
@@ -66,7 +69,11 @@ def test_reader_corrector():
         assert r.has_word_graph("text")
         sp = spelling.ReaderCorrector(r, "text")
         assert_equal(sp.suggest(u("kaola"), maxdist=1), [u('koala')])
-        assert_equal(sp.suggest(u("kaola"), maxdist=2), [u('koala'), u('kaori'), u('ooala'), u('zoala')])
+        assert_equal(sp.suggest(u("kaola"), maxdist=2), [u('koala'),
+                                                         u('kaori'),
+                                                         u('ooala'),
+                                                         u('zoala')])
+
 
 def test_add_spelling():
     schema = fields.Schema(text1=fields.TEXT, text2=fields.TEXT)
@@ -91,10 +98,14 @@ def test_add_spelling():
 
         sp = spelling.ReaderCorrector(r, "text1")
         assert_equal(sp.suggest(u("kaola"), maxdist=1), [u('koala')])
-        assert_equal(sp.suggest(u("kaola"), maxdist=2), [u('koala'), u('kaori'), u('ooala'), u('zoala')])
+        assert_equal(sp.suggest(u("kaola"), maxdist=2), [u('koala'),
+                                                         u('kaori'),
+                                                         u('ooala'),
+                                                         u('zoala')])
 
         sp = spelling.ReaderCorrector(r, "text2")
         assert_equal(sp.suggest(u("alfo"), maxdist=1), [u("alfa"), u("olfo")])
+
 
 def test_multisegment():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
@@ -112,7 +123,8 @@ def test_multisegment():
         assert_equal(words, sorted(domain))
 
         corr = r.corrector("text")
-        assert_equal(corr.suggest("specail", maxdist=2), ["special", "specials"])
+        assert_equal(corr.suggest("specail", maxdist=2),
+                     ["special", "specials"])
 
     ix.optimize()
     with ix.reader() as r:
@@ -123,7 +135,9 @@ def test_multisegment():
         assert_equal(words, sorted(domain))
 
         corr = r.corrector("text")
-        assert_equal(corr.suggest("specail", maxdist=2), ["special", "specials"])
+        assert_equal(corr.suggest("specail", maxdist=2),
+                     ["special", "specials"])
+
 
 def test_multicorrector():
     schema = fields.Schema(text=fields.TEXT(spelling=True))
@@ -144,10 +158,13 @@ def test_multicorrector():
     assert_equal(mc.suggest("beur"), ["bear", "beer"])
     assert_equal(mc.suggest("sprang"), ["sprung", "spring"])
 
+
 def test_wordlist():
-    domain = sorted("special specious spectacular spongy spring specials".split())
+    domain = "special specious spectacular spongy spring specials".split()
+    domain.sort()
     cor = words_to_corrector(domain)
     assert_equal(cor.suggest("specail", maxdist=1), ["special"])
+
 
 def test_wordfile():
     import os.path
@@ -169,6 +186,7 @@ def test_wordfile():
     wordfile.close()
     assert_equal(cor.suggest("specail"), ["special"])
 
+
 def test_query_highlight():
     qp = QueryParser("a", None)
     hf = highlight.HtmlFormatter()
@@ -187,12 +205,14 @@ def test_query_highlight():
     assert_equal(do('a (x:b OR y:"c d") e', ("b", "c")),
                  'a (x:<strong class="match term0">b</strong> OR y:"<strong class="match term1">c</strong> d") e')
 
+
 def test_query_terms():
     qp = QueryParser("a", None)
 
     q = qp.parse("alfa b:(bravo OR c:charlie) delta")
     assert_equal(sorted(q.iter_all_terms()), [("a", "alfa"), ("a", "delta"),
-                                              ("b", "bravo"), ("c", "charlie")])
+                                              ("b", "bravo"),
+                                              ("c", "charlie")])
 
     q = qp.parse("alfa brav*")
     assert_equal(sorted(q.iter_all_terms()), [("a", "alfa")])
@@ -201,6 +221,7 @@ def test_query_terms():
     tokens = [(t.fieldname, t.text, t.boost) for t in q.all_tokens()]
     assert_equal(tokens, [('a', 'a', 1.0), ('b', 'b', 2.0), ('b', 'c', 2.0),
                           ('b', 'd', 2.0), ('a', 'e', 1.0)])
+
 
 def test_correct_query():
     schema = fields.Schema(a=fields.TEXT(spelling=True), b=fields.TEXT)
@@ -230,6 +251,7 @@ def test_correct_query():
     hf = highlight.HtmlFormatter(classname="c")
     assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:delta) detail')
 
+
 def test_bypass_stemming():
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(text=fields.TEXT(analyzer=ana, spelling=True))
@@ -244,6 +266,7 @@ def test_bypass_stemming():
         assert_equal(list(r.word_graph("text").flatten_strings()),
                      ["modeling", "reactions", "rendering", "shading"])
 
+
 def test_spelling_field_order():
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(a=fields.TEXT, b=fields.TEXT(analyzer=ana),
@@ -257,6 +280,7 @@ def test_spelling_field_order():
         value = " ".join(ls)
         w.add_document(a=value, b=value, c=value, d=value, e=value, f=value)
     w.commit()
+
 
 def test_find_self():
     wordlist = sorted(u("book bake bike bone").split())

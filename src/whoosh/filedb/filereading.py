@@ -74,8 +74,8 @@ class SegmentReader(IndexReader):
 
         # Get microreaders from codec
         if codec is None:
-            from whoosh.codec.standard import StdCodec
-            codec = StdCodec()
+            from whoosh.codec import default_codec
+            codec = default_codec()
         self._codec = codec
         self._terms = codec.terms_reader(self.files, self.segment)
         self._lengths = codec.lengths_reader(self.files, self.segment)

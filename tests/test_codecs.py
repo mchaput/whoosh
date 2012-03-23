@@ -2,12 +2,12 @@ from __future__ import with_statement
 import random
 from array import array
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, formats
 from whoosh.compat import u, b, xrange, iteritems
 from whoosh.codec.base import FileTermInfo
-from whoosh.codec import standard
+from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.fileindex import Segment
 from whoosh.support.testing import TempStorage
@@ -16,25 +16,47 @@ from whoosh.util import byte_to_length, length_to_byte
 
 def _make_codec(**kwargs):
     st = RamStorage()
-    codec = standard.StdCodec(**kwargs)
+    codec = default_codec(**kwargs)
     seg = Segment("test")
     return st, codec, seg
 
+
+class FakeLengths(object):
+    def __init__(self, **lens):
+        self.lens = lens
+
+    def doc_field_length(self, docnum, fieldname):
+        if fieldname in self.lens:
+            if docnum < len(self.lens[fieldname]):
+                return self.lens[fieldname][docnum]
+        return 1
+
+
 def test_termkey():
-    from whoosh.codec.standard import TermIndexWriter
+    st, codec, seg = _make_codec()
+    tw = codec.field_writer(st, seg)
+    fieldobj = fields.TEXT()
+    tw.start_field("alfa", fieldobj)
+    tw.start_term(u("bravo"))
+    tw.add(0, 1.0, "", 3)
+    tw.finish_term()
+    tw.start_term(u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba'))
+    tw.add(0, 4.0, "", 3)
+    tw.finish_term()
+    tw.finish_field()
+    tw.start_field("text", fieldobj)
+    tw.start_term(u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e'))
+    tw.add(0, 7.0, "", 9)
+    tw.finish_term()
+    tw.finish_field()
+    tw.close()
 
-    with TempStorage("termkey") as st:
-        tw = TermIndexWriter(st.create_file("test.trm"))
-        tw.add(("alfa", u("bravo")), FileTermInfo(1.0, 3))
-        tw.add(("alfa", u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')), FileTermInfo(4.0, 6))
-        tw.add(("text", u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')), FileTermInfo(7.0, 9))
-        tw.close()
+    tr = codec.terms_reader(st, seg)
+    assert ("alfa", u("bravo")) in tr
+    assert ("alfa", u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')) in tr
+    assert ("text", u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')) in tr
+    tr.close()
 
-        tr = standard.StdTermsReader(st.open_file("test.trm"), None)
-        assert ("alfa", u("bravo")) in tr
-        assert ("alfa", u('\xc3\xa6\xc3\xaf\xc5\ufffd\xc3\xba')) in tr
-        assert ("text", u('\xe6\u2014\xa5\xe6\u0153\xac\xe8\xaa\u017e')) in tr
-        tr.close()
 
 def test_random_termkeys():
     def random_fieldname():
@@ -44,65 +66,102 @@ def test_random_termkeys():
         a = array("H", (random.randint(0, 0xd7ff) for _ in xrange(1, 20)))
         return a.tostring().decode("utf-16")
 
-    domain = sorted([(random_fieldname(), random_token()) for _ in xrange(1000)])
+    domain = sorted(set([(random_fieldname(), random_token())
+                         for _ in xrange(1000)]))
 
-    st = RamStorage()
-    tw = standard.TermIndexWriter(st.create_file("test.trm"))
-    for term in domain:
-        tw.add(term, FileTermInfo(1.0, 1))
+    st, codec, seg = _make_codec()
+    fieldobj = fields.TEXT()
+    tw = codec.field_writer(st, seg)
+    # Stupid ultra-low-level hand-adding of postings just to check handling of
+    # random fieldnames and term texts
+    lastfield = None
+    for fieldname, text in domain:
+        if lastfield and fieldname != lastfield:
+            tw.finish_field()
+            lastfield = None
+        if lastfield is None:
+            tw.start_field(fieldname, fieldobj)
+            lastfield = fieldname
+        tw.start_term(text)
+        tw.add(0, 1.0, "", 1)
+        tw.finish_term()
+    if lastfield:
+        tw.finish_field()
     tw.close()
 
-    tr = standard.StdTermsReader(st.open_file("test.trm"), None)
+    tr = codec.terms_reader(st, seg)
     for term in domain:
         assert term in tr
 
-def test_stored_fields():
-    with TempStorage("storedfields") as st:
-        sf = st.create_file("test.sf")
-        sfw = standard.StoredFieldWriter(sf)
-        sfw.add({"a": "hello", "b": "there"})
-        sfw.add({"a": "one", "b": "two"})
-        sfw.add({"a": "alfa", "b": "bravo"})
-        sfw.close()
 
-        sf = st.open_file("test.sf")
-        sfr = standard.StoredFieldReader(sf)
-        assert_equal(sfr[0], {"a": "hello", "b": "there"})
-        assert_equal(sfr[2], {"a": "alfa", "b": "bravo"})
-        assert_equal(sfr[1], {"a": "one", "b": "two"})
-        sfr.close()
+def test_stored_fields():
+    codec = default_codec()
+    seg = Segment("test")
+    fieldobj = fields.TEXT(stored=True)
+    with TempStorage("storedfields") as st:
+        dw = codec.per_document_writer(st, seg)
+        dw.start_doc(0)
+        dw.add_field("a", fieldobj, "hello", 1)
+        dw.add_field("b", fieldobj, "there", 1)
+        dw.finish_doc()
+
+        dw.start_doc(0)
+        dw.add_field("a", fieldobj, "one", 1)
+        dw.add_field("b", fieldobj, "two", 1)
+        dw.finish_doc()
+
+        dw.start_doc(0)
+        dw.add_field("a", fieldobj, "alfa", 1)
+        dw.add_field("b", fieldobj, "bravo", 1)
+        dw.finish_doc()
+        dw.close()
+
+        dr = codec.stored_fields_reader(st, seg)
+        assert_equal(dr[0], {"a": "hello", "b": "there"})
+        assert_equal(dr[2], {"a": "alfa", "b": "bravo"})
+        assert_equal(dr[1], {"a": "one", "b": "two"})
+        dr.close()
+
 
 def test_termindex():
     terms = [("a", "alfa"), ("a", "bravo"), ("a", "charlie"), ("a", "delta"),
              ("b", "able"), ("b", "baker"), ("b", "dog"), ("b", "easy")]
-    st = RamStorage()
+    st, codec, seg = _make_codec()
+    schema = fields.Schema(a=fields.TEXT, b=fields.TEXT)
 
-    tw = standard.TermIndexWriter(st.create_file("test.trm"))
-    for i, t in enumerate(terms):
-        tw.add(t, FileTermInfo(1.0, i))
+    tw = codec.field_writer(st, seg)
+    postings = ((fname, text, 0, i, "") for (i, (fname, text))
+                in enumerate(terms))
+    tw.add_postings(schema, FakeLengths(), postings)
     tw.close()
 
-    tr = standard.StdTermsReader(st.open_file("test.trm"), None)
+    tr = codec.terms_reader(st, seg)
     for i, (t1, t2) in enumerate(zip(tr.keys(), terms)):
         assert_equal(t1, t2)
         ti = tr.get(t1)
-        assert_equal(ti.weight(), 1.0)
-        assert_equal(ti.doc_frequency(), i)
+        assert_equal(ti.weight(), i)
+        assert_equal(ti.doc_frequency(), 1)
+
 
 def test_block():
-    st = RamStorage()
-    f = st.create_file("test")
-    block = standard.StdBlock(-1)
-    block.add(0, 2.0, b("test1"), 2)
-    block.add(1, 5.0, b("test2"), 5)
-    block.add(2, 3.0, b("test3"), 3)
-    block.add(3, 4.0, b("test4"), 4)
-    block.add(4, 1.0, b("test5"), 1)
-    block.to_file(f)
-    f.close()
+    st, codec, seg = _make_codec()
+    schema = fields.Schema(a=fields.TEXT)
+    fw = codec.field_writer(st, seg)
 
-    f = st.open_file("test")
-    block = standard.StdBlock.from_file(f, -1)
+    # This is a very convoluted, backwards way to get postings into a file but
+    # it was the easiest low-level method available when this test was written
+    # :(
+    fl = FakeLengths(a=[2, 5, 3, 4, 1])
+    fw.add_postings(schema, fl, [("a", u("b"), 0, 2.0, "test1"),
+                                 ("a", u("b"), 1, 5.0, "test2"),
+                                 ("a", u("b"), 2, 3.0, "test3"),
+                                 ("a", u("b"), 3, 4.0, "test4"),
+                                 ("a", u("b"), 4, 1.0, "test5")])
+    fw.close()
+
+    tr = codec.terms_reader(st, seg)
+    m = tr.matcher("a", u("b"), schema["a"].format)
+    block = m.block
     block.read_ids()
     assert_equal(block.min_length(), 1)
     assert_equal(block.max_length(), 5)
@@ -111,50 +170,41 @@ def test_block():
     assert_equal(block.max_id(), 4)
     assert_equal(list(block.ids), [0, 1, 2, 3, 4])
     assert_equal(list(block.read_weights()), [2.0, 5.0, 3.0, 4.0, 1.0])
-    assert_equal(list(block.read_values()), [b("test1"), b("test2"), b("test3"),
-                                             b("test4"), b("test5")])
+    assert_equal(list(block.read_values()), [b("test1"), b("test2"),
+                                             b("test3"), b("test4"), b("test5")
+                                             ])
 
-    f = st.create_file("test")
-    block = standard.StdBlock(0)
-    block.add(0, 1.0, '', 1)
-    block.add(1, 2.0, '', 2)
-    block.add(2, 12.0, '', 6)
-    block.add(5, 6.5, '', 420)
-    assert block
+    st, codec, seg = _make_codec()
+    fw = codec.field_writer(st, seg)
+    fl = FakeLengths(a=[1, 2, 6, 1, 1, 420])
+    fw.add_postings(schema, fl, [("a", u("b"), 0, 1.0, ""),
+                                 ("a", u("b"), 1, 2.0, ""),
+                                 ("a", u("b"), 2, 12.0, ""),
+                                 ("a", u("b"), 5, 6.5, "")])
+    fw.close()
 
     def blen(n):
         return byte_to_length(length_to_byte(n))
 
+    tr = codec.terms_reader(st, seg)
+    m = tr.matcher("a", u("b"), schema["a"].format)
+    block = m.block
+    block.read_ids()
     assert_equal(len(block), 4)
     assert_equal(list(block.ids), [0, 1, 2, 5])
     assert_equal(list(block.weights), [1.0, 2.0, 12.0, 6.5])
     assert_equal(block.values, None)
     assert_equal(block.min_length(), 1)
-    assert_equal(block.max_length(), 420)
+    assert_equal(block.max_length(), blen(420))
     assert_equal(block.max_weight(), 12.0)
 
-    ti = FileTermInfo()
-    ti.add_block(block)
+    ti = tr.terminfo("a", u("b"))
     assert_equal(ti.weight(), 21.5)
     assert_equal(ti.doc_frequency(), 4)
     assert_equal(ti.min_length(), 1)
-    assert_equal(ti.max_length(), 420)
+    assert_equal(ti.max_length(), blen(420))
     assert_equal(ti.max_weight(), 12.0)
 
-    block.to_file(f)
-    f.close()
-
-    f = st.open_file("test")
-    bb = standard.StdBlock.from_file(f, 0)
-
-    bb.read_ids()
-    assert_equal(list(bb.ids), [0, 1, 2, 5])
-    bb.read_weights()
-    assert_equal(list(bb.weights), [1.0, 2.0, 12.0, 6.5])
-    bb.read_values()
-    assert_equal(bb.min_length(), 1)
-    assert_equal(bb.max_length(), byte_to_length(length_to_byte(420)))
-    assert_equal(bb.max_weight(), 12.0)
 
 def test_docwriter_one():
     field = fields.TEXT(stored=True)
@@ -171,6 +221,7 @@ def test_docwriter_one():
 
     sr = codec.stored_fields_reader(st, seg)
     assert_equal(sr[0], {"text": "Testing one two three"})
+
 
 def test_docwriter_two():
     field = fields.TEXT(stored=True)
@@ -197,6 +248,7 @@ def test_docwriter_two():
     assert_equal(sr[0], {"title": ("a", "b"), "text": "Testing one two three"})
     assert_equal(sr[1], {"title": "The second document", "text": 500})
 
+
 def test_vector():
     field = fields.TEXT(vector=True)
     st, codec, seg = _make_codec()
@@ -221,6 +273,7 @@ def test_vector():
         m.next()
     assert_equal(ps, [("alfa", 1.0, "t1"), ("bravo", 2.0, "t2")])
 
+
 def test_vector_values():
     field = fields.TEXT(vector=formats.Frequency())
     st, codec, seg = _make_codec()
@@ -237,6 +290,7 @@ def test_vector_values():
     m = vr.matcher(0, "f1", field.vector)
     assert_equal(list(m.items_as("frequency")), [("alfa", 2), ("bravo", 1),
                                                  ("charlie", 1)])
+
 
 def test_no_lengths():
     f1 = fields.ID()
@@ -259,6 +313,7 @@ def test_no_lengths():
     assert_equal(lr.doc_field_length(1, "name"), 0)
     assert_equal(lr.doc_field_length(2, "name"), 0)
 
+
 def test_store_zero():
     f1 = fields.ID(stored=True)
     st, codec, seg = _make_codec()
@@ -271,6 +326,7 @@ def test_store_zero():
 
     sr = codec.stored_fields_reader(st, seg)
     assert_equal(sr[0], {"name": 0})
+
 
 def test_fieldwriter_single_term():
     field = fields.TEXT()
@@ -294,6 +350,7 @@ def test_fieldwriter_single_term():
     assert_equal(ti.max_weight(), 1.5)
     assert_equal(ti.min_id(), 0)
     assert_equal(ti.max_id(), 0)
+
 
 def test_fieldwriter_two_terms():
     field = fields.TEXT()
@@ -335,6 +392,7 @@ def test_fieldwriter_two_terms():
     m = tr.matcher("text", "bravo", field.format)
     assert_equal(list(m.all_ids()), [0, 2])
 
+
 def test_fieldwriter_multiblock():
     field = fields.TEXT()
     st, codec, seg = _make_codec(blocklimit=2)
@@ -370,6 +428,7 @@ def test_fieldwriter_multiblock():
                       (2, 3.0, b("test3")), (3, 4.0, b("test4")),
                       (4, 1.0, b("test5"))])
 
+
 def test_term_values():
     field = fields.TEXT(phrase=False)
     st, codec, seg = _make_codec()
@@ -389,34 +448,33 @@ def test_term_values():
     assert_equal(ps, [(("f1", "alfa"), 2.0, 1), (("f1", "bravo"), 1.0, 1),
                       (("f1", "charlie"), 1.0, 1)])
 
+
 def test_skip():
-    _random_docnums = [1, 3, 12, 34, 43, 67, 68, 102, 145, 212, 283, 291, 412,
-                       900, 905, 1024, 1800, 2048, 15000]
-    with TempStorage("skip") as st:
-        codec = standard.StdCodec()
-        seg = Segment("")
-        field = fields.TEXT()
+    _docnums = [1, 3, 12, 34, 43, 67, 68, 102, 145, 212, 283, 291, 412, 900,
+                905, 1024, 1800, 2048, 15000]
+    st, codec, seg = _make_codec()
+    fieldobj = fields.TEXT()
+    fw = codec.field_writer(st, seg)
+    fw.start_field("f1", fieldobj)
+    fw.start_term(u("test"))
+    for n in _docnums:
+        fw.add(n, 1.0, '', None)
+    fw.finish_term()
+    fw.finish_field()
+    fw.close()
 
-        fw = codec.field_writer(st, seg)
-        fw.start_field("f1", field)
-        fw.start_term(u("test"))
-        for n in _random_docnums:
-            fw.add(n, 1.0, '', None)
-        fw.finish_term()
-        fw.finish_field()
-        fw.close()
+    tr = codec.terms_reader(st, seg)
+    m = tr.matcher("f1", "test", fieldobj.format)
+    assert_equal(m.id(), 1)
+    m.skip_to(220)
+    assert_equal(m.id(), 283)
+    m.skip_to(1)
+    assert_equal(m.id(), 283)
+    m.skip_to(1000)
+    assert_equal(m.id(), 1024)
+    m.skip_to(1800)
+    assert_equal(m.id(), 1800)
 
-        tr = codec.terms_reader(st, seg)
-        m = tr.matcher("f1", "test", field.format)
-        assert_equal(m.id(), 1)
-        m.skip_to(220)
-        assert_equal(m.id(), 283)
-        m.skip_to(1)
-        assert_equal(m.id(), 283)
-        m.skip_to(1000)
-        assert_equal(m.id(), 1024)
-        m.skip_to(1800)
-        assert_equal(m.id(), 1800)
 
 def test_spelled_field():
     field = fields.TEXT(spelling=True)
@@ -437,6 +495,7 @@ def test_spelled_field():
     assert gr.has_root("text")
     cur = gr.cursor("text")
     assert_equal(list(cur.flatten_strings()), ["special", "specific"])
+
 
 def test_special_spelled_field():
     from whoosh.analysis import StemmingAnalyzer

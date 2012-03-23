@@ -4,7 +4,7 @@ from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields
 from whoosh.compat import xrange, u
-from whoosh.codec.standard import StdCodec
+from whoosh.codec import default_codec
 from whoosh.filedb.fileindex import Segment
 from whoosh.formats import (Characters, CharacterBoosts, Existence, Frequency,
                             Positions, PositionBoosts)
@@ -13,7 +13,7 @@ from whoosh.support.testing import TempStorage
 
 def _roundtrip(content, format_, astype, ana=None):
     with TempStorage("roundtrip") as st:
-        codec = StdCodec()
+        codec = default_codec()
         seg = Segment("")
         ana = ana or analysis.StandardAnalyzer()
         field = fields.FieldType(format=format_, analyzer=ana)
