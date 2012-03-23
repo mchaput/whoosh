@@ -49,7 +49,7 @@ from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
 
 # Standard codec top-level object
 
-class StdCodec(base.Codec):
+class W2Codec(base.Codec):
     TERMS_EXT = ".trm"  # Term index
     POSTS_EXT = ".pst"  # Term postings
     DAWG_EXT = ".dag"  # Spelling graph file
@@ -67,21 +67,21 @@ class StdCodec(base.Codec):
 
     # Per-document value writer
     def per_document_writer(self, storage, segment):
-        return StdPerDocWriter(storage, segment, blocklimit=self.blocklimit,
-                               compression=self.compression)
+        return W2PerDocWriter(storage, segment, blocklimit=self.blocklimit,
+                              compression=self.compression)
 
     # Inverted index writer
     def field_writer(self, storage, segment):
-        return StdFieldWriter(storage, segment, blocklimit=self.blocklimit,
-                              compression=self.compression,
-                              inlinelimit=self.inlinelimit)
+        return W2FieldWriter(storage, segment, blocklimit=self.blocklimit,
+                             compression=self.compression,
+                             inlinelimit=self.inlinelimit)
 
     # Readers
 
     def terms_reader(self, storage, segment):
         tifile = segment.open_file(storage, self.TERMS_EXT)
         postfile = segment.open_file(storage, self.POSTS_EXT)
-        return StdTermsReader(tifile, postfile)
+        return W2TermsReader(tifile, postfile)
 
     def lengths_reader(self, storage, segment):
         flfile = segment.open_file(storage, self.LENGTHS_EXT)
@@ -102,7 +102,7 @@ class StdCodec(base.Codec):
     def vector_reader(self, storage, segment):
         vifile = segment.open_file(storage, self.VECTOR_EXT)
         postfile = segment.open_file(storage, self.VPOSTS_EXT)
-        return StdVectorReader(vifile, postfile)
+        return W2VectorReader(vifile, postfile)
 
     def stored_fields_reader(self, storage, segment):
         sffile = segment.open_file(storage, self.STORED_EXT)
@@ -125,7 +125,7 @@ class StdCodec(base.Codec):
 
 # Per-document value writer
 
-class StdPerDocWriter(base.PerDocumentWriter):
+class W2PerDocWriter(base.PerDocumentWriter):
     def __init__(self, storage, segment, blocklimit=128, compression=3):
         if not isinstance(blocklimit, int):
             raise ValueError
@@ -135,11 +135,11 @@ class StdPerDocWriter(base.PerDocumentWriter):
         self.compression = compression
         self.doccount = 0
 
-        sffile = segment.create_file(storage, StdCodec.STORED_EXT)
+        sffile = segment.create_file(storage, W2Codec.STORED_EXT)
         self.stored = StoredFieldWriter(sffile)
         self.storedfields = None
 
-        self.flfile = segment.create_file(storage, StdCodec.LENGTHS_EXT)
+        self.flfile = segment.create_file(storage, W2Codec.LENGTHS_EXT)
         self.lengths = InMemoryLengths()
 
         # We'll wait to create the vector files until someone actually tries
@@ -147,9 +147,10 @@ class StdPerDocWriter(base.PerDocumentWriter):
         self.vindex = self.vpostfile = None
 
     def _make_vector_files(self):
-        vifile = self.segment.create_file(self.storage, StdCodec.VECTOR_EXT)
+        vifile = self.segment.create_file(self.storage, W2Codec.VECTOR_EXT)
         self.vindex = VectorWriter(vifile)
-        self.vpostfile = self.segment.create_file(self.storage, StdCodec.VPOSTS_EXT)
+        self.vpostfile = self.segment.create_file(self.storage,
+                                                  W2Codec.VPOSTS_EXT)
 
     def start_doc(self, docnum):
         self.docnum = docnum
@@ -164,7 +165,7 @@ class StdPerDocWriter(base.PerDocumentWriter):
 
     def _new_block(self, vformat):
         postingsize = vformat.posting_size
-        return StdBlock(postingsize, stringids=True)
+        return W2Block(postingsize, stringids=True)
 
     def add_vector_items(self, fieldname, fieldobj, items):
         if self.vindex is None:
@@ -234,7 +235,7 @@ class StdPerDocWriter(base.PerDocumentWriter):
 
 # Inverted index writer
 
-class StdFieldWriter(base.FieldWriter):
+class W2FieldWriter(base.FieldWriter):
     def __init__(self, storage, segment, blocklimit=128, compression=3,
                  inlinelimit=1):
         assert isinstance(storage, Storage)
@@ -251,9 +252,9 @@ class StdFieldWriter(base.FieldWriter):
         self.format = None
         self.spelling = False
 
-        tifile = segment.create_file(storage, StdCodec.TERMS_EXT)
+        tifile = segment.create_file(storage, W2Codec.TERMS_EXT)
         self.termsindex = TermIndexWriter(tifile)
-        self.postfile = segment.create_file(storage, StdCodec.POSTS_EXT)
+        self.postfile = segment.create_file(storage, W2Codec.POSTS_EXT)
 
         # We'll wait to create the DAWG builder until someone actually adds
         # a spelled field
@@ -266,11 +267,14 @@ class StdFieldWriter(base.FieldWriter):
         self.terminfo = None
 
     def _make_dawg_files(self):
-        dawgfile = self.segment.create_file(self.storage, StdCodec.DAWG_EXT)
+        dawgfile = self.segment.create_file(self.storage, W2Codec.DAWG_EXT)
         self.dawg = GraphWriter(dawgfile)
 
+    def _new_block(self):
+        return W2Block(self.format.posting_size)
+
     def _reset_block(self):
-        self.block = StdBlock(self.format.posting_size)
+        self.block = self._new_block()
 
     def _write_block(self):
         self.terminfo.add_block(self.block)
@@ -284,7 +288,7 @@ class StdFieldWriter(base.FieldWriter):
 
         # Magic number
         self.startoffset = postfile.tell()
-        postfile.write(StdBlock.magic)
+        postfile.write(W2Block.magic)
         # Placeholder for block count
         self.blockcount = 0
         postfile.write_uint(0)
@@ -376,11 +380,11 @@ class PostingMatcher(base.BlockPostingMatcher):
 
         postfile.seek(startoffset)
         magic = postfile.read(4)
-        if magic != StdBlock.magic:
+        if magic != W2Block.magic:
             from whoosh.codec.legacy import old_block_type
             self.blockclass = old_block_type(magic)
         else:
-            self.blockclass = StdBlock
+            self.blockclass = W2Block
 
         self.blockcount = postfile.read_uint()
         self.baseoffset = postfile.tell()
@@ -490,7 +494,7 @@ class PostingIndexBase(CodedOrderedReader):
             self.names[num] = name
 
 
-class StdTermsReader(PostingIndexBase):
+class W2TermsReader(PostingIndexBase):
     # Implements whoosh.codec.base.TermsReader
 
     def terminfo(self, fieldname, text):
@@ -563,7 +567,7 @@ class VectorWriter(TermIndexWriter):
         return pack_long(offset)
 
 
-class StdVectorReader(PostingIndexBase):
+class W2VectorReader(PostingIndexBase):
     # Implements whoosh.codec.base.VectorReader
 
     def matcher(self, docnum, fieldname, format_):
@@ -874,7 +878,7 @@ class StoredFieldReader(object):
 
 # Posting blocks
 
-class StdBlock(base.BlockBase):
+class W2Block(base.BlockBase):
     magic = b("Blk3")
 
     infokeys = ("count", "maxid", "maxweight", "minlength", "maxlength",

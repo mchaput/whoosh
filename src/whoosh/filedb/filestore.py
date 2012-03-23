@@ -53,6 +53,7 @@ def open_index(storage, schema, indexname):
 
     return FileIndex(storage, schema=schema, indexname=indexname)
 
+
 class FileStorage(Storage):
     """Storage object that stores the index as files in a directory on disk.
     """

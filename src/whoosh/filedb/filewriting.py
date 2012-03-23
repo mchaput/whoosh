@@ -157,8 +157,8 @@ class SegmentWriter(IndexWriter):
 
         # Set up writers
         if codec is None:
-            from whoosh.codec.standard import StdCodec
-            codec = StdCodec()
+            from whoosh.codec import default_codec
+            codec = default_codec()
         self.codec = codec
         self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
         self.fieldwriter = codec.field_writer(self.storage, newsegment)

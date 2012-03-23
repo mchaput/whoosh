@@ -619,6 +619,7 @@ def minimize_ids(arry, stringids, compression=0):
         string = compress(string, compression)
     return (typecode, string)
 
+
 def deminimize_ids(typecode, count, string, compression=0):
     if compression:
         string = decompress(string)
@@ -631,6 +632,7 @@ def deminimize_ids(typecode, count, string, compression=0):
             arry.byteswap()
         return arry
 
+
 def minimize_weights(weights, compression=0):
     if all(w == 1.0 for w in weights):
         string = b("")
@@ -641,6 +643,7 @@ def minimize_weights(weights, compression=0):
     if string and compression:
         string = compress(string, compression)
     return string
+
 
 def deminimize_weights(count, string, compression=0):
     if not string:
@@ -653,6 +656,7 @@ def deminimize_weights(count, string, compression=0):
         arry.byteswap()
     return arry
 
+
 def minimize_values(postingsize, values, compression=0):
     if postingsize < 0:
         string = dumps(values, -1)[2:]
@@ -663,6 +667,7 @@ def minimize_values(postingsize, values, compression=0):
     if string and compression:
         string = compress(string, compression)
     return string
+
 
 def deminimize_values(postingsize, count, string, compression=0):
     if compression:
