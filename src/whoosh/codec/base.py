@@ -26,11 +26,13 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 
+import random
 from array import array
 from struct import Struct, pack
 from bisect import bisect_right
 
 from whoosh.compat import loads, dumps, b, bytes_type, string_type, xrange
+from whoosh.filedb.compound import CompoundStorage
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.reading import TermInfo
 from whoosh.spans import Span
@@ -74,7 +76,10 @@ class Codec(object):
     def graph_reader(self, storage, segment):
         raise NotImplementedError
 
-    # Generations
+    # Segments and generations
+
+    def new_segment(self, storage, indexname):
+        raise NotImplementedError
 
     def commit_toc(self, storage, indexname, schema, segments, generation):
         raise NotImplementedError
@@ -93,7 +98,14 @@ class PerDocumentWriter(object):
         raise NotImplementedError
 
     def add_vector_matcher(self, fieldname, fieldobj, vmatcher):
-        raise NotImplementedError
+        def readitems():
+            while vmatcher.is_active():
+                text = vmatcher.id()
+                weight = vmatcher.weight()
+                valuestring = vmatcher.value()
+                yield (text, None, weight, valuestring)
+                vmatcher.next()
+        self.add_vector_items(fieldname, fieldobj, readitems())
 
     def finish_doc(self):
         pass
@@ -174,13 +186,31 @@ class TermsReader(object):
     def __contains__(self, term):
         raise NotImplementedError
 
+    def terms(self):
+        raise NotImplementedError
+
+    def terms_from(self, fieldname, prefix):
+        raise NotImplementedError
+
+    def items(self):
+        raise NotImplementedError
+
+    def items_from(self, fieldname, prefix):
+        raise NotImplementedError
+
     def terminfo(self, fieldname, text):
         raise NotImplementedError
+
+    def frequency(self, fieldname, text):
+        return self.terminfo(fieldname, text).weight()
+
+    def doc_frequency(self, fieldname, text):
+        return self.terminfo(fieldname, text).doc_frequency()
 
     def graph_reader(self, fieldname, text):
         raise NotImplementedError
 
-    def matcher(self, fieldname, text, fmt):
+    def matcher(self, fieldname, text, format_, scorer=None):
         raise NotImplementedError
 
     def close(self):
@@ -196,6 +226,9 @@ class VectorReader(object):
 
 
 class LengthsReader(object):
+    def doc_count_all(self):
+        raise NotImplementedError
+
     def doc_field_length(self, docnum, fieldname, default=0):
         raise NotImplementedError
 
@@ -329,7 +362,7 @@ class BlockPostingMatcher(FilePostingMatcher):
 
     def weight(self):
         weights = self.block.weights
-        if weights is None:
+        if not weights:
             weights = self.block.read_weights()
         return weights[self.i]
 
@@ -531,6 +564,138 @@ class FileTermInfo(TermInfo):
         return dbfile.get_float(weightspos)
 
 
+# Segment base class
+
+class Segment(object):
+    """Do not instantiate this object directly. It is used by the Index object
+    to hold information about a segment. A list of objects of this class are
+    pickled as part of the TOC file.
+    
+    The TOC file stores a minimal amount of information -- mostly a list of
+    Segment objects. Segments are the real reverse indexes. Having multiple
+    segments allows quick incremental indexing: just create a new segment for
+    the new documents, and have the index overlay the new segment over previous
+    ones for purposes of reading/search. "Optimizing" the index combines the
+    contents of existing segments into one (removing any deleted documents
+    along the way).
+    """
+
+    # These must be valid separate characters in CASE-INSENSTIVE filenames
+    IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
+    # Extension for compound segment files
+    COMPOUND_EXT = ".seg"
+
+    # self.indexname
+    # self.segid
+
+    @classmethod
+    def _random_id(cls, size=12):
+        return "".join(random.choice(cls.IDCHARS) for _ in xrange(size))
+
+    def __repr__(self):
+        return "<%s %s>" % (self.__class__.__name__, getattr(self, "segid", ""))
+
+    def codec(self):
+        raise NotImplementedError
+
+    def segment_id(self):
+        if hasattr(self, "name"):
+            # Old segment class
+            return self.name
+        else:
+            return "%s_%s" % (self.indexname, self.segid)
+
+    def is_compound(self):
+        if not hasattr(self, "compound"):
+            return False
+        return self.compound
+
+    # File convenience methods
+
+    def make_filename(self, ext):
+        return "%s%s" % (self.segment_id(), ext)
+
+    def list_files(self, storage):
+        prefix = "%s." % self.segment_id()
+        return [name for name in storage.list() if name.startswith(prefix)]
+
+    def create_file(self, storage, ext, **kwargs):
+        """Convenience method to create a new file in the given storage named
+        with this segment's ID and the given extension. Any keyword arguments
+        are passed to the storage's create_file method.
+        """
+
+        fname = self.make_filename(ext)
+        return storage.create_file(fname, **kwargs)
+
+    def open_file(self, storage, ext, **kwargs):
+        """Convenience method to open a file in the given storage named with
+        this segment's ID and the given extension. Any keyword arguments are
+        passed to the storage's open_file method.
+        """
+
+        fname = self.make_filename(ext)
+        return storage.open_file(fname, **kwargs)
+
+    def create_compound_file(self, storage):
+        segfiles = self.list_files(storage)
+        assert not any(name.endswith(self.COMPOUND_EXT) for name in segfiles)
+        cfile = self.create_file(storage, self.COMPOUND_EXT)
+        CompoundStorage.assemble(cfile, storage, segfiles)
+        for name in segfiles:
+            storage.delete_file(name)
+
+    def open_compound_file(self, storage):
+        name = self.make_filename(self.COMPOUND_EXT)
+        return CompoundStorage(storage, name)
+
+    # Abstract methods dealing with document counts and deletions
+
+    def doc_count_all(self):
+        """
+        :returns: the total number of documents, DELETED OR UNDELETED, in this
+            segment.
+        """
+
+        raise NotImplementedError
+
+    def doc_count(self):
+        """
+        :returns: the number of (undeleted) documents in this segment.
+        """
+
+        raise NotImplementedError
+
+    def has_deletions(self):
+        """
+        :returns: True if any documents in this segment are deleted.
+        """
+
+        raise NotImplementedError
+
+    def deleted_count(self):
+        """
+        :returns: the total number of deleted documents in this segment.
+        """
+
+        raise NotImplementedError
+
+    def delete_document(self, docnum, delete=True):
+        """Deletes the given document number. The document is not actually
+        removed from the index until it is optimized.
+
+        :param docnum: The document number to delete.
+        :param delete: If False, this undeletes a deleted document.
+        """
+
+        raise NotImplementedError
+
+    def is_deleted(self, docnum):
+        """:returns: True if the given document number is deleted."""
+
+        raise NotImplementedError
+
+
 # Posting block format
 
 class BlockBase(object):
@@ -588,10 +753,6 @@ class BlockBase(object):
                 self.maxlength = length
 
     def to_file(self, postfile):
-        raise NotImplementedError
-
-    @classmethod
-    def from_file(cls, postfile):
         raise NotImplementedError
 
 

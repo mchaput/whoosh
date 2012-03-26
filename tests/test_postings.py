@@ -32,17 +32,21 @@ def _roundtrip(content, format_, astype, ana=None):
         for fieldname, text in tr.keys():
             m = tr.matcher(fieldname, text, format_)
             ps.append((text, m.value_as(astype)))
+        tr.close()
         return ps
+
 
 def test_existence_postings():
     content = u("alfa bravo charlie")
     assert_equal(_roundtrip(content, Existence(), "frequency"),
                  [("alfa", 1), ("bravo", 1), ("charlie", 1)])
 
+
 def test_frequency_postings():
     content = u("alfa bravo charlie bravo alfa alfa")
     assert_equal(_roundtrip(content, Frequency(), "frequency"),
                  [("alfa", 3), ("bravo", 2), ("charlie", 1)])
+
 
 def test_position_postings():
     content = u("alfa bravo charlie bravo alfa alfa")
@@ -50,6 +54,7 @@ def test_position_postings():
                  [("alfa", [0, 4, 5]), ("bravo", [1, 3]), ("charlie", [2])])
     assert_equal(_roundtrip(content, Positions(), "frequency"),
                  [("alfa", 3), ("bravo", 2), ("charlie", 1)])
+
 
 def test_character_postings():
     content = u("alfa bravo charlie bravo alfa alfa")
@@ -61,6 +66,7 @@ def test_character_postings():
                  [("alfa", [0, 4, 5]), ("bravo", [1, 3]), ("charlie", [2])])
     assert_equal(_roundtrip(content, Characters(), "frequency"),
                  [("alfa", 3), ("bravo", 2), ("charlie", 1)])
+
 
 def test_posboost_postings():
     pbs = PositionBoosts()
@@ -74,6 +80,7 @@ def test_posboost_postings():
                  [("alfa", [0, 4, 5]), ("bravo", [1, 3]), ("charlie", [2])])
     assert_equal(_roundtrip(content, pbs, "frequency", ana),
                  [("alfa", 3), ("bravo", 2), ("charlie", 1)])
+
 
 def test_charboost_postings():
     cbs = CharacterBoosts()

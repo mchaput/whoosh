@@ -137,6 +137,11 @@ class SegmentWriter(IndexWriter):
                            delay=delay):
                 raise LockError
 
+        if codec is None:
+            from whoosh.codec import default_codec
+            codec = default_codec()
+        self.codec = codec
+
         # Get info from the index
         self.storage = ix.storage
         self.indexname = ix.indexname
@@ -151,15 +156,12 @@ class SegmentWriter(IndexWriter):
         self.compound = compound
         poolprefix = "whoosh_%s_" % self.indexname
         self.pool = PostingPool(limitmb=limitmb, prefix=poolprefix)
-        newsegment = self.newsegment = Segment(self.indexname, 0)
+        newsegment = self.newsegment = codec.new_segment(self.storage,
+                                                         self.indexname)
         self.is_closed = False
         self._added = False
 
         # Set up writers
-        if codec is None:
-            from whoosh.codec import default_codec
-            codec = default_codec()
-        self.codec = codec
         self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
         self.fieldwriter = codec.field_writer(self.storage, newsegment)
 
@@ -406,6 +408,7 @@ class SegmentWriter(IndexWriter):
         self.is_closed = True
         self.perdocwriter.close()
         self.fieldwriter.close()
+        self.storage.close()
 
     def doc_count(self):
         return self.docnum - self.docbase
