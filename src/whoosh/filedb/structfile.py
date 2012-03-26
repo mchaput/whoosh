@@ -82,6 +82,12 @@ class StructFile(object):
     def __str__(self):
         return self._name
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def flush(self):
         """Flushes the buffer of the wrapped file. This is a no-op if the
         wrapped file does not have a flush method.

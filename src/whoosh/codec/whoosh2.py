@@ -31,12 +31,12 @@ from collections import defaultdict
 from struct import Struct
 
 from whoosh.compat import (loads, dumps, xrange, iteritems, itervalues, b,
-                           bytes_type, integer_types)
+                           bytes_type, string_type, integer_types)
 from whoosh.codec import base
 from whoosh.codec.base import (minimize_ids, deminimize_ids, minimize_weights,
                                deminimize_weights, minimize_values,
                                deminimize_values)
-from whoosh.filedb.fileindex import Segment, TOC, clean_files
+from whoosh.filedb.fileindex import TOC, clean_files
 from whoosh.filedb.filetables import CodedOrderedWriter, CodedOrderedReader
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermNotFound
@@ -112,7 +112,10 @@ class W2Codec(base.Codec):
         dawgfile = segment.open_file(storage, self.DAWG_EXT)
         return GraphReader(dawgfile)
 
-    # Generations
+    # Segments and generations
+
+    def new_segment(self, storage, indexname):
+        return W2Segment(indexname)
 
     def commit_toc(self, storage, indexname, schema, segments, generation,
                    clean=True):
@@ -239,7 +242,7 @@ class W2FieldWriter(base.FieldWriter):
     def __init__(self, storage, segment, blocklimit=128, compression=3,
                  inlinelimit=1):
         assert isinstance(storage, Storage)
-        assert isinstance(segment, Segment)
+        assert isinstance(segment, base.Segment)
         assert isinstance(blocklimit, int)
         assert isinstance(compression, int)
         assert isinstance(inlinelimit, int)
@@ -492,6 +495,10 @@ class PostingIndexBase(CodedOrderedReader):
         self.names = [None] * len(self.fieldmap)
         for name, num in iteritems(self.fieldmap):
             self.names[num] = name
+
+    def close(self):
+        CodedOrderedReader.close(self)
+        self.postfile.close()
 
 
 class W2TermsReader(PostingIndexBase):
@@ -874,6 +881,58 @@ class StoredFieldReader(object):
         vdict = dict((names[i], vlist[i]) for i in xrange(len(vlist))
                      if vlist[i] is not None)
         return vdict
+
+
+# Segment object
+
+class W2Segment(base.Segment):
+    def __init__(self, indexname, doccount=0, segid=None, deleted=None):
+        """
+        :param name: The name of the segment (the Index object computes this
+            from its name and the generation).
+        :param doccount: The maximum document number in the segment.
+        :param term_count: Total count of all terms in all documents.
+        :param deleted: A set of deleted document numbers, or None if no
+            deleted documents exist in this segment.
+        """
+
+        assert isinstance(indexname, string_type)
+        self.indexname = indexname
+        assert isinstance(doccount, integer_types)
+        self.doccount = doccount
+        self.segid = self._random_id() if segid is None else segid
+        self.deleted = deleted
+        self.compound = False
+
+    def codec(self, **kwargs):
+        return W2Codec(**kwargs)
+
+    def doc_count_all(self):
+        return self.doccount
+
+    def doc_count(self):
+        return self.doccount - self.deleted_count()
+
+    def has_deletions(self):
+        return self.deleted_count() > 0
+
+    def deleted_count(self):
+        if self.deleted is None:
+            return 0
+        return len(self.deleted)
+
+    def delete_document(self, docnum, delete=True):
+        if delete:
+            if self.deleted is None:
+                self.deleted = set()
+            self.deleted.add(docnum)
+        elif self.deleted is not None and docnum in self.deleted:
+            self.deleted.clear(docnum)
+
+    def is_deleted(self, docnum):
+        if self.deleted is None:
+            return False
+        return docnum in self.deleted
 
 
 # Posting blocks

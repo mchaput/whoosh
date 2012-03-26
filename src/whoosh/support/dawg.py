@@ -1388,6 +1388,9 @@ class GraphReader(BaseGraphReader):
         if rootname is not None:
             self._root = self.root(rootname)
 
+    def close(self):
+        self.dbfile.close()
+
     # Overrides
 
     def has_root(self, rootname):

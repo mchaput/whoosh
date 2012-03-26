@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields
 from whoosh.compat import u
@@ -28,6 +28,7 @@ def test_addfield():
             assert_equal(s.document(id="d"), {"id": "d", "added": "fourth"})
             assert_equal(s.document(id="b"), {"id": "b"})
 
+
 def test_addfield_spelling():
     schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
     with TempIndex(schema, "addfield") as ix:
@@ -47,6 +48,7 @@ def test_addfield_spelling():
         with ix.searcher() as s:
             assert_equal(s.document(id=u("d")), {"id": "d", "added": "fourth"})
             assert_equal(s.document(id=u("b")), {"id": "b"})
+
 
 def test_removefield():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -74,6 +76,7 @@ def test_removefield():
         with ix.searcher() as s:
             assert ("content", u("charlie")) not in s.reader()
             assert_equal(s.document(id=u("c")), {"id": u("c")})
+
 
 def test_optimize_away():
     schema = fields.Schema(id=fields.ID(stored=True),

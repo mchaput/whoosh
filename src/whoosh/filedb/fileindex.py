@@ -25,13 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import random, re, sys
+import re, sys
 from time import time, sleep
 
 from whoosh import __version__
-from whoosh.compat import pickle, integer_types, string_type, xrange
+from whoosh.compat import pickle, string_type, xrange
 from whoosh.fields import ensure_schema
-from whoosh.filedb.compound import CompoundStorage
 from whoosh.index import (Index, EmptyIndexError, IndexVersionError,
                           _DEF_INDEX_NAME)
 from whoosh.reading import EmptyReader, MultiReader
@@ -345,140 +344,5 @@ class FileIndex(Index):
                 sleep(0.05)
 
 
-class Segment(object):
-    """Do not instantiate this object directly. It is used by the Index object
-    to hold information about a segment. A list of objects of this class are
-    pickled as part of the TOC file.
-    
-    The TOC file stores a minimal amount of information -- mostly a list of
-    Segment objects. Segments are the real reverse indexes. Having multiple
-    segments allows quick incremental indexing: just create a new segment for
-    the new documents, and have the index overlay the new segment over previous
-    ones for purposes of reading/search. "Optimizing" the index combines the
-    contents of existing segments into one (removing any deleted documents
-    along the way).
-    """
-
-    # These must be valid separate characters in CASE-INSENSTIVE filenames
-    IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
-    # Extension for compound segment files
-    COMPOUND_EXT = ".seg"
-
-    @classmethod
-    def _random_id(cls, size=12):
-        return "".join(random.choice(cls.IDCHARS) for _ in xrange(size))
-
-    def __init__(self, indexname, doccount=0, segid=None, deleted=None):
-        """
-        :param name: The name of the segment (the Index object computes this
-            from its name and the generation).
-        :param doccount: The maximum document number in the segment.
-        :param term_count: Total count of all terms in all documents.
-        :param deleted: A set of deleted document numbers, or None if no
-            deleted documents exist in this segment.
-        """
-
-        assert isinstance(indexname, string_type)
-        self.indexname = indexname
-        assert isinstance(doccount, integer_types)
-        self.doccount = doccount
-        self.segid = self._random_id() if segid is None else segid
-        self.deleted = deleted
-        self.compound = False
-
-    def __repr__(self):
-        return "<%s %s>" % (self.__class__.__name__, getattr(self, "segid", ""))
-
-    def segment_id(self):
-        if hasattr(self, "name"):
-            # Old segment class
-            return self.name
-        else:
-            return "%s_%s" % (self.indexname, self.segid)
-
-    def make_filename(self, ext):
-        return "_%s%s" % (self.segment_id(), ext)
-
-    def list_files(self, storage):
-        prefix = "_%s." % self.segment_id()
-        return [name for name in storage.list() if name.startswith(prefix)]
-
-    def create_file(self, storage, ext, **kwargs):
-        """Convenience method to create a new file in the given storage named
-        with this segment's ID and the given extension. Any keyword arguments
-        are passed to the storage's create_file method.
-        """
-
-        fname = self.make_filename(ext)
-        return storage.create_file(fname, **kwargs)
-
-    def open_file(self, storage, ext, **kwargs):
-        """Convenience method to open a file in the given storage named with
-        this segment's ID and the given extension. Any keyword arguments are
-        passed to the storage's open_file method.
-        """
-
-        fname = self.make_filename(ext)
-        return storage.open_file(fname, **kwargs)
-
-    def create_compound_file(self, storage):
-        segfiles = self.list_files(storage)
-        assert not any(name.endswith(self.COMPOUND_EXT) for name in segfiles)
-        cfile = self.create_file(storage, self.COMPOUND_EXT)
-        CompoundStorage.assemble(cfile, storage, segfiles)
-        for name in segfiles:
-            storage.delete_file(name)
-
-    def open_compound_file(self, storage):
-        name = self.make_filename(self.COMPOUND_EXT)
-        return CompoundStorage(storage, name)
-
-    def doc_count_all(self):
-        """
-        :returns: the total number of documents, DELETED OR UNDELETED, in this
-            segment.
-        """
-        return self.doccount
-
-    def doc_count(self):
-        """
-        :returns: the number of (undeleted) documents in this segment.
-        """
-        return self.doccount - self.deleted_count()
-
-    def has_deletions(self):
-        """
-        :returns: True if any documents in this segment are deleted.
-        """
-        return self.deleted_count() > 0
-
-    def deleted_count(self):
-        """
-        :returns: the total number of deleted documents in this segment.
-        """
-        if self.deleted is None:
-            return 0
-        return len(self.deleted)
-
-    def delete_document(self, docnum, delete=True):
-        """Deletes the given document number. The document is not actually
-        removed from the index until it is optimized.
-
-        :param docnum: The document number to delete.
-        :param delete: If False, this undeletes a deleted document.
-        """
-
-        if delete:
-            if self.deleted is None:
-                self.deleted = set()
-            self.deleted.add(docnum)
-        elif self.deleted is not None and docnum in self.deleted:
-            self.deleted.clear(docnum)
-
-    def is_deleted(self, docnum):
-        """:returns: True if the given document number is deleted."""
-
-        if self.deleted is None:
-            return False
-        return docnum in self.deleted
+from whoosh.codec.whoosh2 import W2Segment as Segment  # @UnusedImport
 

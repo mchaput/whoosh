@@ -63,7 +63,7 @@ class SegmentReader(IndexReader):
         # self.files is a storage object from which to load the segment files.
         # This is different from the general storage (which will be used for
         # cahces) if the segment is in a compound file.
-        if segment.compound:
+        if segment.is_compound():
             # Use an overlay here instead of just the compound storage because
             # in rare circumstances a segment file may be added after the
             # segment is written
@@ -118,10 +118,12 @@ class SegmentReader(IndexReader):
 
     def close(self):
         self._terms.close()
-        self._lengths.close()
         self._stored.close()
+        if self._lengths:
+            self._lengths.close()
         if self._vectors:
             self._vectors.close()
+        self.files.close()
 
         self.caching_policy = None
         self.is_closed = True
@@ -275,7 +277,7 @@ class SegmentReader(IndexReader):
             return False
         try:
             self._open_dawg()
-        except (NameError, IOError):
+        except (NameError, IOError, dawg.FileVersionError):
             return False
         return self._graph.has_root(fieldname)
 

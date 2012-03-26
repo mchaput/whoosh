@@ -28,6 +28,7 @@ def greader(st):
 def enlist(string):
     return string.split()
 
+
 #
 
 def test_empty_fieldname():
@@ -36,6 +37,7 @@ def test_empty_fieldname():
     assert_raises(ValueError, gw.start_field, None)
     assert_raises(ValueError, gw.start_field, 0)
 
+
 def test_empty_key():
     gw = dawg.GraphWriter(RamStorage().create_file("test"))
     assert_raises(KeyError, gw.insert, b(""))
@@ -43,16 +45,19 @@ def test_empty_key():
     assert_raises(KeyError, gw.insert, u(""))
     assert_raises(KeyError, gw.insert, [])
 
+
 def test_keys_out_of_order():
     f = RamStorage().create_file("test")
     gw = dawg.GraphWriter(f)
     gw.insert("alfa")
     assert_raises(KeyError, gw.insert, "abba")
 
+
 def test_duplicate_keys():
     st = gwrite(enlist("alfa bravo bravo bravo charlie"))
     cur = dawg.Cursor(greader(st))
     assert_equal(list(cur.flatten_strings()), ["alfa", "bravo", "charlie"])
+
 
 def test_inactive_raise():
     st = gwrite(enlist("alfa bravo charlie"))
@@ -76,6 +81,7 @@ def test_inactive_raise():
     assert_raises(dawg.InactiveCursor, list, cur.flatten_v())
     assert_raises(dawg.InactiveCursor, list, cur.flatten_strings())
     assert_raises(dawg.InactiveCursor, cur.find_path, b("a"))
+
 
 def test_types():
     st = RamStorage()
@@ -123,6 +129,7 @@ def test_types():
     assert_equal(dawg.ArrayValues.common(None, a1), None)
     assert_equal(dawg.ArrayValues.common(a2, None), None)
 
+
 def _fst_roundtrip(domain, t):
     with TempStorage() as st:
         f = st.create_file("test")
@@ -135,17 +142,23 @@ def _fst_roundtrip(domain, t):
         gr = dawg.GraphReader(f, vtype=t)
         cur = dawg.Cursor(gr)
         assert_equal(list(cur.flatten_v()), domain)
+        f.close()
+
 
 def test_fst_int():
-    domain = [(b("aaab"), 0), (b("aabc"), 12), (b("abcc"), 23), (b("bcab"), 30),
-              (b("bcbc"), 31), (b("caaa"), 70), (b("cbba"), 80), (b("ccca"), 101)]
+    domain = [(b("aaab"), 0), (b("aabc"), 12), (b("abcc"), 23),
+              (b("bcab"), 30), (b("bcbc"), 31), (b("caaa"), 70),
+              (b("cbba"), 80), (b("ccca"), 101)]
     _fst_roundtrip(domain, dawg.IntValues)
 
+
 def test_fst_bytes():
-    domain = [(b("aaab"), b("000")), (b("aabc"), b("001")), (b("abcc"), b("010")),
-              (b("bcab"), b("011")), (b("bcbc"), b("100")), (b("caaa"), b("101")),
+    domain = [(b("aaab"), b("000")), (b("aabc"), b("001")),
+              (b("abcc"), b("010")), (b("bcab"), b("011")),
+              (b("bcbc"), b("100")), (b("caaa"), b("101")),
               (b("cbba"), b("110")), (b("ccca"), b("111"))]
     _fst_roundtrip(domain, dawg.BytesValues)
+
 
 def test_fst_array():
     domain = [(b("000"), array("i", [10, 231, 36, 40])),
@@ -159,6 +172,7 @@ def test_fst_array():
               ]
     _fst_roundtrip(domain, dawg.ArrayValues("i"))
 
+
 def test_fst_intlist():
     domain = [(b("000"), [1, 2, 3, 4]),
               (b("001"), [1, 2, 12, 15]),
@@ -170,6 +184,7 @@ def test_fst_intlist():
               (b("111"), [100, 200, 1000, 2000]),
               ]
     _fst_roundtrip(domain, dawg.IntListValues)
+
 
 def test_fst_nones():
     domain = [(b("000"), [1, 2, 3, 4]),
@@ -183,6 +198,7 @@ def test_fst_nones():
               ]
     _fst_roundtrip(domain, dawg.IntListValues)
 
+
 def test_fst_accept():
     domain = [(b("a"), [1, 2, 3, 4]),
               (b("aa"), [1, 2, 12, 15]),
@@ -195,12 +211,16 @@ def test_fst_accept():
               ]
     _fst_roundtrip(domain, dawg.IntListValues)
 
+
 def test_words():
     words = enlist("alfa alpaca amtrak bellow fellow fiona zebulon")
     with TempStorage() as st:
         gwrite(words, st)
-        cur = dawg.Cursor(greader(st))
+        gr = greader(st)
+        cur = dawg.Cursor(gr)
         assert_equal(list(cur.flatten_strings()), words)
+        gr.close()
+
 
 def test_random():
     def randstring():
@@ -224,6 +244,8 @@ def test_random():
             cur.reset()
             cur.find_path(key)
             assert_equal(cur.prefix_bytes(), key)
+        gr.close()
+
 
 def test_shared_suffix():
     st = gwrite(enlist("blowing blue glowing"))
@@ -235,6 +257,7 @@ def test_shared_suffix():
     cur1.find_path(b("blo"))
     cur2.find_path(b("glo"))
     assert_equal(cur1.stack[-1].target, cur2.stack[-1].target)
+
 
 def test_fields():
     with TempStorage() as st:
@@ -256,25 +279,31 @@ def test_fields():
         cur2 = dawg.Cursor(gr, gr.root("f2"))
         assert_equal(list(cur1.flatten_strings()), ["a", "aa", "ab"])
         assert_equal(list(cur2.flatten_strings()), ["ba", "baa", "bab"])
+        gr.close()
+
 
 def test_within():
     with TempStorage() as st:
         gwrite(enlist("0 00 000 001 01 010 011 1 10 100 101 11 110 111"), st)
         gr = greader(st)
         s = set(dawg.within(gr, "01", k=1))
+        gr.close()
     assert_equal(s, set(["0", "00", "01", "011", "010",
                          "001", "10", "101", "1", "11"]))
+
 
 def test_within_match():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
     assert_equal(set(dawg.within(gr, "def")), set(["def"]))
 
+
 def test_within_insert():
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
     s = set(dawg.within(gr, "0"))
     assert_equal(s, set(["00", "01", "10"]))
+
 
 def test_within_delete():
     st = gwrite(enlist("abc def ghi"))
@@ -284,6 +313,7 @@ def test_within_delete():
     st = gwrite(enlist("0"))
     gr = greader(st)
     assert_equal(list(dawg.within(gr, "01")), ["0"])
+
 
 def test_within_replace():
     st = gwrite(enlist("abc def ghi"))
@@ -295,11 +325,13 @@ def test_within_replace():
     s = set(dawg.within(gr, "00"))
     assert_equal(s, set(["00", "10", "01"]), s)
 
+
 def test_within_transpose():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
     s = set(dawg.within(gr, "dfe"))
     assert_equal(s, set(["def"]))
+
 
 def test_within_k2():
     st = gwrite(enlist("abc bac cba"))
@@ -307,11 +339,13 @@ def test_within_k2():
     s = set(dawg.within(gr, "cb", k=2))
     assert_equal(s, set(["abc", "cba"]))
 
+
 def test_within_prefix():
     st = gwrite(enlist("aabc aadc babc badc"))
     gr = greader(st)
     s = set(dawg.within(gr, "aaxc", prefix=2))
     assert_equal(s, set(["aabc", "aadc"]))
+
 
 def test_skip():
     st = gwrite(enlist("abcd abfg cdqr1 cdqr12 cdxy wxyz"))
@@ -333,6 +367,7 @@ def test_skip():
     cur.skip_to(b("z"))
     assert not cur.is_active()
 
+
 def test_insert_bytes():
     # This test is only meaningful on Python 3
     domain = [b("alfa"), b("bravo"), b("charlie")]
@@ -345,6 +380,7 @@ def test_insert_bytes():
 
     cur = dawg.GraphReader(st.open_file("test")).cursor()
     assert_equal(list(cur.flatten()), domain)
+
 
 def test_insert_unicode():
     domain = [u("\u280b\u2817\u2801\u281d\u2809\u2811"),
@@ -360,6 +396,7 @@ def test_insert_unicode():
 
     cur = dawg.GraphReader(st.open_file("test")).cursor()
     assert_equal(list(cur.flatten_strings()), domain)
+
 
 def test_within_unicode():
     domain = [u("\u280b\u2817\u2801\u281d\u2809\u2811"),

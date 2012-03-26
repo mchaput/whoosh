@@ -54,6 +54,7 @@ def load_old_lengths(obj, dbfile, doccount):
         obj.totals[fieldname] = sum(byte_to_length(b) for b
                                     in obj.lengths[fieldname])
     dbfile.close()
+    return obj
 
 
 # Old block formats
@@ -79,7 +80,7 @@ class Block2(base.BlockBase):
         block.nextoffset = start + header[0]
         block.cmp = header[1]
         block.count = header[2]
-        block.idcode = header[3].decode("Latin1")
+        block.idcode = header[3]
         block.idslen = header[5]
         block.wtslen = header[6]
         block.maxweight = header[7]
@@ -93,16 +94,19 @@ class Block2(base.BlockBase):
     def read_ids(self):
         self.postfile.seek(self.dataoffset)
         string = self.postfile.read(self.idslen)
-        self.ids = deminimize_ids(string)
+        self.ids = deminimize_ids(self.idcode, self.count, string,
+                                  compression=self.cmp)
 
     def read_weights(self):
         if self.wtslen == 0:
-            return [1.0] * self.count
+            weights = [1.0] * self.count
         else:
             offset = self.dataoffset + self.idslen
             self.postfile.seek(offset)
-            string = self.postfile.read(self.weightslen)
-            return deminimize_weights(self.count, string, self.cmp)
+            string = self.postfile.read(self.wtslen)
+            weights = deminimize_weights(self.count, string,
+                                         compression=self.cmp)
+        return weights
 
     def read_values(self):
         postingsize = self.postingsize
