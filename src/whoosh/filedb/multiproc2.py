@@ -238,8 +238,7 @@ class MpWriter(SegmentWriter):
             for task in self.tasks:
                 results.append(self.resultqueue.get(timeout=5))
             self._merge_subsegments(results)
-            self._close_all()
-            self._finish_toc(self.segments + [self.get_segment()])
+            self._finish(self.segments + [self.get_segment()])
         finally:
             self._release_lock()
 
@@ -332,8 +331,7 @@ class SerialMpWriter(MpWriter):
             for writer in self.tasks:
                 results.append(finish_subsegment(writer))
             self._merge_subsegments(results)
-            self._close_all()
-            self._finish_toc(self.segments + [self.get_segment()])
+            self._finish(self.segments + [self.get_segment()])
         finally:
             self._release_lock()
 
