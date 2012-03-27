@@ -251,7 +251,7 @@ class FileIndex(Index):
 
     def writer(self, procs=1, **kwargs):
         if procs > 1:
-            from whoosh.filedb.multiproc import MpWriter
+            from whoosh.filedb.multiproc2 import MpWriter
             return MpWriter(self, **kwargs)
         else:
             from whoosh.filedb.filewriting import SegmentWriter

@@ -246,7 +246,7 @@ class LengthsReader(object):
 
 
 class MultiLengths(LengthsReader):
-    def __init__(self, lengths):
+    def __init__(self, lengths, offset=0):
         self.lengths = lengths
         self.doc_offsets = []
         self._count = 0

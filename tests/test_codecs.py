@@ -105,21 +105,36 @@ def test_stored_fields():
         dw.add_field("b", fieldobj, "there", 1)
         dw.finish_doc()
 
-        dw.start_doc(0)
+        dw.start_doc(1)
         dw.add_field("a", fieldobj, "one", 1)
         dw.add_field("b", fieldobj, "two", 1)
+        dw.add_field("c", fieldobj, "three", 1)
         dw.finish_doc()
 
-        dw.start_doc(0)
+        dw.start_doc(2)
+        dw.finish_doc()
+
+        dw.start_doc(3)
         dw.add_field("a", fieldobj, "alfa", 1)
         dw.add_field("b", fieldobj, "bravo", 1)
         dw.finish_doc()
+
         dw.close()
 
         dr = codec.stored_fields_reader(st, seg)
         assert_equal(dr[0], {"a": "hello", "b": "there"})
-        assert_equal(dr[2], {"a": "alfa", "b": "bravo"})
-        assert_equal(dr[1], {"a": "one", "b": "two"})
+        # Note: access out of order
+        assert_equal(dr[3], {"a": "alfa", "b": "bravo"})
+        assert_equal(dr[1], {"a": "one", "b": "two", "c": "three"})
+        dr.close()
+
+        dr = codec.stored_fields_reader(st, seg)
+        sfs = list(dr)
+        assert_equal(sfs, [{"a": "hello", "b": "there"},
+                           {"a": "one", "b": "two", "c": "three"},
+                           {},
+                           {"a": "alfa", "b": "bravo"},
+                           ])
         dr.close()
 
 

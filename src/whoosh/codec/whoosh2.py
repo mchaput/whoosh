@@ -821,6 +821,11 @@ class StoredFieldWriter(object):
         self.directory.append(pack_stored_pointer(f.tell(), len(vstring)))
         f.write(vstring)
 
+    def add_reader(self, sfreader):
+        add = self.add
+        for vdict in sfreader:
+            add(vdict)
+
     def close(self):
         f = self.dbfile
         dirpos = f.tell()
@@ -841,6 +846,7 @@ class StoredFieldReader(object):
         dbfile.seek(0)
         dirpos = dbfile.read_long()
         self.length = dbfile.read_uint()
+        self.basepos = dbfile.tell()
 
         dbfile.seek(dirpos)
 
@@ -857,6 +863,23 @@ class StoredFieldReader(object):
 
     def close(self):
         self.dbfile.close()
+
+    def __iter__(self):
+        dbfile = self.dbfile
+        names = self.names
+        lengths = array("I")
+
+        dbfile.seek(self.directory_offset)
+        for i in xrange(self.length):
+            dbfile.seek(_LONG_SIZE, 1)
+            lengths.append(dbfile.read_uint())
+
+        dbfile.seek(self.basepos)
+        for length in lengths:
+            vlist = loads(dbfile.read(length) + b("."))
+            vdict = dict((names[i], vlist[i]) for i in xrange(len(vlist))
+                     if vlist[i] is not None)
+            yield vdict
 
     def __getitem__(self, num):
         if num > self.length - 1:
