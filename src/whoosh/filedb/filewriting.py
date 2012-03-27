@@ -425,20 +425,10 @@ class SegmentWriter(IndexWriter):
         self.fieldwriter.close()
         self.storage.close()
 
-    def _finish_toc(self, newsegment, segments):
-        if self._added and self.compound:
-            # Assemble the segment files into a compound file
-            newsegment.create_compound_file(self.storage)
-            newsegment.compound = True
-
-        segments = segments
+    def _finish_toc(self, segments):
         # Write a new TOC with the new segment list (and delete old files)
         self.codec.commit_toc(self.storage, self.indexname, self.schema,
-                              segments + [newsegment], self.generation)
-
-    def _release_lock(self):
-        if self.writelock:
-            self.writelock.release()
+                              segments, self.generation)
 
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
@@ -494,15 +484,24 @@ class SegmentWriter(IndexWriter):
                 lengths = self.perdocwriter.lengths_reader()
                 self.fieldwriter.add_postings(schema, lengths,
                                               self.pool.iter_postings())
+
+                if self.compound:
+                    # Assemble the segment files into a compound file
+                    newsegment.create_compound_file(storage)
+                    newsegment.compound = True
+
+                # Add the new segment to the list of remaining segments
+                # returned by the merge policy function
+                finalsegments.append(newsegment)
             else:
                 self.pool.cleanup()
 
             # Close all files
             self._close_all()
-            # Write the new TOC
-            self._finish_toc(newsegment, finalsegments)
+            self._finish_toc(finalsegments)
         finally:
-            self._release_lock()
+            if self.writelock:
+                self.writelock.release()
 
     def cancel(self):
         self._check_state()

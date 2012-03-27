@@ -232,14 +232,14 @@ class MpWriter(SegmentWriter):
             for task in self.tasks:
                 task.join()
 
-            # Pull a (run_file_name, segment) tuple off the result queue for each
-            # sub-task, representing the final results of the task
+            # Pull a (run_file_name, segment) tuple off the result queue for
+            # each sub-task, representing the final results of the task
             results = []
             for task in self.tasks:
                 results.append(self.resultqueue.get(timeout=5))
             self._merge_subsegments(results)
             self._close_all()
-            self._finish_toc(self.get_segment(), self.segments)
+            self._finish_toc(self.segments + [self.get_segment()])
         finally:
             self._release_lock()
 
@@ -300,8 +300,6 @@ class MpWriter(SegmentWriter):
         mlens = base.MultiLengths(lenreaders)
         # Merge the iterators into the field writer
         self.fieldwriter.add_postings(schema, mlens, imerge(sources))
-
-        print "self.docnum=", self.docnum, "basedoc=", basedoc
         self.docnum = basedoc
 
 
@@ -335,7 +333,7 @@ class SerialMpWriter(MpWriter):
                 results.append(finish_subsegment(writer))
             self._merge_subsegments(results)
             self._close_all()
-            self._finish_toc(self.get_segment(), self.segments)
+            self._finish_toc(self.segments + [self.get_segment()])
         finally:
             self._release_lock()
 
