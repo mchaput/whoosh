@@ -416,19 +416,32 @@ class SegmentWriter(IndexWriter):
 
     def partial_segment(self):
         self._check_state()
-        self._close_all()
-        return self.get_segment()
-
-    def _close_all(self):
-        self.is_closed = True
         self.perdocwriter.close()
         self.fieldwriter.close()
+        return self.get_segment()
+
+    def _finish(self, segments=None):
+        self.perdocwriter.close()
+        self.fieldwriter.close()
+        self.pool.cleanup()
+
+        if segments:
+            if self._added and self.compound:
+                # Assemble the segment files into a compound file
+                newsegment = segments[-1]
+                newsegment.create_compound_file(self.storage)
+                newsegment.compound = True
+
+            # Write a new TOC with the new segment list (and delete old files)
+            self.codec.commit_toc(self.storage, self.indexname, self.schema,
+                                  segments, self.generation)
+
+        self.is_closed = True
         self.storage.close()
 
-    def _finish_toc(self, segments):
-        # Write a new TOC with the new segment list (and delete old files)
-        self.codec.commit_toc(self.storage, self.indexname, self.schema,
-                              segments, self.generation)
+    def _release_lock(self):
+        if self.writelock:
+            self.writelock.release()
 
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
@@ -485,29 +498,18 @@ class SegmentWriter(IndexWriter):
                 self.fieldwriter.add_postings(schema, lengths,
                                               self.pool.iter_postings())
 
-                if self.compound:
-                    # Assemble the segment files into a compound file
-                    newsegment.create_compound_file(storage)
-                    newsegment.compound = True
-
                 # Add the new segment to the list of remaining segments
                 # returned by the merge policy function
                 finalsegments.append(newsegment)
-            else:
-                self.pool.cleanup()
-
             # Close all files
-            self._close_all()
-            self._finish_toc(finalsegments)
+            self._finish(finalsegments)
         finally:
-            if self.writelock:
-                self.writelock.release()
+            self._release_lock()
 
     def cancel(self):
         self._check_state()
         try:
-            self.pool.cleanup()
-            self._close_all()
+            self._finish()
         finally:
             if self.writelock:
                 self.writelock.release()
