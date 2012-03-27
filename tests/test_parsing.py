@@ -1,4 +1,4 @@
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, query
 from whoosh.compat import u, text_type
@@ -10,20 +10,24 @@ def test_whitespace():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin()])
     assert_equal(repr(p.tag("hello there amiga")), "<AndGroup <None:'hello'>, < >, <None:'there'>, < >, <None:'amiga'>>")
 
+
 def test_singlequotes():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.SingleQuotePlugin()])
     assert_equal(repr(p.process("a 'b c' d")), "<AndGroup <None:'a'>, <None:'b c'>, <None:'d'>>")
+
 
 def test_prefix():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.PrefixPlugin()])
     assert_equal(repr(p.process("a b* c")), "<AndGroup <None:'a'>, <None:'b'*>, <None:'c'>>")
 
+
 def test_wild():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.WildcardPlugin()])
     assert_equal(repr(p.process("a b*c? d")), "<AndGroup <None:'a'>, <None:Wild 'b*c?'>, <None:'d'>>")
+
 
 def test_range():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
@@ -35,11 +39,13 @@ def test_range():
     assert_equal(repr(p.process("[to c] d")), "<AndGroup <None:[None 'c']>, <None:'d'>>")
     assert_equal(repr(p.process("[to]")), "<AndGroup <None:[None None]>>")
 
+
 def test_sq_range():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.SingleQuotePlugin(),
                                         plugins.RangePlugin()])
     assert_equal(repr(p.process("['a b' to ']']")), "<AndGroup <None:['a b' ']']>>")
+
 
 def test_phrase():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
@@ -48,12 +54,14 @@ def test_phrase():
     assert_equal(repr(p.process('"b c" d')), "<AndGroup <None:PhraseNode 'b c'~1>, <None:'d'>>")
     assert_equal(repr(p.process('"b c"')), "<AndGroup <None:PhraseNode 'b c'~1>>")
 
+
 def test_groups():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.GroupPlugin()])
 
     ns = p.process("a ((b c) d) e")
     assert_equal(repr(ns), "<AndGroup <None:'a'>, <AndGroup <AndGroup <None:'b'>, <None:'c'>>, <None:'d'>>, <None:'e'>>")
+
 
 def test_fieldnames():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
@@ -63,11 +71,13 @@ def test_fieldnames():
     assert_equal(repr(ns), "<AndGroup <'a':'b'>, <None:'c'>, <AndGroup <'d':'e'>, <AndGroup <'f':'g'>, <'f':'h'>>>, <None:'i'>, <None:'j:'>>")
     assert_equal(repr(p.process("a:b:")), "<AndGroup <'a':'b:'>>")
 
+
 def test_operators():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.OperatorsPlugin()])
     ns = p.process("a OR b")
     assert_equal(repr(ns), "<AndGroup <OrGroup <None:'a'>, <None:'b'>>>")
+
 
 def test_boost():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
@@ -92,6 +102,7 @@ def test_empty_querystring():
     q = qp.parse(u(""))
     assert_equal(q, query.NullQuery)
 
+
 def test_fields():
     s = fields.Schema(content=fields.TEXT, title=fields.TEXT, id=fields.ID)
     qp = default.QueryParser("content", s)
@@ -115,6 +126,7 @@ def test_fields():
     assert_equal(q.fieldname, "title")
     assert_equal(q.text, "test")
 
+
 def test_multifield():
     schema = fields.Schema(content=fields.TEXT, title=fields.TEXT,
                            cat=fields.KEYWORD, date=fields.DATETIME)
@@ -124,6 +136,7 @@ def test_multifield():
 
     q = qp.parse(qs)
     assert_equal(text_type(q), "((x:a OR y:a) AND (((x:b OR y:b) AND (x:c OR y:c) AND cat:d) OR ((x:b OR y:b) AND (x:c OR y:c) AND cat:e)))")
+
 
 def test_fieldname_chars():
     s = fields.Schema(abc123=fields.TEXT, nisbah=fields.KEYWORD)
@@ -147,6 +160,7 @@ def test_fieldname_chars():
 
     q = qp.parse(u("abc123 (xyz:123 OR qrs)"))
     assert_equal(text_type(q), "(content:abc123 AND (abc123:123 OR content:qrs))")
+
 
 def test_colonspace():
     s = fields.Schema(content=fields.TEXT, url=fields.ID)
@@ -177,6 +191,7 @@ def test_colonspace():
     assert_equal(q.fieldname, "foo")
     assert_equal(q.text, "blah:")
 
+
 def test_andor():
     qp = default.QueryParser("a", None)
     q = qp.parse("a AND b OR c AND d OR e AND f")
@@ -192,6 +207,7 @@ def test_andor():
     assert_equal(q, query.And([query.Term("a", "a"), query.Term("a", "ORb")]))
 
     assert_equal(qp.parse("OR"), query.Term("a", "OR"))
+
 
 def test_andnot():
     qp = default.QueryParser("content", None)
@@ -219,6 +235,7 @@ def test_andnot():
     assert_equal(q.__class__, query.AndNot)
     assert_equal(text_type(q), "((content:a AND content:b) ANDNOT content:c)")
 
+
 def test_boost_query():
     qp = default.QueryParser("content", None)
     q = qp.parse(u("this^3 fn:that^0.5 5.67 hi^5x"))
@@ -234,10 +251,12 @@ def test_boost_query():
     assert_equal(q[1].boost, 2.5)
     assert_equal(q[2].text, "^3")
 
+
 def test_boosts():
     qp = default.QueryParser("t", None)
     q = qp.parse("alfa ((bravo^2)^3)^4 charlie")
     assert_equal(q.__unicode__(), "(t:alfa AND t:bravo^24.0 AND t:charlie)")
+
 
 def test_wildcard1():
     qp = default.QueryParser("content", None)
@@ -252,11 +271,13 @@ def test_wildcard1():
     assert_equal(q[3].__class__, query.Term)
     assert_equal(q[3].text, "test")
 
+
 def test_wildcard2():
     qp = default.QueryParser("content", None)
     q = qp.parse(u("*the?e*"))
     assert_equal(q.__class__, query.Wildcard)
     assert_equal(q.text, "*the?e*")
+
 
 def test_parse_fieldname_underscores():
     s = fields.Schema(my_name=fields.ID(stored=True), my_value=fields.TEXT)
@@ -265,6 +286,7 @@ def test_parse_fieldname_underscores():
     assert_equal(q.__class__, query.Term)
     assert_equal(q.fieldname, "my_name")
     assert_equal(q.text, "Green")
+
 
 def test_endstar():
     qp = default.QueryParser("text", None)
@@ -275,6 +297,7 @@ def test_endstar():
     q = qp.parse(u("first* second"))
     assert_equal(q[0].__class__, query.Prefix)
     assert_equal(q[0].text, "first")
+
 
 def test_singlequotes_query():
     qp = default.QueryParser("text", None)
@@ -370,6 +393,7 @@ def test_singlequotes_query():
 #        assert q.__class__, query.Wildcard)
 #        assert q.text, u("ab\u005c*"))
 
+
 def test_phrase_phrase():
     qp = default.QueryParser("content", None)
     q = qp.parse('"alfa bravo" "charlie delta echo"^2.2 test:"foxtrot golf"')
@@ -381,6 +405,7 @@ def test_phrase_phrase():
     assert_equal(q[2].__class__, query.Phrase)
     assert_equal(q[2].words, ["foxtrot", "golf"])
     assert_equal(q[2].fieldname, "test")
+
 
 def test_weird_characters():
     qp = default.QueryParser("content", None)
@@ -397,12 +422,14 @@ def test_weird_characters():
     assert_equal(q.__class__, query.Wildcard)
     assert_equal(q.text, "?")
 
+
 def test_euro_chars():
     schema = fields.Schema(text=fields.TEXT)
     qp = default.QueryParser("text", schema)
     q = qp.parse(u("stra\xdfe"))
     assert_equal(q.__class__, query.Term)
     assert_equal(q.text, u("stra\xdfe"))
+
 
 def test_star():
     schema = fields.Schema(text=fields.TEXT(stored=True))
@@ -434,6 +461,7 @@ def test_star():
     assert_equal(q.__class__, query.Wildcard)
     assert_equal(q.text, "*q")
 
+
 def test_star_field():
     schema = fields.Schema(text=fields.TEXT)
     qp = default.QueryParser("text", schema)
@@ -448,6 +476,7 @@ def test_star_field():
     assert_equal(q.__class__, query.Term)
     assert_equal(q.fieldname, "text")
     assert_equal(q.text, "test")
+
 
 def test_range_query():
     schema = fields.Schema(name=fields.ID(stored=True), text=fields.TEXT(stored=True))
@@ -508,6 +537,7 @@ def test_range_query():
     assert_equal(q.start, "d")
     assert_equal(q.fieldname, "name")
 
+
 def test_numeric_range():
     schema = fields.Schema(id=fields.STORED, number=fields.NUMERIC)
     qp = default.QueryParser("number", schema)
@@ -533,6 +563,7 @@ def test_numeric_range():
     assert_equal(q.start, teststart)
     assert_equal(q.end, testend)
 
+
 def test_regressions():
     qp = default.QueryParser("f", None)
 
@@ -548,6 +579,7 @@ def test_regressions():
     q = qp.parse(u('22" BX'))
     assert_equal(q, query.And([query.Term("f", '22"'), query.Term("f", "BX")]))
 
+
 def test_empty_ranges():
     schema = fields.Schema(name=fields.TEXT, num=fields.NUMERIC,
                            date=fields.DATETIME)
@@ -557,6 +589,7 @@ def test_empty_ranges():
         q = qp.parse(u("%s:[to]") % fname)
         assert_equal(q.__class__, query.Every)
 
+
 def test_empty_numeric_range():
     schema = fields.Schema(id=fields.ID, num=fields.NUMERIC)
     qp = default.QueryParser("num", schema)
@@ -564,6 +597,7 @@ def test_empty_numeric_range():
     assert_equal(q.__class__, query.NumericRange)
     assert_equal(q.start, None)
     assert_equal(q.end, None)
+
 
 def test_numrange_multi():
     schema = fields.Schema(text=fields.TEXT, start=fields.NUMERIC, end=fields.NUMERIC)
@@ -590,6 +624,7 @@ def test_numrange_multi():
     assert_equal(q[1].start, 2011)
     assert_equal(q[1].end, 2012)
 
+
 def test_nonexistant_fieldnames():
     # Need an analyzer that won't mangle a URL
     a = analysis.SimpleAnalyzer("\\S+")
@@ -605,11 +640,13 @@ def test_nonexistant_fieldnames():
     assert_equal(q[1].fieldname, "text")
     assert_equal(q[1].text, "http://localhost/")
 
+
 def test_stopped():
     schema = fields.Schema(text=fields.TEXT)
     qp = default.QueryParser("text", schema)
     q = qp.parse(u("a b"))
     assert_equal(q, query.NullQuery)
+
 
 def test_analyzing_terms():
     schema = fields.Schema(text=fields.TEXT(analyzer=analysis.StemmingAnalyzer()))
@@ -617,6 +654,7 @@ def test_analyzing_terms():
     q = qp.parse(u("Indexed!"))
     assert_equal(q.__class__, query.Term)
     assert_equal(q.text, "index")
+
 
 def test_simple_parsing():
     parser = default.SimpleParser("x", None)
@@ -632,6 +670,7 @@ def test_simple_parsing():
     q = parser.parse(u("- alfa +bravo + delta"))
     assert_equal(text_type(q), "((x:bravo AND x:delta) ANDNOT x:alfa)")
 
+
 def test_dismax():
     parser = default.DisMaxParser({"body": 0.8, "title": 2.5}, None)
     q = parser.parse(u("alfa bravo charlie"))
@@ -646,16 +685,19 @@ def test_dismax():
     q = parser.parse(u("alfa -bravo +charlie"))
     assert_equal(text_type(q), "((DisMax(body:charlie^0.8 title:charlie^2.5) ANDMAYBE DisMax(body:alfa^0.8 title:alfa^2.5)) ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5))")
 
+
 def test_many_clauses():
     qs = "1" + (" OR 1" * 1000)
 
     parser = default.QueryParser("content", None)
     parser.parse(qs)
 
+
 def test_roundtrip():
     parser = default.QueryParser("a", None)
     q = parser.parse(u("a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h"))
     assert_equal(text_type(q), "((a:a OR (a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
+
 
 def test_ngrams():
     schema = fields.Schema(grams=fields.NGRAM)
@@ -666,6 +708,7 @@ def test_ngrams():
     assert_equal(q.__class__, query.And)
     assert_equal(len(q), 8)
     assert_equal([sq.text for sq in q], ["hell", "ello", "llo ", "lo t", "o th", " the", "ther", "here"])
+
 
 def test_ngramwords():
     schema = fields.Schema(grams=fields.NGRAMWORDS(queryor=True))
@@ -678,6 +721,7 @@ def test_ngramwords():
     assert_equal(q[0][0].text, "hell")
     assert_equal(q[0][1].text, "ello")
     assert_equal(q[1].text, "tom")
+
 
 def test_multitoken_default():
     textfield = fields.TEXT()
@@ -697,6 +741,7 @@ def test_multitoken_default():
     assert_equal(q[1].__class__, query.Term)
     assert_equal(q[1].text, "bacon")
 
+
 def test_multitoken_or():
     textfield = fields.TEXT()
     textfield.multitoken_query = "or"
@@ -715,6 +760,7 @@ def test_multitoken_or():
     assert_equal(q[1].__class__, query.Term)
     assert_equal(q[1].text, "bacon")
 
+
 def test_multitoken_phrase():
     textfield = fields.TEXT()
     textfield.multitoken_query = "phrase"
@@ -728,6 +774,7 @@ def test_multitoken_phrase():
     q = parser.parse(qstring)
     assert_equal(q.__class__, query.Phrase)
 
+
 def test_singlequote_multitoken():
     schema = fields.Schema(text=fields.TEXT(multitoken_query="or"))
     parser = default.QueryParser("text", schema)
@@ -736,6 +783,7 @@ def test_singlequote_multitoken():
 
     q = parser.parse(u("'foo bar'"))  # single quotes
     assert_equal(q.__unicode__(), "(text:foo OR text:bar)")
+
 
 def test_operator_queries():
     qp = default.QueryParser("f", None)
@@ -779,6 +827,7 @@ def test_operator_queries():
 #    q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
 #    assert_equal(text_type(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
 
+
 def test_not_assoc():
     qp = default.QueryParser("text", None)
     q = qp.parse(u("a AND NOT b OR c"))
@@ -788,15 +837,18 @@ def test_not_assoc():
     q = qp.parse(u("a NOT (b OR c)"))
     assert_equal(text_type(q), "(text:a AND NOT (text:b OR text:c))")
 
+
 def test_fieldname_space():
     qp = default.QueryParser("a", None)
     q = qp.parse("Man Ray: a retrospective")
     assert_equal(text_type(q), "(a:Man AND a:Ray: AND a:a AND a:retrospective)")
 
+
 def test_fieldname_fieldname():
     qp = default.QueryParser("a", None)
     q = qp.parse("a:b:")
     assert_equal(q, query.Term("a", "b:"))
+
 
 def test_paren_fieldname():
     schema = fields.Schema(kind=fields.ID, content=fields.TEXT)
@@ -807,6 +859,7 @@ def test_paren_fieldname():
 
     q = qp.parse(u("kind:(1d565 OR 7c584) AND (stuff)"))
     assert_equal(text_type(q), "((kind:1d565 OR kind:7c584) AND content:stuff)")
+
 
 def test_star_paren():
     qp = default.QueryParser("content", None)
@@ -819,6 +872,7 @@ def test_star_paren():
     assert_equal(q[1].fieldname, "title")
     assert_equal(q[0].text, "*john*")
     assert_equal(q[1].text, "blog")
+
 
 def test_dash():
     ana = analysis.StandardAnalyzer("[ \t\r\n()*?]+")

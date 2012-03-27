@@ -242,8 +242,10 @@ class SegmentWriter(IndexWriter):
         return self.pool.iter_postings()
 
     def add_postings(self, lengths, items, startdoc, docmap):
-        # fieldname, text, docnum, weight, valuestring
+        # items = (fieldname, text, docnum, weight, valuestring) ...
         schema = self.schema
+        # Make a generator to strip out deleted fields and renumber the docs
+        # before passing them down to the field writer
         def gen():
             for fieldname, text, docnum, weight, valuestring in items:
                 if fieldname not in schema:
@@ -253,6 +255,7 @@ class SegmentWriter(IndexWriter):
                 else:
                     newdoc = startdoc + docnum
                 yield (fieldname, text, newdoc, weight, valuestring)
+
         self.fieldwriter.add_postings(schema, lengths, gen())
 
     def _make_docmap(self, reader, newdoc):
@@ -363,7 +366,6 @@ class SegmentWriter(IndexWriter):
                 items = field.index(value)
                 # Only store the length if the field is marked scorable
                 scorable = field.scorable
-                length = 0
                 # Add the terms to the pool
                 for text, freq, weight, valuestring in items:
                     #assert w != ""
@@ -404,14 +406,39 @@ class SegmentWriter(IndexWriter):
         self._added = True
         self.docnum += 1
 
+    def doc_count(self):
+        return self.docnum - self.docbase
+
+    def get_segment(self):
+        newsegment = self.newsegment
+        newsegment.doccount = self.doc_count()
+        return newsegment
+
+    def partial_segment(self):
+        self._check_state()
+        self._close_all()
+        return self.get_segment()
+
     def _close_all(self):
         self.is_closed = True
         self.perdocwriter.close()
         self.fieldwriter.close()
         self.storage.close()
 
-    def doc_count(self):
-        return self.docnum - self.docbase
+    def _finish_toc(self, newsegment, segments):
+        if self._added and self.compound:
+            # Assemble the segment files into a compound file
+            newsegment.create_compound_file(self.storage)
+            newsegment.compound = True
+
+        segments = segments
+        # Write a new TOC with the new segment list (and delete old files)
+        self.codec.commit_toc(self.storage, self.indexname, self.schema,
+                              segments + [newsegment], self.generation)
+
+    def _release_lock(self):
+        if self.writelock:
+            self.writelock.release()
 
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
@@ -460,35 +487,22 @@ class SegmentWriter(IndexWriter):
 
             if self._added:
                 # Update the new segment with the current doc count
-                newsegment = self.newsegment
-                newsegment.doccount = self.doc_count()
+                newsegment = self.get_segment()
 
                 # Output the sorted pool postings to the terms index and
                 # posting files
                 lengths = self.perdocwriter.lengths_reader()
                 self.fieldwriter.add_postings(schema, lengths,
                                               self.pool.iter_postings())
-
-                # Add the new segment to the list of remaining segments
-                # returned by the merge policy function
-                finalsegments.append(newsegment)
             else:
                 self.pool.cleanup()
 
             # Close all files
             self._close_all()
-
-            if self._added and self.compound:
-                # Assemble the segment files into a compound file
-                newsegment.create_compound_file(storage)
-                newsegment.compound = True
-
-            # Write a new TOC with the new segment list (and delete old files)
-            self.codec.commit_toc(storage, self.indexname, schema,
-                                  finalsegments, self.generation)
+            # Write the new TOC
+            self._finish_toc(newsegment, finalsegments)
         finally:
-            if self.writelock:
-                self.writelock.release()
+            self._release_lock()
 
     def cancel(self):
         self._check_state()
