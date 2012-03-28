@@ -327,7 +327,7 @@ class SegmentReader(IndexReader):
             object is specified using `cp`, this argument is ignored.
         :param storage: a custom :class:`whoosh.store.Storage` object to use
             for saving field caches. If a caching policy object is specified
-            using `cp` or `save` is `False`, this argument is ignored. 
+            using `cp` or `save` is `False`, this argument is ignored.
         """
 
         if not cp:

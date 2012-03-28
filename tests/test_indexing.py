@@ -10,21 +10,7 @@ from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.util import length_to_byte, byte_to_length, permutations
 from whoosh.writing import IndexingError
-from whoosh.support.testing import skip_if_unavailable, TempIndex, skip_if
-
-def no_queue_support():
-    try:
-        import multiprocessing.synchronize  #@UnusedImport
-    except ImportError:
-        return True
-    else:
-        try:
-            from multiprocessing import Queue
-            Queue()
-        except OSError:
-            return True
-        else:
-            return False
+from whoosh.support.testing import TempIndex
 
 
 def test_creation():
@@ -38,11 +24,16 @@ def test_creation():
 
     ix = st.create_index(s)
     w = ix.writer()
-    w.add_document(title=u("First"), content=u("This is the first document"), path=u("/a"),
-                   tags=u("first second third"), quick=u("First document"), note=u("This is the first document"))
-    w.add_document(content=u("Let's try this again"), title=u("Second"), path=u("/b"),
-                   tags=u("Uno Dos Tres"), quick=u("Second document"), note=u("This is the second document"))
+    w.add_document(title=u("First"), content=u("This is the first document"),
+                   path=u("/a"), tags=u("first second third"),
+                   quick=u("First document"),
+                   note=u("This is the first document"))
+    w.add_document(content=u("Let's try this again"), title=u("Second"),
+                   path=u("/b"), tags=u("Uno Dos Tres"),
+                   quick=u("Second document"),
+                   note=u("This is the second document"))
     w.commit()
+
 
 def test_empty_commit():
     s = fields.Schema(id=fields.ID(stored=True))
@@ -56,10 +47,12 @@ def test_empty_commit():
         w = ix.writer()
         w.commit()
 
+
 def _check_writer(name, writer_fn):
     schema = fields.Schema(text=fields.TEXT, id=fields.STORED)
-    domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"), u("golf"),
-              u("hotel"), u("india"), u("juliet"), u("kilo"), u("lima"), u("mike"), u("november"))
+    domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+              u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"),
+              u("kilo"), u("lima"), u("mike"), u("november"))
     docs = defaultdict(list)
     with TempIndex(schema, name) as ix:
         w = writer_fn(ix)
@@ -73,23 +66,15 @@ def _check_writer(name, writer_fn):
         with ix.searcher() as s:
             for word in domain:
                 print(word)
-                rset = sorted([hit["id"] for hit in s.search(query.Term("text", word), limit=None)])
+                rset = sorted([hit["id"] for hit
+                               in s.search(query.Term("text", word),
+                                           limit=None)])
                 assert_equal(rset, docs[word])
+
 
 def test_simple_indexing():
     _check_writer("simplew", lambda ix: ix.writer())
 
-#@skip_if_unavailable("multiprocessing")
-#@skip_if(no_queue_support)
-#@skip_if(lambda: PY3)
-#def test_multipool():
-#    _check_writer("multipool", lambda ix: ix.writer(procs=4))
-#
-#@skip_if_unavailable("multiprocessing")
-#@skip_if(no_queue_support)
-#def test_multisegwriter():
-#    from whoosh.filedb.multiproc import MultiSegmentWriter
-#    _check_writer("multisegw", lambda ix: MultiSegmentWriter(ix, procs=4))
 
 def test_integrity():
     s = fields.Schema(name=fields.TEXT, value=fields.TEXT)
@@ -107,7 +92,9 @@ def test_integrity():
 
     tr = ix.reader()
     assert_equal(ix.doc_count_all(), 3)
-    assert_equal(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one", "two", "yellow"])
+    assert_equal(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one",
+                                            "two", "yellow"])
+
 
 def test_lengths():
     s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
@@ -122,10 +109,14 @@ def test_lengths():
         w.commit()
 
         with ix.reader() as dr:
-            ls1 = [dr.doc_field_length(i, "f1") for i in xrange(0, len(lengths))]
+            ls1 = [dr.doc_field_length(i, "f1")
+                   for i in xrange(0, len(lengths))]
             assert_equal(ls1, [0] * len(lengths))
-            ls2 = [dr.doc_field_length(i, "f2") for i in xrange(0, len(lengths))]
-            assert_equal(ls2, [byte_to_length(length_to_byte(l))for l in lengths])
+            ls2 = [dr.doc_field_length(i, "f2")
+                   for i in xrange(0, len(lengths))]
+            assert_equal(ls2, [byte_to_length(length_to_byte(l))
+                               for l in lengths])
+
 
 def test_many_lengths():
     domain = u("alfa bravo charlie delta echo foxtrot golf hotel").split()
@@ -143,6 +134,7 @@ def test_many_lengths():
         ti = s.term_info("text", word)
         assert_equal(ti.min_length(), target)
         assert_equal(ti.max_length(), target)
+
 
 def test_lengths_ram():
     s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
@@ -169,6 +161,7 @@ def test_lengths_ram():
     assert_equal(dr.max_field_length("f1"), 8)
     assert_equal(dr.max_field_length("f2"), 7)
 
+
 def test_merged_lengths():
     s = fields.Schema(f1=fields.KEYWORD(stored=True, scorable=True),
                       f2=fields.KEYWORD(stored=True, scorable=True))
@@ -193,6 +186,7 @@ def test_merged_lengths():
             assert_equal(dr.doc_field_length(0, "f1"), 3)
             assert_equal(dr.doc_field_length(2, "f2"), 6)
             assert_equal(dr.doc_field_length(4, "f1"), 5)
+
 
 def test_frequency_keyword():
     s = fields.Schema(content=fields.KEYWORD)
@@ -226,6 +220,7 @@ def test_frequency_keyword():
                              ("content", u("C"), 2, 2), ("content", u("D"), 3, 4),
                              ("content", u("E"), 2, 2), ("content", u("F"), 1, 1)])
 
+
 def test_frequency_text():
     s = fields.Schema(content=fields.KEYWORD)
     st = RamStorage()
@@ -257,6 +252,7 @@ def test_frequency_text():
         assert_equal(stats, [("content", u("alfa"), 1, 1), ("content", u("bravo"), 2, 5),
                              ("content", u("charlie"), 2, 2), ("content", u("delta"), 3, 4),
                              ("content", u("echo"), 2, 2), ("content", u("foxtrot"), 1, 1)])
+
 
 def test_deletion():
     s = fields.Schema(key=fields.ID, name=fields.TEXT, value=fields.TEXT)
@@ -295,6 +291,7 @@ def test_deletion():
         with ix.reader() as tr:
             assert_equal(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
 
+
 def test_writer_reuse():
     s = fields.Schema(key=fields.ID)
     ix = RamStorage().create_index(s)
@@ -313,6 +310,7 @@ def test_writer_reuse():
     assert_raises(IndexingError, w.add_field, "name", fields.ID)
     assert_raises(IndexingError, w.remove_field, "key")
     assert_raises(IndexingError, w.searcher)
+
 
 def test_update():
     # Test update with multiple unique keys
@@ -333,6 +331,7 @@ def test_update():
         with ix.writer() as w:
             w.update_document(id=u("test2"), path=u("test/1"), text=u("Replacement"))
 
+
 def test_update2():
     schema = fields.Schema(key=fields.ID(unique=True, stored=True),
                            p=fields.ID(stored=True))
@@ -348,6 +347,7 @@ def test_update2():
             results = [d["key"] for d in s.all_stored_fields()]
             results.sort()
             assert_equal(results, ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+
 
 def test_reindex():
     SAMPLE_DOCS = [
@@ -370,6 +370,7 @@ def test_reindex():
         reindex()
         assert_equal(ix.doc_count_all(), 3)
 
+
 def test_noscorables1():
     values = [u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"),
               u("golf"), u("hotel"), u("india"), u("juliet"), u("kilo"), u("lima")]
@@ -387,12 +388,14 @@ def test_noscorables1():
         with ix.searcher() as s:
             s.search(query.Term("id", "bravo"))
 
+
 def test_noscorables2():
     schema = fields.Schema(field=fields.ID)
     with TempIndex(schema, "noscorables2") as ix:
         writer = ix.writer()
         writer.add_document(field=u('foo'))
         writer.commit()
+
 
 def test_multi():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -433,6 +436,7 @@ def test_multi():
             r = s.search(query.Prefix("content", u("d")), limit=None)
             assert_equal(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
 
+
 def test_deleteall():
     schema = fields.Schema(text=fields.TEXT)
     with TempIndex(schema, "deleteall") as ix:
@@ -462,6 +466,7 @@ def test_deleteall():
         with ix.reader() as r:
             assert_equal(list(r), [])
 
+
 def test_single():
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
     with TempIndex(schema, "single") as ix:
@@ -474,6 +479,7 @@ def test_single():
             assert_equal(list(s.documents(id="1")), [{"id": "1"}])
             assert_equal(list(s.documents(text="alfa")), [{"id": "1"}])
             assert_equal(list(s.all_stored_fields()), [{"id": "1"}])
+
 
 def test_indentical_fields():
     schema = fields.Schema(id=fields.STORED,
@@ -491,6 +497,7 @@ def test_indentical_fields():
             assert_equal(list(s.documents(f2="alfa")), [{"id": 1}])
             assert_equal(list(s.documents(f3="alfa")), [{"id": 1}])
 
+
 def test_multivalue():
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME, num=fields.NUMERIC)
     ix = RamStorage().create_index(schema)
@@ -505,6 +512,7 @@ def test_multivalue():
     with ix.reader() as r:
         assert ("num", nfield.to_text(3)) in r
         assert ("date", dfield.to_text(datetime(2003, 3, 3))) in r
+
 
 def test_doc_boost():
     schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT)
@@ -527,3 +535,4 @@ def test_doc_boost():
     with ix.searcher() as s:
         r = s.search(query.Term("a", "alfa"))
         assert_equal([hit["id"] for hit in r], [1, 0, 3, 2])
+
