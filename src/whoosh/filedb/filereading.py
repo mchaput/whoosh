@@ -123,6 +123,8 @@ class SegmentReader(IndexReader):
             self._lengths.close()
         if self._vectors:
             self._vectors.close()
+        if self._graph:
+            self._graph.close()
         self.files.close()
 
         self.caching_policy = None

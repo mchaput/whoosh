@@ -252,7 +252,6 @@ class MpWriter(SegmentWriter):
         pdw = self.perdocwriter
         # Names of fields that store term vectors
         vnames = set(schema.vector_names())
-        print "-self.docnum=", self.docnum
         basedoc = self.docnum
         # A list to remember field length readers for each sub-segment (we'll
         # re-use them below)
