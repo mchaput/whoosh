@@ -38,7 +38,7 @@ import re
 from array import array
 
 from whoosh.analysis import Token
-from whoosh.compat import u, text_type
+from whoosh.compat import u, text_type, bytes_type
 from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
@@ -926,8 +926,17 @@ class Term(Query):
         return ixreader.doc_frequency(self.fieldname, self.text)
 
     def matcher(self, searcher):
-        if (self.fieldname, self.text) in searcher.reader():
-            m = searcher.postings(self.fieldname, self.text)
+        text = self.text
+        if self.fieldname not in searcher.schema:
+            return NullMatcher()
+        # If someone created a query object with a non-text term,e.g.
+        # query.Term("printed", True), be nice and convert it to text
+        if not isinstance(text, (bytes_type, text_type)):
+            field = searcher.schema[self.fieldname]
+            text = field.to_text(text)
+
+        if (self.fieldname, text) in searcher.reader():
+            m = searcher.postings(self.fieldname, text)
             if self.boost != 1.0:
                 m = WrappingMatcher(m, boost=self.boost)
             return m
