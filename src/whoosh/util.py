@@ -45,7 +45,7 @@ from whoosh.system import IS_LITTLE
 
 
 try:
-    from itertools import permutations  #@UnusedImport
+    from itertools import permutations  # @UnusedImport
 except ImportError:
     # This function was only added to itertools in 2.6...
     def permutations(iterable, r=None):
@@ -73,7 +73,7 @@ except ImportError:
 
 
 try:
-    from operator import methodcaller  #@UnusedImport
+    from operator import methodcaller  # @UnusedImport
 except ImportError:
     def methodcaller(name, *args, **kwargs):
         def caller(obj):
@@ -301,16 +301,16 @@ def byte_to_float(b, mantissabits=5, zeroexp=2):
 #    0-255. The approximation has high precision at the low end (e.g.
 #    1 -> 0, 2 -> 1, 3 -> 2 ...) and low precision at the high end. Numbers
 #    equal to or greater than 108116 all approximate to 255.
-#    
+#
 #    This is useful for storing field lengths, where the general case is small
 #    documents and very large documents are more rare.
 #    """
-#    
+#
 #    # This encoding formula works up to 108116 -> 255, so if the length is
 #    # equal to or greater than that limit, just return 255.
 #    if length >= 108116:
 #        return 255
-#    
+#
 #    # The parameters of this formula where chosen heuristically so that low
 #    # numbers would approximate closely, and the byte range 0-255 would cover
 #    # a decent range of document lengths (i.e. 1 to ~100000).
@@ -325,7 +325,7 @@ def byte_to_float(b, mantissabits=5, zeroexp=2):
 # Instead of computing the actual formula to get the byte for any given length,
 # precompute the length associated with each byte, and use bisect to find the
 # nearest value. This gives quite a large speed-up.
-# 
+#
 # Note that this does not give all the same answers as the old, "real"
 # implementation since this implementation always "rounds down" (thanks to the
 # bisect_left) while the old implementation would "round up" or "round down"
@@ -717,7 +717,7 @@ def rcompile(pattern, flags=0, verbose=False):
 
 
 try:
-    from abc import abstractmethod  #@UnusedImport
+    from abc import abstractmethod  # @UnusedImport
 except ImportError:
     def abstractmethod(funcobj):
         """A decorator indicating abstract methods.

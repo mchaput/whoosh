@@ -443,6 +443,20 @@ class SegmentWriter(IndexWriter):
         if self.writelock:
             self.writelock.release()
 
+    def _merge_segments(self, mergetype, optimize, merge):
+        if mergetype:
+            pass
+        elif optimize:
+            mergetype = OPTIMIZE
+        elif not merge:
+            mergetype = NO_MERGE
+        else:
+            mergetype = MERGE_SMALL
+
+        # Call the merge policy function. The policy may choose to merge
+        # other segments into this writer's pool
+        return mergetype(self, self.segments)
+
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
         
@@ -473,21 +487,8 @@ class SegmentWriter(IndexWriter):
 
         self._check_state()
         schema = self.schema
-        storage = self.storage
         try:
-            if mergetype:
-                pass
-            elif optimize:
-                mergetype = OPTIMIZE
-            elif not merge:
-                mergetype = NO_MERGE
-            else:
-                mergetype = MERGE_SMALL
-
-            # Call the merge policy function. The policy may choose to merge
-            # other segments into this writer's pool
-            finalsegments = mergetype(self, self.segments)
-
+            finalsegments = self._merge_segments(mergetype, optimize, merge)
             if self._added:
                 # Update the new segment with the current doc count
                 newsegment = self.get_segment()

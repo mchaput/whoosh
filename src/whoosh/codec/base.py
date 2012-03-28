@@ -247,12 +247,14 @@ class LengthsReader(object):
 
 class MultiLengths(LengthsReader):
     def __init__(self, lengths, offset=0):
-        self.lengths = lengths
+        self.lengths = []
         self.doc_offsets = []
         self._count = 0
-        for lr in self.lengths:
-            self.doc_offsets.append(self._count)
-            self._count += lr.doc_count_all()
+        for lr in lengths:
+            if lr.doc_count_all():
+                self.lengths.append(lr)
+                self.doc_offsets.append(self._count)
+                self._count += lr.doc_count_all()
         self.is_closed = False
 
     def _document_reader(self, docnum):

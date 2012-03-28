@@ -119,7 +119,7 @@ class SubWriterTask(Process):
     def _process_file(self, filename, doc_count):
         # This method processes a "job file" written out by the parent task. A
         # job file is a series of pickled (code, arguments) tuples. Currently
-        # the only two command codes are 0=add_document, and 1=update_document
+        # the only command codes is 0=add_document
 
         writer = self.writer
         load = pickle.load
@@ -127,10 +127,8 @@ class SubWriterTask(Process):
         for _ in xrange(doc_count):
             # Load the next pickled tuple from the file
             code, args = load(f)
-            if code == 0:
-                writer.add_document(**args)
-            elif code == 1:
-                writer.update_document(**args)
+            assert code == 0
+            writer.add_document(**args)
         f.close()
         # Remove the job file
         os.remove(filename)
@@ -162,10 +160,10 @@ class MpWriter(SegmentWriter):
         # A buffer for documents before they are flushed to a job file
         self.docbuffer = []
 
-        self._count = 0
+        self._added_sub = False
 
     def _new_task(self):
-        task = SubWriterTask(self.index.storage, self.index.indexname,
+        task = SubWriterTask(self.storage, self.indexname,
                              self.jobqueue, self.resultqueue, self.subargs)
         self.tasks.append(task)
         task.start()
@@ -195,18 +193,13 @@ class MpWriter(SegmentWriter):
         finally:
             SegmentWriter.cancel(self)
 
-    def _put_command(self, code, args):
+    def add_document(self, **fields):
         # Add the document to the docbuffer
-        self.docbuffer.append((code, args))
+        self.docbuffer.append((0, fields))
         # If the buffer is full, flush it to the job queue
         if len(self.docbuffer) >= self.batchsize:
             self._enqueue()
-
-    def add_document(self, **fields):
-        self._put_command(0, fields)
-
-    def update_document(self, **fields):
-        self._put_command(1, fields)
+        self._added_sub = True
 
     def _read_and_renumber_run(self, path, offset):
         # Note that SortingPool._read_run() automatically deletes the run file
@@ -221,14 +214,31 @@ class MpWriter(SegmentWriter):
             return ((fname, text, docnum + offset, weight, value)
                     for fname, text, docnum, weight, value in gen)
 
-    def commit(self, **kwargs):
+    def commit(self, mergetype=None, optimize=False, merge=True):
+        if self._added_sub:
+            self._commit(mergetype, optimize, merge)
+        else:
+            SegmentWriter.commit(self, mergetype=mergetype, optimize=optimize,
+                                 merge=merge)
+
+    def _commit(self, mergetype, optimize, merge):
         try:
             # Index the remaining documents in the doc buffer
             self._enqueue()
             # Tell the tasks to finish
             for task in self.tasks:
                 self.jobqueue.put(None)
-            # Wait for the tasks to finish
+
+            # Merge existing segments
+            segments = self._merge_segments(mergetype, optimize, merge)
+            sources = []
+            if self._added:
+                # If information was added to this writer the conventional
+                # (e.g. through add_reader or merging segments), add it as an
+                # extra source
+                sources.append(self.pool.iter_postings())
+
+            # Wait for the subtasks to finish
             for task in self.tasks:
                 task.join()
 
@@ -237,16 +247,17 @@ class MpWriter(SegmentWriter):
             results = []
             for task in self.tasks:
                 results.append(self.resultqueue.get(timeout=5))
-            self._merge_subsegments(results)
-            self._finish(self.segments + [self.get_segment()])
+            self._merge_subsegments(results, sources, mergetype, optimize,
+                                    merge)
+            self._finish(segments + [self.get_segment()])
         finally:
             self._release_lock()
 
-    def _merge_subsegments(self, results):
+    def _merge_subsegments(self, results, sources, mergetype, optimize, merge):
         schema = self.schema
         storage = self.storage
-        pool = self.pool
         codec = self.codec
+        fieldnames = list(schema.names())
 
         # Merge per-document information
         pdw = self.perdocwriter
@@ -255,7 +266,8 @@ class MpWriter(SegmentWriter):
         basedoc = self.docnum
         # A list to remember field length readers for each sub-segment (we'll
         # re-use them below)
-        lenreaders = []
+        lenreaders = [pdw.lengths_reader()]
+
         for _, segment in results:
             # Create a field length reader for the sub-segment
             lenreader = codec.lengths_reader(storage, segment)
@@ -272,9 +284,10 @@ class MpWriter(SegmentWriter):
                 # Add the base doc count to the sub-segment doc num
                 pdw.start_doc(basedoc + i)
                 # Call add_field to store the field values and lengths
-                for fieldname, value in iteritems(fs):
-                    pdw.add_field(fieldname, schema[fieldname], value,
-                                  lenreader.doc_field_length(i, fieldname))
+                for fieldname in fieldnames:
+                    value = fs.get(fieldname)
+                    length = lenreader.doc_field_length(i, fieldname)
+                    pdw.add_field(fieldname, schema[fieldname], value, length)
                 # Copy over the vectors. TODO: would be much faster to bulk-
                 # copy the postings
                 for fieldname in vnames:
@@ -287,7 +300,6 @@ class MpWriter(SegmentWriter):
 
         # Create a list of iterators from the run filenames
         basedoc = self.docnum
-        sources = []
         for runname, segment in results:
             items = self._read_and_renumber_run(runname, basedoc)
             sources.append(items)
@@ -313,24 +325,33 @@ class SerialMpWriter(MpWriter):
         self.tasks = [SegmentWriter(ix, _lk=False, **self.subargs)
                       for _ in xrange(self.procs)]
         self.pointer = 0
+        self._added_sub = False
 
     def add_document(self, **fields):
         self.tasks[self.pointer].add_document(**fields)
         self.pointer = (self.pointer + 1) % len(self.tasks)
+        self._added_sub = True
 
-    def update_document(self, **fields):
-        self.tasks[self.pointer].update_document(**fields)
-        self.pointer = (self.pointer + 1) % len(self.tasks)
-
-    def commit(self, **kwargs):
+    def _commit(self, mergetype, optimize, merge):
         # Pull a (run_file_name, segment) tuple off the result queue for each
         # sub-task, representing the final results of the task
         try:
+            # Merge existing segments
+            segments = self._merge_segments(mergetype, optimize, merge)
+            sources = []
+            if self._added:
+                # If information was added to this writer the conventional
+                # (e.g. through add_reader or merging segments), add it as an
+                # extra source
+                sources.append(self.pool.iter_postings())
+
             results = []
             for writer in self.tasks:
                 results.append(finish_subsegment(writer))
-            self._merge_subsegments(results)
-            self._finish(self.segments + [self.get_segment()])
+
+            self._merge_subsegments(results, sources, mergetype, optimize,
+                                    merge)
+            self._finish(segments + [self.get_segment()])
         finally:
             self._release_lock()
 
