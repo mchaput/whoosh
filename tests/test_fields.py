@@ -22,6 +22,7 @@ def test_schema_eq():
     c = fields.Schema(id=fields.TEXT)
     assert_not_equal(a, c)
 
+
 def test_creation1():
     s = fields.Schema()
     s.add("content", fields.TEXT(phrase=True))
@@ -36,6 +37,7 @@ def test_creation1():
     assert "buzz" not in s
     assert isinstance(s["tags"], fields.KEYWORD)
 
+
 def test_creation2():
     s = fields.Schema(a=fields.ID(stored=True),
                       b=fields.ID,
@@ -45,6 +47,7 @@ def test_creation2():
     assert "a" in s
     assert "b" in s
     assert "c" in s
+
 
 def test_declarative():
     class MySchema(fields.SchemaClass):
@@ -61,6 +64,7 @@ def test_declarative():
 
     assert_raises(fields.FieldConfigurationError, RamStorage().create_index, object())
 
+
 def test_declarative_inherit():
     class Parent(fields.SchemaClass):
         path = fields.ID
@@ -75,10 +79,12 @@ def test_declarative_inherit():
     s = Grandchild()
     assert_equal(s.names(), ["content", "date", "path", "title"])
 
+
 def test_badnames():
     s = fields.Schema()
     assert_raises(fields.FieldConfigurationError, s.add, "_test", fields.ID)
     assert_raises(fields.FieldConfigurationError, s.add, "a f", fields.ID)
+
 
 def test_numeric_support():
     intf = fields.NUMERIC(int, shift_step=0)
@@ -100,6 +106,7 @@ def test_numeric_support():
     roundtrip(floatf, -99.42)
 
     from random import shuffle
+
     def roundtrip_sort(obj, start, end, step):
         count = start
         rng = []
@@ -116,6 +123,7 @@ def test_numeric_support():
     roundtrip_sort(intf, -100, 100, 1)
     roundtrip_sort(longf, -58902, 58249, 43)
     roundtrip_sort(floatf, -99.42, 99.83, 2.38)
+
 
 def test_numeric():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -150,6 +158,7 @@ def test_numeric():
     q = qp.parse("integer:5?6")
     assert_equal(q, query.NullQuery)
 
+
 def test_decimal_numeric():
     from decimal import Decimal
 
@@ -175,6 +184,7 @@ def test_decimal_numeric():
         r = s.search(qp.parse("0.536255"))
         assert_equal(r[0]["id"], "b")
 
+
 def test_numeric_parsing():
     schema = fields.Schema(id=fields.ID(stored=True), number=fields.NUMERIC)
 
@@ -196,6 +206,7 @@ def test_numeric_parsing():
     assert q.__class__ is query.NumericRange
     assert_equal(q.start, 10)
     assert_equal(q.end, 400)
+
 
 def test_numeric_ranges():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC)
@@ -223,6 +234,7 @@ def test_numeric_ranges():
         check("[10 to 390}", list(range(10, 390)))
         check("{10 to 390}", list(range(11, 390)))
         check("{16 to 255}", list(range(17, 255)))
+
 
 def test_decimal_ranges():
     from decimal import Decimal
@@ -258,6 +270,7 @@ def test_decimal_ranges():
         check("[10.2 to 80.8}", "10.2", "80.6")
         check("{10.2 to 80.8}", "10.4", "80.6")
 
+
 def test_nontext_document():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC,
                            date=fields.DATETIME, even=fields.BOOLEAN)
@@ -278,6 +291,7 @@ def test_nontext_document():
         check({"date": dt + timedelta(days=30)}, [30])
         check({"even": True}, list(range(0, 50, 2)))
 
+
 def test_nontext_update():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(unique=True),
                            date=fields.DATETIME(unique=True))
@@ -297,6 +311,7 @@ def test_nontext_update():
     w.update_document(date=dt + timedelta(days=1), id="e")
     w.update_document(date=dt + timedelta(days=7), id="f")
     w.commit()
+
 
 def test_datetime():
     dtf = fields.DATETIME(stored=True)
@@ -330,6 +345,7 @@ def test_datetime():
         assert q.__class__ is query.NumericRange
         assert_equal(q.start, times.datetime_to_long(startdt))
         assert_equal(q.end, times.datetime_to_long(enddt))
+
 
 def test_boolean():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -368,8 +384,10 @@ def test_boolean():
         assert_equal(sorted([d["id"] for d in r]), ["b", "d"])
         assert all_false(d["done"] for d in r)
 
+
 def test_boolean2():
-    schema = fields.Schema(t=fields.TEXT(stored=True), b=fields.BOOLEAN(stored=True))
+    schema = fields.Schema(t=fields.TEXT(stored=True),
+                           b=fields.BOOLEAN(stored=True))
     ix = RamStorage().create_index(schema)
     writer = ix.writer()
     writer.add_document(t=u('some kind of text'), b=False)
@@ -387,12 +405,30 @@ def test_boolean2():
         assert_equal([d["b"] for d in s.search(qt)], [True])
         assert_equal([d["b"] for d in s.search(qf)], [False] * 3)
 
+
+def test_boolean3():
+    schema = fields.Schema(t=fields.TEXT(stored=True, field_boost=5),
+                           b=fields.BOOLEAN(stored=True),
+                           c=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(t=u("with hardcopy"), b=True, c=u("alfa"))
+        w.add_document(t=u("no hardcopy"), b=False, c=u("bravo"))
+
+    with ix.searcher() as s:
+        q = query.Term("b", schema["b"].to_text(True))
+        ts = [hit["t"] for hit in s.search(q)]
+        assert_equal(ts, ["with hardcopy"])
+
+
 def test_missing_field():
     schema = fields.Schema()
     ix = RamStorage().create_index(schema)
 
     with ix.searcher() as s:
         assert_raises(KeyError, s.document_numbers, id=u("test"))
+
 
 def test_token_boost():
     from whoosh.analysis import RegexTokenizer, DoubleMetaphoneFilter
