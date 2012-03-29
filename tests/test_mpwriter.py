@@ -6,7 +6,6 @@ from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query
 from whoosh.compat import u, xrange
-from whoosh.filedb.multiproc2 import SerialMpWriter
 from whoosh.support.testing import TempIndex, skip_if
 from whoosh.util import permutations, length_to_byte, byte_to_length
 
@@ -108,20 +107,22 @@ def _do_index(writerclass):
 
 
 def test_basic_serial():
+    from whoosh.filedb.multiproc2 import SerialMpWriter
+
     _do_index(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_basic_multi():
     from whoosh.filedb.multiproc2 import MpWriter
-    
+
     _do_index(MpWriter)
 
 
 @skip_if(no_multi)
 def test_no_add():
     from whoosh.filedb.multiproc2 import MpWriter
-    
+
     schema = fields.Schema(text=fields.TEXT(stored=True, spelling=True,
                                             vector=True))
     with TempIndex(schema) as ix:
@@ -189,13 +190,15 @@ def _do_merge(writerclass):
 
 
 def test_merge_serial():
+    from whoosh.filedb.multiproc2 import SerialMpWriter
+
     _do_merge(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_merge_multi():
     from whoosh.filedb.multiproc2 import MpWriter
-    
+
     _do_merge(MpWriter)
 
 
