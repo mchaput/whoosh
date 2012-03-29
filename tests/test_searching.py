@@ -1146,11 +1146,9 @@ def test_andmaybe_quality():
         q = qp.parse(u("title:bravo ANDMAYBE year:2004"))
 
         titles = [hit["title"] for hit in s.search(q, limit=None)[:2]]
-        print("titles1=", titles)
         assert "Juliet Kilo Bravo" in titles
 
         titles = [hit["title"] for hit in s.search(q, limit=2)]
-        print("titles2=", titles)
         assert "Juliet Kilo Bravo" in titles
 
 

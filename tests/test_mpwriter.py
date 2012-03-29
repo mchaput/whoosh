@@ -27,10 +27,10 @@ def no_multi():
 
 
 def _byten(n):
-        return byte_to_length(length_to_byte(n))
+    return byte_to_length(length_to_byte(n))
 
 
-def _do_index(writerclass):
+def _do_basic(writerclass):
     # Create the domain data
 
     # List of individual words added to the index
@@ -77,8 +77,8 @@ def _do_index(writerclass):
 
             # Check the word graph
             assert r.has_word_graph("text")
-            wg = r.word_graph("text")
-            assert_equal(list(wg.flatten()), words)
+            flat = [w.decode("latin1") for w in r.word_graph("text").flatten()]
+            assert_equal(flat, words)
 
             # Check there are lengths
             total = sum(r.doc_field_length(docnum, "text", 0)
@@ -109,14 +109,14 @@ def _do_index(writerclass):
 def test_basic_serial():
     from whoosh.filedb.multiproc2 import SerialMpWriter
 
-    _do_index(SerialMpWriter)
+    _do_basic(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_basic_multi():
     from whoosh.filedb.multiproc2 import MpWriter
 
-    _do_index(MpWriter)
+    _do_basic(MpWriter)
 
 
 @skip_if(no_multi)
@@ -138,7 +138,7 @@ def _do_merge(writerclass):
     domain = {"a": "aa", "b": "bb cc", "c": "cc dd ee", "d": "dd ee ff gg",
               "e": "ee ff gg hh ii", "f": "ff gg hh ii jj kk",
               "g": "gg hh ii jj kk ll mm", "h": "hh ii jj kk ll mm nn oo",
-              "i": "ii jj kk ll mm nn oo pp qq aa bb cc dd ee ff",
+              "i": "ii jj kk ll mm nn oo pp qq ww ww ww ww ww ww",
               "j": "jj kk ll mm nn oo pp qq rr ss",
               "k": "kk ll mm nn oo pp qq rr ss tt uu"}
 
@@ -167,11 +167,18 @@ def _do_merge(writerclass):
         assert_equal(len(ix._segments()), 1)
 
         with ix.searcher() as s:
+            r = s.reader()
+
             assert_equal(s.doc_count(), len(domain))
 
-            r = s.reader()
+            assert_equal("".join(r.lexicon("key")), "acdefghijk")
+            assert_equal(" ".join(r.lexicon("value")),
+                         "aa cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr" +
+                         " ss tt uu ww xx yy zz")
+
             for key in domain:
                 docnum = s.document_number(key=key)
+                assert docnum is not None, "key=%r" % key
 
                 length = r.doc_field_length(docnum, "value")
                 assert length

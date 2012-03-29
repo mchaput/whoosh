@@ -165,6 +165,9 @@ class SegmentWriter(IndexWriter):
         self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
         self.fieldwriter = codec.field_writer(self.storage, newsegment)
 
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.newsegment)
+
     def _setup_doc_offsets(self):
         self._doc_offsets = []
         base = 0
