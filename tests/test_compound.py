@@ -9,18 +9,18 @@ from whoosh.filedb.filestore import RamStorage
 
 
 def _test_simple_compound(st):
-    a = [1, 2, 3, 5, -5, -4, -3, -2]
-    b = [1, 12, 67, 8, 2, 1023]
-    c = [100, -100, 200, -200]
+    alist = [1, 2, 3, 5, -5, -4, -3, -2]
+    blist = [1, 12, 67, 8, 2, 1023]
+    clist = [100, -100, 200, -200]
 
     with st.create_file("a") as af:
-        for x in a:
+        for x in alist:
             af.write_int(x)
     with st.create_file("b") as bf:
-        for x in b:
+        for x in blist:
             bf.write_varint(x)
     with st.create_file("c") as cf:
-        for x in c:
+        for x in clist:
             cf.write_int(x)
 
     f = st.create_file("f")
@@ -28,19 +28,19 @@ def _test_simple_compound(st):
 
     f = CompoundStorage(st, "f")
     with f.open_file("a") as af:
-        for x in a:
+        for x in alist:
             assert_equal(x, af.read_int())
-        assert_equal(af.read(), '')
+        assert_equal(af.read(), b(''))
 
     with f.open_file("b") as bf:
-        for x in b:
+        for x in blist:
             assert_equal(x, bf.read_varint())
-        assert_equal(bf.read(), '')
+        assert_equal(bf.read(), b(''))
 
     with f.open_file("c") as cf:
-        for x in c:
+        for x in clist:
             assert_equal(x, cf.read_int())
-        assert_equal(cf.read(), '')
+        assert_equal(cf.read(), b(''))
 
 
 def test_simple_compound_mmap():

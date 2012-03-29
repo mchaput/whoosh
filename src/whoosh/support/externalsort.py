@@ -33,13 +33,13 @@ from __future__ import with_statement
 
 import os, tempfile
 from heapq import heapify, heappop, heapreplace
-from marshal import load, dump, dumps
 
-from whoosh.compat import xrange
+from whoosh.compat import xrange, dump, load
 
 
 try:
     from heapq import merge
+
     def imerge(iterables):
         return merge(*iterables)
 except ImportError:
@@ -116,6 +116,7 @@ class SortingPool(object):
 
     @staticmethod
     def _read_run(path):
+        import os.path
         f = open(path, "rb")
         try:
             while True:
@@ -142,7 +143,7 @@ class SortingPool(object):
 
     def _write_run(self, f, items):
         for item in items:
-            dump(item, f)
+            dump(item, f, -1)
         f.close()
 
     def _add_run(self, filename):
