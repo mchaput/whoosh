@@ -36,6 +36,7 @@ import copy
 import fnmatch
 import re
 from array import array
+from collections import defaultdict
 
 from whoosh.analysis import Token
 from whoosh.compat import u, text_type, bytes_type
@@ -843,6 +844,7 @@ class MultiTerm(Query):
 
     def matcher(self, searcher):
         fieldname = self.fieldname
+        constantscore = self.constantscore
         reader = searcher.reader()
         qs = [Term(fieldname, word) for word in self._words(reader)]
         if not qs:
@@ -851,16 +853,36 @@ class MultiTerm(Query):
         if len(qs) == 1:
             # If there's only one term, just use it
             q = qs[0]
-        elif self.constantscore or len(qs) > self.TOO_MANY_CLAUSES:
+        elif constantscore or len(qs) > self.TOO_MANY_CLAUSES:
             # If there's so many clauses that an Or search would take forever,
-            # trade memory for time and just put all the matching docs in a set
-            # and serve it up as a ListMatcher
-            docset = set()
+            # trade memory for time and just find all the matching docs serve
+            # them up as one or more ListMatchers
+            fmt = searcher.schema[fieldname].format
+            doc_to_values = defaultdict(list)
+            doc_to_weights = defaultdict(float)
             for q in qs:
-                docset.update(q.matcher(searcher).all_ids())
-            fieldobj = searcher.schema[fieldname]
-            return ListMatcher(sorted(docset), all_weights=self.boost,
-                               format=fieldobj.format)
+                m = q.matcher(searcher)
+                while m.is_active():
+                    docnum = m.id()
+                    doc_to_values[docnum].append(m.value())
+                    if not constantscore:
+                        doc_to_weights[docnum] += m.weight()
+                    m.next()
+
+            docnums = sorted(doc_to_values.keys())
+            # This is a list of lists of value strings -- ListMatcher will
+            # actually do the work of combining multiple values if the user
+            # asks for them
+            values = [doc_to_values[docnum] for docnum in docnums]
+
+            kwargs = {"values": values, "format": fmt}
+            if constantscore:
+                kwargs["all_weights"] = self.boost
+            else:
+                kwargs["weights"] = [doc_to_weights[docnum]
+                                     for docnum in docnums]
+
+            return ListMatcher(docnums, **kwargs)
         else:
             # The default case: Or the terms together
             q = Or(qs)
