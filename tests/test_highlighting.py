@@ -18,6 +18,7 @@ def test_null_fragment():
     htext = highlight.highlight(_doc, terms, sa, nf, uc)
     assert_equal(htext, "alfa BRAVO charlie delta echo foxtrot golf hotel INDIA juliet kilo lima")
 
+
 def test_sentence_fragment():
     text = u("This is the first sentence. This one doesn't have the word. This sentence is the second. Third sentence here.")
     terms = ("sentence",)
@@ -27,6 +28,7 @@ def test_sentence_fragment():
     htext = highlight.highlight(text, terms, sa, sf, uc)
     assert_equal(htext, "This is the first SENTENCE...This SENTENCE is the second...Third SENTENCE here")
 
+
 def test_context_fragment():
     terms = frozenset(("bravo", "india"))
     sa = analysis.StandardAnalyzer()
@@ -34,6 +36,7 @@ def test_context_fragment():
     uc = highlight.UppercaseFormatter()
     htext = highlight.highlight(_doc, terms, sa, cf, uc)
     assert_equal(htext, "alfa BRAVO charlie...hotel INDIA juliet")
+
 
 def test_context_at_start():
     terms = frozenset(["alfa"])
@@ -43,6 +46,7 @@ def test_context_at_start():
     htext = highlight.highlight(_doc, terms, sa, cf, uc)
     assert_equal(htext, "ALFA bravo charlie delta echo foxtrot")
 
+
 def test_html_format():
     terms = frozenset(("bravo", "india"))
     sa = analysis.StandardAnalyzer()
@@ -50,6 +54,7 @@ def test_html_format():
     hf = highlight.HtmlFormatter()
     htext = highlight.highlight(_doc, terms, sa, cf, hf)
     assert_equal(htext, 'alfa <strong class="match term0">bravo</strong> charlie...hotel <strong class="match term1">india</strong> juliet')
+
 
 def test_html_escape():
     terms = frozenset(["bravo"])
@@ -59,6 +64,7 @@ def test_html_escape():
     htext = highlight.highlight(u('alfa <bravo "charlie"> delta'), terms, sa, wf, hf)
     assert_equal(htext, 'alfa &lt;<strong class="match term0">bravo</strong> "charlie"&gt; delta')
 
+
 def test_maxclasses():
     terms = frozenset(("alfa", "bravo", "charlie", "delta", "echo"))
     sa = analysis.StandardAnalyzer()
@@ -66,6 +72,7 @@ def test_maxclasses():
     hf = highlight.HtmlFormatter(tagname="b", termclass="t", maxclasses=2)
     htext = highlight.highlight(_doc, terms, sa, cf, hf)
     assert_equal(htext, '<b class="match t0">alfa</b> <b class="match t1">bravo</b> <b class="match t0">charlie</b>...<b class="match t1">delta</b> <b class="match t0">echo</b> foxtrot')
+
 
 def test_workflow_easy():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -91,6 +98,7 @@ def test_workflow_easy():
         r.formatter = highlight.UppercaseFormatter()
         outputs = [hit.highlights("title") for hit in r]
         assert_equal(outputs, ["The invisible MAN", "The MAN who wasn't there"])
+
 
 def test_workflow_manual():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -137,6 +145,7 @@ def test_workflow_manual():
 
         assert_equal(outputs, ["The invisible MAN", "The MAN who wasn't there"])
 
+
 def test_unstored():
     schema = fields.Schema(text=fields.TEXT, tags=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
@@ -146,6 +155,7 @@ def test_unstored():
 
     hit = ix.searcher().search(query.Term("text", "bravo"))[0]
     assert_raises(KeyError, hit.highlights, "tags")
+
 
 def test_multifilter():
     iwf_for_index = analysis.IntraWordFilter(mergewords=True, mergenums=False)
@@ -162,6 +172,7 @@ def test_multifilter():
         assert ("text", "5000") in s.reader()
         hit = s.search(query.Term("text", "5000"))[0]
         assert_equal(hit.highlights("text"), 'Our BabbleTron<b class="match term0">5000</b> is great')
+
 
 def test_pinpoint():
     domain = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet "
@@ -189,6 +200,7 @@ def test_pinpoint():
         hi.fragmenter.autotrim = True
         assert_equal(hi.highlight_hit(hit, "text"), "golf hotel india JULIET kilo lima mike")
 
+
 def test_highlight_wildcards():
     schema = fields.Schema(text=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
@@ -203,3 +215,14 @@ def test_highlight_wildcards():
         r.formatter = highlight.UppercaseFormatter()
         hit = r[0]
         assert_equal(hit.highlights("text"), "alfa bravo CHARLIE delta COOKIE echo")
+
+
+
+
+
+
+
+
+
+
+
