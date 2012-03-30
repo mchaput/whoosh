@@ -7,10 +7,6 @@ from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
 from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
-from whoosh.query import (And, AndNot, DisjunctionMax, Every, FuzzyTerm, Not,
-                          NumericRange, Or, Ordered, Otherwise, Phrase, Prefix,
-                          Require, Term, TermRange, Variations, Wildcard,
-                          WrappingQuery)
 from whoosh.util import permutations
 
 
@@ -67,58 +63,68 @@ def test_docs_method():
 
 
 def test_term():
-    _run_query(Term("name", u("yellow")), [u("A"), u("E")])
-    _run_query(Term("value", u("zeta")), [])
-    _run_query(Term("value", u("red")), [u("A"), u("D")])
+    _run_query(query.Term("name", u("yellow")), [u("A"), u("E")])
+    _run_query(query.Term("value", u("zeta")), [])
+    _run_query(query.Term("value", u("red")), [u("A"), u("D")])
 
 
 def test_require():
-    _run_query(Require(Term("value", u("red")), Term("name", u("yellow"))),
-                    [u("A")])
+    _run_query(query.Require(query.Term("value", u("red")),
+                             query.Term("name", u("yellow"))),
+               [u("A")])
 
 
 def test_and():
-    _run_query(And([Term("value", u("red")), Term("name", u("yellow"))]),
-                    [u("A")])
+    _run_query(query.And([query.Term("value", u("red")),
+                          query.Term("name", u("yellow"))]),
+               [u("A")])
     # Missing
-    _run_query(And([Term("value", u("ochre")), Term("name", u("glonk"))]),
-                    [])
+    _run_query(query.And([query.Term("value", u("ochre")),
+                          query.Term("name", u("glonk"))]),
+               [])
 
 
 def test_or():
-    _run_query(Or([Term("value", u("red")), Term("name", u("yellow"))]),
-                    [u("A"), u("D"), u("E")])
+    _run_query(query.Or([query.Term("value", u("red")),
+                         query.Term("name", u("yellow"))]),
+               [u("A"), u("D"), u("E")])
     # Missing
-    _run_query(Or([Term("value", u("ochre")), Term("name", u("glonk"))]),
-                    [])
-    _run_query(Or([]), [])
+    _run_query(query.Or([query.Term("value", u("ochre")),
+                         query.Term("name", u("glonk"))]),
+               [])
+    _run_query(query.Or([]), [])
 
 
 def test_not():
-    _run_query(Or([Term("value", u("red")), Term("name", u("yellow")),
-                   Not(Term("name", u("quick")))]), [u("A"), u("E")])
+    _run_query(query.Or([query.Term("value", u("red")),
+                         query.Term("name", u("yellow")),
+                         query.Not(query.Term("name", u("quick")))]),
+               [u("A"), u("E")])
 
 
 def test_topnot():
-    _run_query(Not(Term("value", "red")), [u("B"), "C", "E"])
-    _run_query(Not(Term("name", "yellow")), [u("B"), u("C"), u("D")])
+    _run_query(query.Not(query.Term("value", "red")), [u("B"), "C", "E"])
+    _run_query(query.Not(query.Term("name", "yellow")), [u("B"), u("C"),
+                                                         u("D")])
 
 
 def test_andnot():
-    _run_query(AndNot(Term("name", u("yellow")), Term("value", u("purple"))),
-                    [u("E")])
+    _run_query(query.AndNot(query.Term("name", u("yellow")),
+                            query.Term("value", u("purple"))),
+               [u("E")])
 
 
 def test_variations():
-    _run_query(Variations("value", u("render")), [u("A"), u("C"), u("E")])
+    _run_query(query.Variations("value", u("render")),
+               [u("A"), u("C"), u("E")])
 
 
 def test_wildcard():
-    _run_query(Or([Wildcard('value', u('*red*')),
-                   Wildcard('name', u('*yellow*'))]),
+    _run_query(query.Or([query.Wildcard('value', u('*red*')),
+                         query.Wildcard('name', u('*yellow*'))]),
                [u("A"), u("C"), u("D"), u("E")])
     # Missing
-    _run_query(Wildcard('value', 'glonk*'), [])
+    _run_query(query.Wildcard('value', 'glonk*'), [])
 
 
 def test_not2():
@@ -186,9 +192,9 @@ def test_range():
         qp = qparser.QueryParser("content", schema)
 
         q = qp.parse(u("charlie [delta TO foxtrot]"))
-        assert_equal(q.__class__, And)
-        assert_equal(q[0].__class__, Term)
-        assert_equal(q[1].__class__, TermRange)
+        assert_equal(q.__class__, query.And)
+        assert_equal(q[0].__class__, query.Term)
+        assert_equal(q[1].__class__, query.TermRange)
         assert_equal(q[1].start, "delta")
         assert_equal(q[1].end, "foxtrot")
         assert_equal(q[1].startexcl, False)
@@ -197,9 +203,9 @@ def test_range():
         assert_equal(ids, [u('A'), u('B'), u('C')])
 
         q = qp.parse(u("foxtrot {echo TO hotel]"))
-        assert_equal(q.__class__, And)
-        assert_equal(q[0].__class__, Term)
-        assert_equal(q[1].__class__, TermRange)
+        assert_equal(q.__class__, query.And)
+        assert_equal(q[0].__class__, query.Term)
+        assert_equal(q[1].__class__, query.TermRange)
         assert_equal(q[1].start, "echo")
         assert_equal(q[1].end, "hotel")
         assert_equal(q[1].startexcl, True)
@@ -208,7 +214,7 @@ def test_range():
         assert_equal(ids, [u('B'), u('C'), u('D'), u('E')])
 
         q = qp.parse(u("{bravo TO delta}"))
-        assert_equal(q.__class__, TermRange)
+        assert_equal(q.__class__, query.TermRange)
         assert_equal(q.start, "bravo")
         assert_equal(q.end, "delta")
         assert_equal(q.startexcl, True)
@@ -218,7 +224,7 @@ def test_range():
 
         # Shouldn't match anything
         q = qp.parse(u("[1 to 10]"))
-        assert_equal(q.__class__, TermRange)
+        assert_equal(q.__class__, query.TermRange)
         assert_equal(len(s.search(q)), 0)
 
 
@@ -233,7 +239,7 @@ def test_range_clusiveness():
 
     with ix.searcher() as s:
         def check(startexcl, endexcl, string):
-            q = TermRange("id", "b", "f", startexcl, endexcl)
+            q = query.TermRange("id", "b", "f", startexcl, endexcl)
             r = "".join(sorted(d['id'] for d in s.search(q)))
             assert_equal(r, string)
 
@@ -350,25 +356,25 @@ def test_negated_unlimited_ranges():
         qp = qparser.QueryParser("id", schema)
 
         nq = qp.parse(u("NOT [to]"))
-        assert_equal(nq.__class__, Not)
+        assert_equal(nq.__class__, query.Not)
         q = nq.query
-        assert_equal(q.__class__, Every)
+        assert_equal(q.__class__, query.Every)
         assert_equal("".join(h["id"] for h in s.search(q, limit=None)), domain)
         assert_equal(list(nq.docs(s)), [])
 
         nq = qp.parse(u("NOT num:[to]"))
-        assert_equal(nq.__class__, Not)
+        assert_equal(nq.__class__, query.Not)
         q = nq.query
-        assert_equal(q.__class__, NumericRange)
+        assert_equal(q.__class__, query.NumericRange)
         assert_equal(q.start, None)
         assert_equal(q.end, None)
         assert_equal("".join(h["id"] for h in s.search(q, limit=None)), domain)
         assert_equal(list(nq.docs(s)), [])
 
         nq = qp.parse(u("NOT date:[to]"))
-        assert_equal(nq.__class__, Not)
+        assert_equal(nq.__class__, query.Not)
         q = nq.query
-        assert_equal(q.__class__, Every)
+        assert_equal(q.__class__, query.Every)
         assert_equal("".join(h["id"] for h in s.search(q, limit=None)), domain)
         assert_equal(list(nq.docs(s)), [])
 
@@ -387,7 +393,7 @@ def test_keyword_or():
     qp = qparser.QueryParser("b", schema)
     with ix.searcher() as s:
         qr = qp.parse(u("b:ccc OR b:eee"))
-        assert_equal(qr.__class__, Or)
+        assert_equal(qr.__class__, query.Or)
         r = s.search(qr)
         assert_equal(len(r), 2)
         assert_equal(r[0]["a"], "Third")
@@ -406,7 +412,7 @@ def test_merged():
     w.commit()
 
     with ix.searcher() as s:
-        r = s.search(Term("content", u("bravo")))
+        r = s.search(query.Term("content", u("bravo")))
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "bravo")
 
@@ -416,7 +422,7 @@ def test_merged():
     assert_equal(len(ix._segments()), 1)
 
     with ix.searcher() as s:
-        r = s.search(Term("content", u("bravo")))
+        r = s.search(query.Term("content", u("bravo")))
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "bravo")
 
@@ -438,7 +444,7 @@ def test_multireader():
     w.commit()
 
     with ix.searcher() as s:
-        r = s.search(Term("content", u("bravo")))
+        r = s.search(query.Term("content", u("bravo")))
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "bravo")
 
@@ -460,7 +466,7 @@ def test_multireader():
     #pr = r.postings("content", u("bravo"))
 
     with ix.searcher() as s:
-        r = s.search(Term("content", u("bravo")))
+        r = s.search(query.Term("content", u("bravo")))
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "bravo")
 
@@ -484,8 +490,8 @@ def test_posting_phrase():
         def names(results):
             return sorted([fields['name'] for fields in results])
 
-        q = Phrase("value", [u("little"), u("miss"), u("muffet"), u("sat"),
-                             u("tuffet")])
+        q = query.Phrase("value", [u("little"), u("miss"), u("muffet"),
+                                   u("sat"), u("tuffet")])
         m = q.matcher(s)
         assert_equal(m.__class__.__name__, "SpanNearMatcher")
 
@@ -493,21 +499,22 @@ def test_posting_phrase():
         assert_equal(names(r), ["A"])
         assert_equal(len(r), 1)
 
-        q = Phrase("value", [u("miss"), u("muffet"), u("sat"), u("tuffet")])
+        q = query.Phrase("value", [u("miss"), u("muffet"), u("sat"),
+                                   u("tuffet")])
         assert_equal(names(s.search(q)), ["A", "D"])
 
-        q = Phrase("value", [u("falunk"), u("gibberish")])
+        q = query.Phrase("value", [u("falunk"), u("gibberish")])
         r = s.search(q)
         assert_equal(names(r), [])
         assert_equal(len(r), 0)
 
-        q = Phrase("value", [u("gibberish"), u("falunk")], slop=2)
+        q = query.Phrase("value", [u("gibberish"), u("falunk")], slop=2)
         assert_equal(names(s.search(q)), ["D"])
 
-        q = Phrase("value", [u("blah")] * 4)
+        q = query.Phrase("value", [u("blah")] * 4)
         assert_equal(names(s.search(q)), [])  # blah blah blah blah
 
-        q = Phrase("value", [u("blah")] * 3)
+        q = query.Phrase("value", [u("blah")] * 3)
         m = q.matcher(s)
         assert_equal(names(s.search(q)), ["E"])
 
@@ -528,7 +535,7 @@ def test_phrase_score():
     writer.commit()
 
     with ix.searcher() as s:
-        q = Phrase("value", [u("little"), u("miss"), u("muffet")])
+        q = query.Phrase("value", [u("little"), u("miss"), u("muffet")])
         m = q.matcher(s)
         assert_equal(m.id(), 0)
         score1 = m.weight()
@@ -573,7 +580,7 @@ def test_phrase_order():
             r = s.search(q, limit=None, sortedby=None)
             return sorted([d['text'] for d in r])
 
-        q = Phrase("text", ["bay", "can", "day"])
+        q = query.Phrase("text", ["bay", "can", "day"])
         assert_equal(result(q), [u('ape bay can day'), u('bay can day ape')])
 
 
@@ -588,7 +595,8 @@ def test_phrase_sameword():
     writer.commit()
 
     with ix.searcher() as s:
-        r = s.search(Phrase("text", ["linda", "linda", "linda"]), limit=None)
+        r = s.search(query.Phrase("text", ["linda", "linda", "linda"]),
+                     limit=None)
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], 1)
 
@@ -610,7 +618,7 @@ def test_phrase_multi():
         w.commit()
 
     with ix.searcher() as s:
-        q = Phrase("text", ["alfa", "bravo"])
+        q = query.Phrase("text", ["alfa", "bravo"])
         _ = s.search(q)
 
 
@@ -698,7 +706,7 @@ def test_weighting():
                 return ncomments
 
     with ix.searcher(weighting=CommentWeighting()) as s:
-        q = TermRange("id", u("1"), u("4"), constantscore=False)
+        q = query.TermRange("id", u("1"), u("4"), constantscore=False)
 
         r = s.search(q)
         ids = [fs["id"] for fs in r]
@@ -720,8 +728,9 @@ def test_dismax():
         assert_equal(list(s.documents(f2="alfa")), [{"id": 1}])
         assert_equal(list(s.documents(f3="alfa")), [{"id": 1}])
 
-        qs = [Term("f1", "alfa"), Term("f2", "alfa"), Term("f3", "alfa")]
-        dm = DisjunctionMax(qs)
+        qs = [query.Term("f1", "alfa"), query.Term("f2", "alfa"),
+              query.Term("f3", "alfa")]
+        dm = query.DisjunctionMax(qs)
         r = s.search(dm)
         assert_equal(r.score(0), 3.0)
 
@@ -747,7 +756,7 @@ def test_deleted_wildcard():
     w.commit()
 
     with ix.searcher() as s:
-        r = s.search(Every("id"))
+        r = s.search(query.Every("id"))
         assert_equal(sorted([d['id'] for d in r]),
                      ["alfa", "charlie", "foxtrot"])
 
@@ -767,13 +776,13 @@ def test_missing_wildcard():
     w.commit()
 
     with ix.searcher() as s:
-        r = s.search(Every("id"))
+        r = s.search(query.Every("id"))
         assert_equal(sorted([d['id'] for d in r]), ["1", "2", "3", "4", "5"])
 
-        r = s.search(Every("f1"))
+        r = s.search(query.Every("f1"))
         assert_equal(sorted([d['id'] for d in r]), ["1", "2", "3"])
 
-        r = s.search(Every("f2"))
+        r = s.search(query.Every("f2"))
         assert_equal(sorted([d['id'] for d in r]), ["1", "3", "4"])
 
 
@@ -890,8 +899,9 @@ def test_ordered():
     writer.commit()
 
     with ix.searcher() as s:
-        q = Ordered([Term("f", u("alfa")), Term("f", u("charlie")),
-                     Term("f", "echo")])
+        q = query.Ordered([query.Term("f", u("alfa")),
+                           query.Term("f", u("charlie")),
+                           query.Term("f", u("echo"))])
         r = s.search(q)
         for hit in r:
             ls = hit["f"].split()
@@ -915,13 +925,16 @@ def test_otherwise():
     w.commit()
 
     with ix.searcher() as s:
-        q = Otherwise(Term("f", u("alfa")), Term("f", u("six")))
+        q = query.Otherwise(query.Term("f", u("alfa")),
+                            query.Term("f", u("six")))
         assert_equal([d["id"] for d in s.search(q)], [1, 2])
 
-        q = Otherwise(Term("f", u("tango")), Term("f", u("four")))
+        q = query.Otherwise(query.Term("f", u("tango")),
+                            query.Term("f", u("four")))
         assert_equal([d["id"] for d in s.search(q)], [2, 3])
 
-        q = Otherwise(Term("f", u("tango")), Term("f", u("nine")))
+        q = query.Otherwise(query.Term("f", u("tango")),
+                            query.Term("f", u("nine")))
         assert_equal([d["id"] for d in s.search(q)], [])
 
 
@@ -936,7 +949,7 @@ def test_fuzzyterm():
     w.commit()
 
     with ix.searcher() as s:
-        q = FuzzyTerm("f", "brave")
+        q = query.FuzzyTerm("f", "brave")
         assert_equal([d["id"] for d in s.search(q)], [1, 2])
 
 
@@ -953,7 +966,7 @@ def test_fuzzyterm2():
     with ix.searcher() as s:
         assert_equal(list(s.reader().terms_within("f", u("brave"), 1)),
                      ["bravo"])
-        q = FuzzyTerm("f", "brave")
+        q = query.FuzzyTerm("f", "brave")
         assert_equal([d["id"] for d in s.search(q)], [1, 2])
 
 
@@ -970,7 +983,8 @@ def test_multireader_not():
     w.commit()
 
     with ix.searcher() as s:
-        q = And([Term("f", "delta"), Not(Term("f", "delta"))])
+        q = query.And([query.Term("f", "delta"),
+                       query.Not(query.Term("f", "delta"))])
         r = s.search(q)
         assert_equal(len(r), 0)
 
@@ -990,7 +1004,8 @@ def test_multireader_not():
     assert len(ix._segments()) > 1
 
     with ix.searcher() as s:
-        q = And([Term("f", "delta"), Not(Term("f", "delta"))])
+        q = query.And([query.Term("f", "delta"),
+                       query.Not(query.Term("f", "delta"))])
         r = s.search(q)
         assert_equal(len(r), 0)
 
@@ -1006,11 +1021,13 @@ def test_boost_phrase():
         w.add_document(title=t, text=t)
     w.commit()
 
-    q = Or([Term("title", u("alfa")), Term("title", u("bravo")),
-            Phrase("text", [u("bravo"), u("charlie"), u("delta")])])
+    q = query.Or([query.Term("title", u("alfa")),
+                  query.Term("title", u("bravo")),
+                  query.Phrase("text", [u("bravo"), u("charlie"), u("delta")])
+                  ])
 
     def boost_phrases(q):
-        if isinstance(q, Phrase):
+        if isinstance(q, query.Phrase):
             q.boost *= 1000.0
             return q
         else:
@@ -1044,11 +1061,12 @@ def test_filter():
     w.commit(merge=False)
 
     with ix.searcher() as s:
-        fq = Or([Prefix("path", "/a"), Prefix("path", "/b")])
-        r = s.search(Term("text", "alfa"), filter=fq)
+        fq = query.Or([query.Prefix("path", "/a"),
+                       query.Prefix("path", "/b")])
+        r = s.search(query.Term("text", "alfa"), filter=fq)
         assert_equal([d["id"] for d in r], [1, 4, 5])
 
-        r = s.search(Term("text", "bravo"), filter=fq)
+        r = s.search(query.Term("text", "bravo"), filter=fq)
         assert_equal([d["id"] for d in r], [1, 2, 5, 7, ])
 
 
@@ -1068,12 +1086,12 @@ def test_timelimit():
             time.sleep(0.02)
             self.child.next()
 
-    class SlowQuery(WrappingQuery):
+    class SlowQuery(query.WrappingQuery):
         def matcher(self, searcher):
             return SlowMatcher(self.child.matcher(searcher))
 
     with ix.searcher() as s:
-        oq = Term("text", u("alfa"))
+        oq = query.Term("text", u("alfa"))
         sq = SlowQuery(oq)
 
         col = searching.Collector(timelimit=0.1, limit=None)
@@ -1120,7 +1138,8 @@ def test_fieldboost():
         return booster_fn
 
     with ix.searcher() as s:
-        q = Or([Term("a", u("alfa")), Term("b", u("alfa"))])
+        q = query.Or([query.Term("a", u("alfa")),
+                      query.Term("b", u("alfa"))])
         q = q.accept(field_booster("a", 100.0))
         assert_equal(text_type(q), text_type("(a:alfa^100.0 OR b:alfa)"))
         r = s.search(q)
@@ -1234,4 +1253,38 @@ def test_pos_scorer():
     s = ix.searcher(weighting=pos_weighting)
     r = s.search(query.Term("key", "1"))
     assert_equal([hit["id"] for hit in r], [4, 2, 0, 1, 5, 3])
+
+
+def test_too_many_prefix_positions():
+    from whoosh import matching
+
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for i in xrange(200):
+            text = u("a%s" % i)
+            w.add_document(id=i, text=text)
+            print "text=", repr(text)
+
+    q = query.Prefix("text", u("a"))
+    q.TOO_MANY_CLAUSES = 100
+
+    with ix.searcher() as s:
+        m = q.matcher(s)
+        assert_equal(m.__class__, matching.ListMatcher)
+        assert m.supports("positions")
+        items = list(m.items_as("positions"))
+        assert_equal([(i, [0]) for i in xrange(200)], items)
+
+
+
+
+
+
+
+
+
+
+
+
 

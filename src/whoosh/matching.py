@@ -232,6 +232,7 @@ class Matcher(object):
 
         while self.is_active():
             yield (self.id(), self.value_as(astype))
+            self.next()
 
     @abstractmethod
     def value(self):
@@ -448,7 +449,25 @@ class ListMatcher(Matcher):
 
     def value(self):
         if self._values:
-            return self._values[self._i]
+            v = self._values[self._i]
+
+            if isinstance(v, list):
+                # This object supports "values" that are actually lists of
+                # value strings. This is to support combining the results of
+                # several different matchers into a single ListMatcher (see the
+                # TOO_MANY_CLAUSES functionality of MultiTerm). We combine the
+                # values here instead of combining them first and then making
+                # the ListMatcher to avoid wasting time combining values if the
+                # consumer never asks for them.
+                assert len(v) > 0
+                if len(v) == 1:
+                    v = v[0]
+                else:
+                    v = self._format.combine(v)
+                # Replace the list with the computed value string
+                self._values[self._i] = v
+
+            return v
         else:
             return ''
 
