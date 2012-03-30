@@ -851,7 +851,6 @@ class MultiTerm(Query):
         if len(qs) == 1:
             # If there's only one term, just use it
             q = qs[0]
-
         elif self.constantscore or len(qs) > self.TOO_MANY_CLAUSES:
             # If there's so many clauses that an Or search would take forever,
             # trade memory for time and just put all the matching docs in a set
@@ -859,8 +858,9 @@ class MultiTerm(Query):
             docset = set()
             for q in qs:
                 docset.update(q.matcher(searcher).all_ids())
-            return ListMatcher(sorted(docset), all_weights=self.boost)
-
+            fieldobj = searcher.schema[fieldname]
+            return ListMatcher(sorted(docset), all_weights=self.boost,
+                               format=fieldobj.format)
         else:
             # The default case: Or the terms together
             q = Or(qs)
