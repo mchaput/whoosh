@@ -1264,7 +1264,6 @@ def test_too_many_prefix_positions():
         for i in xrange(200):
             text = u("a%s" % i)
             w.add_document(id=i, text=text)
-            print "text=", repr(text)
 
     q = query.Prefix("text", u("a"))
     q.TOO_MANY_CLAUSES = 100
@@ -1275,8 +1274,6 @@ def test_too_many_prefix_positions():
         assert m.supports("positions")
         items = list(m.items_as("positions"))
         assert_equal([(i, [0]) for i in xrange(200)], items)
-
-
 
 
 
