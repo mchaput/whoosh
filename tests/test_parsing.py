@@ -338,57 +338,57 @@ def test_singlequotes_query():
 
 #    def test_escaping():
 #        qp = default.QueryParser("text", None)
-#        
+#
 #        q = qp.parse(r'big\small')
 #        assert q.__class__, query.Term, q)
 #        assert q.text, "bigsmall")
-#        
+#
 #        q = qp.parse(r'big\\small')
 #        assert q.__class__, query.Term)
 #        assert q.text, r'big\small')
-#        
+#
 #        q = qp.parse(r'http\:example')
 #        assert q.__class__, query.Term)
 #        assert q.fieldname, "text")
 #        assert q.text, "http:example")
-#        
+#
 #        q = qp.parse(r'hello\ there')
 #        assert q.__class__, query.Term)
 #        assert q.text, "hello there")
-#        
+#
 #        q = qp.parse(r'\[start\ TO\ end\]')
 #        assert q.__class__, query.Term)
 #        assert q.text, "[start TO end]")
-#    
+#
 #        schema = fields.Schema(text=fields.TEXT)
 #        qp = default.QueryParser("text", None)
 #        q = qp.parse(r"http\:\/\/www\.example\.com")
 #        assert q.__class__, query.Term)
 #        assert q.text, "http://www.example.com")
-#        
+#
 #        q = qp.parse(u("\u005c\u005c"))
 #        assert q.__class__, query.Term)
 #        assert q.text, "\\")
 
 #    def test_escaping_wildcards():
 #        qp = default.QueryParser("text", None)
-#        
+#
 #        q = qp.parse(u("a*b*c?d"))
 #        assert q.__class__, query.Wildcard)
 #        assert q.text, "a*b*c?d")
-#        
+#
 #        q = qp.parse(u("a*b\u005c*c?d"))
 #        assert q.__class__, query.Wildcard)
 #        assert q.text, "a*b*c?d")
-#        
+#
 #        q = qp.parse(u("a*b\u005c\u005c*c?d"))
 #        assert q.__class__, query.Wildcard)
 #        assert q.text, u('a*b\u005c*c?d'))
-#        
+#
 #        q = qp.parse(u("ab*"))
 #        assert q.__class__, query.Prefix)
 #        assert q.text, u("ab"))
-#        
+#
 #        q = qp.parse(u("ab\u005c\u005c*"))
 #        assert q.__class__, query.Wildcard)
 #        assert q.text, u("ab\u005c*"))
@@ -797,32 +797,33 @@ def test_operator_queries():
     q = qp.parse("a ANDMAYBE b ANDNOT c REQUIRE d")
     assert_equal(text_type(q), "((f:a ANDMAYBE (f:b ANDNOT f:c)) REQUIRE f:d)")
 
+
 #def test_associativity():
 #    left_andmaybe = (syntax.InfixOperator("ANDMAYBE", syntax.AndMaybeGroup, True), 0)
 #    right_andmaybe = (syntax.InfixOperator("ANDMAYBE", syntax.AndMaybeGroup, False), 0)
 #    not_ = (syntax.PrefixOperator("NOT", syntax.NotGroup), 0)
-#    
+#
 #    def make_parser(*ops):
 #        parser = default.QueryParser("f", None)
 #        parser.replace_plugin(plugins.CompoundsPlugin(ops, clean=True))
 #        return parser
-#    
+#
 #    p = make_parser(left_andmaybe)
 #    q = p.parse("a ANDMAYBE b ANDMAYBE c ANDMAYBE d")
 #    assert_equal(text_type(q), "(((f:a ANDMAYBE f:b) ANDMAYBE f:c) ANDMAYBE f:d)")
-#    
+#
 #    p = make_parser(right_andmaybe)
 #    q = p.parse("a ANDMAYBE b ANDMAYBE c ANDMAYBE d")
 #    assert_equal(text_type(q), "(f:a ANDMAYBE (f:b ANDMAYBE (f:c ANDMAYBE f:d)))")
-#    
+#
 #    p = make_parser(not_)
 #    q = p.parse("a NOT b NOT c NOT d", normalize=False)
 #    assert_equal(text_type(q), "(f:a AND NOT f:b AND NOT f:c AND NOT f:d)")
-#    
+#
 #    p = make_parser(left_andmaybe)
 #    q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
 #    assert_equal(text_type(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
-#    
+#
 #    p = make_parser(right_andmaybe)
 #    q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
 #    assert_equal(text_type(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
@@ -841,7 +842,8 @@ def test_not_assoc():
 def test_fieldname_space():
     qp = default.QueryParser("a", None)
     q = qp.parse("Man Ray: a retrospective")
-    assert_equal(text_type(q), "(a:Man AND a:Ray: AND a:a AND a:retrospective)")
+    assert_equal(text_type(q),
+                 "(a:Man AND a:Ray: AND a:a AND a:retrospective)")
 
 
 def test_fieldname_fieldname():
@@ -855,10 +857,12 @@ def test_paren_fieldname():
 
     qp = default.QueryParser("content", schema)
     q = qp.parse(u("(kind:1d565 OR kind:7c584) AND (stuff)"))
-    assert_equal(text_type(q), "((kind:1d565 OR kind:7c584) AND content:stuff)")
+    assert_equal(text_type(q),
+                 "((kind:1d565 OR kind:7c584) AND content:stuff)")
 
     q = qp.parse(u("kind:(1d565 OR 7c584) AND (stuff)"))
-    assert_equal(text_type(q), "((kind:1d565 OR kind:7c584) AND content:stuff)")
+    assert_equal(text_type(q),
+                 "((kind:1d565 OR kind:7c584) AND content:stuff)")
 
 
 def test_star_paren():
@@ -890,5 +894,11 @@ def test_dash():
     q = qp.parse(qtext)
     assert_equal(q.__unicode__(),
                  "(title:*ben-hayden* OR text:*ben-hayden* OR time:*Ben-Hayden*)")
+
+
+
+
+
+
 
 

@@ -138,6 +138,7 @@ still be noticeably slow on very large indexes or complex queries.
 
 As an alternative, you might display the *estimated* total hits::
 
+    found = results.scored_length()
     if results.has_exact_length():
         print("Scored", found, "of exactly", len(results), "documents")
     else:
