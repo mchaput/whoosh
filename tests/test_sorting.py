@@ -819,7 +819,6 @@ def test_nocachefield_segments():
 
         nq = query.Not(query.Or([query.Term("a", u("alfa")),
                                  query.Term("a", u("india"))]))
-        print list(s.docs_for_query(nq))
         r = s.search(query.Every(), filter=nq, sortedby=facet)
         assert_equal([hit["a"] for hit in r],
                      ["kilo", "juliet", "foxtrot", "delta", "charlie",
