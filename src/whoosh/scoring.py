@@ -54,8 +54,10 @@ class WeightingModel(object):
         """Returns the inverse document frequency of the given term.
         """
 
-        n = searcher.doc_frequency(fieldname, text)
-        return log((searcher.doc_count_all()) / (n + 1)) + 1
+        parent = searcher.get_parent()
+        n = parent.doc_frequency(fieldname, text)
+        dc = parent.doc_count_all()
+        return log(dc / (n + 1)) + 1
 
     def scorer(self, searcher, fieldname, text, qf=1):
         """Returns an instance of :class:`whoosh.scoring.Scorer` configured

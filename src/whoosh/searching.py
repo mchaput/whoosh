@@ -84,17 +84,16 @@ class Searcher(object):
         self.is_closed = False
         self._closereader = closereader
         self._ix = fromindex
+        self._doccount = self.ixreader.doc_count_all()
 
         if parent:
             self.parent = weakref.ref(parent)
             self.schema = parent.schema
-            self._doccount = parent._doccount
             self._idf_cache = parent._idf_cache
             self._filter_cache = parent._filter_cache
         else:
             self.parent = None
             self.schema = self.ixreader.schema
-            self._doccount = self.ixreader.doc_count_all()
             self._idf_cache = {}
             self._filter_cache = {}
 
@@ -1107,9 +1106,9 @@ class Collector(object):
             # again.
             checkquality = matcher.next()
 
-    def sort(self, searcher, q, sortedby, reverse=False, allow=None,
+    def sort(self, global_searcher, q, sortedby, reverse=False, allow=None,
              restrict=None):
-        self.searcher = searcher
+        self.searcher = global_searcher
         self.q = q
         self.docset = set()
         self._set_filters(allow, restrict)
@@ -1122,24 +1121,24 @@ class Collector(object):
         addall = self.should_add_all()
 
         facet = sorting.MultiFacet.from_sortedby(sortedby)
-        catter = facet.categorizer(searcher)
+        catter = facet.categorizer(global_searcher)
         t = now()
 
-        if searcher.is_atomic():
-            searchers = [(searcher, 0)]
+        if global_searcher.is_atomic():
+            searchers = [(global_searcher, 0)]
         else:
-            searchers = searcher.subsearchers
+            searchers = global_searcher.subsearchers
 
-        for s, offset in searchers:
-            self.subsearcher = s
-            self._set_categorizers(s, offset)
-            catter.set_searcher(s, offset)
+        for segment_searcher, offset in searchers:
+            self.subsearcher = segment_searcher
+            self._set_categorizers(segment_searcher, offset)
+            catter.set_searcher(segment_searcher, offset)
 
             if catter.requires_matcher or self.termlists:
                 ls = list(self.pull_matches(q, offset, catter.key_for_matcher))
             else:
-                ls = list(self.pull_unscored_matches(q, offset,
-                                                     catter.key_for_id))
+                kfi = catter.key_for_id
+                ls = list(self.pull_unscored_matches(q, offset, kfi))
 
             if addall:
                 items.extend(ls)
@@ -1157,20 +1156,20 @@ class Collector(object):
         timelimited = bool(self.timelimit)
 
         matcher = q.matcher(self.subsearcher)
-        for id in matcher.all_ids():
+        for docnum in matcher.all_ids():
             # Check whether the time limit expired since the last match
             if timelimited and self.timedout and not self.greedy:
                 raise TimeLimit
 
             # The current document ID 
-            offsetid = id + offset
+            offsetid = docnum + offset
 
             # Check whether the document is filtered
             if ((not allow or offsetid in allow)
                 and (not restrict or offsetid not in restrict)):
                 # Collect and yield this document
-                key = keyfn(id)
-                collect(id, offsetid, key)
+                key = keyfn(docnum)
+                collect(docnum, offsetid, key)
                 yield (key, offsetid)
 
             # Check whether the time limit expired
