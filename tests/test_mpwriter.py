@@ -106,6 +106,7 @@ def _do_basic(writerclass):
                 assert_equal(r.doc_field_length(docnum, "text"), len(pieces))
 
 
+@skip_if(no_multi)
 def test_basic_serial():
     from whoosh.filedb.multiproc2 import SerialMpWriter
 
@@ -196,6 +197,7 @@ def _do_merge(writerclass):
                     assert word in hit["value"].split()
 
 
+@skip_if(no_multi)
 def test_merge_serial():
     from whoosh.filedb.multiproc2 import SerialMpWriter
 
