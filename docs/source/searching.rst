@@ -105,6 +105,7 @@ this dalay on very large indexes, you can use the
 and :meth:`~whoosh.searching.Results.estimated_min_length` methods to estimate
 the number of matching documents without calling ``len()``::
 
+    found = results.scored_length()
     if results.has_exact_length():
         print("Scored", found, "of exactly", len(results), "documents")
     else:

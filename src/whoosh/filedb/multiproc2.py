@@ -274,7 +274,9 @@ class MpWriter(SegmentWriter):
             # Remember it in the list for later
             lenreaders.append(lenreader)
             # Vector reader for the sub-segment
-            vreader = codec.vector_reader(storage, segment)
+            vreader = None
+            if schema.has_vectored_fields():
+                vreader = codec.vector_reader(storage, segment)
             # Stored field reader for the sub-segment
             sfreader = codec.stored_fields_reader(storage, segment)
             # Iterating on the stored field reader yields a dictionary of
@@ -290,11 +292,13 @@ class MpWriter(SegmentWriter):
                     pdw.add_field(fieldname, schema[fieldname], value, length)
                 # Copy over the vectors. TODO: would be much faster to bulk-
                 # copy the postings
-                for fieldname in vnames:
-                    if (i, fieldname) in vreader:
-                        field = schema[fieldname]
-                        vmatcher = vreader.matcher(i, fieldname, field.vector)
-                        pdw.add_vector_matcher(fieldname, field, vmatcher)
+                if vreader:
+                    for fieldname in vnames:
+                        if (i, fieldname) in vreader:
+                            field = schema[fieldname]
+                            vformat = field.vector
+                            vmatcher = vreader.matcher(i, fieldname, vformat)
+                            pdw.add_vector_matcher(fieldname, field, vmatcher)
                 pdw.finish_doc()
             basedoc += segment.doccount
 
@@ -311,6 +315,7 @@ class MpWriter(SegmentWriter):
         # Merge the iterators into the field writer
         self.fieldwriter.add_postings(schema, mlens, imerge(sources))
         self.docnum = basedoc
+        self._added = True
 
 
 class SerialMpWriter(MpWriter):

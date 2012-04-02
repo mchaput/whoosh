@@ -38,8 +38,7 @@ from heapq import heappush, heapreplace, nlargest, nsmallest
 from math import ceil
 
 from whoosh import classify, highlight, query, scoring, sorting
-from whoosh.compat import (iteritems, itervalues, iterkeys, xrange, text_type,
-                           string_type)
+from whoosh.compat import iteritems, itervalues, iterkeys, xrange
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import BitSet, BitVector
 from whoosh.util import now, lru_cache
@@ -528,7 +527,7 @@ class Searcher(object):
             
             results = searcher.search_page(query, pagenum, pagelen=pagelen)
             print("Page %d of %d" % (results.pagenum, results.pagecount))
-            print("Showing results %d-%d of %d" 
+            print("Showing results %d-%d of %d"
                   % (results.offset + 1, results.offset + results.pagelen + 1,
                      len(results)))
             for hit in results:
@@ -855,6 +854,9 @@ class Collector(object):
         if groupedby:
             self.facets = sorting.Facets.from_groupedby(groupedby)
 
+        self.replaced_times = 0
+        self.skipped_times = 0
+
     def should_add_all(self):
         """Returns True if this collector needs to add all found documents (for
         example, if ``limit=None``), or False if this collector should only
@@ -932,7 +934,7 @@ class Collector(object):
         self.timer = None
         self.timedout = True
 
-    def collect(self, id, offsetid, sortkey):
+    def collect(self, docnum, offsetid, sortkey):
         docset = self.docset
         if docset is not None:
             docset.add(offsetid)
@@ -941,10 +943,10 @@ class Collector(object):
             for name, catter in self.categorizers.items():
                 add = self.facetmaps[name].add
                 if catter.allow_overlap:
-                    for key in catter.keys_for_id(id):
+                    for key in catter.keys_for_id(docnum):
                         add(catter.key_to_name(key), offsetid, sortkey)
                 else:
-                    key = catter.key_to_name(catter.key_for_id(id))
+                    key = catter.key_to_name(catter.key_for_id(docnum))
                     add(key, offsetid, sortkey)
 
     def search(self, searcher, q, allow=None, restrict=None):
@@ -1051,6 +1053,7 @@ class Collector(object):
             if replace:
                 if replacecounter == 0 or self.minscore != minscore:
                     matcher = matcher.replace(minscore or 0)
+                    self.replaced_times += 1
                     if not matcher.is_active():
                         break
                     usequality = self.use_block_quality(self.subsearcher,
@@ -1069,15 +1072,15 @@ class Collector(object):
             # flag is true, try to skip ahead to the next block with the
             # minimum required quality
             if usequality and checkquality and minscore is not None:
-                matcher.skip_to_quality(minscore)
+                self.skipped_times += matcher.skip_to_quality(minscore)
                 # Skipping ahead might have moved the matcher to the end of the
                 # posting list
                 if not matcher.is_active():
                     break
 
-            # The current document ID 
-            id = matcher.id()
-            offsetid = id + offset
+            # The current document ID
+            docnum = matcher.id()
+            offsetid = docnum + offset
 
             # Check whether the document is filtered
             if ((not allow or offsetid in allow)
@@ -1161,7 +1164,7 @@ class Collector(object):
             if timelimited and self.timedout and not self.greedy:
                 raise TimeLimit
 
-            # The current document ID 
+            # The current document ID
             offsetid = docnum + offset
 
             # Check whether the document is filtered
