@@ -55,7 +55,7 @@ class TOC(object):
 
     @classmethod
     def _segment_pattern(cls, indexname):
-        return re.compile("_(%s_[0-9a-z]+)[.][a-z]+" % indexname)
+        return re.compile("(%s_[0-9a-z]+)[.][a-z]+" % indexname)
 
     @classmethod
     def _latest_generation(cls, storage, indexname):

@@ -193,7 +193,7 @@ class BoostPlugin(TaggingPlugin):
     """Adds the ability to boost clauses of the query using the circumflex.
     
     >>> qp = qparser.QueryParser("content", myschema)
-    >>> q = qp.parse("hello there^2")    
+    >>> q = qp.parse("hello there^2")
     """
 
     expr = "\\^(?P<boost>[0-9]*(\\.[0-9]+)?)($|(?=[ \t\r\n)]))"
@@ -497,7 +497,7 @@ class RangePlugin(Plugin):
     expr = rcompile(r"""
     (?P<open>\{|\[)               # Open paren
     (?P<start>
-        ('[^']*?'\s+)             # single-quoted 
+        ('[^']*?'\s+)             # single-quoted
         |                         # or
         ([^\]}]+?(?=[Tt][Oo]))    # everything until "to"
     )?
