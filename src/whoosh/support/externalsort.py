@@ -38,7 +38,8 @@ from whoosh.compat import xrange
 
 
 # Python 3.2 had a bug that make marshal.load unusable
-if (platform.python_implementation() == "CPython"
+if (hasattr(platform, "python_implementation")
+    and platform.python_implementation() == "CPython"
     and platform.python_version() == "3.2.0"):
     # Use pickle instead of marshal on Python 3.2
     from whoosh.compat import dump as dump_pickle
