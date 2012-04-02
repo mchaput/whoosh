@@ -31,24 +31,24 @@ This module implements a general external merge sort for Python objects.
 
 from __future__ import with_statement
 
-import os, tempfile, platform
+import os, tempfile
 from heapq import heapify, heappop, heapreplace
 
-from whoosh.compat import xrange
+from whoosh.compat import xrange, dump, load
 
 
-# Python 3.2 had a bug that make marshal.load unusable
-if (hasattr(platform, "python_implementation")
-    and platform.python_implementation() == "CPython"
-    and platform.python_version() == "3.2.0"):
-    # Use pickle instead of marshal on Python 3.2
-    from whoosh.compat import dump as dump_pickle
-    from whoosh.compat import load
-
-    def dump(obj, f):
-        dump_pickle(obj, f, -1)
-else:
-    from marshal import dump, load
+## Python 3.2 had a bug that make marshal.load unusable
+#if (hasattr(platform, "python_implementation")
+#    and platform.python_implementation() == "CPython"
+#    and platform.python_version() == "3.2.0"):
+#    # Use pickle instead of marshal on Python 3.2
+#    from whoosh.compat import dump as dump_pickle
+#    from whoosh.compat import load
+#
+#    def dump(obj, f):
+#        dump_pickle(obj, f, -1)
+#else:
+#    from marshal import dump, load
 
 
 try:
@@ -158,7 +158,7 @@ class SortingPool(object):
 
     def _write_run(self, f, items):
         for item in items:
-            dump(item, f)
+            dump(item, f, -1)
         f.close()
 
     def _add_run(self, filename):
