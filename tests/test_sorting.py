@@ -763,4 +763,71 @@ def test_group_types():
         assert_equal(gs["bear"], 3)
 
 
+def test_nocachefield_segments():
+    schema = fields.Schema(a=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(a=u("bravo"))
+    w.add_document(a=u("echo"))
+    w.add_document(a=u("juliet"))
+    w.commit()
+    w = ix.writer()
+    w.add_document(a=u("kilo"))
+    w.add_document(a=u("foxtrot"))
+    w.add_document(a=u("charlie"))
+    w.commit(merge=False)
+    w = ix.writer()
+    w.delete_by_term("a", u("echo"))
+    w.add_document(a=u("alfa"))
+    w.add_document(a=u("india"))
+    w.add_document(a=u("delta"))
+    w.commit(merge=False)
+
+    with ix.searcher() as s:
+        q = query.TermRange("a", u("bravo"), u("k"))
+        facet = sorting.FieldFacet("a", reverse=True)
+
+        cat = facet.categorizer(s)
+        assert_equal(cat.__class__, sorting.FieldFacet.NoCacheFieldCategorizer)
+
+        r = s.search(q, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["juliet", "india", "foxtrot", "delta", "charlie",
+                      "bravo"])
+
+        mq = query.Or([query.Term("a", u("bravo")),
+                       query.Term("a", u("delta"))])
+        anq = query.AndNot(q, mq)
+        r = s.search(anq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["juliet", "india", "foxtrot", "charlie"])
+
+        mq = query.Or([query.Term("a", u("bravo")),
+                       query.Term("a", u("delta"))])
+        r = s.search(q, mask=mq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["juliet", "india", "foxtrot", "charlie"])
+
+        fq = query.Or([query.Term("a", u("alfa")),
+                       query.Term("a", u("charlie")),
+                       query.Term("a", u("echo")),
+                       query.Term("a", u("india")),
+                       ])
+        r = s.search(query.Every(), filter=fq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["india", "charlie", "alfa"])
+
+        nq = query.Not(query.Or([query.Term("a", u("alfa")),
+                                 query.Term("a", u("india"))]))
+        print list(s.docs_for_query(nq))
+        r = s.search(query.Every(), filter=nq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["kilo", "juliet", "foxtrot", "delta", "charlie",
+                      "bravo"])
+
+
+
+
+
+
 
