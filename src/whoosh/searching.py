@@ -934,7 +934,7 @@ class Collector(object):
         self.timer = None
         self.timedout = True
 
-    def collect(self, docnum, offsetid, sortkey):
+    def collect(self, docid, offsetid, sortkey):
         docset = self.docset
         if docset is not None:
             docset.add(offsetid)
@@ -943,10 +943,10 @@ class Collector(object):
             for name, catter in self.categorizers.items():
                 add = self.facetmaps[name].add
                 if catter.allow_overlap:
-                    for key in catter.keys_for_id(docnum):
+                    for key in catter.keys_for_id(docid):
                         add(catter.key_to_name(key), offsetid, sortkey)
                 else:
-                    key = catter.key_to_name(catter.key_for_id(docnum))
+                    key = catter.key_to_name(catter.key_for_id(docid))
                     add(key, offsetid, sortkey)
 
     def search(self, searcher, q, allow=None, restrict=None):
@@ -1078,9 +1078,9 @@ class Collector(object):
                 if not matcher.is_active():
                     break
 
-            # The current document ID
-            docnum = matcher.id()
-            offsetid = docnum + offset
+            # The current document ID 
+            docid = matcher.id()
+            offsetid = docid + offset
 
             # Check whether the document is filtered
             if ((not allow or offsetid in allow)
@@ -1088,16 +1088,16 @@ class Collector(object):
                 # Collect and yield this document
                 if scorefn:
                     score = scorefn(matcher)
-                    collect(id, offsetid, score)
+                    collect(docid, offsetid, score)
                 else:
                     score = matcher.score()
-                    collect(id, offsetid, 0 - score)
+                    collect(docid, offsetid, 0 - score)
                 yield (score, offsetid)
 
             # If recording terms, add the document to the termlists
             if recordterms:
                 for m in termmatchers:
-                    if m.is_active() and m.id() == id:
+                    if m.is_active() and m.id() == docid:
                         termlists[m.term()].add(offsetid)
 
             # Check whether the time limit expired
