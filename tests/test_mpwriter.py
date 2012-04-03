@@ -108,21 +108,21 @@ def _do_basic(writerclass):
 
 @skip_if(no_multi)
 def test_basic_serial():
-    from whoosh.filedb.multiproc2 import SerialMpWriter
+    from whoosh.filedb.multiproc import SerialMpWriter
 
     _do_basic(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_basic_multi():
-    from whoosh.filedb.multiproc2 import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     _do_basic(MpWriter)
 
 
 @skip_if(no_multi)
 def test_no_add():
-    from whoosh.filedb.multiproc2 import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     schema = fields.Schema(text=fields.TEXT(stored=True, spelling=True,
                                             vector=True))
@@ -199,16 +199,69 @@ def _do_merge(writerclass):
 
 @skip_if(no_multi)
 def test_merge_serial():
-    from whoosh.filedb.multiproc2 import SerialMpWriter
+    from whoosh.filedb.multiproc import SerialMpWriter
 
     _do_merge(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_merge_multi():
-    from whoosh.filedb.multiproc2 import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     _do_merge(MpWriter)
+
+
+@skip_if(no_multi)
+def test_no_score_no_store():
+    from whoosh.filedb.multiproc import MpWriter
+
+    schema = fields.Schema(a=fields.ID, b=fields.KEYWORD)
+    domain = {}
+    keys = list(u("abcdefghijklmnopqrstuvwx"))
+    random.shuffle(keys)
+    words = u("alfa bravo charlie delta").split()
+    for i, key in enumerate(keys):
+        domain[key] = words[i % len(words)]
+
+    with TempIndex(schema) as ix:
+        with MpWriter(ix, procs=3) as w:
+            for key, value in domain.items():
+                w.add_document(a=key, b=value)
+
+        with ix.searcher() as s:
+            for word in words:
+                r = s.search(query.Term("b", word))
+                assert_equal(len(r), 6)
+
+
+@skip_if(no_multi)
+def test_multisegment():
+    from whoosh.filedb.multiproc import MpWriter
+
+    schema = fields.Schema(a=fields.TEXT(stored=True, spelling=True,
+                                         vector=True))
+    words = u("alfa bravo charlie delta echo").split()
+    with TempIndex(schema) as ix:
+        with ix.writer(procs=3, multisegment=True, batchsize=10) as w:
+            assert_equal(w.__class__, MpWriter)
+            assert w.multisegment
+
+            for ls in permutations(words, 3):
+                w.add_document(a=" ".join(ls))
+
+        print list(ix.storage.list())
+        assert_equal(len(ix._segments()), 3)
+
+        with ix.searcher() as s:
+            for word in words:
+                r = s.search(query.Term("a", word))
+                for hit in r:
+                    assert word in hit["a"].split()
+
+
+
+
+
 
 
 

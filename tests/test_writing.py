@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import random, time, threading
 
-from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, query, writing
 from whoosh.compat import u, xrange, text_type
@@ -12,22 +12,25 @@ from whoosh.support.testing import TempIndex
 def test_no_stored():
     schema = fields.Schema(id=fields.ID, text=fields.TEXT)
     with TempIndex(schema, "nostored") as ix:
-        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"),
-                  u("golf"), u("hotel"), u("india"))
+        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
 
         w = ix.writer()
         for i in xrange(20):
-            w.add_document(id=text_type(i), text=u(" ").join(random.sample(domain, 5)))
+            w.add_document(id=text_type(i),
+                           text=u(" ").join(random.sample(domain, 5)))
         w.commit()
 
         with ix.reader() as r:
-            assert_equal(sorted([int(id) for id in r.lexicon("id")]), list(range(20)))
+            assert_equal(sorted([int(id) for id in r.lexicon("id")]),
+                         list(range(20)))
+
 
 def test_asyncwriter():
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
     with TempIndex(schema, "asyncwriter") as ix:
-        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"),
-                  u("golf"), u("hotel"), u("india"))
+        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
 
         writers = []
         # Simulate doing 20 (near-)simultaneous commits. If we weren't using
@@ -36,7 +39,8 @@ def test_asyncwriter():
         for i in xrange(20):
             w = writing.AsyncWriter(ix)
             writers.append(w)
-            w.add_document(id=text_type(i), text=u(" ").join(random.sample(domain, 5)))
+            w.add_document(id=text_type(i),
+                           text=u(" ").join(random.sample(domain, 5)))
             w.commit()
 
         # Wait for all writers to finish before checking the results
@@ -46,13 +50,15 @@ def test_asyncwriter():
 
         # Check whether all documents made it into the index.
         with ix.reader() as r:
-            assert_equal(sorted([int(id) for id in r.lexicon("id")]), list(range(20)))
+            assert_equal(sorted([int(id) for id in r.lexicon("id")]),
+                         list(range(20)))
+
 
 def test_asyncwriter_no_stored():
     schema = fields.Schema(id=fields.ID, text=fields.TEXT)
     with TempIndex(schema, "asyncnostored") as ix:
-        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"),
-                  u("golf"), u("hotel"), u("india"))
+        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
 
         writers = []
         # Simulate doing 20 (near-)simultaneous commits. If we weren't using
@@ -61,7 +67,8 @@ def test_asyncwriter_no_stored():
         for i in xrange(20):
             w = writing.AsyncWriter(ix)
             writers.append(w)
-            w.add_document(id=text_type(i), text=u(" ").join(random.sample(domain, 5)))
+            w.add_document(id=text_type(i),
+                           text=u(" ").join(random.sample(domain, 5)))
             w.commit()
 
         # Wait for all writers to finish before checking the results
@@ -71,22 +78,26 @@ def test_asyncwriter_no_stored():
 
         # Check whether all documents made it into the index.
         with ix.reader() as r:
-            assert_equal(sorted([int(id) for id in r.lexicon("id")]), list(range(20)))
+            assert_equal(sorted([int(id) for id in r.lexicon("id")]),
+                         list(range(20)))
+
 
 def test_buffered():
     schema = fields.Schema(id=fields.ID, text=fields.TEXT)
     with TempIndex(schema, "buffered") as ix:
-        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"),
-                  u("golf"), u("hotel"), u("india"))
+        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
 
         w = writing.BufferedWriter(ix, period=None, limit=10,
                                    commitargs={"merge": False})
         for i in xrange(100):
-            w.add_document(id=text_type(i), text=u(" ").join(random.sample(domain, 5)))
+            w.add_document(id=text_type(i),
+                           text=u(" ").join(random.sample(domain, 5)))
         time.sleep(0.5)
         w.close()
 
         assert_equal(len(ix._segments()), 10)
+
 
 def test_buffered_search():
     schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
@@ -112,6 +123,7 @@ def test_buffered_search():
 
         w.close()
 
+
 def test_buffered_update():
     schema = fields.Schema(id=fields.ID(stored=True, unique=True),
                            payload=fields.STORED)
@@ -130,6 +142,7 @@ def test_buffered_update():
             assert_equal(r.doc_count(), 3)
 
         w.close()
+
 
 def test_buffered_threads():
     class SimWriter(threading.Thread):
@@ -161,6 +174,7 @@ def test_buffered_threads():
             assert_equal(sorted([d["name"] for d in r.all_stored_fields()]),
                          domain)
 
+
 def test_fractional_weights():
     ana = analysis.RegexTokenizer(r"\S+") | analysis.DelimitedAttributeFilter()
 
@@ -191,6 +205,7 @@ def test_fractional_weights():
             p = s.postings("f", word)
             wts.append(p.weight())
         assert_equal(wts, [0.5, 1.5, 2.0, 1.5])
+
 
 def test_cancel_delete():
     schema = fields.Schema(id=fields.ID(stored=True))
@@ -234,6 +249,7 @@ def test_cancel_delete():
             assert not r.is_deleted(2)
             assert not r.is_deleted(3)
 
+
 def test_delete_nonexistant():
     from whoosh.writing import IndexingError
 
@@ -264,6 +280,7 @@ def test_delete_nonexistant():
         finally:
             w.cancel()
 
+
 def test_add_field():
     schema = fields.Schema(a=fields.TEXT)
     with TempIndex(schema, "addfield") as ix:
@@ -277,6 +294,7 @@ def test_add_field():
         with ix.searcher() as s:
             fs = s.document(b=u("india"))
             assert_equal(fs, {"b": "india", "cat": "juliet"})
+
 
 def test_add_reader():
     schema = fields.Schema(i=fields.ID(stored=True, unique=True),
