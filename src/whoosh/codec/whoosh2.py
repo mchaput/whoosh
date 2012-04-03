@@ -142,7 +142,6 @@ class W2PerDocWriter(base.PerDocumentWriter):
         self.stored = StoredFieldWriter(sffile)
         self.storedfields = None
 
-        self.flfile = segment.create_file(storage, W2Codec.LENGTHS_EXT)
         self.lengths = InMemoryLengths()
 
         # We'll wait to create the vector files until someone actually tries
@@ -230,7 +229,8 @@ class W2PerDocWriter(base.PerDocumentWriter):
         if self.storedfields is not None:
             self.stored.add(self.storedfields)
         self.stored.close()
-        self.lengths.to_file(self.flfile, self.doccount)
+        flfile = self.segment.create_file(self.storage, W2Codec.LENGTHS_EXT)
+        self.lengths.to_file(flfile, self.doccount)
         if self.vindex:
             self.vindex.close()
             self.vpostfile.close()

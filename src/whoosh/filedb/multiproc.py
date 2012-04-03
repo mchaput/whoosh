@@ -1,4 +1,4 @@
-# Copyright 2010 Matt Chaput. All rights reserved.
+# Copyright 2011 Matt Chaput. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -25,122 +25,184 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os
-import tempfile
+
+import os, tempfile
 from multiprocessing import Process, Queue, cpu_count
 
-from whoosh.compat import dump, load, xrange, iteritems
-from whoosh.filedb.filetables import LengthWriter, LengthReader
-from whoosh.filedb.fileindex import Segment
+from whoosh.compat import xrange, iteritems, pickle
+from whoosh.codec import base
 from whoosh.filedb.filewriting import SegmentWriter
-from whoosh.filedb.pools import (imerge, read_run, PoolBase, TempfilePool)
-from whoosh.filedb.structfile import StructFile
-from whoosh.writing import IndexWriter
+from whoosh.support.externalsort import imerge, SortingPool
 
 
-# Multiprocessing writer
+def finish_subsegment(writer, k=64):
+    # Tell the pool to finish up the current file
+    writer.pool.save()
+    # Tell the pool to merge any and all runs in the pool until there
+    # is only one run remaining. "k" is an optional parameter passed
+    # from the parent which sets the maximum number of files to open
+    # while reducing.
+    writer.pool.reduce_to(1, k)
 
-class SegmentWritingTask(Process):
-    def __init__(self, storage, indexname, segname, kwargs, jobqueue,
-                 resultqueue, firstjob=None):
+    # The filename of the single remaining run
+    runname = writer.pool.runs[0]
+    # The segment ID (parent can use this to re-open the files created
+    # by my sub-writer)
+    segment = writer._partial_segment()
+
+    return runname, segment
+
+
+# Multiprocessing Writer
+
+class SubWriterTask(Process):
+    # This is a Process object that takes "jobs" off a job Queue, processes
+    # them, and when it's done, puts a summary of its work on a results Queue
+
+    def __init__(self, storage, indexname, jobqueue, resultqueue, kwargs,
+                 multisegment):
         Process.__init__(self)
         self.storage = storage
         self.indexname = indexname
-        self.segname = segname
-        self.kwargs = kwargs
         self.jobqueue = jobqueue
         self.resultqueue = resultqueue
-        self.firstjob = firstjob
-
-        self.segment = None
+        self.kwargs = kwargs
+        self.multisegment = multisegment
         self.running = True
 
-    def _add_file(self, args):
-        writer = self.writer
-        filename, length = args
-        f = open(filename, "rb")
-        for _ in xrange(length):
-            writer.add_document(**load(f))
-        f.close()
-        os.remove(filename)
-
     def run(self):
+        # This is the main loop of the process. OK, so the way this works is
+        # kind of brittle and stupid, but I had to figure out how to use the
+        # multiprocessing module, work around bugs, and address performance
+        # issues, so there is at least some reasoning behind some of this
+
+        # The "parent" task farms individual documents out to the subtasks for
+        # indexing. You could pickle the actual documents and put them in the
+        # queue, but that is not very performant. Instead, we assume the tasks
+        # share a filesystem and use that to pass the information around. The
+        # parent task writes a certain number of documents to a file, then puts
+        # the filename on the "job queue". A subtask gets the filename off the
+        # queue and reads through the file processing the documents.
+
         jobqueue = self.jobqueue
+        resultqueue = self.resultqueue
+        multisegment = self.multisegment
+
+        # Open a placeholder object representing the index
         ix = self.storage.open_index(self.indexname)
-        writer = self.writer = SegmentWriter(ix, _lk=False, name=self.segname,
-                                             **self.kwargs)
+        # Open a writer for the index. The _lk=False parameter means to not try
+        # to lock the index (the parent object that started me takes care of
+        # locking the index)
+        writer = self.writer = SegmentWriter(ix, _lk=False, **self.kwargs)
 
-        if self.firstjob:
-            self._add_file(self.firstjob)
-
+        # If the parent task calls cancel() on me, it will set self.running to
+        # False, so I'll notice the next time through the loop
         while self.running:
-            args = jobqueue.get()
-            if args is None:
+            # Take an object off the job queue
+            jobinfo = jobqueue.get()
+            # If the object is None, it means the parent task wants me to
+            # finish up
+            if jobinfo is None:
                 break
-            self._add_file(args)
+            # The object from the queue is a tuple of (filename,
+            # number_of_docs_in_file). Pass those two pieces of information as
+            # arguments to _process_file().
+            self._process_file(*jobinfo)
 
         if not self.running:
+            # I was cancelled, so I'll cancel my underlying writer
             writer.cancel()
         else:
-            writer.pool.finish(writer.termswriter, writer.docnum,
-                               writer.lengthfile)
-            writer._close_all()
-            self.resultqueue.put(writer._getsegment())
+            if multisegment:
+                # Actually finish the segment and return it with no run
+                runname = None
+                writer._flush_segment()
+                writer._close_segment()
+                writer._assemble_segment()
+                segment = writer.get_segment()
+            else:
+                # Merge all runs in the writer's pool into one run, close the
+                # segment, and return the run name and the segment
+                k = self.kwargs.get("k", 64)
+                runname, segment = finish_subsegment(writer, k)
+
+            # Put the results (the run filename and the segment object) on the
+            # result queue
+            resultqueue.put((runname, segment), timeout=5)
+
+    def _process_file(self, filename, doc_count):
+        # This method processes a "job file" written out by the parent task. A
+        # job file is a series of pickled (code, arguments) tuples. Currently
+        # the only command codes is 0=add_document
+
+        writer = self.writer
+        load = pickle.load
+        f = open(filename, "rb")
+        for _ in xrange(doc_count):
+            # Load the next pickled tuple from the file
+            code, args = load(f)
+            assert code == 0
+            writer.add_document(**args)
+        f.close()
+        # Remove the job file
+        os.remove(filename)
 
     def cancel(self):
         self.running = False
 
 
-class MultiSegmentWriter(IndexWriter):
-    def __init__(self, ix, procs=None, batchsize=100, dir=None, **kwargs):
-        self.index = ix
-        self.procs = procs or cpu_count()
-        self.bufferlimit = batchsize
-        self.dir = dir
-        self.kwargs = kwargs
-        self.kwargs["dir"] = dir
+class MpWriter(SegmentWriter):
+    def __init__(self, ix, procs=None, batchsize=100, subargs=None,
+                 multisegment=False, **kwargs):
+        # This is the "main" writer that will aggregate the results created by
+        # the sub-tasks
+        SegmentWriter.__init__(self, ix, **kwargs)
 
-        self.segnames = []
+        self.procs = procs or cpu_count()
+        # The maximum number of documents in each job file submitted to the
+        # sub-tasks
+        self.batchsize = batchsize
+        # You can use keyword arguments or the "subargs" argument to pass
+        # keyword arguments to the sub-writers
+        self.subargs = subargs if subargs else kwargs
+        # If multisegment is True, don't merge the segments created by the
+        # sub-writers, just add them directly to the TOC
+        self.multisegment = multisegment
+
+        # A list to hold the sub-task Process objects
         self.tasks = []
+        # A queue to pass the filenames of job files to the sub-tasks
         self.jobqueue = Queue(self.procs * 4)
+        # A queue to get back the final results of the sub-tasks
         self.resultqueue = Queue()
+        # A buffer for documents before they are flushed to a job file
         self.docbuffer = []
 
-        self.writelock = ix.lock("WRITELOCK")
-        self.writelock.acquire()
+        self._added_sub = False
 
-        info = ix._read_toc()
-        self.schema = info.schema
-        self.segment_number = info.segment_counter
-        self.generation = info.generation + 1
-        self.segments = info.segments
-        self.storage = ix.storage
-
-    def _new_task(self, firstjob):
-        ix = self.index
-        self.segment_number += 1
-        segmentname = Segment.basename(ix.indexname, self.segment_number)
-        task = SegmentWritingTask(ix.storage, ix.indexname, segmentname,
-                                  self.kwargs, self.jobqueue,
-                                  self.resultqueue, firstjob)
+    def _new_task(self):
+        task = SubWriterTask(self.storage, self.indexname,
+                             self.jobqueue, self.resultqueue, self.subargs,
+                             self.multisegment)
         self.tasks.append(task)
         task.start()
         return task
 
     def _enqueue(self):
-        doclist = self.docbuffer
-        fd, filename = tempfile.mkstemp(".doclist", dir=self.dir)
+        # Flush the documents stored in self.docbuffer to a file and put the
+        # filename on the job queue
+        docbuffer = self.docbuffer
+        dump = pickle.dump
+        length = len(docbuffer)
+        fd, filename = tempfile.mkstemp(".doclist")
         f = os.fdopen(fd, "wb")
-        for doc in doclist:
-            dump(doc, f, -1)
-        f.close()
-        args = (filename, len(doclist))
+        for item in docbuffer:
+            dump(item, f, -1)
 
         if len(self.tasks) < self.procs:
-            self._new_task(args)
-        else:
-            self.jobqueue.put(args)
-
+            self._new_task()
+        jobinfo = (filename, length)
+        self.jobqueue.put(jobinfo)
         self.docbuffer = []
 
     def cancel(self):
@@ -148,219 +210,191 @@ class MultiSegmentWriter(IndexWriter):
             for task in self.tasks:
                 task.cancel()
         finally:
-            self.writelock.release()
+            SegmentWriter.cancel(self)
 
     def add_document(self, **fields):
-        self.docbuffer.append(fields)
-        if len(self.docbuffer) >= self.bufferlimit:
+        # Add the document to the docbuffer
+        self.docbuffer.append((0, fields))
+        # If the buffer is full, flush it to the job queue
+        if len(self.docbuffer) >= self.batchsize:
             self._enqueue()
+        self._added_sub = True
 
-    def commit(self, **kwargs):
+    def _read_and_renumber_run(self, path, offset):
+        # Note that SortingPool._read_run() automatically deletes the run file
+        # when it's finished
+
+        gen = SortingPool._read_run(path)
+        # If offset is 0, just return the items unchanged
+        if not offset:
+            return gen
+        else:
+            # Otherwise, add the offset to each docnum
+            return ((fname, text, docnum + offset, weight, value)
+                    for fname, text, docnum, weight, value in gen)
+
+    def commit(self, mergetype=None, optimize=False, merge=True):
+        if self._added_sub:
+            # If documents have been added to sub-writers, use the parallel
+            # merge commit code
+            self._commit(mergetype, optimize, merge)
+        else:
+            # Otherwise, just do a regular-old commit
+            SegmentWriter.commit(self, mergetype=mergetype, optimize=optimize,
+                                 merge=merge)
+
+    def _commit(self, mergetype, optimize, merge):
         try:
-            # index the remaining stuff in self.docbuffer
+            # Index the remaining documents in the doc buffer
             self._enqueue()
-
+            # Tell the tasks to finish
             for task in self.tasks:
                 self.jobqueue.put(None)
 
+            # Merge existing segments
+            finalsegments = self._merge_segments(mergetype, optimize, merge)
+
+            # Wait for the subtasks to finish
             for task in self.tasks:
                 task.join()
 
+            # Pull a (run_file_name, segment) tuple off the result queue for
+            # each sub-task, representing the final results of the task
+            results = []
             for task in self.tasks:
-                taskseg = self.resultqueue.get()
-                assert isinstance(taskseg, Segment), type(taskseg)
-                self.segments.append(taskseg)
+                results.append(self.resultqueue.get(timeout=5))
 
-            self.jobqueue.close()
-            self.resultqueue.close()
-
-            from whoosh.filedb.fileindex import _write_toc, _clean_files
-            _write_toc(self.storage, self.schema, self.index.indexname,
-                       self.generation, self.segment_number, self.segments)
-
-            # Delete leftover files
-            _clean_files(self.storage, self.index.indexname,
-                         self.generation, self.segments)
-        finally:
-            self.writelock.release()
-
-
-# Multiprocessing pool
-
-class PoolWritingTask(Process):
-    def __init__(self, schema, dir, jobqueue, resultqueue, limitmb,
-                 firstjob=None):
-        Process.__init__(self)
-        self.schema = schema
-        self.dir = dir
-        self.jobqueue = jobqueue
-        self.resultqueue = resultqueue
-        self.limitmb = limitmb
-        self.firstjob = firstjob
-
-    def _add_file(self, filename, length):
-        subpool = self.subpool
-        f = open(filename, "rb")
-        for _ in xrange(length):
-            code, args = load(f)
-            if code == 0:
-                subpool.add_content(*args)
-            elif code == 1:
-                subpool.add_posting(*args)
-            elif code == 2:
-                subpool.add_field_length(*args)
-        f.close()
-        os.remove(filename)
-
-    def run(self):
-        jobqueue = self.jobqueue
-        rqueue = self.resultqueue
-        subpool = self.subpool = TempfilePool(self.schema,
-                                              limitmb=self.limitmb,
-                                              dir=self.dir)
-
-        if self.firstjob:
-            self._add_file(*self.firstjob)
-
-        while True:
-            arg1, arg2 = jobqueue.get()
-            if arg1 is None:
-                doccount = arg2
-                break
+            if self.multisegment:
+                finalsegments += [s for _, s in results]
+                if self._added:
+                    self._flush_segment()
+                    self._close_segment()
+                    self._assemble_segment()
+                    finalsegments.append(self.get_segment())
+                else:
+                    self._close_segment()
             else:
-                self._add_file(arg1, arg2)
+                # Merge the posting sources from the sub-writers and my
+                # postings into this writer
+                self._merge_subsegments(results, mergetype, optimize, merge)
+                self._close_segment()
+                self._assemble_segment()
+                finalsegments.append(self.get_segment())
+            self._commit_toc(finalsegments)
+        finally:
+            self._finish()
 
-        lenfd, lenfilename = tempfile.mkstemp(".lengths", dir=subpool.dir)
-        lenf = os.fdopen(lenfd, "wb")
-        subpool._write_lengths(StructFile(lenf), doccount)
-        subpool.dump_run()
-        rqueue.put((subpool.runs, subpool.fieldlength_totals(),
-                    subpool.fieldlength_mins(), subpool.fieldlength_maxes(),
-                    lenfilename))
+    def _merge_subsegments(self, results, mergetype, optimize, merge):
+        schema = self.schema
+        storage = self.storage
+        codec = self.codec
+        fieldnames = list(schema.names())
 
+        # Merge per-document information
+        pdw = self.perdocwriter
+        # Names of fields that store term vectors
+        vnames = set(schema.vector_names())
+        basedoc = self.docnum
+        # A list to remember field length readers for each sub-segment (we'll
+        # re-use them below)
+        lenreaders = [pdw.lengths_reader()]
 
-class MultiPool(PoolBase):
-    def __init__(self, schema, dir=None, procs=2, limitmb=32, batchsize=100,
-                 **kw):
-        PoolBase.__init__(self, schema, dir=dir)
-        self._make_dir()
+        for _, segment in results:
+            # Create a field length reader for the sub-segment
+            lenreader = codec.lengths_reader(storage, segment)
+            # Remember it in the list for later
+            lenreaders.append(lenreader)
+            # Vector reader for the sub-segment
+            vreader = None
+            if schema.has_vectored_fields():
+                vreader = codec.vector_reader(storage, segment)
+            # Stored field reader for the sub-segment
+            sfreader = codec.stored_fields_reader(storage, segment)
+            # Iterating on the stored field reader yields a dictionary of
+            # stored fields for *every* document in the segment (even if the
+            # document has no stored fields it should yield {})
+            for i, fs in enumerate(sfreader):
+                # Add the base doc count to the sub-segment doc num
+                pdw.start_doc(basedoc + i)
+                # Call add_field to store the field values and lengths
+                for fieldname in fieldnames:
+                    value = fs.get(fieldname)
+                    length = lenreader.doc_field_length(i, fieldname)
+                    pdw.add_field(fieldname, schema[fieldname], value, length)
+                # Copy over the vectors. TODO: would be much faster to bulk-
+                # copy the postings
+                if vreader:
+                    for fieldname in vnames:
+                        if (i, fieldname) in vreader:
+                            field = schema[fieldname]
+                            vformat = field.vector
+                            vmatcher = vreader.matcher(i, fieldname, vformat)
+                            pdw.add_vector_matcher(fieldname, field, vmatcher)
+                pdw.finish_doc()
+            basedoc += segment.doccount
 
-        self.procs = procs
-        self.limitmb = limitmb
-        self.jobqueue = Queue(self.procs * 4)
-        self.resultqueue = Queue()
-        self.tasks = []
-        self.buffer = []
-        self.bufferlimit = batchsize
-
-    def _new_task(self, firstjob):
-        task = PoolWritingTask(self.schema, self.dir, self.jobqueue,
-                               self.resultqueue, self.limitmb,
-                               firstjob=firstjob)
-        self.tasks.append(task)
-        task.start()
-        return task
-
-    def _enqueue(self):
-        commandlist = self.buffer
-        fd, filename = tempfile.mkstemp(".commands", dir=self.dir)
-        f = os.fdopen(fd, "wb")
-        for command in commandlist:
-            dump(command, f, -1)
-        f.close()
-        args = (filename, len(commandlist))
-
-        if len(self.tasks) < self.procs:
-            self._new_task(args)
+        # If information was added to this writer the conventional (e.g.
+        # through add_reader or merging segments), add it as an extra source
+        if self._added:
+            sources = [self.pool.iter_postings()]
         else:
-            self.jobqueue.put(args)
+            sources = []
+        # Add iterators from the run filenames
+        basedoc = self.docnum
+        for runname, segment in results:
+            items = self._read_and_renumber_run(runname, basedoc)
+            sources.append(items)
+            basedoc += segment.doccount
 
-        self.buffer = []
+        # Create a MultiLengths object combining the length files from the
+        # subtask segments
+        mlens = base.MultiLengths(lenreaders)
+        # Merge the iterators into the field writer
+        self.fieldwriter.add_postings(schema, mlens, imerge(sources))
+        self.docnum = basedoc
+        self._added = True
 
-    def _append(self, item):
-        self.buffer.append(item)
-        if len(self.buffer) > self.bufferlimit:
-            self._enqueue()
 
-    def add_content(self, *args):
-        self._append((0, args))
+class SerialMpWriter(MpWriter):
+    # A non-parallel version of the MpWriter for testing purposes
 
-    def add_posting(self, *args):
-        self._append((1, args))
+    def __init__(self, ix, procs=None, batchsize=100, subargs=None, **kwargs):
+        SegmentWriter.__init__(self, ix, **kwargs)
 
-    def add_field_length(self, *args):
-        self._append((2, args))
+        self.procs = procs or cpu_count()
+        self.batchsize = batchsize
+        self.subargs = subargs if subargs else kwargs
+        self.tasks = [SegmentWriter(ix, _lk=False, **self.subargs)
+                      for _ in xrange(self.procs)]
+        self.pointer = 0
+        self._added_sub = False
 
-    def cancel(self):
-        for task in self.tasks:
-            task.terminate()
-        self.cleanup()
+    def add_document(self, **fields):
+        self.tasks[self.pointer].add_document(**fields)
+        self.pointer = (self.pointer + 1) % len(self.tasks)
+        self._added_sub = True
 
-    def cleanup(self):
-        self._clean_temp_dir()
+    def _commit(self, mergetype, optimize, merge):
+        # Pull a (run_file_name, segment) tuple off the result queue for each
+        # sub-task, representing the final results of the task
+        try:
+            # Merge existing segments
+            finalsegments = self._merge_segments(mergetype, optimize, merge)
+            results = []
+            for writer in self.tasks:
+                results.append(finish_subsegment(writer))
+            self._merge_subsegments(results, mergetype, optimize, merge)
+            self._close_segment()
+            self._assemble_segment()
+            finalsegments.append(self.get_segment())
+            self._commit_toc(finalsegments)
+        finally:
+            self._finish()
 
-    def finish(self, termswriter, doccount, lengthfile):
-        if self.buffer:
-            self._enqueue()
 
-        _fieldlength_totals = self._fieldlength_totals
-        if not self.tasks:
-            return
+# For compatibility with old multiproc module
+class MultiSegmentWriter(MpWriter):
+    def __init__(self, *args, **kwargs):
+        MpWriter.__init__(self, *args, **kwargs)
+        self.multisegment = True
 
-        jobqueue = self.jobqueue
-        rqueue = self.resultqueue
-
-        for task in self.tasks:
-            jobqueue.put((None, doccount))
-
-        for task in self.tasks:
-            task.join()
-
-        runs = []
-        lenfilenames = []
-        for task in self.tasks:
-            truns, flentotals, flenmins, flenmaxes, lenfilename = rqueue.get()
-            runs.extend(truns)
-            lenfilenames.append(lenfilename)
-            for fieldname, total in iteritems(flentotals):
-                _fieldlength_totals[fieldname] += total
-
-            for fieldname, length in iteritems(flenmins):
-                if length < self._fieldlength_maxes.get(fieldname, 9999999999):
-                    self._fieldlength_mins[fieldname] = length
-
-            for fieldname, length in flenmaxes.iteritems():
-                if length > self._fieldlength_maxes.get(fieldname, 0):
-                    self._fieldlength_maxes[fieldname] = length
-
-        jobqueue.close()
-        rqueue.close()
-
-        lw = LengthWriter(lengthfile, doccount)
-        for lenfilename in lenfilenames:
-            sublengths = LengthReader(StructFile(open(lenfilename, "rb")),
-                                      doccount)
-            lw.add_all(sublengths)
-            os.remove(lenfilename)
-        lw.close()
-        lengths = lw.reader()
-
-#        if len(runs) >= self.procs * 2:
-#            pool = Pool(self.procs)
-#            tempname = lambda: tempfile.mktemp(suffix=".run", dir=self.dir)
-#            while len(runs) >= self.procs * 2:
-#                runs2 = [(runs[i:i+4], tempname())
-#                         for i in xrange(0, len(runs), 4)]
-#                if len(runs) % 4:
-#                    last = runs2.pop()[0]
-#                    runs2[-1][0].extend(last)
-#                runs = pool.map(merge_runs, runs2)
-#            pool.close()
-
-        iterator = imerge([read_run(rname, count) for rname, count in runs])
-        total = sum(count for runname, count in runs)
-        termswriter.add_iter(iterator, lengths.get)
-        for runname, count in runs:
-            os.remove(runname)
-
-        self.cleanup()

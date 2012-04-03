@@ -417,35 +417,6 @@ class SegmentWriter(IndexWriter):
         newsegment.doccount = self.doc_count()
         return newsegment
 
-    def partial_segment(self):
-        self._check_state()
-        self.perdocwriter.close()
-        self.fieldwriter.close()
-        return self.get_segment()
-
-    def _finish(self, segments=None):
-        self.perdocwriter.close()
-        self.fieldwriter.close()
-        self.pool.cleanup()
-
-        if segments:
-            if self._added and self.compound:
-                # Assemble the segment files into a compound file
-                newsegment = segments[-1]
-                newsegment.create_compound_file(self.storage)
-                newsegment.compound = True
-
-            # Write a new TOC with the new segment list (and delete old files)
-            self.codec.commit_toc(self.storage, self.indexname, self.schema,
-                                  segments, self.generation)
-
-        self.is_closed = True
-        self.storage.close()
-
-    def _release_lock(self):
-        if self.writelock:
-            self.writelock.release()
-
     def _merge_segments(self, mergetype, optimize, merge):
         if mergetype:
             pass
@@ -459,6 +430,43 @@ class SegmentWriter(IndexWriter):
         # Call the merge policy function. The policy may choose to merge
         # other segments into this writer's pool
         return mergetype(self, self.segments)
+
+    def _flush_segment(self):
+        lengths = self.perdocwriter.lengths_reader()
+        postings = self.pool.iter_postings()
+        self.fieldwriter.add_postings(self.schema, lengths, postings)
+
+    def _close_segment(self):
+        self.perdocwriter.close()
+        self.fieldwriter.close()
+        self.pool.cleanup()
+
+    def _assemble_segment(self):
+        if self.compound:
+            # Assemble the segment files into a compound file
+            newsegment = self.get_segment()
+            newsegment.create_compound_file(self.storage)
+            newsegment.compound = True
+
+    def _commit_toc(self, segments):
+        # Write a new TOC with the new segment list (and delete old files)
+        self.codec.commit_toc(self.storage, self.indexname, self.schema,
+                              segments, self.generation)
+
+    def _finish(self):
+        if self.writelock:
+            self.writelock.release()
+        self.is_closed = True
+        #self.storage.close()
+
+    def _partial_segment(self):
+        # For use by a parent multiprocessing writer: Closes out the segment
+        # but leaves the pool files intact so the parent can access them
+        self._check_state()
+        self.perdocwriter.close()
+        self.fieldwriter.close()
+        # Don't call self.pool.cleanup()! We want to grab the pool files.
+        return self.get_segment()
 
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
@@ -489,34 +497,33 @@ class SegmentWriter(IndexWriter):
         """
 
         self._check_state()
-        schema = self.schema
         try:
+            # Merge old segments if necessary
             finalsegments = self._merge_segments(mergetype, optimize, merge)
             if self._added:
-                # Update the new segment with the current doc count
-                newsegment = self.get_segment()
-
-                # Output the sorted pool postings to the terms index and
-                # posting files
-                lengths = self.perdocwriter.lengths_reader()
-                self.fieldwriter.add_postings(schema, lengths,
-                                              self.pool.iter_postings())
+                # Finish writing segment
+                self._flush_segment()
+                # Close segment files
+                self._close_segment()
+                # Assemble compound segment if necessary
+                self._assemble_segment()
 
                 # Add the new segment to the list of remaining segments
                 # returned by the merge policy function
-                finalsegments.append(newsegment)
-            # Close all files
-            self._finish(finalsegments)
+                finalsegments.append(self.get_segment())
+            else:
+                # Close segment files
+                self._close_segment()
+            # Write TOC
+            self._commit_toc(finalsegments)
         finally:
-            self._release_lock()
+            # Final cleanup
+            self._finish()
 
     def cancel(self):
         self._check_state()
-        try:
-            self._finish()
-        finally:
-            if self.writelock:
-                self.writelock.release()
+        self._close_segment()
+        self._finish()
 
 
 # Retroactively add spelling files to an existing index
