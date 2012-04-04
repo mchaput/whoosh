@@ -31,8 +31,8 @@ from multiprocessing import Process, Queue, cpu_count
 
 from whoosh.compat import xrange, iteritems, pickle
 from whoosh.codec import base
-from whoosh.filedb.filewriting import SegmentWriter
-from whoosh.support.externalsort import imerge, SortingPool
+from whoosh.filedb.filewriting import PostingPool, SegmentWriter
+from whoosh.support.externalsort import imerge
 
 
 def finish_subsegment(writer, k=64):
@@ -178,6 +178,7 @@ class MpWriter(SegmentWriter):
         # A buffer for documents before they are flushed to a job file
         self.docbuffer = []
 
+        self._grouping = 0
         self._added_sub = False
 
     def _new_task(self):
@@ -212,11 +213,19 @@ class MpWriter(SegmentWriter):
         finally:
             SegmentWriter.cancel(self)
 
+    def start_group(self):
+        self._grouping += 1
+
+    def end_group(self):
+        if not self._grouping:
+            raise Exception("Unbalanced end_group")
+        self._grouping -= 1
+
     def add_document(self, **fields):
         # Add the document to the docbuffer
         self.docbuffer.append((0, fields))
         # If the buffer is full, flush it to the job queue
-        if len(self.docbuffer) >= self.batchsize:
+        if not self._grouping and len(self.docbuffer) >= self.batchsize:
             self._enqueue()
         self._added_sub = True
 
@@ -224,7 +233,7 @@ class MpWriter(SegmentWriter):
         # Note that SortingPool._read_run() automatically deletes the run file
         # when it's finished
 
-        gen = SortingPool._read_run(path)
+        gen = PostingPool._read_run(path)
         # If offset is 0, just return the items unchanged
         if not offset:
             return gen

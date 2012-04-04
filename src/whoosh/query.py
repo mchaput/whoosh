@@ -43,7 +43,6 @@ from whoosh.analysis import Token
 from whoosh.compat import u, text_type, bytes_type
 from whoosh.lang.morph_en import variations
 from whoosh.reading import TermNotFound
-from whoosh.support.bitvector import BitSet, SortedIntSet
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
 
@@ -2164,6 +2163,164 @@ class Otherwise(BinaryQuery):
         if not m.is_active():
             m = self.b.matcher(searcher)
         return m
+
+
+class Nested(WrappingQuery):
+    """A query that allows you to search for "nested" documents, where you can
+    index (possibly multiple levels of) "parent" and "child" documents using
+    the :meth:`~whoosh.writing.IndexWriter.group` and/or
+    :meth:`~whoosh.writing.IndexWriter.start_group` methods of a
+    :class:`whoosh.writing.IndexWriter` to indicate that hierarchically related
+    documents should be kept together:
+    
+        schema = fields.Schema(type=fields.ID, text=fields.TEXT(stored=True))
+    
+        with ix.writer() as w:
+            # Say we're indexing chapters (type=chap) and each chapter has a
+            # number of paragraphs (type=p)
+            with w.group():
+                w.add_document(type="chap", text="Chapter 1")
+                w.add_document(type="p", text="Able baker")
+                w.add_document(type="p", text="Bright morning")
+            with w.group():
+                w.add_document(type="chap", text="Chapter 2")
+                w.add_document(type="p", text="Car trip")
+                w.add_document(type="p", text="Dog eared")
+                w.add_document(type="p", text="Every day")
+            with w.group():
+                w.add_document(type="chap", text="Chapter 3")
+                w.add_document(type="p", text="Fine day")
+                
+    
+    The ``Nested`` query wraps two sub-queries: the "parent query" matches a
+    class of "parent documents". The "sub query" matches nested documents you
+    want to find. For each "sub document" the "sub query" finds, this query
+    acts as if it found the corresponding "parent document".
+    
+    >>> with ix.searcher() as s:
+    ...   r = s.search(query.Term("text", "day"))
+    ...   for hit in r:
+    ...     print hit["text"]
+    ...
+    Chapter 2
+    Chapter 3
+    """
+
+    def __init__(self, parentq, subq, per_parent_limit=None, score_fn=sum):
+        """
+        :param parentq: a query matching the documents you want to use as the
+            "parent" documents. Where the sub-query matches, the corresponding
+            document in these results will be returned as the match.
+        :param subq: a query matching the information you want to find.
+        :param per_parent_limit: a maximum number of "sub documents" to search
+            per parent. The default is None, meaning no limit.
+        :param score_fn: a function to use to combine the scores of matching
+            sub-documents to calculate the score returned for the parent
+            document. The default is ``sum``, that is, add up the scores of the
+            sub-documents.
+        """
+
+        self.parentq = parentq
+        self.child = subq
+        self.per_parent_limit = per_parent_limit
+        self.score_fn = score_fn
+
+    def normalize(self):
+        p = self.parentq.normalize()
+        q = self.child.normalize()
+
+        if p is NullQuery or q is NullQuery:
+            return NullQuery
+
+        return self.__class__(p, q)
+
+    def requires(self):
+        return self.child.requires()
+
+    def matcher(self, searcher, weighting=None):
+        from whoosh.support.bitvector import BitSet, SortedIntSet
+
+        pm = self.parentq.matcher(searcher)
+        if not pm.is_active():
+            return matching.NullMatcher
+
+        bits = BitSet(searcher.doc_count_all(), pm.all_ids())
+        #bits = SortedIntSet(pm.all_ids())
+        m = self.child.matcher(searcher, weighting=weighting)
+        return self.NestedMatcher(bits, m, self.per_parent_limit,
+                                  searcher.doc_count_all())
+
+    class NestedMatcher(matching.Matcher):
+        def __init__(self, comb, child, per_parent_limit, maxdoc):
+            self.comb = comb
+            self.child = child
+            self.per_parent_limit = per_parent_limit
+            self.maxdoc = maxdoc
+
+            self._nextdoc = None
+            if self.child.is_active():
+                self._gather()
+
+        def is_active(self):
+            return self._nextdoc is not None
+
+        def supports_block_quality(self):
+            return False
+
+        def _gather(self):
+            # This is where the magic happens ;)
+            child = self.child
+            pplimit = self.per_parent_limit
+
+            # The next document returned by this matcher is the parent of the
+            # child's current document. We don't have to worry about whether
+            # the parent is deleted, because the query that gave us the parents
+            # wouldn't return deleted documents.
+            self._nextdoc = self.comb.before(child.id() + 1)
+            # The next parent after the child matcher's current document
+            nextparent = self.comb.after(child.id()) or self.maxdoc
+
+            # Sum the scores of all matching documents under the parent
+            count = 1
+            score = 0
+            while child.is_active() and child.id() < nextparent:
+                if pplimit and count > pplimit:
+                    child.skip_to(nextparent)
+                    break
+
+                score += child.score()
+                child.next()
+                count += 1
+
+            self._nextscore = score
+
+        def id(self):
+            return self._nextdoc
+
+        def score(self):
+            return self._nextscore
+
+        def reset(self):
+            self.child.reset()
+            self._gather()
+
+        def next(self):
+            if self.child.is_active():
+                self._gather()
+            else:
+                if self._nextdoc is None:
+                    from whoosh.matching import ReadTooFar
+
+                    raise ReadTooFar
+                else:
+                    self._nextdoc = None
+
+        def skip_to(self, id):
+            self.child.skip_to(id)
+            self._gather()
+
+        def value(self):
+            raise NotImplementedError(self.__class__)
 
 
 def BooleanQuery(required, should, prohibited):

@@ -28,6 +28,7 @@
 from __future__ import with_statement
 import threading
 import time
+from contextlib import contextmanager
 
 from whoosh.store import LockError
 from whoosh.util import abstractmethod, synchronized
@@ -39,21 +40,30 @@ class IndexingError(Exception):
     pass
 
 
+# Document grouping context manager
+
+@contextmanager
+def groupmanager(writer):
+    writer.start_group()
+    yield
+    writer.end_group()
+
+
 # Base class
 
 class IndexWriter(object):
     """High-level object for writing to an index.
-    
+
     To get a writer for a particular index, call
     :meth:`~whoosh.index.Index.writer` on the Index object.
-    
+
     >>> writer = myindex.writer()
-    
+
     You can use this object as a context manager. If an exception is thrown
     from within the context it calls :meth:`~IndexWriter.cancel` to clean up
     temporary files, otherwise it calls :meth:`~IndexWriter.commit` when the
     context exits.
-    
+
     >>> with myindex.writer() as w:
     ...     w.add_document(title="First document", content="Hello there.")
     ...     w.add_document(title="Second document", content="This is easy!")
@@ -68,9 +78,65 @@ class IndexWriter(object):
         else:
             self.commit()
 
+    def group(self):
+        """Returns a context manager that calls
+        :meth:`~IndexWriter.start_group` and :meth:`~IndexWriter.end_group` for
+        you, allowing you to use a ``with`` statement to group hierarchical
+        documents::
+        
+            with myindex.writer() as w:
+                with w.group():
+                    w.add_document(kind="class", name="Accumulator")
+                    w.add_document(kind="method", name="add")
+                    w.add_document(kind="method", name="get_result")
+                    w.add_document(kind="method", name="close")
+                
+                with w.group():
+                    w.add_document(kind="class", name="Calculator")
+                    w.add_document(kind="method", name="add")
+                    w.add_document(kind="method", name="multiply")
+                    w.add_document(kind="method", name="get_result")
+                    w.add_document(kind="method", name="close")
+        """
+
+        return groupmanager(self)
+
+    def start_group(self):
+        """Start indexing a group of hierarchical documents. The backend should
+        ensure that these documents are all added to the same segment::
+        
+            with myindex.writer() as w:
+                w.start_group()
+                w.add_document(kind="class", name="Accumulator")
+                w.add_document(kind="method", name="add")
+                w.add_document(kind="method", name="get_result")
+                w.add_document(kind="method", name="close")
+                w.end_group()
+                
+                w.start_group()
+                w.add_document(kind="class", name="Calculator")
+                w.add_document(kind="method", name="add")
+                w.add_document(kind="method", name="multiply")
+                w.add_document(kind="method", name="get_result")
+                w.add_document(kind="method", name="close")
+                w.end_group()
+        
+        A more convenient way to group documents is to use the
+        :meth:`~IndexWriter.group` method and the ``with`` statement.
+        """
+
+        pass
+
+    def end_group(self):
+        """Finish indexing a group of hierarchical documents. See
+        :meth:`~IndexWriter.start_group`.
+        """
+
+        pass
+
     def add_field(self, fieldname, fieldtype, **kwargs):
         """Adds a field to the index's schema.
-        
+
         :param fieldname: the name of the field to add.
         :param fieldtype: an instantiated :class:`whoosh.fields.FieldType`
             object.
@@ -103,7 +169,7 @@ class IndexWriter(object):
         """Deletes any documents containing "term" in the "fieldname" field.
         This is useful when you have an indexed field containing a unique ID
         (such as "pathname") for each document.
-        
+
         :returns: the number of documents deleted.
         """
 
@@ -114,7 +180,7 @@ class IndexWriter(object):
 
     def delete_by_query(self, q, searcher=None):
         """Deletes any documents matching a query object.
-        
+
         :returns: the number of documents deleted.
         """
 
@@ -144,62 +210,62 @@ class IndexWriter(object):
     @abstractmethod
     def add_document(self, **fields):
         """The keyword arguments map field names to the values to index/store::
-        
+
             w = myindex.writer()
             w.add_document(path=u"/a", title=u"First doc", text=u"Hello")
             w.commit()
-        
+
         Depending on the field type, some fields may take objects other than
         unicode strings. For example, NUMERIC fields take numbers, and DATETIME
         fields take ``datetime.datetime`` objects::
-        
+
             from datetime import datetime, timedelta
             from whoosh import index
             from whoosh.fields import *
-            
+
             schema = Schema(date=DATETIME, size=NUMERIC(float), content=TEXT)
             myindex = index.create_in("indexdir", schema)
-            
+
             w = myindex.writer()
             w.add_document(date=datetime.now(), size=5.5, content=u"Hello")
             w.commit()
-        
+
         Instead of a single object (i.e., unicode string, number, or datetime),
         you can supply a list or tuple of objects. For unicode strings, this
         bypasses the field's analyzer. For numbers and dates, this lets you add
         multiple values for the given field::
-        
+
             date1 = datetime.now()
             date2 = datetime(2005, 12, 25)
             date3 = datetime(1999, 1, 1)
             w.add_document(date=[date1, date2, date3], size=[9.5, 10],
                            content=[u"alfa", u"bravo", u"charlie"])
-        
+
         For fields that are both indexed and stored, you can specify an
         alternate value to store using a keyword argument in the form
         "_stored_<fieldname>". For example, if you have a field named "title"
         and you want to index the text "a b c" but store the text "e f g", use
         keyword arguments like this::
-        
+
             writer.add_document(title=u"a b c", _stored_title=u"e f g")
-        
+
         You can boost the weight of all terms in a certain field by specifying
         a ``_<fieldname>_boost`` keyword argument. For example, if you have a
         field named "content", you can double the weight of this document for
         searches in the "content" field like this::
-        
+
             writer.add_document(content="a b c", _title_boost=2.0)
-            
+
         You can boost every field at once using the ``_boost`` keyword. For
         example, to boost fields "a" and "b" by 2.0, and field "c" by 3.0::
-        
+
             writer.add_document(a="alfa", b="bravo", c="charlie",
                                 _boost=2.0, _c_boost=3.0)
-        
+
         Note that some scoring algroithms, including Whoosh's default BM25F,
         do not work with term weights less than 1, so you should generally not
         use a boost factor less than 1.
-        
+
         See also :meth:`Writer.update_document`.
         """
 
@@ -226,52 +292,52 @@ class IndexWriter(object):
 
     def update_document(self, **fields):
         """The keyword arguments map field names to the values to index/store.
-        
+
         This method adds a new document to the index, and automatically deletes
         any documents with the same values in any fields marked "unique" in the
         schema::
-        
+
             schema = fields.Schema(path=fields.ID(unique=True, stored=True),
                                    content=fields.TEXT)
             myindex = index.create_in("index", schema)
-        
+
             w = myindex.writer()
             w.add_document(path=u"/", content=u"Mary had a lamb")
             w.commit()
-            
+
             w = myindex.writer()
             w.update_document(path=u"/", content=u"Mary had a little lamb")
             w.commit()
-            
+
             assert myindex.doc_count() == 1
-        
+
         It is safe to use ``update_document`` in place of ``add_document``; if
         there is no existing document to replace, it simply does an add.
-        
+
         You cannot currently pass a list or tuple of values to a "unique"
         field.
-        
+
         Because this method has to search for documents with the same unique
         fields and delete them before adding the new document, it is slower
         than using ``add_document``.
-        
+
         * Marking more fields "unique" in the schema will make each
           ``update_document`` call slightly slower.
-        
+
         * When you are updating multiple documents, it is faster to batch
           delete all changed documents and then use ``add_document`` to add
           the replacements instead of using ``update_document``.
-        
+
         Note that this method will only replace a *committed* document;
         currently it cannot replace documents you've added to the IndexWriter
         but haven't yet committed. For example, if you do this:
-        
+
         >>> writer.update_document(unique_id=u"1", content=u"Replace me")
         >>> writer.update_document(unique_id=u"1", content=u"Replacement")
-        
+
         ...this will add two documents with the same value of ``unique_id``,
         instead of the second document replacing the first.
-        
+
         See :meth:`Writer.add_document` for information on
         ``_stored_<fieldname>``, ``_<fieldname>_boost``, and ``_boost`` keyword
         arguments.
@@ -305,24 +371,24 @@ class AsyncWriter(threading.Thread, IndexWriter):
     (i.e. the ``filedb`` writer). This object will attempt once to obtain the
     underlying writer, and if it's successful, will simply pass method calls on
     to it.
-    
+
     If this object *can't* obtain a writer immediately, it will *buffer*
     delete, add, and update method calls in memory until you call ``commit()``.
     At that point, this object will start running in a separate thread, trying
     to obtain the writer over and over, and once it obtains it, "replay" all
     the buffered method calls on it.
-    
+
     In a typical scenario where you're adding a single or a few documents to
     the index as the result of a Web transaction, this lets you just create the
     writer, add, and commit, without having to worry about index locks,
     retries, etc.
-    
+
     For example, to get an aynchronous writer, instead of this:
-    
+
     >>> writer = myindex.writer()
-    
+
     Do this:
-    
+
     >>> from whoosh.writing import AsyncWriter
     >>> writer = AsyncWriter(myindex)
     """
@@ -406,50 +472,50 @@ class BufferedWriter(IndexWriter):
     """Convenience class that acts like a writer but buffers added documents to
     a :class:`~whoosh.ramindex.RamIndex` before dumping the buffered documents
     as a batch into the actual index.
-    
+
     In scenarios where you are continuously adding single documents very
     rapidly (for example a web application where lots of users are adding
     content simultaneously), using a BufferedWriter is *much* faster than
     opening and committing a writer for each document you add.
-    
+
     (This class may also be useful for batches of ``update_document`` calls. In
     a normal writer, ``update_document`` calls cannot update documents you've
     added *in that writer*. With ``BufferedWriter``, this will work.)
-    
+
     If you're adding a batches of documents at a time, you can just use a
     regular writer -- you're already committing a "batch" of documents, so you
     don't need this class.
-    
+
     To use this class, create it from your index and *keep it open*, sharing
     it between threads.
-    
+
     >>> from whoosh.writing import BufferedWriter
     >>> writer = BufferedWriter(myindex, period=120, limit=100)
-    
+
     You can control how often the ``BufferedWriter`` flushes the in-memory
     index to disk using the ``period`` and ``limit`` arguments. ``period`` is
     the maximum number of seconds between commits. ``limit`` is the maximum
     number of additions to buffer between commits.
-    
+
     You can read/search the combination of the on-disk index and the buffered
     documents in memory by calling ``BufferedWriter.reader()`` or
     ``BufferedWriter.searcher()``. This allows quasi-real-time search, where
     documents are available for searching as soon as they are buffered in
     memory, before they are committed to disk.
-    
+
     >>> searcher = writer.searcher()
-    
+
     .. tip::
         By using a searcher from the shared writer, multiple *threads* can
         search the buffered documents. Of course, other *processes* will only
         see the documents that have been written to disk. If you want indexed
         documents to become available to other processes as soon as possible,
         you have to use a traditional writer instead of a ``BufferedWriter``.
-    
+
     Calling ``commit()`` on the ``BufferedWriter`` manually commits any batched
     up changes. You can continue to make changes after calling ``commit()``,
     and you can call ``commit()`` multiple times.
-    
+
     .. note::
         This object keeps an underlying writer open and stores documents in
         memory, so you must explicitly call the :meth:`~BufferedWriter.close()`
