@@ -35,8 +35,11 @@ if sys.version_info[0] < 3:
     xrange = xrange
     zip_ = zip
 
-    def memoryview_(source, offset, length):
-        return buffer(source, offset, length)
+    def memoryview_(source, offset=None, length=None):
+        if offset:
+            return buffer(source, offset, length)
+        else:
+            return buffer(source)
 
 else:
     PY3 = True
@@ -79,6 +82,10 @@ else:
     xrange = range
     zip_ = lambda * args: list(zip(*args))
 
-    def memoryview_(source, offset, length):
-        return memoryview(source)[offset:offset + length]
+    def memoryview_(source, offset=None, length=None):
+        mv = memoryview(source)
+        if offset:
+            return mv[offset:offset + length]
+        else:
+            return mv
 
