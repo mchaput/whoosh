@@ -43,6 +43,7 @@ from whoosh.analysis import Token
 from whoosh.compat import u, text_type, bytes_type
 from whoosh.lang.morph_en import variations
 from whoosh.reading import TermNotFound
+from whoosh.support.bitvector import BitSet, SortedIntSet
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
 
@@ -504,12 +505,13 @@ class Query(object):
 
         return self.estimate_size(ixreader)
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
 
         :rtype: :class:`whoosh.matching.Matcher`
         """
+
         raise NotImplementedError
 
     def docs(self, searcher):
@@ -590,8 +592,8 @@ class WrappingQuery(Query):
     def estimate_min_size(self, ixreader):
         return self.child.estimate_min_size(ixreader)
 
-    def matcher(self, searcher):
-        return self.child.matcher(searcher)
+    def matcher(self, searcher, weighting=None):
+        return self.child.matcher(searcher, weighting=weighting)
 
 
 class CompoundQuery(Query):
@@ -752,7 +754,8 @@ class CompoundQuery(Query):
         else:
             return NullQuery
 
-    def _matcher(self, matchercls, q_weight_fn, searcher, **kwargs):
+    def _matcher(self, matchercls, q_weight_fn, searcher, weighting=None,
+                 **kwargs):
         # q_weight_fn is a function which is called on each query and returns a
         # "weight" value which is used to build a huffman-like matcher tree. If
         # q_weight_fn is None, an order-preserving binary tree is used instead.
@@ -764,14 +767,14 @@ class CompoundQuery(Query):
             return matching.NullMatcher()
 
         # Create a matcher from the list of subqueries
-        if len(subs) == 1:
-            m = subs[0].matcher(searcher)
+        subms = [q.matcher(searcher, weighting=weighting) for q in subs]
+        if len(subms) == 1:
+            m = subms[0]
         elif q_weight_fn is None:
-            subms = [q.matcher(searcher) for q in subs]
             m = make_binary_tree(matchercls, subms)
         else:
-            subms = [(q_weight_fn(q), q.matcher(searcher)) for q in subs]
-            m = make_weighted_tree(matchercls, subms)
+            w_subms = [(q_weight_fn(q), m) for q, m in zip(subs, subms)]
+            m = make_weighted_tree(matchercls, w_subms)
 
         # If there were queries inside Not(), make a matcher for them and
         # wrap the matchers in an AndNotMatcher
@@ -839,7 +842,7 @@ class MultiTerm(Query):
                 termset.add(term)
         return termset
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         constantscore = self.constantscore
         reader = searcher.reader()
@@ -884,7 +887,7 @@ class MultiTerm(Query):
             # The default case: Or the terms together
             q = Or(qs)
 
-        return q.matcher(searcher)
+        return q.matcher(searcher, weighting=weighting)
 
 
 # Concrete classes
@@ -944,7 +947,7 @@ class Term(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_frequency(self.fieldname, self.text)
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         text = self.text
         if self.fieldname not in searcher.schema:
             return matching.NullMatcher()
@@ -955,7 +958,7 @@ class Term(Query):
             text = field.to_text(text)
 
         if (self.fieldname, text) in searcher.reader():
-            m = searcher.postings(self.fieldname, text)
+            m = searcher.postings(self.fieldname, text, weighting=weighting)
             if self.boost != 1.0:
                 m = matching.WrappingMatcher(m, boost=self.boost)
             return m
@@ -986,10 +989,11 @@ class And(CompoundQuery):
     def estimate_size(self, ixreader):
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         r = searcher.reader()
         return self._matcher(matching.IntersectionMatcher,
-                             lambda q: 0 - q.estimate_size(r), searcher)
+                             lambda q: 0 - q.estimate_size(r), searcher,
+                             weighting=weighting)
 
 
 class Or(CompoundQuery):
@@ -1033,10 +1037,10 @@ class Or(CompoundQuery):
         else:
             return set()
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         r = searcher.reader()
         return self._matcher(self.matcher_class, lambda q: q.estimate_size(r),
-                             searcher)
+                             searcher, weighting=weighting)
 
 
 class DisjunctionMax(CompoundQuery):
@@ -1070,11 +1074,11 @@ class DisjunctionMax(CompoundQuery):
         else:
             return set()
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         r = searcher.reader()
         return self._matcher(matching.DisjunctionMaxMatcher,
                              lambda q: q.estimate_size(r), searcher,
-                             tiebreak=self.tiebreak)
+                             weighting=weighting, tiebreak=self.tiebreak)
 
 
 class Not(Query):
@@ -1143,10 +1147,11 @@ class Not(Query):
     def estimate_min_size(self, ixreader):
         return 1 if ixreader.doc_count() else 0
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         # Usually only called if Not is the root query. Otherwise, queries such
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
+        # Don't bother passing the weighting down, we don't use score anyway
         child = self.query.matcher(searcher)
         return matching.InverseMatcher(child, reader.doc_count_all(),
                                        missing=reader.is_deleted)
@@ -1660,9 +1665,9 @@ class NumericRange(RangeMixin, Query):
             q = ConstantScoreQuery(q, self.boost)
         return q
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         q = self._compile_query(searcher.reader())
-        return q.matcher(searcher)
+        return q.matcher(searcher, weighting=weighting)
 
 
 class DateRange(NumericRange):
@@ -1783,7 +1788,7 @@ class Phrase(Query):
     def estimate_min_size(self, ixreader):
         return self._and_query().estimate_min_size(ixreader)
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         reader = searcher.reader()
 
@@ -1801,7 +1806,7 @@ class Phrase(Query):
         # phrase and return its matcher
         from whoosh.spans import SpanNear
         q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
-        m = q.matcher(searcher)
+        m = q.matcher(searcher, weighting=weighting)
         if self.boost != 1.0:
             m = matching.WrappingMatcher(m, boost=self.boost)
         return m
@@ -1813,10 +1818,11 @@ class Ordered(And):
 
     JOINT = " BEFORE "
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         from whoosh.spans import SpanBefore
 
-        return self._matcher(SpanBefore._Matcher, None, searcher)
+        return self._matcher(SpanBefore._Matcher, None, searcher,
+                             weighting=weighting)
 
 
 class Every(Query):
@@ -1890,19 +1896,20 @@ class Every(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         reader = searcher.reader()
 
         if fieldname in (None, "", "*"):
             # This takes into account deletions
-            doclist = list(reader.all_doc_ids())
+            doclist = array("I", reader.all_doc_ids())
         elif (reader.supports_caches()
               and reader.fieldcache_available(fieldname)):
             # If the reader has a field cache, use it to quickly get the list
             # of documents that have a value for this field
             fc = reader.fieldcache(self.fieldname)
-            doclist = [docnum for docnum, ord in fc.ords() if ord != 0]
+            doclist = array("I", (docnum for docnum, ordinal in fc.ords()
+                                  if ordinal != 0))
         else:
             # This is a hacky hack, but just create an in-memory set of all the
             # document numbers of every term in the field. This is SLOOOW for
@@ -1957,8 +1964,9 @@ class _NullQuery(Query):
     def docs(self, searcher):
         return []
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         return matching.NullMatcher()
+
 
 NullQuery = _NullQuery()
 
@@ -1971,7 +1979,7 @@ class ConstantScoreQuery(WrappingQuery):
     """
 
     def __init__(self, child, score=1.0):
-        super(ConstantScoreQuery, self).__init__(child)
+        WrappingQuery.__init__(self, child)
         self.score = score
 
     def __eq__(self, other):
@@ -1984,7 +1992,7 @@ class ConstantScoreQuery(WrappingQuery):
     def _rewrap(self, child):
         return self.__class__(child, self.score)
 
-    def matcher(self, searcher):
+    def matcher(self, searcher, weighting=None):
         m = self.child.matcher(searcher)
         if isinstance(m, matching.NullMatcherClass):
             return m
@@ -1992,6 +2000,20 @@ class ConstantScoreQuery(WrappingQuery):
             ids = array("I", m.all_ids())
             return matching.ListMatcher(ids, all_weights=self.score,
                                         term=m.term())
+
+
+class WeightingQuery(WrappingQuery):
+    """Wraps a query and uses a specific :class:`whoosh.sorting.WeightingModel`
+    to score documents that match the wrapped query.
+    """
+
+    def __init__(self, child, weighting):
+        WrappingQuery.__init__(self, child)
+        self.weighting = weighting
+
+    def matcher(self, searcher, weighting=None):
+        # Replace the passed-in weighting with the one configured on this query
+        return self.child.matcher(searcher, self.weighting)
 
 
 class BinaryQuery(CompoundQuery):
@@ -2039,9 +2061,9 @@ class BinaryQuery(CompoundQuery):
 
         return self.__class__(a, b)
 
-    def matcher(self, searcher):
-        return self.matcherclass(self.a.matcher(searcher),
-                                 self.b.matcher(searcher))
+    def matcher(self, searcher, weighting=None):
+        return self.matcherclass(self.a.matcher(searcher, weighting=weighting),
+                                 self.b.matcher(searcher, weighting=weighting))
 
 
 class Require(BinaryQuery):

@@ -251,8 +251,8 @@ class SpanQuery(Query):
     wrapped query, and ``matcher()`` to return a span-aware matcher object.
     """
 
-    def _subm(self, s):
-        return self.q.matcher(s)
+    def _subm(self, s, weighting=None):
+        return self.q.matcher(s, weighting=weighting)
 
     def __getattr__(self, name):
         return super(Query, self).__getattr(self.q, name)
@@ -297,9 +297,9 @@ class SpanFirst(SpanQuery):
     def apply(self, fn):
         return self.__class__(fn(self.q), limit=self.limit)
 
-    def matcher(self, searcher):
-        return SpanFirst.SpanFirstMatcher(self._subm(searcher),
-                                          limit=self.limit)
+    def matcher(self, searcher, weighting=None):
+        m = self._subm(searcher, weighting=weighting)
+        return SpanFirst.SpanFirstMatcher(m, limit=self.limit)
 
     class SpanFirstMatcher(SpanWrappingMatcher):
         def __init__(self, child, limit=0):
@@ -388,9 +388,9 @@ class SpanNear(SpanQuery):
         return self.__class__(fn(self.a), fn(self.b), slop=self.slop,
                               ordered=self.ordered, mindist=self.mindist)
 
-    def matcher(self, searcher):
-        ma = self.a.matcher(searcher)
-        mb = self.b.matcher(searcher)
+    def matcher(self, searcher, weighting=None):
+        ma = self.a.matcher(searcher, weighting=weighting)
+        mb = self.b.matcher(searcher, weighting=weighting)
         return SpanNear.SpanNearMatcher(ma, mb, slop=self.slop,
                                         ordered=self.ordered,
                                         mindist=self.mindist)
@@ -483,8 +483,9 @@ class SpanOr(SpanQuery):
     def apply(self, fn):
         return self.__class__([fn(sq) for sq in self.subqs])
 
-    def matcher(self, searcher):
-        matchers = [q.matcher(searcher) for q in self.subqs]
+    def matcher(self, searcher, weighting=None):
+        matchers = [q.matcher(searcher, weighting=weighting)
+                    for q in self.subqs]
         return make_binary_tree(SpanOr.SpanOrMatcher, matchers)
 
     class SpanOrMatcher(SpanBiMatcher):
@@ -516,9 +517,9 @@ class SpanBiQuery(SpanQuery):
     def apply(self, fn):
         return self.__class__(fn(self.a), fn(self.b))
 
-    def matcher(self, searcher):
-        ma = self.a.matcher(searcher)
-        mb = self.b.matcher(searcher)
+    def matcher(self, searcher, weighting=None):
+        ma = self.a.matcher(searcher, weighting=weighting)
+        mb = self.b.matcher(searcher, weighting=weighting)
         return self._Matcher(ma, mb)
 
 
