@@ -4,275 +4,449 @@ An implementation of an object that acts like a collection of on/off bits.
 
 import operator
 from array import array
+from bisect import bisect_left, insort
 
 from whoosh.compat import xrange
 
-#: Table of the number of '1' bits in each byte (0-255)
-BYTE_COUNTS = array('B', [
-    0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
-    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
-    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
-    1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
-    2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
-    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
-    3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7,
-    4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7, 6, 7, 7, 8])
+
+# Number of '1' bits in each byte (0-255)
+_1SPERBYTE = array('B', [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2,
+2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4,
+3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 1, 2, 2, 3, 2, 3,
+3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6,
+2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5,
+5, 6, 5, 6, 6, 7, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4,
+3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5,
+5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 2, 3, 3, 4, 3, 4, 4, 5,
+3, 4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 3, 4,
+4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7, 4, 5, 5, 6, 5, 6, 6, 7, 5, 6, 6, 7,
+6, 7, 7, 8])
 
 
-class BitVector(object):
+def _inverted_list(a, size):
+        pos = 0
+        value = a[pos]
+        for x in xrange(size):
+            if pos < len(a) and value == x:
+                pos += 1
+                value = a[pos]
+            else:
+                yield x
+
+
+class DocIdSet(object):
+    """Base class for a set of positive integers, implementing a subset of the
+    built-in ``set`` type's interface with extra docid-related methods.
+
+    This is a superclass for alternative set implementations to the built-in
+    ``set`` which are more memory-efficient and specialized toward storing
+    sorted lists of positive integers, though they will inevitably be slower
+    than ``set`` for most operations since they're pure Python.
     """
-    Implements a memory-efficient array of bits.
-    
-    >>> bv = BitVector(10)
-    >>> bv
-    <BitVector 0000000000>
-    >>> bv[5] = True
-    >>> bv
-    <BitVector 0000010000>
-    
-    You can initialize the BitVector using an iterable of integers representing
-    bit positions to turn on.
-    
-    >>> bv2 = BitVector(10, [2, 4, 7])
-    >>> bv2
-    <BitVector 00101001000>
-    >>> bv[2]
-    True
-    
-    BitVector supports bit-wise logic operations & (and), | (or), and ^ (xor)
-    between itself and another BitVector of equal size, or itself and a
-    collection of integers (usually a set() or frozenset()).
-    
-    >>> bv | bv2
-    <BitVector 00101101000>
-    
-    Note that ``BitVector.__len__()`` returns the number of "on" bits, not
-    the size of the bit array. This is to make BitVector interchangeable with
-    a set()/frozenset() of integers. To get the size, use BitVector.size.
+
+    def __eq__(self, other):
+        from itertools import izip
+
+        for a, b in izip(self, other):
+            if a != b:
+                return False
+        return True
+
+    def __neq__(self, other):
+        return not self.__eq__(other)
+
+    def __len__(self):
+        raise NotImplementedError
+
+    def __iter__(self):
+        raise NotImplementedError
+
+    def __contains__(self):
+        raise NotImplementedError
+
+    def copy(self):
+        raise NotImplementedError
+
+    def add(self):
+        raise NotImplementedError
+
+    def discard(self):
+        raise NotImplementedError
+
+    def update(self):
+        raise NotImplementedError
+
+    def union(self):
+        raise NotImplementedError
+
+    def intersection(self):
+        raise NotImplementedError
+
+    def difference(self):
+        raise NotImplementedError
+
+    def intersection_update(self):
+        raise NotImplementedError
+
+    def difference_update(self):
+        raise NotImplementedError
+
+    def invert(self, size):
+        """Returns a new instance with numbers in the range ``[0 - size)``
+        except numbers that are in this set.
+        """
+
+        raise NotImplementedError
+
+    def invert_update(self, size):
+        """Updates the set in-place to contain numbers in the range
+        ``[0 - size)`` except numbers that are in this set.
+        """
+
+        raise NotImplementedError
+
+    def before(self):
+        """Returns the previous integer in the set before ``i``, or None.
+        """
+        raise NotImplementedError
+
+    def after(self):
+        """Returns the next integer in the set after ``i``, or None.
+        """
+        raise NotImplementedError
+
+    def cursor(self):
+        """Returns a :class:`DocIdCursor` for this set.
+        """
+
+        raise NotImplementedError
+
+
+class BitSet(DocIdSet):
+    """A DocIdSet backed by an array of bits. This can also be useful as a bit
+    array (e.g. for a Bloom filter). It is much more memory efficient than a
+    large built-in set of integers, but wastes memory for sparse sets.
     """
 
     def __init__(self, size, source=None, bits=None):
-        self.size = size
+        """
+        :param maxsize: the maximum size of the bit array.
+        :param source: an iterable of positive integers to add to this set.
+        :param bits: an array of unsigned bytes ("B") to use as the underlying
+            bit array. This is used by some of the object's methods.
+        """
 
         if bits:
             self.bits = bits
         else:
-            self.bits = array("B", ([0x00] * ((size >> 3) + 1)))
+            self.bits = array("B", (0 for _ in xrange(size // 8 + 1)))
 
         if source:
-            set = self.set
+            add = self.add
             for num in source:
-                set(num)
+                add(num)
 
-        self.bcount = None
+    def size(self):
+        return len(self.bits)
 
-    def __eq__(self, other):
-        if isinstance(other, BitVector):
-            return self.bits == other.bits
-        return False
+    def copy(self):
+        return self.__class__(bits=array("B", self.bits))
+
+    def _trim(self):
+        bits = self.bits
+        last = len(self.bits) - 1
+        while last >= 0 and not bits[last]:
+            last -= 1
+        del self.bits[last + 1:]
+
+    def _resize(self, tosize):
+        curlength = len(self.bits)
+        newlength = tosize // 8 + 1
+        if newlength > curlength:
+            self.bits.extend((0,) * (newlength - curlength))
+        elif newlength < curlength:
+            del self.bits[newlength + 1:]
+
+    def _zero_extra_bits(self, size):
+        bits = self.bits
+        spill = size - (len(bits) - 1) * 8
+        if spill:
+            mask = 2 ** spill - 1
+            bits[-1] = bits[-1] & mask
+
+    def _logic(self, obj, op, other):
+        from whoosh.util import izip_longest
+
+        objbits = obj.bits
+        for i, (byte1, byte2) in enumerate(izip_longest(objbits, other.bits,
+                                                        fillvalue=0)):
+            value = op(byte1, byte2) & 0xFF
+            if i >= len(objbits):
+                objbits.append(value)
+            else:
+                objbits[i] = value
+
+        obj._trim()
+        return obj
 
     def __repr__(self):
-        return "<BitVector %s/%s>" % (len(self), self.size)
+        return "%s(%r)" % (self.__class__.__name__, list(self))
 
     def __len__(self):
         # This returns the count of "on" bits instead of the size to
-        # make BitVector exchangeable with a set() object.
-        return self.count()
-
-    def __contains__(self, index):
-        byte = self.bits[index >> 3]
-        if not byte:
-            return False
-        return byte & (1 << (index & 7)) != 0
+        # make BitSet exchangeable with a set() object.
+        return sum(_1SPERBYTE[b] for b in self.bits)
 
     def __iter__(self):
-        get = self.__getitem__
-        for i in xrange(0, self.size):
-            if get(i):
+        contains = self.__contains__
+        for i in xrange(0, len(self.bits) * 8):
+            if contains(i):
                 yield i
 
-    def __str__(self):
-        get = self.__getitem__
-        return "".join("1" if get(i) else "0"
-                       for i in xrange(0, self.size))
-
     def __nonzero__(self):
-        return self.count() > 0
+        return any(n for n in self.bits)
 
     __bool__ = __nonzero__
 
-    def __getitem__(self, index):
-        return self.bits[index >> 3] & (1 << (index & 7)) != 0
+    def __contains__(self, i):
+        bucket = i >> 3
+        return self.bits[bucket] & (1 << (i & 7))
 
-    def __setitem__(self, index, value):
-        if value:
-            self.set(index)
-        else:
-            self.clear(index)
+    def add(self, i):
+        bucket = i >> 3
+        self.bits[bucket] |= 1 << (i & 7)
 
-    def _logic(self, op, bitv):
-        if self.size != bitv.size:
-            raise ValueError("Can't combine bitvectors of different sizes")
-        res = BitVector(size=self.size)
-        lpb = list(map(op, self.bits, bitv.bits))
-        res.bits = array('B', lpb)
-        return res
-
-    def union(self, other):
-        return self.__or__(other)
-
-    def intersection(self, other):
-        return self.__and__(other)
-
-    def __and__(self, other):
-        if not isinstance(other, BitVector):
-            other = BitVector(self.size, source=other)
-        return self._logic(operator.__and__, other)
-
-    def __or__(self, other):
-        if not isinstance(other, BitVector):
-            other = BitVector(self.size, source=other)
-        return self._logic(operator.__or__, other)
-
-    def __ror__(self, other):
-        return self.__or__(other)
-
-    def __rand__(self, other):
-        return self.__and__(other)
-
-    def __xor__(self, other):
-        if not isinstance(other, BitVector):
-            other = BitVector(self.size, source=other)
-        return self._logic(operator.__xor__, other)
-
-    def __invert__(self):
-        return BitVector(self.size, source=(x for x in xrange(self.size)
-                                            if x not in self))
-
-    def count(self):
-        """Returns the number of "on" bits in the bit array."""
-
-        if self.bcount is None:
-            self.bcount = sum(BYTE_COUNTS[b & 0xFF] for b in self.bits)
-        return self.bcount
-
-    def set(self, index):
-        """Turns the bit at the given position on."""
-
-        if index >= self.size:
-            raise IndexError("Position %s greater than the size of the vector"
-                             % repr(index))
-        self.bits[index >> 3] |= 1 << (index & 7)
-        self.bcount = None
-
-    def clear(self, index):
-        """Turns the bit at the given position off."""
-
-        self.bits[index >> 3] &= ~(1 << (index & 7))
-        self.bcount = None
+    def discard(self, i):
+        bucket = i >> 3
+        self.bits[bucket] &= ~(1 << (i & 7))
 
     def update(self, iterable):
-        """Takes an iterable of integers representing positions, and turns
-        on the bits at those positions.
-        """
-
-        set = self.set
-        for index in iterable:
-            set(index)
-
-    def copy(self):
-        """Returns a copy of this BitArray."""
-
-        return BitVector(self.size, bits=self.bits)
-
-
-class BitSet(object):
-    """A set-like object for holding positive integers. It is dynamically
-    backed by either a set or BitVector depending on how many numbers are in
-    the set.
-    
-    Provides ``add``, ``remove``, ``union``, ``intersection``,
-    ``__contains__``, ``__len__``, ``__iter__``, ``__and__``, ``__or__``, and
-    methods.
-    """
-
-    def __init__(self, size, source=None):
-        self.size = size
-
-        self._back = ()
-        self._switch(size < 256)
-
-        if source:
-            for num in source:
-                self.add(num)
-
-    def _switch(self, toset):
-        if toset:
-            self._back = set(self._back)
-            self.add = self._set_add
-            self.remove = self._back.remove
-        else:
-            self._back = BitVector(self.size, source=self._back)
-            self.add = self._back.set
-            self.remove = self._vec_remove
-
-        self.update = self._back.update
-
-    def __contains__(self, n):
-        return n in self._back
-
-    def __repr__(self):
-        return "<%s %s/%s>" % (self.__class__.__name__, len(self._back),
-                               self.size)
-
-    def __len__(self):
-        return len(self._back)
-
-    def __iter__(self):
-        return self._back.__iter__()
-
-    def as_set(self):
-        return frozenset(self._back)
+        add = self.add
+        for i in iterable:
+            add(i)
 
     def union(self, other):
-        return self.__or__(other)
+        if isinstance(other, BitSet):
+            return self._logic(self.copy(), operator.__or__, other)
+        b = self.copy()
+        b.update(other)
+        return b
 
     def intersection(self, other):
-        return self.__and__(other)
+        if isinstance(other, BitSet):
+            return self._logic(self.copy(), operator.__and__, other)
+        return BitSet(source=(n for n in self if n in other))
 
-    def invert(self):
-        return BitSet(self.size, (x for x in xrange(self.size)
-                                  if x not in self))
+    def difference(self, other):
+        if isinstance(other, BitSet):
+            return self._logic(self.copy(), lambda x, y: x & ~y, other)
+        return BitSet(source=(n for n in self if n not in other))
 
-    def __and__(self, other):
-        return BitSet(self.size, self._back.intersection(other))
+    def intersection_update(self, other):
+        if isinstance(other, BitSet):
+            return self._logic(self, operator.__and__, other)
+        discard = self.discard
+        for n in self:
+            if n not in other:
+                discard(n)
 
-    def __or__(self, other):
-        return BitSet(self.size, self._back.union(other))
+    def difference_update(self, other):
+        if isinstance(other, BitSet):
+            return self._logic(self, lambda x, y: x & ~y, other)
+        discard = self.discard
+        for n in other:
+            discard(n)
 
-    def __rand__(self, other):
-        return self.__and__(other)
+    def invert(self, size=None):
+        if size is None:
+            size = len(self.bits)
+        b = self.copy()
+        b.invert_update(size)
+        return b
 
-    def __ror__(self, other):
-        return self.__or__(other)
+    def invert_update(self, size=None):
+        if size is None:
+            size = len(self.bits)
+        bits = self.bits
+        for i in xrange(len(bits)):
+            # On the last byte, mask the result to just the "spillover" bits
+            bits[i] = ~bits[i] & 0xFF
+        self._zero_extra_bits(size)
 
-    def __invert__(self):
-        return self.invert()
+    def before(self, i):
+        bits = self.bits
+        size = len(bits) * 8
+        if i <= 0:
+            return None
+        elif i >= size:
+            i = size - 1
+        else:
+            i -= 1
+        bucket = i // 8
 
-    def _set_add(self, num):
-        self._back.add(num)
-        if len(self._back) * 4 > self.size // 8 + 32:
-            self._switch(False)
+        while i >= 0:
+            byte = bits[bucket]
+            if not byte:
+                bucket -= 1
+                i = bucket * 8 + 7
+                continue
+            if byte & (1 << (i & 7)):
+                return i
+            if i % 8 == 0:
+                bucket -= 1
+            i -= 1
 
-    def _vec_remove(self, num):
-        self._back.clear(num)
-        if len(self._back) * 4 < self.size // 8 - 32:
-            self._switch(True)
+        return None
+
+    def after(self, i):
+        bits = self.bits
+        size = len(bits) * 8
+        if i >= size:
+            return None
+        elif i < 0:
+            i = 0
+        else:
+            i += 1
+        bucket = i // 8
+
+        while i < size:
+            byte = bits[bucket]
+            if not byte:
+                bucket += 1
+                i = bucket * 8
+                continue
+            if byte & (1 << (i & 7)):
+                return i
+            i += 1
+            if i % 8 == 0:
+                bucket += 1
+
+        return None
+
+
+class SortedIntSet(DocIdSet):
+    """A DocIdSet backed by a sorted array of integers.
+    """
+
+    def __init__(self, source=None):
+        data = array("I")
+        if source is not None:
+            for i in source:
+                insort(data, i)
+        self.data = data
+        self._last = None
+
+    def copy(self):
+        sis = SortedIntSet()
+        sis.data = array("I", self.data)
+        return sis
+
+    def size(self):
+        return len(self.data) * self.data.itemsize
+
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.data)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __iter__(self):
+        return iter(self.data)
+
+    def __nonzero__(self):
+        return bool(self.data)
+
+    __bool__ = __nonzero__
+
+    def __contains__(self, i):
+        data = self.data
+        lo = 0
+        hi = len(data)
+        if self._last:
+            v, pos = self._last
+            if i == v:
+                return True
+            elif i < v:
+                lo = pos
+            else:
+                hi = pos
+
+        pos = bisect_left(data, i, lo=lo, hi=hi)
+        if pos == len(data):
+            return False
+        v = data[pos]
+        self._last = (v, pos)
+        return v == i
+
+    def add(self, i):
+        data = self.data
+        if not data or i > data[-1]:
+            data.append(i)
+        else:
+            mn = data[0]
+            mx = data[-1]
+            if i == mn or i == mx:
+                return
+            elif i > mx:
+                data.append(i)
+            elif i < mn:
+                data.insert(0, i)
+            else:
+                pos = bisect_left(data, i)
+                if data[pos] != i:
+                    data.insert(pos, i)
+
+    def discard(self, i):
+        data = self.data
+        pos = bisect_left(data, i)
+        if data[pos] == i:
+            data.pop(pos)
+
+    def update(self, other):
+        add = self.add
+        for i in other:
+            add(i)
+
+    def union(self, other):
+        sis = self.copy()
+        sis.update(other)
+        return sis
+
+    def intersection(self, other):
+        return SortedIntSet((num for num in self if num in other))
+
+    def difference(self, other):
+        return SortedIntSet((num for num in self if num not in other))
+
+    def intersection_update(self, other):
+        self.data = array("I", (num for num in self if num in other))
+
+    def difference_update(self, other):
+        self.data = array("I", (num for num in self if num not in other))
+
+    def invert(self, size):
+        return SortedIntSet(_inverted_list(self.data, size))
+
+    def invert_update(self, size):
+        self.data = array("I", _inverted_list(self.data, size))
+
+    def before(self, i):
+        data = self.data
+        pos = bisect_left(data, i)
+        if pos < 1:
+            return None
+        else:
+            return data[pos - 1]
+
+    def after(self, i):
+        data = self.data
+        pos = bisect_left(data, i)
+        if pos >= len(data) - 1:
+            return None
+        else:
+            return data[pos + 1]
+
+
+
+
+
