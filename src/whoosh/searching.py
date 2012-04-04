@@ -182,12 +182,12 @@ class Searcher(object):
 
     def refresh(self):
         """Returns a fresh searcher for the latest version of the index::
-        
+
             my_searcher = my_searcher.refresh()
-        
+
         If the index has not changed since this searcher was created, this
         searcher is simply returned.
-        
+
         This method may CLOSE underlying resources that are no longer needed
         by the refreshed searcher, so you CANNOT continue to use the original
         searcher after calling ``refresh()`` on it.
@@ -223,22 +223,15 @@ class Searcher(object):
     def set_caching_policy(self, *args, **kwargs):
         self.ixreader.set_caching_policy(*args, **kwargs)
 
-    def scorer(self, fieldname, text, qf=1):
-        if not self._doccount:
-            # Scoring functions tend to cache information that isn't available
-            # on an empty index.
-            return None
-
-        return self.weighting.scorer(self, fieldname, text, qf=qf)
-
-    def postings(self, fieldname, text, qf=1):
+    def postings(self, fieldname, text, weighting=None, qf=1):
         """Returns a :class:`whoosh.matching.Matcher` for the postings of the
         given term. Unlike the :func:`whoosh.reading.IndexReader.postings`
         method, this method automatically sets the scoring functions on the
         matcher from the searcher's weighting object.
         """
 
-        scorer = self.scorer(fieldname, text, qf=qf)
+        weighting = weighting or self.weighting
+        scorer = weighting.scorer(self, fieldname, text, qf=qf)
         return self.ixreader.postings(fieldname, text, scorer=scorer)
 
     def idf(self, fieldname, text):
@@ -263,16 +256,16 @@ class Searcher(object):
         """Convenience method returns the stored fields of a document
         matching the given keyword arguments, where the keyword keys are
         field names and the values are terms that must appear in the field.
-        
+
         This method is equivalent to::
-        
+
             searcher.stored_fields(searcher.document_number(<keyword args>))
-        
+
         Where Searcher.documents() returns a generator, this function returns
         either a dictionary or None. Use it when you assume the given keyword
         arguments either match zero or one documents (i.e. at least one of the
         fields is a unique key).
-        
+
         >>> stored_fields = searcher.document(path=u"/a/b")
         >>> if stored_fields:
         ...   print(stored_fields['title'])
@@ -287,12 +280,12 @@ class Searcher(object):
         """Convenience method returns the stored fields of a document
         matching the given keyword arguments, where the keyword keys are field
         names and the values are terms that must appear in the field.
-        
+
         Returns a generator of dictionaries containing the stored fields of any
         documents matching the keyword arguments. If you do not specify any
         arguments (``Searcher.documents()``), this method will yield **all**
         documents.
-        
+
         >>> for stored_fields in searcher.documents(emailto=u"matt@whoosh.ca"):
         ...   print("Email subject:", stored_fields['subject'])
         """
@@ -320,14 +313,14 @@ class Searcher(object):
         """Returns the document number of the document matching the given
         keyword arguments, where the keyword keys are field names and the
         values are terms that must appear in the field.
-        
+
         >>> docnum = searcher.document_number(path=u"/a/b")
-        
+
         Where Searcher.document_numbers() returns a generator, this function
         returns either an int or None. Use it when you assume the given keyword
         arguments either match zero or one documents (i.e. at least one of the
         fields is a unique key).
-        
+
         :rtype: int
         """
 
@@ -352,7 +345,7 @@ class Searcher(object):
         the values are terms that must appear in the field. If you do not
         specify any arguments (``Searcher.document_numbers()``), this method
         will yield **all** document numbers.
-        
+
         >>> docnums = list(searcher.document_numbers(emailto="matt@whoosh.ca"))
         """
 
@@ -392,18 +385,18 @@ class Searcher(object):
     def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0):
         """Returns a sorted list of suggested corrections for the given
         mis-typed word ``text`` based on the contents of the given field::
-        
+
             >>> searcher.suggest("content", "specail")
             ["special"]
-        
+
         This is a convenience method. If you are planning to get suggestions
         for multiple words in the same field, it is more efficient to get a
         :class:`~whoosh.spelling.Corrector` object and use it directly::
-        
+
             corrector = searcher.corrector("fieldname")
             for word in words:
                 print(corrector.suggest(word))
-        
+
         :param limit: only return up to this many suggestions. If there are not
             enough terms in the field within ``maxdist`` of the given word, the
             returned list will be shorter than this number.
@@ -425,19 +418,19 @@ class Searcher(object):
         listed (by number) in 'docnums'. You can get document numbers for the
         documents your interested in with the document_number() and
         document_numbers() methods.
-        
+
         "Most important" is generally defined as terms that occur frequently in
         the top hits but relatively infrequently in the collection as a whole.
-        
+
         >>> docnum = searcher.document_number(path=u"/a/b")
         >>> keywords_and_scores = searcher.key_terms([docnum], "content")
-        
+
         This method returns a list of ("term", score) tuples. The score may be
         useful if you want to know the "strength" of the key terms, however to
         just get the terms themselves you can just do this:
-        
+
         >>> kws = [kw for kw, score in searcher.key_terms([docnum], "content")]
-        
+
         :param fieldname: Look at the terms in this field. This field must
             store vectors.
         :param docnums: A sequence of document numbers specifying which
@@ -457,7 +450,7 @@ class Searcher(object):
     def key_terms_from_text(self, fieldname, text, numterms=5,
                             model=classify.Bo1Model, normalize=True):
         """Return the 'numterms' most important terms from the given text.
-        
+
         :param numterms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify
             module.
@@ -471,16 +464,16 @@ class Searcher(object):
                   model=classify.Bo1Model, normalize=False, filter=None):
         """Returns a :class:`Results` object containing documents similar to
         the given document, based on "key terms" in the given field::
-        
+
             # Get the ID for the document you're interested in
             docnum = search.document_number(path=u"/a/b/c")
-            
+
             r = searcher.more_like(docnum)
-        
+
             print("Documents like", searcher.stored_fields(docnum)["title"])
             for hit in r:
                 print(hit["title"])
-        
+
         :param fieldname: the name of the field to use to test similarity.
         :param text: by default, the method will attempt to load the contents
             of the field from the stored fields for the document, or from a
@@ -516,15 +509,15 @@ class Searcher(object):
         a :class:`ResultsPage` object. This is a convenience function for
         getting a certain "page" of the results for the given query, which is
         often useful in web search interfaces.
-        
+
         For example::
-        
+
             querystring = request.get("q")
             query = queryparser.parse("content", querystring)
-            
+
             pagenum = int(request.get("page", 1))
             pagelen = int(request.get("perpage", 10))
-            
+
             results = searcher.search_page(query, pagenum, pagelen=pagelen)
             print("Page %d of %d" % (results.pagenum, results.pagecount))
             print("Showing results %d-%d of %d"
@@ -532,26 +525,26 @@ class Searcher(object):
                      len(results)))
             for hit in results:
                 print("%d: %s" % (hit.rank + 1, hit["title"]))
-        
+
         (Note that results.pagelen might be less than the pagelen argument if
         there aren't enough results to fill a page.)
-        
+
         Any additional keyword arguments you supply are passed through to
         :meth:`Searcher.search`. For example, you can get paged results of a
         sorted search::
-        
+
             results = searcher.search_page(q, 2, sortedby="date", reverse=True)
-        
+
         Currently, searching for page 100 with pagelen of 10 takes the same
         amount of time as using :meth:`Searcher.search` to find the first 1000
         results. That is, this method does not have any special optimizations
         or efficiencies for getting a page from the middle of the full results
         list. (A future enhancement may allow using previous page results to
         improve the efficiency of finding the next page.)
-        
+
         This method will raise a ``ValueError`` if you ask for a page number
         higher than the number of pages in the resulting query.
-        
+
         :param query: the :class:`whoosh.query.Query` object to match.
         :param pagenum: the page number to retrieve, starting at ``1`` for the
             first page.
@@ -576,7 +569,7 @@ class Searcher(object):
         :class:`whoosh.sorting.FieldFacet` or
         :class:`whoosh.sorting.MultiFacet` and pass it to the
         :meth:`Searcher.search` method's ``sortedby`` keyword argument.
-        
+
         See :doc:`/facets`.
         """
 
@@ -584,32 +577,32 @@ class Searcher(object):
 
     def add_facet_field(self, name, facet, save=False):
         """This is an experimental feature which may change in future versions.
-        
+
         Adds a field cache for a computed field defined by a
         :class:`whoosh.sorting.FacetType` object, for example a
         :class:`~whoosh.sorting.QueryFacet` or
         :class:`~whoosh.sorting.RangeFacet`.
-        
+
         This creates a field cache from the facet, so once you define the
         "facet field", sorting/grouping by it will be faster than using the
         original facet object.
-        
+
         For example, sorting using a :class:`~whoosh.sorting.QueryFacet`
         recomputes the queries at sort time, which may be slow::
-        
+
             qfacet = sorting.QueryFacet({"a-z": TermRange(...
             results = searcher.search(myquery, sortedby=qfacet)
-            
+
         You can cache the results of the query facet in a field cache::
-        
+
             searcher.define_facets("nameranges", qfacet, save=True)
-            
+
         ..then use the pseudo-field for sorting::
-        
+
             results = searcher.search(myquery, sortedby="nameranges")
-        
+
         See :doc:`/facets`.
-        
+
         :param name: a name for the pseudo-field to cache the query results in.
         :param qs: a :class:`~whoosh.sorting.FacetType` object.
         :param save: if True, saves the field cache to disk so it is persistent
@@ -649,10 +642,10 @@ class Searcher(object):
                maptype=None):
         """Runs the query represented by the ``query`` object and returns a
         Results object.
-        
+
         See :doc:`/facets` for information on using ``sortedby`` and/or
         ``groupedby``.
-        
+
         :param query: a :class:`whoosh.query.Query` object.
         :param limit: the maximum number of documents to score. If you're only
             interested in the top N documents, you can set limit=N to limit the
@@ -696,16 +689,16 @@ class Searcher(object):
                       terms=None, prefix=0, maxdist=2):
         """Returns a corrected version of the given user query using a default
         :class:`whoosh.spelling.ReaderCorrector`.
-        
+
         The default:
-        
+
         * Corrects any words that don't appear in the index.
-        
+
         * Takes suggestions from the words in the index. To make certain fields
           use custom correctors, use the ``correctors`` argument to pass a
           dictionary mapping field names to :class:`whoosh.spelling.Corrector`
           objects.
-        
+
         * ONLY CORRECTS FIELDS THAT HAVE THE ``spelling`` ATTRIBUTE in the
           schema (or for which you pass a custom corrector). To automatically
           check all fields, use ``allfields=True``. Spell checking fields
@@ -714,11 +707,11 @@ class Searcher(object):
         Expert users who want more sophisticated correction behavior can create
         a custom :class:`whoosh.spelling.QueryCorrector` and use that instead
         of this method.
-        
+
         Returns a :class:`whoosh.spelling.Correction` object with a ``query``
         attribute containing the corrected :class:`whoosh.query.Query` object
         and a ``string`` attributes containing the corrected query string.
-        
+
         >>> from whoosh import qparser, highlight
         >>> qtext = 'mary "litle lamb"'
         >>> q = qparser.QueryParser("text", myindex.schema)
@@ -728,16 +721,16 @@ class Searcher(object):
         <query.And ...>
         >>> correction.string
         'mary "little lamb"'
-        
+
         You can use the ``Correction`` object's ``format_string`` method to
         format the corrected query string using a
         :class:`whoosh.highlight.Formatter` object. For example, you can format
         the corrected string as HTML, emphasizing the changed words.
-        
+
         >>> hf = highlight.HtmlFormatter(classname="change")
         >>> correction.format_string(hf)
         'mary "<strong class="change term0">little</strong> lamb"'
-        
+
         :param q: the :class:`whoosh.query.Query` object to correct.
         :param qstring: the original user query from which the query object was
             created. You can pass None instead of a string, in which the
@@ -793,22 +786,22 @@ class Searcher(object):
 class Collector(object):
     """A Collector finds the matching documents, scores them, collects them
     into a list, and produces a Results object from them.
-    
+
     Normally you do not need to instantiate an instance of the base
     Collector class, the :meth:`Searcher.search` method does that for you.
-    
+
     If you create a custom Collector instance or subclass you can use its
     ``search()`` method instead of :meth:`Searcher.search`::
-    
+
         mycollector = MyCollector()
         results = mycollector.search(mysearcher, myquery)
-    
+
     **Do not** re-use or share Collector instances between searches. You
     should create a new Collector instance for each search.
-    
+
     To limit the amount of time a search can take, pass the number of
     seconds to the ``timelimit`` keyword argument::
-    
+
         # Limit the search to 4.5 seconds
         col = Collector(timelimit=4.5, greedy=False)
         # If this call takes more than 4.5 seconds, it will raise a
@@ -818,7 +811,7 @@ class Collector(object):
         except TimeLimit, tl:
             # You can still retrieve partial results from the collector
             r = col.results()
-    
+
     If the ``greedy`` keyword is ``True``, the collector will finish adding
     the most recent hit before raising the ``TimeLimit`` exception.
     """
@@ -953,11 +946,11 @@ class Collector(object):
         """Top-level method call which uses the given :class:`Searcher` and
         :class:`whoosh.query.Query` objects to return a :class:`Results`
         object.
-        
+
         >>> # This is the equivalent of calling searcher.search(q)
         >>> col = Collector()
         >>> results = col.search(searcher, q)
-        
+
         This method takes care of calling :meth:`Collector.add_searcher`
         for each sub-searcher in a collective searcher. You should only call
         this method on a top-level searcher.
@@ -1078,7 +1071,7 @@ class Collector(object):
                 if not matcher.is_active():
                     break
 
-            # The current document ID 
+            # The current document ID
             docid = matcher.id()
             offsetid = docid + offset
 
@@ -1208,7 +1201,7 @@ class Results(object):
     results of a search query. You can mostly use it as if it was a list of
     dictionaries, where each dictionary is the stored fields of the document at
     that position in the results.
-    
+
     Note that a Results object keeps a reference to the Searcher that created
     it, so keeping a reference to a Results object keeps the Searcher alive and
     so keeps all files used by it open.
@@ -1246,7 +1239,7 @@ class Results(object):
         """Returns the total number of documents that matched the query. Note
         this may be more than the number of scored documents, given the value
         of the ``limit`` keyword argument to :meth:`Searcher.search`.
-        
+
         If this Results object was created by searching with a ``limit``
         keyword, then computing the exact length of the result set may be
         expensive for large indexes or large result sets. You may consider
@@ -1324,36 +1317,36 @@ class Results(object):
         `groupedby` keyword argument to the ``search()`` method, you can use
         this method to retrieve the groups. You can use the ``facet_names()``
         method to get the list of available facet names.
-        
+
         >>> results = searcher.search(my_query, groupedby=["tag", "price"])
         >>> results.facet_names()
         ["tag", "price"]
         >>> results.groups("tag")
         {"new": [12, 1, 4], "apple": [3, 10, 5], "search": [11]}
-        
+
         If you only used one facet, you can call the method without a facet
         name to get the groups for the facet.
-        
+
         >>> results = searcher.search(my_query, groupedby="tag")
         >>> results.groups()
         {"new": [12, 1, 4], "apple": [3, 10, 5, 0], "search": [11]}
-        
+
         By default, this returns a dictionary mapping category names to a list
         of document numbers, in the same relative order as they appear in the
         results.
-        
+
         >>> results = mysearcher.search(myquery, groupedby="tag")
         >>> docnums = results.groups()
         >>> docnums['new']
         [12, 1, 4]
-        
+
         You can then use :meth:`Searcher.stored_fields` to get the stored
         fields associated with a document ID.
-        
+
         If you specified a different ``maptype`` for the facet when you
         searched, the values in the dictionary depend on the
         :class:`whoosh.sorting.FacetMap`.
-        
+
         >>> myfacet = sorting.FieldFacet("tag", maptype=sorting.Count)
         >>> results = mysearcher.search(myquery, groupedby=myfacet)
         >>> counts = results.groups()
@@ -1415,13 +1408,13 @@ class Results(object):
     def scored_length(self):
         """Returns the number of scored documents in the results, equal to or
         less than the ``limit`` keyword argument to the search.
-        
+
         >>> r = mysearcher.search(myquery, limit=20)
         >>> len(r)
         1246
         >>> r.scored_length()
         20
-        
+
         This may be fewer than the total number of documents that match the
         query, which is what ``len(Results)`` returns.
         """
@@ -1467,7 +1460,7 @@ class Results(object):
     def has_matched_terms(self):
         """Returns True if the search recorded which terms matched in which
         documents.
-        
+
         >>> r = searcher.search(myquery)
         >>> r.has_matched_terms()
         False
@@ -1483,10 +1476,10 @@ class Results(object):
         not score high enough to make the top N results). You can compare this
         set to the terms from the original query to find terms which didn't
         occur in any matching documents.
-        
+
         This is only valid if you used ``terms=True`` in the search call to
         record matching terms. Otherwise it will raise an exception.
-        
+
         >>> q = myparser.parse("alfa OR bravo OR charlie")
         >>> results = searcher.search(q, terms=True)
         >>> results.terms()
@@ -1537,7 +1530,7 @@ class Results(object):
         documents in these results. "Most important" is generally defined as
         terms that occur frequently in the top hits but relatively infrequently
         in the collection as a whole.
-        
+
         :param fieldname: Look at the terms in this field. This field must
             store vectors.
         :param docs: Look at this many of the top documents of the results.
@@ -1562,7 +1555,7 @@ class Results(object):
     def extend(self, results):
         """Appends hits from 'results' (that are not already in this
         results object) to the end of these results.
-        
+
         :param results: another results object.
         """
 
@@ -1589,7 +1582,7 @@ class Results(object):
         before hits not in 'results', otherwise keeping their current relative
         positions. This does not add the documents in the other results object
         to this one.
-        
+
         :param results: another results object.
         :param reverse: if True, lower the position of hits in the other
             results object instead of raising them.
@@ -1613,7 +1606,7 @@ class Results(object):
         """Combines the effects of extend() and increase(): hits that are also
         in 'results' are raised. Then any hits from the other results object
         that are not in this results object are appended to the end.
-        
+
         :param results: another results object.
         """
 
@@ -1633,11 +1626,11 @@ class Results(object):
 
 class Hit(object):
     """Represents a single search result ("hit") in a Results object.
-    
+
     This object acts like a dictionary of the matching document's stored
     fields. If for some reason you need an actual ``dict`` object, use
     ``Hit.fields()`` to get one.
-    
+
     >>> r = searcher.search(query.Term("content", "render"))
     >>> r[0]
     <Hit {title=u"Rendering the scene"}>
@@ -1683,10 +1676,10 @@ class Hit(object):
         terms from the query that matched in this document. You can
         compare this set to the terms from the original query to find terms
         which didn't occur in this document.
-        
+
         This is only valid if you used ``terms=True`` in the search call to
         record matching terms. Otherwise it will raise an exception.
-        
+
         >>> q = myparser.parse("alfa OR bravo OR charlie")
         >>> results = searcher.search(q, terms=True)
         >>> for hit in results:
@@ -1709,27 +1702,27 @@ class Hit(object):
 
     def highlights(self, fieldname, text=None, top=3):
         """Returns highlighted snippets from the given field::
-        
+
             r = searcher.search(myquery)
             for hit in r:
                 print(hit["title"])
                 print(hit.highlights("content"))
-        
+
         See :doc:`/highlight`.
-        
+
         To change the fragmeter, formatter, order, or scorer used in
         highlighting, you can set attributes on the results object::
-        
+
             from whoosh import highlight
-            
+
             results = searcher.search(myquery, terms=True)
             results.fragmenter = highlight.SentenceFragmenter()
-        
+
         ...or use a custom :class:`whoosh.highlight.Highlighter` object::
-        
+
             hl = highlight.Highlighter(fragmenter=sf)
             results.highlighter = hl
-        
+
         :param fieldname: the name of the field you want to highlight.
         :param text: by default, the method will attempt to load the contents
             of the field from the stored fields for the document. If the field
@@ -1746,14 +1739,14 @@ class Hit(object):
                        model=classify.Bo1Model, normalize=True, filter=None):
         """Returns a new Results object containing documents similar to this
         hit, based on "key terms" in the given field::
-        
+
             r = searcher.search(myquery)
             for hit in r:
                 print(hit["title"])
                 print("Top 3 similar documents:")
                 for subhit in hit.more_like_this("content", top=3):
                   print("  ", subhit["title"])
-                  
+
         :param fieldname: the name of the field to use to test similarity.
         :param text: by default, the method will attempt to load the contents
             of the field from the stored fields for the document, or from a
@@ -1851,28 +1844,28 @@ class ResultsPage(object):
     interface of the :class:`~whoosh.searching.Results` object, namely getting
     stored fields with __getitem__ (square brackets), iterating, and the
     ``score()`` and ``docnum()`` methods.
-    
+
     The ``offset`` attribute contains the results number this page starts at
     (numbered from 0). For example, if the page length is 10, the ``offset``
     attribute on the second page will be ``10``.
-    
+
     The ``pagecount`` attribute contains the number of pages available.
-    
+
     The ``pagenum`` attribute contains the page number. This may be less than
     the page you requested if the results had too few pages. For example, if
     you do::
-    
+
         ResultsPage(results, 5)
-        
+
     but the results object only contains 3 pages worth of hits, ``pagenum``
     will be 3.
-    
+
     The ``pagelen`` attribute contains the number of results on this page
     (which may be less than the page length you requested if this is the last
     page of the results).
-    
+
     The ``total`` attribute contains the total number of hits in the results.
-    
+
     >>> mysearcher = myindex.searcher()
     >>> pagenum = 2
     >>> page = mysearcher.find_page(pagenum, myquery)
