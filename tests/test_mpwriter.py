@@ -249,7 +249,6 @@ def test_multisegment():
             for ls in permutations(words, 3):
                 w.add_document(a=" ".join(ls))
 
-        print list(ix.storage.list())
         assert_equal(len(ix._segments()), 3)
 
         with ix.searcher() as s:
