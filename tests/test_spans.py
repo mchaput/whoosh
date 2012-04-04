@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, formats, spans
 from whoosh.compat import u, xrange
@@ -12,13 +12,15 @@ from whoosh.util import permutations
 domain = ("alfa", "bravo", "bravo", "charlie", "delta", "echo")
 _ix = None
 
+
 def get_index():
     global _ix
 
     if _ix is not None:
         return _ix
 
-    charfield = fields.FieldType(formats.Characters(), analysis.SimpleAnalyzer(),
+    charfield = fields.FieldType(formats.Characters(),
+                                 analysis.SimpleAnalyzer(),
                                  scorable=True, stored=True)
     schema = fields.Schema(text=charfield)
     st = RamStorage()
@@ -30,6 +32,7 @@ def get_index():
     w.commit()
 
     return _ix
+
 
 def test_multimatcher():
     schema = fields.Schema(content=fields.TEXT(stored=True))
@@ -52,6 +55,7 @@ def test_multimatcher():
             for span in spans:
                 assert_equal(content[span.start], "bravo")
             m.next()
+
 
 def test_excludematcher():
     schema = fields.Schema(content=fields.TEXT(stored=True))
@@ -111,6 +115,7 @@ def test_span_term():
                 else:
                     assert i not in ids
 
+
 def test_span_first():
     ix = get_index()
     with ix.searcher() as s:
@@ -134,6 +139,7 @@ def test_span_first():
                 assert_equal(orig[sp.start], "bravo")
             m.next()
 
+
 def test_span_near():
     ix = get_index()
     with ix.searcher() as s:
@@ -143,29 +149,40 @@ def test_span_near():
                 yield s.stored_fields(m.id())["text"], m.spans()
                 m.next()
 
-        for orig, sps in test(spans.SpanNear(Term("text", "alfa"), Term("text", "bravo"), ordered=True)):
+        for orig, sps in test(spans.SpanNear(Term("text", "alfa"),
+                                             Term("text", "bravo"),
+                                             ordered=True)):
             assert_equal(orig[sps[0].start], "alfa")
             assert_equal(orig[sps[0].end], "bravo")
 
-        for orig, sps in test(spans.SpanNear(Term("text", "alfa"), Term("text", "bravo"), ordered=False)):
+        for orig, sps in test(spans.SpanNear(Term("text", "alfa"),
+                                             Term("text", "bravo"),
+                                             ordered=False)):
             first = orig[sps[0].start]
             second = orig[sps[0].end]
             assert (first == "alfa" and second == "bravo"
                             or (first == "bravo" and second == "alfa"))
 
-        for orig, sps in test(spans.SpanNear(Term("text", "bravo"), Term("text", "bravo"), ordered=True)):
+        for orig, sps in test(spans.SpanNear(Term("text", "bravo"),
+                                             Term("text", "bravo"),
+                                             ordered=True)):
             text = " ".join(orig)
             assert text.find("bravo bravo") > -1
 
-        q = spans.SpanNear(spans.SpanNear(Term("text", "alfa"), Term("text", "charlie")), Term("text", "echo"))
+        q = spans.SpanNear(spans.SpanNear(Term("text", "alfa"),
+                                          Term("text", "charlie")),
+                           Term("text", "echo"))
         for orig, sps in test(q):
             text = " ".join(orig)
             assert text.find("alfa charlie echo") > -1
 
-        q = spans.SpanNear(Or([Term("text", "alfa"), Term("text", "charlie")]), Term("text", "echo"), ordered=True)
+        q = spans.SpanNear(Or([Term("text", "alfa"), Term("text", "charlie")]),
+                           Term("text", "echo"), ordered=True)
         for orig, sps in test(q):
             text = " ".join(orig)
-            assert text.find("alfa echo") > -1 or text.find("charlie echo") > -1
+            assert (text.find("alfa echo") > -1
+                    or text.find("charlie echo") > -1)
+
 
 def test_near_unordered():
     schema = fields.Schema(text=fields.TEXT(stored=True))
@@ -179,10 +196,12 @@ def test_near_unordered():
     w.commit()
 
     with ix.searcher() as s:
-        q = spans.SpanNear(Term("text", "bravo"), Term("text", "charlie"), ordered=False)
+        q = spans.SpanNear(Term("text", "bravo"), Term("text", "charlie"),
+                           ordered=False)
         r = sorted(d["text"] for d in s.search(q))
         assert_equal(r, [u('alfa bravo charlie delta echo'),
                              u('alfa charlie bravo delta echo')])
+
 
 def test_span_near2():
     ana = analysis.SimpleAnalyzer()
@@ -190,7 +209,8 @@ def test_span_near2():
     st = RamStorage()
     ix = st.create_index(schema)
     w = ix.writer()
-    w.add_document(text=u("The Lucene library is by Doug Cutting and Whoosh was made by Matt Chaput"))
+    w.add_document(text=u("The Lucene library is by Doug Cutting and Whoosh " +
+                          "was made by Matt Chaput"))
     w.commit()
 
     nq1 = spans.SpanNear(Term("text", "lucene"), Term("text", "doug"), slop=5)
@@ -200,10 +220,12 @@ def test_span_near2():
         m = nq2.matcher(s)
         assert_equal(m.spans(), [spans.Span(1, 8)])
 
+
 def test_span_not():
     ix = get_index()
     with ix.searcher() as s:
-        nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"), slop=2)
+        nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"),
+                            slop=2)
         bq = Term("text", "bravo")
         q = spans.SpanNot(nq, bq)
         m = q.matcher(s)
@@ -217,10 +239,12 @@ def test_span_not():
                 assert orig.index("bravo") != i1 + 1
             m.next()
 
+
 def test_span_or():
     ix = get_index()
     with ix.searcher() as s:
-        nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"), slop=2)
+        nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"),
+                            slop=2)
         bq = Term("text", "bravo")
         q = spans.SpanOr([nq, bq])
         m = q.matcher(s)
@@ -229,10 +253,12 @@ def test_span_or():
             assert ("alfa" in orig and "charlie" in orig) or "bravo" in orig
             m.next()
 
+
 def test_span_contains():
     ix = get_index()
     with ix.searcher() as s:
-        nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"), slop=3)
+        nq = spans.SpanNear(Term("text", "alfa"), Term("text", "charlie"),
+                            slop=3)
         cq = spans.SpanContains(nq, Term("text", "echo"))
 
         m = cq.matcher(s)
@@ -247,7 +273,9 @@ def test_span_contains():
                           'alfa echo bravo charlie', 'alfa echo charlie bravo',
                           'alfa echo charlie bravo', 'alfa echo charlie delta',
                           'alfa echo delta charlie', 'bravo alfa echo charlie',
-                          'bravo alfa echo charlie', 'delta alfa echo charlie'])
+                          'bravo alfa echo charlie', 'delta alfa echo charlie',
+                          ])
+
 
 def test_span_before():
     ix = get_index()
@@ -260,6 +288,7 @@ def test_span_before():
             assert "charlie" in orig
             assert orig.index("alfa") < orig.index("charlie")
             m.next()
+
 
 def test_span_condition():
     ix = get_index()
@@ -274,6 +303,7 @@ def test_span_condition():
                 assert_equal(orig[span.start], "alfa")
             m.next()
 
+
 def test_regular_or():
     ix = get_index()
     with ix.searcher() as s:
@@ -286,6 +316,7 @@ def test_regular_or():
                 assert v == "bravo" or v == "alfa"
             m.next()
 
+
 def test_regular_and():
     ix = get_index()
     with ix.searcher() as s:
@@ -297,6 +328,7 @@ def test_regular_and():
                 v = orig[span.start]
                 assert v == "bravo" or v == "alfa"
             m.next()
+
 
 def test_span_characters():
     ix = get_index()
