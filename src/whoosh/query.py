@@ -38,13 +38,10 @@ import re
 from array import array
 from collections import defaultdict
 
+from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import u, text_type, bytes_type
 from whoosh.lang.morph_en import variations
-from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
-                             ListMatcher, IntersectionMatcher, InverseMatcher,
-                             NullMatcher, RequireMatcher, UnionMatcher,
-                             WrappingMatcher, AndNotMatcher, NullMatcherClass)
 from whoosh.reading import TermNotFound
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
@@ -161,16 +158,16 @@ Highest = Highest()
 
 class Query(object):
     """Abstract base class for all queries.
-    
+
     Note that this base class implements __or__, __and__, and __sub__ to allow
     slightly more convenient composition of query objects::
-    
+
         >>> Term("content", u"a") | Term("content", u"b")
         Or([Term("content", u"a"), Term("content", u"b")])
-        
+
         >>> Term("content", u"a") & Term("content", u"b")
         And([Term("content", u"a"), Term("content", u"b")])
-        
+
         >>> Term("content", u"a") - Term("content", u"b")
         And([Term("content", u"a"), Not(Term("content", u"b"))])
     """
@@ -239,22 +236,22 @@ class Query(object):
         """If this query has children, calls the given function on each child
         and returns a new copy of this node with the new children returned by
         the function. If this is a leaf node, simply returns this object.
-        
+
         This is useful for writing functions that transform a query tree. For
         example, this function changes all Term objects in a query tree into
         Variations objects::
-        
+
             def term2var(q):
                 if isinstance(q, Term):
                     return Variations(q.fieldname, q.text)
                 else:
                     return q.apply(term2var)
-        
+
             q = And([Term("f", "alfa"),
                      Or([Term("f", "bravo"),
                          Not(Term("f", "charlie"))])])
             q = term2var(q)
-            
+
         Note that this method does not automatically create copies of nodes.
         To avoid modifying the original tree, your function should call the
         :meth:`Query.copy` method on nodes before changing their attributes.
@@ -265,18 +262,18 @@ class Query(object):
     def accept(self, fn):
         """Applies the given function to this query's subqueries (if any) and
         then to this query itself::
-        
+
             def boost_phrases(q):
                 if isintance(q, Phrase):
                     q.boost *= 2.0
                 return q
-            
+
             myquery = myquery.accept(boost_phrases)
-        
+
         This method automatically creates copies of the nodes in the original
         tree before passing them to your function, so your function can change
         attributes on nodes without altering the original tree.
-        
+
         This method is less flexible than using :meth:`Query.apply` (in fact
         it's implemented using that method) but is often more straightforward.
         """
@@ -290,7 +287,7 @@ class Query(object):
     def replace(self, fieldname, oldtext, newtext):
         """Returns a copy of this query with oldtext replaced by newtext (if
         oldtext was anywhere in this query).
-        
+
         Note that this returns a *new* query with the given text replaced. It
         *does not* modify the original query "in place".
         """
@@ -311,11 +308,11 @@ class Query(object):
 
     def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
-        
+
         This method exists for backwards compatibility. For more flexibility
         use the :meth:`Query.iter_all_terms` method instead, which simply
         yields the terms in the query.
-        
+
         :param phrases: Whether to add words found in Phrase queries.
         :rtype: set
         """
@@ -342,11 +339,11 @@ class Query(object):
                        phrases=True, expand=False):
         """Returns a set of all terms in this query tree that exist in the
         given ixreaderder.
-        
+
         This method exists for backwards compatibility. For more flexibility
         use the :meth:`Query.iter_all_terms` method instead, which simply
         yields the terms in the query.
-        
+
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
         :param reverse: If True, this method adds *missing* terms rather than
             *existing* terms to the set.
@@ -386,7 +383,7 @@ class Query(object):
     def iter_all_terms(self):
         """Returns an iterator of ("fieldname", "text") pairs for all terms in
         this query tree.
-        
+
         >>> qp = qparser.QueryParser("text", myindex.schema)
         >>> q = myparser.parse("alfa bravo title:charlie")
         >>> # List the terms in a query
@@ -429,7 +426,7 @@ class Query(object):
         """Yields zero or more ("fieldname", "text") pairs searched for by this
         query object. You can check whether a query object targets specific
         terms before you call this method using :meth:`Query.has_terms`.
-        
+
         To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
         """
 
@@ -441,12 +438,12 @@ class Query(object):
         the terms searched for by this query object. You can check whether a
         query object targets specific terms before you call this method using
         :meth:`Query.has_terms`.
-        
+
         The Token objects will have the ``fieldname``, ``text``, and ``boost``
         attributes set. If the query was built by the query parser, they Token
         objects will also have ``startchar`` and ``endchar`` attributes
         indexing into the original user query.
-        
+
         To get all tokens for a query tree, use :meth:`Query.all_tokens`.
         """
 
@@ -457,7 +454,7 @@ class Query(object):
         for the entire query to match. Note that other queries might also turn
         out to be required but not be determinable by examining the static
         query.
-        
+
         >>> a = Term("f", u"a")
         >>> b = Term("f", u"b")
         >>> And([a, b]).requires()
@@ -483,7 +480,7 @@ class Query(object):
 
     def with_boost(self, boost):
         """Returns a COPY of this query with the boost set to the given value.
-        
+
         If a query type does not accept a boost itself, it will try to pass the
         boost on to its children, if any.
         """
@@ -510,18 +507,18 @@ class Query(object):
     def matcher(self, searcher):
         """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
-        
+
         :rtype: :class:`whoosh.matching.Matcher`
         """
         raise NotImplementedError
 
     def docs(self, searcher):
         """Returns an iterator of docnums matching this query.
-        
+
         >>> searcher = my_index.searcher()
         >>> list(my_query.docs(searcher))
         [10, 34, 78, 103]
-        
+
         :param searcher: A :class:`whoosh.searching.Searcher` object.
         """
 
@@ -536,13 +533,13 @@ class Query(object):
         automatically on query trees created by the query parser, but you may
         want to call it yourself if you're writing your own parser or building
         your own queries.
-        
+
         >>> q = And([And([Term("f", u"a"),
         ...               Term("f", u"b")]),
         ...               Term("f", u"c"), Or([])])
         >>> q.normalize()
         And([Term("f", u"a"), Term("f", u"b"), Term("f", u"c")])
-        
+
         Note that this returns a *new, normalized* query. It *does not* modify
         the original query "in place".
         """
@@ -764,7 +761,7 @@ class CompoundQuery(Query):
         subs, nots = self._split_queries()
 
         if not subs:
-            return NullMatcher()
+            return matching.NullMatcher()
 
         # Create a matcher from the list of subqueries
         if len(subs) == 1:
@@ -785,14 +782,14 @@ class CompoundQuery(Query):
                 r = searcher.reader()
                 notms = [(q.estimate_size(r), q.matcher(searcher))
                          for q in nots]
-                notm = make_weighted_tree(UnionMatcher, notms)
+                notm = make_weighted_tree(matching.UnionMatcher, notms)
 
             if notm.is_active():
-                m = AndNotMatcher(m, notm)
+                m = matching.AndNotMatcher(m, notm)
 
         # If this query had a boost, add a wrapping matcher to apply the boost
         if self.boost != 1.0:
-            m = WrappingMatcher(m, self.boost)
+            m = matching.WrappingMatcher(m, self.boost)
 
         return m
 
@@ -848,7 +845,7 @@ class MultiTerm(Query):
         reader = searcher.reader()
         qs = [Term(fieldname, word) for word in self._words(reader)]
         if not qs:
-            return NullMatcher()
+            return matching.NullMatcher()
 
         if len(qs) == 1:
             # If there's only one term, just use it
@@ -882,7 +879,7 @@ class MultiTerm(Query):
                 kwargs["weights"] = [doc_to_weights[docnum]
                                      for docnum in docnums]
 
-            return ListMatcher(docnums, **kwargs)
+            return matching.ListMatcher(docnums, **kwargs)
         else:
             # The default case: Or the terms together
             q = Or(qs)
@@ -894,7 +891,7 @@ class MultiTerm(Query):
 
 class Term(Query):
     """Matches documents containing the given term (fieldname+text pair).
-    
+
     >>> Term("content", u"render")
     """
 
@@ -950,7 +947,7 @@ class Term(Query):
     def matcher(self, searcher):
         text = self.text
         if self.fieldname not in searcher.schema:
-            return NullMatcher()
+            return matching.NullMatcher()
         # If someone created a query object with a non-text term,e.g.
         # query.Term("printed", True), be nice and convert it to text
         if not isinstance(text, (bytes_type, text_type)):
@@ -960,15 +957,15 @@ class Term(Query):
         if (self.fieldname, text) in searcher.reader():
             m = searcher.postings(self.fieldname, text)
             if self.boost != 1.0:
-                m = WrappingMatcher(m, boost=self.boost)
+                m = matching.WrappingMatcher(m, boost=self.boost)
             return m
         else:
-            return NullMatcher()
+            return matching.NullMatcher()
 
 
 class And(CompoundQuery):
     """Matches documents that match ALL of the subqueries.
-    
+
     >>> And([Term("content", u"render"),
     ...      Term("content", u"shade"),
     ...      Not(Term("content", u"texture"))])
@@ -991,13 +988,13 @@ class And(CompoundQuery):
 
     def matcher(self, searcher):
         r = searcher.reader()
-        return self._matcher(IntersectionMatcher,
+        return self._matcher(matching.IntersectionMatcher,
                              lambda q: 0 - q.estimate_size(r), searcher)
 
 
 class Or(CompoundQuery):
     """Matches documents that match ANY of the subqueries.
-    
+
     >>> Or([Term("content", u"render"),
     ...     And([Term("content", u"shade"), Term("content", u"texture")]),
     ...     Not(Term("content", u"network"))])
@@ -1008,7 +1005,7 @@ class Or(CompoundQuery):
     # This is used by the superclass's __unicode__ method.
     JOINT = " OR "
     intersect_merge = False
-    matcher_class = UnionMatcher
+    matcher_class = matching.UnionMatcher
 
     def __init__(self, subqueries, boost=1.0, minmatch=0):
         CompoundQuery.__init__(self, subqueries, boost=boost)
@@ -1075,14 +1072,14 @@ class DisjunctionMax(CompoundQuery):
 
     def matcher(self, searcher):
         r = searcher.reader()
-        return self._matcher(DisjunctionMaxMatcher,
+        return self._matcher(matching.DisjunctionMaxMatcher,
                              lambda q: q.estimate_size(r), searcher,
                              tiebreak=self.tiebreak)
 
 
 class Not(Query):
     """Excludes any documents that match the subquery.
-    
+
     >>> # Match documents that contain 'render' but not 'texture'
     >>> And([Term("content", u"render"),
     ...      Not(Term("content", u"texture"))])
@@ -1151,8 +1148,8 @@ class Not(Query):
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
         child = self.query.matcher(searcher)
-        return InverseMatcher(child, reader.doc_count_all(),
-                              missing=reader.is_deleted)
+        return matching.InverseMatcher(child, reader.doc_count_all(),
+                                       missing=reader.is_deleted)
 
 
 class PatternQuery(MultiTerm):
@@ -1211,7 +1208,7 @@ class PatternQuery(MultiTerm):
 
 class Prefix(PatternQuery):
     """Matches documents that contain any terms that start with the given text.
-    
+
     >>> # Match documents containing words starting with 'comp'
     >>> Prefix("content", u"comp")
     """
@@ -1228,7 +1225,7 @@ class Prefix(PatternQuery):
 class Wildcard(PatternQuery):
     """Matches documents that contain any terms that match a "glob" pattern.
     See the Python ``fnmatch`` module for information about globs.
-    
+
     >>> Wildcard("content", u"in*f?x")
     """
 
@@ -1510,7 +1507,7 @@ class RangeMixin(object):
 
 class TermRange(RangeMixin, MultiTerm):
     """Matches documents containing any terms in a given range.
-    
+
     >>> # Match documents where the indexed "id" field is greater than or equal
     >>> # to 'apple' and less than or equal to 'pear'.
     >>> TermRange("id", u"apple", u"pear")
@@ -1582,7 +1579,7 @@ class NumericRange(RangeMixin, Query):
     """A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
-    
+
     >>> # Match numbers from 10 to 5925 in the "number" field.
     >>> nr = NumericRange("number", 10, 5925)
     """
@@ -1674,7 +1671,7 @@ class DateRange(NumericRange):
     objects instead of numbers. Internally this object converts the datetime
     objects it's created with to numbers and otherwise acts like a
     ``NumericRange`` query.
-    
+
     >>> DateRange("date", datetime(2010, 11, 3, 3, 0),
     ...           datetime(2010, 11, 3, 17, 59))
     """
@@ -1793,7 +1790,7 @@ class Phrase(Query):
         # Shortcut the query if one of the words doesn't exist.
         for word in self.words:
             if (fieldname, word) not in reader:
-                return NullMatcher()
+                return matching.NullMatcher()
 
         field = searcher.schema[fieldname]
         if not field.format or not field.format.supports("positions"):
@@ -1806,7 +1803,7 @@ class Phrase(Query):
         q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
         m = q.matcher(searcher)
         if self.boost != 1.0:
-            m = WrappingMatcher(m, boost=self.boost)
+            m = matching.WrappingMatcher(m, boost=self.boost)
         return m
 
 
@@ -1825,40 +1822,40 @@ class Ordered(And):
 class Every(Query):
     """A query that matches every document containing any term in a given
     field. If you don't specify a field, the query matches every document.
-    
+
     >>> # Match any documents with something in the "path" field
     >>> q = Every("path")
     >>> # Matcher every document
     >>> q = Every()
-    
+
     The unfielded form (matching every document) is efficient.
-    
+
     The fielded is more efficient than a prefix query with an empty prefix or a
     '*' wildcard, but it can still be very slow on large indexes. It requires
     the searcher to read the full posting list of every term in the given
     field.
-    
+
     Instead of using this query it is much more efficient when you create the
     index to include a single term that appears in all documents that have the
     field you want to match.
-    
+
     For example, instead of this::
-    
+
         # Match all documents that have something in the "path" field
         q = Every("path")
-        
+
     Do this when indexing::
-    
+
         # Add an extra field that indicates whether a document has a path
         schema = fields.Schema(path=fields.ID, has_path=fields.ID)
-        
+
         # When indexing, set the "has_path" field based on whether the document
         # has anything in the "path" field
         writer.add_document(text=text_value1)
         writer.add_document(text=text_value2, path=path_value2, has_path="t")
-    
+
     Then to find all documents with a path::
-    
+
         q = Term("has_path", "t")
     """
 
@@ -1916,7 +1913,7 @@ class Every(Query):
                 doclist.update(pr.all_ids())
             doclist = sorted(doclist)
 
-        return ListMatcher(doclist, all_weights=self.boost)
+        return matching.ListMatcher(doclist, all_weights=self.boost)
 
 
 class _NullQuery(Query):
@@ -1961,7 +1958,7 @@ class _NullQuery(Query):
         return []
 
     def matcher(self, searcher):
-        return NullMatcher()
+        return matching.NullMatcher()
 
 NullQuery = _NullQuery()
 
@@ -1989,11 +1986,12 @@ class ConstantScoreQuery(WrappingQuery):
 
     def matcher(self, searcher):
         m = self.child.matcher(searcher)
-        if isinstance(m, NullMatcherClass):
+        if isinstance(m, matching.NullMatcherClass):
             return m
         else:
             ids = array("I", m.all_ids())
-            return ListMatcher(ids, all_weights=self.score, term=m.term())
+            return matching.ListMatcher(ids, all_weights=self.score,
+                                        term=m.term())
 
 
 class BinaryQuery(CompoundQuery):
@@ -2053,7 +2051,7 @@ class Require(BinaryQuery):
     """
 
     JOINT = " REQUIRE "
-    matcherclass = RequireMatcher
+    matcherclass = matching.RequireMatcher
 
     def requires(self):
         return self.a.requires() | self.b.requires()
@@ -2085,7 +2083,7 @@ class AndMaybe(BinaryQuery):
     """
 
     JOINT = " ANDMAYBE "
-    matcherclass = AndMaybeMatcher
+    matcherclass = matching.AndMaybeMatcher
 
     def normalize(self):
         a = self.a.normalize()
@@ -2112,7 +2110,7 @@ class AndNot(BinaryQuery):
     """
 
     JOINT = " ANDNOT "
-    matcherclass = AndNotMatcher
+    matcherclass = matching.AndNotMatcher
 
     def with_boost(self, boost):
         return self.__class__(self.a.with_boost(boost), self.b)
