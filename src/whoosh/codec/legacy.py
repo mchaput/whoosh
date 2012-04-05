@@ -96,6 +96,7 @@ class Block2(base.BlockBase):
         string = self.postfile.read(self.idslen)
         self.ids = deminimize_ids(self.idcode, self.count, string,
                                   compression=self.cmp)
+        return self.ids
 
     def read_weights(self):
         if self.wtslen == 0:
