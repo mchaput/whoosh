@@ -2,7 +2,7 @@ from __future__ import with_statement
 import copy
 from datetime import datetime, timedelta
 
-from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
 from whoosh.compat import u, xrange, text_type

@@ -1,7 +1,7 @@
 from __future__ import with_statement
 from random import randint, choice, sample
 
-from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 
 from whoosh import fields, matching, query
 from whoosh.compat import u, xrange
@@ -11,12 +11,15 @@ from whoosh.util import make_binary_tree, permutations
 
 
 def _keys(searcher, docnums):
-    return sorted([searcher.stored_fields(docnum)['key'] for docnum in docnums])
+    return sorted([searcher.stored_fields(docnum)['key']
+                   for docnum in docnums])
+
 
 def test_nullmatcher():
     nm = matching.NullMatcher()
     assert not nm.is_active()
     assert_equal(list(nm.all_ids()), [])
+
 
 def test_listmatcher():
     ids = [1, 2, 5, 9, 10]
@@ -48,8 +51,10 @@ def test_listmatcher():
         lm.next()
     assert_equal(ls, [9, 10])
 
+
 def test_wrapper():
-    wm = matching.WrappingMatcher(matching.ListMatcher([1, 2, 5, 9, 10]), boost=2.0)
+    wm = matching.WrappingMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
+                                  boost=2.0)
     ls = []
     while wm.is_active():
         ls.append((wm.id(), wm.score()))
@@ -60,6 +65,7 @@ def test_wrapper():
     wm = matching.WrappingMatcher(matching.ListMatcher(ids), boost=2.0)
     assert_equal(list(wm.all_ids()), ids)
 
+
 def test_filter():
     lm = lambda: matching.ListMatcher(list(range(2, 10)))
 
@@ -68,6 +74,7 @@ def test_filter():
 
     fm = matching.FilterMatcher(lm(), frozenset([1, 5, 9, 13]))
     assert_equal(list(fm.all_ids()), [5, 9])
+
 
 def test_exclude():
     em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
@@ -85,6 +92,7 @@ def test_exclude():
         ls.append(em.id())
         em.next()
     assert_equal(ls, [10])
+
 
 def test_simple_union():
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
@@ -113,6 +121,7 @@ def test_simple_union():
         um.next()
     assert_equal(ls, [4, 10, 20, 90])
 
+
 def test_simple_intersection():
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -139,6 +148,7 @@ def test_simple_intersection():
         ls.append(im.id())
         im.next()
     assert_equal(ls, [])
+
 
 def test_andnot():
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
@@ -172,6 +182,7 @@ def test_andnot():
         anm.next()
     assert_equal(ls, [90])
 
+
 def test_require():
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -198,6 +209,7 @@ def test_require():
         ls.append(rm.id())
         rm.next()
     assert_equal(ls, [])
+
 
 def test_andmaybe():
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
@@ -226,6 +238,7 @@ def test_andmaybe():
         amm.next()
     assert_equal(ls, [10, 20, 90])
 
+
 def test_intersection():
     schema = fields.Schema(key=fields.ID(stored=True), value=fields.TEXT(stored=True))
     st = RamStorage()
@@ -250,6 +263,7 @@ def test_intersection():
         q = And([Term("value", u("bravo")), Term("value", u("alpha"))])
         m = q.matcher(s)
         assert_equal(_keys(s, m.all_ids()), ["a", "b", "d"])
+
 
 def test_random_intersections():
     domain = [u("alpha"), u("bravo"), u("charlie"), u("delta"), u("echo"),
@@ -319,6 +333,7 @@ def test_random_intersections():
             # Check that the IDs match the ones we manually calculated
             assert_equal(_keys(s, ids1), target)
 
+
 def test_union():
     s1 = matching.ListMatcher([1, 2, 3, 4, 5, 6, 7, 8])
     s2 = matching.ListMatcher([2, 4, 8, 10, 20, 30])
@@ -326,6 +341,7 @@ def test_union():
     target = [1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 100, 200]
     um = matching.UnionMatcher(s1, matching.UnionMatcher(s2, s3))
     assert_equal(target, list(um.all_ids()))
+
 
 def test_union_scores():
     s1 = matching.ListMatcher([1, 2, 3])
@@ -338,6 +354,7 @@ def test_union_scores():
         result.append((um.id(), um.score()))
         um.next()
     assert_equal(target, result)
+
 
 def test_random_union():
     testcount = 100
@@ -357,6 +374,7 @@ def test_random_union():
         um = make_binary_tree(matching.UnionMatcher, matchers)
         assert_equal(list(um.all_ids()), target)
 
+
 def test_inverse():
     s = matching.ListMatcher([1, 5, 10, 11, 13])
     inv = matching.InverseMatcher(s, 15)
@@ -365,6 +383,7 @@ def test_inverse():
         ids.append(inv.id())
         inv.next()
     assert_equal(ids, [0, 2, 3, 4, 6, 7, 8, 9, 12, 14])
+
 
 def test_inverse_skip():
     s = matching.ListMatcher([1, 5, 10, 11, 13])
@@ -376,6 +395,7 @@ def test_inverse_skip():
         ids.append(inv.id())
         inv.next()
     assert_equal([8, 9, 12, 14], ids)
+
 
 def test_empty_andnot():
     pos = matching.NullMatcher()
@@ -389,6 +409,7 @@ def test_empty_andnot():
     ans = matching.AndNotMatcher(pos, neg)
     ids = list(ans.all_ids())
     assert_equal(ids, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+
 
 def test_random_andnot():
     testcount = 100
@@ -407,6 +428,7 @@ def test_random_andnot():
         anm = matching.AndNotMatcher(pos, neg)
         ids = list(anm.all_ids())
         assert_equal(ids, matched)
+
 
 def test_current_terms():
     domain = u("alfa bravo charlie delta").split()

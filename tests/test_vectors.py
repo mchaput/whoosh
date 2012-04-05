@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, formats
 from whoosh.compat import u
@@ -17,6 +17,7 @@ def test_single_term():
         v = s.vector(0, "text")
         assert v.is_active()
 
+
 def test_vector_reading():
     schema = fields.Schema(title=fields.TEXT,
                            content=fields.TEXT(vector=formats.Frequency()))
@@ -24,12 +25,14 @@ def test_vector_reading():
     with TempIndex(schema, "vectorreading") as ix:
         writer = ix.writer()
         writer.add_document(title=u("one"),
-                            content=u("This is the story of the black hole story"))
+                            content=u("This is the story of the black " +
+                                      "hole story"))
         writer.commit()
 
         with ix.reader() as r:
             assert_equal(list(r.vector_as("frequency", 0, "content")),
-                             [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
+                         [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
+
 
 def test_vector_merge():
     schema = fields.Schema(title=fields.TEXT,
@@ -38,7 +41,8 @@ def test_vector_merge():
     with TempIndex(schema, "vectormerge") as ix:
         writer = ix.writer()
         writer.add_document(title=u("one"),
-                            content=u("This is the story of the black hole story"))
+                            content=u("This is the story of the black hole " +
+                                      "story"))
         writer.commit()
 
         writer = ix.writer()
@@ -51,12 +55,15 @@ def test_vector_merge():
 
             docnum = s.document_number(title=u("one"))
             vec = list(r.vector_as("frequency", docnum, "content"))
-            assert_equal(vec, [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
+            assert_equal(vec,
+                         [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
 
             docnum = s.document_number(title=u("two"))
 
             vec = list(r.vector_as("frequency", docnum, "content"))
-            assert_equal(vec, [(u('along'), 1), (u('book'), 1), (u('read'), 1)])
+            assert_equal(vec,
+                         [(u('along'), 1), (u('book'), 1), (u('read'), 1)])
+
 
 def test_vector_unicode():
     schema = fields.Schema(content=fields.TEXT(vector=True))
@@ -76,6 +83,7 @@ def test_vector_unicode():
         vec = list(r.vector_as("frequency", 0, "content"))
         assert_equal(vec, [(u('\u13ac\u13ad\u13ae'), 1),
                            (u('\u13af\u13b0\u13b1'), 1)])
+
 
 def test_add_vectored_field():
     schema = fields.Schema(id=fields.ID(stored=True), f1=fields.TEXT)

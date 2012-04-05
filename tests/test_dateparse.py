@@ -14,11 +14,14 @@ def assert_adatetime(at, **kwargs):
         target = kwargs.get(key)
         assert_equal(val, target, "at.%s=%r not %r in %r" % (key, val, target, at))
 
+
 def assert_timespan(ts, sargs, eargs):
     assert_adatetime(ts.start, **sargs)
 
+
 def assert_unamb(ts, **kwargs):
     assert_unamb_span(ts, kwargs, kwargs)
+
 
 def assert_unamb_span(ts, sargs, eargs):
     startdt = adatetime(**sargs).floor()
@@ -26,29 +29,41 @@ def assert_unamb_span(ts, sargs, eargs):
     assert_equal(ts.start, startdt, "start %s != %s" % (ts.start, startdt))
     assert_equal(ts.end, enddt, "end %s != %s" % (ts.end, enddt))
 
+
 def assert_datespan(ts, startdate, enddate):
     assert ts.__class__ is timespan
     assert_equal(ts.start, startdate)
     assert_equal(ts.end, enddate)
+
 
 #
 
 def test_simple_dateparse(t=english.simple):
     assert_adatetime(t.date_from("2005", basedate), year=2005)
     assert_adatetime(t.date_from("200505", basedate), year=2005, month=5)
-    assert_adatetime(t.date_from("20050510", basedate), year=2005, month=5, day=10)
-    assert_adatetime(t.date_from("2005051001", basedate), year=2005, month=5, day=10, hour=1)
-    assert_adatetime(t.date_from("200505100108", basedate), year=2005, month=5, day=10, hour=1, minute=8)
-    assert_adatetime(t.date_from("20050510010835", basedate), year=2005, month=5, day=10, hour=1, minute=8, second=35)
+    assert_adatetime(t.date_from("20050510", basedate), year=2005, month=5,
+                     day=10)
+    assert_adatetime(t.date_from("2005051001", basedate),
+                     year=2005, month=5, day=10, hour=1)
+    assert_adatetime(t.date_from("200505100108", basedate),
+                     year=2005, month=5, day=10, hour=1, minute=8)
+    assert_adatetime(t.date_from("20050510010835", basedate),
+                     year=2005, month=5, day=10, hour=1, minute=8, second=35)
 
-    assert_adatetime(t.date_from("2005-05", basedate), year=2005, month=5)
-    assert_adatetime(t.date_from("2005 05 10", basedate), year=2005, month=5, day=10)
-    assert_adatetime(t.date_from("2005.05.10.01", basedate), year=2005, month=5, day=10, hour=1)
-    assert_adatetime(t.date_from("2005/05/10 01:08", basedate), year=2005, month=5, day=10, hour=1, minute=8)
-    assert_adatetime(t.date_from("2005.05.10  01:08:35", basedate), year=2005, month=5, day=10, hour=1, minute=8, second=35)
+    assert_adatetime(t.date_from("2005-05", basedate),
+                     year=2005, month=5)
+    assert_adatetime(t.date_from("2005 05 10", basedate),
+                     year=2005, month=5, day=10)
+    assert_adatetime(t.date_from("2005.05.10.01", basedate),
+                     year=2005, month=5, day=10, hour=1)
+    assert_adatetime(t.date_from("2005/05/10 01:08", basedate),
+                     year=2005, month=5, day=10, hour=1, minute=8)
+    assert_adatetime(t.date_from("2005.05.10  01:08:35", basedate),
+                     year=2005, month=5, day=10, hour=1, minute=8, second=35)
 
     assert t.date_from("2005 02 31", basedate) is None
     assert t.date_from("2005-13-32", basedate) is None
+
 
 def test_time(t=english.time):
     assert_adatetime(t.date_from("13:05", basedate), hour=13, minute=5)
@@ -63,20 +78,28 @@ def test_time(t=english.time):
     assert_adatetime(t.date_from("5:10pm", basedate), hour=17, minute=10)
     assert_adatetime(t.date_from("12:45am", basedate), hour=0, minute=45)
     assert_adatetime(t.date_from("12:45pm", basedate), hour=12, minute=45)
-    assert_adatetime(t.date_from("5:45:05 pm", basedate), hour=17, minute=45, second=5)
+    assert_adatetime(t.date_from("5:45:05 pm", basedate),
+                     hour=17, minute=45, second=5)
 
-    assert_adatetime(t.date_from("noon", basedate), hour=12, minute=0, second=0, microsecond=0)
-    assert_adatetime(t.date_from("midnight", basedate), hour=0, minute=0, second=0, microsecond=0)
+    assert_adatetime(t.date_from("noon", basedate),
+                     hour=12, minute=0, second=0, microsecond=0)
+    assert_adatetime(t.date_from("midnight", basedate),
+                     hour=0, minute=0, second=0, microsecond=0)
 
     assert t.date_from("15 am", basedate) is None
     assert t.date_from("24:00", basedate) is None
     assert t.date_from("12:65", basedate) is None
 
+
 def test_dmy(d=english.dmy):
-    assert_adatetime(d.date_from("25 may 2011", basedate), year=2011, month=5, day=25)
-    assert_adatetime(d.date_from("may 2 2011", basedate), year=2011, month=5, day=2)
-    assert_adatetime(d.date_from("2011 25 may", basedate), year=2011, month=5, day=25)
-    assert_adatetime(d.date_from("2011 may 5", basedate), year=2011, month=5, day=5)
+    assert_adatetime(d.date_from("25 may 2011", basedate),
+                     year=2011, month=5, day=25)
+    assert_adatetime(d.date_from("may 2 2011", basedate),
+                     year=2011, month=5, day=2)
+    assert_adatetime(d.date_from("2011 25 may", basedate),
+                     year=2011, month=5, day=25)
+    assert_adatetime(d.date_from("2011 may 5", basedate),
+                     year=2011, month=5, day=5)
 
     assert_adatetime(d.date_from("apr", basedate), month=4)
     assert_adatetime(d.date_from("september", basedate), month=9)
@@ -85,34 +108,54 @@ def test_dmy(d=english.dmy):
     assert_adatetime(d.date_from("nov 30", basedate), month=11, day=30)
     assert d.date_from("25 2525", basedate) is None
 
-    assert_adatetime(d.date_from("25 may, 2011", basedate), year=2011, month=5, day=25)
-    assert_adatetime(d.date_from("may 2nd, 2011", basedate), year=2011, month=5, day=2)
-    assert_adatetime(d.date_from("2011, 25 may", basedate), year=2011, month=5, day=25)
-    assert_adatetime(d.date_from("2011, may 5th", basedate), year=2011, month=5, day=5)
+    assert_adatetime(d.date_from("25 may, 2011", basedate),
+                     year=2011, month=5, day=25)
+    assert_adatetime(d.date_from("may 2nd, 2011", basedate),
+                     year=2011, month=5, day=2)
+    assert_adatetime(d.date_from("2011, 25 may", basedate),
+                     year=2011, month=5, day=25)
+    assert_adatetime(d.date_from("2011, may 5th", basedate),
+                     year=2011, month=5, day=5)
 
-    assert_adatetime(d.date_from("today", basedate), year=2010, month=9, day=20)
-    assert_adatetime(d.date_from("tomorrow", basedate), year=2010, month=9, day=21)
-    assert_adatetime(d.date_from("yesterday", basedate), year=2010, month=9, day=19)
+    assert_adatetime(d.date_from("today", basedate),
+                     year=2010, month=9, day=20)
+    assert_adatetime(d.date_from("tomorrow", basedate),
+                     year=2010, month=9, day=21)
+    assert_adatetime(d.date_from("yesterday", basedate),
+                     year=2010, month=9, day=19)
     assert_adatetime(d.date_from("this month", basedate), year=2010, month=9)
     assert_adatetime(d.date_from("this year", basedate), year=2010)
 
     assert_equal(d.date_from("now", basedate), basedate)
 
+
 def test_plustime(rt=english.plusdate):
     assert_equal(rt.date_from("+1hr", basedate), basedate + timedelta(hours=1))
-    assert_equal(rt.date_from("+5mins", basedate), basedate + timedelta(minutes=5))
-    assert_equal(rt.date_from("+20s", basedate), basedate + timedelta(seconds=20))
+    assert_equal(rt.date_from("+5mins", basedate),
+                 basedate + timedelta(minutes=5))
+    assert_equal(rt.date_from("+20s", basedate),
+                 basedate + timedelta(seconds=20))
 
-    assert_equal(rt.date_from("- 2 h", basedate), basedate + timedelta(hours= -2))
-    assert_equal(rt.date_from("- 25 minutes", basedate), basedate + timedelta(minutes= -25))
-    assert_equal(rt.date_from("-400 secs", basedate), basedate + timedelta(seconds= -400))
+    assert_equal(rt.date_from("- 2 h", basedate),
+                 basedate + timedelta(hours= -2))
+    assert_equal(rt.date_from("- 25 minutes", basedate),
+                 basedate + timedelta(minutes= -25))
+    assert_equal(rt.date_from("-400 secs", basedate),
+                 basedate + timedelta(seconds= -400))
 
-    assert_equal(rt.date_from("+1hr 5m", basedate), basedate + timedelta(hours=1, minutes=5))
-    assert_equal(rt.date_from("-8hr 12m", basedate), basedate + timedelta(hours= -8, minutes= -12))
-    assert_equal(rt.date_from("+1hr 5s", basedate), basedate + timedelta(hours=1, seconds=5))
-    assert_equal(rt.date_from("+1hr 12m 5s", basedate), basedate + timedelta(hours=1, minutes=12, seconds=5))
-    assert_equal(rt.date_from("-1hr 5s", basedate), basedate + timedelta(hours= -1, seconds= -5))
-    assert_equal(rt.date_from("-1hr 12m 5s", basedate), basedate + timedelta(hours= -1, minutes= -12, seconds= -5))
+    assert_equal(rt.date_from("+1hr 5m", basedate),
+                 basedate + timedelta(hours=1, minutes=5))
+    assert_equal(rt.date_from("-8hr 12m", basedate),
+                 basedate + timedelta(hours= -8, minutes= -12))
+    assert_equal(rt.date_from("+1hr 5s", basedate),
+                 basedate + timedelta(hours=1, seconds=5))
+    assert_equal(rt.date_from("+1hr 12m 5s", basedate),
+                 basedate + timedelta(hours=1, minutes=12, seconds=5))
+    assert_equal(rt.date_from("-1hr 5s", basedate),
+                 basedate + timedelta(hours= -1, seconds= -5))
+    assert_equal(rt.date_from("-1hr 12m 5s", basedate),
+                 basedate + timedelta(hours= -1, minutes= -12, seconds= -5))
+
 
 def test_relative_days():
     # "next monday" on monday
@@ -140,31 +183,54 @@ def test_relative_days():
     # "next wednesday" on tuesday
     assert_equal(relative_days(1, 2, 1), 1)
 
+
 def test_dayname(p=english.dayname):
-    assert_adatetime(p.date_from("next tuesday", basedate), year=2010, month=9, day=21)
-    assert_adatetime(p.date_from("last tuesday", basedate), year=2010, month=9, day=14)
-    assert_adatetime(p.date_from("next sunday", basedate), year=2010, month=9, day=26)
-    assert_adatetime(p.date_from("last sun", basedate), year=2010, month=9, day=19)
-    assert_adatetime(p.date_from("next th", basedate), year=2010, month=9, day=23)
+    assert_adatetime(p.date_from("next tuesday", basedate),
+                     year=2010, month=9, day=21)
+    assert_adatetime(p.date_from("last tuesday", basedate),
+                     year=2010, month=9, day=14)
+    assert_adatetime(p.date_from("next sunday", basedate),
+                     year=2010, month=9, day=26)
+    assert_adatetime(p.date_from("last sun", basedate),
+                     year=2010, month=9, day=19)
+    assert_adatetime(p.date_from("next th", basedate),
+                     year=2010, month=9, day=23)
+
 
 def test_reldate(p=english.plusdate):
-    assert_equal(p.date_from("+1y", basedate), basedate + relativedelta(years=1))
-    assert_equal(p.date_from("+2mo", basedate), basedate + relativedelta(months=2))
-    assert_equal(p.date_from("+3w", basedate), basedate + relativedelta(weeks=3))
-    assert_equal(p.date_from("+5d", basedate), basedate + relativedelta(days=5))
-    assert_equal(p.date_from("+5days", basedate), basedate + relativedelta(days=5))
+    assert_equal(p.date_from("+1y", basedate),
+                 basedate + relativedelta(years=1))
+    assert_equal(p.date_from("+2mo", basedate),
+                 basedate + relativedelta(months=2))
+    assert_equal(p.date_from("+3w", basedate),
+                 basedate + relativedelta(weeks=3))
+    assert_equal(p.date_from("+5d", basedate),
+                 basedate + relativedelta(days=5))
+    assert_equal(p.date_from("+5days", basedate),
+                 basedate + relativedelta(days=5))
 
-    assert_equal(p.date_from("-6yr", basedate), basedate + relativedelta(years= -6))
-    assert_equal(p.date_from("- 7 mons", basedate), basedate + relativedelta(months= -7))
-    assert_equal(p.date_from("-8 wks", basedate), basedate + relativedelta(weeks= -8))
-    assert_equal(p.date_from("- 9 dy", basedate), basedate + relativedelta(days= -9))
+    assert_equal(p.date_from("-6yr", basedate),
+                 basedate + relativedelta(years= -6))
+    assert_equal(p.date_from("- 7 mons", basedate),
+                 basedate + relativedelta(months= -7))
+    assert_equal(p.date_from("-8 wks", basedate),
+                 basedate + relativedelta(weeks= -8))
+    assert_equal(p.date_from("- 9 dy", basedate),
+                 basedate + relativedelta(days= -9))
 
-    assert_equal(p.date_from("+1y 12mo 400d", basedate), basedate + relativedelta(years=1, months=12, days=400))
-    assert_equal(p.date_from("-7mo 8d", basedate), basedate + relativedelta(months= -7, days= -8))
-    assert_equal(p.date_from("+5wks 2d", basedate), basedate + relativedelta(weeks=5, days=2))
-    assert_equal(p.date_from("-1y 1w", basedate), basedate + relativedelta(years= -1, weeks= -1))
+    assert_equal(p.date_from("+1y 12mo 400d", basedate),
+                 basedate + relativedelta(years=1, months=12, days=400))
+    assert_equal(p.date_from("-7mo 8d", basedate),
+                 basedate + relativedelta(months= -7, days= -8))
+    assert_equal(p.date_from("+5wks 2d", basedate),
+                 basedate + relativedelta(weeks=5, days=2))
+    assert_equal(p.date_from("-1y 1w", basedate),
+                 basedate + relativedelta(years= -1, weeks= -1))
 
-    assert_equal(p.date_from("+1y 2d 5h 12s", basedate), basedate + relativedelta(years=1, days=2, hours=5, seconds=12))
+    assert_equal(p.date_from("+1y 2d 5h 12s", basedate),
+                 basedate + relativedelta(years=1, days=2, hours=5,
+                                          seconds=12))
+
 
 def test_bundle_subs(p=english.bundle):
     test_time(p)
@@ -173,17 +239,19 @@ def test_bundle_subs(p=english.bundle):
     test_dayname(p)
     test_reldate(p)
 
+
 def test_bundle(p=english.bundle):
     assert_adatetime(p.date_from("mar 29 1972 2:45am", basedate),
-                      year=1972, month=3, day=29, hour=2, minute=45)
+                     year=1972, month=3, day=29, hour=2, minute=45)
     assert_adatetime(p.date_from("16:10:45 14 February 2005", basedate),
-                      year=2005, month=2, day=14, hour=16, minute=10, second=45)
+                     year=2005, month=2, day=14, hour=16, minute=10, second=45)
     assert_adatetime(p.date_from("1985 sept 12 12:01", basedate),
-                      year=1985, month=9, day=12, hour=12, minute=1)
+                     year=1985, month=9, day=12, hour=12, minute=1)
     assert_adatetime(p.date_from("5pm 21st oct 2005", basedate),
-                      year=2005, month=10, day=21, hour=17)
+                     year=2005, month=10, day=21, hour=17)
     assert_adatetime(p.date_from("5:59:59pm next thur", basedate),
-                      year=2010, month=9, day=23, hour=17, minute=59, second=59)
+                     year=2010, month=9, day=23, hour=17, minute=59, second=59)
+
 
 def test_ranges(p=english.torange):
     assert_timespan(p.date_from("last tuesday to next tuesday", basedate),
@@ -221,11 +289,13 @@ def test_ranges(p=english.torange):
                          basedate + relativedelta(days= -2),
                          basedate + relativedelta(weeks=1))
 
+
 def test_all():
     p = english.all
     test_bundle_subs(p)
     test_bundle(p)
     test_ranges(p)
+
 
 def test_final_dates(p=english):
     assert_unamb(p.date_from("5:10pm", basedate),
@@ -234,6 +304,7 @@ def test_final_dates(p=english):
     assert p.date_from("may 32 2005", basedate) is None
     assert p.date_from("2005 may 32", basedate) is None
     assert p.date_from("2005-13-32", basedate) is None
+
 
 def test_final_ranges(p=english):
     assert_unamb_span(p.date_from("feb to nov", basedate),
@@ -298,8 +369,10 @@ def test_final_ranges(p=english):
                            dict(year=2010, month=9, day=21, hour=17))
 
     assert_unamb_span(p.date_from("-2hrs to +20min", basedate),
-                           dict(year=2010, month=9, day=20, hour=13, minute=16, second=6, microsecond=454000),
-                           dict(year=2010, month=9, day=20, hour=15, minute=36, second=6, microsecond=454000))
+                           dict(year=2010, month=9, day=20, hour=13, minute=16,
+                                second=6, microsecond=454000),
+                           dict(year=2010, month=9, day=20, hour=15, minute=36,
+                                second=6, microsecond=454000))
 
     # Swap
     assert_unamb_span(p.date_from("oct 25 2009 to feb 14 2008", basedate),

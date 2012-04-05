@@ -25,6 +25,7 @@ def test_hash():
         assert_equal(hr.get(b("baz")), None)
         hr.close()
 
+
 def test_hash_contents():
     samp = [('alfa', 'bravo'), ('charlie', 'delta'), ('echo', 'foxtrot'),
             ('golf', 'hotel'), ('india', 'juliet'), ('kilo', 'lima'),
@@ -44,6 +45,7 @@ def test_hash_contents():
         hr = HashReader(hrf)
         assert_equal(set(hr.items()), samp)
         hr.close()
+
 
 def test_random_hash():
     from string import ascii_letters as domain
@@ -73,6 +75,7 @@ def test_random_hash():
             assert_equal(hr[k], samp[k])
         hr.close()
 
+
 def test_ordered_hash():
     times = 10000
     with TempStorage("orderedhash") as st:
@@ -88,6 +91,7 @@ def test_ordered_hash():
         for x in keys:
             assert_equal(hr[b("%08x" % x)], b(str(x)))
         hr.close()
+
 
 def test_ordered_closest():
     keys = ['alfa', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf',

@@ -1,5 +1,5 @@
 from __future__ import with_statement
-from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 import random
 from collections import defaultdict
 from datetime import datetime

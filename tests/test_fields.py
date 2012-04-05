@@ -1,7 +1,8 @@
 from __future__ import with_statement
 from datetime import datetime, timedelta
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
+from nose.tools import assert_raises  # @UnresolvedImport
 
 from whoosh import fields, qparser, query
 from whoosh.compat import long_type, u, b, xrange
@@ -32,7 +33,8 @@ def test_creation1():
     s.add("quick", fields.NGRAM)
     s.add("note", fields.STORED)
 
-    assert_equal(s.names(), ["content", "note", "path", "quick", "tags", "title"])
+    assert_equal(s.names(), ["content", "note", "path", "quick", "tags",
+                             "title"])
     assert "content" in s
     assert "buzz" not in s
     assert isinstance(s["tags"], fields.KEYWORD)
@@ -62,7 +64,8 @@ def test_declarative():
     ix = RamStorage().create_index(MySchema())
     assert_equal(ix.schema.names(), ["content", "date", "path", "title"])
 
-    assert_raises(fields.FieldConfigurationError, RamStorage().create_index, object())
+    assert_raises(fields.FieldConfigurationError, RamStorage().create_index,
+                  object())
 
 
 def test_declarative_inherit():
@@ -239,7 +242,8 @@ def test_numeric_ranges():
 def test_decimal_ranges():
     from decimal import Decimal
 
-    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(int, decimal_places=2))
+    schema = fields.Schema(id=fields.STORED,
+                           num=fields.NUMERIC(int, decimal_places=2))
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     count = Decimal("0.0")
@@ -279,7 +283,8 @@ def test_nontext_document():
     dt = datetime.now()
     w = ix.writer()
     for i in xrange(50):
-        w.add_document(id=i, num=i, date=dt + timedelta(days=i), even=not(i % 2))
+        w.add_document(id=i, num=i, date=dt + timedelta(days=i),
+                       even=not(i % 2))
     w.commit()
 
     with ix.searcher() as s:

@@ -20,7 +20,9 @@ def test_all_terms():
     ts = q.all_terms(phrases=False)
     assert_equal(sorted(ts), [("a", "hello"), ("b", "there")])
     ts = q.all_terms(phrases=True)
-    assert_equal(sorted(ts), [("a", "hello"), ("b", "there"), ("c", "friend"), ("c", "my")])
+    assert_equal(sorted(ts), [("a", "hello"), ("b", "there"), ("c", "friend"),
+                              ("c", "my")])
+
 
 def test_existing_terms():
     s = fields.Schema(key=fields.ID, value=fields.TEXT)
@@ -38,11 +40,13 @@ def test_existing_terms():
     assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
 
     ts = q.existing_terms(r)
-    assert_equal(sorted(ts), [("value", "alfa"), ("value", "bravo"), ("value", "hotel")])
+    assert_equal(sorted(ts), [("value", "alfa"), ("value", "bravo"),
+                              ("value", "hotel")])
 
     ts = set()
     q.existing_terms(r, ts, reverse=True)
     assert_equal(sorted(ts), [("value", "sierra"), ("value", "tango")])
+
 
 def test_wildcard_existing_terms():
     s = fields.Schema(key=fields.ID, value=fields.TEXT)
@@ -80,11 +84,14 @@ def test_wildcard_existing_terms():
     ts = q.existing_terms(r, expand=True)
     assert_equal(words(ts), "render rendering renders")
 
+
 def test_replace():
-    q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2), Variations("a", "b", boost=2.0)])
+    q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2),
+             Variations("a", "b", boost=2.0)])
     q = q.replace("a", "b", "BB")
     assert_equal(q, And([Or([Term("a", "BB"), Term("b", "c")], boost=1.2),
                          Variations("a", "BB", boost=2.0)]))
+
 
 def test_apply():
     def visit(q):
@@ -93,7 +100,8 @@ def test_apply():
             return q
         return q.apply(visit)
 
-    before = And([Not(Term("a", u("b"))), Variations("a", u("c")), Not(FuzzyTerm("a", u("d")))])
+    before = And([Not(Term("a", u("b"))), Variations("a", u("c")),
+                  Not(FuzzyTerm("a", u("d")))])
     after = visit(before)
     assert_equal(after, And([Not(Term("a", u("B"))), Variations("a", u("C")),
                              Not(FuzzyTerm("a", u("D")))]))
@@ -104,10 +112,13 @@ def test_apply():
         else:
             return q.apply(term2var)
 
-    q = And([Term("f", "alfa"), Or([Term("f", "bravo"), Not(Term("f", "charlie"))])])
+    q = And([Term("f", "alfa"), Or([Term("f", "bravo"),
+                                    Not(Term("f", "charlie"))])])
     q = term2var(q)
     assert_equal(q, And([Variations('f', 'alfa'),
-                         Or([Variations('f', 'bravo'), Not(Variations('f', 'charlie'))])]))
+                         Or([Variations('f', 'bravo'),
+                             Not(Variations('f', 'charlie'))])]))
+
 
 def test_accept():
     def boost_phrases(q):
@@ -115,16 +126,20 @@ def test_accept():
             q.boost *= 2.0
         return q
 
-    before = And([Term("a", u("b")), Or([Term("c", u("d")), Phrase("a", [u("e"), u("f")])]),
+    before = And([Term("a", u("b")), Or([Term("c", u("d")),
+                                         Phrase("a", [u("e"), u("f")])]),
                   Phrase("a", [u("g"), u("h")], boost=0.25)])
     after = before.accept(boost_phrases)
-    assert_equal(after, And([Term("a", u("b")),
-                             Or([Term("c", u("d")), Phrase("a", [u("e"), u("f")], boost=2.0)]),
-                             Phrase("a", [u("g"), u("h")], boost=0.5)]))
+    assert_equal(after,
+                 And([Term("a", u("b")),
+                      Or([Term("c", u("d")), Phrase("a", [u("e"), u("f")],
+                                                    boost=2.0)]),
+                      Phrase("a", [u("g"), u("h")], boost=0.5)]))
 
     before = Phrase("a", [u("b"), u("c")], boost=2.5)
     after = before.accept(boost_phrases)
     assert_equal(after, Phrase("a", [u("b"), u("c")], boost=5.0))
+
 
 def test_simplify():
     s = fields.Schema(k=fields.ID, v=fields.TEXT)
@@ -137,15 +152,19 @@ def test_simplify():
 
     r = ix.reader()
     q1 = And([Prefix("v", "b", boost=2.0), Term("v", "juliet")])
-    q2 = And([Or([Term('v', u('bear'), boost=2.0), Term('v', u('bee'), boost=2.0),
-                  Term('v', u('brie'), boost=2.0)]), Term('v', 'juliet')])
+    q2 = And([Or([Term('v', u('bear'), boost=2.0),
+                  Term('v', u('bee'), boost=2.0),
+                  Term('v', u('brie'), boost=2.0)]),
+              Term('v', 'juliet')])
     assert_equal(q1.simplify(r), q2)
+
 
 def test_merge_ranges():
     q = And([TermRange("f1", u("a"), None), TermRange("f1", None, u("z"))])
     assert_equal(q.normalize(), TermRange("f1", u("a"), u("z")))
 
-    q = And([NumericRange("f1", None, u("aaaaa")), NumericRange("f1", u("zzzzz"), None)])
+    q = And([NumericRange("f1", None, u("aaaaa")),
+             NumericRange("f1", u("zzzzz"), None)])
     assert_equal(q.normalize(), q)
 
     q = And([TermRange("f1", u("a"), u("z")), TermRange("f1", "b", "x")])
@@ -163,7 +182,8 @@ def test_merge_ranges():
     q = And([Every("f1"), Term("f1", "a"), Variations("f1", "b")])
     assert_equal(q.normalize(), Every("f1"))
 
-    q = Or([Term("f1", u("q")), TermRange("f1", u("m"), None), TermRange("f1", None, u("n"))])
+    q = Or([Term("f1", u("q")), TermRange("f1", u("m"), None),
+            TermRange("f1", None, u("n"))])
     assert_equal(q.normalize(), Every("f1"))
 
     q = And([Or([Term("f1", u("a")), Term("f1", u("b"))]), Every("f1")])
@@ -172,9 +192,11 @@ def test_merge_ranges():
     q = And([Term("f1", u("a")), And([Or([Every("f1")])])])
     assert_equal(q.normalize(), Every("f1"))
 
+
 def test_normalize_compound():
     def oq():
         return Or([Term("a", u("a")), Term("a", u("b"))])
+
     def nq(level):
         if level == 0:
             return oq()
@@ -185,6 +207,7 @@ def test_normalize_compound():
     q = q.normalize()
     assert_equal(q, Or([Term("a", u("a")), Term("a", u("b"))]))
 
+
 def test_duplicates():
     q = And([Term("a", u("b")), Term("a", u("b"))])
     assert_equal(q.normalize(), Term("a", u("b")))
@@ -192,18 +215,23 @@ def test_duplicates():
     q = And([Prefix("a", u("b")), Prefix("a", u("b"))])
     assert_equal(q.normalize(), Prefix("a", u("b")))
 
-    q = And([Variations("a", u("b")), And([Variations("a", u("b")), Term("a", u("b"))])])
-    assert_equal(q.normalize(), And([Variations("a", u("b")), Term("a", u("b"))]))
+    q = And([Variations("a", u("b")), And([Variations("a", u("b")),
+                                           Term("a", u("b"))])])
+    assert_equal(q.normalize(),
+                 And([Variations("a", u("b")), Term("a", u("b"))]))
 
-    q = And([Term("a", u("b")), Prefix("a", u("b")), Term("a", u("b"), boost=1.1)])
+    q = And([Term("a", u("b")), Prefix("a", u("b")),
+             Term("a", u("b"), boost=1.1)])
     assert_equal(q.normalize(), q)
 
     # Wildcard without * or ? normalizes to Term
-    q = And([Wildcard("a", u("b")), And([Wildcard("a", u("b")), Term("a", u("b"))])])
+    q = And([Wildcard("a", u("b")),
+             And([Wildcard("a", u("b")), Term("a", u("b"))])])
     assert_equal(q.normalize(), Term("a", u("b")))
 
 
 # TODO: FIX THIS
+
 def test_query_copy_hash():
     def do(q1, q2):
         q1a = copy.deepcopy(q1)
@@ -217,10 +245,12 @@ def test_query_copy_hash():
     do(Or([Term("a", u("b"), boost=1.1), Term("c", u("d"))]),
        Or([Term("a", u("b"), boost=1.8), Term("c", u("d"))], boost=1.5))
     do(DisjunctionMax([Term("a", u("b"), boost=1.8), Term("c", u("d"))]),
-       DisjunctionMax([Term("a", u("b"), boost=1.1), Term("c", u("d"))], boost=1.5))
+       DisjunctionMax([Term("a", u("b"), boost=1.1), Term("c", u("d"))],
+                      boost=1.5))
     do(Not(Term("a", u("b"), boost=1.1)), Not(Term("a", u("b"), boost=1.5)))
     do(Prefix("a", u("b"), boost=1.1), Prefix("a", u("b"), boost=1.5))
-    do(Wildcard("a", u("b*x?"), boost=1.1), Wildcard("a", u("b*x?"), boost=1.5))
+    do(Wildcard("a", u("b*x?"), boost=1.1), Wildcard("a", u("b*x?"),
+                                                     boost=1.5))
     do(FuzzyTerm("a", u("b"), constantscore=True),
        FuzzyTerm("a", u("b"), constantscore=False))
     do(FuzzyTerm("a", u("b"), boost=1.1), FuzzyTerm("a", u("b"), boost=1.5))
@@ -239,7 +269,8 @@ def test_query_copy_hash():
     do(Variations("a", u("render")), Variations("a", u("renders")))
     do(Variations("a", u("render"), boost=1.1),
        Variations("a", u("renders"), boost=1.5))
-    do(Phrase("a", [u("b"), u("c"), u("d")]), Phrase("a", [u("b"), u("c"), u("e")]))
+    do(Phrase("a", [u("b"), u("c"), u("d")]),
+       Phrase("a", [u("b"), u("c"), u("e")]))
     do(Phrase("a", [u("b"), u("c"), u("d")], boost=1.1),
        Phrase("a", [u("b"), u("c"), u("d")], boost=1.5))
     do(Phrase("a", [u("b"), u("c"), u("d")], slop=1),
@@ -249,7 +280,8 @@ def test_query_copy_hash():
     do(Every("a"), Every("b"))
     do(Every("a", boost=1.1), Every("a", boost=1.5))
     do(NullQuery, Term("a", u("b")))
-    do(ConstantScoreQuery(Term("a", u("b"))), ConstantScoreQuery(Term("a", u("c"))))
+    do(ConstantScoreQuery(Term("a", u("b"))),
+       ConstantScoreQuery(Term("a", u("c"))))
     do(ConstantScoreQuery(Term("a", u("b")), score=2.0),
        ConstantScoreQuery(Term("a", u("c")), score=2.1))
     do(Require(Term("a", u("b")), Term("c", u("d"))),
@@ -259,7 +291,8 @@ def test_query_copy_hash():
     # do(AndNot)
     # do(Otherwise)
 
-    do(SpanFirst(Term("a", u("b")), limit=1), SpanFirst(Term("a", u("b")), limit=2))
+    do(SpanFirst(Term("a", u("b")), limit=1), SpanFirst(Term("a", u("b")),
+                                                        limit=2))
     do(SpanNear(Term("a", u("b")), Term("c", u("d"))),
        SpanNear(Term("a", u("b")), Term("c", u("e"))))
     do(SpanNear(Term("a", u("b")), Term("c", u("d")), slop=1),
@@ -277,6 +310,7 @@ def test_query_copy_hash():
     # do(SpanBefore)
     # do(SpanCondition)
 
+
 def test_requires():
     a = Term("f", u("a"))
     b = Term("f", u("b"))
@@ -284,6 +318,7 @@ def test_requires():
     assert_equal(Or([a, b]).requires(), set())
     assert_equal(AndMaybe(a, b).requires(), set([a]))
     assert_equal(a.requires(), set([a]))
+
 
 def test_highlight_daterange():
     from datetime import datetime
@@ -304,7 +339,8 @@ def test_highlight_daterange():
     w.update_document(
         id=u('2'),
         title=u('Darjeeling Limited'),
-        content=u('Three brothers meet in India for a life changing train journey.'),
+        content=u('Three brothers meet in India for a life changing train ' +
+                  'journey.'),
         released=datetime(2007, 10, 27)
     )
     w.commit()
@@ -313,11 +349,14 @@ def test_highlight_daterange():
     r = s.search(Term('content', u('train')), terms=True)
     assert_equal(len(r), 1)
     assert_equal(r[0]["id"], "2")
-    assert_equal(r[0].highlights("content"), 'for a life changing <b class="match term0">train</b> journey')
+    assert_equal(r[0].highlights("content"),
+                 'for a life changing ' +
+                 '<b class="match term0">train</b> journey')
 
     r = s.search(DateRange('released', datetime(2007, 1, 1), None))
     assert_equal(len(r), 1)
     assert_equal(r[0].highlights("content"), '')
+
 
 def test_patterns():
     domain = u("aaron able acre adage aether after ago ahi aim ajax akimbo "
@@ -337,11 +376,13 @@ def test_patterns():
 
         q = query.Wildcard("word", "a*[ae]")
         assert_equal(q.simplify(r).__unicode__(),
-                     "(word:able OR word:acre OR word:adage OR word:amiga OR word:ampere)")
+                     "(word:able OR word:acre OR word:adage OR " +
+                     "word:amiga OR word:ampere)")
         assert_equal(q._find_prefix(q.text), "a")
 
         q = query.Regex("word", "am.*[ae]")
-        assert_equal(q.simplify(r).__unicode__(), "(word:amiga OR word:ampere)")
+        assert_equal(q.simplify(r).__unicode__(),
+                     "(word:amiga OR word:ampere)")
         assert_equal(q._find_prefix(q.text), "am")
 
         q = query.Regex("word", "able|ago")
