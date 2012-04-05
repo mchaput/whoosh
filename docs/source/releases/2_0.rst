@@ -2,6 +2,44 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.4
+==========
+
+* By default, Whoosh now assembles the individual files of a segment into a
+  single file when committing. This has a small performance penalty but solves
+  a problem where Whoosh can keep too many files open. Whoosh is also now
+  smarter about using mmap.
+
+* Added functionality to index and search hierarchical documents. See
+  :doc:`/nested`.
+
+* Rewrote the Directed Acyclic Word Graph implementation (used in spell
+  checking) to be faster and more space-efficient. Word graph files created by
+  previous versions will be ignored, meaning that spell checking may becomes
+  slower unless/until you replace the old segments (for example, by
+  optimizing).
+
+* Rewrote multiprocessing indexing to be faster and simpler. You can now
+  do ``myindex.writer(procs=n)`` to get a multiprocessing writer, or
+  ``myindex.writer(procs=n, multisegment=True)`` to get a multiprocessing
+  writer that leaves behind multiple segments, like the old MultiSegmentWriter.
+  (``MultiSegmentWriter`` is still available as a function that returns the
+  new class.)
+
+* When creating ``Term`` query objects for special fields (e.g. NUMERIC or
+  BOOLEAN), you can now use the field's literal type instead of a string as the
+  second argument, for example ``Term("num", 20)`` or ``Term("bool", True)``.
+  (This change may cause problems interacting with functions that expect
+  query objects to be pure textual, such as spell checking.)
+
+* All writing to and reading from on-disk indexes is now done through "codec"
+  objects. This architecture should make it easier to add optional or
+  experimental features, and maintain backwards compatibility.
+
+* Fixes issues #137, #206, #213, #215, #219, #223, #226, #230, #233, #238
+  and other bugs.
+
+
 Whoosh 2.3.2
 ============
 
