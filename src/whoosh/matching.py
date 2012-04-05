@@ -1305,13 +1305,31 @@ class IntersectionMatcher(AdditiveBiMatcher):
         bq = b.block_quality()
         while a.is_active() and b.is_active() and aq + bq <= minquality:
             if aq < bq:
-                skipped += a.skip_to_quality(minquality - bq)
+                # If the block quality of A is less than B, skip A ahead until
+                # it can contribute at least the balance of the required min
+                # quality when added to B
+                sk = a.skip_to_quality(minquality - bq)
+                skipped += sk
+                if not sk:
+                    # The matcher couldn't skip ahead for some reason, so just
+                    # advance and try again
+                    a.next()
             else:
-                skipped += b.skip_to_quality(minquality - aq)
+                # And vice-versa
+                sk = b.skip_to_quality(minquality - aq)
+                skipped += sk
+                if not sk:
+                    b.next()
+
             if not a.is_active() or not b.is_active():
+                # One of the matchers is exhausted
                 break
             if a.id() != b.id():
+                # We want to always leave in a state where the matchers are at
+                # the same document, so call _find_next() to sync them
                 self._find_next()
+
+            # Get the block qualities at the new matcher positions
             aq = a.block_quality()
             bq = b.block_quality()
         return skipped
