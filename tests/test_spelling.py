@@ -203,7 +203,8 @@ def test_query_highlight():
     assert_equal(do("a b c d", ["b"]),
                  'a <strong class="match term0">b</strong> c d')
     assert_equal(do('a (x:b OR y:"c d") e', ("b", "c")),
-                 'a (x:<strong class="match term0">b</strong> OR y:"<strong class="match term1">c</strong> d") e')
+                 'a (x:<strong class="match term0">b</strong> OR ' +
+                 'y:"<strong class="match term1">c</strong> d") e')
 
 
 def test_query_terms():
@@ -239,17 +240,21 @@ def test_correct_query():
     q = qp.parse(qtext, ix.schema)
 
     c = s.correct_query(q, qtext)
-    assert_equal(c.query.__unicode__(), '(a:alfa AND (a:"bravo november" OR b:dolta) AND a:detail)')
+    assert_equal(c.query.__unicode__(),
+                 '(a:alfa AND (a:"bravo november" OR b:dolta) AND a:detail)')
     assert_equal(c.string, 'alfa ("bravo november" OR b:dolta) detail')
 
     qtext = u('alpha b:("brovo november" a:delta) detail')
     q = qp.parse(qtext, ix.schema)
     c = s.correct_query(q, qtext)
-    assert_equal(c.query.__unicode__(), '(a:alfa AND b:"brovo november" AND a:delta AND a:detail)')
+    assert_equal(c.query.__unicode__(),
+                 '(a:alfa AND b:"brovo november" AND a:delta AND a:detail)')
     assert_equal(c.string, 'alfa b:("brovo november" a:delta) detail')
 
     hf = highlight.HtmlFormatter(classname="c")
-    assert_equal(c.format_string(hf), '<strong class="c term0">alfa</strong> b:("brovo november" a:delta) detail')
+    assert_equal(c.format_string(hf),
+                 '<strong class="c term0">alfa</strong> ' +
+                 'b:("brovo november" a:delta) detail')
 
 
 def test_bypass_stemming():

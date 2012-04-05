@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import threading, time
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh.support.filelock import try_for
 from whoosh.util import length_to_byte, byte_to_length
@@ -21,6 +21,7 @@ def test_filelock_simple():
         assert lock2.acquire()
         assert not lock1.acquire()
         lock2.release()
+
 
 def test_threaded_filelock():
     with TempStorage("threadedfilelock") as st:
@@ -50,11 +51,13 @@ def test_threaded_filelock():
         # "results" list.
         assert_equal(result, [True])
 
+
 def test_length_byte():
     source = list(range(11))
     xform = [length_to_byte(n) for n in source]
     result = [byte_to_length(n) for n in xform]
     assert_equal(source, result)
+
 
 def test_clockface_lru():
     from whoosh.util import clockface_lru_cache
@@ -68,6 +71,7 @@ def test_clockface_lru():
     assert_equal(test.cache_info(), (3, 7, 5, 5))
     test.cache_clear()
     assert_equal(test.cache_info(), (0, 0, 5, 0))
+
 
 def test_double_barrel_lru():
     from whoosh.util import lru_cache

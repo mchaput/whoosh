@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import random
 
-from nose.tools import assert_equal, assert_almost_equal  #@UnresolvedImport
+from nose.tools import assert_equal, assert_almost_equal  # @UnresolvedImport
 
 from whoosh import fields, matching, scoring
 from whoosh.compat import b, u, xrange
@@ -11,6 +11,7 @@ from whoosh.util import length_to_byte, byte_to_length
 
 def _discreet(length):
     return byte_to_length(length_to_byte(length))
+
 
 def test_max_field_length():
     st = RamStorage()
@@ -23,6 +24,7 @@ def test_max_field_length():
 
         with ix.reader() as r:
             assert_equal(r.max_field_length("t"), _discreet(i))
+
 
 def test_minmax_field_length():
     st = RamStorage()
@@ -41,6 +43,7 @@ def test_minmax_field_length():
         with ix.reader() as r:
             assert_equal(r.min_field_length("t"), _discreet(least))
             assert_equal(r.max_field_length("t"), _discreet(most))
+
 
 def test_term_stats():
     schema = fields.Schema(t=fields.TEXT)
@@ -90,6 +93,7 @@ def test_term_stats():
         assert_equal(r.min_field_length("t"), 1)
         assert_equal(r.max_field_length("t"), 7)
 
+
 def test_min_max_id():
     schema = fields.Schema(id=fields.STORED, t=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -134,6 +138,7 @@ def test_min_max_id():
         assert_equal(ti.min_id(), 3)
         assert_equal(ti.max_id(), 5)
 
+
 def test_replacements():
     sc = scoring.WeightScorer(0.25)
     a = matching.ListMatcher([1, 2, 3], [0.25, 0.25, 0.25], scorer=sc)
@@ -154,9 +159,12 @@ def test_replacements():
     assert_equal(wm.boost, 2.0)
     assert_equal(wm.child.__class__, matching.IntersectionMatcher)
 
-    ls1 = matching.ListMatcher([1, 2, 3], [0.1, 0.1, 0.1], scorer=scoring.WeightScorer(0.1))
-    ls2 = matching.ListMatcher([1, 2, 3], [0.2, 0.2, 0.2], scorer=scoring.WeightScorer(0.2))
-    ls3 = matching.ListMatcher([1, 2, 3], [0.3, 0.3, 0.3], scorer=scoring.WeightScorer(0.3))
+    ls1 = matching.ListMatcher([1, 2, 3], [0.1, 0.1, 0.1],
+                               scorer=scoring.WeightScorer(0.1))
+    ls2 = matching.ListMatcher([1, 2, 3], [0.2, 0.2, 0.2],
+                               scorer=scoring.WeightScorer(0.2))
+    ls3 = matching.ListMatcher([1, 2, 3], [0.3, 0.3, 0.3],
+                               scorer=scoring.WeightScorer(0.3))
     mm = matching.MultiMatcher([ls1, ls2, ls3], [0, 4, 8])
     mm = mm.replace(0.25)
     assert_equal(mm.current, 2)
