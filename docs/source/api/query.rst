@@ -4,12 +4,14 @@
 
 .. automodule:: whoosh.query
 
-See also :mod:`whoosh.qparser` which contains code for parsing user queries into query objects.
+See also :mod:`whoosh.qparser` which contains code for parsing user queries
+into query objects.
 
 Base classes
 ============
 
-The following abstract base classes are subclassed to create the the "real" query operations.
+The following abstract base classes are subclassed to create the the "real"
+query operations.
 
 .. autoclass:: Query
     :members:
@@ -37,6 +39,7 @@ Query classes
 .. autoclass:: TermRange
 .. autoclass:: NumericRange
 .. autoclass:: DateRange
+.. autoclass:: Nested
 .. autoclass:: Every
 .. autoclass:: NullQuery
 
