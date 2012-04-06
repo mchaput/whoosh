@@ -6,7 +6,7 @@ import operator
 from array import array
 from bisect import bisect_left, bisect_right, insort
 
-from whoosh.compat import integer_types, xrange
+from whoosh.compat import integer_types, izip, xrange
 
 
 # Number of '1' bits in each byte (0-255)
@@ -34,8 +34,6 @@ class DocIdSet(object):
     """
 
     def __eq__(self, other):
-        from itertools import izip
-
         for a, b in izip(self, other):
             if a != b:
                 return False
