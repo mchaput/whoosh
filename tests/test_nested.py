@@ -100,8 +100,8 @@ def test_deletion():
                          query.Term("name", "add"))
 
         r = s.search(q)
-        assert_equal([hit["name"] for hit in r], ["Calculator", "Index",
-                                                  "Accumulator", "Deleter"])
+        assert_equal([hit["name"] for hit in r],
+                     ["Calculator", "Index", "Accumulator", "Deleter"])
 
     with ix.writer() as w:
         w.delete_by_term("name", "Accumulator")

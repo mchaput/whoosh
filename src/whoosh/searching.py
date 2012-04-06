@@ -363,7 +363,7 @@ class Searcher(object):
 
     @lru_cache(20)
     def _query_to_comb(self, fq):
-        return BitSet(self.doc_count_all(), source=self.docs_for_query(fq))
+        return BitSet(self.docs_for_query(fq), size=self.doc_count_all())
 
     def _filter_to_comb(self, obj):
         if obj is None:

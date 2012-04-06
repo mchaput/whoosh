@@ -32,6 +32,7 @@ from whoosh import matching
 from whoosh.compat import text_type, u
 from whoosh.query import core, nary
 from whoosh.query.core import WrappingQuery
+from whoosh.support.bitvector import BitSet, SortedIntSet
 
 
 class Not(core.Query):
@@ -228,15 +229,16 @@ class Nested(WrappingQuery):
         return self.child.requires()
 
     def matcher(self, searcher, weighting=None):
-        from whoosh.support.bitvector import BitSet, SortedIntSet
-
         pm = self.parentq.matcher(searcher)
         if not pm.is_active():
             return matching.NullMatcher
-
-        bits = BitSet(searcher.doc_count_all(), pm.all_ids())
-        #bits = SortedIntSet(pm.all_ids())
         m = self.child.matcher(searcher, weighting=weighting)
+        if not m.is_active():
+            return matching.NullMatcher
+
+        #bits = BitSet(pm.all_ids())
+        bits = SortedIntSet(pm.all_ids())
+
         return self.NestedMatcher(bits, m, self.per_parent_limit,
                                   searcher.doc_count_all())
 
