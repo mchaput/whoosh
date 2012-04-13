@@ -29,10 +29,51 @@ from __future__ import division
 from array import array
 
 from whoosh import matching
-from whoosh.compat import text_type, u
-from whoosh.query import core, nary
-from whoosh.query.core import WrappingQuery
+from whoosh.compat import text_type, u, xrange
+from whoosh.query import core
+from whoosh.query.core import Query
 from whoosh.support.bitvector import BitSet, SortedIntSet
+
+
+class WrappingQuery(Query):
+    def __init__(self, child):
+        self.child = child
+
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.child)
+
+    def __hash__(self):
+        return hash(self.__class__.__name__) ^ hash(self.child)
+
+    def _rewrap(self, child):
+        return self.__class__(child)
+
+    def is_leaf(self):
+        return False
+
+    def children(self):
+        yield self.child
+
+    def apply(self, fn):
+        return self._rewrap(fn(self.child))
+
+    def requires(self):
+        return self.child.requires()
+
+    def field(self):
+        return self.child.field()
+
+    def with_boost(self, boost):
+        return self._rewrap(self.child.with_boost(boost))
+
+    def estimate_size(self, ixreader):
+        return self.child.estimate_size(ixreader)
+
+    def estimate_min_size(self, ixreader):
+        return self.child.estimate_min_size(ixreader)
+
+    def matcher(self, searcher, weighting=None):
+        return self.child.matcher(searcher, weighting=weighting)
 
 
 class Not(core.Query):
@@ -156,7 +197,7 @@ class WeightingQuery(WrappingQuery):
         return self.child.matcher(searcher, self.weighting)
 
 
-class Nested(WrappingQuery):
+class NestedParent(WrappingQuery):
     """A query that allows you to search for "nested" documents, where you can
     index (possibly multiple levels of) "parent" and "child" documents using
     the :meth:`~whoosh.writing.IndexWriter.group` and/or
@@ -183,25 +224,26 @@ class Nested(WrappingQuery):
                 w.add_document(type="p", text="Fine day")
                 
     
-    The ``Nested`` query wraps two sub-queries: the "parent query" matches a
-    class of "parent documents". The "sub query" matches nested documents you
-    want to find. For each "sub document" the "sub query" finds, this query
-    acts as if it found the corresponding "parent document".
+    The ``NestedParent`` query wraps two sub-queries: the "parent query"
+    matches a class of "parent documents". The "sub query" matches nested
+    documents you want to find. For each "sub document" the "sub query" finds,
+    this query acts as if it found the corresponding "parent document".
     
     >>> with ix.searcher() as s:
     ...   r = s.search(query.Term("text", "day"))
     ...   for hit in r:
-    ...     print hit["text"]
+    ...     print(hit["text"])
     ...
     Chapter 2
     Chapter 3
     """
 
-    def __init__(self, parentq, subq, per_parent_limit=None, score_fn=sum):
+    def __init__(self, parents, subq, per_parent_limit=None, score_fn=sum):
         """
-        :param parentq: a query matching the documents you want to use as the
-            "parent" documents. Where the sub-query matches, the corresponding
-            document in these results will be returned as the match.
+        :param parents: a query, DocIdSet object, or Results object
+            representing the documents you want to use as the "parent"
+            documents. Where the sub-query matches, the corresponding document
+            in these results will be returned as the match.
         :param subq: a query matching the information you want to find.
         :param per_parent_limit: a maximum number of "sub documents" to search
             per parent. The default is None, meaning no limit.
@@ -211,13 +253,15 @@ class Nested(WrappingQuery):
             sub-documents.
         """
 
-        self.parentq = parentq
+        self.parents = parents
         self.child = subq
         self.per_parent_limit = per_parent_limit
         self.score_fn = score_fn
 
     def normalize(self):
-        p = self.parentq.normalize()
+        p = self.parents
+        if isinstance(p, core.Query):
+            p = p.normalize()
         q = self.child.normalize()
 
         if p is core.NullQuery or q is core.NullQuery:
@@ -229,20 +273,32 @@ class Nested(WrappingQuery):
         return self.child.requires()
 
     def matcher(self, searcher, weighting=None):
-        pm = self.parentq.matcher(searcher)
-        if not pm.is_active():
+        bits = searcher._filter_to_comb(self.parents)
+        if not bits:
             return matching.NullMatcher
         m = self.child.matcher(searcher, weighting=weighting)
         if not m.is_active():
             return matching.NullMatcher
 
-        #bits = BitSet(pm.all_ids())
-        bits = SortedIntSet(pm.all_ids())
+        return self.NestedParentMatcher(bits, m, self.per_parent_limit,
+                                        searcher.doc_count_all())
 
-        return self.NestedMatcher(bits, m, self.per_parent_limit,
-                                  searcher.doc_count_all())
+    def deletion_docs(self, searcher):
+        bits = searcher._filter_to_comb(self.parents)
+        if not bits:
+            return
 
-    class NestedMatcher(matching.Matcher):
+        m = self.child.matcher(searcher)
+        maxdoc = searcher.doc_count_all()
+        while m.is_active():
+            docnum = m.id()
+            parentdoc = bits.before(docnum + 1)
+            nextparent = bits.after(docnum) or maxdoc
+            for i in xrange(parentdoc, nextparent):
+                yield i
+            m.skip_to(nextparent)
+
+    class NestedParentMatcher(matching.Matcher):
         def __init__(self, comb, child, per_parent_limit, maxdoc):
             self.comb = comb
             self.child = child
@@ -301,9 +357,7 @@ class Nested(WrappingQuery):
                 self._gather()
             else:
                 if self._nextdoc is None:
-                    from whoosh.matching import ReadTooFar
-
-                    raise ReadTooFar
+                    raise matching.ReadTooFar
                 else:
                     self._nextdoc = None
 
@@ -314,7 +368,189 @@ class Nested(WrappingQuery):
         def value(self):
             raise NotImplementedError(self.__class__)
 
+        def spans(self):
+            return []
 
+
+class NestedChildren(WrappingQuery):
+    """This is the reverse of a :class:`NestedParent` query: instead of taking
+    a query that matches children but returns the parent, this query matches
+    parents but returns the children.
+    
+    This is useful, for example, to search for an album title and return the
+    songs in the album::
+    
+        schema = fields.Schema(type=fields.ID(stored=True),
+                               album_name=fields.TEXT(stored=True),
+                               track_num=fields.NUMERIC(stored=True),
+                               track_name=fields.TEXT(stored=True),
+                               lyrics=fields.TEXT)
+        ix = RamStorage().create_index(schema)
+        
+        # Indexing
+        with ix.writer() as w:
+            # For each album, index a "group" of a parent "album" document and
+            # multiple child "track" documents.
+            with w.group():
+                w.add_document(type="album",
+                               artist="The Cure", album_name="Disintegration")
+                w.add_document(type="track", track_num=1,
+                               track_name="Plainsong")
+                w.add_document(type="track", track_num=2,
+                               track_name="Pictures of You")
+                # ...
+            # ...
+        
+        
+        # Find songs where the song name has "heaven" in the title and the
+        # album the song is on has "hell" in the title
+        qp = QueryParser("lyrics", ix.schema)
+        with ix.searcher() as s:
+            # A query that matches all parents
+            all_albums = qp.parse("type:album")
+            
+            # A query that matches the parents we want
+            albums_with_hell = qp.parse("album_name:hell")
+            
+            # A query that matches the desired albums but returns the tracks
+            songs_on_hell_albums = NestedChildren(all_albums, albums_with_hell)
+            
+            # A query that matches tracks with heaven in the title
+            songs_with_heaven = qp.parse("track_name:heaven")
+            
+            # A query that finds tracks with heaven in the title on albums
+            # with hell in the title
+            q = query.And([songs_on_hell_albums, songs_with_heaven])
+        
+    """
+
+    def __init__(self, parents, subq, boost=1.0):
+        self.parents = parents
+        self.child = subq
+        self.boost = boost
+
+    def matcher(self, searcher, weighting=None):
+        bits = searcher._filter_to_comb(self.parents)
+        if not bits:
+            return matching.NullMatcher
+
+        m = self.child.matcher(searcher, weighting=weighting)
+        if not m.is_active():
+            return matching.NullMatcher
+
+        return self.NestedChildMatcher(bits, m, searcher.doc_count_all(),
+                                       searcher.reader().is_deleted,
+                                       boost=self.boost)
+
+    class NestedChildMatcher(matching.WrappingMatcher):
+        def __init__(self, comb, m, limit, is_deleted, boost=1.0):
+            self.comb = comb
+            self.child = m
+            self.limit = limit
+            self.is_deleted = is_deleted
+            self.boost = boost
+            self._reset()
+
+        def __repr__(self):
+            return "%s(%r, %r)" % (self.__class__.__name__, self.comb,
+                                   self.child)
+
+        def reset(self):
+            self.child.reset()
+            self._reset()
+
+        def _reset(self):
+            self._nextchild = -1
+            self._nextparent = -1
+            self._find_next_children()
+
+        def is_active(self):
+            return self._nextchild < self._nextparent
+
+        def replace(self, minscore):
+            return self
+
+        def _find_next_children(self):
+            comb = self.comb
+            m = self.child
+            limit = self.limit
+            is_deleted = self.is_deleted
+            nextchild = self._nextchild
+            nextparent = self._nextparent
+
+            while m.is_active():
+                # Move the "child id" to the document after the current match
+                nextchild = m.id() + 1
+                # Move the parent matcher to the next match
+                m.next()
+
+                # Find the next parent document (matching or not) after this
+                nextparent = comb.after(nextchild)
+                if nextparent is None:
+                    nextparent = limit
+
+                # Skip any deleted child documents
+                while is_deleted(nextchild):
+                    nextchild += 1
+
+                # If skipping deleted documents put us to or past the next
+                # parent doc, go again
+                if nextchild >= nextparent:
+                    continue
+                else:
+                    # Otherwise, we're done
+                    break
+
+            self._nextchild = nextchild
+            self._nextparent = nextparent
+
+        def id(self):
+            return self._nextchild
+
+        def all_ids(self):
+            while self.is_active():
+                yield self.id()
+                self.next()
+
+        def next(self):
+            is_deleted = self.is_deleted
+            limit = self.limit
+            nextparent = self._nextparent
+
+            # Go to the next document
+            nextchild = self._nextchild
+            nextchild += 1
+
+            # Skip over any deleted child documents
+            while nextchild < nextparent and is_deleted(nextchild):
+                nextchild += 1
+
+            self._nextchild = nextchild
+            # If we're at or past the next parent doc, go to the next set of
+            # children
+            if nextchild >= limit:
+                return
+            elif nextchild >= nextparent:
+                self._find_next_children()
+
+        def skip_to(self, docid):
+            m = self.child
+
+            m.skip_to(docid)
+            if m.is_active():
+                self._find_next_children()
+            else:
+                # Go inactive
+                self._nextchild = self.limit
+
+        def value(self):
+            raise NotImplementedError(self.__class__)
+
+        def score(self):
+            return self.boost
+
+        def spans(self):
+            return []
 
 
 

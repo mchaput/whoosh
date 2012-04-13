@@ -1,12 +1,12 @@
 from __future__ import with_statement
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh import fields, query, scoring
+from whoosh import fields, query, sorting
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 
 
-def test_nested():
+def test_nested_parent():
     schema = fields.Schema(name=fields.ID(stored=True), type=fields.ID,
                            part=fields.ID, price=fields.NUMERIC)
     ix = RamStorage().create_index(schema)
@@ -33,7 +33,7 @@ def test_nested():
 
         pq = query.Term("type", "product")
         cq = query.Term("price", price.to_text(50))
-        q = query.Nested(pq, cq)
+        q = query.NestedParent(pq, cq)
 
         r = s.search(q)
         assert_equal(sorted([hit["name"] for hit in r]), ["Mac mini", "iPad"])
@@ -62,8 +62,8 @@ def test_scoring():
             w.add_document(kind=u("method"), name=u("close"))
 
     with ix.searcher() as s:
-        q = query.Nested(query.Term("kind", "class"),
-                         query.Term("name", "add"))
+        q = query.NestedParent(query.Term("kind", "class"),
+                               query.Term("name", "add"))
         r = s.search(q)
         assert_equal([hit["name"] for hit in r], ["Calculator", "Index",
                                                   "Accumulator"])
@@ -96,8 +96,8 @@ def test_deletion():
             w.add_document(kind=u("method"), name=u("delete"))
 
     with ix.searcher() as s:
-        q = query.Nested(query.Term("kind", "class"),
-                         query.Term("name", "add"))
+        q = query.NestedParent(query.Term("kind", "class"),
+                               query.Term("name", "add"))
 
         r = s.search(q)
         assert_equal([hit["name"] for hit in r],
@@ -110,7 +110,7 @@ def test_deletion():
     with ix.searcher() as s:
         pq = query.Term("kind", "class")
         assert_equal(len(list(pq.docs(s))), 2)
-        q = query.Nested(pq, query.Term("name", "add"))
+        q = query.NestedParent(pq, query.Term("name", "add"))
         r = s.search(q)
         assert_equal([hit["name"] for hit in r], ["Index", "Deleter"])
 
@@ -148,8 +148,8 @@ def test_all_parents_deleted():
         w.delete_by_term("name", "Deleter")
 
     with ix.searcher() as s:
-        q = query.Nested(query.Term("kind", "class"),
-                         query.Term("name", "add"))
+        q = query.NestedParent(query.Term("kind", "class"),
+                               query.Term("name", "add"))
         r = s.search(q)
         assert r.is_empty()
 
@@ -176,7 +176,7 @@ def test_everything_is_a_parent():
     with ix.searcher() as s:
         pq = query.Term("kind", k)
         cq = query.Or([query.Term("name", "two"), query.Term("name", "four")])
-        q = query.Nested(pq, cq)
+        q = query.NestedParent(pq, cq)
         r = s.search(q)
         assert_equal([hit["id"] for hit in r], [1, 3, 5, 7, 9, 11])
 
@@ -203,8 +203,68 @@ def test_no_parents():
     with ix.searcher() as s:
         pq = query.Term("kind", "bravo")
         cq = query.Or([query.Term("name", "two"), query.Term("name", "four")])
-        q = query.Nested(pq, cq)
+        q = query.NestedParent(pq, cq)
         r = s.search(q)
         assert r.is_empty()
+
+
+def test_nested_children():
+    schema = fields.Schema(t=fields.ID(stored=True),
+                           track=fields.NUMERIC(stored=True),
+                           album_name=fields.TEXT(stored=True),
+                           song_name=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        with w.group():
+            w.add_document(t=u("album"), album_name=u("alfa bravo charlie"))
+            w.add_document(t=u("track"), track=1,
+                           song_name=u("delta echo foxtrot"))
+            w.add_document(t=u("track"), track=2,
+                           song_name=u("golf hotel india"))
+            w.add_document(t=u("track"), track=3,
+                           song_name=u("juliet kilo lima"))
+        with w.group():
+            w.add_document(t=u("album"), album_name=u("mike november oskar"))
+            w.add_document(t=u("track"), track=1,
+                           song_name=u("papa quebec romeo"))
+            w.add_document(t=u("track"), track=2,
+                           song_name=u("sierra tango ultra"))
+            w.add_document(t=u("track"), track=3,
+                           song_name=u("victor whiskey xray"))
+        with w.group():
+            w.add_document(t=u("album"), album_name=u("yankee zulu one"))
+            w.add_document(t=u("track"), track=1,
+                           song_name=u("two three four"))
+            w.add_document(t=u("track"), track=2,
+                           song_name=u("five six seven"))
+            w.add_document(t=u("track"), track=3,
+                           song_name=u("eight nine ten"))
+
+    with ix.searcher() as s:
+        pq = query.Term("t", "album")
+        aq = query.Term("album_name", "november")
+
+        r = s.search(query.NestedChildren(pq, pq), limit=None)
+        assert_equal(len(r), 9)
+        assert_equal([str(hit["t"]) for hit in r], ["track"] * 9)
+
+        ncq = query.NestedChildren(pq, aq)
+        assert_equal(list(ncq.docs(s)), [5, 6, 7])
+        r = s.search(ncq, limit=None)
+        assert_equal(len(r), 3)
+        assert_equal([str(hit["song_name"]) for hit in r],
+                     ["papa quebec romeo", "sierra tango ultra",
+                      "victor whiskey xray"])
+
+        zq = query.NestedChildren(pq, query.Term("album_name", "zulu"))
+        f = sorting.StoredFieldFacet("song_name")
+        r = s.search(zq, sortedby=f)
+        assert_equal([hit["track"] for hit in r], [3, 2, 1])
+
+
+
+
+
+
 
 

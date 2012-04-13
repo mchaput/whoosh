@@ -25,8 +25,97 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import sys
 from whoosh.compat import xrange
 from whoosh.matching import core
+
+
+class WrappingMatcher(core.Matcher):
+    """Base class for matchers that wrap sub-matchers.
+    """
+
+    def __init__(self, child, boost=1.0):
+        self.child = child
+        self.boost = boost
+
+    def __repr__(self):
+        return "%s(%r, boost=%s)" % (self.__class__.__name__, self.child,
+                                     self.boost)
+
+    def copy(self):
+        kwargs = {}
+        if hasattr(self, "boost"):
+            kwargs["boost"] = self.boost
+        return self.__class__(self.child.copy(), **kwargs)
+
+    def depth(self):
+        return 1 + self.child.depth()
+
+    def _replacement(self, newchild):
+        return self.__class__(newchild, boost=self.boost)
+
+    def replace(self, minquality=0):
+        # Replace the child matcher
+        r = self.child.replace(minquality)
+        if not r.is_active():
+            # If the replaced child is inactive, return an inactive matcher
+            return core.NullMatcher()
+        elif r is not self.child:
+            # If the child changed, return a new wrapper on the new child
+            return self._replacement(r)
+        else:
+            return self
+
+    def max_quality(self):
+        return self.child.max_quality()
+
+    def id(self):
+        return self.child.id()
+
+    def all_ids(self):
+        return self.child.all_ids()
+
+    def is_active(self):
+        return self.child.is_active()
+
+    def reset(self):
+        self.child.reset()
+
+    def children(self):
+        return [self.child]
+
+    def supports(self, astype):
+        return self.child.supports(astype)
+
+    def value(self):
+        return self.child.value()
+
+    def value_as(self, astype):
+        return self.child.value_as(astype)
+
+    def spans(self):
+        return self.child.spans()
+
+    def skip_to(self, id):
+        return self.child.skip_to(id)
+
+    def next(self):
+        self.child.next()
+
+    def supports_block_quality(self):
+        return self.child.supports_block_quality()
+
+    def skip_to_quality(self, minquality):
+        return self.child.skip_to_quality(minquality / self.boost)
+
+    def block_quality(self):
+        return self.child.block_quality() * self.boost
+
+    def weight(self):
+        return self.child.weight() * self.boost
+
+    def score(self):
+        return self.child.score() * self.boost
 
 
 class MultiMatcher(core.Matcher):
@@ -167,7 +256,7 @@ def ExcludeMatcher(child, excluded, boost=1.0):
     return FilterMatcher(child, excluded, exclude=True, boost=boost)
 
 
-class FilterMatcher(core.WrappingMatcher):
+class FilterMatcher(WrappingMatcher):
     """Filters the postings from the wrapped based on whether the IDs are
     present in or absent from a set.
     """
@@ -241,7 +330,7 @@ class FilterMatcher(core.WrappingMatcher):
             return (item for item in self.child.all_items() if item[0] in ids)
 
 
-class InverseMatcher(core.WrappingMatcher):
+class InverseMatcher(WrappingMatcher):
     """Synthetic matcher, generates postings that are NOT present in the
     wrapped matcher.
     """
@@ -326,7 +415,7 @@ class InverseMatcher(core.WrappingMatcher):
         return self._weight
 
 
-class RequireMatcher(core.WrappingMatcher):
+class RequireMatcher(WrappingMatcher):
     """Matches postings that are in both sub-matchers, but only uses scores
     from the first.
     """
@@ -390,7 +479,7 @@ class RequireMatcher(core.WrappingMatcher):
         return self.a.value_as(astype)
 
 
-class ConstantScoreMatcher(core.WrappingMatcher):
+class ConstantScoreMatcher(WrappingMatcher):
     def __init__(self, child, score=1.0):
         super(ConstantScoreMatcher, self).__init__(child)
         self._score = score
