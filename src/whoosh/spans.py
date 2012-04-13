@@ -43,7 +43,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
-from whoosh.matching import core, binary
+from whoosh.matching import core, wrappers, binary
 from whoosh.query import Query, And, AndMaybe, Or, Term
 from whoosh.util import make_binary_tree
 
@@ -168,7 +168,7 @@ class Span(object):
 
 # Base matchers
 
-class SpanWrappingMatcher(core.WrappingMatcher):
+class SpanWrappingMatcher(wrappers.WrappingMatcher):
     """An abstract matcher class that wraps a "regular" matcher. This matcher
     uses the sub-matcher's matching logic, but only matches documents that have
     matching spans, i.e. where ``_get_spans()`` returns a non-empty list.

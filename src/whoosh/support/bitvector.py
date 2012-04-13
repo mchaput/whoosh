@@ -133,7 +133,15 @@ class DocIdSet(object):
         """
         raise NotImplementedError
 
+    def first(self):
+        """Returns the first (lowest) integer in the set.
+        """
+        raise NotImplementedError
 
+    def last(self):
+        """Returns the last (highest) integer in the set.
+        """
+        raise NotImplementedError
 
 
 class BitSet(DocIdSet):
@@ -291,6 +299,12 @@ class BitSet(DocIdSet):
             return self._logic(self.copy(), lambda x, y: x & ~y, other)
         return BitSet(source=(n for n in self if n not in other))
 
+    def first(self):
+        return self.after(-1)
+
+    def last(self):
+        return self.before(len(self.bits) * 8 + 1)
+
     def before(self, i):
         bits = self.bits
         size = len(bits) * 8
@@ -427,6 +441,12 @@ class SortedIntSet(DocIdSet):
 
     def difference(self, other):
         return SortedIntSet((num for num in self if num not in other))
+
+    def first(self):
+        return self.data[0]
+
+    def last(self):
+        return self.data[-1]
 
     def before(self, i):
         data = self.data

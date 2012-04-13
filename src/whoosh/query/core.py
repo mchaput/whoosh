@@ -548,47 +548,6 @@ class Query(object):
         return self
 
 
-class WrappingQuery(Query):
-    def __init__(self, child):
-        self.child = child
-
-    def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.child)
-
-    def __hash__(self):
-        return hash(self.__class__.__name__) ^ hash(self.child)
-
-    def _rewrap(self, child):
-        return self.__class__(child)
-
-    def is_leaf(self):
-        return False
-
-    def children(self):
-        yield self.child
-
-    def apply(self, fn):
-        return self._rewrap(fn(self.child))
-
-    def requires(self):
-        return self.child.requires()
-
-    def field(self):
-        return self.child.field()
-
-    def with_boost(self, boost):
-        return self._rewrap(self.child.with_boost(boost))
-
-    def estimate_size(self, ixreader):
-        return self.child.estimate_size(ixreader)
-
-    def estimate_min_size(self, ixreader):
-        return self.child.estimate_min_size(ixreader)
-
-    def matcher(self, searcher, weighting=None):
-        return self.child.matcher(searcher, weighting=weighting)
-
-
 # Null query
 
 class _NullQuery(Query):

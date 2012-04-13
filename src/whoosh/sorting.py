@@ -597,8 +597,9 @@ class StoredFieldFacet(FacetType):
             categorizer uses ``string.split()`` or the custom ``split_fn`` to
             convert the stored value into a list of facet values.
         :param split_fn: a custom function to split a stored field value into
-            facet values. If not supplied, the categorizer simply calls the
-            value's ``split()`` method.
+            multiple facet values when ``allow_overlap`` is True. If not
+            supplied, the categorizer simply calls the value's ``split()``
+            method.
         """
 
         self.fieldname = fieldname
