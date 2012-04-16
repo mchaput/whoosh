@@ -239,6 +239,37 @@ def test_numeric_ranges():
         check("{16 to 255}", list(range(17, 255)))
 
 
+def test_numeric_ranges_unsigned():
+    values = [{'num1':u'1', 'num2':1, 'num3':u'1'},
+              {'num1':u'10', 'num2':10, 'num3':u'10'},
+              {'num1':u'100', 'num2':100, 'num3':u'100'},
+              {'num1':u'1000', 'num2':1000, 'num3':u'1000'},
+              {'num1':u'2', 'num2':2, 'num3':u'2'},
+              {'num1':u'20', 'num2':20, 'num3':u'20'},
+              {'num1':u'200', 'num2':200, 'num3':u'200'},
+              {'num1':u'2000', 'num2':2000, 'num3':u'2000'},
+              {'num1':u'9', 'num2':9, 'num3':u'9'},
+              {'num1':u'90', 'num2':90, 'num3':u'90'},
+              {'num1':u'900', 'num2':900, 'num3':u'900'},
+              {'num1':u'9000', 'num2':9000, 'num3':u'9000'},
+              ]
+    schema = fields.Schema(num1=fields.ID(stored=True),
+                           num2=fields.NUMERIC(stored=True, signed=False),
+                           num3=fields.TEXT(stored=True))
+
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for doc in values:
+            w.add_document(num2=int(doc["num2"]))
+
+    with ix.searcher() as s:
+        print list(s.lexicon("num2"))
+        q = query.NumericRange("num2", 55, None, True, False)
+        r = s.search(q, limit=None)
+        for hit in r:
+            assert int(hit["num2"]) >= 55
+
+
 def test_decimal_ranges():
     from decimal import Decimal
 
@@ -368,11 +399,6 @@ def test_boolean():
     with ix.searcher() as s:
         qp = qparser.QueryParser("id", schema)
 
-        def all_false(ls):
-            for item in ls:
-                if item: return False
-            return True
-
         r = s.search(qp.parse("done:true"))
         assert_equal(sorted([d["id"] for d in r]), ["a", "c", "e"])
         assert all(d["done"] for d in r)
@@ -383,11 +409,11 @@ def test_boolean():
 
         r = s.search(qp.parse("done:false"))
         assert_equal(sorted([d["id"] for d in r]), ["b", "d"])
-        assert all_false(d["done"] for d in r)
+        assert not any(d["done"] for d in r)
 
         r = s.search(qp.parse("done:no"))
         assert_equal(sorted([d["id"] for d in r]), ["b", "d"])
-        assert all_false(d["done"] for d in r)
+        assert not any(d["done"] for d in r)
 
 
 def test_boolean2():
@@ -443,3 +469,5 @@ def test_token_boost():
     assert_equal(results, [('SPRS', 1, 1.0, b('\x00\x00\x00\x01')),
                            ('FF', 1, 0.5, b('\x00\x00\x00\x01')),
                            ('F', 1, 1.0, b('\x00\x00\x00\x01'))])
+
+
