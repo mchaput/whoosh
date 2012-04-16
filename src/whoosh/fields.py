@@ -485,10 +485,11 @@ class NUMERIC(FieldType):
         return x
 
     def to_text(self, x, shift=0):
-        return self._to_text(self.prepare_number(x), shift=shift)
+        return self._to_text(self.prepare_number(x), shift=shift,
+                             signed=self.signed)
 
     def from_text(self, t):
-        x = self._from_text(t)
+        x = self._from_text(t, signed=self.signed)
         return self.unprepare_number(x)
 
     def process_text(self, text, **kwargs):
