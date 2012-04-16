@@ -240,27 +240,13 @@ def test_numeric_ranges():
 
 
 def test_numeric_ranges_unsigned():
-    values = [{'num1':u'1', 'num2':1, 'num3':u'1'},
-              {'num1':u'10', 'num2':10, 'num3':u'10'},
-              {'num1':u'100', 'num2':100, 'num3':u'100'},
-              {'num1':u'1000', 'num2':1000, 'num3':u'1000'},
-              {'num1':u'2', 'num2':2, 'num3':u'2'},
-              {'num1':u'20', 'num2':20, 'num3':u'20'},
-              {'num1':u'200', 'num2':200, 'num3':u'200'},
-              {'num1':u'2000', 'num2':2000, 'num3':u'2000'},
-              {'num1':u'9', 'num2':9, 'num3':u'9'},
-              {'num1':u'90', 'num2':90, 'num3':u'90'},
-              {'num1':u'900', 'num2':900, 'num3':u'900'},
-              {'num1':u'9000', 'num2':9000, 'num3':u'9000'},
-              ]
-    schema = fields.Schema(num1=fields.ID(stored=True),
-                           num2=fields.NUMERIC(stored=True, signed=False),
-                           num3=fields.TEXT(stored=True))
+    values = [1, 10, 100, 1000, 2, 20, 200, 2000, 9, 90, 900, 9000]
+    schema = fields.Schema(num2=fields.NUMERIC(stored=True, signed=False))
 
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
-        for doc in values:
-            w.add_document(num2=int(doc["num2"]))
+        for v in values:
+            w.add_document(num2=v)
 
     with ix.searcher() as s:
         q = query.NumericRange("num2", 55, None, True, False)
