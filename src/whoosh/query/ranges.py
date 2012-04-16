@@ -282,7 +282,6 @@ class NumericRange(RangeMixin, core.Query):
             q = nary.Or(subqueries, boost=self.boost)
         else:
             return core.NullQuery
-        print "q=", repr(q)
 
         if self.constantscore:
             q = wrappers.ConstantScoreQuery(q, self.boost)
