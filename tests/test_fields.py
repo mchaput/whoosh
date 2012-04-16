@@ -263,7 +263,6 @@ def test_numeric_ranges_unsigned():
             w.add_document(num2=int(doc["num2"]))
 
     with ix.searcher() as s:
-        print list(s.lexicon("num2"))
         q = query.NumericRange("num2", 55, None, True, False)
         r = s.search(q, limit=None)
         for hit in r:
