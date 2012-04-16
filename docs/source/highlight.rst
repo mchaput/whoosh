@@ -226,7 +226,7 @@ The ``highlight`` module contains the following pre-made formatters.
 
 :class:`whoosh.highlight.HtmlFormatter`
     Outputs a string containing HTML tags (with a class attribute)
-    around the the matched terms.
+    around the matched terms.
 
 :class:`whoosh.highlight.UppercaseFormatter`
     Converts the matched terms to UPPERCASE.
