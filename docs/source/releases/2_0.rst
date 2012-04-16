@@ -15,7 +15,7 @@ Whoosh 2.4
 
 * Rewrote the Directed Acyclic Word Graph implementation (used in spell
   checking) to be faster and more space-efficient. Word graph files created by
-  previous versions will be ignored, meaning that spell checking may becomes
+  previous versions will be ignored, meaning that spell checking may become
   slower unless/until you replace the old segments (for example, by
   optimizing).
 

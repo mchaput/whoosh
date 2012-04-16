@@ -10,7 +10,7 @@ into query objects.
 Base classes
 ============
 
-The following abstract base classes are subclassed to create the the "real"
+The following abstract base classes are subclassed to create the "real"
 query operations.
 
 .. autoclass:: Query
