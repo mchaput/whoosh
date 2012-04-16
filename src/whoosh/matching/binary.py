@@ -151,11 +151,10 @@ class UnionMatcher(AdditiveBiMatcher):
             return self
 
     def is_active(self):
-        if self._id is not None:
-            return True
         return self.a.is_active() or self.b.is_active()
 
     def skip_to(self, id):
+        self._id = None
         ra = rb = False
 
         if self.a.is_active():
@@ -163,7 +162,6 @@ class UnionMatcher(AdditiveBiMatcher):
         if self.b.is_active():
             rb = self.b.skip_to(id)
 
-        self._id = None
         return ra or rb
 
     def id(self):
