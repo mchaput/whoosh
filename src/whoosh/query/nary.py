@@ -29,11 +29,11 @@ from __future__ import division
 
 from whoosh import matching
 from whoosh.compat import text_type, u
-from whoosh.query import core
+from whoosh.query import qcore
 from whoosh.util import make_binary_tree, make_weighted_tree
 
 
-class CompoundQuery(core.Query):
+class CompoundQuery(qcore.Query):
     """Abstract base class for queries that combine or manipulate the results
     of multiple sub-queries .
     """
@@ -117,8 +117,8 @@ class CompoundQuery(core.Query):
                 subqueries.append(s)
 
         # If every subquery is Null, this query is Null
-        if all(q is core.NullQuery for q in subqueries):
-            return core.NullQuery
+        if all(q is qcore.NullQuery for q in subqueries):
+            return qcore.NullQuery
 
         # If there's an unfielded Every inside, then this query is Every
         if any((isinstance(q, Every) and q.fieldname is None)
@@ -161,10 +161,10 @@ class CompoundQuery(core.Query):
             subqs.append(s)
 
         # Remove NullQuerys
-        subqs = [q for q in subqs if q is not core.NullQuery]
+        subqs = [q for q in subqs if q is not qcore.NullQuery]
 
         if not subqs:
-            return core.NullQuery
+            return qcore.NullQuery
 
         if len(subqs) == 1:
             sub = subqs[0]
@@ -193,7 +193,7 @@ class CompoundQuery(core.Query):
             else:
                 return subs
         else:
-            return core.NullQuery
+            return qcore.NullQuery
 
     def _matcher(self, matchercls, q_weight_fn, searcher, weighting=None,
                  **kwargs):
@@ -391,11 +391,11 @@ class BinaryQuery(CompoundQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is core.NullQuery and b is core.NullQuery:
-            return core.NullQuery
-        elif a is core.NullQuery:
+        if a is qcore.NullQuery and b is qcore.NullQuery:
+            return qcore.NullQuery
+        elif a is qcore.NullQuery:
             return b
-        elif b is core.NullQuery:
+        elif b is qcore.NullQuery:
             return a
 
         return self.__class__(a, b)
@@ -420,9 +420,9 @@ class AndNot(BinaryQuery):
         a = self.a.normalize()
         b = self.b.normalize()
 
-        if a is core.NullQuery:
-            return core.NullQuery
-        elif b is core.NullQuery:
+        if a is qcore.NullQuery:
+            return qcore.NullQuery
+        elif b is qcore.NullQuery:
             return a
 
         return self.__class__(a, b)
@@ -469,8 +469,8 @@ class Require(BinaryQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is core.NullQuery or b is core.NullQuery:
-            return core.NullQuery
+        if a is qcore.NullQuery or b is qcore.NullQuery:
+            return qcore.NullQuery
         return self.__class__(a, b)
 
     def docs(self, searcher):
@@ -489,9 +489,9 @@ class AndMaybe(BinaryQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is core.NullQuery:
-            return core.NullQuery
-        if b is core.NullQuery:
+        if a is qcore.NullQuery:
+            return qcore.NullQuery
+        if b is qcore.NullQuery:
             return a
         return self.__class__(a, b)
 
