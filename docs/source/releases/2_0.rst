@@ -36,8 +36,8 @@ Whoosh 2.4
   objects. This architecture should make it easier to add optional or
   experimental features, and maintain backwards compatibility.
 
-* Fixes issues #137, #206, #213, #215, #219, #223, #226, #230, #233, #238
-  and other bugs.
+* Fixes issues #137, #206, #213, #215, #219, #223, #226, #230, #233, #238,
+  #239, #240, #241, and other bugs.
 
 
 Whoosh 2.3.2
