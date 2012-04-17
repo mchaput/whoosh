@@ -522,6 +522,17 @@ class Query(object):
         except TermNotFound:
             return iter([])
 
+    def deletion_docs(self, searcher):
+        """Returns an iterator of docnums matching this query for the purpose
+        of deletion. The :meth:`~whoosh.writing.IndexWriter.delete_by_query`
+        method will use this method when deciding what documents to delete,
+        allowing special queries (e.g. nested queries) to override what
+        documents are deleted. The default implementation just forwards to
+        :meth:`Query.docs`.
+        """
+
+        return self.docs(searcher)
+
     def normalize(self):
         """Returns a recursively "normalized" form of this query. The
         normalized form removes redundancy and empty queries. This is called

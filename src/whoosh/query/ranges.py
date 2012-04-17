@@ -28,7 +28,7 @@
 from __future__ import division
 
 from whoosh.compat import u
-from whoosh.query import core, terms, nary, wrappers
+from whoosh.query import qcore, terms, nary, wrappers
 from whoosh.support.times import datetime_to_long
 
 
@@ -69,14 +69,14 @@ class RangeMixin(object):
 
     def _comparable_start(self):
         if self.start is None:
-            return (core.Lowest, 0)
+            return (qcore.Lowest, 0)
         else:
             second = 1 if self.startexcl else 0
             return (self.start, second)
 
     def _comparable_end(self):
         if self.end is None:
-            return (core.Highest, 0)
+            return (qcore.Highest, 0)
         else:
             second = -1 if self.endexcl else 0
             return (self.end, second)
@@ -118,9 +118,9 @@ class RangeMixin(object):
             start = min(start1, start2)
             end = max(end1, end2)
 
-        startval = None if start[0] is core.Lowest else start[0]
+        startval = None if start[0] is qcore.Lowest else start[0]
         startexcl = start[1] == 1
-        endval = None if end[0] is core.Highest else end[0]
+        endval = None if end[0] is qcore.Highest else end[0]
         endexcl = end[1] == -1
 
         boost = max(self.boost, other.boost)
@@ -167,7 +167,7 @@ class TermRange(RangeMixin, terms.MultiTerm):
             return Every(self.fieldname, boost=self.boost)
         elif self.start == self.end:
             if self.startexcl or self.endexcl:
-                return core.NullQuery
+                return qcore.NullQuery
             return terms.Term(self.fieldname, self.start, boost=self.boost)
         else:
             return TermRange(self.fieldname, self.start, self.end,
@@ -202,7 +202,7 @@ class TermRange(RangeMixin, terms.MultiTerm):
             yield t
 
 
-class NumericRange(RangeMixin, core.Query):
+class NumericRange(RangeMixin, qcore.Query):
     """A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
@@ -281,7 +281,7 @@ class NumericRange(RangeMixin, core.Query):
         elif subqueries:
             q = nary.Or(subqueries, boost=self.boost)
         else:
-            return core.NullQuery
+            return qcore.NullQuery
 
         if self.constantscore:
             q = wrappers.ConstantScoreQuery(q, self.boost)

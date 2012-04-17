@@ -25,10 +25,11 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.query.core import *
+from whoosh.query.qcore import *
 from whoosh.query.terms import *
 from whoosh.query.nary import *
 from whoosh.query.positional import *
 from whoosh.query.ranges import *
 from whoosh.query.wrappers import *
+from whoosh.query.nested import *
 

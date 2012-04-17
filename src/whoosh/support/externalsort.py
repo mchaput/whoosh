@@ -93,7 +93,7 @@ class SortingPool(object):
     ...
     >>> # Get the items back in sorted order
     >>> for item in pool.items():
-    ...     print item
+    ...     print(item)
     
     This class uses the `marshal` module to write the items to temporary files,
     so you can only sort marshal-able types (generally: numbers, strings,

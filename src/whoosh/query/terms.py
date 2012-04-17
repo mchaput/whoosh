@@ -33,10 +33,10 @@ from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import bytes_type, text_type, u
 from whoosh.lang.morph_en import variations
-from whoosh.query import core
+from whoosh.query import qcore
 
 
-class Term(core.Query):
+class Term(qcore.Query):
     """Matches documents containing the given term (fieldname+text pair).
 
     >>> Term("content", u"render")
@@ -110,7 +110,7 @@ class Term(core.Query):
             return matching.NullMatcher()
 
 
-class MultiTerm(core.Query):
+class MultiTerm(qcore.Query):
     """Abstract base class for queries that operate on multiple terms in the
     same field.
     """
@@ -130,7 +130,7 @@ class MultiTerm(core.Query):
             from whoosh.query import Or
             return Or(existing)
         else:
-            return core.NullQuery
+            return qcore.NullQuery
 
     def estimate_size(self, ixreader):
         return sum(ixreader.doc_frequency(self.fieldname, text)

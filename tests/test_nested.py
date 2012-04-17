@@ -1,5 +1,5 @@
 from __future__ import with_statement
-from nose.tools import assert_equal  # @UnresolvedImport
+from nose.tools import assert_equal  # @ UnresolvedImport
 
 from whoosh import fields, query, sorting
 from whoosh.compat import u
@@ -69,7 +69,7 @@ def test_scoring():
                                                   "Accumulator"])
 
 
-def test_deletion():
+def test_missing():
     schema = fields.Schema(kind=fields.ID,
                            name=fields.KEYWORD(scorable=True, stored=True))
     ix = RamStorage().create_index(schema)
@@ -113,6 +113,61 @@ def test_deletion():
         q = query.NestedParent(pq, query.Term("name", "add"))
         r = s.search(q)
         assert_equal([hit["name"] for hit in r], ["Index", "Deleter"])
+
+
+def test_nested_delete():
+    schema = fields.Schema(kind=fields.ID,
+                           name=fields.KEYWORD(scorable=True, stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        with w.group():
+            w.add_document(kind=u("class"), name=u("Index"))
+            w.add_document(kind=u("method"), name=u("add document"))
+            w.add_document(kind=u("method"), name=u("add reader"))
+            w.add_document(kind=u("method"), name=u("close"))
+        with w.group():
+            w.add_document(kind=u("class"), name=u("Accumulator"))
+            w.add_document(kind=u("method"), name=u("add"))
+            w.add_document(kind=u("method"), name=u("get result"))
+        with w.group():
+            w.add_document(kind=u("class"), name=u("Calculator"))
+            w.add_document(kind=u("method"), name=u("add"))
+            w.add_document(kind=u("method"), name=u("add all"))
+            w.add_document(kind=u("method"), name=u("add some"))
+            w.add_document(kind=u("method"), name=u("multiply"))
+            w.add_document(kind=u("method"), name=u("close"))
+        with w.group():
+            w.add_document(kind=u("class"), name=u("Deleter"))
+            w.add_document(kind=u("method"), name=u("add"))
+            w.add_document(kind=u("method"), name=u("delete"))
+
+    # Delete "Accumulator" class
+    with ix.writer() as w:
+        q = query.NestedParent(query.Term("kind", "class"),
+                               query.Term("name", "Accumulator"))
+        w.delete_by_query(q)
+
+    # Check that Accumulator AND ITS METHODS are deleted
+    with ix.searcher() as s:
+        r = s.search(query.Term("kind", "class"))
+        assert_equal(sorted(hit["name"] for hit in r),
+                     ["Calculator", "Deleter", "Index"])
+
+        names = [fs["name"] for fs in s.all_stored_fields()]
+        assert_equal(names, ["Index", "add document", "add reader", "close",
+                             "Calculator", "add", "add all", "add some",
+                             "multiply", "close", "Deleter", "add", "delete"])
+
+    # Delete any class with a close method
+    with ix.writer() as w:
+        q = query.NestedParent(query.Term("kind", "class"),
+                               query.Term("name", "close"))
+        w.delete_by_query(q)
+
+    # Check the CLASSES AND METHODS are gone
+    with ix.searcher() as s:
+        names = [fs["name"] for fs in s.all_stored_fields()]
+        assert_equal(names, ["Deleter", "add", "delete"])
 
 
 def test_all_parents_deleted():
