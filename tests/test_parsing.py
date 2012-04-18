@@ -950,6 +950,14 @@ def test_dash():
                  "time:*Ben-Hayden*)")
 
 
+def test_bool_True():
+    schema = fields.Schema(text=fields.TEXT, bool=fields.BOOLEAN)
+    qp = default.QueryParser("text", schema)
+    q = qp.parse("bool:True")
+    assert_equal(q.__class__, query.Term)
+    assert_equal(q.fieldname, "bool")
+    assert_equal(q.text, "t")
+
 
 
 

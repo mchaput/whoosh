@@ -678,7 +678,7 @@ class BOOLEAN(FieldType):
 
     def to_text(self, bit):
         if isinstance(bit, string_type):
-            bit = bit in self.trues
+            bit = bit.lower() in self.trues
         elif not isinstance(bit, bool):
             raise ValueError("%r is not a boolean")
         return self.strings[int(bit)]
