@@ -29,7 +29,6 @@ from __future__ import with_statement
 from bisect import bisect_right
 
 from whoosh.fields import UnknownFieldError
-from whoosh.filedb.fileindex import Segment
 from whoosh.store import LockError
 from whoosh.support.filelock import try_for
 from whoosh.support.externalsort import SortingPool
@@ -247,6 +246,7 @@ class SegmentWriter(IndexWriter):
     def add_postings(self, lengths, items, startdoc, docmap):
         # items = (fieldname, text, docnum, weight, valuestring) ...
         schema = self.schema
+
         # Make a generator to strip out deleted fields and renumber the docs
         # before passing them down to the field writer
         def gen():
@@ -307,7 +307,7 @@ class SegmentWriter(IndexWriter):
                 if field.vector and reader.has_vector(docnum, fieldname):
                     v = reader.vector(docnum, fieldname)
                     perdocwriter.add_vector_matcher(fieldname, field, v)
-            # Finish the new document 
+            # Finish the new document
             perdocwriter.finish_doc()
             newdoc += 1
 

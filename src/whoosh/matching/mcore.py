@@ -53,7 +53,7 @@ import sys
 from itertools import repeat
 
 from whoosh.compat import izip, xrange
-from whoosh.util import abstractmethod
+from whoosh.compat import abstractmethod
 
 
 # Exceptions

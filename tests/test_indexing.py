@@ -5,10 +5,10 @@ from collections import defaultdict
 from datetime import datetime
 
 from whoosh import fields, query
-from whoosh.compat import u, xrange, text_type, PY3
+from whoosh.compat import u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filewriting import NO_MERGE
-from whoosh.util import length_to_byte, byte_to_length, permutations
+from whoosh.util import length_to_byte, byte_to_length
 from whoosh.writing import IndexingError
 from whoosh.support.testing import TempIndex
 

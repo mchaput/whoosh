@@ -6,7 +6,7 @@ import operator
 from array import array
 from bisect import bisect_left, bisect_right, insort
 
-from whoosh.compat import integer_types, izip, xrange
+from whoosh.compat import integer_types, izip, izip_longest, xrange
 
 
 # Number of '1' bits in each byte (0-255)
@@ -200,8 +200,6 @@ class BitSet(DocIdSet):
             bits[-1] = bits[-1] & mask
 
     def _logic(self, obj, op, other):
-        from whoosh.util import izip_longest
-
         objbits = obj.bits
         for i, (byte1, byte2) in enumerate(izip_longest(objbits, other.bits,
                                                         fillvalue=0)):

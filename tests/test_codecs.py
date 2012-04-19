@@ -9,7 +9,6 @@ from whoosh.compat import u, b, xrange, iteritems
 from whoosh.codec.base import FileTermInfo
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.fileindex import Segment
 from whoosh.support.testing import TempStorage
 from whoosh.util import byte_to_length, length_to_byte
 
@@ -17,7 +16,7 @@ from whoosh.util import byte_to_length, length_to_byte
 def _make_codec(**kwargs):
     st = RamStorage()
     codec = default_codec(**kwargs)
-    seg = Segment("test")
+    seg = codec.new_segment(st, "test")
     return st, codec, seg
 
 
@@ -96,9 +95,10 @@ def test_random_termkeys():
 
 def test_stored_fields():
     codec = default_codec()
-    seg = Segment("test")
     fieldobj = fields.TEXT(stored=True)
     with TempStorage("storedfields") as st:
+        seg = codec.new_segment(st, "test")
+
         dw = codec.per_document_writer(st, seg)
         dw.start_doc(0)
         dw.add_field("a", fieldobj, "hello", 1)

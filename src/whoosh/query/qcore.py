@@ -32,7 +32,7 @@ from array import array
 from whoosh import matching
 from whoosh.compat import u
 from whoosh.reading import TermNotFound
-from whoosh.util import methodcaller
+from whoosh.compat import methodcaller
 
 
 # Exceptions

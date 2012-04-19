@@ -5,9 +5,8 @@ from datetime import datetime, timedelta
 from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
-from whoosh.compat import u, xrange, text_type
+from whoosh.compat import u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util import permutations
 
 
 def make_index():

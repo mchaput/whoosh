@@ -3,9 +3,8 @@ from __future__ import with_statement
 from nose.tools import assert_equal, assert_not_equal, assert_raises
 
 from whoosh import analysis, fields, formats, highlight, qparser, query
-from whoosh.compat import u, xrange, text_type
+from whoosh.compat import u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util import permutations
 
 
 def test_score_retrieval():

@@ -30,8 +30,9 @@ import threading
 import time
 from contextlib import contextmanager
 
+from whoosh.compat import abstractmethod
 from whoosh.store import LockError
-from whoosh.util import abstractmethod, synchronized
+from whoosh.util import synchronized
 
 
 # Exceptions

@@ -6,9 +6,8 @@ import sys
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query, scoring
-from whoosh.compat import u, xrange
+from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util import permutations
 
 
 def _weighting_classes(ignore):
