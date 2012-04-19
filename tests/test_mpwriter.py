@@ -5,9 +5,9 @@ from collections import deque
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query
-from whoosh.compat import u, xrange
+from whoosh.compat import u, xrange, permutations
 from whoosh.support.testing import TempIndex, skip_if
-from whoosh.util import permutations, length_to_byte, byte_to_length
+from whoosh.util import length_to_byte, byte_to_length
 
 
 def no_multi():

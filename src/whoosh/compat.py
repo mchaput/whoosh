@@ -1,5 +1,8 @@
 import sys
 
+
+# Run time aliasing of Python2/3 differences
+
 if sys.version_info[0] < 3:
     PY3 = False
 
@@ -88,4 +91,83 @@ else:
             return mv[offset:offset + length]
         else:
             return mv
+
+
+# Implementations missing from older versions of Python
+
+try:
+    from itertools import permutations  # @UnusedImport
+except ImportError:
+    # Python 2.5
+    def permutations(iterable, r=None):
+        pool = tuple(iterable)
+        n = len(pool)
+        r = n if r is None else r
+        if r > n:
+            return
+        indices = range(n)
+        cycles = range(n, n - r, -1)
+        yield tuple(pool[i] for i in indices[:r])
+        while n:
+            for i in reversed(range(r)):
+                cycles[i] -= 1
+                if cycles[i] == 0:
+                    indices[i:] = indices[i + 1:] + indices[i:i + 1]
+                    cycles[i] = n - i
+                else:
+                    j = cycles[i]
+                    indices[i], indices[-j] = indices[-j], indices[i]
+                    yield tuple(pool[i] for i in indices[:r])
+                    break
+            else:
+                return
+
+
+try:
+    # Python 2.6-2.7
+    from itertools import izip_longest  # @UnusedImport
+except ImportError:
+    try:
+        # Python 3.0
+        from itertools import zip_longest as izip_longest  # @UnusedImport
+    except ImportError:
+        # Python 2.5
+        from itertools import chain, izip, repeat
+
+        def izip_longest(*args, **kwds):
+            fillvalue = kwds.get('fillvalue')
+
+            def sentinel(counter=([fillvalue] * (len(args) - 1)).pop):
+                yield counter()
+
+            fillers = repeat(fillvalue)
+            iters = [chain(it, sentinel(), fillers) for it in args]
+            try:
+                for tup in izip(*iters):
+                    yield tup
+            except IndexError:
+                pass
+
+
+try:
+    from operator import methodcaller  # @UnusedImport
+except ImportError:
+    # Python 2.5
+    def methodcaller(name, *args, **kwargs):
+        def caller(obj):
+            return getattr(obj, name)(*args, **kwargs)
+        return caller
+
+
+try:
+    from abc import abstractmethod  # @UnusedImport
+except ImportError:
+    # Python 2.5
+    def abstractmethod(funcobj):
+        """A decorator indicating abstract methods.
+        """
+        funcobj.__isabstractmethod__ = True
+        return funcobj
+
+
 

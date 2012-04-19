@@ -29,7 +29,6 @@ from bisect import bisect_left
 
 from whoosh.compat import iteritems, xrange
 from whoosh.filedb.compound import CompoundStorage
-from whoosh.filedb.fileindex import Segment
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.matching import FilterMatcher
 from whoosh.reading import IndexReader, TermNotFound
@@ -58,6 +57,7 @@ class SegmentReader(IndexReader):
         if hasattr(self.segment, "segment_id"):
             self.segid = self.segment.segment_id()
         else:
+            from whoosh.codec.base import Segment
             self.segid = Segment._random_id()
 
         # self.files is a storage object from which to load the segment files.

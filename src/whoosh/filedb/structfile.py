@@ -307,7 +307,7 @@ class StructFile(object):
 
     def get_array(self, position, typecode, length):
         self.file.seek(position)
-        self.read_array(typecode, length)
+        return self.read_array(typecode, length)
 
 
 

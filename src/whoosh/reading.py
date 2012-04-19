@@ -36,7 +36,7 @@ from whoosh.compat import xrange, zip_, next
 from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
-from whoosh.util import abstractmethod
+from whoosh.compat import abstractmethod
 
 
 # Exceptions

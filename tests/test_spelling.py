@@ -1,15 +1,14 @@
 from __future__ import with_statement
 import gzip
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal, assert_raises
 
 from whoosh import analysis, fields, highlight, spelling
-from whoosh.compat import u
+from whoosh.compat import u, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.support import dawg
 from whoosh.support.testing import TempStorage
-from whoosh.util import permutations
 
 
 def words_to_corrector(words):
