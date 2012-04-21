@@ -282,7 +282,6 @@ class SegmentWriter(IndexWriter):
         schema = self.schema
         newdoc = self.docnum
         perdocwriter = self.perdocwriter
-        sharedfields = set(schema.names()) & set(reader.schema.names())
 
         for docnum in reader.all_doc_ids():
             # Skip deleted documents
@@ -298,12 +297,12 @@ class SegmentWriter(IndexWriter):
             perdocwriter.start_doc(newdoc)
             # For each field in the document, copy its stored value,
             # length, and vectors (if any) to the writer
-            for fieldname in sharedfields:
+            for fieldname in schema.names(d.keys()):
                 field = schema[fieldname]
+                value = d.get(fieldname)
                 length = (reader.doc_field_length(docnum, fieldname, 0)
                           if field.scorable else 0)
-                perdocwriter.add_field(fieldname, field, d.get(fieldname),
-                                       length)
+                perdocwriter.add_field(fieldname, field, value, length)
                 if field.vector and reader.has_vector(docnum, fieldname):
                     v = reader.vector(docnum, fieldname)
                     perdocwriter.add_vector_matcher(fieldname, field, v)

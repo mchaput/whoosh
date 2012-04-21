@@ -1015,10 +1015,22 @@ class Schema(object):
 
         return sorted(self._fields.items())
 
-    def names(self):
+    def names(self, check_names=None):
         """Returns a list of the names of the fields in this schema.
+
+        :param check_names: (optional) sequence of field names to check
+            whether the schema accepts them as (dynamic) field names -
+            acceptable names will also be in the result list.
+            Note: You may also have static field names in check_names, that
+            won't create duplicates in the result list. Unsupported names
+            will not be in the result list.
         """
-        return sorted(self._fields.keys())
+        fieldnames = self._fields.keys()
+        if check_names is not None:
+            fieldnames += [fieldname
+                           for fieldname in set(check_names) - set(fieldnames)
+                           if fieldname in self]
+        return sorted(fieldnames)
 
     def clean(self):
         for field in self:
