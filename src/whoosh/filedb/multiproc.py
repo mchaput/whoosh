@@ -297,7 +297,6 @@ class MpWriter(SegmentWriter):
         schema = self.schema
         storage = self.storage
         codec = self.codec
-        fieldnames = list(schema.names())
 
         # Merge per-document information
         pdw = self.perdocwriter
@@ -326,7 +325,7 @@ class MpWriter(SegmentWriter):
                 # Add the base doc count to the sub-segment doc num
                 pdw.start_doc(basedoc + i)
                 # Call add_field to store the field values and lengths
-                for fieldname in fieldnames:
+                for fieldname in schema.names(fs.keys()):
                     value = fs.get(fieldname)
                     length = lenreader.doc_field_length(i, fieldname)
                     pdw.add_field(fieldname, schema[fieldname], value, length)
