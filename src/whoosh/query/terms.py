@@ -319,7 +319,7 @@ class Regex(PatternQuery):
     expressions.
     """
 
-    SPECIAL_CHARS = frozenset("{}()[].?+^$\\")
+    SPECIAL_CHARS = frozenset("{}()[].?*+^$\\")
 
     def __unicode__(self):
         return '%s:r"%s"' % (self.fieldname, self.text)
