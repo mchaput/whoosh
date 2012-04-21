@@ -31,10 +31,10 @@ import copy
 from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import u
-from whoosh.query import core, terms, nary
+from whoosh.query import qcore, terms, nary
 
 
-class Phrase(core.Query):
+class Phrase(qcore.Query):
     """Matches documents containing a given phrase."""
 
     def __init__(self, fieldname, words, slop=1, boost=1.0, char_ranges=None):
@@ -92,7 +92,7 @@ class Phrase(core.Query):
 
     def normalize(self):
         if not self.words:
-            return core.NullQuery
+            return qcore.NullQuery
         if len(self.words) == 1:
             t = terms.Term(self.fieldname, self.words[0])
             if self.char_ranges:
@@ -132,7 +132,7 @@ class Phrase(core.Query):
 
         field = searcher.schema[fieldname]
         if not field.format or not field.format.supports("positions"):
-            raise core.QueryError("Phrase search: %r field has no positions"
+            raise qcore.QueryError("Phrase search: %r field has no positions"
                                   % self.fieldname)
 
         # Construct a tree of SpanNear queries representing the words in the

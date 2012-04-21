@@ -624,17 +624,25 @@ class Searcher(object):
                 doclists[key].append(docnum)
             s.reader().define_facets(name, doclists, save=save)
 
-    def docs_for_query(self, q):
+    def docs_for_query(self, q, for_deletion=False):
         """Returns an iterator of document numbers for documents matching the
         given :class:`whoosh.query.Query` object.
         """
 
+        # If we're getting the document numbers so we can delete them, use the
+        # deletion_docs method instead of docs; this lets special queries
+        # (e.g. nested queries) override what gets deleted
+        if for_deletion:
+            method = q.deletion_docs
+        else:
+            method = q.docs
+
         if self.subsearchers:
             for s, offset in self.subsearchers:
-                for docnum in q.docs(s):
+                for docnum in method(s):
                     yield docnum + offset
         else:
-            for docnum in q.docs(self):
+            for docnum in method(self):
                 yield docnum
 
     def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
@@ -1464,7 +1472,7 @@ class Results(object):
         >>> r = searcher.search(myquery)
         >>> r.has_matched_terms()
         False
-        >>> 
+        >>>
         """
 
         return self._termlists is not None

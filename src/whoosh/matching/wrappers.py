@@ -27,10 +27,10 @@
 
 import sys
 from whoosh.compat import xrange
-from whoosh.matching import core
+from whoosh.matching import mcore
 
 
-class WrappingMatcher(core.Matcher):
+class WrappingMatcher(mcore.Matcher):
     """Base class for matchers that wrap sub-matchers.
     """
 
@@ -59,7 +59,7 @@ class WrappingMatcher(core.Matcher):
         r = self.child.replace(minquality)
         if not r.is_active():
             # If the replaced child is inactive, return an inactive matcher
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif r is not self.child:
             # If the child changed, return a new wrapper on the new child
             return self._replacement(r)
@@ -118,7 +118,7 @@ class WrappingMatcher(core.Matcher):
         return self.child.score() * self.boost
 
 
-class MultiMatcher(core.Matcher):
+class MultiMatcher(mcore.Matcher):
     """Serializes the results of a list of sub-matchers.
     """
 
@@ -177,7 +177,7 @@ class MultiMatcher(core.Matcher):
                 m._next_matcher()
 
         if not m.is_active():
-            return core.NullMatcher()
+            return mcore.NullMatcher()
 
         # TODO: Possible optimization: if the last matcher is current, replace
         # this with the last matcher, but wrap it with a matcher that adds the
@@ -211,7 +211,7 @@ class MultiMatcher(core.Matcher):
 
     def next(self):
         if not self.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
 
         self.matchers[self.current].next()
         if not self.matchers[self.current].is_active():
@@ -219,7 +219,7 @@ class MultiMatcher(core.Matcher):
 
     def skip_to(self, id):
         if not self.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         if id <= self.id():
             return
 
@@ -396,13 +396,13 @@ class InverseMatcher(WrappingMatcher):
 
     def next(self):
         if self._id >= self.limit:
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         self._id += 1
         self._find_next()
 
     def skip_to(self, id):
         if self._id >= self.limit:
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         if id < self._id:
             return
         self._id = id
@@ -436,16 +436,16 @@ class RequireMatcher(WrappingMatcher):
     def replace(self, minquality=0):
         if not self.child.is_active():
             # If one of the sub-matchers is inactive, go inactive
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif minquality and self.a.max_quality() < minquality:
             # If the required matcher doesn't have a high enough max quality
             # to possibly contribute, return an inactive matcher
-            return core.NullMatcher()
+            return mcore.NullMatcher()
 
         new_a = self.a.replace(minquality)
         new_b = self.b.replace()
         if not new_a.is_active():
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif new_a is not self.a or new_b is not self.b:
             # If one of the sub-matchers changed, return a new Require
             return self.__class__(new_a, self.b)
