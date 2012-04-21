@@ -25,10 +25,10 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.matching import core
+from whoosh.matching import mcore
 
 
-class BiMatcher(core.Matcher):
+class BiMatcher(mcore.Matcher):
     """Base class for matchers that combine the results of two sub-matchers in
     some way.
     """
@@ -56,7 +56,7 @@ class BiMatcher(core.Matcher):
 
     def skip_to(self, id):
         if not self.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         ra = self.a.skip_to(id)
         rb = self.b.skip_to(id)
         return ra or rb
@@ -135,7 +135,7 @@ class UnionMatcher(AdditiveBiMatcher):
 
         # If one or both of the sub-matchers are inactive, convert
         if not (a_active or b_active):
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif not a_active:
             return b.replace(minquality)
         elif not b_active:
@@ -195,7 +195,7 @@ class UnionMatcher(AdditiveBiMatcher):
 
         # Shortcut when one matcher is inactive
         if not (a_active or b_active):
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         elif not a_active:
             return b.next()
         elif not b_active:
@@ -269,7 +269,7 @@ class UnionMatcher(AdditiveBiMatcher):
         a = self.a
         b = self.b
         if not (a.is_active() or b.is_active()):
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
 
         # Short circuit if one matcher is inactive
         if not a.is_active():
@@ -325,7 +325,7 @@ class DisjunctionMaxMatcher(UnionMatcher):
             if a_max < minquality and b_max < minquality:
                 # If neither sub-matcher has a high enough max quality to
                 # contribute, return an inactive matcher
-                return core.NullMatcher()
+                return mcore.NullMatcher()
             elif b_max < minquality:
                 # If the b matcher can't contribute, return a
                 return a.replace(minquality)
@@ -334,7 +334,7 @@ class DisjunctionMaxMatcher(UnionMatcher):
                 return b.replace(minquality)
 
         if not (a_active or b_active):
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif not a_active:
             return b.replace(minquality)
         elif not b_active:
@@ -350,7 +350,7 @@ class DisjunctionMaxMatcher(UnionMatcher):
         # again here after we replace them, but it's probably better than
         # returning a replacement with an inactive sub-matcher
         if not (a_active and b_active):
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif not a_active:
             return b
         elif not b_active:
@@ -426,7 +426,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
 
         if not (a_active and b_active):
             # Intersection matcher requires that both sub-matchers be active
-            return core.NullMatcher()
+            return mcore.NullMatcher()
 
         if minquality:
             a_max = a.max_quality()
@@ -434,7 +434,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
             if a_max + b_max < minquality:
                 # If the combined quality of the sub-matchers can't contribute,
                 # return an inactive matcher
-                return core.NullMatcher()
+                return mcore.NullMatcher()
             # Require that the replacements be able to contribute results
             # higher than the minquality
             a_min = minquality - b_max
@@ -447,7 +447,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
         a_active = a.is_active()
         b_active = b.is_active()
         if not (a_active or b_active):
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif not a_active:
             return b
         elif not b_active:
@@ -493,7 +493,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
 
     def skip_to(self, id):
         if not self.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         ra = self.a.skip_to(id)
         rb = self.b.skip_to(id)
         if self.is_active():
@@ -543,7 +543,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
 
     def next(self):
         if not self.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
 
         # We must assume that the ids are equal whenever next() is called (they
         # should have been made equal by _find_next), so advance them both
@@ -608,12 +608,12 @@ class AndNotMatcher(BiMatcher):
         if not self.a.is_active():
             # The a matcher is required, so if it's inactive, return an
             # inactive matcher
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif (minquality
               and self.a.max_quality() < minquality):
             # If the quality of the required matcher isn't high enough to
             # contribute, return an inactive matcher
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif not self.b.is_active():
             # If the prohibited matcher is inactive, convert to just the
             # required matcher
@@ -646,7 +646,7 @@ class AndNotMatcher(BiMatcher):
 
     def next(self):
         if not self.a.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         ar = self.a.next()
         nr = False
         if self.a.is_active() and self.b.is_active():
@@ -655,7 +655,7 @@ class AndNotMatcher(BiMatcher):
 
     def skip_to(self, id):
         if not self.a.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         if id < self.a.id():
             return
 
@@ -709,7 +709,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
 
     def next(self):
         if not self.a.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
 
         ar = self.a.next()
         br = False
@@ -719,7 +719,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
 
     def skip_to(self, id):
         if not self.a.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
 
         ra = self.a.skip_to(id)
         rb = False
@@ -734,12 +734,12 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         b_active = b.is_active()
 
         if not a_active:
-            return core.NullMatcher()
+            return mcore.NullMatcher()
         elif minquality and b_active:
             if a.max_quality() + b.max_quality() < minquality:
                 # If the combined max quality of the sub-matchers isn't high
                 # enough to possibly contribute, return an inactive matcher
-                return core.NullMatcher()
+                return mcore.NullMatcher()
             elif a.max_quality() < minquality:
                 # If the max quality of the main sub-matcher isn't high enough
                 # to ever contribute without the optional sub- matcher, change
@@ -762,7 +762,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         minquality = minquality
 
         if not a.is_active():
-            raise core.ReadTooFar
+            raise mcore.ReadTooFar
         if not b.is_active():
             return a.skip_to_quality(minquality)
 

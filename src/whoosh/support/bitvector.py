@@ -237,7 +237,7 @@ class BitSet(DocIdSet):
         bucket = i // 8
         if bucket >= len(self.bits):
             return False
-        return self.bits[bucket] & (1 << (i & 7))
+        return bool(self.bits[bucket] & (1 << (i & 7)))
 
     def add(self, i):
         bucket = i >> 3

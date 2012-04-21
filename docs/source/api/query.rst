@@ -56,6 +56,8 @@ Binary queries
 Special queries
 ===============
 
+.. autoclass:: NestedParent
+.. autoclass:: NestedChildren
 .. autoclass:: ConstantScoreQuery
 
 
