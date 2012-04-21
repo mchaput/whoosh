@@ -11,7 +11,7 @@ setup(
     version=versionstring(),
     package_dir={'': 'src'},
     packages=["whoosh", "whoosh.codec", "whoosh.filedb", "whoosh.lang",
-              "whoosh.qparser", "whoosh.query", "whoosh.support"],
+              "whoosh.matching", "whoosh.qparser", "whoosh.query", "whoosh.support"],
 
     author="Matt Chaput",
     author_email="matt@whoosh.ca",
