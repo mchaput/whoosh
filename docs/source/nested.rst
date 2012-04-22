@@ -7,7 +7,7 @@ Overview
 
 Whoosh's full-text index is essentially a flat database of documents. However,
 Whoosh supports two techniques for simulating the indexing and querying of
-hiearchical documents, tha is, sets of documents that form a parent-child
+hierarchical documents, that is, sets of documents that form a parent-child
 hierarchy, such as "Chapter - Section - Paragraph" or
 "Module - Class - Method".
 
@@ -89,12 +89,12 @@ in the hierarchy::
     all_parents = query.Term("kind", "class")
     
     # Then, we need a query that matches the children we want to find
-    kids = query.Term("name", "close")
+    wanted_kids = query.Term("name", "close")
     
     # Now we can make a query that will match documents where "name" is
     # "close", but the query will return the "parent" documents of the matching
     # children
-    q = query.NestedParent(all_parents, kids)
+    q = query.NestedParent(all_parents, wanted_kids)
     # results = Index, Calculator
 
 Note that in a hierarchy with more than two levels, you can specify a "parents"
@@ -113,7 +113,7 @@ The query works by first building a bit vector representing which documents are
          Accumulator
 
 Then for each match of the "child" query, it calculates the previous parent
-from the bit vector returns it as a match (and it only returns each parent once
+from the bit vector and returns it as a match (it only returns each parent once
 no matter how many children match). This parent lookup is very efficient::
 
      1000100100000100
@@ -135,7 +135,7 @@ example, to search for an album title and return the songs in the album::
     # Parent documents we want to match
     wanted_parents = query.Term("album_title", "heaven")
     
-    # Now we can make a query that will match parent documents where "name"
+    # Now we can make a query that will match parent documents where "album_title"
     # contains "heaven", but the query will return the "child" documents of the
     # matching parents
     q1 = query.NestedChildren(all_parents, wanted_parents)
@@ -228,21 +228,11 @@ to parents instead of nesting::
                 print("  Method name=", child_doc["m_name"])
 
 This technique is more flexible than index-time nesting in that you can
-delete/update individual documents in the hierarchy piecemeal, although it
+delete/update individual documents in the hierarchy piece by piece, although it
 doesn't support finding different parent levels as easily. It is also slower
 than index-time nesting (potentially much slower), since you must perform
 additional searches for each found document.
 
 Future versions of Whoosh may include "join" queries to make this process more
 efficient (or at least more automatic).
-
-
-
-
-
-
-
-
-
-
 
