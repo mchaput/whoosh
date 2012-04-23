@@ -1025,11 +1025,12 @@ class Schema(object):
             won't create duplicates in the result list. Unsupported names
             will not be in the result list.
         """
-        fieldnames = self._fields.keys()
+
+        fieldnames = set(self._fields.keys())
         if check_names is not None:
-            fieldnames += [fieldname
-                           for fieldname in set(check_names) - set(fieldnames)
-                           if fieldname in self]
+            check_names = set(check_names) - fieldnames
+            fieldnames.update(fieldname for fieldname in check_names
+                              if fieldname in self)
         return sorted(fieldnames)
 
     def clean(self):
