@@ -258,6 +258,16 @@ def test_multisegment():
                     assert word in hit["a"].split()
 
 
+@skip_if(no_multi)
+def test_batchsize_eq_doccount():
+    from whoosh.filedb.multiproc import MpWriter
+
+    schema = fields.Schema(a=fields.KEYWORD(stored=True))
+    with TempIndex(schema) as ix:
+        with ix.writer(procs=4, batchsize=10) as w:
+            for i in xrange(10):
+                w.add_document(a=u(str(i)))
+
 
 
 
