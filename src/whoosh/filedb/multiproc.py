@@ -255,7 +255,8 @@ class MpWriter(SegmentWriter):
     def _commit(self, mergetype, optimize, merge):
         try:
             # Index the remaining documents in the doc buffer
-            self._enqueue()
+            if self.docbuffer:
+                self._enqueue()
             # Tell the tasks to finish
             for task in self.tasks:
                 self.jobqueue.put(None)
