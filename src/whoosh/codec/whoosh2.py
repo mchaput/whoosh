@@ -296,21 +296,6 @@ class W2FieldWriter(base.FieldWriter):
         self.blockcount = 0
         postfile.write_uint(0)
 
-    def _finish_blocklist(self):
-        if self.block:
-            self._write_block()
-
-        # Seek back to the start of this list of posting blocks and write the
-        # number of blocks
-        postfile = self.postfile
-        postfile.flush()
-        here = postfile.tell()
-        postfile.seek(self.startoffset + 4)
-        postfile.write_uint(self.blockcount)
-        postfile.seek(here)
-
-        self.block = None
-
     def start_field(self, fieldname, fieldobj):
         self.fieldname = fieldname
         self.field = fieldobj
@@ -341,9 +326,10 @@ class W2FieldWriter(base.FieldWriter):
         self.dawg.insert(text)
 
     def finish_term(self):
-        if self.block is None:
-            raise Exception("Called finish_term when not in a block")
         block = self.block
+        if block is None:
+            raise Exception("Called finish_term when not in a block")
+
         terminfo = self.terminfo
         if self.blockcount < 1 and block and len(block) < self.inlinelimit:
             # Inline the single block
@@ -351,7 +337,20 @@ class W2FieldWriter(base.FieldWriter):
             vals = None if not block.values else tuple(block.values)
             postings = (tuple(block.ids), tuple(block.weights), vals)
         else:
-            self._finish_blocklist()
+            if block:
+                # Write the current unfinished block to disk
+                self._write_block()
+
+            # Seek back to the start of this list of posting blocks and write
+            # the number of blocks
+            postfile = self.postfile
+            postfile.flush()
+            here = postfile.tell()
+            postfile.seek(self.startoffset + 4)
+            postfile.write_uint(self.blockcount)
+            postfile.seek(here)
+
+            self.block = None
             postings = self.startoffset
 
         self.block = None
