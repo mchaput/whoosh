@@ -71,7 +71,7 @@ def datetime_to_long(dt):
     of microseconds since ``datetime.min``.
     """
 
-    return timedelta_to_usecs(dt - dt.min)
+    return timedelta_to_usecs(dt.replace(tzinfo=None) - dt.min)
 
 
 def long_to_datetime(x):
