@@ -389,14 +389,13 @@ def test_patterns():
         assert_equal(q.simplify(r).__unicode__(), "(word:able OR word:ago)")
         assert_equal(q._find_prefix(q.text), "")
 
+        # special case: ? may mean "zero occurences"
+        q = query.Regex("word", "ah?i")
+        assert_equal(q.simplify(r).__unicode__(), "(word:ahi OR word:aim)")
+        assert_equal(q._find_prefix(q.text), "a")
 
-
-
-
-
-
-
-
-
-
+        # special case: * may mean "zero occurences"
+        q = query.Regex("word", "ah*i")
+        assert_equal(q.simplify(r).__unicode__(), "(word:ahi OR word:aim)")
+        assert_equal(q._find_prefix(q.text), "a")
 
