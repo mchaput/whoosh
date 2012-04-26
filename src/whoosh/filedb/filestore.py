@@ -60,9 +60,9 @@ class FileStorage(Storage):
 
     supports_mmap = True
 
-    def __init__(self, path, mapped=False, readonly=False):
+    def __init__(self, path, supports_mmap=True, readonly=False):
         self.folder = path
-        self.mapped = mapped
+        self.supports_mmap = supports_mmap
         self.readonly = readonly
         self.locks = {}
 

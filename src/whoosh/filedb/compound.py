@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import mmap
+import errno, mmap, sys
 from threading import Lock
 from shutil import copyfileobj
 
@@ -38,25 +38,34 @@ from whoosh.system import emptybytes
 class CompoundStorage(FileStorage):
     readonly = True
 
-    def __init__(self, store, name, basepos=0):
+    def __init__(self, store, name, use_mmap=True, basepos=0):
         self.name = name
-        f = store.open_file(name)
-        f.seek(basepos)
+        self.file = store.open_file(name)
+        self.file.seek(basepos)
 
-        self.diroffset = f.read_long()
-        self.dirlength = f.read_int()
-        f.seek(self.diroffset)
-        self.dir = f.read_pickle()
-        self.options = f.read_pickle()
-
-        if store.supports_mmap:
-            self.source = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-            self.file = None
-            f.close()
-        else:
-            self.source = None
-            self.file = f
+        self.diroffset = self.file.read_long()
+        self.dirlength = self.file.read_int()
+        self.file.seek(self.diroffset)
+        self.dir = self.file.read_pickle()
+        self.options = self.file.read_pickle()
         self.locks = {}
+        self.source = None
+
+        if use_mmap and store.supports_mmap and hasattr(self.file, "fileno"):
+            # Try to open the entire segment as a memory-mapped object
+            try:
+                fileno = self.file.fileno()
+                self.source = mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)
+                # If that worked, we can close the file handle we were given
+                self.file.close()
+                self.file = None
+            except OSError:
+                e = sys.exc_info()[1]
+                # If we got an error because there wasn't enough memory to
+                # open the map, ignore it and fall through, we'll just use the
+                # (slower) "sub-file" implementation
+                if e.errno == errno.ENOMEM:
+                    pass
 
     def __repr__(self):
         return "<%s (%s)>" % (self.__class__.__name__, self.name)
