@@ -170,8 +170,12 @@ def make_index(basedir, ixdir, procs=4, limitmb=128, multisegment=True,
     if not os.path.exists(ixdir):
         os.mkdir(ixdir)
 
+    # Multi-lingual stop words
+    stoplist = (analysis.STOP_WORDS
+                | set("de la der und le die et en al no von di du da "
+                      "del zur ein".split()))
     # Schema
-    ana = analysis.StemmingAnalyzer()
+    ana = analysis.StemmingAnalyzer(stoplist=stoplist)
     schema = fields.Schema(title=fields.TEXT(analyzer=ana),
                            author=fields.TEXT(phrase=False),
                            subject=fields.TEXT(analyzer=ana, phrase=False),
