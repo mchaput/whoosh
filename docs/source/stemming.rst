@@ -16,7 +16,7 @@ want the user to be able to search for ``cafe`` and find documents containing
 ``café``.
 
 The default analyzer for the :class:`whoosh.fields.TEXT` field does not do
-stemming or accent folding. In order to allow 
+stemming or accent folding.
 
 
 Stemming
@@ -32,7 +32,10 @@ and Lovins.
 'render'
 
 The stemming filter applies the stemming function to the terms it indexes, and
-to words in user queries. So 
+to words in user queries. So in theory all variations of a root word ("render",
+"rendered", "renders", "rendering", etc.) are reduced to a single term in the
+index, saving space. And all possible variations users might use in a query
+are reduced to the root, so stemming enhances "recall".
 
 The :class:`whoosh.analysis.StemFilter` lets you add a stemming filter to an
 analyzer chain.
@@ -118,10 +121,10 @@ Variations has pros and cons.
 
 * It increases the size of the index relative to stemming, because different
   word forms are indexed separately.
-  
+
 * It acts like an ``Or`` search for all the variations, which is slower than
   searching for a single term.
-  
+
 
 Lemmatization
 =============

@@ -27,24 +27,11 @@
 
 from __future__ import with_statement
 from bisect import bisect_right
-from collections import defaultdict
 
-try:
-    import sqlite3  #@UnusedImport
-    has_sqlite = True
-except ImportError:
-    has_sqlite = False
-
-from whoosh.compat import integer_types, iteritems, text_type
 from whoosh.fields import UnknownFieldError
-from whoosh.filedb.fileindex import Segment
-from whoosh.filedb.filepostings import FilePostingWriter
-from whoosh.filedb.filetables import (TermIndexWriter, StoredFieldWriter,
-                                      TermVectorWriter)
-from whoosh.filedb.pools import TempfilePool, DiskSet
 from whoosh.store import LockError
-from whoosh.support.dawg import DawgBuilder, flatten
 from whoosh.support.filelock import try_for
+from whoosh.support.externalsort import SortingPool
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
 
@@ -68,10 +55,12 @@ def MERGE_SMALL(writer, segments):
     """
 
     from whoosh.filedb.filereading import SegmentReader
+
     newsegments = []
-    sorted_segment_list = sorted((s.doc_count_all(), s) for s in segments)
+    sorted_segment_list = sorted(segments, key=lambda s: s.doc_count_all())
     total_docs = 0
-    for i, (count, seg) in enumerate(sorted_segment_list):
+    for i, seg in enumerate(sorted_segment_list):
+        count = seg.doc_count_all()
         if count > 0:
             total_docs += count
             if total_docs < fib(i + 5):
@@ -96,37 +85,50 @@ def OPTIMIZE(writer, segments):
     return []
 
 
-def MERGE_SQUARES(writer, segments):
-    """This is an alternative merge policy similar to Lucene's. It is less
-    optimal than the default MERGE_SMALL.
-    """
+class PostingPool(SortingPool):
+    # Subclass whoosh.support.externalsort.SortingPool to use knowledge of
+    # postings to set run size in bytes instead of items
 
-    from whoosh.filedb.filereading import SegmentReader
+    def __init__(self, limitmb=128, **kwargs):
+        SortingPool.__init__(self, **kwargs)
+        self.limit = limitmb * 1024 * 1024
+        self.currentsize = 0
 
-    sizedsegs = [(s.doc_count_all(), s) for s in segments]
-    tomerge = []
-    for size in (10, 100, 1000, 10000, 100000):
-        smaller = [seg for segsize, seg in sizedsegs
-                   if segsize < size - 1 and segsize >= size // 10]
-        if len(smaller) >= 10:
-            tomerge.extend(smaller)
-            for seg in smaller:
-                segments.remove(seg)
+    def add(self, item):
+        # item = (fieldname, text, docnum, weight, valuestring)
+        size = (28 + 4 * 5  # tuple = 28 + 4 * length
+                + 21 + len(item[0])  # fieldname = str = 21 + length
+                + 26 + len(item[1]) * 2  # text = unicode = 26 + 2 * length
+                + 18  # docnum = long = 18
+                + 16  # weight = float = 16
+                + 21 + len(item[4] or ''))  # valuestring
+        self.currentsize += size
+        if self.currentsize > self.limit:
+            self.save()
+        self.current.append(item)
 
-    for seg in tomerge:
-        reader = SegmentReader(writer.storage, writer.schema, seg)
-        writer.add_reader(reader)
-        reader.close()
+    def iter_postings(self):
+        # This is just an alias for items() to be consistent with the
+        # iter_postings()/add_postings() interface of a lot of other classes
+        return self.items()
 
-    return segments
+    def save(self):
+        SortingPool.save(self)
+        self.currentsize = 0
+
+
+def renumber_postings(reader, startdoc, docmap):
+    for fieldname, text, docnum, weight, value in reader.iter_postings():
+        newdoc = docmap[docnum] if docmap else startdoc + docnum
+        yield (fieldname, text, newdoc, weight, value)
 
 
 # Writer object
 
 class SegmentWriter(IndexWriter):
-    def __init__(self, ix, poolclass=None, procs=0, blocklimit=128,
-                 timeout=0.0, delay=0.1, name=None, _lk=True, **poolargs):
-
+    def __init__(self, ix, poolclass=None, timeout=0.0, delay=0.1, _lk=True,
+                 limitmb=128, docbase=0, codec=None, compound=True, **kwargs):
+        # Lock the index
         self.writelock = None
         if _lk:
             self.writelock = ix.lock("WRITELOCK")
@@ -134,76 +136,43 @@ class SegmentWriter(IndexWriter):
                            delay=delay):
                 raise LockError
 
+        if codec is None:
+            from whoosh.codec import default_codec
+            codec = default_codec()
+        self.codec = codec
+
+        # Get info from the index
+        self.storage = ix.storage
+        self.indexname = ix.indexname
         info = ix._read_toc()
+        self.generation = info.generation + 1
         self.schema = info.schema
         self.segments = info.segments
-        self.storage = storage = ix.storage
-        self.indexname = ix.indexname
+        self.docnum = self.docbase = docbase
+        self._setup_doc_offsets()
+
+        # Internals
+        self.compound = compound
+        poolprefix = "whoosh_%s_" % self.indexname
+        self.pool = PostingPool(limitmb=limitmb, prefix=poolprefix)
+        newsegment = self.newsegment = codec.new_segment(self.storage,
+                                                         self.indexname)
         self.is_closed = False
+        self._added = False
 
-        self.blocklimit = blocklimit
-        self.segment_number = info.segment_counter + 1
-        self.generation = info.generation + 1
+        # Set up writers
+        self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
+        self.fieldwriter = codec.field_writer(self.storage, newsegment)
 
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.newsegment)
+
+    def _setup_doc_offsets(self):
         self._doc_offsets = []
         base = 0
         for s in self.segments:
             self._doc_offsets.append(base)
             base += s.doc_count_all()
-
-        self.name = name or Segment.basename(self.indexname,
-                                             self.segment_number)
-        self.docnum = 0
-        self.fieldlength_totals = defaultdict(int)
-        self._added = False
-        self._unique_cache = {}
-
-        # Create a temporary segment to use its .*_filename attributes
-        segment = Segment(self.name, self.generation, 0, None, None, None)
-
-        # Spelling
-        self.wordsets = {}
-        self.dawg = None
-        if any(field.spelling for field in self.schema):
-            self.dawgfile = storage.create_file(segment.dawg_filename)
-            self.dawg = DawgBuilder(field_root=True)
-
-        # Terms index
-        tf = storage.create_file(segment.termsindex_filename)
-        ti = TermIndexWriter(tf)
-        # Term postings file
-        pf = storage.create_file(segment.termposts_filename)
-        pw = FilePostingWriter(pf, blocklimit=blocklimit)
-        # Terms writer
-        self.termswriter = TermsWriter(self.schema, ti, pw, self.dawg)
-
-        if self.schema.has_vectored_fields():
-            # Vector index
-            vf = storage.create_file(segment.vectorindex_filename)
-            self.vectorindex = TermVectorWriter(vf)
-
-            # Vector posting file
-            vpf = storage.create_file(segment.vectorposts_filename)
-            self.vpostwriter = FilePostingWriter(vpf, stringids=True)
-        else:
-            self.vectorindex = None
-            self.vpostwriter = None
-
-        # Stored fields file
-        sf = storage.create_file(segment.storedfields_filename)
-        self.storedfields = StoredFieldWriter(sf, self.schema.stored_names())
-
-        # Field lengths file
-        self.lengthfile = storage.create_file(segment.fieldlengths_filename)
-
-        # Create the pool
-        if poolclass is None:
-            if procs > 1:
-                from whoosh.filedb.multiproc import MultiPool
-                poolclass = MultiPool
-            else:
-                poolclass = TempfilePool
-        self.pool = poolclass(self.schema, procs=procs, **poolargs)
 
     def _check_state(self):
         if self.is_closed:
@@ -224,7 +193,6 @@ class SegmentWriter(IndexWriter):
     def _document_segment(self, docnum):
         #Returns the index.Segment object containing the given document
         #number.
-
         offsets = self._doc_offsets
         if len(offsets) == 1:
             return 0
@@ -241,8 +209,8 @@ class SegmentWriter(IndexWriter):
 
     def has_deletions(self):
         """
-        :returns: True if this index has documents that are marked deleted but
-            haven't been optimized out of the index yet.
+        Returns True if this index has documents that are marked deleted but
+        haven't been optimized out of the index yet.
         """
 
         return any(s.has_deletions() for s in self.segments)
@@ -266,198 +234,239 @@ class SegmentWriter(IndexWriter):
         return segment.is_deleted(segdocnum)
 
     def reader(self, reuse=None):
-        self._check_state()
         from whoosh.filedb.fileindex import FileIndex
 
+        self._check_state()
         return FileIndex._reader(self.storage, self.schema, self.segments,
                                  self.generation, reuse=reuse)
 
+    def iter_postings(self):
+        return self.pool.iter_postings()
+
+    def add_postings(self, lengths, items, startdoc, docmap):
+        # items = (fieldname, text, docnum, weight, valuestring) ...
+        schema = self.schema
+
+        # Make a generator to strip out deleted fields and renumber the docs
+        # before passing them down to the field writer
+        def gen():
+            for fieldname, text, docnum, weight, valuestring in items:
+                if fieldname not in schema:
+                    continue
+                if docmap is not None:
+                    newdoc = docmap[docnum]
+                else:
+                    newdoc = startdoc + docnum
+                yield (fieldname, text, newdoc, weight, valuestring)
+
+        self.fieldwriter.add_postings(schema, lengths, gen())
+
+    def _make_docmap(self, reader, newdoc):
+        # If the reader has deletions, make a dictionary mapping the docnums
+        # of undeleted documents to new sequential docnums starting at newdoc
+        hasdel = reader.has_deletions()
+        if hasdel:
+            docmap = {}
+            for docnum in reader.all_doc_ids():
+                if reader.is_deleted(docnum):
+                    continue
+                docmap[docnum] = newdoc
+                newdoc += 1
+        else:
+            docmap = None
+            newdoc += reader.doc_count_all()
+        # Return the map and the new lowest unused document number
+        return docmap, newdoc
+
+    def _merge_per_doc(self, reader, docmap):
+        schema = self.schema
+        newdoc = self.docnum
+        perdocwriter = self.perdocwriter
+        sharedfields = set(schema.names()) & set(reader.schema.names())
+
+        for docnum in reader.all_doc_ids():
+            # Skip deleted documents
+            if docmap and docnum not in docmap:
+                continue
+            # Renumber around deletions
+            if docmap:
+                newdoc = docmap[docnum]
+
+            # Get the stored fields
+            d = reader.stored_fields(docnum)
+            # Start a new document in the writer
+            perdocwriter.start_doc(newdoc)
+            # For each field in the document, copy its stored value,
+            # length, and vectors (if any) to the writer
+            for fieldname in sharedfields:
+                field = schema[fieldname]
+                length = (reader.doc_field_length(docnum, fieldname, 0)
+                          if field.scorable else 0)
+                perdocwriter.add_field(fieldname, field, d.get(fieldname),
+                                       length)
+                if field.vector and reader.has_vector(docnum, fieldname):
+                    v = reader.vector(docnum, fieldname)
+                    perdocwriter.add_vector_matcher(fieldname, field, v)
+            # Finish the new document
+            perdocwriter.finish_doc()
+            newdoc += 1
+
+    def _merge_fields(self, reader, docmap):
+        # Add inverted index postings to the pool, renumbering document number
+        # references as necessary
+        add_post = self.pool.add
+        # Note: iter_postings() only yields postings for undeleted docs
+        for p in renumber_postings(reader, self.docnum, docmap):
+            add_post(p)
+
     def add_reader(self, reader):
         self._check_state()
-        startdoc = self.docnum
 
-        has_deletions = reader.has_deletions()
-        if has_deletions:
-            docmap = {}
+        # Make a docnum map to renumber around deleted documents
+        docmap, newdoc = self._make_docmap(reader, self.docnum)
+        # Add per-document values
+        self._merge_per_doc(reader, docmap)
+        # Add field postings
+        self._merge_fields(reader, docmap)
 
-        fieldnames = set(self.schema.names())
-
-        # Add stored documents, vectors, and field lengths
-        for docnum in reader.all_doc_ids():
-            if (not has_deletions) or (not reader.is_deleted(docnum)):
-                d = dict(item for item
-                         in iteritems(reader.stored_fields(docnum))
-                         if item[0] in fieldnames)
-                # We have to append a dictionary for every document, even if
-                # it's empty.
-                self.storedfields.append(d)
-
-                if has_deletions:
-                    docmap[docnum] = self.docnum
-
-                for fieldname in reader.schema.scorable_names():
-                    length = reader.doc_field_length(docnum, fieldname)
-                    if length and fieldname in fieldnames:
-                        self.pool.add_field_length(self.docnum, fieldname,
-                                                   length)
-
-                for fieldname in reader.schema.vector_names():
-                    if (fieldname in fieldnames
-                        and reader.has_vector(docnum, fieldname)):
-                        vpostreader = reader.vector(docnum, fieldname)
-                        self._add_vector_reader(self.docnum, fieldname,
-                                                vpostreader)
-
-                self.docnum += 1
-
-        # Add dawg contents to word sets for fields that require separate
-        # handling
-        for fieldname in self.schema.separate_spelling_names():
-            if reader.has_word_graph(fieldname):
-                graph = reader.word_graph(fieldname)
-                self.add_spell_words(fieldname, flatten(graph))
-
-        # Add postings
-        for fieldname, text in reader.all_terms():
-            if fieldname in fieldnames:
-                postreader = reader.postings(fieldname, text)
-                while postreader.is_active():
-                    docnum = postreader.id()
-                    valuestring = postreader.value()
-                    if has_deletions:
-                        newdoc = docmap[docnum]
-                    else:
-                        newdoc = startdoc + docnum
-
-                    self.pool.add_posting(fieldname, text, newdoc,
-                                          postreader.weight(), valuestring)
-                    postreader.next()
-
+        self.docnum = newdoc
         self._added = True
 
-    def add_document(self, **fields):
-        self._check_state()
-        schema = self.schema
-        docboost = self._doc_boost(fields)
-
-        # Sort the keys
-        fieldnames = sorted([name for name in fields.keys()
-                             if not name.startswith("_")])
-
+    def _check_fields(self, schema, fieldnames):
         # Check if the caller gave us a bogus field
         for name in fieldnames:
             if name not in schema:
                 raise UnknownFieldError("No field named %r in %s"
                                         % (name, schema))
 
-        storedvalues = {}
-
+    def add_document(self, **fields):
+        self._check_state()
+        perdocwriter = self.perdocwriter
+        schema = self.schema
         docnum = self.docnum
+        add_post = self.pool.add
+
+        docboost = self._doc_boost(fields)
+        fieldnames = sorted([name for name in fields.keys()
+                             if not name.startswith("_")])
+        self._check_fields(schema, fieldnames)
+
+        perdocwriter.start_doc(docnum)
+        # For each field...
         for fieldname in fieldnames:
             value = fields.get(fieldname)
             if value is None:
                 continue
             field = schema[fieldname]
 
+            length = 0
             if field.indexed:
+                # TODO: Method for adding progressive field values, ie
+                # setting start_pos/start_char?
                 fieldboost = self._field_boost(fields, fieldname, docboost)
-                self.pool.add_content(docnum, fieldname, field, value,
-                                      fieldboost)
+                # Ask the field to return a list of (text, weight, valuestring)
+                # tuples and the number of terms in the field
+                items = field.index(value)
+                # Only store the length if the field is marked scorable
+                scorable = field.scorable
+                # Add the terms to the pool
+                for text, freq, weight, valuestring in items:
+                    #assert w != ""
+                    weight *= fieldboost
+                    if scorable:
+                        length += freq
+                    add_post((fieldname, text, docnum, weight, valuestring))
 
             if field.separate_spelling():
-                # This field requires spelling words to be added in a separate
-                # step, instead of as part of indexing
-                self.add_spell_words(fieldname, field.spellable_words(value))
+                # For fields which use different tokens for spelling, insert
+                # fake postings for the spellable words, where docnum=None
+                # means "this is a spelling word"
+
+                # TODO: think of something less hacktacular
+                for text in field.spellable_words(value):
+                    add_post((fieldname, text, None, None, None))
 
             vformat = field.vector
             if vformat:
-                wvs = vformat.word_values(value, field.analyzer, mode="index")
-                vlist = sorted((w, weight, valuestring)
-                               for w, _, weight, valuestring in wvs)
-                self._add_vector(docnum, fieldname, vlist)
+                analyzer = field.analyzer
+                vitems = sorted(vformat.word_values(value, analyzer,
+                                                    mode="index"))
+                perdocwriter.add_vector_items(fieldname, field, vitems)
 
+            # Figure out what value to store for this field
+            storedval = None
             if field.stored:
-                # Caller can override the stored value by including a key
-                # _stored_<fieldname>
-                storedvalue = value
-                storedname = "_stored_" + fieldname
-                if storedname in fields:
-                    storedvalue = fields[storedname]
-                storedvalues[fieldname] = storedvalue
+                storedkey = "_stored_%s" % fieldname
+                if storedkey in fields:
+                    storedval = fields.get(storedkey)
+                else:
+                    storedval = value
 
+            # Add the stored value and length for this field to the per-
+            # document writer
+            perdocwriter.add_field(fieldname, field, storedval, length)
+        perdocwriter.finish_doc()
         self._added = True
-        self.storedfields.append(storedvalues)
         self.docnum += 1
 
-    def add_spell_words(self, fieldname, words):
-        # Get or make a set for the words in this field
-        if fieldname not in self.wordsets:
-            self.wordsets[fieldname] = set()
-        wordset = self.wordsets[fieldname]
+    def doc_count(self):
+        return self.docnum - self.docbase
 
-        # If the in-memory set is getting big, replace it with an
-        # on-disk set
-        if has_sqlite and isinstance(wordset, set) and len(wordset) > 4096:
-            diskset = DiskSet(wordset)
-            self.wordsets[fieldname] = wordset = diskset
+    def get_segment(self):
+        newsegment = self.newsegment
+        newsegment.doccount = self.doc_count()
+        return newsegment
 
-        for word in words:
-            wordset.add(word)
+    def _merge_segments(self, mergetype, optimize, merge):
+        if mergetype:
+            pass
+        elif optimize:
+            mergetype = OPTIMIZE
+        elif not merge:
+            mergetype = NO_MERGE
+        else:
+            mergetype = MERGE_SMALL
 
-        self._added = True
+        # Call the merge policy function. The policy may choose to merge
+        # other segments into this writer's pool
+        return mergetype(self, self.segments)
 
-    def _add_wordsets(self):
-        dawg = self.dawg
-        for fieldname in self.wordsets:
-            ws = self.wordsets[fieldname]
-            ft = (fieldname,)
+    def _flush_segment(self):
+        lengths = self.perdocwriter.lengths_reader()
+        postings = self.pool.iter_postings()
+        self.fieldwriter.add_postings(self.schema, lengths, postings)
 
-            words = sorted(ws) if isinstance(ws, set) else iter(ws)
-            for text in words:
-                dawg.insert(ft + tuple(text))
+    def _close_segment(self):
+        self.perdocwriter.close()
+        self.fieldwriter.close()
+        self.pool.cleanup()
 
-            if isinstance(ws, DiskSet):
-                ws.destroy()
+    def _assemble_segment(self):
+        if self.compound:
+            # Assemble the segment files into a compound file
+            newsegment = self.get_segment()
+            newsegment.create_compound_file(self.storage)
+            newsegment.compound = True
 
-    def _add_vector(self, docnum, fieldname, vlist):
-        vpostwriter = self.vpostwriter
-        offset = vpostwriter.start(self.schema[fieldname].vector)
-        for text, weight, valuestring in vlist:
-            assert isinstance(text, text_type), "%r is not unicode" % text
-            vpostwriter.write(text, weight, valuestring, 0)
-        vpostwriter.finish()
+    def _commit_toc(self, segments):
+        # Write a new TOC with the new segment list (and delete old files)
+        self.codec.commit_toc(self.storage, self.indexname, self.schema,
+                              segments, self.generation)
 
-        self.vectorindex.add((docnum, fieldname), offset)
-
-    def _add_vector_reader(self, docnum, fieldname, vreader):
-        vpostwriter = self.vpostwriter
-        offset = vpostwriter.start(self.schema[fieldname].vector)
-        while vreader.is_active():
-            # text, weight, valuestring, fieldlen
-            vpostwriter.write(vreader.id(), vreader.weight(), vreader.value(),
-                              0)
-            vreader.next()
-        vpostwriter.finish()
-
-        self.vectorindex.add((docnum, fieldname), offset)
-
-    def _close_all(self):
+    def _finish(self):
+        if self.writelock:
+            self.writelock.release()
         self.is_closed = True
+        #self.storage.close()
 
-        self.termswriter.close()
-        self.storedfields.close()
-        if not self.lengthfile.is_closed:
-            self.lengthfile.close()
-        if self.vectorindex:
-            self.vectorindex.close()
-        if self.vpostwriter:
-            self.vpostwriter.close()
-
-    def _getsegment(self):
-        return Segment(self.name, self.generation, self.docnum,
-                       self.pool.fieldlength_totals(),
-                       self.pool.fieldlength_mins(),
-                       self.pool.fieldlength_maxes())
+    def _partial_segment(self):
+        # For use by a parent multiprocessing writer: Closes out the segment
+        # but leaves the pool files intact so the parent can access them
+        self._check_state()
+        self.perdocwriter.close()
+        self.fieldwriter.close()
+        # Don't call self.pool.cleanup()! We want to grab the pool files.
+        return self.get_segment()
 
     def commit(self, mergetype=None, optimize=False, merge=True):
         """Finishes writing and saves all additions and changes to disk.
@@ -489,166 +498,32 @@ class SegmentWriter(IndexWriter):
 
         self._check_state()
         try:
-            if mergetype:
-                pass
-            elif optimize:
-                mergetype = OPTIMIZE
-            elif not merge:
-                mergetype = NO_MERGE
-            else:
-                mergetype = MERGE_SMALL
-
-            # Call the merge policy function. The policy may choose to merge
-            # other segments into this writer's pool
-            new_segments = mergetype(self, self.segments)
-
+            # Merge old segments if necessary
+            finalsegments = self._merge_segments(mergetype, optimize, merge)
             if self._added:
-                # Create a Segment object for the segment created by this
-                # writer
-                thissegment = self._getsegment()
+                # Finish writing segment
+                self._flush_segment()
+                # Close segment files
+                self._close_segment()
+                # Assemble compound segment if necessary
+                self._assemble_segment()
 
-                # Tell the pool we're finished adding information, it should
-                # add its accumulated data to the lengths, terms index, and
-                # posting files.
-                self.pool.finish(self.termswriter, self.docnum,
-                                 self.lengthfile)
-
-                # Write out spelling files
-                if self.dawg:
-                    # Insert any wordsets we've accumulated into the word graph
-                    self._add_wordsets()
-                    # Write out the word graph
-                    self.dawg.write(self.dawgfile)
-
-                # Add new segment to the list of remaining segments returned by
-                # the merge policy function
-                new_segments.append(thissegment)
+                # Add the new segment to the list of remaining segments
+                # returned by the merge policy function
+                finalsegments.append(self.get_segment())
             else:
-                self.pool.cleanup()
-
-            # Close all files, write a new TOC with the new segment list, and
-            # release the lock.
-            self._close_all()
-
-            from whoosh.filedb.fileindex import _write_toc, _clean_files
-
-            _write_toc(self.storage, self.schema, self.indexname,
-                       self.generation, self.segment_number, new_segments)
-
-            # Delete leftover files
-            _clean_files(self.storage, self.indexname, self.generation,
-                         new_segments)
-
+                # Close segment files
+                self._close_segment()
+            # Write TOC
+            self._commit_toc(finalsegments)
         finally:
-            if self.writelock:
-                self.writelock.release()
+            # Final cleanup
+            self._finish()
 
     def cancel(self):
         self._check_state()
-        try:
-            self.pool.cancel()
-            self._close_all()
-        finally:
-            if self.writelock:
-                self.writelock.release()
-
-
-class TermsWriter(object):
-    def __init__(self, schema, termsindex, postwriter, dawg, inlinelimit=1):
-        self.schema = schema
-        # This file maps terms to TermInfo structures
-        self.termsindex = termsindex
-
-        # This object writes postings to the posting file and keeps track of
-        # blocks
-        self.postwriter = postwriter
-
-        # Spelling
-        self.dawg = dawg
-
-        # Posting lists with <= this number of postings will be inlined into
-        # the terms index instead of being written to the posting file
-        assert isinstance(inlinelimit, integer_types)
-        self.inlinelimit = inlinelimit
-
-        self.spelling = False
-        self.lastfn = None
-        self.lasttext = None
-        self.format = None
-        self.offset = None
-
-    def _new_term(self, fieldname, text):
-        # This method tests whether a new field/term has started in the stream
-        # of incoming postings, and if so performs appropriate work
-
-        lastfn = self.lastfn or ''
-        lasttext = self.lasttext or ''
-
-        if fieldname < lastfn or (fieldname == lastfn and text < lasttext):
-            raise Exception("Postings are out of order: %r:%s .. %r:%s" %
-                            (lastfn, lasttext, fieldname, text))
-
-        # Is the fieldname of this posting different from the last one?
-        if fieldname != lastfn:
-            # Store information we need about the new field
-            field = self.schema[fieldname]
-            self.format = field.format
-            self.spelling = field.spelling and not field.separate_spelling()
-
-        # Is the term of this posting different from the last one?
-        if fieldname != lastfn or text != lasttext:
-            # Finish up the last term before starting a new one
-            self._finish_term()
-
-            # If this field has spelling, add the term to the word graph
-            if self.spelling:
-                self.dawg.insert((fieldname,) + tuple(text))
-
-            # Set up internal state for the new term
-            self.offset = self.postwriter.start(self.format)
-            self.lasttext = text
-            self.lastfn = fieldname
-
-    def _finish_term(self):
-        postwriter = self.postwriter
-        if self.lasttext is not None:
-            terminfo = postwriter.finish(self.inlinelimit)
-            self.termsindex.add((self.lastfn, self.lasttext), terminfo)
-
-    def add_postings(self, fieldname, text, matcher, getlen, offset=0,
-                     docmap=None):
-        self._new_term(fieldname, text)
-        postwrite = self.postwriter.write
-        while matcher.is_active():
-            docnum = matcher.id()
-            weight = matcher.weight()
-            valuestring = matcher.value()
-            if docmap:
-                newdoc = docmap[docnum]
-            else:
-                newdoc = offset + docnum
-            postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
-            matcher.next()
-
-    def add_iter(self, postiter, getlen, offset=0, docmap=None):
-        _new_term = self._new_term
-        postwrite = self.postwriter.write
-        for fieldname, text, docnum, weight, valuestring in postiter:
-            _new_term(fieldname, text)
-            if docmap:
-                newdoc = docmap[docnum]
-            else:
-                newdoc = offset + docnum
-            postwrite(newdoc, weight, valuestring, getlen(docnum, fieldname))
-
-    def add(self, fieldname, text, docnum, weight, valuestring, fieldlen):
-        self._new_term(fieldname, text)
-        self.postwriter.write(docnum, weight, valuestring, fieldlen)
-
-    def close(self):
-        self._finish_term()
-        self.termsindex.close()
-        self.postwriter.close()
+        self._close_segment()
+        self._finish()
 
 
 # Retroactively add spelling files to an existing index
@@ -668,6 +543,7 @@ def add_spelling(ix, fieldnames, commit=True):
     """
 
     from whoosh.filedb.filereading import SegmentReader
+    from whoosh.support import dawg
 
     writer = ix.writer()
     storage = writer.storage
@@ -675,18 +551,22 @@ def add_spelling(ix, fieldnames, commit=True):
     segments = writer.segments
 
     for segment in segments:
-        filename = segment.dawg_filename
         r = SegmentReader(storage, schema, segment)
-        f = storage.create_file(filename)
-        dawg = DawgBuilder(field_root=True)
+        f = segment.create_file(storage, ".dag")
+        gw = dawg.GraphWriter(f)
         for fieldname in fieldnames:
-            ft = (fieldname,)
+            gw.start_field(fieldname)
             for word in r.lexicon(fieldname):
-                dawg.insert(ft + tuple(word))
-        dawg.write(f)
+                gw.insert(word)
+            gw.finish_field()
+        gw.close()
 
     for fieldname in fieldnames:
         schema[fieldname].spelling = True
 
     if commit:
         writer.commit(merge=False)
+
+
+
+

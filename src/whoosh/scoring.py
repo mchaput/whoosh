@@ -29,7 +29,7 @@
 This module contains classes for scoring (and sorting) search results.
 """
 
-from __future__ import division, print_function
+from __future__ import division
 from math import log, pi
 
 from whoosh.compat import iteritems
@@ -54,8 +54,10 @@ class WeightingModel(object):
         """Returns the inverse document frequency of the given term.
         """
 
-        n = searcher.doc_frequency(fieldname, text)
-        return log((searcher.doc_count_all()) / (n + 1)) + 1
+        parent = searcher.get_parent()
+        n = parent.doc_frequency(fieldname, text)
+        dc = parent.doc_count_all()
+        return log(dc / (n + 1)) + 1
 
     def scorer(self, searcher, fieldname, text, qf=1):
         """Returns an instance of :class:`whoosh.scoring.Scorer` configured
@@ -246,7 +248,7 @@ def bm25(idf, tf, fl, avgfl, B, K1):
     # avgfl - average field length across documents in collection
     # B, K1 - free paramters
 
-    return idf * ((tf * (K1 + 1)) / (tf + K1 * (1 - B + B * (fl / avgfl))))
+    return idf * ((tf * (K1 + 1)) / (tf + K1 * ((1 - B) + B * fl / avgfl)))
 
 
 class BM25F(WeightingModel):

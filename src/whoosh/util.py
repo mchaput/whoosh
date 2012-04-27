@@ -34,7 +34,7 @@ import re
 import sys
 import time
 from array import array
-from bisect import insort, bisect_left
+from bisect import insort, bisect_left, bisect_right
 from copy import copy
 from functools import wraps
 from struct import pack, unpack
@@ -42,43 +42,8 @@ from threading import Lock
 
 from whoosh.compat import xrange, u, b, string_type
 from whoosh.system import IS_LITTLE
-
-
-try:
-    from itertools import permutations  #@UnusedImport
-except ImportError:
-    # This function was only added to itertools in 2.6...
-    def permutations(iterable, r=None):
-        pool = tuple(iterable)
-        n = len(pool)
-        r = n if r is None else r
-        if r > n:
-            return
-        indices = range(n)
-        cycles = range(n, n - r, -1)
-        yield tuple(pool[i] for i in indices[:r])
-        while n:
-            for i in reversed(range(r)):
-                cycles[i] -= 1
-                if cycles[i] == 0:
-                    indices[i:] = indices[i + 1:] + indices[i:i + 1]
-                    cycles[i] = n - i
-                else:
-                    j = cycles[i]
-                    indices[i], indices[-j] = indices[-j], indices[i]
-                    yield tuple(pool[i] for i in indices[:r])
-                    break
-            else:
-                return
-
-
-try:
-    from operator import methodcaller  #@UnusedImport
-except ImportError:
-    def methodcaller(name, *args, **kwargs):
-        def caller(obj):
-            return getattr(obj, name)(*args, **kwargs)
-        return caller
+from whoosh.system import pack_ushort_le, pack_uint_le
+from whoosh.system import unpack_ushort_le, unpack_uint_le
 
 
 if sys.platform == 'win32':
@@ -90,8 +55,13 @@ else:
 # Note: these functions return a tuple of (text, length), so when you call
 # them, you have to add [0] on the end, e.g. str = utf8encode(unicode)[0]
 
-utf8encode = codecs.getencoder("utf_8")
-utf8decode = codecs.getdecoder("utf_8")
+utf8encode = codecs.getencoder("utf-8")
+utf8decode = codecs.getdecoder("utf-8")
+
+#utf16encode = codecs.getencoder("utf-16-be")
+#utf16decode = codecs.getdecoder("utf-16-be")
+#utf32encode = codecs.getencoder("utf-32-be")
+#utf32decode = codecs.getdecoder("utf-32-be")
 
 
 # Functions
@@ -230,6 +200,141 @@ def read_varint(readfn):
     return i
 
 
+# Google Packed Ints algorithm: a set of four numbers is preceded by a "key"
+# byte, which encodes how many bytes each of the next four integers use
+# (stored in the byte as four 2-bit numbers)
+
+# Number of future bytes to expect after a "key" byte value of N -- used to
+# skip ahead from a key byte
+
+_gint_lens = array("B", [4, 5, 6, 7, 5, 6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10, 5, 6,
+7, 8, 6, 7, 8, 9, 7, 8, 9, 10, 8, 9, 10, 11, 6, 7, 8, 9, 7, 8, 9, 10, 8, 9, 10,
+11, 9, 10, 11, 12, 7, 8, 9, 10, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 5,
+6, 7, 8, 6, 7, 8, 9, 7, 8, 9, 10, 8, 9, 10, 11, 6, 7, 8, 9, 7, 8, 9, 10, 8, 9,
+10, 11, 9, 10, 11, 12, 7, 8, 9, 10, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12,
+13, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14, 6, 7, 8, 9, 7,
+8, 9, 10, 8, 9, 10, 11, 9, 10, 11, 12, 7, 8, 9, 10, 8, 9, 10, 11, 9, 10, 11,
+12, 10, 11, 12, 13, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13,
+14, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14, 12, 13, 14, 15, 7, 8, 9, 10,
+8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13, 8, 9, 10, 11, 9, 10, 11, 12, 10,
+11, 12, 13, 11, 12, 13, 14, 9, 10, 11, 12, 10, 11, 12, 13, 11, 12, 13, 14, 12,
+13, 14, 15, 10, 11, 12, 13, 11, 12, 13, 14, 12, 13, 14, 15, 13, 14, 15, 16])
+
+
+def key_to_sizes(key):
+    """Returns a list of the sizes of the next four numbers given a key byte.
+    """
+
+    return [(key >> (i * 2) & 3) + 1 for i in xrange(4)]
+
+
+def write_gints(dbfile, nums):
+    """Write the integers in the iterator nums to bytes stream dbfile.
+    """
+
+    buf = array("c")
+    count = 0
+    key = 0
+    for v in nums:
+        shift = count * 2
+        if v < 256:
+            buf.append(chr(v))
+        elif v < 65536:
+            key |= 1 << shift
+            buf.extend(pack_ushort_le(v))
+        elif v < 16777216:
+            key |= 2 << shift
+            buf.extend(pack_uint_le(v)[:3])
+        else:
+            key |= 3 << shift
+            buf.extend(pack_uint_le(v))
+
+        count += 1
+        if count == 4:
+            #print bin(key), repr(buf)
+            dbfile.write(chr(key))
+            dbfile.write(buf.tostring())
+            count = 0
+            key = 0
+            del buf[0:len(buf)]
+
+    if count:
+        dbfile.write(chr(key))
+        dbfile.write(buf.tostring())
+
+
+def read_gints(dbfile, n):
+    """Read N integers from the bytes stream dbfile. Expects that the file
+    starts at a key byte.
+    """
+
+    count = 0
+    read = dbfile.read
+    for _ in xrange(n):
+        if count == 0:
+            key = ord(dbfile.read(1))
+        code = key >> (count * 2) & 3
+        if code == 0:
+            yield ord(read(1))
+        elif code == 1:
+            yield unpack_ushort_le(read(2))[0]
+        elif code == 2:
+            yield unpack_uint_le(read(3) + "\x00")[0]
+        else:
+            yield unpack_uint_le(read(4))[0]
+
+        count = (count + 1) % 4
+
+
+def index_gints(dbfile, n, factor):
+    """"Creates an index of skips over a list of g-ints. Returns a list of
+    the ordinal of the number at the start of each skip block, and a
+    corresponding list of the starting positions in the file of the block.
+    """
+
+    ords = array("i")
+    poses = array("i")
+    count = 0
+    pos = dbfile.tell()
+    while count < n:
+        key = ord(dbfile.read(1))
+        if not count % factor:
+            ords.append(count)
+            poses.append(pos)
+        delta = _gint_lens[key]
+        dbfile.seek(delta, 1)
+        pos += delta + 1
+        count += 4
+    return ords, poses
+
+
+def get_gint(dbfile, i, ords, poses):
+    """Given a byte stream, the ordinal position to get, and the skip lists
+    created by index_gints, returns the value of the i-th number in the
+    stream.
+    """
+
+    # Find which skip block the number is in
+    j = bisect_right(ords, i) - 1
+    # Ordinal position within the block: the ordinal position of the start of
+    # the block minus the ordinal position we're looking for
+    wbi = i - ords[j]
+    # Seek to the start of the block
+    dbfile.seek(poses[j])
+
+    # Skip as many 4-int sets as we can
+    while wbi // 4 >= 1:
+        key = ord(dbfile.read(1))
+        dbfile.seek(_gint_lens[key], 1)
+        wbi -= 4
+
+    # Read enough numbers serially to get the one we're looking for
+    for n in read_gints(dbfile, wbi + 1):
+        pass
+    # Return the last read number
+    return n
+
+
 # Fibonacci function
 
 _fib_cache = {}
@@ -296,16 +401,16 @@ def byte_to_float(b, mantissabits=5, zeroexp=2):
 #    0-255. The approximation has high precision at the low end (e.g.
 #    1 -> 0, 2 -> 1, 3 -> 2 ...) and low precision at the high end. Numbers
 #    equal to or greater than 108116 all approximate to 255.
-#    
+#
 #    This is useful for storing field lengths, where the general case is small
 #    documents and very large documents are more rare.
 #    """
-#    
+#
 #    # This encoding formula works up to 108116 -> 255, so if the length is
 #    # equal to or greater than that limit, just return 255.
 #    if length >= 108116:
 #        return 255
-#    
+#
 #    # The parameters of this formula where chosen heuristically so that low
 #    # numbers would approximate closely, and the byte range 0-255 would cover
 #    # a decent range of document lengths (i.e. 1 to ~100000).
@@ -320,7 +425,7 @@ def byte_to_float(b, mantissabits=5, zeroexp=2):
 # Instead of computing the actual formula to get the byte for any given length,
 # precompute the length associated with each byte, and use bisect to find the
 # nearest value. This gives quite a large speed-up.
-# 
+#
 # Note that this does not give all the same answers as the old, "real"
 # implementation since this implementation always "rounds down" (thanks to the
 # bisect_left) while the old implementation would "round up" or "round down"
@@ -501,6 +606,65 @@ def unbound_cache(func):
 
 
 def lru_cache(maxsize=100):
+    """Double-barrel least-recently-used cache decorator. This is a simple
+    LRU algorithm that keeps a primary and secondary dict. Keys are checked
+    in the primary dict, and then the secondary. Once the primary dict fills
+    up, the secondary dict is cleared and the two dicts are swapped.
+    
+    This function duplicates (more-or-less) the protocol of the
+    ``functools.lru_cache`` decorator in the Python 3.2 standard library.
+
+    Arguments to the cached function must be hashable.
+
+    View the cache statistics named tuple (hits, misses, maxsize, currsize)
+    with f.cache_info().  Clear the cache and statistics with f.cache_clear().
+    Access the underlying function with f.__wrapped__.
+    """
+
+    def decorating_function(user_function):
+        # Cache1, Cache2, Pointer, Hits, Misses
+        stats = [{}, {}, 0, 0, 0]
+
+        @wraps(user_function)
+        def wrapper(*args):
+            ptr = stats[2]
+            a = stats[ptr]
+            b = stats[not ptr]
+            key = args
+
+            if key in a:
+                stats[3] += 1  # Hit
+                return a[key]
+            elif key in b:
+                stats[3] += 1  # Hit
+                return b[key]
+            else:
+                stats[4] += 1  # Miss
+                result = user_function(*args)
+                a[key] = result
+                if len(a) >= maxsize:
+                    stats[2] = not ptr
+                    b.clear()
+                return result
+
+        def cache_info():
+            """Report cache statistics"""
+            return (stats[3], stats[4], maxsize, len(stats[0]) + len(stats[1]))
+
+        def cache_clear():
+            """Clear the cache and cache statistics"""
+            stats[0].clear()
+            stats[1].clear()
+            stats[3] = stats[4] = 0
+
+        wrapper.cache_info = cache_info
+        wrapper.cache_clear = cache_clear
+
+        return wrapper
+    return decorating_function
+
+
+def clockface_lru_cache(maxsize=100):
     """Least-recently-used cache decorator.
 
     This function duplicates (more-or-less) the protocol of the
@@ -519,7 +683,7 @@ def lru_cache(maxsize=100):
 
     def decorating_function(user_function):
 
-        stats = [0, 0, 0]  # hits, misses
+        stats = [0, 0, 0]  # hits, misses, hand
         data = {}
 
         if maxsize:
@@ -652,11 +816,7 @@ def rcompile(pattern, flags=0, verbose=False):
     return re.compile(pattern, re.UNICODE | flags)
 
 
-try:
-    from abc import abstractmethod  #@UnusedImport
-except ImportError:
-    def abstractmethod(funcobj):
-        """A decorator indicating abstract methods.
-        """
-        funcobj.__isabstractmethod__ = True
-        return funcobj
+
+
+
+

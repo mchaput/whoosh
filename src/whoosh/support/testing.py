@@ -25,53 +25,62 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os.path, shutil, sys, random
+import os.path, shutil, sys, random, traceback
 from functools import wraps
 
 from whoosh.filedb.filestore import FileStorage
+from whoosh.util import now
 
 
-class TempStorage(object):
-    def __init__(self, basename=None, parentdir=".", suppress=frozenset(),
-                 keepdir=False):
+class TempDir(object):
+    def __init__(self, basename=None, parentdir="tmp", ext="",
+                 suppress=frozenset(), keepdir=False):
         self.basename = basename or hex(random.randint(0, 1000000000))[2:]
-        self.parentdir = parentdir
+        dirname = os.path.join(parentdir, self.basename + ext)
+        self.dir = os.path.abspath(dirname)
         self.suppress = suppress
         self.keepdir = keepdir
-        self.dir = None
-
-    def _mkdir(self):
-        self.dir = os.path.join(self.parentdir, "tmp",
-                                self.basename + ".tmpix")
-        if not os.path.exists(self.dir):
-            os.makedirs(self.dir)
+        self.onexit = None
 
     def __enter__(self):
-        self._mkdir()
-        return FileStorage(self.dir)
+        if not os.path.exists(self.dir):
+            os.makedirs(self.dir)
+        return self.dir
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.onexit:
+            self.onexit()
         if not self.keepdir:
             try:
                 shutil.rmtree(self.dir)
             except OSError:
                 e = sys.exc_info()[1]
-                print("Can't remove temp dir: " + str(e))
+                sys.stderr.write("Can't remove temp dir: " + str(e) + "\n")
+                if exc_type is None:
+                    raise
 
         if exc_type is not None:
             if self.keepdir:
-                print("Temp dir=", self.dir)
+                sys.stderr.write("Temp dir=" + self.dir + "\n")
             if exc_type not in self.suppress:
                 return False
 
 
+class TempStorage(TempDir):
+    def __enter__(self):
+        dirpath = TempDir.__enter__(self)
+        store = FileStorage(dirpath)
+        self.onexit = lambda: store.close()
+        return store
+
+
 class TempIndex(TempStorage):
     def __init__(self, schema, ixname='', **kwargs):
-        super(TempIndex, self).__init__(basename=ixname, **kwargs)
+        TempStorage.__init__(self, basename=ixname, **kwargs)
         self.schema = schema
 
     def __enter__(self):
-        fstore = super(TempIndex, self).__enter__()
+        fstore = TempStorage.__enter__(self)
         return fstore.create_index(self.schema, indexname=self.basename)
 
 
@@ -136,3 +145,7 @@ def check_abstract_methods(base, subclass):
             if is_abstract_method(oattr):
                 raise Exception("%s.%s not overridden"
                                 % (subclass.__name__, attrname))
+
+
+
+

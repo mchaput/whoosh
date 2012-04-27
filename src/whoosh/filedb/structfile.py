@@ -33,7 +33,7 @@ from gzip import GzipFile
 
 from whoosh.compat import dump as dump_pickle
 from whoosh.compat import load as load_pickle
-from whoosh.compat import integer_types, b
+from whoosh.compat import PY3, integer_types, b
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_byte, pack_sbyte, pack_ushort, pack_int,
                            pack_uint, pack_long, pack_float, unpack_byte,
@@ -58,8 +58,7 @@ class StructFile(object):
     "write_varint" and "write_long".
     """
 
-    def __init__(self, fileobj, name=None, onclose=None, mapped=True,
-                 gzip=False):
+    def __init__(self, fileobj, name=None, onclose=None, gzip=False):
 
         if gzip:
             fileobj = GzipFile(fileobj=fileobj)
@@ -74,24 +73,8 @@ class StructFile(object):
                 setattr(self, attr, getattr(fileobj, attr))
 
         self.is_real = not gzip and hasattr(fileobj, "fileno")
-
-        # If mapped is True, set the 'map' attribute to a memory-mapped
-        # representation of the file. Otherwise, the fake 'map' that set up by
-        # the base class will be used.
-        if (mapped and self.is_real
-            and hasattr(fileobj, "mode") and "r" in fileobj.mode):
-            fd = fileobj.fileno()
-            self.size = os.fstat(fd).st_size
-            if self.size > 0:
-                import mmap
-
-                try:
-                    self.map = mmap.mmap(fd, self.size,
-                                         access=mmap.ACCESS_READ)
-                except OSError:
-                    self._setup_fake_map()
-        else:
-            self._setup_fake_map()
+        if self.is_real:
+            self.fileno = fileobj.fileno
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self._name)
@@ -99,40 +82,31 @@ class StructFile(object):
     def __str__(self):
         return self._name
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def flush(self):
         """Flushes the buffer of the wrapped file. This is a no-op if the
         wrapped file does not have a flush method.
         """
+
         if hasattr(self.file, "flush"):
             self.file.flush()
 
     def close(self):
-        """Closes the wrapped file. This is a no-op if the wrapped file does
-        not have a close method.
+        """Closes the wrapped file.
         """
 
         if self.is_closed:
             raise Exception("This file is already closed")
-        del self.map
         if self.onclose:
             self.onclose(self)
         if hasattr(self.file, "close"):
             self.file.close()
         self.is_closed = True
-
-    def _setup_fake_map(self):
-        _self = self
-
-        class fakemap(object):
-            def __getitem__(self, slice):
-                if isinstance(slice, integer_types):
-                    _self.seek(slice)
-                    return _self.read(1)
-                else:
-                    _self.seek(slice.start)
-                    return _self.read(slice.stop - slice.start)
-
-        self.map = fakemap()
 
     def write_string(self, s):
         """Writes a string to the wrapped file. This method writes the length
@@ -217,9 +191,6 @@ class StructFile(object):
 
     def read_byte(self):
         return ord(self.file.read(1))
-
-    def get_byte(self, position):
-        return ord(self.map[position])
 
     def write_8bitfloat(self, f, mantissabits=5, zeroexp=2):
         """Writes a byte-sized representation of floating point value f to the
@@ -306,28 +277,38 @@ class StructFile(object):
             a.byteswap()
         return a
 
+    def get_byte(self, position):
+        self.file.seek(position)
+        return self.read_byte()
+
     def get_sbyte(self, position):
-        return unpack_sbyte(self.map[position:position + 1])[0]
+        self.file.seek(position)
+        return self.read_sbyte()
 
     def get_int(self, position):
-        return unpack_int(self.map[position:position + _INT_SIZE])[0]
+        self.file.seek(position)
+        return self.read_int()
 
     def get_uint(self, position):
-        return unpack_uint(self.map[position:position + _INT_SIZE])[0]
+        self.file.seek(position)
+        return self.read_uint()
 
     def get_ushort(self, position):
-        return unpack_ushort(self.map[position:position + _SHORT_SIZE])[0]
+        self.file.seek(position)
+        return self.read_ushort()
 
     def get_long(self, position):
-        return unpack_long(self.map[position:position + _LONG_SIZE])[0]
+        self.file.seek(position)
+        return self.read_long()
 
     def get_float(self, position):
-        return unpack_float(self.map[position:position + _FLOAT_SIZE])[0]
+        self.file.seek(position)
+        return self.read_float()
 
     def get_array(self, position, typecode, length):
-        source = self.map[position:position + length * _SIZEMAP[typecode]]
-        a = array(typecode)
-        a.fromstring(source)
-        if IS_LITTLE:
-            a.byteswap()
-        return a
+        self.file.seek(position)
+        return self.read_array(typecode, length)
+
+
+
+

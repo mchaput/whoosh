@@ -1,11 +1,10 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal, assert_raises
 
 from whoosh import analysis, fields, formats, highlight, qparser, query
-from whoosh.compat import u, xrange, text_type
+from whoosh.compat import u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util import permutations
 
 
 def test_score_retrieval():
@@ -15,9 +14,11 @@ def test_score_retrieval():
     ix = storage.create_index(schema)
     writer = ix.writer()
     writer.add_document(title=u("Miss Mary"),
-                        content=u("Mary had a little white lamb its fleece was white as snow"))
+                        content=u("Mary had a little white lamb its fleece"
+                                  " was white as snow"))
     writer.add_document(title=u("Snow White"),
-                        content=u("Snow white lived in the forest with seven dwarfs"))
+                        content=u("Snow white lived in the forest with seven"
+                                  " dwarfs"))
     writer.commit()
 
     with ix.searcher() as s:
@@ -28,6 +29,7 @@ def test_score_retrieval():
         assert_not_equal(results.score(0), None)
         assert_not_equal(results.score(0), 0)
         assert_not_equal(results.score(0), 1)
+
 
 def test_resultcopy():
     schema = fields.Schema(a=fields.TEXT(stored=True))
@@ -46,6 +48,7 @@ def test_resultcopy():
         assert_equal(len(r), 3)
         rcopy = r.copy()
         assert_equal(r.top_n, rcopy.top_n)
+
 
 def test_resultslength():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -66,6 +69,7 @@ def test_resultslength():
         assert_equal(len(r), 5)
         assert_equal(r.scored_length(), 3)
         assert_equal(r[10:], [])
+
 
 def test_combine():
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -101,6 +105,7 @@ def test_combine():
         check(rfor(u("all")), "upgrade", rfor("india"), "45612378")
         check(rfor(u("charlie")), "upgrade_and_extend", rfor("echo"), "23814")
 
+
 def test_results_filter():
     schema = fields.Schema(id=fields.STORED, words=fields.KEYWORD(stored=True))
     ix = RamStorage().create_index(schema)
@@ -122,6 +127,7 @@ def test_results_filter():
         r = s.search(query.Term("words", u("alfa")))
         r.filter(s.search(query.Term("words", u("bottom"))))
         check(r, "4")
+
 
 def test_extend_empty():
     schema = fields.Schema(id=fields.STORED, words=fields.KEYWORD)
@@ -147,6 +153,7 @@ def test_extend_empty():
         r1c.extend(r2c)
         assert_equal([hit["id"] for hit in r1c], [2, 3, 4])
         assert_equal(r1c.scored_length(), 3)
+
 
 def test_extend_filtered():
     schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True))
@@ -177,6 +184,7 @@ def test_extend_filtered():
         assert_equal(len(r3.top_n), 3)
         assert_equal(hits(r3), [1, 2, 4])
 
+
 def test_pages():
     from whoosh.scoring import Frequency
 
@@ -204,6 +212,7 @@ def test_pages():
         assert_equal(r.pagenum, 2)
         assert_equal(r.pagelen, 2)
 
+
 def test_extra_slice():
     schema = fields.Schema(key=fields.ID(stored=True))
     ix = RamStorage().create_index(schema)
@@ -215,6 +224,7 @@ def test_extra_slice():
     with ix.searcher() as s:
         r = s.search(query.Every(), limit=5)
         assert_equal(r[6:7], [])
+
 
 def test_page_counts():
     from whoosh.scoring import Frequency
@@ -254,6 +264,7 @@ def test_page_counts():
         assert_equal(r.pagecount, 1)
         assert_equal(r.pagenum, 1)
 
+
 def test_resultspage():
     schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -291,6 +302,7 @@ def test_resultspage():
         assert_equal(len(rp), 0)
         assert rp.is_last_page()
 
+
 def test_highlight_setters():
     schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -302,10 +314,9 @@ def test_highlight_setters():
     hl = highlight.Highlighter()
     ucf = highlight.UppercaseFormatter()
     r.highlighter = hl
-    print "fmt=", r.formatter
     r.formatter = ucf
-    print r.formatter
     assert hl.formatter is ucf
+
 
 def test_snippets():
     ana = analysis.StemmingAnalyzer()
@@ -332,6 +343,7 @@ def test_snippets():
 
         assert_equal(sorted([hit.highlights("text", top=1) for hit in r]), sorted(target))
 
+
 def test_keyterms():
     ana = analysis.StandardAnalyzer()
     vectorformat = formats.Frequency()
@@ -355,6 +367,7 @@ def test_keyterms():
         keyterms2 = list(r.key_terms("content"))
         assert len(keyterms2) > 0
         assert_equal(keyterms2[0][0], "distinctive")
+
 
 def test_lengths():
     schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
@@ -380,6 +393,7 @@ def test_lengths():
         assert_equal(r.scored_length(), 2)
         assert_equal(len(r), 6)
 
+
 def test_lengths2():
     schema = fields.Schema(text=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
@@ -400,6 +414,7 @@ def test_lengths2():
         r = s.search(q, limit=3)
         assert_equal(len(r), count)
 
+
 def test_stability():
     schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -419,6 +434,7 @@ def test_stability():
             assert_equal(docnums[:-1], last)
             last = docnums
 
+
 def test_contains():
     schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -436,6 +452,7 @@ def test_contains():
         assert (hit.contains_term("text", "bravo")
                 or hit.contains_term("text", "charlie"))
         assert not hit.contains_term("text", "foxtrot")
+
 
 def test_terms():
     schema = fields.Schema(text=fields.TEXT(stored=True))
@@ -459,3 +476,6 @@ def test_terms():
         value = hit["text"]
         for txt in txts(hit.matched_terms()):
             assert txt in value
+
+
+

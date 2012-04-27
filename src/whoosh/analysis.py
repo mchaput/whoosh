@@ -66,8 +66,8 @@ import re
 from collections import deque
 from itertools import chain
 
-from whoosh.compat import (callable, iteritems, string_type, text_type, u,
-                           xrange, next)
+from whoosh.compat import (callable, iteritems, string_type, text_type,
+                           integer_types, u, xrange, next)
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util import lru_cache, unbound_cache, rcompile
@@ -914,10 +914,11 @@ class StemFilter(Filter):
         self.clear()
 
     def clear(self):
-        if self.cachesize < 0:
-            self._stem = unbound_cache(self.stemfn)
-        elif self.cachesize > 1:
-            self._stem = lru_cache(self.cachesize)(self.stemfn)
+        if isinstance(self.cachesize, integer_types) and self.cachesize != 0:
+            if self.cachesize < 0:
+                self._stem = unbound_cache(self.stemfn)
+            elif self.cachesize > 1:
+                self._stem = lru_cache(self.cachesize)(self.stemfn)
         else:
             self._stem = self.stemfn
 
@@ -946,7 +947,7 @@ class PyStemmerFilter(StemFilter):
     """This is a simple subclass of StemFilter that works with the py-stemmer
     third-party library. You must have the py-stemmer library installed to use
     this filter.
-    
+
     >>> PyStemmerFilter("spanish")
     """
 
@@ -962,24 +963,51 @@ class PyStemmerFilter(StemFilter):
         :param cachesize: the maximum number of words to cache.
         """
 
-        import Stemmer  #@UnresolvedImport
-
-        stemmer = Stemmer.Stemmer(lang)
-        stemmer.maxCacheSize = cachesize
-        self._stem = stemmer.stemWord
+        self.lang = lang
         self.ignore = frozenset() if ignore is None else frozenset(ignore)
+        self.cachesize = cachesize
+        self._stem = self._get_stemmer_fn()
 
     def algorithms(self):
         """Returns a list of stemming algorithms provided by the py-stemmer
         library.
         """
 
-        import Stemmer  #@UnresolvedImport
+        import Stemmer  # @UnresolvedImport
 
         return Stemmer.algorithms()
 
     def cache_info(self):
         return None
+
+    def _get_stemmer_fn(self):
+        import Stemmer  # @UnresolvedImport
+
+        stemmer = Stemmer.Stemmer(self.lang)
+        stemmer.maxCacheSize = self.cachesize
+        return stemmer.stemWord
+
+    def __getstate__(self):
+        # Can't pickle a dynamic function, so we have to remove the _stem
+        # attribute from the state
+        return dict([(k, self.__dict__[k]) for k in self.__dict__
+                     if k != "_stem"])
+
+    def __setstate__(self, state):
+        # Check for old instances of StemFilter class, which didn't have a
+        # cachesize attribute and pickled the cache attribute
+        if "cachesize" not in state:
+            self.cachesize = 10000
+        if "ignores" in state:
+            self.ignore = state["ignores"]
+        elif "ignore" not in state:
+            self.ignore = frozenset()
+        if "cache" in state:
+            del state["cache"]
+
+        self.__dict__.update(state)
+        # Set the _stem attribute
+        self._stem = self._get_stemmer_fn()
 
 
 class CharsetFilter(Filter):
@@ -1111,11 +1139,13 @@ class NgramFilter(Filter):
                         yield t
 
                 elif at == 1:
+                    if chars:
+                        original_startchar = t.startchar
                     start = max(0, len(text) - self.max)
                     for i in xrange(start, len(text) - self.min + 1):
                         t.text = text[i:]
                         if chars:
-                            t.startchar = t.endchar - size
+                            t.startchar = original_startchar + i
                         yield t
                 else:
                     for start in xrange(0, len(text) - self.min + 1):
@@ -1313,7 +1343,7 @@ class IntraWordFilter(Filter):
             newec = buf[-1][3]  # end char of last item in buffer
             parts.insert(insertat, (newtext, newpos, newsc, newec))
 
-        for item in parts[:]:
+        for item in list(parts):
             # item = (text, pos, startchar, endchar)
             text = item[0]
             pos = item[1]
@@ -1680,13 +1710,15 @@ class DelimitedAttributeFilter(Filter):
         delim = self.delim
         attr = self.attr
         default = self.default
-        typ = self.type
+        type_ = self.type
 
         for t in tokens:
             text = t.text
             pos = text.find(delim)
             if pos > -1:
-                setattr(t, attr, typ(text[pos + 1:]))
+                setattr(t, attr, type_(text[pos + 1:]))
+                if t.chars:
+                    t.endchar -= len(t.text) - pos
                 t.text = text[:pos]
             else:
                 setattr(t, attr, default)

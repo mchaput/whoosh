@@ -30,7 +30,7 @@ import os.path
 from optparse import OptionParser
 from shutil import rmtree
 
-from whoosh import index, qparser, query
+from whoosh import index, qparser, query, scoring
 from whoosh.util import now, find_object
 
 try:
@@ -147,16 +147,12 @@ class WhooshModule(Module):
         if self.options.pool:
             poolclass = find_object(self.options.pool)
 
-        kwargs = dict(limitmb=int(self.options.limitmb), poolclass=poolclass,
-                      dir=self.options.tempdir, procs=int(self.options.procs),
-                      batchsize=int(self.options.batch))
-
-        if self.options.expw:
-            from whoosh.filedb.multiproc import MultiSegmentWriter
-            self.writer = MultiSegmentWriter(ix, **kwargs)
-        else:
-            self.writer = ix.writer(**kwargs)
-
+        self.writer = ix.writer(limitmb=int(self.options.limitmb),
+                                poolclass=poolclass,
+                                dir=self.options.tempdir,
+                                procs=int(self.options.procs),
+                                batchsize=int(self.options.batch),
+                                multisegment=self.options.xms)
         self._procdoc = None
         if hasattr(self.bench.spec, "process_document_whoosh"):
             self._procdoc = self.bench.spec.process_document_whoosh
@@ -174,7 +170,7 @@ class WhooshModule(Module):
         path = os.path.join(self.options.dir, "%s_whoosh"
                             % self.options.indexname)
         ix = index.open_dir(path)
-        self.srch = ix.searcher()
+        self.srch = ix.searcher(weighting=scoring.PL2())
         self.parser = qparser.QueryParser(self.bench.spec.main_field,
                                           schema=ix.schema)
 
@@ -183,7 +179,8 @@ class WhooshModule(Module):
         return self.parser.parse(qstring)
 
     def find(self, q):
-        return self.srch.search(q, limit=int(self.options.limit))
+        return self.srch.search(q, limit=int(self.options.limit),
+                                optimize=self.options.optimize)
 
     def findterms(self, terms):
         limit = int(self.options.limit)
@@ -576,12 +573,14 @@ class Bench(object):
                      help="Whoosh temp dir", default=None)
         p.add_option("-P", "--pool", dest="pool", metavar="CLASSNAME",
                      help="Whoosh pool class", default=None)
-        p.add_option("-X", "--expw", dest="expw", action="store_true",
-                     help="Use experimental whoosh writer", default=False)
+        p.add_option("-X", "--xms", dest="xms", action="store_true",
+                     help="Experimental Whoosh feature", default=False)
         p.add_option("-Z", "--storebody", dest="storebody", action="store_true",
                      help="Store the body text in index", default=False)
         p.add_option("-q", "--snippets", dest="snippets", action="store_true",
                      help="Show highlighted snippets", default=False)
+        p.add_option("-O", "--no-optimize", dest="optimize", action="store_false",
+                     help="Turn off searcher optimization", default=True)
 
         return p
 

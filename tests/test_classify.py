@@ -18,42 +18,50 @@ domain = [u("A volume that is a signed distance field used for collision calcula
 
 text = u("How do I use a velocity field for particles")
 
+
 def create_index():
     analyzer = analysis.StandardAnalyzer()
     vector_format = formats.Frequency()
     schema = fields.Schema(path=fields.ID(stored=True),
                            content=fields.TEXT(analyzer=analyzer,
                                                vector=vector_format))
-    
+
     ix = RamStorage().create_index(schema)
-    
+
     w = ix.writer()
     from string import ascii_lowercase
     for letter, content in zip(ascii_lowercase, domain):
         w.add_document(path=u("/%s") % letter, content=content)
     w.commit()
-    
+
     return ix
+
 
 def test_add_text():
     ix = create_index()
     with ix.reader() as r:
         exp = classify.Expander(r, "content")
         exp.add_text(text)
-        assert_equal([t[0] for t in exp.expanded_terms(3)], ["particles", "velocity", "field"])
-    
+        assert_equal([t[0] for t in exp.expanded_terms(3)],
+                     ["particles", "velocity", "field"])
+
+
 def test_keyterms():
     ix = create_index()
     with ix.searcher() as s:
         docnum = s.document_number(path="/a")
         keys = list(s.key_terms([docnum], "content", numterms=3))
-        assert_equal([t[0] for t in keys], [u("collision"), u("calculations"), u("damped")])
+        assert_equal([t[0] for t in keys],
+                     [u("collision"), u("calculations"), u("damped")])
+
 
 def test_keyterms_from_text():
     ix = create_index()
     with ix.searcher() as s:
         keys = list(s.key_terms_from_text("content", text))
-        assert_equal([t[0] for t in keys], ["particles", "velocity", "field"])
+        assert_equal([t[0] for t in keys],
+                     ["particles", "velocity", "field"])
+
 
 def test_more_like_this():
     docs = [u("alfa bravo charlie delta echo foxtrot golf"),
@@ -62,7 +70,7 @@ def test_more_like_this():
             u("foxtrot golf hotel india juliet kilo lima"),
             u("golf hotel india juliet kilo lima mike"),
             u("foxtrot golf hotel india alfa bravo charlie")]
-    
+
     def _check(schema, **kwargs):
         ix = RamStorage().create_index(schema)
         with ix.writer() as w:
@@ -73,20 +81,24 @@ def test_more_like_this():
             docnum = s.document_number(id=u("1"))
             r = s.more_like(docnum, "text", **kwargs)
             assert_equal([hit["id"] for hit in r], ["6", "2", "3"])
-    
-    schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT(stored=True))
+
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           text=fields.TEXT(stored=True))
     _check(schema)
 
     ana = analysis.StandardAnalyzer()
     schema = fields.Schema(id=fields.ID(stored=True),
-                           text=fields.TEXT(analyzer=ana, vector=formats.Frequency()))
+                           text=fields.TEXT(analyzer=ana,
+                                            vector=formats.Frequency()))
     _check(schema)
-    
+
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
     _check(schema, text=docs[0])
 
+
 def test_more_like():
-    schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT(stored=True))
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           text=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(id=u("1"), text=u("alfa bravo charlie"))
@@ -97,8 +109,11 @@ def test_more_like():
     w.add_document(id=u("6"), text=u("foxtrot golf hotel"))
     w.add_document(id=u("7"), text=u("golf hotel india"))
     w.commit()
-    
+
     with ix.searcher() as s:
         docnum = s.document_number(id="3")
         r = s.more_like(docnum, "text")
         assert_equal([hit["id"] for hit in r], ["5", "4"])
+
+
+

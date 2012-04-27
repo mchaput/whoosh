@@ -146,6 +146,14 @@ class PrefixPlugin(TaggingPlugin):
 
 class WildcardPlugin(TaggingPlugin):
     class WildcardNode(syntax.TextNode):
+        # Note that this node inherits tokenize = False from TextNode,
+        # so the text in this node will not be analyzed... just passed
+        # straight to the query
+
+        # TODO: instead of parsing a "wildcard word", create marker nodes for
+        # individual ? and * characters. This will have to wait for a more
+        # advanced wikiparser-like parser.
+
         qclass = query.Wildcard
 
         def r(self):
@@ -157,15 +165,35 @@ class WildcardPlugin(TaggingPlugin):
     # \u061F = Arabic question mark
     # \u1367 = Ethiopic question mark
     qms = u("\u055E\u061F\u1367")
-    expr = u("(?P<text>\\w*[*?%s](\\w|[*?%s])*)") % (qms, qms)
+    expr = u("(?P<text>(\\w|[-])*[*?%s](\\w|[-*?%s])*)") % (qms, qms)
     nodetype = WildcardNode
+
+
+class RegexPlugin(TaggingPlugin):
+    """Adds the ability to specify regular expression term queries.
+    
+    The default syntax for a regular expression term is ``r"termexpr"``.
+    
+    >>> qp = qparser.QueryParser("content", myschema)
+    >>> qp.add_plugin(qparser.RegexPlugin())
+    >>> q = qp.parse('foo title:r"bar+"')
+    """
+
+    class RegexNode(syntax.TextNode):
+        qclass = query.Regex
+
+        def r(self):
+            return "Regex %r" % self.text
+
+    expr = 'r"(?P<text>[^"]*)"'
+    nodetype = RegexNode
 
 
 class BoostPlugin(TaggingPlugin):
     """Adds the ability to boost clauses of the query using the circumflex.
     
     >>> qp = qparser.QueryParser("content", myschema)
-    >>> q = qp.parse("hello there^2")    
+    >>> q = qp.parse("hello there^2")
     """
 
     expr = "\\^(?P<boost>[0-9]*(\\.[0-9]+)?)($|(?=[ \t\r\n)]))"
@@ -469,15 +497,15 @@ class RangePlugin(Plugin):
     expr = rcompile(r"""
     (?P<open>\{|\[)               # Open paren
     (?P<start>
-        ('[^']*?'\s+)             # single-quoted 
+        ('[^']*?'\s+)             # single-quoted
         |                         # or
-        (.+?(?=[Tt][Oo]))         # everything until "to"
+        ([^\]}]+?(?=[Tt][Oo]))    # everything until "to"
     )?
     [Tt][Oo]                      # "to"
     (?P<end>
         (\s+'[^']*?')             # single-quoted
         |                         # or
-        ((.+?)(?=]|}))            # everything until "]" or "}"
+        ([^\]}]+?)                # everything until "]" or "}"
     )?
     (?P<close>}|])                # Close paren
     """, verbose=True)
@@ -909,3 +937,129 @@ class CopyFieldPlugin(Plugin):
                     continue
             newgroup.append(node)
         return newgroup
+
+
+class PseudoFieldPlugin(Plugin):
+    """This is an advanced plugin that lets you define "pseudo-fields" the user
+    can use in their queries. When the parser encounters one of these fields,
+    it runs a given function on the following node in the abstract syntax tree.
+    
+    Unfortunately writing the transform function(s) requires knowledge of the
+    parser's abstract syntax tree classes. A transform function takes a
+    :class:`whoosh.qparser.SyntaxNode` and returns a
+    :class:`~whoosh.qparser.SyntaxNode` (or None if the node should be removed
+    instead of transformed).
+    
+    Some things you can do in the transform function::
+    
+        from whoosh import qparser
+    
+        def my_xform_fn(node):
+            # Is this a text node?
+            if node.has_text:
+                # Change the node's text
+                node.text = node.text + "foo"
+            
+                # Change the node into a prefix query
+                node = qparser.PrefixPlugin.PrefixNode(node.text)
+                
+                # Set the field the node should search in
+                node.set_fieldname("title")
+                
+                return node
+            else:
+                # If the pseudo-field wasn't applied to a text node (e.g.
+                # it preceded a group, as in ``pfield:(a OR b)`` ), remove the
+                # node. Alternatively you could just ``return node`` here to
+                # leave the non-text node intact.
+                return None
+    
+    In the following example, if the user types ``regex:foo.bar``, the function
+    transforms the text in the pseudo-field "regex" into a regular expression
+    query in the "content" field::
+    
+        from whoosh import qparser
+        
+        def regex_maker(node):
+            if node.has_text:
+                node = qparser.RegexPlugin.RegexNode(node.text)
+                node.set_fieldname("content")
+                return node
+    
+        qp = qparser.QueryParser("content", myindex.schema)
+        qp.add_plugin(qparser.PseudoFieldPlugin({"regex": regex_maker}))
+        q = qp.parse("alfa regex:br.vo")
+    
+    The name of the "pseudo" field can be the same as an actual field. Imagine
+    the schema has a field named ``reverse``, and you want the user to be able
+    to type ``reverse:foo`` and transform it to ``reverse:(foo OR oof)``::
+        
+        def rev_text(node):
+            if node.has_text:
+                # Create a word node for the reversed text
+                revtext = node.text[::-1]  # Reverse the text
+                rnode = qparser.WordNode(revtext)
+                
+                # Put the original node and the reversed node in an OrGroup
+                group = qparser.OrGroup([node, rnode])
+                
+                # Need to set the fieldname here because the PseudoFieldPlugin
+                # removes the field name syntax
+                group.set_fieldname("reverse")
+                
+                return group
+        
+        qp = qparser.QueryParser("content", myindex.schema)
+        qp.add_plugin(qparser.PseudoFieldPlugin({"reverse": rev_text}))
+        q = qp.parse("alfa reverse:bravo")
+    
+    Note that transforming the query like this can potentially really confuse
+    the spell checker!
+    
+    This plugin works as a filter, so it can only operate on the query after it
+    has been parsed into an abstract syntax tree. For parsing control (i.e. to
+    give a pseudo-field its own special syntax), you would need to write your
+    own parsing plugin.
+    """
+
+    def __init__(self, xform_map):
+        """
+        :param xform_map: a dictionary mapping psuedo-field names to transform
+            functions. The function should take a
+            :class:`whoosh.qparser.SyntaxNode` as an argument, and return a
+            :class:`~whoosh.qparser.SyntaxNode`. If the function returns None,
+            the node will be removed from the query.
+        """
+
+        self.xform_map = xform_map
+
+    def filters(self, parser):
+        # Run before the fieldname filter (100)
+        return [(self.do_pseudofield, 99)]
+
+    def do_pseudofield(self, parser, group):
+        xform_map = self.xform_map
+
+        newgroup = group.empty_copy()
+        xform_next = None
+        for node in group:
+            if isinstance(node, syntax.GroupNode):
+                node = self.do_pseudofield(parser, node)
+            elif (isinstance(node, syntax.FieldnameNode)
+                  and node.fieldname in xform_map):
+                xform_next = xform_map[node.fieldname]
+                continue
+
+            if xform_next:
+                newnode = xform_next(node)
+                xform_next = None
+                if newnode is None:
+                    continue
+                else:
+                    newnode.set_range(node.startchar, node.endchar)
+                    node = newnode
+
+            newgroup.append(node)
+
+        return newgroup
+

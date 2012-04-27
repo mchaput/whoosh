@@ -43,7 +43,7 @@ The ``limitmb`` parameter to :meth:`whoosh.index.Index.writer` controls the
 *maximum* memory (in megabytes) the writer will use for the indexing pool. The
 higher the number, the faster indexing will be.
 
-The default value of ``32`` is actually pretty low, considering many people
+The default value of ``128`` is actually somewhat low, considering many people
 have multiple gigabytes of RAM these days. Setting it higher can speed up
 indexing considerably::
 
@@ -62,8 +62,8 @@ The ``procs`` parameter
 =======================
 
 The ``procs`` parameter to :meth:`whoosh.index.Index.writer` controls the
-number of processors the writer will use for the indexing pool (via the
-``multiprocessing`` module).
+number of processors the writer will use for indexing (via the
+``multiprocessing`` module)::
 
     from whoosh import index
     
@@ -74,51 +74,40 @@ Note that when you use multiprocessing, the ``limitmb`` parameter controls the
 amount of memory used by *each process*, so the actual memory used will be
 ``limitmb * procs``::
 
-    # Each process will use a limit of 128 MB, for a total of 512 MB
+    # Each process will use a limit of 128, for a total of 512
     writer = ix.writer(procs=4, limitmb=128)
 
 
-MultiSegmentWriter
-==================
+The ``multisegment`` parameter
+==============================
 
-The ``procs`` parameter causes the default ``FileWriter`` to use multiple
-processors to build the pool, but then still uses a single process to merge
-the pool into a segment.
+The ``procs`` parameter causes the default writer to use multiple processors to
+do much of the indexing, but then still uses a single process to merge the pool
+of each sub-writer into a single segment.
 
-You can get much better indexing speed using the MultiSegmentWriter, which
-instead of a building the pool in parallel uses entirely separate parallel
-writers. The drawback is that instead of creating a single new segment,
-``MultiSegmentWriter`` creates a number of new segments equal to the number of
-processes you you use. For example, if you use ``procs=4``, the writer will
-create four new segments.
-
-So, while ``MultiSegmentWriter`` is much faster than a normal writer, you should
-only use it for large batch indexing jobs (and perhaps only for indexing from
-scratch). It should not be the only method you use for indexing, because
-otherwise the number of segments will increase forever!
-
-To use a ``MultiSegmentWriter``, construct it directly, with your Index as the
-first argument::
+You can get much better indexing speed by also using the ``multisegment=True``
+keyword argument, which instead of merging the results of each sub-writer,
+simply has them each just write out a new segment::
 
     from whoosh import index
-    from whoosh.filedb.multiproc import MultiSegmentWriter
-    
+
     ix = index.open_dir("indexdir")
-    writer = MultiSegmentWriter(ix, procs=4, limitmb=128)
+    writer = ix.writer(procs=4, multisegment=True)
+
+The drawback is that instead
+of creating a single new segment, this option creates a number of new segments
+**at least** equal to the number of processes you use.
+
+For example, if you use ``procs=4``, the writer will create four new segments.
+(If you merge old segments or call ``add_reader`` on the parent writer, the
+parent writer will also write a segment, meaning you'll get five new segments.)
+
+So, while ``multisegment=True`` is much faster than a normal writer, you should
+only use it for large batch indexing jobs (or perhaps only for indexing from
+scratch). It should not be the only method you use for indexing, because
+otherwise the number of segments will tend to increase forever!
 
 
-Benchmarks
-==========
-
-As a single data point purely to illustrate the possible relative differences
-between single processing, a multiprocessing pool, and ``MultiSegmentWriter``,
-here are the indexing times for the ``benchmarks/enron.py``, indexing over 1 GB
-of text in over 500 000 email messages, using the three different methods on a
-Windows machine with ``limitmb=128``::
-
-    Default Writer     procs=1 : 49m
-    Default Writer     procs=4 : 32m
-    MultiSegmentWriter procs=4 : 13m
 
 
 

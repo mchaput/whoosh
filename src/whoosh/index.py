@@ -91,7 +91,7 @@ def create_in(dirname, schema, indexname=None):
     return storage.create_index(schema, indexname)
 
 
-def open_dir(dirname, indexname=None, mapped=True, readonly=False):
+def open_dir(dirname, indexname=None, readonly=False):
     """Convenience function for opening an index in a directory. Takes care of
     creating a FileStorage object for you. dirname is the filename of the
     directory in containing the index. indexname is the name of the index to
@@ -102,15 +102,13 @@ def open_dir(dirname, indexname=None, mapped=True, readonly=False):
         index.
     :param indexname: the name of the index to create; you only need to specify
         this if you have multiple indexes within the same storage object.
-    :param mapped: whether to use memory mapping to speed up disk reading.
-    :returns: :class:`Index`
     """
 
     if indexname is None:
         indexname = _DEF_INDEX_NAME
 
     from whoosh.filedb.filestore import FileStorage
-    storage = FileStorage(dirname, mapped=mapped, readonly=readonly)
+    storage = FileStorage(dirname, readonly=readonly)
     return storage.open_index(indexname)
 
 

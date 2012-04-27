@@ -2,6 +2,106 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.4
+==========
+
+* By default, Whoosh now assembles the individual files of a segment into a
+  single file when committing. This has a small performance penalty but solves
+  a problem where Whoosh can keep too many files open. Whoosh is also now
+  smarter about using mmap.
+
+* Added functionality to index and search hierarchical documents. See
+  :doc:`/nested`.
+
+* Rewrote the Directed Acyclic Word Graph implementation (used in spell
+  checking) to be faster and more space-efficient. Word graph files created by
+  previous versions will be ignored, meaning that spell checking may become
+  slower unless/until you replace the old segments (for example, by
+  optimizing).
+
+* Rewrote multiprocessing indexing to be faster and simpler. You can now
+  do ``myindex.writer(procs=n)`` to get a multiprocessing writer, or
+  ``myindex.writer(procs=n, multisegment=True)`` to get a multiprocessing
+  writer that leaves behind multiple segments, like the old MultiSegmentWriter.
+  (``MultiSegmentWriter`` is still available as a function that returns the
+  new class.)
+
+* When creating ``Term`` query objects for special fields (e.g. NUMERIC or
+  BOOLEAN), you can now use the field's literal type instead of a string as the
+  second argument, for example ``Term("num", 20)`` or ``Term("bool", True)``.
+  (This change may cause problems interacting with functions that expect
+  query objects to be pure textual, such as spell checking.)
+
+* All writing to and reading from on-disk indexes is now done through "codec"
+  objects. This architecture should make it easier to add optional or
+  experimental features, and maintain backwards compatibility.
+
+* Fixes issues #137, #206, #213, #215, #219, #223, #226, #230, #233, #238,
+  #239, #240, #241, and other bugs.
+
+
+Whoosh 2.3.2
+============
+
+* Fixes bug in BM25F scoring function, leading to increased precision in search
+  results.
+
+* Fixes issues #203, #205, #206, #208, #209, #212.
+
+
+Whoosh 2.3.1
+============
+
+* Fixes issue #200.
+
+
+Whoosh 2.3
+==========
+
+* Added a :class:`whoosh.query.Regex` term query type, similar to
+  :class:`whoosh.query.Wildcard`. The parser does not allow regex term queries
+  by default. You need to add the :class:`whoosh.qparser.RegexPlugin` plugin.
+  After you add the plugin, you can use ``r"expression"`` query syntax for
+  regular expression term queries. For example, ``r"foo.*bar"``.
+
+* Added the :class:`whoosh.qparser.PseudoFieldPlugin` parser plugin. This
+  plugin lets you create "pseudo-fields" that run a transform function on
+  whatever query syntax the user applies the field to. This is fairly advanced
+  functionality right now; I'm trying to think of ways to make its power easier
+  to access.
+
+* The documents in the lists in the dictionary returned by ``Results.groups()``
+  by default are now in the same relative order as in the results. This makes
+  it much easier to display the "top N" results in each category, for example.
+
+* The ``groupids`` keyword argument to ``Searcher.search`` has been removed.
+  Instead you can now pass a :class:`whoosh.sorting.FacetMap` object to the
+  ``Searcher.search`` method's ``maptype`` argument to control how faceted
+  documents are grouped, and/or set the ``maptype`` argument on individual
+  :class:`whoosh.sorting.FacetType`` objects to set custom grouping per facet.
+  See :doc:`../facets` for more information.
+
+* Calling ``Searcher.documents()`` or ``Searcher.document_numbers()`` with no
+  arguments now yields all documents/numbers.
+
+* Calling ``Writer.update_document()`` with no unique fields is now equivalent
+  to calling ``Writer.add_document()`` with the same arguments.
+
+* Fixed a problem with keyword expansion where the code was building a cache
+  that was fast on small indexes, but unacceptably slow on large indexes.
+
+* Added the hyphen (``-``) to the list of characters that match a "wildcard"
+  token, to make parsing slightly more predictable. A true fix will have to
+  wait for another parser rewrite.
+
+* Fixed an unused ``__future__`` import and use of ``float("nan")`` which were
+  breaking under Python 2.5.
+
+* Fixed a bug where vectored fields with only one term stored an empty term
+  vector.
+
+* Various other bug fixes.
+
 Whoosh 2.2
 ==========
 

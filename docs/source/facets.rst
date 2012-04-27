@@ -147,18 +147,22 @@ You can use the following objects as ``groupedby`` values:
 
 A ``FacetType`` object
     Uses this object to group the documents. See below for the available facet
-    types. The facet name will automatically be set to ``"facet"``.
+    types.
 
 A field name string
     Converts the field name into a ``FieldFacet`` (see below) and uses it to
     sort the documents. The name of the field is used as the facet name.
 
+A list or tuple of field name strings
+    Sets up multiple field grouping criteria.
+
 A dictionary mapping facet names to FacetType objects
-    Sets up multiple grouping crieteria.
+    Sets up multiple grouping criteria.
 
 A ``Facets`` object
     This object is a lot like using a dictionary, but has some convenience
     methods to make setting up multiple groupings a little easier.
+
 
 Examples
 --------
@@ -172,7 +176,7 @@ field and a date range::
 
     cats = sorting.FieldFacet("category")
     tags = sorting.FieldFacet("tags", allow_overlap=True)
-    results = searcher.search(myquery, groupedby={"cats": cats, "tags": tags})
+    results = searcher.search(myquery, groupedby={"category": cats, "tags": tags})
     
     # ...or, using a Facets object has a little less duplication
     facets = sorting.Facets()
@@ -195,12 +199,23 @@ Getting the faceted groups
 --------------------------
 
 The ``Results.groups("facetname")`` method  returns a dictionary mapping
-category names to lists of **document IDs**.
+category names to lists of **document IDs**::
 
-    {"small": [1, 2, 4, 5, 8], "medium": [0, 3, 6], "large": [7, 9]}
+    myfacets = sorting.Facets().add_field("size").add_field("tag")
+    results = mysearcher.search(myquery, groupedby=myfacets)
+    results.groups("size")
+    # {"small": [8, 5, 1, 2, 4], "medium": [3, 0, 6], "large": [7, 9]}
 
-The ``Searcher`` object's ``stored_fields()`` method takes a document number
-and returns the document's stored fields as a dictionary::
+If there is only one facet, you can just use ``Results.groups()`` with no
+argument to access its groups::
+
+    results = mysearcher.search(myquery, groupedby=myfunctionfacet)
+    results.groups()
+
+By default, the values in the dictionary returned by ``groups()`` are lists of
+document numbers in the same relative order as in the results. You can use the
+``Searcher`` object's ``stored_fields()`` method to take a document number and
+return the document's stored fields as a dictionary::
 
     for category_name in categories:
         print "Top 5 documents in the %s category" % category_name
@@ -210,28 +225,44 @@ and returns the document's stored fields as a dictionary::
         if len(doclist) > 5:
             print "  (%s more)" % (len(doclist) - 5)
 
-(You can use ``Searcher.stored_fields(docnum)`` to get the stored fields
-associated with a document number.)
+If you want different information about the groups, for example just the count
+of documents in each group, or you don't need the groups to be ordered, you can
+specify a :class:`whoosh.sorting.FacetMap` type or instance with the
+``maptype`` keyword argument when creating the ``FacetType``::
 
-If you just want to **count** the number of documents in each group, instead of
-generating a full list of the documents, use the ``groupids=False`` keyword
-argument::
+    # This is the same as the default
+    myfacet = FieldFacet("size", maptype=sorting.OrderedList)
+    results = mysearcher.search(myquery, groupedby=myfacet)
+    results.groups()
+    # {"small": [8, 5, 1, 2, 4], "medium": [3, 0, 6], "large": [7, 9]}
+    
+    # Don't sort the groups to match the order of documents in the results
+    # (faster)
+    myfacet = FieldFacet("size", maptype=sorting.UnorderedList)
+    results = mysearcher.search(myquery, groupedby=myfacet)
+    results.groups()
+    # {"small": [1, 2, 4, 5, 8], "medium": [0, 3, 6], "large": [7, 9]}
 
-    results = searcher.search(myquery, groupedby="size")
-    groups = results.groups("size")
+    # Only count the documents in each group
+    myfacet = FieldFacet("size", maptype=sorting.Count)
+    results = mysearcher.search(myquery, groupedby=myfacet)
+    results.groups()
     # {"small": 5, "medium": 3, "large": 2}
-
-To generate multiple groupings, you can name multiple fields in the list you
-pass to the `groups` keyword::
-
-    # Generate separate groupings for the "tag" and "size" fields
-    results = searcher.search(myquery, groupedby=["tag", "size"])
     
-    # Get the groupings by "tag"
-    tag_groups = results.groups("tag")
-    
-    # Get the groupings by "size"
-    size_groups = results.groups("size")
+    # Only remember the "best" document in each group
+    myfacet = FieldFacet("size", maptype=sorting.Best)
+    results = mysearcher.search(myquery, groupedby=myfacet)
+    results.groups()
+    # {"small": 8, "medium": 3, "large": 7}
+
+Alternatively you can specify a ``maptype`` argument in the
+``Searcher.search()`` method call which applies to all facets::
+
+    results = mysearcher.search(myquery, groupedby=["size", "tag"],
+                                maptype=sorting.Count)
+
+(You can override this overall ``maptype`` argument on individual facets by
+specifying the ``maptype`` argument for them as well.)
 
 
 Facet types
@@ -404,7 +435,9 @@ StoredFieldFacet
 ----------------
 
 This facet lets you use stored field values as the sorting/grouping key for
-documents. This is
+documents. This is usually slower than using an indexed field, but when using
+``allow_overlap`` it can actually be faster for large indexes just because it
+avoids the overhead of reading posting lists.
 
 :class:`~whoosh.sorting.StoredFieldFacet` supports ``allow_overlap`` by
 splitting the stored value into separate keys. By default it calls the value's

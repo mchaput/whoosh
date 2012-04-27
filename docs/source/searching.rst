@@ -45,7 +45,7 @@ However, the most important method on the Searcher object is
     
     with myindex.searcher() as s:
         qp = QueryParser("content", schema=myindex.schema)
-        q = queryparser.parse(u"hello world")
+        q = qp.parse(u"hello world")
         
         results = s.search(q)
 
@@ -77,18 +77,42 @@ The :class:`~whoosh.searching.Results` object acts like a list of the matched
 documents. You can use it to access the stored fields of each hit document, to
 display to the user.
 
->>> # How many documents matched?
->>> len(results)
-27
->>> # How many scored and sorted documents in this Results object?
->>> # This will be less than len() if you used the limit keyword argument.
->>> results.scored_length()
-10
 >>> # Show the best hit's stored fields
 >>> results[0]
 {"title": u"Hello World in Python", "path": u"/a/b/c"}
 >>> results[0:2]
 [{"title": u"Hello World in Python", "path": u"/a/b/c"}, {"title": u"Foo", "path": u"/bar"}]
+
+By default, ``Searcher.search(myquery)`` limits the number of hits to 20, So
+the number of scored hits in the ``Results`` object may be less than the number
+of matching documents in the index.
+
+>>> # How many documents in the entire index would have matched?
+>>> len(results)
+27
+>>> # How many scored and sorted documents in this Results object?
+>>> # This will often be less than len() if the number of hits was limited
+>>> # (the default).
+>>> results.scored_length()
+10
+
+Calling ``len(Results)`` runs a fast (unscored) version of the query again to
+figure out the total number of matching documents. This is usually very fast
+but for large indexes it can cause a noticeable delay. If you want to avoid
+this dalay on very large indexes, you can use the
+:meth:`~whoosh.searching.Results.has_exact_length`,
+:meth:`~whoosh.searching.Results.estimated_length`,
+and :meth:`~whoosh.searching.Results.estimated_min_length` methods to estimate
+the number of matching documents without calling ``len()``::
+
+    found = results.scored_length()
+    if results.has_exact_length():
+        print("Scored", found, "of exactly", len(results), "documents")
+    else:
+        low = results.estimated_min_length()
+        high = results.estimated_length()
+    
+        print("Scored", found, "of between", low, "and", "high", "documents")
 
 
 Scoring and sorting
