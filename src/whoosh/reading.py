@@ -691,7 +691,7 @@ class MultiReader(IndexReader):
         # added
         if not tis:
             raise TermNotFound(term)
-        elif len(tis) == 0:
+        elif len(tis) == 1:
             ti, offset = tis[0]
             ti._minid += offset
             ti._maxid += offset
