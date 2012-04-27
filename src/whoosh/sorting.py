@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import logging
 from array import array
 from collections import defaultdict
 
@@ -32,6 +33,9 @@ from whoosh.compat import string_type, u, xrange, iteritems
 from whoosh.fields import DEFAULT_LONG
 from whoosh.support.times import (long_to_datetime, datetime_to_long,
                                   timedelta_to_usecs)
+
+
+log = logging.getLogger(__name__)
 
 
 # Faceting objects

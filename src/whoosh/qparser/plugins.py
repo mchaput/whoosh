@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import copy
+import copy, logging
 
 from whoosh import query
 from whoosh.compat import iteritems, u, PY3
@@ -33,6 +33,9 @@ from whoosh.qparser import syntax
 from whoosh.qparser.common import attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
 from whoosh.util import rcompile
+
+
+log = logging.getLogger(__name__)
 
 
 class Plugin(object):

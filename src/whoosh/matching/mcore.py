@@ -49,11 +49,14 @@ these optimizations, the matcher's :meth:`Matcher.supports_block_quality()`
 method will return ``True``.
 """
 
-import sys
+import logging, sys
 from itertools import repeat
 
 from whoosh.compat import izip, xrange
 from whoosh.compat import abstractmethod
+
+
+log = logging.getLogger(__name__)
 
 
 # Exceptions

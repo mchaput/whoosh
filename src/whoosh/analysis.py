@@ -62,7 +62,7 @@ The first item must be a tokenizer and the rest must be filters (you can't put
 a filter first or a tokenizer after the first item).
 """
 
-import re
+import re, logging
 from collections import deque
 from itertools import chain
 
@@ -71,6 +71,9 @@ from whoosh.compat import (callable, iteritems, string_type, text_type,
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util import lru_cache, unbound_cache, rcompile
+
+
+log = logging.getLogger(__name__)
 
 
 # Default list of stop words (words so common it's usually wasteful to index

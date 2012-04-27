@@ -26,6 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
+import logging
 from bisect import bisect_right
 
 from whoosh.fields import UnknownFieldError
@@ -34,6 +35,9 @@ from whoosh.support.filelock import try_for
 from whoosh.support.externalsort import SortingPool
 from whoosh.util import fib
 from whoosh.writing import IndexWriter, IndexingError
+
+
+log = logging.getLogger(__name__)
 
 
 # Merge policies

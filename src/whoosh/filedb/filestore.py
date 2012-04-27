@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os
+import logging, os
 from threading import Lock
 
 from whoosh.compat import BytesIO
@@ -33,6 +33,9 @@ from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import Storage
 from whoosh.support.filelock import FileLock
 from whoosh.filedb.structfile import StructFile
+
+
+log = logging.getLogger(__name__)
 
 
 class ReadOnlyError(Exception):

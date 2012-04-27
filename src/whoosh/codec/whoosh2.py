@@ -26,6 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 
+import logging
 from array import array
 from collections import defaultdict
 from struct import Struct
@@ -45,6 +46,9 @@ from whoosh.support.dawg import GraphWriter, GraphReader
 from whoosh.system import (pack_ushort, pack_long, unpack_ushort, unpack_long,
                            _INT_SIZE, _LONG_SIZE)
 from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
+
+
+log = logging.getLogger(__name__)
 
 
 # Standard codec top-level object

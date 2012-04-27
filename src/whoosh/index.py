@@ -30,8 +30,10 @@ an index.
 """
 
 from __future__ import division
-import os.path
-import sys
+import logging, os.path, sys
+
+
+log = logging.getLogger(__name__)
 
 
 _DEF_INDEX_NAME = "MAIN"
@@ -106,6 +108,7 @@ def open_dir(dirname, indexname=None, readonly=False):
 
     if indexname is None:
         indexname = _DEF_INDEX_NAME
+    log.debug("Opening index %s in %s", indexname, dirname)
 
     from whoosh.filedb.filestore import FileStorage
     storage = FileStorage(dirname, readonly=readonly)

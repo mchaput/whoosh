@@ -25,9 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import sys
+import logging, sys
 from whoosh.compat import xrange
 from whoosh.matching import mcore
+
+
+log = logging.getLogger(__name__)
 
 
 class WrappingMatcher(mcore.Matcher):

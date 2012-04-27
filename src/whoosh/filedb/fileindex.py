@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import re, sys
+import logging, re, sys
 from time import time, sleep
 
 from whoosh import __version__
@@ -36,6 +36,9 @@ from whoosh.index import (Index, EmptyIndexError, IndexVersionError,
 from whoosh.reading import EmptyReader, MultiReader
 from whoosh.store import Storage
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
+
+
+log = logging.getLogger(__name__)
 
 
 _INDEX_VERSION = -110

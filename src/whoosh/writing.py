@@ -26,13 +26,15 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import threading
-import time
+import logging, threading, time
 from contextlib import contextmanager
 
 from whoosh.compat import abstractmethod
 from whoosh.store import LockError
 from whoosh.util import synchronized
+
+
+log = logging.getLogger(__name__)
 
 
 # Exceptions

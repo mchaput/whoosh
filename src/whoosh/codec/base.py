@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 
-import random
+import logging, random
 from array import array
 from struct import Struct, pack
 from bisect import bisect_right
@@ -46,6 +46,9 @@ try:
     can_compress = True
 except ImportError:
     can_compress = False
+
+
+log = logging.getLogger(__name__)
 
 
 # Base classes

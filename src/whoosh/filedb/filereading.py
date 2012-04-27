@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import logging
 from bisect import bisect_left
 
 from whoosh.compat import iteritems, xrange
@@ -34,6 +35,9 @@ from whoosh.matching import FilterMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.store import OverlayStorage
 from whoosh.support import dawg
+
+
+log = logging.getLogger(__name__)
 
 
 SAVE_BY_DEFAULT = True

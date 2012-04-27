@@ -30,9 +30,7 @@
 
 
 from __future__ import division
-import copy
-import threading
-import weakref
+import copy, logging, threading, weakref
 from collections import defaultdict
 from heapq import heappush, heapreplace, nlargest, nsmallest
 from math import ceil
@@ -42,6 +40,9 @@ from whoosh.compat import iteritems, itervalues, iterkeys, xrange
 from whoosh.reading import TermNotFound
 from whoosh.support.bitvector import DocIdSet, BitSet
 from whoosh.util import now, lru_cache
+
+
+log = logging.getLogger(__name__)
 
 
 class TimeLimit(Exception):

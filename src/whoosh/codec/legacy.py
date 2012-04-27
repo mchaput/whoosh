@@ -26,6 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 
+import logging
 from array import array
 from struct import Struct
 
@@ -41,6 +42,9 @@ try:
     from zlib import decompress
 except ImportError:
     pass
+
+
+log = logging.getLogger(__name__)
 
 
 # Old field lengths format

@@ -26,13 +26,16 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-import copy
+import copy, logging
 from array import array
 
 from whoosh import matching
 from whoosh.compat import u
 from whoosh.reading import TermNotFound
 from whoosh.compat import methodcaller
+
+
+log = logging.getLogger(__name__)
 
 
 # Exceptions

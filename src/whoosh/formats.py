@@ -31,12 +31,16 @@ The field format essentially determines what information is stored about each
 occurance of a term.
 """
 
+import logging
 from collections import defaultdict
 
 from whoosh.analysis import unstopped, entoken
 from whoosh.compat import iteritems, dumps, loads, b
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_uint, unpack_uint,
                            pack_float, unpack_float)
+
+
+log = logging.getLogger(__name__)
 
 
 # Format base class

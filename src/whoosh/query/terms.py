@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-import copy, fnmatch, re
+import copy, fnmatch, logging, re
 from collections import defaultdict
 
 from whoosh import matching
@@ -34,6 +34,9 @@ from whoosh.analysis import Token
 from whoosh.compat import bytes_type, text_type, u
 from whoosh.lang.morph_en import variations
 from whoosh.query import qcore
+
+
+log = logging.getLogger(__name__)
 
 
 class Term(qcore.Query):

@@ -26,11 +26,15 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import logging
 
 from whoosh import matching
 from whoosh.compat import text_type, u
 from whoosh.query import qcore
 from whoosh.util import make_binary_tree, make_weighted_tree
+
+
+log = logging.getLogger(__name__)
 
 
 class CompoundQuery(qcore.Query):

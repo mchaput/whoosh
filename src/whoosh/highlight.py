@@ -49,11 +49,15 @@ See :doc:`/highlight` for more information.
 """
 
 from __future__ import division
+import logging
 from collections import deque
 from heapq import nlargest
 from cgi import escape as htmlescape
 
 from whoosh.analysis import Token
+
+
+log = logging.getLogger(__name__)
 
 
 # The default value for the maximum chars to examine when fragmenting
@@ -709,8 +713,8 @@ class GenshiFormatter(Formatter):
         self.qname = qname
         self.between = between
 
-        from genshi.core import START, END, TEXT  #@UnresolvedImport
-        from genshi.core import Attrs, Stream  #@UnresolvedImport
+        from genshi.core import START, END, TEXT  # @UnresolvedImport
+        from genshi.core import Attrs, Stream  # @UnresolvedImport
         self.START, self.END, self.TEXT = START, END, TEXT
         self.Attrs, self.Stream = Attrs, Stream
 

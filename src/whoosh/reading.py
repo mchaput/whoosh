@@ -28,7 +28,7 @@
 """This module contains classes that allow reading from an index.
 """
 
-from math import log
+import logging, math
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
@@ -37,6 +37,9 @@ from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
 from whoosh.compat import abstractmethod
+
+
+log = logging.getLogger(__name__)
 
 
 # Exceptions
@@ -481,8 +484,8 @@ class IndexReader(ClosableMixin):
         """
 
         N = float(self.doc_count())
-        gen = ((terminfo.weight() * log(N / terminfo.doc_frequency()), text)
-               for text, terminfo in self.iter_prefix(fieldname, prefix))
+        gen = ((ti.weight() * math.log(N / ti.doc_frequency()), text)
+               for text, ti in self.iter_prefix(fieldname, prefix))
         return nlargest(number, gen)
 
     def leaf_readers(self):
@@ -815,7 +818,8 @@ class MultiReader(IndexReader):
     def terms_within(self, fieldname, text, maxdist, prefix=0):
         tset = set()
         for r in self.readers:
-            tset.update(r.terms_within(fieldname, text, maxdist, prefix=prefix))
+            tset.update(r.terms_within(fieldname, text, maxdist,
+                                       prefix=prefix))
         return tset
 
     def format(self, fieldname):

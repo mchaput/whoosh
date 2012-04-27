@@ -25,10 +25,15 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import logging
+
 from whoosh import matching
 from whoosh.compat import text_type, u, xrange
 from whoosh.query import qcore
 from whoosh.query.wrappers import WrappingQuery
+
+
+log = logging.getLogger(__name__)
 
 
 class NestedParent(WrappingQuery):

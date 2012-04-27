@@ -30,13 +30,17 @@ on-disk key-value database format. The current format is based heavily on
 D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
+import logging
 from binascii import crc32
 from collections import defaultdict
-from hashlib import md5  #@UnresolvedImport
+from hashlib import md5  # @UnresolvedImport
 from struct import Struct
 
 from whoosh.compat import long_type, xrange, b, bytes_type
 from whoosh.system import _INT_SIZE, _LONG_SIZE
+
+
+log = logging.getLogger(__name__)
 
 
 _4GB = 4 * 1024 * 1024 * 1024

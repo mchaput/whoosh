@@ -28,7 +28,7 @@
 """ Contains functions and classes related to fields.
 """
 
-import datetime, fnmatch, re, struct, sys
+import datetime, fnmatch, logging, re, struct, sys
 from decimal import Decimal
 
 from whoosh import formats
@@ -41,6 +41,9 @@ from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
                                     text_to_long, float_to_text, text_to_float,
                                     )
 from whoosh.support.times import datetime_to_long
+
+
+log = logging.getLogger(__name__)
 
 
 # "Default" values to indicate missing values when sorting and faceting numeric
@@ -1054,7 +1057,7 @@ class Schema(object):
                                           "underscore")
         if " " in name:
             raise FieldConfigurationError("Field names cannot contain spaces")
-        if name in self._fields or (glob and name in self._dyn_fields):
+        if (name in self._fields) or (glob and name in self._dyn_fields):
             raise FieldConfigurationError("Schema already has a field %r"
                                           % name)
 

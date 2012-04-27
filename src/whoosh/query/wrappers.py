@@ -26,11 +26,15 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import logging
 from array import array
 
 from whoosh import matching
 from whoosh.compat import text_type, u, xrange
 from whoosh.query import qcore
+
+
+log = logging.getLogger(__name__)
 
 
 class WrappingQuery(qcore.Query):

@@ -26,12 +26,15 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-import copy
+import copy, logging
 
 from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import u
 from whoosh.query import qcore, terms, nary
+
+
+log = logging.getLogger(__name__)
 
 
 class Phrase(qcore.Query):

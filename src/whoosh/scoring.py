@@ -30,9 +30,11 @@ This module contains classes for scoring (and sorting) search results.
 """
 
 from __future__ import division
-from math import log, pi
-
+import logging, math
 from whoosh.compat import iteritems
+
+
+log = logging.getLogger(__name__)
 
 
 # Base classes
@@ -57,7 +59,7 @@ class WeightingModel(object):
         parent = searcher.get_parent()
         n = parent.doc_frequency(fieldname, text)
         dc = parent.doc_count_all()
-        return log(dc / (n + 1)) + 1
+        return math.log(dc / (n + 1)) + 1
 
     def scorer(self, searcher, fieldname, text, qf=1):
         """Returns an instance of :class:`whoosh.scoring.Scorer` configured
@@ -124,7 +126,7 @@ class BaseScorer(object):
 
 class WeightScorer(BaseScorer):
     """A scorer that simply returns the weight as the score. This is useful
-    for more complex weighting models to return when they are asked for a 
+    for more complex weighting models to return when they are asked for a
     scorer for fields that aren't scorable (don't store field lengths).
     """
 
@@ -321,11 +323,11 @@ def dfree(tf, cf, qf, dl, fl):
     prior = tf / dl
     post = (tf + 1.0) / (dl + 1.0)
     invpriorcol = fl / cf
-    norm = tf * log(post / prior)
+    norm = tf * math.log(post / prior)
 
-    return qf * norm * (tf * (log(prior * invpriorcol))
-                        + (tf + 1.0) * (log(post * invpriorcol))
-                        + 0.5 * log(post / prior))
+    return qf * norm * (tf * (math.log(prior * invpriorcol))
+                        + (tf + 1.0) * (math.log(post * invpriorcol))
+                        + 0.5 * math.log(post / prior))
 
 
 class DFree(WeightingModel):
@@ -361,7 +363,7 @@ class DFreeScorer(WeightLengthScorer):
 
 # PL2 model
 
-rec_log2_of_e = 1.0 / log(2)
+rec_log2_of_e = 1.0 / math.log(2)
 
 
 def pl2(tf, cf, qf, dc, fl, avgfl, c):
@@ -373,13 +375,13 @@ def pl2(tf, cf, qf, dc, fl, avgfl, c):
     # avgfl - average field length across all documents
     # c -free parameter
 
-    TF = tf * log(1.0 + (c * avgfl) / fl)
+    TF = tf * math.log(1.0 + (c * avgfl) / fl)
     norm = 1.0 / (TF + 1.0)
     f = cf / dc
-    return norm * qf * (TF * log(1.0 / f)
+    return norm * qf * (TF * math.log(1.0 / f)
                         + f * rec_log2_of_e
-                        + 0.5 * log(2 * pi * TF)
-                        + TF * (log(TF) - rec_log2_of_e))
+                        + 0.5 * math.log(2 * math.pi * TF)
+                        + TF * (math.log(TF) - rec_log2_of_e))
 
 
 class PL2(WeightingModel):
@@ -575,10 +577,10 @@ class ReverseWeighting(WeightingModel):
 #class PositionWeighting(WeightingModel):
 #    def __init__(self, reversed=False):
 #        self.reversed = reversed
-#        
+#
 #    def scorer(self, searcher, fieldname, text, qf=1):
 #        return PositionWeighting.PositionScorer()
-#    
+#
 #    class PositionScorer(BaseScorer):
 #        def score(self, matcher):
 #            p = min(span.pos for span in matcher.spans())

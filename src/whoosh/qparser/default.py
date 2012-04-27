@@ -25,11 +25,14 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import sys
+import logging, sys
 
 from whoosh import query
 from whoosh.qparser import syntax
 from whoosh.qparser.common import print_debug, QueryParserError
+
+
+log = logging.getLogger(__name__)
 
 
 # Query parser object

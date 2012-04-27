@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import errno, mmap, sys
+import errno, logging, mmap, sys
 from threading import Lock
 from shutil import copyfileobj
 
@@ -33,6 +33,9 @@ from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import StructFile
 from whoosh.filedb.filestore import FileStorage
 from whoosh.system import emptybytes
+
+
+log = logging.getLogger(__name__)
 
 
 class CompoundStorage(FileStorage):

@@ -26,10 +26,14 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import logging
 
 from whoosh.compat import u
 from whoosh.query import qcore, terms, nary, wrappers
 from whoosh.support.times import datetime_to_long
+
+
+log = logging.getLogger(__name__)
 
 
 class RangeMixin(object):

@@ -28,6 +28,7 @@
 """This module contains helper functions for correcting typos in user queries.
 """
 
+import logging
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
@@ -36,6 +37,9 @@ from whoosh.compat import xrange, string_type
 from whoosh.support import dawg
 from whoosh.support.levenshtein import distance
 from whoosh.util import utf8encode
+
+
+log = logging.getLogger(__name__)
 
 
 # Corrector objects

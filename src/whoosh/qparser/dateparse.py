@@ -25,8 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import re
-import sys
+import logging, re, sys
 from datetime import datetime, timedelta
 
 from whoosh.compat import string_type, iteritems
@@ -36,6 +35,9 @@ from whoosh.support.relativedelta import relativedelta
 from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
                                   TimeError, relative_days)
 from whoosh.util import rcompile
+
+
+log = logging.getLogger(__name__)
 
 
 class DateParseError(Exception):

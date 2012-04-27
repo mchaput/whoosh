@@ -26,8 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import threading
-import weakref
+import logging, threading, weakref
 from array import array
 from collections import defaultdict
 from heapq import heappush, heapreplace
@@ -36,6 +35,9 @@ from struct import Struct
 from whoosh.compat import u, b, xrange
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 from whoosh.util import utf8encode
+
+
+log = logging.getLogger(__name__)
 
 
 pack_int_le = Struct("<i").pack

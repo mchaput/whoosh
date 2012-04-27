@@ -25,7 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import logging
+
 from whoosh.util import rcompile
+
+
+log = logging.getLogger(__name__)
 
 
 # Tagger objects
@@ -37,7 +42,7 @@ class Tagger(object):
 
     def match(self, parser, text, pos):
         """This method should see if this tagger matches the query string at
-        the given position. If it matches, it should return 
+        the given position.
         
         :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
         :param text: the text being parsed.

@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os
+import logging, os
 from array import array
 from copy import copy
 from struct import calcsize
@@ -41,6 +41,9 @@ from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            unpack_uint, unpack_long, unpack_float, IS_LITTLE)
 from whoosh.util import (varint, read_varint, signed_varint,
                          decode_signed_varint, float_to_byte, byte_to_float)
+
+
+log = logging.getLogger(__name__)
 
 
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")

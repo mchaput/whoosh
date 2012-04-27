@@ -25,10 +25,13 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import sys, weakref
+import logging, sys, weakref
 
 from whoosh import query
 from whoosh.qparser.common import get_single_text, QueryParserError, attach
+
+
+log = logging.getLogger(__name__)
 
 
 class SyntaxNode(object):
