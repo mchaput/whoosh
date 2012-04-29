@@ -337,7 +337,16 @@ class Regex(PatternQuery):
         elif text.startswith("\\A"):
             text = text[2:]
 
-        return PatternQuery._find_prefix(self, text)
+        prefix = PatternQuery._find_prefix(self, text)
+
+        lp = len(prefix)
+        if lp < len(text) and text[lp] in "*?":
+            # we stripped something starting from * or ? - they both MAY mean
+            # "0 times". As we had stripped starting from FIRST special char,
+            # that implies there were only ordinary chars left of it. Thus,
+            # the very last of them is not part of the real prefix:
+            prefix = prefix[:-1]
+        return prefix
 
     # _words() implemented in PatternQuery
 
