@@ -34,7 +34,7 @@ When sorting by fields, the **indexed terms** in the field are used as the
     w.add_document(title=u"Best Bet")
     w.add_document(title=u"First Action")
     w.commit()
-    
+
 If you sort this index by "title", you might expect the results to be
 "Best Bet" followed by "First Action", but in fact it will be the reverse! This
 is because Whoosh is sorting by **terms**, not the original text you indexed.
@@ -52,7 +52,39 @@ if you want to be able to sort by the original value of a TEXT field::
     for title in titles:
         w.add_document(title=title, sort_title=title)
     w.commit()
+    
+    # ...
+    
+    results = my_searcher.search(my_query, sortedby="sort_title")
 
+Using a separate field for sorting allows you to "massage" the sort values,
+since they don't need to be displayed to the user. For example, you can
+convert the sort value to lowercase (to prevent uppercase letters from sorting
+before lowercase letters) and remove spaces to prevent them from affecting the
+sort order::
+
+   for title in titles:
+      sort_title = title.lower().replace(" ", "")
+      w.add_document(title=title, sort_title=sort_title)
+
+Alternatively, you can store the field contents and use a
+:class:`whoosh.sorting.StoredFieldFacet` to sort by the stored value. This
+means you don't need to use a separate field, but it is usually slower than
+sorting by an indexed field, and doesn't give you the chance to massage the
+sort values::
+
+   schema = fiels.Schema(title=fields.TEXT(stored=True))
+   
+   # ...
+   
+   for title in titles:
+      w.add_document(title=title)
+  
+   # ...
+   
+   sff = sorting.StoredFieldFacet("title")
+   results = my_searcher.search(my_query, sortedby=sff)
+   
 
 The sortedby keyword argument
 -----------------------------
@@ -85,7 +117,7 @@ Examples
 Sort by the value of the size field::
 
     results = searcher.search(myquery, sortedby="size")
-    
+
 Sort by the reverse (highest-to-lowest) order of the "price" field::
 
     facet = sorting.FieldFacet("price", reverse=True)
@@ -97,12 +129,12 @@ Sort by ascending size and then descending price::
     mf.add_field("size")
     mf.add_field("price", reverse=True)
     results = searcher.search(myquery, sortedby=mf)
-    
+
     # or...
     sizes = sorting.FieldFacet("size")
     prices = sorting.FieldFacet("price", reverse=True)
     results = searcher.search(myquery, sortedby=[sizes, prices])
-    
+
 Sort by the "category" field, then by the document's score::
 
     cats = sorting.FieldFacet("category")
@@ -126,7 +158,7 @@ ranges.
 Manufacturer         Price
 -------------------- -----------------
 Apple (5)            $0 - $100 (2)
-Sanyo (1)            $101 - $500 (10)          
+Sanyo (1)            $101 - $500 (10)
 Sony (2)             $501 - $1000 (1)
 Toshiba (5)
 ==================== =================
@@ -170,14 +202,14 @@ Examples
 Group by the value of the "category" field::
 
     results = searcher.search(myquery, groupedby="category")
-    
+
 Group by the value of the "category" field and also by the value of the "tags"
 field and a date range::
 
     cats = sorting.FieldFacet("category")
     tags = sorting.FieldFacet("tags", allow_overlap=True)
     results = searcher.search(myquery, groupedby={"category": cats, "tags": tags})
-    
+
     # ...or, using a Facets object has a little less duplication
     facets = sorting.Facets()
     facets.add_field("category")
@@ -235,7 +267,7 @@ specify a :class:`whoosh.sorting.FacetMap` type or instance with the
     results = mysearcher.search(myquery, groupedby=myfacet)
     results.groups()
     # {"small": [8, 5, 1, 2, 4], "medium": [3, 0, 6], "large": [7, 9]}
-    
+
     # Don't sort the groups to match the order of documents in the results
     # (faster)
     myfacet = FieldFacet("size", maptype=sorting.UnorderedList)
@@ -248,7 +280,7 @@ specify a :class:`whoosh.sorting.FacetMap` type or instance with the
     results = mysearcher.search(myquery, groupedby=myfacet)
     results.groups()
     # {"small": 5, "medium": 3, "large": 2}
-    
+
     # Only remember the "best" document in each group
     myfacet = FieldFacet("size", maptype=sorting.Best)
     results = mysearcher.search(myquery, groupedby=myfacet)
@@ -279,7 +311,7 @@ field)::
     # Sort search results by the value of the "path" field
     facet = sorting.FieldFacet("path")
     results = searcher.search(myquery, sortedby=facet)
-    
+
     # Group search results by the value of the "parent" field
     facet = sorting.FieldFacet("parent")
     results = searcher.search(myquery, groupedby=facet)
@@ -312,10 +344,10 @@ group names using prefix queries::
     qdict["E-H"] = query.TermRange("name", "e", "h")
     qdict["I-L"] = query.TermRange("name", "i", "l")
     # ...
-    
+
     qfacet = sorting.QueryFacet(qdict)
     r = searcher.search(myquery, groupedby={"firstltr": qfacet})
-    
+
 By default, ``QueryFacet`` only supports **non-overlapping** grouping, where a
 document cannot belong to multiple facets at the same time (each document will
 be sorted into one category arbitrarily.) To get overlapping groups with
@@ -332,7 +364,7 @@ values into groups. For example, to group documents based on price into
 buckets $100 "wide"::
 
     pricefacet = sorting.RangeFacet("price", 0, 1000, 100)
-    
+
 The first argument is the name of the field. The next two arguments are the
 full range to be divided. Value outside this range (in this example, values
 below 0 and above 1000) will be sorted into the "missing" (None) group. The
@@ -343,7 +375,7 @@ the list will be used to set the size of the initial divisions, with the last
 value in the list being the size for all subsequent divisions. For example::
 
     pricefacet = sorting.RangeFacet("price", 0, 1000, [5, 10, 35, 50])
-    
+
 ...will set up divisions of 0-5, 5-15, 15-50, 50-100, and then use 50 as the
 size for all subsequent divisions (i.e. 100-150, 150-200, and so on).
 
@@ -352,11 +384,11 @@ to the end of the range or allowed to go past the end of the range. For
 example, this::
 
     facet = sorting.RangeFacet("num", 0, 10, 4, hardend=False)
-    
+
 ...gives divisions 0-4, 4-8, and 8-12, while this::
 
     facet = sorting.RangeFacet("num", 0, 10, 4, hardend=True)
-    
+
 ...gives divisions 0-4, 4-8, and 8-10. (The default is ``hardend=False``.)
 
 .. note::
@@ -418,10 +450,10 @@ arguments. For example, if you have an index with term vectors::
     schema = fields.Schema(id=fields.STORED,
                            text=fields.TEXT(stored=True, vector=True))
     ix = RamStorage().create_index(schema)
-    
+
 ...you could use a function to sort documents higher the closer they are to
-having equal occurances of two terms:: 
-    
+having equal occurances of two terms::
+
     def fn(searcher, docnum):
         v = dict(searcher.vector_as("frequency", docnum, "text"))
         # Sort documents that have equal number of "alfa" and "bravo" first
