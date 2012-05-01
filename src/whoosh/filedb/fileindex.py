@@ -344,5 +344,6 @@ class FileIndex(Index):
                 sleep(0.05)
 
 
-# from whoosh.codec.whoosh2 import W2Segment as Segment  # @UnusedImport
+# Fix for old indexes pickled with whoosh.fileindex.Segment objects
+from whoosh.codec.whoosh2 import W2Segment as Segment  # @UnusedImport
 

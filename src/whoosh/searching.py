@@ -1611,7 +1611,7 @@ class Results(object):
         self.top_n = items
 
     def upgrade_and_extend(self, results):
-        """Combines the effects of extend() and increase(): hits that are also
+        """Combines the effects of extend() and upgrade(): hits that are also
         in 'results' are raised. Then any hits from the other results object
         that are not in this results object are appended to the end.
 
