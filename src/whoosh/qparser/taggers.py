@@ -82,9 +82,13 @@ class FnTagger(RegexTagger):
     keyword arguments.
     """
 
-    def __init__(self, expr, fn):
+    def __init__(self, expr, fn, memo=""):
         RegexTagger.__init__(self, expr)
         self.fn = fn
+        self.memo = memo
+
+    def __repr__(self):
+        return "<%s %r (%s)>" % (self.__class__.__name__, self.expr, self.memo)
 
     def create(self, parser, match):
         return self.fn(**match.groupdict())

@@ -276,8 +276,8 @@ class GroupPlugin(Plugin):
         self.closeexpr = closeexpr
 
     def taggers(self, parser):
-        return [(FnTagger(self.openexpr, self.OpenBracket), 0),
-                (FnTagger(self.closeexpr, self.CloseBracket), 0)]
+        return [(FnTagger(self.openexpr, self.OpenBracket, "openB"), 0),
+                (FnTagger(self.closeexpr, self.CloseBracket, "closeB"), 0)]
 
     def filters(self, parser):
         return [(self.do_groups, 0)]
@@ -573,18 +573,24 @@ class OperatorsPlugin(Plugin):
 
     class OpTagger(RegexTagger):
         def __init__(self, expr, grouptype, optype=syntax.InfixOperator,
-                     leftassoc=True):
+                     leftassoc=True, memo=""):
             RegexTagger.__init__(self, expr)
             self.grouptype = grouptype
             self.optype = optype
             self.leftassoc = leftassoc
+            self.memo = memo
+
+        def __repr__(self):
+            return "<%s %r (%s)>" % (self.__class__.__name__, self.expr,
+                                     self.memo)
 
         def create(self, parser, match):
             return self.optype(match.group(0), self.grouptype, self.leftassoc)
 
     def __init__(self, ops=None, clean=False, And=r"\sAND\s", Or=r"\sOR\s",
                  AndNot=r"\sANDNOT\s", AndMaybe=r"\sANDMAYBE\s",
-                 Not=r"(^|(?<= ))NOT\s", Require=r"(^|(?<= ))REQUIRE\s"):
+                 Not=r"(^|(?<=[ \r\n\t()]))NOT\s",
+                 Require=r"(^|(?<= ))REQUIRE\s"):
         if ops:
             ops = list(ops)
         else:
@@ -593,18 +599,21 @@ class OperatorsPlugin(Plugin):
         if not clean:
             ot = self.OpTagger
             if Not:
-                ops.append((ot(Not, syntax.NotGroup, syntax.PrefixOperator),
-                            0))
+                ops.append((ot(Not, syntax.NotGroup, syntax.PrefixOperator,
+                               memo="not"), 0))
             if And:
-                ops.append((ot(And, syntax.AndGroup), 0))
+                ops.append((ot(And, syntax.AndGroup, memo="and"), 0))
             if Or:
-                ops.append((ot(Or, syntax.OrGroup), 0))
+                ops.append((ot(Or, syntax.OrGroup, memo="or"), 0))
             if AndNot:
-                ops.append((ot(AndNot, syntax.AndNotGroup), -5))
+                ops.append((ot(AndNot, syntax.AndNotGroup,
+                               memo="anot"), -5))
             if AndMaybe:
-                ops.append((ot(AndMaybe, syntax.AndMaybeGroup), -5))
+                ops.append((ot(AndMaybe, syntax.AndMaybeGroup,
+                               memo="amaybe"), -5))
             if Require:
-                ops.append((ot(Require, syntax.RequireGroup), 0))
+                ops.append((ot(Require, syntax.RequireGroup,
+                               memo="req"), 0))
 
         self.ops = ops
 
@@ -675,8 +684,8 @@ class PlusMinusPlugin(Plugin):
         self.minusexpr = minusexpr
 
     def taggers(self, parser):
-        return [(FnTagger(self.plusexpr, self.Plus), 0),
-                (FnTagger(self.minusexpr, self.Minus), 0)]
+        return [(FnTagger(self.plusexpr, self.Plus, "plus"), 0),
+                (FnTagger(self.minusexpr, self.Minus, "minus"), 0)]
 
     def filters(self, parser):
         return [(self.do_plusminus, 510)]
