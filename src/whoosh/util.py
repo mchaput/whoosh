@@ -474,12 +474,11 @@ def first_diff(a, b):
     byte.
     """
 
-    i = -1
+    i = 0
     for i in xrange(0, len(a)):
-        if a[i] != b[1]:
-            return i
-        if i == 255:
-            return i
+        if a[i] != b[i] or i == 255:
+            break
+    return i
 
 
 def prefix_encode(a, b):
