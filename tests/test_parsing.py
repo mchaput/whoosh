@@ -959,8 +959,38 @@ def test_bool_True():
     assert_equal(q.text, "t")
 
 
+def test_not_order():
+    schema = fields.Schema(id=fields.STORED,
+                           count=fields.KEYWORD(lowercase=True),
+                           cats=fields.KEYWORD(lowercase=True))
+    qp = default.QueryParser("count", schema)
+
+    q1 = qp.parse(u("(NOT (count:0) AND cats:1)"))
+    assert_equal(q1.__class__, query.And)
+    assert_equal(q1[0].__class__, query.Not)
+    assert_equal(q1[1].__class__, query.Term)
+    assert_equal(q1.__unicode__(), '(NOT count:0 AND cats:1)')
+
+    q2 = qp.parse(u("(cats:1 AND NOT (count:0))"))
+    assert_equal(q2.__class__, query.And)
+    assert_equal(q2[0].__class__, query.Term)
+    assert_equal(q2[1].__class__, query.Not)
+    assert_equal(q2.__unicode__(), '(cats:1 AND NOT count:0)')
 
 
+def test_spacespace_and():
+    qp = default.QueryParser("f", None)
+    # one blank before/after AND
+    q = qp.parse("A AND B")
+    assert_equal(q.__class__, query.And)
+    assert_equal(len(q), 2)
+    assert_equal(q[0], query.Term("f", "A"))
+    assert_equal(q[1], query.Term("f", "B"))
 
-
+    # two blanks before AND
+    q = qp.parse("A  AND B")
+    assert_equal(q.__class__, query.And)
+    assert_equal(len(q), 2)
+    assert_equal(q[0], query.Term("f", "A"))
+    assert_equal(q[1], query.Term("f", "B"))
 

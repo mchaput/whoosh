@@ -400,32 +400,7 @@ def test_patterns():
         assert_equal(q._find_prefix(q.text), "a")
 
 
-def test_not_order():
-    domain = [(1, 5, 1), (2, 4, 1), (3, 3, 1), (4, 20, None), (5, 0, 1)]
-    schema = fields.Schema(id=fields.STORED,
-                           count=fields.KEYWORD(lowercase=True),
-                           cats=fields.KEYWORD(lowercase=True))
-    ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
-        for idnum, count, cats in domain:
-            count = u(str(count))
-            cats = u("1") if cats else None
-            w.add_document(id=idnum, count=count, cats=cats)
 
-    with ix.searcher() as s:
-        qp = qparser.QueryParser("count", ix.schema)
-
-        q1 = qp.parse(u("(NOT (count:0) AND cats:1)"))
-        assert_equal(q1.__class__, query.And)
-        assert_equal(q1[0].__class__, query.Not)
-        assert_equal(q1[1].__class__, query.Term)
-        assert_equal(q1.__unicode__(), '(NOT count:0 AND cats:1)')
-
-        q2 = qp.parse(u("(cats:1 AND NOT (count:0))"))
-        assert_equal(q2.__class__, query.And)
-        assert_equal(q2[0].__class__, query.Term)
-        assert_equal(q2[1].__class__, query.Not)
-        assert_equal(q2.__unicode__(), '(cats:1 AND NOT count:0)')
 
 
 

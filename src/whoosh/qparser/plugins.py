@@ -581,16 +581,19 @@ class OperatorsPlugin(Plugin):
             self.memo = memo
 
         def __repr__(self):
-            return "<%s %r (%s)>" % (self.__class__.__name__, self.expr,
-                                     self.memo)
+            return "<%s %r (%s)>" % (self.__class__.__name__,
+                                     self.expr.pattern, self.memo)
 
         def create(self, parser, match):
             return self.optype(match.group(0), self.grouptype, self.leftassoc)
 
-    def __init__(self, ops=None, clean=False, And=r"\sAND\s", Or=r"\sOR\s",
-                 AndNot=r"\sANDNOT\s", AndMaybe=r"\sANDMAYBE\s",
-                 Not=r"(^|(?<=[ \r\n\t()]))NOT\s",
-                 Require=r"(^|(?<= ))REQUIRE\s"):
+    def __init__(self, ops=None, clean=False,
+                 And=r"(?<= )AND(?= )",
+                 Or=r"(?<= )OR(?= )",
+                 AndNot=r"(?<= )ANDNOT(?= )",
+                 AndMaybe=r"(?<= )ANDMAYBE(?= )",
+                 Not=r"(^|(?<=[ \r\n\t()]))NOT(?= )",
+                 Require=r"(^|(?<= ))REQUIRE(?= )"):
         if ops:
             ops = list(ops)
         else:
