@@ -588,12 +588,12 @@ class OperatorsPlugin(Plugin):
             return self.optype(match.group(0), self.grouptype, self.leftassoc)
 
     def __init__(self, ops=None, clean=False,
-                 And=r"(?<= )AND(?= )",
-                 Or=r"(?<= )OR(?= )",
-                 AndNot=r"(?<= )ANDNOT(?= )",
-                 AndMaybe=r"(?<= )ANDMAYBE(?= )",
-                 Not=r"(^|(?<=[ \r\n\t()]))NOT(?= )",
-                 Require=r"(^|(?<= ))REQUIRE(?= )"):
+                 And=r"(?<=\s)AND(?=\s)",
+                 Or=r"(?<=\s)OR(?=\s)",
+                 AndNot=r"(?<=\s)ANDNOT(?=\s)",
+                 AndMaybe=r"(?<=\s)ANDMAYBE(?=\s)",
+                 Not=r"(^|(?<=(\s|[()])))NOT(?=\s)",
+                 Require=r"(^|(?<=\s))REQUIRE(?=\s)"):
         if ops:
             ops = list(ops)
         else:
