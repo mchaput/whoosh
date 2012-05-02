@@ -30,10 +30,10 @@ To tell a reader or searcher to save cache files to a different location, create
 a storage object and pass it to the ``storage`` keyword argument::
 
     from whoosh.filedb.filestore import FileStorage
-    
+
     mystorage = FileStorage("path/to/cachedir")
     reader.set_caching_policy(storage=mystorage)
-    
+
 
 Creating a custom caching policy
 ================================

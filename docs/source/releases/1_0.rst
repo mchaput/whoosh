@@ -38,7 +38,7 @@ Whoosh 1.8.2
 
 Whoosh 1.8.2 fixes some bugs, including a mistyped signature in
 Searcher.more_like and a bad bug in Collector that could screw up the
-ordering of results given certain parameters. 
+ordering of results given certain parameters.
 
 
 Whoosh 1.8.1
@@ -122,7 +122,7 @@ are sorted in the same direction), or you can use the new
     sorter.add_field("price", reverse=True)
     # Get the Results
     results = sorter.sort_query(myquery)
-    
+
 See the documentation for the :class:`~whoosh.sorting.Sorter` class for more
 information. Bear in mind that complex sorts will be much slower on large
 indexes because they can't use the per-segment field caches.
@@ -143,7 +143,7 @@ cached on the searcher.
 
     # Search within previous results
     newresults = searcher.search(newquery, filter=oldresults)
-    
+
     # Search within the "basics" chapter
     results = searcher.search(userquery, filter=query.Term("chapter", "basics"))
 
@@ -186,12 +186,12 @@ class but allows you to search and update the buffered documents as well as the
 documents that have been flushed to disk::
 
     writer = writing.BufferedWriter(myindex)
-    
+
     # You can update (replace) documents in RAM without having to commit them
     # to disk
     writer.add_document(path="/a", text="Hi there")
     writer.update_document(path="/a", text="Hello there")
-    
+
     # Search committed and uncommited documents by getting a searcher from the
     # writer instead of the index
     searcher = writer.searcher()
@@ -224,7 +224,7 @@ Added the ability to define schemas declaratively, similar to Django models::
         path = STORED
         tags = KEYWORD(stored=True)
         content = TEXT
-        
+
     index.create_in("indexdir", MySchema)
 
 Whoosh 1.6.2: Added :class:`whoosh.searching.TermTrackingCollector` which tracks
@@ -300,7 +300,7 @@ Whoosh 1.3
 ==========
 
 Whoosh 1.3 adds a more efficient DATETIME field based on the new tiered NUMERIC
-field, and the DateParserPlugin. See :doc:`../dates`. 
+field, and the DateParserPlugin. See :doc:`../dates`.
 
 
 Whoosh 1.2
@@ -405,7 +405,7 @@ your own writer instead::
     for id in my_list_of_ids_to_delete:
         myindex.delete_by_term("id", id)
     myindex.commit()
-        
+
     # Instead do this
     writer = myindex.writer()
     for id in my_list_of_ids_to_delete:
@@ -423,9 +423,9 @@ can now simply do the following::
 
     # Do not merge segments
     writer.commit(merge=False)
-    
+
     # or
-    
+
     # Merge all segments
     writer.commit(optimize=True)
 
@@ -438,15 +438,15 @@ instead.
 
 Custom Weighting implementations that use the ``final()`` method must now
 set the ``use_final`` attribute to ``True``::
-  
-  	from whoosh.scoring import BM25F
-  
-  	class MyWeighting(BM25F):
-  		use_final = True
-  		
-  		def final(searcher, docnum, score):
-  			return score + docnum * 10
-  			
+
+    from whoosh.scoring import BM25F
+
+    class MyWeighting(BM25F):
+        use_final = True
+
+        def final(searcher, docnum, score):
+            return score + docnum * 10
+
 This disables the new optimizations, forcing Whoosh to score every matching
 document.
 

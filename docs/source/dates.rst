@@ -10,11 +10,11 @@ Whoosh lets you index and search dates/times using the
 field in ``add_document()``, you use a Python ``datetime.datetime`` object::
 
     from datetime import datetime, timedelta from whoosh import fields, index
-    
+
     schema = fields.Schema(title=fields.TEXT, content=fields.TEXT,
                            date=fields.DATETIME)
     ix = index.create_in("indexdir", schema)
-    
+
     w = ix.writer()
     w.add_document(title="Document 1", content="Rendering images from the command line",
                    date=datetime.utcnow())
@@ -32,15 +32,15 @@ date parser contained in the :class:`whoosh.qparser.dateparse.DateParserPlugin`:
     from whoosh import index
     from whoosh.qparser import QueryParser
     from whoosh.qparser.dateparse import DateParserPlugin
-    
+
     ix = index.open_dir("indexdir")
-    
+
     # Instatiate a query parser
     qp = QueryParser("content", ix.schema)
-    
+
     # Add the DateParserPlugin to the parser
     qp.add_plugin(DateParserPlugin())
-    
+
 With the ``DateParserPlugin``, users can use date queries such as::
 
     20050912
@@ -91,19 +91,19 @@ into the ``DATETIME`` field::
 
     from whoosh import index
     from whoosh.qparser import QueryParser
-    
+
     ix = index.open_dir("indexdir")
     qp = QueryParser("content", schema=ix.schema)
-    
+
     # Find all datetimes in 2005
     q = qp.parse(u"date:2005")
-    
+
     # Find all datetimes on June 24, 2005
     q = qp.parse(u"date:20050624")
-    
+
     # Find all datetimes from 1am-2am on June 24, 2005
     q = qp.parse(u"date:2005062401")
-    
+
     # Find all datetimes from Jan 1, 2005 to June 2, 2010
     q = qp.parse(u"date:[20050101 to 20100602]")
 
@@ -148,7 +148,7 @@ change in future versions)::
     def add_error(msg):
         errors.append(msg)
     qp.add_plugin(DateParserPlug(callback=add_error))
-    
+
     q = qp.parse(u"date:blarg")
     # errors == [u"blarg"]
 

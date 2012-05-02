@@ -22,18 +22,18 @@ Whoosh 0.3 release notes
 
 * Added experimental DATETIME field type lets you pass a
   ``datetime.datetime`` object as a field value to ``add_document``::
-  
+
     from whoosh.fields import Schema, ID, DATETIME
     from whoosh.filedb.filestore import RamStorage
     from datetime import datetime
-  
+
     schema = Schema(id=ID, date=DATETIME)
     storage = RamStorage()
     ix = storage.create_index(schema)
     w = ix.writer()
     w.add_document(id=u"A", date=datetime.now())
     w.close()
-  
+
   Internally, the DATETIME field indexes the datetime object as text using
   the format (4 digit year + 2 digit month + 2 digit day + 'T' + 2 digit hour +
   2 digit minute + 2 digit second + 6 digit microsecond), for example

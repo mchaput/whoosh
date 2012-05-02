@@ -13,7 +13,7 @@ For example, the user query:
 .. code-block:: none
 
     rendering shading
-    
+
 might be parsed into query objects like this::
 
     And([Term("content", u"rendering"), Term("content", u"shading")])
@@ -30,7 +30,7 @@ language syntax.
 The new hand-written parser is less brittle and more flexible.)
 
 .. note::
-    
+
     Remember that you can directly create query objects programmatically using
     the objects in the :mod:`whoosh.query` module. If you are not processing
     actual user queries, this is preferable to building a query string just to
@@ -46,7 +46,7 @@ To create a :class:`whoosh.qparser.QueryParser` object, pass it the name of the
     from whoosh.qparser import QueryParser
 
     parser = QueryParser("content", schema=myindex.schema)
-    
+
 .. tip::
 
     You can instantiate a QueryParser object without specifying a schema,
@@ -73,21 +73,21 @@ Searching for any terms instead of all terms by default
 If the user doesn't explicitly specify ``AND`` or ``OR`` clauses::
 
     physically based rendering
-    
+
 ...by default, the parser treats the words as if they were connected by ``AND``,
 meaning all the terms must be present for a document to match::
 
     physically AND based AND rendering
-    
+
 To change the parser to use ``OR`` instead, so that any of the terms may be
 present for a document to match, i.e.::
 
     physically OR based OR rendering
-    
+
 ...configure the QueryParser using the ``group`` keyword argument like this::
 
     from whoosh import qparser
-    
+
     parser = qparser.QueryParser(fieldname, schema=myindex.schema,
                                  group=qparser.OrGroup)
 
@@ -100,13 +100,13 @@ assigns them to the default field you specified when you created the object, so
 for example if you created the object with::
 
     parser = QueryParser("content", schema=myschema)
-    
+
 And the user entered the query:
 
 .. code-block:: none
 
     three blind mice
-    
+
 The parser would treat it as:
 
 .. code-block:: none
@@ -124,7 +124,7 @@ takes a *sequence* of field names::
     from whoosh.qparser import MultifieldParser
 
     mparser = MultifieldParser(["title", "content"], schema=myschema)
-    
+
 When this MultifieldParser instance parses ``three blind mice``, it treats it
 as:
 
@@ -139,19 +139,19 @@ Simplifying the query language
 Once you have a parser::
 
     parser = qparser.QueryParser("content", schema=myschema)
-    
+
 you can remove features from it using the
 :meth:`~whoosh.qparser.QueryParser.remove_plugin_class` method.
 
 For example, to remove the ability of the user to specify fields to search::
 
     parser.remove_plugin_class(qparser.FieldsPlugin)
-    
+
 To remove the ability to search for wildcards, which can be harmful to query
 performance::
 
     parser.remove_plugin_class(qparser.WildcardPlugin)
-    
+
 See :doc:`/api/qparser` for information about the plugins included with .
 
 
@@ -174,7 +174,7 @@ keyword arguments to change the token patterns::
     # Use Spanish equivalents instead of AND and OR
     cp = qparser.CompoundsPlugin(And=" Y ", Or=" O ")
     parser.replace_plugin(cp)
-    
+
 The :class:`whoosh.qparser.NotPlugin` implements the ability to logically NOT
 subqueries. You can instantiate a new ``NotPlugin`` object with a different
 token::
@@ -206,12 +206,12 @@ The :class:`whoosh.qparser.GtLtPlugin` lets you specify the same search like
 this::
 
     field:>apple
-    
+
 The plugin lets you use ``>``, ``<``, ``>=``, ``<=``, ``=>``, or ``=<`` after
 a field specifier, and translates the expression into the equivalent range::
 
     date:>='31 march 2001'
-    
+
     date:[31 march 2001 to]
 
 
@@ -227,14 +227,14 @@ group
     The query class to use to join sub-queries when the user doesn't explicitly
     specify a boolean operator, such as ``AND`` or ``OR``. This lets you change
     the default operator from ``AND`` to ``OR``.
-    
+
     This will be the :class:`whoosh.qparser.AndGroup` or
     :class:`whoosh.qparser.OrGroup` class (*not* an instantiated object) unless
     you've written your own custom grouping syntax you want to use.
-    
+
 termclass
     The query class to use to wrap single terms.
-    
+
     This must be a :class:`whoosh.query.Query` subclass (*not* an instantiated
     object) that accepts a fieldname string and term text unicode string in its
     ``__init__`` method. The default is :class:`whoosh.query.Term`.
@@ -272,14 +272,14 @@ Creating custom operators
 * Create a new :class:`whoosh.qparser.syntax.GroupNode` subclass to hold
   nodes affected by your operator. This object is responsible for generating
   a :class:`whoosh.query.Query` object corresponding to the syntax.
-  
+
 * Create a regular expression pattern for the operator's query syntax.
 
 * Create an ``OperatorsPlugin.OpTagger`` object from the above information.
 
 * Create a new ``OperatorsPlugin`` instance configured with your custom
   operator(s).
-  
+
 * Replace the default ``OperatorsPlugin`` in your parser with your new instance.
 
 For example, if you were creating a ``BEFORE`` operator::
@@ -288,13 +288,13 @@ For example, if you were creating a ``BEFORE`` operator::
 
     optype = qparser.InfixOperator
     pattern = " BEFORE "
-    
+
     class BeforeGroup(qparser.GroupNode):
         merging = True
         qclass = query.Ordered
 
 Create an OpTagger for your operator::
-    
+
     btagger = qparser.OperatorPlugin.OpTagger(pattern, BeforeGroup,
                                               qparser.InfixOperator)
 
@@ -315,7 +315,7 @@ new operator, and replace the default operators plugin in your query parser::
 Note that the list of operators you specify with the first argument is IN
 ADDITION TO the default operators (AND, OR, etc.). To turn off one of the
 default operators, you can pass None to the corresponding keyword argument::
-        
+
     cp = qparser.OperatorsPlugin([(optagger, 0)], And=None)
 
 If you want ONLY your list of operators and none of the default operators,

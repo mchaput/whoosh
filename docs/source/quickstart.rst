@@ -26,7 +26,7 @@ A quick introduction
 ...     query = QueryParser("content", ix.schema).parse("first")
 ...     results = searcher.search(query)
 ...     results[0]
-... 
+...
 {"title": u"First document", "path": u"/a"}
 
 
@@ -42,9 +42,9 @@ with the results; this is useful for fields such as the title).
 
 This schema has two fields, "title" and "content"::
 
-	from whoosh.fields import Schema, TEXT
-	
-	schema = Schema(title=TEXT, content=TEXT)
+    from whoosh.fields import Schema, TEXT
+
+    schema = Schema(title=TEXT, content=TEXT)
 
 You only need to do create the schema once, when you create the index. The
 schema is pickled and stored with the index.
@@ -59,24 +59,24 @@ types, and you can easily create your own.
     field as a single unit (that is, it doesn't break it up into individual
     words). This is useful for fields such as a file path, URL, date, category,
     etc.
-    
+
 :class:`whoosh.fields.STORED`
     This field is stored with the document, but not indexed. This field type is
     not indexed and not searchable. This is useful for document information you
     want to display to the user in the search results.
-    
+
 :class:`whoosh.fields.KEYWORD`
     This type is designed for space- or comma-separated keywords. This type is
     indexed and searchable (and optionally stored). To save space, it does not
     support phrase searching.
-    
+
 :class:`whoosh.fields.TEXT`
     This type is for body text. It indexes (and optionally stores) the text and
     stores term positions to allow phrase searching.
 
 :class:`whoosh.fields.NUMERIC`
     This type is for numbers. You can store integers or floating point numbers.
-    
+
 :class:`whoosh.fields.BOOLEAN`
     This type is for boolean (true/false) values.
 
@@ -101,12 +101,12 @@ See :doc:`schema` for more information.
 Once you have the schema, you can create an index using the ``create_in``
 function::
 
-	import os.path
-	from whoosh.index import create_in
-	
-	if not os.path.exists("index"):
+    import os.path
+    from whoosh.index import create_in
+
+    if not os.path.exists("index"):
         os.mkdir("index")
-	ix = create_in("index", schema)
+    ix = create_in("index", schema)
 
 (At a low level, this creates a *Storage* object to contain the index. A
 ``Storage`` object represents that medium in which the index will be stored.
@@ -116,10 +116,10 @@ in a directory.)
 After you've created an index, you can open it using the ``open_dir``
 convenience function::
 
-	from whoosh.index import open_dir
-	
-	ix = open_dir("index")
-	
+    from whoosh.index import open_dir
+
+    ix = open_dir("index")
+
 
 The ``IndexWriter`` object
 ==========================
@@ -154,7 +154,7 @@ sometimes this is really useful) using this trick::
 
 Calling commit() on the ``IndexWriter`` saves the added documents to the index::
 
-	writer.commit()
+    writer.commit()
 
 See :doc:`indexing` for more information.
 
@@ -175,7 +175,7 @@ system is slow to collect them, you can run out of file handles)::
 
     with ix.searcher() as searcher:
         ...
-        
+
 This is of course equivalent to::
 
     try:
@@ -191,7 +191,7 @@ For example, this query would match documents that contain both "apple" and
 "bear" in the "content" field::
 
     # Construct query objects directly
-    
+
     from whoosh.query import *
     myquery = And([Term("content", u"apple"), Term("content", "bear")])
 
@@ -201,11 +201,11 @@ field to search. This is usually the "body text" field. The second optional
 argument is a schema to use to understand how to parse the fields::
 
     # Parse a query string
-    
+
     from whoosh.qparser import QueryParser
     parser = QueryParser("content", ix.schema)
     myquery = parser.parse(querystring)
-    
+
 Once you have a ``Searcher`` and a query object, you can use the ``Searcher``'s
 ``search()`` method to run the query and get a ``Results`` object::
 
@@ -239,7 +239,4 @@ Whoosh includes extra features for dealing with search results, such as
 * Paginating the results (e.g. "Showing results 1-20, page 1 of 4").
 
 See :doc:`searching` for more information.
-
-
-
 

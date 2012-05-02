@@ -32,7 +32,7 @@ analyzer, consider using an unbounded cache::
     stem_ana.cachesize = -1
     # Reset the analyzer to pick up the changed attribute
     stem_ana.clear()
-    
+
     # Use the writer to index documents...
 
 
@@ -48,7 +48,7 @@ have multiple gigabytes of RAM these days. Setting it higher can speed up
 indexing considerably::
 
     from whoosh import index
-    
+
     ix = index.open_dir("indexdir")
     writer = ix.writer(limitmb=256)
 
@@ -66,10 +66,10 @@ number of processors the writer will use for indexing (via the
 ``multiprocessing`` module)::
 
     from whoosh import index
-    
+
     ix = index.open_dir("indexdir")
     writer = ix.writer(procs=4)
-    
+
 Note that when you use multiprocessing, the ``limitmb`` parameter controls the
 amount of memory used by *each process*, so the actual memory used will be
 ``limitmb * procs``::

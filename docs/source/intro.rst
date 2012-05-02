@@ -42,7 +42,7 @@ extensible.
 
 
 .. [1] It would of course be possible to build a turnkey search engine on top of Whoosh,
-	like Nutch and Solr use Lucene.
+       like Nutch and Solr use Lucene.
 
 
 What can Whoosh do for you?

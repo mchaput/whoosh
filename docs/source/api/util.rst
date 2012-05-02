@@ -3,5 +3,5 @@
 ===============
 
 .. automodule:: whoosh.util
-	:members:
+    :members:
 

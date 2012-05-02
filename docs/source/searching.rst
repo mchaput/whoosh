@@ -20,7 +20,7 @@ system is slow to collect them, you can run out of file handles)::
 
     with ix.searcher() as searcher:
         ...
-        
+
 This is of course equivalent to::
 
     try:
@@ -42,11 +42,11 @@ However, the most important method on the Searcher object is
 :class:`~whoosh.searching.Results` object::
 
     from whoosh.qparser import QueryParser
-    
+
     with myindex.searcher() as s:
         qp = QueryParser("content", schema=myindex.schema)
         q = qp.parse(u"hello world")
-        
+
         results = s.search(q)
 
 By default the results contains at most the first 10 matching documents. To get
@@ -62,12 +62,12 @@ Since displaying a page of results at a time is a common pattern, the
 ``search_page`` method lets you conveniently retrieve only the results on a
 given page::
 
-	results = s.search_page(q, 1)
+    results = s.search_page(q, 1)
 
 The default page length is 10 hits. You can use the ``pagelen`` keyword argument
 to set a different page length::
 
-	results = s.search_page(q, 5, pagelen=20)
+    results = s.search_page(q, 5, pagelen=20)
 
 
 Results object
@@ -111,7 +111,7 @@ the number of matching documents without calling ``len()``::
     else:
         low = results.estimated_min_length()
         high = results.estimated_length()
-    
+
         print("Scored", found, "of between", low, "and", "high", "documents")
 
 
@@ -189,7 +189,7 @@ and combine the results::
     # Get the terms searched for
     termset = set()
     userquery.existing_terms(termset)
-    
+
     # Formulate a "best bet" query for the terms the user
     # searched for in the "content" field
     bbq = Or([Term("bestbet", text) for fieldname, text
@@ -197,10 +197,10 @@ and combine the results::
 
     # Find documents matching the searched for terms
     results = s.search(bbq, limit=5)
-    
+
     # Find documents that match the original query
     allresults = s.search(userquery, limit=10)
-    
+
     # Add the user query results on to the end of the "best bet"
     # results. If documents appear in both result sets, push them
     # to the top of the combined results.

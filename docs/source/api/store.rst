@@ -8,7 +8,7 @@ Classes
 =======
 
 .. autoclass:: Storage
-	:members:
+    :members:
 
 
 Exceptions

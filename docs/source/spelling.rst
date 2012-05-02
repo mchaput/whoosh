@@ -77,9 +77,9 @@ strings, or a file object with one word on each line.)
 To create a :class:`whoosh.spelling.Corrector` object from a word list::
 
     from whoosh.spelling import GraphCorrector
-    
+
     corrector = GraphCorrector.from_word_list(word_list)
-    
+
 Creating a corrector directly from a word list can be slow for large
 word lists, so you can save a corrector's graph to a more efficient
 on-disk form like this::
@@ -117,7 +117,7 @@ You can spell-check a user query using the
     # Parse the user query string
     qp = qparser.QueryParser("content", myindex.schema)
     q = qp.parse(qstring)
-    
+
     # Try correcting the query
     with myindex.searcher() as s:
         corrected = s.correct_query(q, qstring)
@@ -146,10 +146,10 @@ corrected query string. For example, use the
 as HTML::
 
     from whoosh import highlight
-    
+
     hf = highlight.HtmlFormatter()
     corrected = s.correct_query(q, qstring, formatter=hf)
-     
+
 See the documentation for
 :meth:`whoosh.searching.Searcher.correct_query` for information on the
 defaults and arguments.

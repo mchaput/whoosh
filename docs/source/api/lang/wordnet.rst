@@ -8,7 +8,7 @@ Thesaurus
 =========
 
 .. autoclass:: Thesaurus
-	:members:
+    :members:
 
 
 Low-level functions

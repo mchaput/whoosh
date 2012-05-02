@@ -51,7 +51,7 @@ combines a tokenizer, lower-case filter, optional stop filter, and stem filter::
 
     from whoosh import fields
     from whoosh.analysis import StemmingAnalyzer
-    
+
     stem_ana = StemmingAnalyzer()
     schema = fields.Schema(title=TEXT(analyzer=stem_ana, stored=True),
                            content=TEXT(analyzer=stem_ana))
@@ -98,7 +98,7 @@ for the given term, the ``Variations`` query acts like an ``Or`` query for the
 variations of the given word in the index. For example, the query::
 
     query.Variations("content", "rendered")
-    
+
 ...might act like this (depending on what words are in the index)::
 
     query.Or([query.Term("content", "render"), query.Term("content", "rendered"),
@@ -109,7 +109,7 @@ To have the query parser use :class:`whoosh.query.Variations` instead of
 keyword argument to the parser initialization method::
 
     from whoosh import qparser, query
-    
+
     qp = qparser.QueryParser("content", termclass=query.Variations)
 
 Variations has pros and cons.
@@ -167,10 +167,10 @@ unless you need to use a charset to tokenize terms::
     from whoosh.analysis import CharsetFilter, StemmingAnalyzer
     from whoosh import fields
     from whoosh.support.charset import accent_map
-    
+
     # For example, to add an accent-folding filter to a stemming analyzer:
     my_analyzer = StemmingAnalyzer | CharsetFilter(accent_map)
-    
+
     # To use this analyzer in your schema:
     my_schema = fields.Schema(content=fields.TEXT(analyzer=my_analyzer))
 

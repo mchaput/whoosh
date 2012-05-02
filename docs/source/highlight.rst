@@ -60,11 +60,11 @@ you can supply the text to highlight with the ``text`` argument::
     results = mysearcher.search(myquery)
     for hit in results:
         print(hit["title"])
-        
+
         # Assume the "path" stored field contains a path to the original file
         with open(hit["path"]) as fileobj:
             filecontents = fileobj.read()
-        
+
         print(hit.highlights("content", text=filecontents))
 
 
@@ -124,7 +124,7 @@ and end of a fragment::
 
     # Allow larger fragments
     results.formatter.maxchars = 300
-    
+
     # Show more context before and after
     results.formatter.surround = 50
 
@@ -180,7 +180,7 @@ deviation of the positions of matched terms in the fragment::
         """Gives higher scores to fragments where the matched terms are close
         together.
         """
-        
+
         # Since lower values are better in this case, we need to negate the
         # value
         return 0 - stddev([t.pos for t in fragment.matched])
@@ -246,7 +246,7 @@ The easiest way to create a custom formatter is to subclass
             # Use the get_text function to get the text corresponding to the
             # token
             tokentext = highlight.get_text(text, token)
-            
+
             # Return the text as you want it to appear in the highlighted
             # string
             return "[%s]" % tokentext
@@ -269,7 +269,7 @@ reusable :class:`whoosh.highlight.Highlighter` object. Keyword arguments let
 you change the ``fragmenter``, ``scorer``, ``order``, and/or ``formatter``::
 
     hi = highlight.Highlighter(fragmenter=my_cf, scorer=sds)
-                               
+
 You can then use the :meth:`whoosh.highlight.Highlighter.highlight_hit` method
 to get highlights for a Hit object::
 
