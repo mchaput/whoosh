@@ -9,7 +9,7 @@ Matchers
 
 .. autoclass:: Matcher
     :members:
-    
+
 .. autoclass:: NullMatcher
 .. autoclass:: ListMatcher
 .. autoclass:: WrappingMatcher

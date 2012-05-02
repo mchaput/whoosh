@@ -9,7 +9,7 @@ Classes
 
 .. autoclass:: IndexReader
     :members:
-    
+
 .. autoclass:: MultiReader
 
 

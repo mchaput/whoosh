@@ -43,7 +43,7 @@ by converting their text to lowercase. The implementation is very simple::
         """Uses lower() to lowercase token text. For example, tokens
         "This","is","a","TEST" become "this","is","a","test".
         """
-    
+
         for t in tokens:
             t.text = t.text.lower()
             yield t
@@ -66,8 +66,8 @@ single package.
 You can implement an analyzer as a custom class or function, or compose
 tokenizers and filters together using the ``|`` character::
 
-	my_analyzer = RegexTokenizer() | LowercaseFilter() | StopFilter()
-	
+    my_analyzer = RegexTokenizer() | LowercaseFilter() | StopFilter()
+
 The first item must be a tokenizer and the rest must be filters (you can't put a
 filter first or a tokenizer after the first item). Note that this only works if at
 least the tokenizer is a subclass of ``whoosh.analysis.Composable``, as all the
@@ -83,7 +83,7 @@ Using analyzers
 When you create a field in a schema, you can specify your analyzer as a keyword
 argument to the field object::
 
-	schema = Schema(content=TEXT(analyzer=StemmingAnalyzer()))
+    schema = Schema(content=TEXT(analyzer=StemmingAnalyzer()))
 
 
 Advanced Analysis
@@ -118,7 +118,7 @@ str    mode             The mode in which the analyzer is being called,     ''
                         query parsing
 bool   positions        Whether term positions are recorded in the token    False
 bool   chars            Whether term start and end character indices are    False
-                        recorded in the token    
+                        recorded in the token
 bool   boosts           Whether per-term boosts are recorded in the token   False
 bool   removestops      Whether stop-words should be removed from the       True
                         token stream

@@ -84,10 +84,10 @@ Whoosh provides some useful predefined field types:
 :class:`whoosh.fields.NUMERIC`
     This field stores int, long, or floating point numbers in a compact,
     sortable format.
-    
+
 :class:`whoosh.fields.DATETIME`
     This field stores datetime objects in a compact, sortable format.
-    
+
 :class:`whoosh.fields.BOOLEAN`
     This simple filed indexes boolean values and allows users to search for
     ``yes``, ``no``, ``true``, ``false``, ``1``, ``0``, ``t`` or ``f``.
@@ -154,7 +154,7 @@ the corresponding method on it, and commits, so if you want to add or remove
 more than one field, it's much more efficient to create the writer yourself::
 
     ix.add_field("fieldname", fields.KEYWORD)
-    
+
 In the ``filedb`` backend, removing a field simply removes that field from the
 _schema_ -- the index will not get smaller, data about that field will remain
 in the index until you optimize. Optimizing will compact the index, removing
@@ -172,7 +172,7 @@ the same name as a deleted field without optimizing the index in between::
     writer.delete_field("path")
     # Don't do this!!!
     writer.add_field("path", fields.KEYWORD)
-    
+
 (A future version of Whoosh may automatically prevent this error.)
 
 
@@ -251,7 +251,7 @@ Attribute     Type             Description
 format       fields.Format   Defines what kind of information a field records
                              about each term, and how the information is stored
                              on disk.
-vector       fields.Format   Optional: if defined, the format in which to store         
+vector       fields.Format   Optional: if defined, the format in which to store
                              per-document forward-index information for this field.
 scorable     bool            If True, the length of (number of terms in)the field in
                              each document is stored in the index. Slightly misnamed,
@@ -262,7 +262,7 @@ stored       bool            If True, the value of this field is stored
                              in the index.
 unique       bool            If True, the value of this field may be used to
                              replace documents with the same value when the user
-                             calls 
+                             calls
                              :meth:`~whoosh.writing.IndexWriter.document_update`
                              on an ``IndexWriter``.
 ============ =============== ======================================================

@@ -5,5 +5,5 @@
 .. automodule:: whoosh.support.bitvector
 
 .. autoclass:: BitVector
-	:members:
+    :members:
 

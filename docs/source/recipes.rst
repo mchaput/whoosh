@@ -42,11 +42,11 @@ characters, it acts as a case-sensitive search::
                    if low != t.text:
                        t.text = low
                        yield t
-    
+
     ana = analysis.RegexTokenizer() | CaseSensitivizer()
     [t.text for t in ana("The new SuperTurbo 5000", mode="index")]
     # ["The", "the", "new", "SuperTurbo", "superturbo", "5000"]
-    
+
 
 Searching
 =========
@@ -84,7 +84,7 @@ Look up documents by a field value
 
     # Single document (unique field value)
     stored_fields = searcher.document(id="bacon")
-    
+
     # Multiple documents
     for stored_fields in searcher.documents(tag="cake"):
         ...
@@ -108,9 +108,9 @@ earlier in the document will score higher::
     def pos_score_fn(searcher, fieldname, text, matcher):
         poses = matcher.value_as("positions")
         return 1.0 / (poses[0] + 1)
-        
+
     pos_weighting = scoring.FunctionWeighting(pos_score_fn)
-    searcher = myindex.searcher(weighting=pos_weighting)    
+    searcher = myindex.searcher(weighting=pos_weighting)
 
 
 Results
@@ -144,7 +144,7 @@ As an alternative, you might display the *estimated* total hits::
     else:
         low = results.estimated_min_length()
         high = results.estimated_length()
-    
+
         print("Scored", found, "of between", low, "and", "high", "documents")
 
 
@@ -158,7 +158,7 @@ Which terms matched in each hit?
     for hit in results:
         # Which terms matched in this hit?
         print("Matched:", hit.matched_terms())
-        
+
         # Which terms from the query didn't match in this hit?
         print("Didn't match:", myquery.all_terms() - hit.matched_terms())
 
@@ -172,7 +172,7 @@ How many documents are in the index?
 
     # Including documents that are deleted but not yet optimized away
     numdocs = searcher.doc_count_all()
-    
+
     # Not including deleted documents
     numdocs = searcher.doc_count()
 
@@ -197,7 +197,7 @@ How many times does term X occur in the index?
 
     # Number of times content:wobble appears in all documents
     freq = searcher.frequency("content", "wobble")
-    
+
     # Number of documents containing content:wobble
     docfreq = searcher.doc_frequency("content", "wobble")
 
@@ -212,7 +212,7 @@ Is term X in document Y?
     postings = searcher.postings("content", "wobble")
     postings.skip_to(500)
     return postings.id() == 500
-    
+
     # ...or the slower but easier way
     docset = set(searcher.postings("content", "wobble").all_ids())
     return 500 in docset
@@ -221,9 +221,8 @@ Is term X in document Y?
     vector = searcher.vector(500, "content")
     vector.skip_to("wobble")
     return vector.id() == "wobble"
-    
+
     # ...or the slower but easier way
     wordset = set(searcher.vector(500, "content").all_ids())
     return "wobble" in wordset
-    
-    
+

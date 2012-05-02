@@ -13,7 +13,7 @@ Searching classes
 
 .. autoclass:: Collector
     :members:
-    
+
 
 Results classes
 ===============
@@ -25,7 +25,5 @@ Results classes
     :members:
 
 .. autoclass:: ResultsPage
-	:members:
-
-
+    :members:
 

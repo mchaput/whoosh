@@ -141,9 +141,9 @@ Improvements
   are much more flexible than the previous field-based system.
 
   For example, to sort by first name and then score::
-        
+
       from whoosh import sorting
-       
+
       mf = sorting.MultiFacet([sorting.FieldFacet("firstname"),
                                sorting.ScoreFacet()])
       results = searcher.search(myquery, sortedby=mf)
@@ -160,9 +160,9 @@ Improvements
 * Completely revamped spell-checking to make it much faster, easier, and more
   flexible. You can enable generation of the graph files use by spell checking
   using the ``spelling=True`` argument to a field type::
-  
+
       schema = fields.Schema(text=fields.TEXT(spelling=True))
-  
+
   (Spelling suggestion methods will work on fields without ``spelling=True``
   but will slower.) The spelling graph will be updated automatically as new
   documents are added -- it is no longer necessary to maintain a separate
@@ -170,32 +170,32 @@ Improvements
 
   You can get suggestions for individual words using
   :meth:`whoosh.searching.Searcher.suggest`::
-  
+
       suglist = searcher.suggest("content", "werd", limit=3)
 
   Whoosh now includes convenience methods to spell-check and correct user
   queries, with optional highlighting of corrections using the
   ``whoosh.highlight`` module::
-  
+
       from whoosh import highlight, qparser
-  
+
       # User query string
       qstring = request.get("q")
-      
+
       # Parse into query object
       parser = qparser.QueryParser("content", myindex.schema)
       qobject = parser.parse(qstring)
-      
+
       results = searcher.search(qobject)
-      
+
       if not results:
         correction = searcher.correct_query(gobject, gstring)
         # correction.query = corrected query object
         # correction.string = corrected query string
-        
+
         # Format the corrected query string with HTML highlighting
         cstring = correction.format_string(highlight.HtmlFormatter())
-  
+
   Spelling suggestions can come from field contents and/or lists of words.
   For stemmed fields the spelling suggestions automatically use the unstemmed
   forms of the words.

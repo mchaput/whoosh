@@ -8,8 +8,8 @@ Base class
 ==========
 
 .. autoclass:: Format
-	:members:
-	
+    :members:
+
 
 Formats
 =======

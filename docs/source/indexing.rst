@@ -23,24 +23,24 @@ To open an existing index in a directory, use ``index.open_dir``::
 
 These are convenience methods for::
 
-	from whoosh.filedb.filestore import FileStorage
-	storage = FileStorage("indexdir")
-	
-	# Create an index
-	ix = storage.create_index(schema)
-	
-	# Open an existing index
-	storage.open_index()
+    from whoosh.filedb.filestore import FileStorage
+    storage = FileStorage("indexdir")
+
+    # Create an index
+    ix = storage.create_index(schema)
+
+    # Open an existing index
+    storage.open_index()
 
 The schema you created the index with is pickled and stored with the index.
 
 You can keep multiple indexes in the same directory using the indexname keyword
 argument::
 
-	# Using the convenience functions
+    # Using the convenience functions
     ix = index.create_in("indexdir", schema=schema, indexname="usages")
     ix = index.open_dir("indexdir", indexname="usages")
-    
+
     # Using the Storage object
     ix = storage.create_index(schema, indexname="usages")
     ix = storage.open_index(indexname="usages")
@@ -76,7 +76,8 @@ Once you've created an Index object, you can add documents to the index with an
 Creating a writer locks the index for writing, so only one thread/process at
 a time can have a writer open.
 
-.. NOTE::
+.. note::
+
     Because opening a writer locks the index for writing, in a multi-threaded
     or multi-process environment your code needs to be aware than opening a
     writer may raise an exception (``whoosh.store.LockError``) if a writer is
@@ -85,7 +86,8 @@ a time can have a writer open.
     :class:`whoosh.writing.BufferedWriter`) of ways to work around the write
     lock.
 
-.. NOTE::
+.. note::
+
     While the writer is open and during the commit, the index is still
     available for reading. Existing readers are unaffected and new readers can
     open the current index normally. Once the commit is finished, existing
@@ -391,18 +393,18 @@ The incremental_index function:
 
   * If any of the files no longer exist, delete the corresponding document from
     the index.
-  
+
   * If the file still exists, but has been modified, add it to the list of paths
     to be re-indexed.
-  
+
   * If the file exists, whether it's been modified or not, add it to the list of
     all indexed paths.
-  
+
 * Loops through all the paths of the files on disk.
 
   * If a path is not in the set of all indexed paths, the file is new and we
     need to index it.
-  
+
   * If a path is in the set of paths to re-index, we need to index it.
-  
+
   * Otherwise, we can skip indexing the file.

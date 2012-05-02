@@ -21,7 +21,7 @@ Utility writers
 .. autoclass:: AsyncWriter
     :members:
 
-    
+
 Posting writer
 ==============
 

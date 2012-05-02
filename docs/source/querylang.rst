@@ -51,7 +51,7 @@ Find documents containing ``render``, *and* also either ``shading`` *or*
 Find documents containing ``render`` but *not* modeling::
 
     render NOT modeling
-    
+
 Find documents containing ``alpha`` but not either ``beta`` or ``gamma``::
 
     alpha NOT (beta OR gamma)
@@ -60,7 +60,7 @@ Note that when no boolean operator is specified between terms, the parser will
 insert one, by default AND. So this query::
 
     render shading modeling
-    
+
 is equivalent (by default) to::
 
     render AND shading AND modeling
@@ -80,23 +80,23 @@ Fields
 Find the term ``ivan`` in the ``name`` field::
 
     name:ivan
-    
+
 The ``field:`` prefix only sets the field for the term it directly precedes, so
 the query::
-    
+
     title:open sesame
-        
+
 Will search for ``open`` in the ``title`` field and ``sesame`` in the *default*
 field.
 
 To apply a field prefix to multiple terms, group them with parentheses::
 
     title:(open sesame)
-    
+
 This is the same as::
 
     title:open title:sesame
-    
+
 Of course you can specify a field for phrases too::
 
     title:"open sesame"
@@ -109,16 +109,16 @@ Use "globs" (wildcard expressions using ``?`` to represent a single character
 and ``*`` to represent any number of characters) to match terms::
 
     te?t test* *b?g*``
-    
+
 Note that a wildcard starting with ``?`` or ``*`` is very slow. Note also that
 these wildcards only match *individual terms*. For example, the query::
 
     my*life
-    
+
 will **not** match an indexed phrase like::
 
     my so called life
-    
+
 because those are four separate terms.
 
 
@@ -142,13 +142,13 @@ between the start and end term, *as well as* the start and end terms
 themselves). You can specify that one or both ends of the range are *exclusive*
 by using the ``{`` and/or ``}`` characters::
 
-	[0000 TO 0025}
-	{prefix TO suffix}
+    [0000 TO 0025}
+    {prefix TO suffix}
 
 You can also specify *open-ended* ranges by leaving out the start or end term::
 
-	[0025 TO]
-	{TO suffix}
+    [0025 TO]
+    {TO suffix}
 
 
 Boosting query elements
@@ -160,7 +160,7 @@ the score of a matched document than others. For example, to specify that
 important::
 
     ninja^2 cowboy bear^0.5
-    
+
 You can apply a boost to several terms using grouping parentheses::
 
     (open sesame)^2.5 roc

@@ -47,10 +47,10 @@ Usage
   Use the :meth:`~whoosh.searching.Results.key_terms` method of the
   :class:`whoosh.searching.Results` object to extract keywords from the top N
   documents of the result set.
-    
+
   For example, to extract *five* key terms from the ``content`` field of the top
   *ten* documents of a results object::
-    
+
         keywords = [keyword for keyword, score
                     in results.key_terms("content", docs=10, numterms=5)
 
@@ -61,15 +61,15 @@ Usage
   :meth:`~whoosh.searching.Searcher.document_number` methods of the
   :class:`whoosh.searching.Searcher` object to get the document numbers for the
   document(s) you want to extract keywords from.
-    
+
   Use the :meth:`~whoosh.searching.Searcher.key_terms` method of a
   :class:`whoosh.searching.Searcher` to extract the keywords, given the list of
   document numbers.
-    
+
   For example, let's say you have an index of emails. To extract key terms from
   the ``content`` field of emails whose ``emailto`` field contains
   ``matt@whoosh.ca``::
-    
+
         searcher = email_index.searcher()
         docnums = searcher.document_numbers(emailto=u"matt@whoosh.ca")
         keywords = [keyword for keyword, score
@@ -79,7 +79,7 @@ Usage
 
   Use the :meth:`~whoosh.searching.Searcher.key_terms_from_text` method of a
   :class:`whoosh.searching.Searcher` to extract the keywords, given the text::
-  
+
         searcher = email_index.searcher()
         keywords = [keyword for keyword, score
                     in searcher.key_terms_from_text("body", mytext)]
@@ -91,5 +91,4 @@ Expansion models
 The ``ExpansionModel`` subclasses in the :mod:`whoosh.classify` module implement
 different weighting functions for key words. These models are translated into
 Python from original Java implementations in Terrier.
-    
 

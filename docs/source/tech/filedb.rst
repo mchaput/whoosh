@@ -10,10 +10,10 @@ Files created
 <revision_number>.toc
     The "master" file containing information about the index and its segments.
 
-The index directory will contain a set of files for each segment. A segment is like a mini-index -- when you add documents to the index, whoosh creates a new segment and then searches the old segment(s) and the new segment to avoid having to do a big merge every time you add a document. When you get enough small segments whoosh will merge them into larger segments or a single segment. 
+The index directory will contain a set of files for each segment. A segment is like a mini-index -- when you add documents to the index, whoosh creates a new segment and then searches the old segment(s) and the new segment to avoid having to do a big merge every time you add a document. When you get enough small segments whoosh will merge them into larger segments or a single segment.
 
 <segment_number>.dci
-    Contains per-document information (e.g. field lengths). This will grow linearly with the number of documents. 
+    Contains per-document information (e.g. field lengths). This will grow linearly with the number of documents.
 
 <segment_number>.dcz
     Contains the stored fields for each document.

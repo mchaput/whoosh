@@ -52,9 +52,9 @@ if you want to be able to sort by the original value of a TEXT field::
     for title in titles:
         w.add_document(title=title, sort_title=title)
     w.commit()
-    
+
     # ...
-    
+
     results = my_searcher.search(my_query, sortedby="sort_title")
 
 Using a separate field for sorting allows you to "massage" the sort values,
@@ -63,9 +63,9 @@ convert the sort value to lowercase (to prevent uppercase letters from sorting
 before lowercase letters) and remove spaces to prevent them from affecting the
 sort order::
 
-   for title in titles:
-      sort_title = title.lower().replace(" ", "")
-      w.add_document(title=title, sort_title=sort_title)
+    for title in titles:
+        sort_title = title.lower().replace(" ", "")
+        w.add_document(title=title, sort_title=sort_title)
 
 Alternatively, you can store the field contents and use a
 :class:`whoosh.sorting.StoredFieldFacet` to sort by the stored value. This
@@ -73,18 +73,18 @@ means you don't need to use a separate field, but it is usually slower than
 sorting by an indexed field, and doesn't give you the chance to massage the
 sort values::
 
-   schema = fiels.Schema(title=fields.TEXT(stored=True))
-   
-   # ...
-   
-   for title in titles:
-      w.add_document(title=title)
-  
-   # ...
-   
-   sff = sorting.StoredFieldFacet("title")
-   results = my_searcher.search(my_query, sortedby=sff)
-   
+    schema = fiels.Schema(title=fields.TEXT(stored=True))
+
+    # ...
+
+    for title in titles:
+        w.add_document(title=title)
+
+    # ...
+
+    sff = sorting.StoredFieldFacet("title")
+    results = my_searcher.search(my_query, sortedby=sff)
+
 
 The sortedby keyword argument
 -----------------------------
@@ -575,18 +575,5 @@ Expert: writing your own facet
 ==============================
 
 TBD.
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

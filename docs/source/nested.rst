@@ -87,10 +87,10 @@ in the hierarchy::
     # First, we need a query that matches all the documents in the "parent"
     # level we want of the hierarchy
     all_parents = query.Term("kind", "class")
-    
+
     # Then, we need a query that matches the children we want to find
     wanted_kids = query.Term("name", "close")
-    
+
     # Now we can make a query that will match documents where "name" is
     # "close", but the query will return the "parent" documents of the matching
     # children
@@ -131,10 +131,10 @@ example, to search for an album title and return the songs in the album::
     # Query that matches all documents in the "parent" level we want to match
     # at
     all_parents = query.Term("kind", "album")
-    
+
     # Parent documents we want to match
     wanted_parents = query.Term("album_title", "heaven")
-    
+
     # Now we can make a query that will match parent documents where "album_title"
     # contains "heaven", but the query will return the "child" documents of the
     # matching parents
@@ -189,18 +189,18 @@ to parents instead of nesting::
         w.add_document(kind="method", m_name="add document", parent="Index")
         w.add_document(kind="method", m_name="add reader", parent="Index")
         w.add_document(kind="method", m_name="close", parent="Index")
-        
+
         w.add_document(kind="class", c_name="Accumulator", docstring="...")
         w.add_document(kind="method", m_name="add", parent="Accumulator")
         w.add_document(kind="method", m_name="get result", parent="Accumulator")
-        
+
         w.add_document(kind="class", c_name="Calculator", docstring="...")
         w.add_document(kind="method", m_name="add", parent="Calculator")
         w.add_document(kind="method", m_name="add all", parent="Calculator")
         w.add_document(kind="method", m_name="add some", parent="Calculator")
         w.add_document(kind="method", m_name="multiply", parent="Calculator")
         w.add_document(kind="method", m_name="close", parent="Calculator")
-        
+
         w.add_document(kind="class", c_name="Deleter", docstring="...")
         w.add_document(kind="method", m_name="add", parent="Deleter")
         w.add_document(kind="method", m_name="delete", parent="Deleter")
@@ -209,7 +209,7 @@ to parents instead of nesting::
     with ix.searcher() as s:
         # Tip: Searcher.document() and Searcher.documents() let you look up
         # documents by field values more easily than using Searcher.search()
-    
+
         # Children to parents:
         # Print the docstrings of classes on which "close" methods occur
         for child_doc in s.documents(m_name="close"):
@@ -218,7 +218,7 @@ to parents instead of nesting::
             parent_doc = s.document(c_name=child_doc["parent"])
             # Print the parent document's stored docstring field
             print(parent_doc["docstring"])
-        
+
         # Parents to children:
         # Find classes with "big" in the docstring and print their methods
         q = query.Term("kind", "class") & query.Term("docstring", "big")
