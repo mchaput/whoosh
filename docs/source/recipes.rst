@@ -110,7 +110,8 @@ earlier in the document will score higher::
         return 1.0 / (poses[0] + 1)
 
     pos_weighting = scoring.FunctionWeighting(pos_score_fn)
-    searcher = myindex.searcher(weighting=pos_weighting)
+    with myindex.searcher(weighting=pos_weighting) as s:
+        ...
 
 
 Results

@@ -729,6 +729,7 @@ class Searcher(object):
         <query.And ...>
         >>> correction.string
         'mary "little lamb"'
+        >>> mysearcher.close()
 
         You can use the ``Correction`` object's ``format_string`` method to
         format the corrected query string using a

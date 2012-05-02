@@ -43,10 +43,10 @@ However, the most important method on the Searcher object is
 
     from whoosh.qparser import QueryParser
 
-    with myindex.searcher() as s:
-        qp = QueryParser("content", schema=myindex.schema)
-        q = qp.parse(u"hello world")
+    qp = QueryParser("content", schema=myindex.schema)
+    q = qp.parse(u"hello world")
 
+    with myindex.searcher() as s:
         results = s.search(q)
 
 By default the results contains at most the first 10 matching documents. To get
@@ -128,7 +128,8 @@ algorithms. The default is :class:`~whoosh.scoring.BM25F`.
 You can set the scoring object to use when you create the searcher using the
 ``weighting`` keyword argument::
 
-    s = myindex.searcher(weighting=whoosh.scoring.Cosine())
+    with myindex.searcher(weighting=whoosh.scoring.Cosine()) as s:
+        ...
 
 A scoring object is an object with a :meth:`~whoosh.scoring.Weighting.score`
 method that takes information about the term to score and returns a score as a

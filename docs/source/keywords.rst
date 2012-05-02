@@ -70,19 +70,19 @@ Usage
   the ``content`` field of emails whose ``emailto`` field contains
   ``matt@whoosh.ca``::
 
-        searcher = email_index.searcher()
-        docnums = searcher.document_numbers(emailto=u"matt@whoosh.ca")
-        keywords = [keyword for keyword, score
-                    in searcher.key_terms(docnums, "body")]
+        with email_index.searcher() as s:
+            docnums = s.document_numbers(emailto=u"matt@whoosh.ca")
+            keywords = [keyword for keyword, score
+                        in s.key_terms(docnums, "body")]
 
 * Extract keywords from arbitrary text not in the index.
 
   Use the :meth:`~whoosh.searching.Searcher.key_terms_from_text` method of a
   :class:`whoosh.searching.Searcher` to extract the keywords, given the text::
 
-        searcher = email_index.searcher()
-        keywords = [keyword for keyword, score
-                    in searcher.key_terms_from_text("body", mytext)]
+        with email_index.searcher() as s:
+            keywords = [keyword for keyword, score
+                        in s.key_terms_from_text("body", mytext)]
 
 
 Expansion models

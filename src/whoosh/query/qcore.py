@@ -510,8 +510,8 @@ class Query(object):
     def docs(self, searcher):
         """Returns an iterator of docnums matching this query.
 
-        >>> searcher = my_index.searcher()
-        >>> list(my_query.docs(searcher))
+        >>> with my_index.searcher() as searcher:
+        ...     list(my_query.docs(searcher))
         [10, 34, 78, 103]
 
         :param searcher: A :class:`whoosh.searching.Searcher` object.

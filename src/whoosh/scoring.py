@@ -491,8 +491,9 @@ class FunctionWeighting(WeightingModel):
             return 1.0 / (poses[0] + 1)
         
         pos_weighting = scoring.FunctionWeighting(pos_score_fn)
-        searcher = myindex.searcher(weighting=pos_weighting)
-        
+        with myindex.searcher(weighting=pos_weighting) as s:
+            results = s.search(q)
+
     Note that the searcher passed to the function may be a per-segment searcher
     for performance reasons. If you want to get global statistics inside the
     function, you should use ``searcher.get_parent()`` to get the top-level

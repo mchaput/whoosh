@@ -220,9 +220,10 @@ and associate it with the ID field type::
     # ...
     w.commit()
 
-    s = ix.searcher()
-    p = qparser.QueryParser("path", schema=schema)
-    s.search(p.parse(u"test_id:alfa"))
+    qp = qparser.QueryParser("path", schema=schema)
+    q = qp.parse(u"test_id:alfa")
+    with ix.searcher() as s:
+        results = s.search(q)
 
 
 Advanced schema setup
