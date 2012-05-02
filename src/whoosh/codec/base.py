@@ -25,6 +25,9 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+This module contains base classes/interfaces for "codec" objects.
+"""
 
 import random
 from array import array
