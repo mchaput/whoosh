@@ -22,12 +22,6 @@ Utility writers
     :members:
 
 
-Posting writer
-==============
-
-.. autoclass:: PostingWriter
-
-
 Exceptions
 ==========
 

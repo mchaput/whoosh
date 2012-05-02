@@ -37,7 +37,7 @@ class NestedParent(WrappingQuery):
     the :meth:`~whoosh.writing.IndexWriter.group` and/or
     :meth:`~whoosh.writing.IndexWriter.start_group` methods of a
     :class:`whoosh.writing.IndexWriter` to indicate that hierarchically related
-    documents should be kept together:
+    documents should be kept together::
 
         schema = fields.Schema(type=fields.ID, text=fields.TEXT(stored=True))
 
@@ -56,7 +56,6 @@ class NestedParent(WrappingQuery):
             with w.group():
                 w.add_document(type="chap", text="Chapter 3")
                 w.add_document(type="p", text="Fine day")
-
 
     The ``NestedParent`` query wraps two sub-queries: the "parent query"
     matches a class of "parent documents". The "sub query" matches nested

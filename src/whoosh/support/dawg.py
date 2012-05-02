@@ -465,7 +465,14 @@ class IntersectionNode(ComboNode):
 # Cursor
 
 class BaseCursor(object):
-    """Base class for cursor objects.
+    """Base class for a cursor-type object for navigating an FST/word graph,
+    represented by a :class:`GraphReader` object.
+    
+    >>> cur = GraphReader(dawgfile).cursor()
+    >>> for key in cur.follow():
+    ...   print(repr(key))
+    
+    The cursor "rests" on arcs in the FSA/FST graph, rather than nodes.
     """
 
     def is_active(self):
@@ -655,16 +662,6 @@ class BaseCursor(object):
 
 
 class Cursor(BaseCursor):
-    """"A cursor-type object for navigating an FST/word graph, represented by a
-    :class:`GraphReader` object.
-    
-    >>> cur = GraphReader(dawgfile).cursor()
-    >>> for key in cur.follow():
-    ...   print(repr(key))
-    
-    The cursor "rests" on arcs in the FSA/FST graph, rather than nodes.
-    """
-
     def __init__(self, graph, root=None, stack=None):
         self.graph = graph
         self.vtype = graph.vtype

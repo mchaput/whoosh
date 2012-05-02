@@ -4,6 +4,17 @@
 
 .. automodule:: whoosh.support.bitvector
 
-.. autoclass:: BitVector
+
+Base class
+==========
+
+.. autoclass:: DocIdSet
     :members:
+
+
+Implementation classes
+======================
+
+.. autoclass:: BitSet
+.. autoclass:: SortedIntSet
 

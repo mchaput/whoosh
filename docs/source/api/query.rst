@@ -39,7 +39,6 @@ Query classes
 .. autoclass:: TermRange
 .. autoclass:: NumericRange
 .. autoclass:: DateRange
-.. autoclass:: Nested
 .. autoclass:: Every
 .. autoclass:: NullQuery
 

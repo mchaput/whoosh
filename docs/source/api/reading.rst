@@ -12,6 +12,8 @@ Classes
 
 .. autoclass:: MultiReader
 
+.. autoclass:: TermInfo
+   :members:
 
 Exceptions
 ==========
