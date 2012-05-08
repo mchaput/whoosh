@@ -587,8 +587,10 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
             gzipped = True
 
         f = storage.open_file(filename, gzip=gzipped)
-        cache = self.fcclass.from_file(f)
-        f.close()
+        try:
+            cache = self.fcclass.from_file(f)
+        finally:
+            f.close()
         return cache
 
     def is_loaded(self, key):

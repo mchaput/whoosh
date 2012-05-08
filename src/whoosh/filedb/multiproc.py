@@ -137,13 +137,12 @@ class SubWriterTask(Process):
 
         writer = self.writer
         load = pickle.load
-        f = open(filename, "rb")
-        for _ in xrange(doc_count):
-            # Load the next pickled tuple from the file
-            code, args = load(f)
-            assert code == 0
-            writer.add_document(**args)
-        f.close()
+        with open(filename, "rb") as f:
+            for _ in xrange(doc_count):
+                # Load the next pickled tuple from the file
+                code, args = load(f)
+                assert code == 0
+                writer.add_document(**args)
         # Remove the job file
         os.remove(filename)
 
