@@ -34,7 +34,8 @@ from array import array
 from struct import Struct, pack
 from bisect import bisect_right
 
-from whoosh.compat import loads, dumps, b, bytes_type, string_type, xrange
+from whoosh.compat import (loads, dumps, b, bytes_type, string_type, xrange,
+                           array_frombytes, array_tobytes)
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.reading import TermInfo
@@ -780,7 +781,7 @@ def minimize_ids(arry, stringids, compression=0):
             arry = array(typecode, iter(arry))
         if not IS_LITTLE:
             arry.byteswap()
-        string = arry.tostring()
+        string = array_tobytes(arry)
     if compression:
         string = compress(string, compression)
     return (typecode, string)
@@ -793,7 +794,7 @@ def deminimize_ids(typecode, count, string, compression=0):
         return loads(string)
     else:
         arry = array(typecode)
-        arry.fromstring(string)
+        array_frombytes(arry, string)
         if not IS_LITTLE:
             arry.byteswap()
         return arry
@@ -805,7 +806,7 @@ def minimize_weights(weights, compression=0):
     else:
         if not IS_LITTLE:
             weights.byteswap()
-        string = weights.tostring()
+        string = array_tobytes(weights)
     if string and compression:
         string = compress(string, compression)
     return string
@@ -817,7 +818,7 @@ def deminimize_weights(count, string, compression=0):
     if compression:
         string = decompress(string)
     arry = array("f")
-    arry.fromstring(string)
+    array_frombytes(arry, string)
     if not IS_LITTLE:
         arry.byteswap()
     return arry

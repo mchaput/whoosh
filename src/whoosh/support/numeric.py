@@ -28,7 +28,7 @@
 import struct
 from array import array
 
-from whoosh.compat import long_type, PY3
+from whoosh.compat import long_type, PY3, array_tobytes
 from whoosh.support.base85 import to_base85, from_base85
 
 _istruct = struct.Struct(">i")
@@ -260,7 +260,7 @@ def to_7bit(x, islong):
         buffer[nchars - 1] = chr(x & 0x7f)
         x >>= 7
         nchars -= 1
-    return buffer.tostring()
+    return array_tobytes(buffer)
 
 
 def from_7bit(text):
