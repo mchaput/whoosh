@@ -44,7 +44,7 @@ from array import array
 from hashlib import sha1  #@UnresolvedImport
 
 from whoosh.compat import (b, u, BytesIO, xrange, iteritems, iterkeys,
-                           bytes_type, text_type, izip)
+                           bytes_type, text_type, izip, array_tobytes)
 from whoosh.filedb.structfile import StructFile
 from whoosh.system import (_INT_SIZE, pack_byte, pack_int, pack_uint,
                            pack_long, emptybytes)
@@ -305,7 +305,7 @@ class ArrayValues(SequenceValues):
 
     @staticmethod
     def to_bytes(v):
-        return v.tostring()
+        return array_tobytes(v)
 
 
 class IntListValues(SequenceValues):

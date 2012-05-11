@@ -29,7 +29,7 @@
 from array import array
 from struct import Struct
 
-from whoosh.compat import load, xrange
+from whoosh.compat import load, xrange, array_frombytes
 from whoosh.codec import base
 from whoosh.codec.base import (deminimize_ids, deminimize_weights,
                                deminimize_values)
@@ -155,7 +155,7 @@ class Block1(base.BlockBase):
             newoffset = postfile.tell()
         elif self.idslen:
             ids = array("I")
-            ids.fromstring(decompress(postfile.read(self.idslen)))
+            array_frombytes(ids, decompress(postfile.read(self.idslen)))
             if IS_LITTLE:
                 ids.byteswap()
             newoffset = offset + self.idslen
@@ -179,7 +179,7 @@ class Block1(base.BlockBase):
             newoffset = offset
         elif weightslen:
             weights = array("f")
-            weights.fromstring(decompress(postfile.read(weightslen)))
+            array_frombytes(weights, decompress(postfile.read(weightslen)))
             if IS_LITTLE:
                 weights.byteswap()
             newoffset = offset + weightslen
@@ -209,7 +209,7 @@ class Block1(base.BlockBase):
             if postingsize < 0:
                 # Pull the array of value lengths off the front of the string
                 lengths = array("i")
-                lengths.fromstring(values_string[:_INT_SIZE * postcount])
+                array_frombytes(lengths, values_string[:_INT_SIZE * postcount])
                 values_string = values_string[_INT_SIZE * postcount:]
 
             # Chop up the block string into individual valuestrings

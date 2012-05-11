@@ -1,11 +1,11 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 
 import random
 from array import array
 
-from whoosh.compat import b, u, xrange
+from whoosh.compat import b, u, xrange, array_tobytes
 from whoosh.filedb.filestore import RamStorage
 from whoosh.support import dawg
 from whoosh.support.testing import TempStorage
@@ -226,7 +226,7 @@ def test_random():
     def randstring():
         length = random.randint(1, 10)
         a = array("B", (random.randint(0, 255) for _ in xrange(length)))
-        return a.tostring()
+        return array_tobytes(a)
     keys = sorted(randstring() for _ in xrange(1000))
 
     with TempStorage() as st:

@@ -6,6 +6,7 @@ from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, formats
 from whoosh.compat import u, b, xrange, iteritems
+from whoosh.compat import array_tobytes
 from whoosh.codec.base import FileTermInfo
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
@@ -63,7 +64,7 @@ def test_random_termkeys():
 
     def random_token():
         a = array("H", (random.randint(0, 0xd7ff) for _ in xrange(1, 20)))
-        return a.tostring().decode("utf-16")
+        return array_tobytes(a).decode("utf-16")
 
     domain = sorted(set([(random_fieldname(), random_token())
                          for _ in xrange(1000)]))
