@@ -195,9 +195,9 @@ class MpWriter(SegmentWriter):
         dump = pickle.dump
         length = len(docbuffer)
         fd, filename = tempfile.mkstemp(".doclist")
-        f = os.fdopen(fd, "wb")
-        for item in docbuffer:
-            dump(item, f, -1)
+        with os.fdopen(fd, "wb") as f:
+            for item in docbuffer:
+                dump(item, f, -1)
 
         if len(self.tasks) < self.procs:
             self._new_task()
