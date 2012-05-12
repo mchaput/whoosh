@@ -51,8 +51,8 @@ See :doc:`/highlight` for more information.
 from __future__ import division
 from collections import deque
 from heapq import nlargest
-from cgi import escape as htmlescape
 
+from whoosh.compat import htmlescape
 from whoosh.analysis import Token
 
 
@@ -674,7 +674,7 @@ class HtmlFormatter(Formatter):
         self.htmlclass = " ".join((self.classname, self.termclass))
 
     def _text(self, text):
-        return htmlescape(text)
+        return htmlescape(text, quote=False)
 
     def format_token(self, text, token, replace=False):
         seen = self.seen

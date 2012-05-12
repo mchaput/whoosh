@@ -3,6 +3,16 @@ import sys
 
 # Run time aliasing of Python2/3 differences
 
+def htmlescape(s, quote=True):
+    # this is html.escape reimplemented with cgi.escape,
+    # so it works for python 2.x, 3.0 and 3.1
+    import cgi
+    s = cgi.escape(s, quote)
+    if quote:
+        # python 3.2 also replaces the single quotes:
+        s = s.replace("'", "&#x27;")
+    return s
+
 if sys.version_info[0] < 3:
     PY3 = False
 
@@ -91,6 +101,12 @@ else:
             return mv[offset:offset + length]
         else:
             return mv
+
+    try:
+        # for python >= 3.2, avoid DeprecationWarning for cgi.escape
+        from html import escape as htmlescape
+    except ImportError:
+        pass
 
 
 # Implementations missing from older versions of Python
