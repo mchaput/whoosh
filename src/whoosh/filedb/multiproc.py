@@ -319,27 +319,32 @@ class MpWriter(SegmentWriter):
                 vreader = codec.vector_reader(storage, segment)
             # Stored field reader for the sub-segment
             sfreader = codec.stored_fields_reader(storage, segment)
-            # Iterating on the stored field reader yields a dictionary of
-            # stored fields for *every* document in the segment (even if the
-            # document has no stored fields it should yield {})
-            for i, fs in enumerate(sfreader):
-                # Add the base doc count to the sub-segment doc num
-                pdw.start_doc(basedoc + i)
-                # Call add_field to store the field values and lengths
-                for fieldname in fieldnames:
-                    value = fs.get(fieldname)
-                    length = lenreader.doc_field_length(i, fieldname)
-                    pdw.add_field(fieldname, schema[fieldname], value, length)
-                # Copy over the vectors. TODO: would be much faster to bulk-
-                # copy the postings
+            try:
+                # Iterating on the stored field reader yields a dictionary of
+                # stored fields for *every* document in the segment (even if the
+                # document has no stored fields it should yield {})
+                for i, fs in enumerate(sfreader):
+                    # Add the base doc count to the sub-segment doc num
+                    pdw.start_doc(basedoc + i)
+                    # Call add_field to store the field values and lengths
+                    for fieldname in fieldnames:
+                        value = fs.get(fieldname)
+                        length = lenreader.doc_field_length(i, fieldname)
+                        pdw.add_field(fieldname, schema[fieldname], value, length)
+                    # Copy over the vectors. TODO: would be much faster to bulk-
+                    # copy the postings
+                    if vreader:
+                        for fieldname in vnames:
+                            if (i, fieldname) in vreader:
+                                field = schema[fieldname]
+                                vformat = field.vector
+                                vmatcher = vreader.matcher(i, fieldname, vformat)
+                                pdw.add_vector_matcher(fieldname, field, vmatcher)
+                    pdw.finish_doc()
+            finally:
+                sfreader.close()
                 if vreader:
-                    for fieldname in vnames:
-                        if (i, fieldname) in vreader:
-                            field = schema[fieldname]
-                            vformat = field.vector
-                            vmatcher = vreader.matcher(i, fieldname, vformat)
-                            pdw.add_vector_matcher(fieldname, field, vmatcher)
-                pdw.finish_doc()
+                    vreader.close()
             basedoc += segment.doccount
 
         # If information was added to this writer the conventional (e.g.
@@ -358,8 +363,11 @@ class MpWriter(SegmentWriter):
         # Create a MultiLengths object combining the length files from the
         # subtask segments
         mlens = base.MultiLengths(lenreaders)
-        # Merge the iterators into the field writer
-        self.fieldwriter.add_postings(schema, mlens, imerge(sources))
+        try:
+            # Merge the iterators into the field writer
+            self.fieldwriter.add_postings(schema, mlens, imerge(sources))
+        finally:
+            mlens.close()
         self.docnum = basedoc
         self._added = True
 
