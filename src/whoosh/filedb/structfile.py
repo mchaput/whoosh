@@ -33,7 +33,7 @@ from gzip import GzipFile
 
 from whoosh.compat import dump as dump_pickle
 from whoosh.compat import load as load_pickle
-from whoosh.compat import PY3, integer_types, b
+from whoosh.compat import array_frombytes, array_tobytes
 from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_byte, pack_sbyte, pack_ushort, pack_int,
                            pack_uint, pack_long, pack_float, unpack_byte,
@@ -247,7 +247,7 @@ class StructFile(object):
         if self.is_real:
             arry.tofile(self.file)
         else:
-            self.file.write(arry.tostring())
+            self.file.write(array_tobytes(arry))
 
     def read_sbyte(self):
         return unpack_sbyte(self.file.read(1))[0]
@@ -272,7 +272,7 @@ class StructFile(object):
         if self.is_real:
             a.fromfile(self.file, length)
         else:
-            a.fromstring(self.file.read(length * _SIZEMAP[typecode]))
+            array_frombytes(a, self.file.read(length * _SIZEMAP[typecode]))
         if IS_LITTLE:
             a.byteswap()
         return a

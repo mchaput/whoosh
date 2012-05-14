@@ -41,7 +41,7 @@ from struct import pack, unpack
 from threading import Lock
 
 from whoosh.compat import xrange, u, b, string_type
-from whoosh.system import IS_LITTLE
+from whoosh.compat import array_tobytes
 from whoosh.system import pack_ushort_le, pack_uint_le
 from whoosh.system import unpack_ushort_le, unpack_uint_le
 
@@ -65,21 +65,6 @@ utf8decode = codecs.getdecoder("utf-8")
 
 
 # Functions
-
-def array_to_string(a):
-    if IS_LITTLE:
-        a = copy(a)
-        a.byteswap()
-    return a.tostring()
-
-
-def string_to_array(typecode, s):
-    a = array(typecode)
-    a.fromstring(s)
-    if IS_LITTLE:
-        a.byteswap()
-    return a
-
 
 def make_binary_tree(fn, args, **kwargs):
     """Takes a function/class that takes two positional arguments and a list of
@@ -132,7 +117,7 @@ def _varint(i):
         a.append((i & 0x7F) | 0x80)
         i = i >> 7
     a.append(i)
-    return a.tostring()
+    return array_tobytes(a)
 
 
 _varint_cache_size = 512
@@ -253,14 +238,14 @@ def write_gints(dbfile, nums):
         if count == 4:
             #print bin(key), repr(buf)
             dbfile.write(chr(key))
-            dbfile.write(buf.tostring())
+            dbfile.write(array_tobytes(buf))
             count = 0
             key = 0
             del buf[0:len(buf)]
 
     if count:
         dbfile.write(chr(key))
-        dbfile.write(buf.tostring())
+        dbfile.write(array_tobytes(buf))
 
 
 def read_gints(dbfile, n):

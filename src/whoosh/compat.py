@@ -1,4 +1,4 @@
-import sys
+import array, sys
 
 
 # Run time aliasing of Python2/3 differences
@@ -107,6 +107,20 @@ else:
         from html import escape as htmlescape
     except ImportError:
         pass
+
+
+if hasattr(array.array, "tobytes"):
+    def array_tobytes(arry):
+        return arry.tobytes()
+
+    def array_frombytes(arry, bs):
+        return arry.frombytes(bs)
+else:
+    def array_tobytes(arry):
+        return arry.tostring()
+
+    def array_frombytes(arry, bs):
+        return arry.fromstring(bs)
 
 
 # Implementations missing from older versions of Python
