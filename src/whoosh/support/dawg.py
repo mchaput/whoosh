@@ -41,7 +41,7 @@ use in (at least) spell checking.
 
 import sys, copy
 from array import array
-from hashlib import sha1  #@UnresolvedImport
+from hashlib import sha1  # @UnresolvedImport
 
 from whoosh.compat import (b, u, BytesIO, xrange, iteritems, iterkeys,
                            bytes_type, text_type, izip, array_tobytes)
@@ -818,101 +818,6 @@ class Cursor(BaseCursor):
         return i
 
 
-#class IntersectionCursor(BaseCursor):
-#    def __init__(self, a, b):
-#        self.a = a
-#        self.b = b
-#        self._active = self.a.is_active() and self.b.is_active() and self._sync()
-#
-#    def copy(self):
-#        return self.__class__(self.a.copy(), self.b.copy())
-#
-#    def _match_labels(self, a, b):
-#        while True:
-#            alab = a.label()
-#            blab = b.label()
-#            if alab == blab:
-#                return True
-#            elif a.at_last_arc() or b.at_last_arc():
-#                return False
-#            elif alab < blab:
-#                a.switch_to(blab)
-#            elif blab < alab:
-#                b.switch_to(alab)
-#
-#    def _sync(self):
-#        a = self.a
-#        b = self.b
-#        while True:
-#            if not self._match_labels(a, b):
-#                return False
-#            ac = a.copy()
-#            bc = b.copy()
-#            if self._match_labels(ac, bc):
-#                return True
-#
-#            if a.at_last_arc() or b.at_last_arc():
-#                return False
-#            a.next_arc()
-#            b.next_arc()
-#
-#    def is_active(self):
-#        return self._active
-#
-#    def label(self):
-#        if not self._active:
-#            raise InactiveCursor
-#        a = self.a.label()
-#        b = self.b.label()
-#        assert a == b
-#        return a
-#
-#    def stopped(self):
-#        if not self._active:
-#            raise InactiveCursor
-#        return self.a.stopped() or self.b.stopped()
-#
-#    def accept(self):
-#        if not self._active:
-#            raise InactiveCursor
-#        return self.a.accept() and self.b.accept()
-#
-#    def prefix(self):
-#        for alab, blab in izip(self.a.prefix(), self.b.prefix()):
-#            assert alab == blab
-#            yield alab
-#
-#    def at_last_arc(self):
-#        return self.a.at_last_arc() or self.b.at_last_arc()
-#
-#    def pop(self):
-#        self.a.pop()
-#        self.b.pop()
-#        if not (self.a.is_active() and self.b.is_active()):
-#            self._active = False
-#
-#    def next_arc(self):
-#        if not self._active:
-#            raise InactiveCursor
-#
-#        synced = False
-#        while not synced:
-#            if not (self.a.is_active() and self.b.is_active()):
-#                self._active = False
-#                return
-#            if self.a.at_last_arc() or self.b.at_last_arc():
-#                self.pop()
-#            self.a.next_arc()
-#            self.b.next_arc()
-#            synced = self._sync()
-#
-#    def follow(self):
-#        self.a.follow()
-#        self.b.follow()
-#        self._sync()
-#        return self
-
-
 class UncompiledNode(object):
     # Represents an "in-memory" node used by the GraphWriter before it is
     # written to disk.
@@ -1081,8 +986,7 @@ class GraphWriter(object):
         dbfile.write_int(self.version)
         dbfile.write_uint(0)
 
-        self.fieldname = None
-        self.start_field("_")
+        self._infield = False
 
     def start_field(self, fieldname):
         """Starts a new graph for the given field.
@@ -1090,18 +994,22 @@ class GraphWriter(object):
 
         if not fieldname:
             raise ValueError("Field name cannot be equivalent to False")
-        if self.fieldname is not None:
+        if self._infield:
             self.finish_field()
         self.fieldname = fieldname
         self.seen = {}
         self.nodes = [UncompiledNode(self)]
         self.lastkey = ''
         self._inserted = False
+        self._infield = True
 
     def finish_field(self):
         """Finishes the graph for the current field.
         """
 
+        if not self._infield:
+            raise Exception("Called finish_field before start_field")
+        self._infield = False
         if self._inserted:
             self.fieldroots[self.fieldname] = self._finish()
         self.fieldname = None
@@ -1129,7 +1037,7 @@ class GraphWriter(object):
             a value here will raise an error.
         """
 
-        if self.fieldname is None:
+        if not self._infield:
             raise Exception("Inserted %r before starting a field" % key)
         self._inserted = True
         key = to_labels(key)  # Python 3 sucks
@@ -1345,13 +1253,15 @@ class BaseGraphReader(object):
         return dict((arc.label, copy.copy(arc))
                     for arc in self.iter_arcs(address))
 
-    def find_path(self, path, arc=None):
+    def find_path(self, path, arc=None, address=None):
         path = to_labels(path)
 
         if arc:
             address = arc.target
         else:
             arc = Arc()
+
+        if address is None:
             address = self._root
 
         for label in path:
@@ -1548,7 +1458,7 @@ def within(graph, text, k=1, prefix=0, address=None):
     accept = False
     if prefix:
         prefixchars = text[:prefix]
-        arc = graph.find_path(prefixchars)
+        arc = graph.find_path(prefixchars, address=address)
         if arc is None:
             return
         sofar = emptybytes.join(prefixchars)
@@ -1630,7 +1540,8 @@ def dump_graph(graph, address=None, tab=0, out=None):
         else:
             out.write(" " * 6)
         out.write("  " * tab)
-        out.write("%r %r %s %r\n" % (arc.label, arc.target, arc.accept, arc.value))
+        out.write("%r %r %s %r\n"
+                  % (arc.label, arc.target, arc.accept, arc.value))
         if arc.target is not None:
             dump_graph(graph, arc.target, tab + 1, out=out)
 
