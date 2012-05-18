@@ -44,10 +44,6 @@ from whoosh.support.bitvector import DocIdSet, BitSet
 from whoosh.util import now, lru_cache
 
 
-class TimeLimit(Exception):
-    pass
-
-
 class NoTermsException(Exception):
     """Exception raised you try to access matched terms on a :class:`Results`
     object was created without them. To record which terms matched in which
@@ -56,6 +52,13 @@ class NoTermsException(Exception):
     """
 
     message = "Results were created without recording terms"
+
+
+class TimeLimit(Exception):
+    """Raised by :class:`TimeLimitedCollector` if the time limit is reached
+    before the search finishes. If you have a reference to the collector, you
+    can get partial results by calling :meth:`TimeLimitedCollector.results`.
+    """
 
 
 # Searcher class
@@ -645,31 +648,95 @@ class Searcher(object):
             for docnum in method(self):
                 yield docnum
 
-    def search(self, q, limit=10, sortedby=None, reverse=False, groupedby=None,
-               optimize=True, filter=None, mask=None, terms=False,
-               maptype=None):
-        """Runs the query represented by the ``query`` object and returns a
-        Results object.
+    def collector(self, limit=10, sortedby=None, reverse=False, groupedby=None,
+                  collapse=None, collapse_limit=1, collapse_order=None,
+                  optimize=True, filter=None, mask=None, terms=False,
+                  maptype=None):
+        """Low-level method: returns a configured
+        :class:`whoosh.collectors.Collector` object based on the given
+        arguments. You can use this object with
+        :meth:`Searcher.search_with_collector` to search.
+        
+        See the documentation for the :meth:`Searcher.search` method for a
+        description of the parameters.
+        
+        This method may be useful to get a basic collector object and then wrap
+        it with another collector from ``whoosh.collectors`` or with a custom
+        collector of your own::
+        
+            # Equivalent of
+            # results = mysearcher.search(myquery, limit=10)
+            # but with a time limt...
+
+            # Create a TopCollector
+            c = mysearcher.collector(limit=10)
+            
+            # Wrap it with a TimeLimitedCollector with a time limit of
+            # 10.5 seconds
+            from whoosh.collectors import TimeLimitedCollector
+            c = TimeLimitedCollector(c, 10.5)
+            
+            # Search using the custom collector
+            results = mysearcher.search_with_collector(myquery, c)
+        """
+
+        from whoosh import collectors
+
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        if sortedby:
+            c = collectors.SortingCollector(sortedby, limit=limit,
+                                            reverse=reverse)
+        elif groupedby or reverse or not limit or limit >= self.doc_count():
+            # A collector that gathers every matching document
+            c = collectors.UnlimitedCollector(reverse=reverse)
+        else:
+            # A collector that uses block quality optimizations and a heap
+            # queue to only collect the top N documents
+            c = collectors.TopCollector(limit, usequality=optimize)
+
+        if groupedby:
+            c = collectors.FacetCollector(c, groupedby, maptype=maptype)
+        if terms:
+            c = collectors.TermsCollector(c)
+        if collapse:
+            c = collectors.CollapseCollector(c, collapse, limit=collapse_limit,
+                                             order=collapse_order)
+
+        # Filtering wraps last so it sees the docs first
+        if filter or mask:
+            c = collectors.FilterCollector(c, filter, mask)
+        return c
+
+    def search(self, q, **kwargs):
+        """Runs a :class:`whoosh.query.Query` object on this searcher and
+        returns a :class:`Results` object. See :doc:`/searching` for more
+        information.
+
+        This method takes many keyword arguments (documented below).
 
         See :doc:`/facets` for information on using ``sortedby`` and/or
-        ``groupedby``.
+        ``groupedby``. See :ref:`collapsing` for more information on using
+        ``collapse``, ``collapse_limit``, and ``collapse_order``.
 
-        :param query: a :class:`whoosh.query.Query` object.
+        :param query: a :class:`whoosh.query.Query` object to use to match
+            documents.
         :param limit: the maximum number of documents to score. If you're only
             interested in the top N documents, you can set limit=N to limit the
-            scoring for a faster search.
+            scoring for a faster search. Default is 10.
         :param sortedby: see :doc:`/facets`.
-        :param reverse: Reverses the direction of the sort.
+        :param reverse: Reverses the direction of the sort. Default is False.
         :param groupedby: see :doc:`/facets`.
         :param optimize: use optimizations to get faster results when possible.
+            Default is True.
         :param filter: a query, Results object, or set of docnums. The results
             will only contain documents that are also in the filter object.
         :param mask: a query, Results object, or set of docnums. The results
-            will not contain documents that are also in the mask object.
+            will not contain any documents that are in the mask object.
         :param terms: if True, record which terms were found in each matching
-            document. You can use :meth:`Results.contains_term` or
-            :meth:`Hit.contains_term` to check whether a hit contains a
-            particular term.
+            document. See :doc:`/searching` for more information. Default is
+            False.
         :param maptype: by default, the results of faceting with ``groupedby``
             is a dictionary mapping group names to ordered lists of document
             numbers in the group. You can pass a
@@ -677,21 +744,66 @@ class Searcher(object):
             to specify a different (usually faster) method for grouping. For
             example, ``maptype=sorting.Count`` would store only the count of
             documents in each group, instead of the full list of document IDs.
+        :param collapse: a :doc:`facet </facets>` to use to collapse the
+            results. See :ref:`collapsing` for more information.
+        :param collapse_limit: the maximum number of documents to allow with
+            the same collapse key. See :ref:`collapsing` for more information.
+        :param collapse_order: an optional ordering :doc:`facet </facets>`
+            to control which documents are kept when collapsing. The default
+            (``collapse_order=None``) uses the results order (e.g. the highest
+            scoring documents in a scored search).
         :rtype: :class:`Results`
         """
 
-        if limit is not None and limit < 1:
-            raise ValueError("limit must be >= 1")
+        # Call the collector() method to build a collector based on the
+        # parameters passed to this method
+        c = self.collector(**kwargs)
+        # Call the lower-level method to run the collector
+        self.search_with_collector(q, c)
+        # Return the results object from the collector
+        return c.results()
 
-        collector = Collector(limit=limit, usequality=optimize,
-                              groupedby=groupedby, terms=terms,
-                              maptype=maptype)
+    def search_with_collector(self, q, collector):
+        """Low-level method: runs a :class:`whoosh.query.Query` object on this
+        searcher using the given :class:`whoosh.collectors.Collector` object
+        to collect the results::
+        
+            myquery = query.Term("content", "cabbage")
+        
+            uc = collectors.UnlimitedCollector()
+            tc = TermsCollector(uc)
+            
+            mysearcher.search_with_collector(myquery, tc)
+            print(tc.docterms)
+            print(tc.results())
+        
+        Note that this method does not return a :class:`Results` object. You
+        need to access the collector to get a results object or other
+        information the collector might hold after the search.
+        
+        :param query: a :class:`whoosh.query.Query` object to use to match
+            documents.
+        :param collector: a :class:`whoosh.collectors.Collector` object to feed
+            the results into.
+        """
 
-        if sortedby:
-            return collector.sort(self, q, sortedby, reverse=reverse,
-                                  allow=filter, restrict=mask)
+        collector.prepare(self, q)
+
+        # Make a list of subsearchers (if the searcher is atomic, it's a list
+        # of one)
+        if self.is_atomic():
+            subsearchers = [(self, 0)]
         else:
-            return collector.search(self, q, allow=filter, restrict=mask)
+            subsearchers = self.subsearchers
+
+        try:
+            # for each sub-searcher, run the query and collect the matching
+            # docs
+            for subsearcher, offset in subsearchers:
+                collector.set_subsearcher(subsearcher, offset)
+                collector.collect_matches()
+        finally:
+            collector.finish()
 
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
@@ -792,419 +904,6 @@ class Searcher(object):
         return sqc.correct_query(q, qstring)
 
 
-class Collector(object):
-    """A Collector finds the matching documents, scores them, collects them
-    into a list, and produces a Results object from them.
-
-    Normally you do not need to instantiate an instance of the base
-    Collector class, the :meth:`Searcher.search` method does that for you.
-
-    If you create a custom Collector instance or subclass you can use its
-    ``search()`` method instead of :meth:`Searcher.search`::
-
-        mycollector = MyCollector()
-        results = mycollector.search(mysearcher, myquery)
-
-    **Do not** re-use or share Collector instances between searches. You
-    should create a new Collector instance for each search.
-
-    To limit the amount of time a search can take, pass the number of
-    seconds to the ``timelimit`` keyword argument::
-
-        # Limit the search to 4.5 seconds
-        col = Collector(timelimit=4.5, greedy=False)
-        # If this call takes more than 4.5 seconds, it will raise a
-        # whoosh.searching.TimeLimit exception
-        try:
-            r = searcher.search(myquery, collector=col)
-        except TimeLimit, tl:
-            # You can still retrieve partial results from the collector
-            r = col.results()
-
-    If the ``greedy`` keyword is ``True``, the collector will finish adding
-    the most recent hit before raising the ``TimeLimit`` exception.
-    """
-
-    def __init__(self, limit=10, usequality=True, groupedby=None,
-                 timelimit=None, greedy=False, terms=False, replace=10,
-                 maptype=None):
-        """
-        :param limit: the maximum number of hits to collect. If this is None,
-            collect all hits.
-        :param usequality: whether to use block quality optimizations when
-            available. This is mostly useful for debugging purposes.
-        :param groupedby: see :doc:`/facets` for information.
-        :param timelimit: the maximum amount of time (in possibly fractional
-            seconds) to allow for searching. If the search takes longer than
-            this, it will raise a ``TimeLimit`` exception.
-        :param greedy: if ``True``, the collector will finish adding the most
-            recent hit before raising the ``TimeLimit`` exception.
-        :param terms: if ``True``, record which terms matched in each document.
-        :param maptype: a :class:`whoosh.sorting.FacetMap` type to use for all
-            facets that don't specify their own.
-        """
-
-        self.limit = limit
-        self.usequality = usequality
-        self.replace = replace
-        self.timelimit = timelimit
-        self.greedy = greedy
-        self.maptype = maptype
-        self.termlists = defaultdict(set) if terms else None
-
-        self.facets = None
-        if groupedby:
-            self.facets = sorting.Facets.from_groupedby(groupedby)
-
-        self.replaced_times = 0
-        self.skipped_times = 0
-
-    def should_add_all(self):
-        """Returns True if this collector needs to add all found documents (for
-        example, if ``limit=None``), or False if this collector should only
-        add the top N found documents.
-        """
-
-        limit = self.limit
-        if limit:
-            limit = min(limit, self.searcher.doc_count_all())
-        return not limit
-
-    def use_block_quality(self, searcher, matcher=None):
-        """Returns True if this collector can use block quality optimizations
-        (usequality is True, the matcher supports block quality, the weighting
-        does not use the final() method, etc.).
-        """
-
-        use = (self.usequality
-               and not searcher.weighting.use_final
-               and not self.should_add_all())
-        if matcher:
-            use = use and matcher.supports_block_quality()
-        return use
-
-    def _score_fn(self, searcher):
-        w = searcher.weighting
-        if w.use_final:
-            def scorefn(matcher):
-                score = matcher.score()
-                return w.final(searcher, matcher.id(), score)
-        else:
-            scorefn = None
-        return scorefn
-
-    def _set_categorizers(self, searcher, offset):
-        if self.facets:
-            self.categorizers = {}
-            for name, facet in self.facets.items():
-                catter = facet.categorizer(searcher)
-                catter.set_searcher(searcher, offset)
-                self.categorizers[name] = catter
-
-    def _set_filters(self, allow, restrict):
-        if allow:
-            allow = self.searcher._filter_to_comb(allow)
-        self.allow = allow
-        if restrict:
-            restrict = self.searcher._filter_to_comb(restrict)
-        self.restrict = restrict
-
-    def _set_timer(self):
-        # If this collector is time limited, start the timer thread
-        self.timer = None
-        if self.timelimit:
-            self.timer = threading.Timer(self.timelimit, self._timestop)
-            self.timer.start()
-
-    def _reset(self):
-        self.facetmaps = {}
-        self.items = []
-        self.timedout = False
-        self.runtime = -1
-        self.minscore = None
-        if self.facets:
-            self.facetmaps = dict((facetname, facet.map(self.maptype))
-                                  for facetname, facet in self.facets.items())
-        else:
-            self.facetmaps = {}
-
-    def _timestop(self):
-        # Called by the Timer when the time limit expires. Set an attribute on
-        # the collector to indicate that the timer has expired and the
-        # collector should raise a TimeLimit exception at the next consistent
-        # state.
-        self.timer = None
-        self.timedout = True
-
-    def collect(self, docid, offsetid, sortkey):
-        docset = self.docset
-        if docset is not None:
-            docset.add(offsetid)
-
-        if self.facets is not None:
-            for name, catter in self.categorizers.items():
-                add = self.facetmaps[name].add
-                if catter.allow_overlap:
-                    for key in catter.keys_for_id(docid):
-                        add(catter.key_to_name(key), offsetid, sortkey)
-                else:
-                    key = catter.key_to_name(catter.key_for_id(docid))
-                    add(key, offsetid, sortkey)
-
-    def search(self, searcher, q, allow=None, restrict=None):
-        """Top-level method call which uses the given :class:`Searcher` and
-        :class:`whoosh.query.Query` objects to return a :class:`Results`
-        object.
-
-        >>> # This is the equivalent of calling searcher.search(q)
-        >>> col = Collector()
-        >>> results = col.search(searcher, q)
-
-        This method takes care of calling :meth:`Collector.add_searcher`
-        for each sub-searcher in a collective searcher. You should only call
-        this method on a top-level searcher.
-        """
-
-        self.searcher = searcher
-        self.q = q
-        self._set_filters(allow, restrict)
-        self._reset()
-        self._set_timer()
-
-        # If we're not using block quality, then we can add every document
-        # number to a set as we see it, because we're not skipping low-quality
-        # blocks
-        self.docset = set() if not self.use_block_quality(searcher) else None
-
-        # Perform the search
-        t = now()
-
-        if searcher.is_atomic():
-            searchers = [(searcher, 0)]
-        else:
-            searchers = searcher.subsearchers
-
-        for s, offset in searchers:
-            scorefn = self._score_fn(s)
-            self.subsearcher = s
-            self._set_categorizers(s, offset)
-            self.add_matches(q, offset, scorefn)
-
-        # If we started a time limit timer thread, cancel it
-        if self.timelimit and self.timer:
-            self.timer.cancel()
-
-        self.runtime = now() - t
-        return self.results()
-
-    def add_matches(self, q, offset, scorefn):
-        items = self.items
-        limit = self.limit
-        addall = self.should_add_all()
-
-        for score, offsetid in self.pull_matches(q, offset, scorefn):
-            # Document numbers are negated before putting them in the heap so
-            # that higher document numbers have lower "priority" in the queue.
-            # Lower document numbers should always come before higher document
-            # numbers with the same score to keep the order stable.
-            negated_offsetid = 0 - offsetid
-
-            if addall:
-                # We're just adding all matches
-                items.append((score, negated_offsetid))
-            elif len(items) < limit:
-                # The heap isn't full, so add this document
-                heappush(items, (score, negated_offsetid))
-            else:
-                # The heap is full, but if this document has a high enough
-                # score to make the top N, add it to the heap
-                if score > items[0][0]:
-                    heapreplace(items, (score, negated_offsetid))
-                    self.minscore = items[0][0]
-
-    def pull_matches(self, q, offset, scorefn):
-        """Low-level method yields (docid, score) pairs from the given matcher.
-        Called by :meth:`Collector.add_matches`.
-        """
-
-        allow = self.allow
-        restrict = self.restrict
-        replace = self.replace
-        collect = self.collect
-        minscore = self.minscore
-        replacecounter = 0
-        timelimited = bool(self.timelimit)
-
-        matcher = q.matcher(self.subsearcher)
-        usequality = self.use_block_quality(self.subsearcher, matcher)
-
-        termlists = self.termlists
-        recordterms = termlists is not None
-        if recordterms:
-            termmatchers = list(matcher.term_matchers())
-        else:
-            termmatchers = None
-
-        # A flag to indicate whether we should check block quality at the start
-        # of the next loop
-        checkquality = True
-
-        while matcher.is_active():
-            # If the replacement counter has reached 0, try replacing the
-            # matcher with a more efficient version
-            if replace:
-                if replacecounter == 0 or self.minscore != minscore:
-                    matcher = matcher.replace(minscore or 0)
-                    self.replaced_times += 1
-                    if not matcher.is_active():
-                        break
-                    usequality = self.use_block_quality(self.subsearcher,
-                                                        matcher)
-                    replacecounter = replace
-                    minscore = self.minscore
-                    if recordterms:
-                        termmatchers = list(matcher.term_matchers())
-                replacecounter -= 1
-
-            # Check whether the time limit expired since the last match
-            if timelimited and self.timedout and not self.greedy:
-                raise TimeLimit
-
-            # If we're using block quality optimizations, and the checkquality
-            # flag is true, try to skip ahead to the next block with the
-            # minimum required quality
-            if usequality and checkquality and minscore is not None:
-                self.skipped_times += matcher.skip_to_quality(minscore)
-                # Skipping ahead might have moved the matcher to the end of the
-                # posting list
-                if not matcher.is_active():
-                    break
-
-            # The current document ID
-            docid = matcher.id()
-            offsetid = docid + offset
-
-            # Check whether the document is filtered
-            if ((not allow or offsetid in allow)
-                and (not restrict or offsetid not in restrict)):
-                # Collect and yield this document
-                if scorefn:
-                    score = scorefn(matcher)
-                    collect(docid, offsetid, score)
-                else:
-                    score = matcher.score()
-                    collect(docid, offsetid, 0 - score)
-                yield (score, offsetid)
-
-            # If recording terms, add the document to the termlists
-            if recordterms:
-                for m in termmatchers:
-                    if m.is_active() and m.id() == docid:
-                        termlists[m.term()].add(offsetid)
-
-            # Check whether the time limit expired
-            if timelimited and self.timedout:
-                raise TimeLimit
-
-            # Move to the next document. This method returns True if the
-            # matcher has entered a new block, so we should check block quality
-            # again.
-            checkquality = matcher.next()
-
-    def sort(self, global_searcher, q, sortedby, reverse=False, allow=None,
-             restrict=None):
-        self.searcher = global_searcher
-        self.q = q
-        self.docset = set()
-        self._set_filters(allow, restrict)
-        self._reset()
-        self._set_timer()
-
-        items = self.items
-        limit = self.limit
-        heapfn = nlargest if reverse else nsmallest
-        addall = self.should_add_all()
-
-        facet = sorting.MultiFacet.from_sortedby(sortedby)
-        catter = facet.categorizer(global_searcher)
-        t = now()
-
-        if global_searcher.is_atomic():
-            searchers = [(global_searcher, 0)]
-        else:
-            searchers = global_searcher.subsearchers
-
-        for segment_searcher, offset in searchers:
-            self.subsearcher = segment_searcher
-            self._set_categorizers(segment_searcher, offset)
-            catter.set_searcher(segment_searcher, offset)
-
-            if catter.requires_matcher or self.termlists:
-                ls = list(self.pull_matches(q, offset, catter.key_for_matcher))
-            else:
-                kfi = catter.key_for_id
-                ls = list(self.pull_unscored_matches(q, offset, kfi))
-
-            if addall:
-                items.extend(ls)
-            else:
-                items = heapfn(limit, items + ls)
-
-        self.items = items
-        self.runtime = now() - t
-        return self.results(scores=False, reverse=reverse)
-
-    def pull_unscored_matches(self, q, offset, keyfn):
-        allow = self.allow
-        restrict = self.restrict
-        collect = self.collect
-        timelimited = bool(self.timelimit)
-
-        matcher = q.matcher(self.subsearcher)
-        for docnum in matcher.all_ids():
-            # Check whether the time limit expired since the last match
-            if timelimited and self.timedout and not self.greedy:
-                raise TimeLimit
-
-            # The current document ID
-            offsetid = docnum + offset
-
-            # Check whether the document is filtered
-            if ((not allow or offsetid in allow)
-                and (not restrict or offsetid not in restrict)):
-                # Collect and yield this document
-                key = keyfn(docnum)
-                collect(docnum, offsetid, key)
-                yield (key, offsetid)
-
-            # Check whether the time limit expired
-            if timelimited and self.timedout:
-                raise TimeLimit
-
-    def results(self, scores=True, reverse=False):
-        """Returns the current results from the collector. This is useful for
-        getting the results out of a collector that was stopped by a time
-        limit exception.
-        """
-
-        if scores:
-            # Docnums are stored as negative for reasons too obscure to go into
-            # here, re-negate them before returning
-            items = [(x[0], 0 - x[1]) for x in self.items]
-
-            # Sort by negated scores so that higher scores go first, then by
-            # document number to keep the order stable when documents have the
-            # same score
-            items.sort(key=lambda x: (0 - x[0], x[1]))
-        else:
-            items = sorted(self.items, reverse=reverse)
-
-        return Results(self.searcher, self.q, items, self.docset,
-                       facetmaps=self.facetmaps, runtime=self.runtime,
-                       filter=self.allow, mask=self.restrict,
-                       termlists=self.termlists)
-
-
 class Results(object):
     """This object is returned by a Searcher. This object represents the
     results of a search query. You can mostly use it as if it was a list of
@@ -1216,8 +915,8 @@ class Results(object):
     so keeps all files used by it open.
     """
 
-    def __init__(self, searcher, q, top_n, docset, facetmaps=None, runtime= -1,
-                 filter=None, mask=None, termlists=None, highlighter=None):
+    def __init__(self, searcher, q, top_n, docset=None, facetmaps=None,
+                 runtime=0, highlighter=None):
         """
         :param searcher: the :class:`Searcher` object that produced these
             results.
@@ -1232,10 +931,6 @@ class Results(object):
         self.docset = docset
         self._facetmaps = facetmaps or {}
         self.runtime = runtime
-        self._filter = filter
-        self._mask = mask
-        self._termlists = termlists
-
         self.highlighter = highlighter or highlight.Highlighter()
         self._char_cache = {}
 
@@ -1382,10 +1077,10 @@ class Results(object):
         docset = set(self.searcher.docs_for_query(self.q))
 
         # Apply the filter and mask, if any, from the original search
-        if self._filter:
-            docset.intersection_update(self._filter)
-        if self._mask:
-            docset.difference_update(self._mask)
+        if hasattr(self, "allowed"):
+            docset.intersection_update(self.allowed)
+        if hasattr(self, "restricted"):
+            docset.difference_update(self.restricted)
 
         self.docset = docset
 
@@ -1440,14 +1135,15 @@ class Results(object):
         return self.docset
 
     def copy(self):
-        """Returns a copy of this results object.
+        """Returns a deep copy of this results object.
         """
 
-        topcopy = list(self.top_n)
-        setcopy = copy.copy(self.docset)
-        return self.__class__(self.searcher, self.q, topcopy, setcopy,
-                              runtime=self.runtime, filter=self._filter,
-                              mask=self._mask)
+        # Shallow copy self to get attributes
+        r = copy.copy(self)
+        # Deep copies of docset and top_n in case they're modified
+        r.docset = copy.deepcopy(self.docset)
+        r.top_n = copy.deepcopy(self.top_n)
+        return r
 
     def score(self, n):
         """Returns the score for the document at the Nth position in the list
@@ -1476,7 +1172,7 @@ class Results(object):
         >>>
         """
 
-        return self._termlists is not None
+        return hasattr(self, "docterms") and hasattr(self, "termdocs")
 
     def matched_terms(self):
         """Returns the set of ``("fieldname", "text")`` tuples representing
@@ -1497,9 +1193,10 @@ class Results(object):
         set([("content", "bravo")])
         """
 
-        if self._termlists is None:
+        if not self.has_matched_terms():
             raise NoTermsException
-        return set(self._termlists.keys())
+
+        return set(self.termdocs.keys())
 
     def _get_fragmenter(self):
         return self.highlighter.fragmenter
@@ -1642,7 +1339,7 @@ class Hit(object):
 
     >>> r = searcher.search(query.Term("content", "render"))
     >>> r[0]
-    <Hit {title=u"Rendering the scene"}>
+    < Hit {title = u"Rendering the scene"} >
     >>> r[0].rank
     0
     >>> r[0].docnum == 4592
@@ -1659,7 +1356,7 @@ class Hit(object):
         """
         :param results: the Results object this hit belongs to.
         :param pos: the position in the results list of this hit, for example
-            pos=0 means this is the first (highest scoring) hit.
+            pos = 0 means this is the first (highest scoring) hit.
         :param docnum: the document number of this hit.
         :param score: the score of this hit.
         """
@@ -1697,17 +1394,9 @@ class Hit(object):
         ...   print("Doesn't contain:", q.all_terms() - hit.matched_terms())
         """
 
-        termlists = self.results._termlists
-        if termlists is None:
+        if not self.results.has_matched_terms():
             raise NoTermsException
-
-        # termlists maps terms->set of docnums, so we have to check every term
-        # to see if this document is in its list
-        s = set()
-        for term in termlists.keys():
-            if self.docnum in termlists[term]:
-                s.add(term)
-        return s
+        return self.results.docterms[self.docnum]
 
     def highlights(self, fieldname, text=None, top=3):
         """Returns highlighted snippets from the given field::
@@ -1775,20 +1464,6 @@ class Hit(object):
         return self.searcher.more_like(self.docnum, fieldname, text=text,
                                        top=top, numterms=numterms, model=model,
                                        normalize=normalize, filter=filter)
-
-    def contains_term(self, fieldname, text):
-        """Returns True if the given query term exists in this document. This
-        only works for terms that were in the original query.
-        """
-
-        termlists = self.results._termlists
-        if termlists is not None:
-            term = (fieldname, text)
-            if term in termlists:
-                docset = termlists[term]
-                return self.docnum in docset
-
-        return False
 
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.fields())

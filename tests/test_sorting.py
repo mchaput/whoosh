@@ -456,7 +456,8 @@ def test_date_facet():
 
     with ix.searcher() as s:
         r = s.search(query.Every(), groupedby="date")
-        assert_equal(r.groups("date"), {d1: [0, 1], d2: [3], None: [2, 4]})
+        assert r.groups()
+        assert_equal(r.groups(), {d1: [0, 1], d2: [3], None: [2, 4]})
 
 
 def test_range_facet():
@@ -588,11 +589,11 @@ def test_field_facets():
             method(ix)
             with ix.searcher() as s:
                 results = s.search(query.Every(), groupedby="tag")
-                groups = results.groups("tag")
-                assert (sorted(groups.items())
-                        == [(u('one'), [0, 6]),
-                            (u('three'), [1, 3, 7, 8]),
-                            (u('two'), [2, 4, 5])])
+                groups = results.groups()
+                assert_equal(sorted(groups.items()),
+                             [(u('one'), [0, 6]),
+                              (u('three'), [1, 3, 7, 8]),
+                              (u('two'), [2, 4, 5])])
 
     check(make_single_index)
     check(make_multi_index)
@@ -770,13 +771,18 @@ def test_group_types():
 
         f = sorting.FieldFacet("c", maptype=sorting.UnorderedList)
         r = s.search(q, groupedby=f)
-        gs = r.groups("c")
+        gs = r.groups()
         assert_equal(gs["apple"], [0, 2, 4, 6])
         assert_equal(gs["bear"], [1, 3, 5])
 
         f = sorting.FieldFacet("c", maptype=sorting.Count)
         r = s.search(q, groupedby=f)
-        gs = r.groups("c")
+        gs = r.groups()
+        assert_equal(gs["apple"], 4)
+        assert_equal(gs["bear"], 3)
+
+        r = s.search(q, groupedby="c", maptype=sorting.Count)
+        gs = r.groups()
         assert_equal(gs["apple"], 4)
         assert_equal(gs["bear"], 3)
 
@@ -785,11 +791,6 @@ def test_group_types():
         gs = r.groups()
         assert_equal(gs["apple"], 6)
         assert_equal(gs["bear"], 5)
-
-        r = s.search(q, groupedby="c", maptype=sorting.Count)
-        gs = r.groups()
-        assert_equal(gs["apple"], 4)
-        assert_equal(gs["bear"], 3)
 
 
 def test_nocachefield_segments():

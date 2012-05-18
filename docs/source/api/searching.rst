@@ -11,9 +11,6 @@ Searching classes
 .. autoclass:: Searcher
     :members:
 
-.. autoclass:: Collector
-    :members:
-
 
 Results classes
 ===============
@@ -26,4 +23,12 @@ Results classes
 
 .. autoclass:: ResultsPage
     :members:
+
+
+Exceptions
+==========
+
+.. autoexception:: NoTermsException
+
+.. autoexception:: TimeLimit
 

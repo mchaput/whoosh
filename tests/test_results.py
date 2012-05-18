@@ -170,7 +170,7 @@ def test_extend_filtered():
 
     with ix.searcher() as s:
         r1 = s.search(query.Term("text", u("alfa")), filter=set([1, 4]))
-        assert_equal(r1._filter, set([1, 4]))
+        assert_equal(r1.allowed, set([1, 4]))
         assert_equal(len(r1.top_n), 0)
 
         r2 = s.search(query.Term("text", u("bravo")))
@@ -178,7 +178,7 @@ def test_extend_filtered():
         assert_equal(hits(r2), [1, 2, 4])
 
         r3 = r1.copy()
-        assert_equal(r3._filter, set([1, 4]))
+        assert_equal(r3.allowed, set([1, 4]))
         assert_equal(len(r3.top_n), 0)
         r3.extend(r2)
         assert_equal(len(r3.top_n), 3)
@@ -266,7 +266,7 @@ def test_page_counts():
 
 
 def test_resultspage():
-    schema = fields.Schema(id=fields.STORED, content=fields.TEXT)
+    schema = fields.Schema(id=fields.STORED, content=fields.TEXT(stored=True))
     ix = RamStorage().create_index(schema)
 
     domain = ("alfa", "bravo", "bravo", "charlie", "delta")
@@ -433,25 +433,6 @@ def test_stability():
             docnums = [hit.docnum for hit in r]
             assert_equal(docnums[:-1], last)
             last = docnums
-
-
-def test_contains():
-    schema = fields.Schema(text=fields.TEXT)
-    ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    w.add_document(text=u("alfa sierra tango"))
-    w.add_document(text=u("bravo charlie delta"))
-    w.add_document(text=u("charlie delta echo"))
-    w.add_document(text=u("delta echo foxtrot"))
-    w.commit()
-
-    q = query.Or([query.Term("text", "bravo"), query.Term("text", "charlie")])
-    r = ix.searcher().search(q, terms=True)
-    for hit in r:
-        assert not hit.contains_term("text", "alfa")
-        assert (hit.contains_term("text", "bravo")
-                or hit.contains_term("text", "charlie"))
-        assert not hit.contains_term("text", "foxtrot")
 
 
 def test_terms():

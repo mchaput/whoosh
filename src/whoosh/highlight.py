@@ -816,7 +816,7 @@ class Highlighter(object):
 
         for text in texts:
             m = results.searcher.postings(fieldname, text)
-            docset = results._termlists[(fieldname, text)]
+            docset = set(results.termdocs[(fieldname, text)])
             for docnum in sorted_ids:
                 if docnum in docset:
                     m.skip_to(docnum)

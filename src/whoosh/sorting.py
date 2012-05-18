@@ -82,9 +82,18 @@ class Categorizer(object):
     searches each segment to let the cateogorizer set up whatever segment-
     specific data it needs.
     
-    ``Collector.allow_overlap`` should be True if the caller should use the
-    ``keys_for_id`` method instead of ``key_for_id`` to group documents into
-    potentially overlapping groups.
+    ``Collector.allow_overlap`` should be ``True`` if the caller can use the
+    ``keys_for`` method instead of ``key_for`` to group documents into
+    potentially overlapping groups. The default is ``False``.
+    
+    If a categorizer subclass can categorize the document using only the
+    document number, it should set ``Collector.requires_matcher`` to ``False``
+    (this is the default) and NOT USE the given matcher in the ``key_for`` or
+    ``keys_for`` methods, since in that case ``segment_docnum`` is not
+    guaranteed to be consistent with the given matcher. If a categorizer
+    subclass needs to access information on the matcher, it should set
+    ``requires_matcher`` to ``True``. This will prevent the caller from using
+    optimizations that might leave the matcher in an inconsistent state.
     """
 
     allow_overlap = False
@@ -100,26 +109,42 @@ class Categorizer(object):
 
         pass
 
-    def key_for_matcher(self, matcher):
-        """Returns a key for the given matcher. The default implementation
-        simply gets the matcher's current document ID and calls ``key_for_id``,
-        but a subclass can override this if it needs information from the
-        matcher to compute the key.
+    def key_for(self, matcher, segment_docnum):
+        """Returns a key for the current match.
+        
+        :param matcher: a :class:`whoosh.matching.Matcher` object. If
+            ``self.requires_matcher`` is ``False``, DO NOT use this object,
+            since it may be inconsistent. Use the given ``segment_docnum``
+            instead.
+        :param segment_docnum: the segment-relative document number of the
+            current match.
         """
 
-        return self.key_for_id(matcher.id())
-
-    def key_for_id(self, docid):
-        """Returns a key for the given **segment-relative** document number.
-        """
+        # Backwards compatibility
+        if hasattr(self, "key_for_id"):
+            return self.key_for_id(segment_docnum)
+        elif hasattr(self, "key_for_matcher"):
+            return self.key_for_matcher(matcher)
 
         raise NotImplementedError(self.__class__)
 
-    def keys_for_id(self, docid):
-        """Yields a series of keys for the given **segment-relative** document
-        number. This method will be called instead of ``key_for_id`` if
-        ``Categorizer.allow_overlap==True``.
+    def keys_for(self, matcher, segment_docnum):
+        """Yields a series of keys for the current match.
+        
+        This method will be called instead of ``key_for`` if
+        ``self.allow_overlap`` is ``True``.
+        
+        :param matcher: a :class:`whoosh.matching.Matcher` object. If
+            ``self.requires_matcher`` is ``False``, DO NOT use this object,
+            since it may be inconsistent. Use the given ``segment_docnum``
+            instead.
+        :param segment_docnum: the segment-relative document number of the
+            current match.
         """
+
+        # Backwards compatibility
+        if hasattr(self, "keys_for_id"):
+            return self.keys_for_id(segment_docnum)
 
         raise NotImplementedError(self.__class__)
 
@@ -209,7 +234,7 @@ class FieldFacet(FacetType):
             r = segment_searcher.reader()
             self.fieldcache = r.fieldcache(self.fieldname)
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             return self.fieldcache.key_for(docid)
 
         def key_to_name(self, key):
@@ -232,7 +257,7 @@ class FieldFacet(FacetType):
             self.default = fieldobj.sortable_default()
             self.fieldcache = r.fieldcache(self.fieldname)
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             value = self.fieldcache.key_for(docid)
             if self.reverse:
                 return 0 - value
@@ -270,24 +295,31 @@ class FieldFacet(FacetType):
             # across the entire index
             reader = global_searcher.reader()
             dc = reader.doc_count_all()
-            arry = array("i", [dc + 1] * dc)
             fieldobj = global_searcher.schema[fieldname]
-            values = fieldobj.sortable_values(reader, fieldname)
 
-            values = list(values)
+            self.values = []
+            self.array = array("i", [dc + 1] * dc)
 
-            for i, (t, _) in enumerate(values):
+            # sortable_values() returns an iterator of (actual_term,
+            # sortable_value) pairs
+            tvs = fieldobj.sortable_values(reader, fieldname)
+            for i, (t, v) in enumerate(tvs):
+                self.values.append(v)
                 if reverse:
                     i = dc - i
+
+                # Get global docids from global reader
                 postings = reader.postings(fieldname, t)
                 for docid in postings.all_ids():
-                    arry[docid] = i
-            self.array = arry
+                    self.array[docid] = i
+
+            if reverse:
+                self.values.reverse()
 
         def set_searcher(self, segment_searcher, docoffset):
             self.docoffset = docoffset
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             arry = self.array
             offset = self.docoffset
             global_id = offset + docid
@@ -295,6 +327,9 @@ class FieldFacet(FacetType):
             assert global_id < len(arry), ("%s + %s >= %s"
                                            % (docid, offset, len(arry)))
             return arry[global_id]
+
+        def key_to_name(self, key):
+            return self.values[key]
 
     class OverlappingFieldCategorizer(Categorizer):
         allow_overlap = True
@@ -324,7 +359,7 @@ class FieldFacet(FacetType):
                     for docid in postings.all_ids():
                         self.lists[docid].append(t)
 
-        def keys_for_id(self, docid):
+        def keys_for(self, matcher, docid):
             if self.use_vectors:
                 try:
                     v = self.segment_searcher.vector(docid, self.fieldname)
@@ -334,7 +369,7 @@ class FieldFacet(FacetType):
             else:
                 return self.lists[docid] or None
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             if self.use_vectors:
                 try:
                     v = self.segment_searcher.vector(docid, self.fieldname)
@@ -383,13 +418,13 @@ class QueryFacet(FacetType):
                     self.docsets[qname] = docset
             self.offset = offset
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             for qname in self.docsets:
                 if docid in self.docsets[qname]:
                     return qname
             return self.other
 
-        def keys_for_id(self, docid):
+        def keys_for(self, matcher, docid):
             found = False
             for qname in self.docsets:
                 if docid in self.docsets[qname]:
@@ -534,10 +569,10 @@ class ScoreFacet(FacetType):
         def set_searcher(self, segment_searcher, offset):
             self.segment_searcher = segment_searcher
 
-        def key_for_matcher(self, matcher):
+        def key_for(self, matcher, docid):
             score = matcher.score()
             if self.use_final:
-                score = self.final(self.segment_searcher, matcher.id(), score)
+                score = self.final(self.segment_searcher, docid, score)
             # Negate the score so higher values sort first
             return 0 - score
 
@@ -573,7 +608,7 @@ class FunctionFacet(FacetType):
         def set_searcher(self, segment_searcher, docoffset):
             self.offset = docoffset
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             return self.fn(self.global_searcher, docid + self.offset)
 
 
@@ -623,7 +658,7 @@ class StoredFieldFacet(FacetType):
         def set_searcher(self, segment_searcher, docoffset):
             self.segment_searcher = segment_searcher
 
-        def keys_for_id(self, docid):
+        def keys_for(self, matcher, docid):
             d = self.segment_searcher.stored_fields(docid)
             value = d.get(self.fieldname)
             if self.split_fn:
@@ -631,7 +666,7 @@ class StoredFieldFacet(FacetType):
             else:
                 return value.split()
 
-        def key_for_id(self, docid):
+        def key_for(self, matcher, docid):
             d = self.segment_searcher.stored_fields(docid)
             return d.get(self.fieldname)
 
@@ -728,12 +763,9 @@ class MultiFacet(FacetType):
             for catter in self.catters:
                 catter.set_searcher(segment_searcher, docoffset)
 
-        def key_for_matcher(self, matcher):
-            return tuple(catter.key_for_matcher(matcher)
+        def key_for(self, matcher, docid):
+            return tuple(catter.key_for(matcher, docid)
                          for catter in self.catters)
-
-        def key_for_id(self, docid):
-            return tuple(catter.key_for_id(docid) for catter in self.catters)
 
 
 class Facets(object):
@@ -879,6 +911,9 @@ class OrderedList(FacetMap):
     def __init__(self):
         self.dict = defaultdict(list)
 
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.dict)
+
     def add(self, groupname, docid, sortkey):
         self.dict[groupname].append((sortkey, docid))
 
@@ -902,6 +937,9 @@ class UnorderedList(FacetMap):
     def __init__(self):
         self.dict = defaultdict(list)
 
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.dict)
+
     def add(self, groupname, docid, sortkey):
         self.dict[groupname].append(docid)
 
@@ -919,6 +957,9 @@ class Count(FacetMap):
     def __init__(self):
         self.dict = defaultdict(int)
 
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.dict)
+
     def add(self, groupname, docid, sortkey):
         self.dict[groupname] += 1
 
@@ -927,8 +968,8 @@ class Count(FacetMap):
 
 
 class Best(FacetMap):
-    """Stores the "best" document in each group (that is, the one that appears
-    highest in the results).
+    """Stores the "best" document in each group (that is, the one with the
+    highest sort key).
     
     The ``as_dict`` method returns a dictionary mapping group names to
     docnument numbers.
@@ -937,6 +978,9 @@ class Best(FacetMap):
     def __init__(self):
         self.bestids = {}
         self.bestkeys = {}
+
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.bestids)
 
     def add(self, groupname, docid, sortkey):
         if groupname not in self.bestids or sortkey < self.bestkeys[groupname]:
@@ -955,10 +999,9 @@ class Best(FacetMap):
 
 class Sorter(object):
     """This is a legacy interface. The functionality of the Sorter object was
-    moved into the :class:`FacetType` classes and the
-    :class:`whoosh.searching.Collector` in Whoosh 2.0. The old Sorter API is
-    still supported for backwards-compatibility, but it simply forwards to the
-    new API.
+    moved into the :class:`FacetType` classes in Whoosh 2.0. The old Sorter API
+    is still supported for backwards-compatibility, but it simply forwards to
+    the regular searching API.
     
     See :doc:`/facets` for information on the new API.
     """
@@ -972,8 +1015,7 @@ class Sorter(object):
 
     def sort_query(self, q, limit=None, reverse=False, filter=None, mask=None,
                    groupedby=None):
-        from whoosh.searching import Collector
+        return self.searcher.search(q, sortedby=self.multi, limit=limit,
+                                    reverse=reverse, filter=filter, mask=mask,
+                                    groupedby=groupedby)
 
-        collector = Collector(limit=limit, groupedby=groupedby)
-        return collector.sort(self.searcher, q, self.multi, reverse=reverse,
-                              allow=filter, restrict=mask)
