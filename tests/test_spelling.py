@@ -8,7 +8,7 @@ from whoosh.compat import u, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.support import dawg
-from whoosh.support.testing import TempStorage
+from whoosh.support.testing import TempStorage, TempIndex
 
 
 def words_to_corrector(words):
@@ -300,7 +300,52 @@ def test_find_self():
     assert_not_equal(gc.suggest("bone")[0], "bone")
 
 
+def test_suggest_prefix():
+    domain = ("Shoot To Kill",
+              "Bloom, Split and Deviate",
+              "Rankle the Seas and the Skies",
+              "Lightning Flash Flame Shell",
+              "Flower Wind Rage and Flower God Roar, Heavenly Wind Rage and "
+              "Heavenly Demon Sneer",
+              "All Waves, Rise now and Become my Shield, Lightning, Strike "
+              "now and Become my Blade",
+              "Cry, Raise Your Head, Rain Without end",
+              "Sting All Enemies To Death",
+              "Reduce All Creation to Ash",
+              "Sit Upon the Frozen Heavens",
+              "Call forth the Twilight")
 
+    schema = fields.Schema(content=fields.TEXT(stored=True, spelling=True),
+                           quick=fields.NGRAM(maxsize=10, stored=True))
+
+    with TempIndex(schema, "sugprefix") as ix:
+        with ix.writer() as w:
+            for item in domain:
+                content = u(item)
+                w.add_document(content=content, quick=content)
+
+        with ix.searcher() as s:
+            sugs = s.suggest("content", u("ra"), maxdist=2, prefix=2)
+            assert_equal(sugs, ['rage', 'rain'])
+
+            sugs = s.suggest("content", "ra", maxdist=2, prefix=1)
+            assert_equal(sugs, ["rage", "rain", "roar"])
+
+
+def test_prefix_address():
+    fieldtype = fields.TEXT(spelling=True)
+    schema = fields.Schema(f1=fieldtype, f2=fieldtype)
+    with TempIndex(schema, "prefixaddr") as ix:
+        with ix.writer() as w:
+            w.add_document(f1=u("aabc aawx aaqr aade"),
+                           f2=u("aa12 aa34 aa56 aa78"))
+
+        with ix.searcher() as s:
+            sugs = s.suggest("f1", u("aa"), maxdist=2, prefix=2)
+            assert_equal(sorted(sugs), ["aabc", "aade", "aaqr", "aawx"])
+
+            sugs = s.suggest("f2", u("aa"), maxdist=2, prefix=2)
+            assert_equal(sorted(sugs), ["aa12", "aa34", "aa56", "aa78"])
 
 
 
