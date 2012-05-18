@@ -15,8 +15,10 @@ def gwrite(keys, st=None):
     st = st or RamStorage()
     f = st.create_file("test")
     gw = dawg.GraphWriter(f)
+    gw.start_field("_")
     for key in keys:
         gw.insert(key)
+    gw.finish_field()
     gw.close()
     return st
 
@@ -40,6 +42,7 @@ def test_empty_fieldname():
 
 def test_empty_key():
     gw = dawg.GraphWriter(RamStorage().create_file("test"))
+    gw.start_field("_")
     assert_raises(KeyError, gw.insert, b(""))
     assert_raises(KeyError, gw.insert, "")
     assert_raises(KeyError, gw.insert, u(""))
@@ -49,6 +52,7 @@ def test_empty_key():
 def test_keys_out_of_order():
     f = RamStorage().create_file("test")
     gw = dawg.GraphWriter(f)
+    gw.start_field("test")
     gw.insert("alfa")
     assert_raises(KeyError, gw.insert, "abba")
 
@@ -134,8 +138,10 @@ def _fst_roundtrip(domain, t):
     with TempStorage() as st:
         f = st.create_file("test")
         gw = dawg.GraphWriter(f, vtype=t)
+        gw.start_field("_")
         for key, value in domain:
             gw.insert(key, value)
+        gw.finish_field()
         gw.close()
 
         f = st.open_file("test")
@@ -374,6 +380,7 @@ def test_insert_bytes():
 
     st = RamStorage()
     gw = dawg.GraphWriter(st.create_file("test"))
+    gw.start_field("test")
     for key in domain:
         gw.insert(key)
     gw.close()
@@ -390,6 +397,7 @@ def test_insert_unicode():
 
     st = RamStorage()
     gw = dawg.GraphWriter(st.create_file("test"))
+    gw.start_field("test")
     for key in domain:
         gw.insert(key)
     gw.close()
@@ -406,6 +414,7 @@ def test_within_unicode():
 
     st = RamStorage()
     gw = dawg.GraphWriter(st.create_file("test"))
+    gw.start_field("test")
     for key in domain:
         gw.insert(key)
     gw.close()

@@ -268,6 +268,7 @@ class W2FieldWriter(base.FieldWriter):
         self.inlinelimit = inlinelimit
         self.block = None
         self.terminfo = None
+        self._infield = False
 
     def _make_dawg_files(self):
         dawgfile = self.segment.create_file(self.storage, W2Codec.DAWG_EXT)
@@ -301,10 +302,13 @@ class W2FieldWriter(base.FieldWriter):
         self.field = fieldobj
         self.format = fieldobj.format
         self.spelling = fieldobj.spelling and not fieldobj.separate_spelling()
+        self._dawgfield = False
         if self.spelling or fieldobj.separate_spelling():
             if self.dawg is None:
                 self._make_dawg_files()
             self.dawg.start_field(fieldname)
+            self._dawgfield = True
+        self._infield = True
 
     def start_term(self, text):
         if self.block is not None:
@@ -358,8 +362,13 @@ class W2FieldWriter(base.FieldWriter):
         self.termsindex.add((self.fieldname, self.text), terminfo)
 
     def finish_field(self):
-        if self.dawg:
+        if not self._infield:
+            raise Exception("Called finish_field before start_field")
+        self._infield = False
+
+        if self._dawgfield:
             self.dawg.finish_field()
+            self._dawgfield = False
 
     def close(self):
         self.termsindex.close()
