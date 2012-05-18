@@ -114,7 +114,7 @@ class Block2(base.BlockBase):
         if postingsize == 0:
             return [None] * self.count
         else:
-            offset = self.dataoffset + self.idslen + self.weightslen
+            offset = self.dataoffset + self.idslen + self.wtslen
             self.postfile.seek(offset)
             string = self.postfile.read(self.nextoffset - offset)
             return deminimize_values(postingsize, self.count, string, self.cmp)
