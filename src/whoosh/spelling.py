@@ -170,10 +170,12 @@ def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
         dbfile = StructFile(dbfile)
 
     gw = dawg.GraphWriter(dbfile)
+    gw.start_field(fieldname)
     for word in wordlist:
         if strip:
             word = word.strip()
         gw.insert(word)
+    gw.finish_field()
     gw.close()
 
 
