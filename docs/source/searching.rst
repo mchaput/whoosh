@@ -64,8 +64,8 @@ given page::
 
     results = s.search_page(q, 1)
 
-The default page length is 10 hits. You can use the ``pagelen`` keyword argument
-to set a different page length::
+The default page length is 10 hits. You can use the ``pagelen`` keyword
+argument to set a different page length::
 
     results = s.search_page(q, 5, pagelen=20)
 
@@ -147,8 +147,162 @@ Highlighting snippets and More Like This
 See :doc:`highlight` and :doc:`keywords` for information on these topics.
 
 
-Convenience functions
+Filtering results
+=================
+
+You can use the ``filter`` keyword argument to ``search()`` to specify a set of
+documents to permit in the results. The argument can be a
+:class:`whoosh.query.Query` object, a :class:`whoosh.searching.Results` object,
+or a set-like object containing document numbers. The searcher caches filters
+so if for example you use the same query filter with a searcher multiple times,
+the additional searches will be faster because the searcher will cache the
+results of running the filter query
+
+You can also specify a ``mask`` keyword argument to specify a set of documents
+that are not permitted in the results.
+
+::
+    with myindex.searcher() as s:
+        qp = qparser.QueryParser("content", myindex.schema)
+        user_q = qp.parse(query_string)
+   
+        # Only show documents in the "rendering" chapter
+        allow_q = query.Term("chapter", "rendering")
+        # Don't show any documents where the "tag" field contains "todo"
+        restrict_q = query.Term("tag", "todo")
+      
+        results = s.search(user_q, filter=allow_q, mask=restrict_q)
+
+(If you specify both a ``filter`` and a ``mask``, and a matching document
+appears in both, the ``mask`` "wins" and the document is not permitted.)
+
+To find out how many results were filtered out of the results, use
+``results.filtered_count`` (or ``resultspage.results.filtered_count``)::
+
+    with myindex.searcher() as s:
+        qp = qparser.QueryParser("content", myindex.schema)
+        user_q = qp.parse(query_string)
+      
+        # Filter documents older than 7 days
+        old_q = query.DateRange("created", None, datetime.now() - timedelta(days=7))
+        results = s.search(user_q, mask=old_q)
+      
+        print("Filtered out %d older documents" % results.filtered_count)
+
+
+Which terms from my query matched?
+==================================
+
+You can use the ``terms=True`` keyword argument to ``search()`` to have the
+search record which terms in the query matched which documents::
+
+    with myindex.searcher() as s:
+        results = s.seach(myquery, terms=True)
+      
+You can then get information about which terms matched from the
+:class:`whoosh.searching.Results` and :class:`whoosh.searching.Hit` objects::
+
+    # Was this results object created with terms=True?
+    if results.has_matched_terms():
+        # What terms matched in the results?
+        print(results.matched_terms())
+        
+        # What terms matched in each hit?
+        for hit in results:
+            print(hit.matched_terms())
+
+
+.. _collapsing:
+
+Collapsing results
+==================
+
+Whoosh lets you eliminate all but the top N documents with the same facet key
+from the results. This can be useful in a few situations:
+
+* Eliminating duplicates at search time.
+
+* Restricting the number of matches per source. For example, in a web search
+  application, you might want to show at most three matches from any website.
+
+Whether a document should be collapsed is determined by the value of a
+"collapse facet". If a document has an empty collapse key, it will never be
+collapsed, but otherwise only the top N documents with the same collapse key
+will appear in the results.
+
+See :doc:`/facets` for information on facets.
+
+::
+    with myindex.searcher() as s:
+        # Set the facet to collapse on and the maximum number of documents per
+        # facet value (default is 1)
+        results = s.collector(collapse="hostname", collapse_limit=3)
+        
+        # Dictionary mapping collapse keys to the number of documents that
+        # were filtered out by collapsing on that key
+        print(results.collapsed_counts)
+
+Collapsing works with both scored and sorted results. You can use any of the
+facet types available in the :mod:`whoosh.sorting` module.
+
+By default, Whoosh uses the results order (score or sort key) to determine
+the documents to collapse. For example, in scored results, the best scoring
+documents would be kept. You can optionally specify a ``collapse_order`` facet
+to control which documents to keep when collapsing.
+
+For example, in a product search you could display results sorted by decreasing
+price, and eliminate all but the highest rated item of each product type::
+
+    from whoosh import sorting
+
+    with myindex.searcher() as s:
+        price_facet = sorting.FieldFacet("price", reverse=True)
+        type_facet = sorting.FieldFacet("type")
+        rating_facet = sorting.FieldFacet("rating", reverse=True)
+    
+        results = s.collector(sortedby=price_facet,  # Sort by reverse price
+                              collapse=type_facet,  # Collapse on product type
+                              collapse_order=rating_facet  # Collapse to highest rated
+                              )
+
+The collapsing happens during the search, so it is usually more efficient than
+finding everything and post-processing the results. However, if the collapsing
+eliminates a large number of documents, collapsed search can take longer
+because the search has to consider more documents and remove many
+already-collected documents.
+
+Since this collector must sometimes go back and remove already-collected
+documents, if you use it in combination with
+:class:`~whoosh.collectors.TermsCollector` and/or
+:class:`~whoosh.collectors.FacetCollector`, those collectors may contain
+information about documents that were filtered out of the final results by
+collapsing.
+
+
+Time limited searches
 =====================
+
+::
+    from whoosh.collectors import TimeLimitCollector, TimeLimit
+    
+    with myindex.searcher() as s:
+        # Get a collector object
+        c = s.collector(limit=None, sortedby="title_exact")
+        # Wrap it in a TimeLimitedCollector and set the time limit to 10 seconds
+        tlc = TimeLimitedCollector(c, timelimit=10.0)
+      
+        # Try searching
+        try:
+            s.search_with_collector(myquery, tlc)
+        except TimeLimit:
+            print("Search took too long, aborting!")
+
+        # You can still get partial results from the collector
+        results = tlc.results()
+
+
+Convenience methods
+===================
 
 The :meth:`~whoosh.searching.Searcher.document` and
 :meth:`~whoosh.searching.Searcher.documents` methods on the Searcher object let
@@ -163,7 +317,7 @@ and so on.
 >>> print searcher.document(path=u"/a/b/c")
 {"title": "Document C"}
 
-These convenience functions have some limitations:
+These methods have some limitations:
 
 * The results are not scored.
 * Multiple keywords are always AND-ed together.

@@ -1078,7 +1078,7 @@ def test_timelimit():
     w.commit()
 
     import time
-    from whoosh import matching
+    from whoosh import collectors, matching
 
     class SlowMatcher(matching.WrappingMatcher):
         def next(self):
@@ -1093,23 +1093,27 @@ def test_timelimit():
         oq = query.Term("text", u("alfa"))
         sq = SlowQuery(oq)
 
-        col = searching.Collector(timelimit=0.1, limit=None)
-        assert_raises(searching.TimeLimit, col.search, s, sq)
+        col = collectors.TimeLimitCollector(s.collector(limit=None),
+                                            timelimit=0.1)
+        assert_raises(searching.TimeLimit, s.search_with_collector, sq, col)
 
-        col = searching.Collector(timelimit=0.1, limit=40)
-        assert_raises(searching.TimeLimit, col.search, s, sq)
+        col = collectors.TimeLimitCollector(s.collector(limit=40),
+                                            timelimit=0.1)
+        assert_raises(collectors.TimeLimit, s.search_with_collector, sq, col)
 
-        col = searching.Collector(timelimit=0.25, limit=None)
+        col = collectors.TimeLimitCollector(s.collector(limit=None),
+                                            timelimit=0.25)
         try:
-            col.search(s, sq)
+            s.search_with_collector(sq, col)
             assert False  # Shouldn't get here
-        except searching.TimeLimit:
+        except collectors.TimeLimit:
             r = col.results()
             assert r.scored_length() > 0
 
-        col = searching.Collector(timelimit=0.5, limit=None)
-        r = col.search(s, oq)
-        assert r.runtime < 0.5
+        col = collectors.TimeLimitCollector(s.collector(limit=None),
+                                            timelimit=0.5)
+        s.search_with_collector(oq, col)
+        assert col.results().runtime < 0.5
 
 
 def test_fieldboost():
@@ -1275,6 +1279,83 @@ def test_too_many_prefix_positions():
         assert_equal([(i, [0]) for i in xrange(200)], items)
 
 
+def test_collapse():
+    from whoosh import collectors
+
+    domain = [("a", "blah blah blah", 5, "x"),
+              ("b", "blah", 3, "y"),
+              ("c", "blah blah blah blah", 2, "z"),
+              ("d", "blah blah", 4, "x"),
+              ("e", "bloop", 1, ""),
+              ("f", "blah blah blah blah blah", 6, "x"),
+              ("g", "blah", 8, "w"),
+              ("h", "blah blah", 7, "")]
+
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT,
+                           size=fields.NUMERIC,
+                           tag=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for id, text, size, tag in domain:
+            w.add_document(id=u(id), text=u(text), size=size, tag=u(tag))
+
+    with ix.searcher() as s:
+        q = query.Term("text", "blah")
+        r = s.search(q, limit=None)
+        assert_equal(" ".join(hit["id"] for hit in r), "f c a d h b g")
+
+        col = s.collector(limit=3)
+        col = collectors.CollapseCollector(col, "tag")
+        s.search_with_collector(q, col)
+        r = col.results()
+        assert_equal(" ".join(hit["id"] for hit in r), "f c h")
+
+        col = s.collector(limit=None)
+        col = collectors.CollapseCollector(col, "tag")
+        s.search_with_collector(q, col)
+        r = col.results()
+        assert_equal(" ".join(hit["id"] for hit in r), "f c h b g")
+
+        col = s.collector(sortedby="size")
+        col = collectors.CollapseCollector(col, "tag")
+        s.search_with_collector(query.Every(), col)
+        r = col.results()
+        assert_equal(" ".join(hit["id"] for hit in r), "e c b d h g")
+
+
+def test_collapse_order():
+    from whoosh import sorting
+
+    schema = fields.Schema(id=fields.STORED, price=fields.NUMERIC,
+                           rating=fields.NUMERIC, tag=fields.ID)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id="a", price=10, rating=1, tag=u("x"))
+        w.add_document(id="b", price=80, rating=3, tag=u("y"))
+        w.add_document(id="c", price=60, rating=1, tag=u("z"))
+        w.add_document(id="d", price=30, rating=2)
+        w.add_document(id="e", price=50, rating=3, tag=u("x"))
+        w.add_document(id="f", price=20, rating=1, tag=u("y"))
+        w.add_document(id="g", price=50, rating=2, tag=u("z"))
+        w.add_document(id="h", price=90, rating=5)
+        w.add_document(id="i", price=50, rating=5, tag=u("x"))
+        w.add_document(id="j", price=40, rating=1, tag=u("y"))
+        w.add_document(id="k", price=50, rating=4, tag=u("z"))
+        w.add_document(id="l", price=70, rating=2)
+
+    with ix.searcher() as s:
+        def check(kwargs, target):
+            r = s.search(query.Every(), limit=None, **kwargs)
+            assert_equal(" ".join(hit["id"] for hit in r), target)
+
+        price = sorting.FieldFacet("price", reverse=True)
+        rating = sorting.FieldFacet("rating", reverse=True)
+        tag = sorting.FieldFacet("tag")
+
+        check(dict(sortedby=price), "h b l c e g i k j d f a")
+        check(dict(sortedby=price, collapse=tag), "h b l c e d")
+        check(dict(sortedby=price, collapse=tag, collapse_order=rating),
+              "h b l i k d")
 
 
 
