@@ -57,10 +57,7 @@ class WrappingMatcher(mcore.Matcher):
     def replace(self, minquality=0):
         # Replace the child matcher
         r = self.child.replace(minquality)
-        if not r.is_active():
-            # If the replaced child is inactive, return an inactive matcher
-            return mcore.NullMatcher()
-        elif r is not self.child:
+        if r is not self.child:
             # If the child changed, return a new wrapper on the new child
             return self._replacement(r)
         else:
@@ -335,21 +332,22 @@ class InverseMatcher(WrappingMatcher):
     wrapped matcher.
     """
 
-    def __init__(self, child, limit, missing=None, weight=1.0):
+    def __init__(self, child, limit, missing=None, weight=1.0, id=0):
         super(InverseMatcher, self).__init__(child)
         self.limit = limit
         self._weight = weight
         self.missing = missing or (lambda id: False)
-        self._id = 0
+        self._id = id
         self._find_next()
 
     def copy(self):
         return self.__class__(self.child.copy(), self.limit,
-                              weight=self._weight, missing=self.missing)
+                              weight=self._weight, missing=self.missing,
+                              id=self._id)
 
     def _replacement(self, newchild):
         return self.__class__(newchild, self.limit, missing=self.missing,
-                              weight=self.weight)
+                              weight=self._weight, id=self._id)
 
     def is_active(self):
         return self._id < self.limit
@@ -366,9 +364,13 @@ class InverseMatcher(WrappingMatcher):
         child = self.child
         missing = self.missing
 
+        # If the current docnum isn't missing and the child matcher is
+        # exhausted (so we don't have to worry about skipping its matches), we
+        # don't have to do anything
         if not child.is_active() and not missing(self._id):
             return
 
+        # Catch the child matcher up to where this matcher is
         if child.is_active() and child.id() < self._id:
             child.skip_to(self._id)
 
@@ -389,10 +391,7 @@ class InverseMatcher(WrappingMatcher):
         return self._id
 
     def all_ids(self):
-        missing = self.missing
-        negs = set(self.child.all_ids())
-        return (id for id in xrange(self.limit)
-                if id not in negs and not missing(id))
+        return mcore.Matcher.all_ids(self)
 
     def next(self):
         if self._id >= self.limit:
