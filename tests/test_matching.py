@@ -3,7 +3,7 @@ from random import randint, choice, sample
 
 from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 
-from whoosh import fields, matching, query
+from whoosh import fields, matching, qparser, query
 from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import And, Term
@@ -77,13 +77,16 @@ def test_filter():
 
 
 def test_exclude():
-    em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
+    em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
+                                frozenset([2, 9]), exclude=True)
     assert_equal(list(em.all_ids()), [1, 5, 10])
 
-    em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
+    em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
+                                frozenset([2, 9]), exclude=True)
     assert_equal(list(em.all_ids()), [1, 5, 10])
 
-    em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]), frozenset([2, 9]), exclude=True)
+    em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
+                                frozenset([2, 9]), exclude=True)
     em.next()
     em.next()
     em = em.copy()
@@ -102,7 +105,8 @@ def test_simple_union():
     while um.is_active():
         ls.append((um.id(), um.score()))
         um.next()
-    assert_equal(ls, [(0, 1.0), (1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0), (90, 1.0)])
+    assert_equal(ls, [(0, 1.0), (1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0),
+                      (90, 1.0)])
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -240,7 +244,8 @@ def test_andmaybe():
 
 
 def test_intersection():
-    schema = fields.Schema(key=fields.ID(stored=True), value=fields.TEXT(stored=True))
+    schema = fields.Schema(key=fields.ID(stored=True),
+                           value=fields.TEXT(stored=True))
     st = RamStorage()
     ix = st.create_index(schema)
 
@@ -267,8 +272,8 @@ def test_intersection():
 
 def test_random_intersections():
     domain = [u("alpha"), u("bravo"), u("charlie"), u("delta"), u("echo"),
-              u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"), u("kilo"),
-              u("lima"), u("mike")]
+              u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"),
+              u("kilo"), u("lima"), u("mike")]
     segments = 5
     docsperseg = 50
     fieldlimits = (3, 10)
@@ -440,9 +445,37 @@ def test_current_terms():
     w.commit()
 
     with ix.searcher() as s:
-        q = query.And([query.Term("text", "alfa"), query.Term("text", "charlie")])
+        q = query.And([query.Term("text", "alfa"),
+                       query.Term("text", "charlie")])
         m = q.matcher(s)
 
         while m.is_active():
-            assert_equal(sorted(m.matching_terms()), [("text", "alfa"), ("text", "charlie")])
+            assert_equal(sorted(m.matching_terms()),
+                         [("text", "alfa"), ("text", "charlie")])
             m.next()
+
+
+def test_exclusion():
+    from datetime import datetime
+
+    schema = fields.Schema(id=fields.ID(stored=True), date=fields.DATETIME)
+    ix = RamStorage().create_index(schema)
+    dt1 = datetime(1950, 1, 1)
+    dt2 = datetime(1960, 1, 1)
+    with ix.writer() as w:
+        # Make 39 documents with dates != dt1 and then make a last document
+        # with feed == dt1.
+        for i in xrange(40):
+            w.add_document(id=u(str(i)), date=(dt2 if i >= 1 else dt1))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("id", schema)
+        # Find documents where date != dt1
+        q = qp.parse("NOT (date:(19500101000000))")
+
+        r = s.search(q, limit=None)
+        assert_equal(len(r), 39)  # Total number of matched documents
+        assert_equal(r.scored_length(), 39)  # Number of docs in the results
+
+
+
