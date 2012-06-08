@@ -1,6 +1,7 @@
 from __future__ import with_statement
 from datetime import datetime, timedelta
 import random
+import gc
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
@@ -113,6 +114,7 @@ def test_persistent_cache():
     with ix.reader() as r:
         _ = r.fieldcache("id")
         del _
+    gc.collect()
 
     ix = st.open_index()
     with ix.reader() as r:
@@ -138,6 +140,7 @@ def test_float_cache():
             r.fieldcache("num")
             assert r.fieldcache_loaded("num")
             r.unload_fieldcache("num")
+            gc.collect()
             assert not r.fieldcache_loaded("num")
             assert r.fieldcache_available("num")
 
@@ -162,6 +165,7 @@ def test_long_cache():
             r.fieldcache("num")
             assert r.fieldcache_loaded("num")
             r.unload_fieldcache("num")
+            gc.collect()
             assert not r.fieldcache_loaded("num")
             assert r.fieldcache_available("num")
 
@@ -190,7 +194,6 @@ def test_shared_cache():
         r1.close()
         r2.close()
         del r1, fc1, r2, fc2
-        import gc
         gc.collect()
 
         assert not r3.fieldcache_loaded("id")
