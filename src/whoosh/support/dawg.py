@@ -891,7 +891,8 @@ class UncompiledNode(object):
 
 
 class Arc(object):
-    """Represents a directed arc between two nodes in an FSA/FST graph.
+    """
+    Represents a directed arc between two nodes in an FSA/FST graph.
     
     The ``lastarc`` attribute is True if this is the last outgoing arc from the
     previous node.
@@ -903,12 +904,12 @@ class Arc(object):
     def __init__(self, label=None, target=None, value=None, accept=False,
                  acceptval=None):
         """
-        :param label:The label bytes for this arc. For a word graph, this will
+        :param label: The label bytes for this arc. For a word graph, this will
             be a character.
         :param target: The address of the node at the endpoint of this arc.
         :param value: The inner FST value at the endpoint of this arc.
         :param accept: Whether the endpoint of this arc is an accept state
-            (eg the end of a valid word).
+            (e.g. the end of a valid word).
         :param acceptval: If the endpoint of this arc is an accept state, the
             final FST value for that accepted state.
         """
