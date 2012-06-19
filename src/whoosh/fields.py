@@ -120,7 +120,6 @@ class FieldType(object):
     def __init__(self, format, analyzer, vector=None, scorable=False,
                  stored=False, unique=False, multitoken_query="default"):
         assert isinstance(format, formats.Format)
-        assert isinstance(analyzer, Analyzer)
 
         self.format = format
         self.analyzer = analyzer
