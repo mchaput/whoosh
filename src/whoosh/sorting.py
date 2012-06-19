@@ -531,7 +531,7 @@ class DateRangeFacet(RangeFacet):
         startdate = datetime(1920, 0, 0)
         enddate = datetime.now()
         gap = relativedelta(years=5)
-        bdays = RangeFacet("birthday", startdate, enddate, gap)
+        bdays = DateRangeFacet("birthday", startdate, enddate, gap)
         results = searcher.search(myquery, groupedby=bdays)
         
     The ranges/buckets are always **inclusive** at the start and **exclusive**

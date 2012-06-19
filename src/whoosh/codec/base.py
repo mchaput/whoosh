@@ -659,29 +659,29 @@ class Segment(object):
 
     def doc_count_all(self):
         """
-        :returns: the total number of documents, DELETED OR UNDELETED, in this
-            segment.
+        Returns the total number of documents, DELETED OR UNDELETED, in this
+        segment.
         """
 
         raise NotImplementedError
 
     def doc_count(self):
         """
-        :returns: the number of (undeleted) documents in this segment.
+        Returns the number of (undeleted) documents in this segment.
         """
 
         raise NotImplementedError
 
     def has_deletions(self):
         """
-        :returns: True if any documents in this segment are deleted.
+        Returns True if any documents in this segment are deleted.
         """
 
         raise NotImplementedError
 
     def deleted_count(self):
         """
-        :returns: the total number of deleted documents in this segment.
+        Returns the total number of deleted documents in this segment.
         """
 
         raise NotImplementedError
@@ -697,7 +697,9 @@ class Segment(object):
         raise NotImplementedError
 
     def is_deleted(self, docnum):
-        """:returns: True if the given document number is deleted."""
+        """
+        Returns True if the given document number is deleted.
+        """
 
         raise NotImplementedError
 

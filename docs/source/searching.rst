@@ -83,9 +83,9 @@ display to the user.
 >>> results[0:2]
 [{"title": u"Hello World in Python", "path": u"/a/b/c"}, {"title": u"Foo", "path": u"/bar"}]
 
-By default, ``Searcher.search(myquery)`` limits the number of hits to 20, So
-the number of scored hits in the ``Results`` object may be less than the number
-of matching documents in the index.
+By default, ``Searcher.search(myquery)`` limits the number of hits to 20, So the
+number of scored hits in the ``Results`` object may be less than the number of
+matching documents in the index.
 
 >>> # How many documents in the entire index would have matched?
 >>> len(results)
@@ -99,11 +99,11 @@ of matching documents in the index.
 Calling ``len(Results)`` runs a fast (unscored) version of the query again to
 figure out the total number of matching documents. This is usually very fast
 but for large indexes it can cause a noticeable delay. If you want to avoid
-this dalay on very large indexes, you can use the
+this delay on very large indexes, you can use the
 :meth:`~whoosh.searching.Results.has_exact_length`,
-:meth:`~whoosh.searching.Results.estimated_length`,
-and :meth:`~whoosh.searching.Results.estimated_min_length` methods to estimate
-the number of matching documents without calling ``len()``::
+:meth:`~whoosh.searching.Results.estimated_length`, and
+:meth:`~whoosh.searching.Results.estimated_min_length` methods to estimate the
+number of matching documents without calling ``len()``::
 
     found = results.scored_length()
     if results.has_exact_length():
@@ -334,10 +334,10 @@ order of a :class:`whoosh.searching.Results` object.
 
 For example, you might have a "best bet" field. This field contains hand-picked
 keywords for documents. When the user searches for those keywords, you want
-those documents to be placed at the top of the results list. You could try to do
-this by boosting the "bestbet" field tremendously, but that can have
-unpredictable effects on scoring. It's much easier to simply run the query twice
-and combine the results::
+those documents to be placed at the top of the results list. You could try to
+do this by boosting the "bestbet" field tremendously, but that can have
+unpredictable effects on scoring. It's much easier to simply run the query
+twice and combine the results::
 
     # Parse the user query
     userquery = queryparser.parse(querystring)
@@ -372,12 +372,12 @@ The Results object supports the following methods:
     Removes the documents in 'results' from the list of result documents.
 
 ``Results.upgrade(results)``
-    Any result documents that also appear in 'results' are moved to the top of
-    the list of result documents.
+    Any result documents that also appear in 'results' are moved to the top
+    of the list of result documents.
 
 ``Results.upgrade_and_extend(results)``
-    Any result documents that also appear in 'results' are moved to the top of
-    the list of result documents. Then any other documents in 'results' are
+    Any result documents that also appear in 'results' are moved to the top
+    of the list of result documents. Then any other documents in 'results' are
     added on to the list of result documents.
 
 
