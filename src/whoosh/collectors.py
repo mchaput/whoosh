@@ -833,9 +833,8 @@ class CollapseCollector(WrappingCollector):
 
 class TimeLimitCollector(WrappingCollector):
     """A collector that raises a :class:`TimeLimit` exception if the search
-    does not complete within a certain number of seconds.
+    does not complete within a certain number of seconds::
     
-    ::
         uc = collectors.UnlimitedCollector()
         tlc = TimeLimitedCollector(uc, timelimit=5.8)
         try:

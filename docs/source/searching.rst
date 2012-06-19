@@ -282,7 +282,8 @@ collapsing.
 Time limited searches
 =====================
 
-::
+To limit the amount of time a search can take::
+
     from whoosh.collectors import TimeLimitCollector, TimeLimit
     
     with myindex.searcher() as s:
