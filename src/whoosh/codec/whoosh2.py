@@ -208,16 +208,6 @@ class W2PerDocWriter(base.PerDocumentWriter):
         # Add to the index
         self.vindex.add((self.docnum, fieldname), startoffset)
 
-    def add_vector_matcher(self, fieldname, fieldobj, vmatcher):
-        def readitems():
-            while vmatcher.is_active():
-                text = vmatcher.id()
-                weight = vmatcher.weight()
-                valuestring = vmatcher.value()
-                yield (text, None, weight, valuestring)
-                vmatcher.next()
-        self.add_vector_items(fieldname, fieldobj, readitems())
-
     def finish_doc(self):
         self.stored.add(self.storedfields)
         self.storedfields = None
