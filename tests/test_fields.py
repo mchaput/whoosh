@@ -438,6 +438,34 @@ def test_boolean3():
         assert_equal(ts, ["with hardcopy"])
 
 
+def test_boolean_strings():
+    schema = fields.Schema(i=fields.STORED, b=fields.BOOLEAN(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(i=0, b="true")
+        w.add_document(i=1, b="True")
+        w.add_document(i=2, b="false")
+        w.add_document(i=3, b="False")
+        w.add_document(i=4, b=u("true"))
+        w.add_document(i=5, b=u("True"))
+        w.add_document(i=6, b=u("false"))
+        w.add_document(i=7, b=u("False"))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("b", ix.schema)
+        def check(qs, nums):
+            q = qp.parse(qs)
+            r = s.search(q, limit=None)
+            assert_equal([hit["i"] for hit in r], nums)
+
+        trues = [0, 1, 4, 5]
+        falses = [2, 3, 6, 7]
+        check("true", trues)
+        check("True", trues)
+        check("false", falses)
+        check("False", falses)
+
+
 def test_missing_field():
     schema = fields.Schema()
     ix = RamStorage().create_index(schema)
