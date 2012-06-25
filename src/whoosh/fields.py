@@ -683,7 +683,10 @@ class BOOLEAN(FieldType):
         return self.strings[int(bit)]
 
     def index(self, bit, **kwargs):
-        bit = bool(bit)
+        if isinstance(bit, string_type):
+            bit = bit.lower() in self.trues
+        else:
+            bit = bool(bit)
         # word, freq, weight, valuestring
         return [(self.strings[int(bit)], 1, 1.0, '')]
 

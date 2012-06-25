@@ -438,6 +438,88 @@ def test_boolean3():
         assert_equal(ts, ["with hardcopy"])
 
 
+def test_boolean_strings():
+    schema = fields.Schema(i=fields.STORED, b=fields.BOOLEAN(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(i=0, b="true")
+        w.add_document(i=1, b="True")
+        w.add_document(i=2, b="false")
+        w.add_document(i=3, b="False")
+        w.add_document(i=4, b=u("true"))
+        w.add_document(i=5, b=u("True"))
+        w.add_document(i=6, b=u("false"))
+        w.add_document(i=7, b=u("False"))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("b", ix.schema)
+
+        def check(qs, nums):
+            q = qp.parse(qs)
+            r = s.search(q, limit=None)
+            assert_equal([hit["i"] for hit in r], nums)
+
+        trues = [0, 1, 4, 5]
+        falses = [2, 3, 6, 7]
+        check("true", trues)
+        check("True", trues)
+        check("false", falses)
+        check("False", falses)
+        check("t", trues)
+        check("f", falses)
+
+
+def test_boolean_find_deleted():
+    # "Random" string of ones and zeros representing deleted and undeleted
+    domain = "1110001010001110010101000101001011101010001011111101000101010101"
+
+    schema = fields.Schema(i=fields.STORED, b=fields.BOOLEAN(stored=True))
+    ix = RamStorage().create_index(schema)
+    count = 0
+    # Create multiple segments just in case
+    for _ in xrange(5):
+        w = ix.writer()
+        for c in domain:
+            w.add_document(i=count, b=(c == "1"))
+        w.commit(merge=False)
+
+    # Delete documents where "b" is True
+    with ix.writer() as w:
+        w.delete_by_term("b", "t")
+
+    with ix.searcher() as s:
+        # Double check that documents with b=True are all deleted
+        reader = s.reader()
+        for docnum in xrange(s.doc_count_all()):
+            b = s.stored_fields(docnum)["b"]
+            assert_equal(b, reader.is_deleted(docnum))
+
+        # Try doing a search for documents where b=True
+        qp = qparser.QueryParser("b", ix.schema)
+        q = qp.parse("b:t")
+        r = s.search(q, limit=None)
+        assert_equal(len(r), 0)
+
+        # Make sure Every query doesn't match deleted docs
+        r = s.search(qp.parse("*"), limit=None)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+        r = s.search(qp.parse("*:*"), limit=None)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+        # Make sure Not query doesn't match deleted docs
+        q = qp.parse("NOT b:t")
+        r = s.search(q, limit=None)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+        r = s.search(q, limit=5)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+
 def test_missing_field():
     schema = fields.Schema()
     ix = RamStorage().create_index(schema)
