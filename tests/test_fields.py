@@ -453,6 +453,7 @@ def test_boolean_strings():
 
     with ix.searcher() as s:
         qp = qparser.QueryParser("b", ix.schema)
+
         def check(qs, nums):
             q = qp.parse(qs)
             r = s.search(q, limit=None)
@@ -464,6 +465,40 @@ def test_boolean_strings():
         check("True", trues)
         check("false", falses)
         check("False", falses)
+        check("t", trues)
+        check("f", falses)
+
+
+def test_boolean_find_deleted():
+    # "Random" string of ones and zeros representing deleted and undeleted
+    domain = "1110001010001110010101000101001011101010001011111101000101010101"
+
+    schema = fields.Schema(i=fields.STORED, b=fields.BOOLEAN(stored=True))
+    ix = RamStorage().create_index(schema)
+    count = 0
+    # Create multiple segments just in case
+    for _ in xrange(5):
+        w = ix.writer()
+        for c in domain:
+            w.add_document(i=count, b=(c == "1"))
+        w.commit(merge=False)
+
+    # Delete documents where "b" is True
+    with ix.writer() as w:
+        w.delete_by_term("b", "t")
+
+    with ix.searcher() as s:
+        # Double check that documents with b=True are all deleted
+        reader = s.reader()
+        for docnum in xrange(s.doc_count_all()):
+            b = s.stored_fields(docnum)["b"]
+            assert_equal(b, reader.is_deleted(docnum))
+
+        # Try doing a search for documents where b=True
+        qp = qparser.QueryParser("b", ix.schema)
+        q = qp.parse("b:t")
+        r = s.search(q)
+        assert_equal(len(r), 0)
 
 
 def test_missing_field():
