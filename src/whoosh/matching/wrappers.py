@@ -370,6 +370,10 @@ class InverseMatcher(WrappingMatcher):
         if not child.is_active() and not missing(self._id):
             return
 
+        # Skip missing documents
+        while self._id < self.limit and missing(self._id):
+            self._id += 1
+
         # Catch the child matcher up to where this matcher is
         if child.is_active() and child.id() < self._id:
             child.skip_to(self._id)

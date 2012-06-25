@@ -497,8 +497,27 @@ def test_boolean_find_deleted():
         # Try doing a search for documents where b=True
         qp = qparser.QueryParser("b", ix.schema)
         q = qp.parse("b:t")
-        r = s.search(q)
+        r = s.search(q, limit=None)
         assert_equal(len(r), 0)
+
+        # Make sure Every query doesn't match deleted docs
+        r = s.search(qp.parse("*"), limit=None)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+        r = s.search(qp.parse("*:*"), limit=None)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+        # Make sure Not query doesn't match deleted docs
+        q = qp.parse("NOT b:t")
+        r = s.search(q, limit=None)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
+
+        r = s.search(q, limit=5)
+        assert not any(hit["b"] for hit in r)
+        assert not any(reader.is_deleted(hit.docnum) for hit in r)
 
 
 def test_missing_field():
