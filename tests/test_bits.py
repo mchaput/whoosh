@@ -1,6 +1,7 @@
 from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh.support.bitvector import BitSet, SortedIntSet
+from whoosh.filedb.filestore import RamStorage
+from whoosh.support.bitvector import BitSet, OnDiskBitSet, SortedIntSet
 
 
 def test_bit_basics(c=BitSet):
@@ -160,8 +161,31 @@ def test_sortedintset():
     test_before_after(SortedIntSet)
 
 
+def test_ondisk():
+    bs = BitSet([10, 11, 30, 50, 80])
 
+    st = RamStorage()
+    f = st.create_file("test")
+    size = bs.to_disk(f)
+    f.close()
 
+    f = st.open_file("test")
+    b = OnDiskBitSet(f, size)
+    assert_equal(list(b), list(bs))
+
+    assert_equal(b.after(0), 10)
+    assert_equal(b.after(10), 11)
+    assert_equal(b.after(80), None)
+    assert_equal(b.after(99), None)
+
+    assert_equal(b.before(0), None)
+    assert_equal(b.before(99), 80)
+    assert_equal(b.before(80), 50)
+    assert_equal(b.before(10), None)
+
+    f.seek(0)
+    b = BitSet.from_disk(f, size)
+    assert_equal(list(b), list(bs))
 
 
 
