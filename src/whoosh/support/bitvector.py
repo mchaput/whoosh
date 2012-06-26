@@ -144,7 +144,146 @@ class DocIdSet(object):
         raise NotImplementedError
 
 
-class BitSet(DocIdSet):
+class BaseBitSet(DocIdSet):
+    # Methods to override
+
+    def byte_count(self):
+        raise NotImplementedError
+
+    def _get_byte(self, i):
+        raise NotImplementedError
+
+    def _iter_bytes(self):
+        raise NotImplementedError
+
+    # Base implementations
+
+    def __len__(self):
+        return sum(_1SPERBYTE[b] for b in self._iter_bytes())
+
+    def __iter__(self):
+        base = 0
+        for byte in self._iter_bytes():
+            for i in xrange(8):
+                if byte & (1 << i):
+                    yield base + i
+            base += 8
+
+    def __nonzero__(self):
+        return any(n for n in self._iter_bytes())
+
+    __bool__ = __nonzero__
+
+    def __contains__(self, i):
+        bucket = i // 8
+        if bucket >= self.byte_count():
+            return False
+        return bool(self._get_byte(bucket) & (1 << (i & 7)))
+
+    def first(self):
+        return self.after(-1)
+
+    def last(self):
+        return self.before(self.byte_count() * 8 + 1)
+
+    def before(self, i):
+        _get_byte = self._get_byte
+        size = self.byte_count() * 8
+
+        if i <= 0:
+            return None
+        elif i >= size:
+            i = size - 1
+        else:
+            i -= 1
+        bucket = i // 8
+
+        while i >= 0:
+            byte = _get_byte(bucket)
+            if not byte:
+                bucket -= 1
+                i = bucket * 8 + 7
+                continue
+            if byte & (1 << (i & 7)):
+                return i
+            if i % 8 == 0:
+                bucket -= 1
+            i -= 1
+
+        return None
+
+    def after(self, i):
+        _get_byte = self._get_byte
+        size = self.byte_count() * 8
+
+        if i >= size:
+            return None
+        elif i < 0:
+            i = 0
+        else:
+            i += 1
+        bucket = i // 8
+
+        while i < size:
+            byte = _get_byte(bucket)
+            if not byte:
+                bucket += 1
+                i = bucket * 8
+                continue
+            if byte & (1 << (i & 7)):
+                return i
+            i += 1
+            if i % 8 == 0:
+                bucket += 1
+
+        return None
+
+
+class OnDiskBitSet(BaseBitSet):
+    """A DocIdSet backed by an array of bits on disk.
+    
+    >>> st = RamStorage()
+    >>> f = st.create_file("test.bin")
+    >>> bs = BitSet([1, 10, 15, 7, 2])
+    >>> bytecount = bs.to_disk(f)
+    >>> f.close()
+    >>> # ...
+    >>> f = st.open_file("test.bin")
+    >>> odbs = OnDiskBitSet(f, bytecount)
+    >>> list(odbs)
+    [1, 2, 7, 10, 15]
+    """
+
+    def __init__(self, dbfile, bytecount, basepos=0):
+        """
+        :param dbfile: a :class:`~whoosh.filedb.structfile.StructFile` object
+            to read from.
+        :param bytecount: the number of bytes to use for the bit array.
+        :param basepos: the base position of the bytes in the given file.
+        """
+
+        self._dbfile = dbfile
+        self._basepos = basepos
+        self._bytecount = bytecount
+
+    def __repr__(self):
+        return "%s(%s, %d, %d)" % (self.__class__.__name__, self.dbfile,
+                                   self._basepos, self.bytecount)
+
+    def byte_count(self):
+        return self._bytecount
+
+    def _get_byte(self, n):
+        return self._dbfile.get_byte(self._basepos + n)
+
+    def _iter_bytes(self):
+        dbfile = self._dbfile
+        dbfile.seek(self._basepos)
+        for _ in xrange(self._bytecount):
+            yield dbfile.read_byte()
+
+
+class BitSet(BaseBitSet):
     """A DocIdSet backed by an array of bits. This can also be useful as a bit
     array (e.g. for a Bloom filter). It is much more memory efficient than a
     large built-in set of integers, but wastes memory for sparse sets.
@@ -161,21 +300,25 @@ class BitSet(DocIdSet):
         # If the source is a list, tuple, or set, we can guess the size
         if not size and isinstance(source, (list, tuple, set, frozenset)):
             size = max(source)
-        self.bits = array("B", (0 for _ in xrange(size // 8 + 1)))
+        bytecount = self.bytes_required(size)
+        self.bits = array("B", (0 for _ in xrange(bytecount)))
 
         if source:
             add = self.add
             for num in source:
                 add(num)
 
-    def copy(self):
-        b = self.__class__()
-        b.bits = array("B", self.bits)
-        return b
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, list(self))
 
-    def clear(self):
-        for i in xrange(len(self.bits)):
-            self.bits[i] = 0
+    def byte_count(self):
+        return len(self.bits)
+
+    def _get_byte(self, n):
+        return self.bits[n]
+
+    def _iter_bytes(self):
+        return iter(self.bits)
 
     def _trim(self):
         bits = self.bits
@@ -212,30 +355,28 @@ class BitSet(DocIdSet):
         obj._trim()
         return obj
 
-    def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, list(self))
+    def to_disk(self, dbfile):
+        dbfile.write_array(self.bits)
+        return len(self.bits)
 
-    def __len__(self):
-        return sum(_1SPERBYTE[b] for b in self.bits)
+    @classmethod
+    def from_disk(cls, dbfile, bytecount):
+        b = cls()
+        b.bits = dbfile.read_array("B", bytecount)
+        return b
 
-    def __iter__(self):
-        base = 0
-        for byte in self.bits:
-            for i in xrange(8):
-                if byte & (1 << i):
-                    yield base + i
-            base += 8
+    @classmethod
+    def bytes_required(cls, maxnum):
+        return maxnum // 8 + 1
 
-    def __nonzero__(self):
-        return any(n for n in self.bits)
+    def copy(self):
+        b = self.__class__()
+        b.bits = array("B", iter(self.bits))
+        return b
 
-    __bool__ = __nonzero__
-
-    def __contains__(self, i):
-        bucket = i // 8
-        if bucket >= len(self.bits):
-            return False
-        return bool(self.bits[bucket] & (1 << (i & 7)))
+    def clear(self):
+        for i in xrange(len(self.bits)):
+            self.bits[i] = 0
 
     def add(self, i):
         bucket = i >> 3
@@ -296,62 +437,6 @@ class BitSet(DocIdSet):
         if isinstance(other, BitSet):
             return self._logic(self.copy(), lambda x, y: x & ~y, other)
         return BitSet(source=(n for n in self if n not in other))
-
-    def first(self):
-        return self.after(-1)
-
-    def last(self):
-        return self.before(len(self.bits) * 8 + 1)
-
-    def before(self, i):
-        bits = self.bits
-        size = len(bits) * 8
-        if i <= 0:
-            return None
-        elif i >= size:
-            i = size - 1
-        else:
-            i -= 1
-        bucket = i // 8
-
-        while i >= 0:
-            byte = bits[bucket]
-            if not byte:
-                bucket -= 1
-                i = bucket * 8 + 7
-                continue
-            if byte & (1 << (i & 7)):
-                return i
-            if i % 8 == 0:
-                bucket -= 1
-            i -= 1
-
-        return None
-
-    def after(self, i):
-        bits = self.bits
-        size = len(bits) * 8
-        if i >= size:
-            return None
-        elif i < 0:
-            i = 0
-        else:
-            i += 1
-        bucket = i // 8
-
-        while i < size:
-            byte = bits[bucket]
-            if not byte:
-                bucket += 1
-                i = bucket * 8
-                continue
-            if byte & (1 << (i & 7)):
-                return i
-            i += 1
-            if i % 8 == 0:
-                bucket += 1
-
-        return None
 
 
 class SortedIntSet(DocIdSet):

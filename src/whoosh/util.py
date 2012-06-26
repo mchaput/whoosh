@@ -29,10 +29,7 @@
 """
 
 from __future__ import with_statement
-import codecs
-import re
-import sys
-import time
+import codecs, math, re, sys, time
 from array import array
 from bisect import insort, bisect_left, bisect_right
 from copy import copy
@@ -103,6 +100,21 @@ def make_weighted_tree(fn, ls, **kwargs):
         b = ls.pop(0)
         insort(ls, (a[0] + b[0], fn(a[1], b[1])))
     return ls[0][1]
+
+
+def bits_required(maxnum):
+    """Returns the number of bits required to represent the given (unsigned)
+    integer.
+    """
+
+    return max(1, math.ceil(math.log(maxnum, 2)))
+
+def max_value(bitcount):
+    """Returns the maximum (unsigned) integer representable in the given number
+    of bits.
+    """
+
+    return ~(~0 << bitcount)
 
 
 # Varint cache
