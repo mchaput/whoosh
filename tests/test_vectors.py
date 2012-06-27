@@ -5,7 +5,7 @@ from nose.tools import assert_equal  # @UnresolvedImport
 from whoosh import fields, formats
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 
 
 def test_single_term():

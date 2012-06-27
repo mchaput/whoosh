@@ -28,11 +28,11 @@
 from __future__ import with_statement
 from bisect import bisect_right
 
+from whoosh.externalsort import SortingPool
 from whoosh.fields import UnknownFieldError
 from whoosh.store import LockError
-from whoosh.support.filelock import try_for
-from whoosh.support.externalsort import SortingPool
 from whoosh.util import fib
+from whoosh.util.filelock import try_for
 from whoosh.writing import IndexWriter, IndexingError
 
 
@@ -86,7 +86,7 @@ def OPTIMIZE(writer, segments):
 
 
 class PostingPool(SortingPool):
-    # Subclass whoosh.support.externalsort.SortingPool to use knowledge of
+    # Subclass whoosh.externalsort.SortingPool to use knowledge of
     # postings to set run size in bytes instead of items
 
     def __init__(self, limitmb=128, **kwargs):
@@ -543,7 +543,7 @@ def add_spelling(ix, fieldnames, commit=True):
     """
 
     from whoosh.filedb.filereading import SegmentReader
-    from whoosh.support import dawg
+    from whoosh import fst
 
     writer = ix.writer()
     storage = writer.storage
@@ -553,7 +553,7 @@ def add_spelling(ix, fieldnames, commit=True):
     for segment in segments:
         r = SegmentReader(storage, schema, segment)
         f = segment.create_file(storage, ".dag")
-        gw = dawg.GraphWriter(f)
+        gw = fst.GraphWriter(f)
         for fieldname in fieldnames:
             gw.start_field(fieldname)
             for word in r.lexicon(fieldname):

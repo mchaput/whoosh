@@ -1,11 +1,11 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, qparser
 from whoosh.compat import u, unichr
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.testing import skip_if_unavailable
+from whoosh.util.testing import skip_if_unavailable
 
 
 def test_regextokenizer():

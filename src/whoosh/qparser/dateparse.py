@@ -33,9 +33,9 @@ from whoosh.compat import string_type, iteritems
 from whoosh.qparser import plugins, syntax
 from whoosh.qparser.taggers import Tagger
 from whoosh.support.relativedelta import relativedelta
-from whoosh.support.times import (adatetime, timespan, fill_in, is_void,
-                                  TimeError, relative_days)
-from whoosh.util import rcompile
+from whoosh.util.text import rcompile
+from whoosh.util.times import (adatetime, timespan, fill_in, is_void,
+                               TimeError, relative_days)
 
 
 class DateParseError(Exception):

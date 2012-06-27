@@ -32,7 +32,7 @@ from multiprocessing import Process, Queue, cpu_count
 from whoosh.compat import xrange, iteritems, pickle
 from whoosh.codec import base
 from whoosh.filedb.filewriting import PostingPool, SegmentWriter
-from whoosh.support.externalsort import imerge
+from whoosh.externalsort import imerge
 
 
 def finish_subsegment(writer, k=64):

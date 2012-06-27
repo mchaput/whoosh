@@ -7,7 +7,7 @@ from whoosh.compat import xrange, u
 from whoosh.codec import default_codec
 from whoosh.formats import (Characters, CharacterBoosts, Existence, Frequency,
                             Positions, PositionBoosts)
-from whoosh.support.testing import TempStorage
+from whoosh.util.testing import TempStorage
 
 
 def _roundtrip(content, format_, astype, ana=None):

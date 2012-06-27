@@ -29,10 +29,10 @@ import os
 from threading import Lock
 
 from whoosh.compat import BytesIO
+from whoosh.filedb.structfile import StructFile
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.store import Storage
-from whoosh.support.filelock import FileLock
-from whoosh.filedb.structfile import StructFile
+from whoosh.util.filelock import FileLock
 
 
 class ReadOnlyError(Exception):

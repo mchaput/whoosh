@@ -4,7 +4,7 @@ from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields
 from whoosh.compat import u
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 
 
 def test_addfield():

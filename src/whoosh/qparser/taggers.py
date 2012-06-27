@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.util import rcompile
+from whoosh.util.text import rcompile
 
 
 # Tagger objects

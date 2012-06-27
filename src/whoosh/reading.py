@@ -34,7 +34,6 @@ from heapq import heapify, heapreplace, heappop, nlargest
 
 from whoosh.compat import xrange, zip_, next
 from whoosh.support.levenshtein import distance
-from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
 from whoosh.compat import abstractmethod
 
@@ -111,12 +110,18 @@ class TermInfo(object):
 
 # Reader base class
 
-class IndexReader(ClosableMixin):
+class IndexReader(object):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
     def is_atomic(self):
         return True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     @abstractmethod
     def __contains__(self, term):
@@ -423,7 +428,7 @@ class IndexReader(ClosableMixin):
         return False
 
     def word_graph(self, fieldname):
-        """Returns the root :class:`whoosh.support.dawg.Node` for the given
+        """Returns the root :class:`whoosh.fst.Node` for the given
         field, if the field has a stored word graph (otherwise raises an
         exception). You can check whether a field has a word graph using
         :meth:`IndexReader.has_word_graph`.
@@ -798,7 +803,7 @@ class MultiReader(IndexReader):
         return any(r.has_word_graph(fieldname) for r in self.readers)
 
     def word_graph(self, fieldname):
-        from whoosh.support.dawg import UnionNode
+        from whoosh.fst import UnionNode
         from whoosh.util import make_binary_tree
 
         if not self.has_word_graph(fieldname):
@@ -815,7 +820,8 @@ class MultiReader(IndexReader):
     def terms_within(self, fieldname, text, maxdist, prefix=0):
         tset = set()
         for r in self.readers:
-            tset.update(r.terms_within(fieldname, text, maxdist, prefix=prefix))
+            tset.update(r.terms_within(fieldname, text, maxdist,
+                                       prefix=prefix))
         return tset
 
     def format(self, fieldname):

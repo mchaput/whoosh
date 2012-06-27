@@ -31,17 +31,16 @@
 
 from __future__ import division
 import copy
-import threading
 import weakref
 from collections import defaultdict
-from heapq import heappush, heapreplace, nlargest, nsmallest
 from math import ceil
 
 from whoosh import classify, highlight, query, scoring, sorting
 from whoosh.compat import iteritems, itervalues, iterkeys, xrange
+from whoosh.idsets import DocIdSet, BitSet
 from whoosh.reading import TermNotFound
-from whoosh.support.bitvector import DocIdSet, BitSet
-from whoosh.util import now, lru_cache
+from whoosh.util import now
+from whoosh.util.cache import lru_cache
 
 
 class NoTermsException(Exception):

@@ -29,7 +29,7 @@ from __future__ import division
 
 from whoosh.compat import u
 from whoosh.query import qcore, terms, nary, wrappers
-from whoosh.support.times import datetime_to_long
+from whoosh.util.times import datetime_to_long
 
 
 class RangeMixin(object):
@@ -255,7 +255,7 @@ class NumericRange(RangeMixin, qcore.Query):
 
     def _compile_query(self, ixreader):
         from whoosh.fields import NUMERIC
-        from whoosh.support.numeric import tiered_ranges
+        from whoosh.util.numeric import tiered_ranges
 
         field = ixreader.schema[self.fieldname]
         if not isinstance(field, NUMERIC):

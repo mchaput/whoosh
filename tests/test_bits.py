@@ -1,7 +1,7 @@
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.bitvector import BitSet, OnDiskBitSet, SortedIntSet
+from whoosh.idsets import BitSet, OnDiskBitSet, SortedIntSet
 
 
 def test_bit_basics(c=BitSet):

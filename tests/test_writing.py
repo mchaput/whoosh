@@ -6,7 +6,7 @@ from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 from whoosh import analysis, fields, query, writing
 from whoosh.compat import u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 
 
 def test_no_stored():

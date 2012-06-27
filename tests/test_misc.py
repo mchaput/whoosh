@@ -3,9 +3,9 @@ import threading, time
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh.support.filelock import try_for
-from whoosh.util import length_to_byte, byte_to_length
-from whoosh.support.testing import TempStorage
+from whoosh.util.filelock import try_for
+from whoosh.util.numeric import length_to_byte, byte_to_length
+from whoosh.util.testing import TempStorage
 
 
 def test_filelock_simple():
@@ -60,7 +60,7 @@ def test_length_byte():
 
 
 def test_clockface_lru():
-    from whoosh.util import clockface_lru_cache
+    from whoosh.util.cache import clockface_lru_cache
 
     @clockface_lru_cache(5)
     def test(n):
@@ -74,7 +74,7 @@ def test_clockface_lru():
 
 
 def test_double_barrel_lru():
-    from whoosh.util import lru_cache
+    from whoosh.util.cache import lru_cache
 
     @lru_cache(5)
     def test(n):

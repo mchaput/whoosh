@@ -70,7 +70,8 @@ from whoosh.compat import (callable, iteritems, string_type, text_type,
                            integer_types, u, xrange, next)
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
-from whoosh.util import lru_cache, unbound_cache, rcompile
+from whoosh.util.text import rcompile
+from whoosh.util.cache import lru_cache, unbound_cache
 
 
 # Default list of stop words (words so common it's usually wasteful to index

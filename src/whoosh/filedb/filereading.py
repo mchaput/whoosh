@@ -27,13 +27,13 @@
 
 from bisect import bisect_left
 
+from whoosh import fst
 from whoosh.compat import iteritems, xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.filedb.fieldcache import FieldCache, DefaultFieldCachingPolicy
 from whoosh.matching import FilterMatcher
 from whoosh.reading import IndexReader, TermNotFound
 from whoosh.store import OverlayStorage
-from whoosh.support import dawg
 
 
 SAVE_BY_DEFAULT = True
@@ -279,14 +279,14 @@ class SegmentReader(IndexReader):
             return False
         try:
             self._open_dawg()
-        except (NameError, IOError, dawg.FileVersionError):
+        except (NameError, IOError, fst.FileVersionError):
             return False
         return self._graph.has_root(fieldname)
 
     def word_graph(self, fieldname):
         if not self.has_word_graph(fieldname):
             raise KeyError("No word graph for field %r" % fieldname)
-        return dawg.Node(self._graph, self._graph.root(fieldname))
+        return fst.Node(self._graph, self._graph.root(fieldname))
 
     def terms_within(self, fieldname, text, maxdist, prefix=0):
         if not self.has_word_graph(fieldname):
@@ -294,7 +294,7 @@ class SegmentReader(IndexReader):
             return IndexReader.terms_within(self, fieldname, text, maxdist,
                                             prefix=prefix)
 
-        return dawg.within(self._graph, text, k=maxdist, prefix=prefix,
+        return fst.within(self._graph, text, k=maxdist, prefix=prefix,
                            address=self._graph.root(fieldname))
 
     # Field cache methods

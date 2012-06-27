@@ -6,7 +6,7 @@ from nose.tools import assert_equal, assert_almost_equal  # @UnresolvedImport
 from whoosh import fields, matching, scoring
 from whoosh.compat import b, u, xrange
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util import length_to_byte, byte_to_length
+from whoosh.util.numeric import length_to_byte, byte_to_length
 
 
 def _discreet(length):
