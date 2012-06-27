@@ -87,7 +87,7 @@ def test_add_spelling():
         assert not r.has_word_graph("text1")
         assert not r.has_word_graph("text2")
 
-    from whoosh.filedb.filewriting import add_spelling
+    from whoosh.writing import add_spelling
     add_spelling(ix, ["text1", "text2"])
 
     with ix.reader() as r:

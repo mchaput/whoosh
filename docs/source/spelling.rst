@@ -45,9 +45,8 @@ definition::
     schema = Schema(text=TEXT(spelling=True))
 
 (If you have an existing index you want to enable spelling for, you can
-alter the schema in-place using the
-:func:`whoosh.filedb.filewriting.add_spelling` function to create the
-missing word graph files.)
+alter the schema in-place using the :func:`whoosh.writing.add_spelling`
+function to create the missing word graph files.)
 
 .. tip::
     You can get suggestions for fields without the ``spelling`` attribute, but

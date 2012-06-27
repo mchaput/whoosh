@@ -36,12 +36,12 @@ from whoosh.codec import base
 from whoosh.codec.base import (minimize_ids, deminimize_ids, minimize_weights,
                                deminimize_weights, minimize_values,
                                deminimize_values)
-from whoosh.filedb.fileindex import TOC, clean_files
+from whoosh.fst import GraphWriter, GraphReader
+from whoosh.index import TOC, clean_files
+from whoosh.filedb.filestore import Storage
 from whoosh.filedb.filetables import CodedOrderedWriter, CodedOrderedReader
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermNotFound
-from whoosh.store import Storage
-from whoosh.fst import GraphWriter, GraphReader
 from whoosh.system import (pack_ushort, pack_long, unpack_ushort, unpack_long,
                            _INT_SIZE, _LONG_SIZE)
 from whoosh.util.numeric import byte_to_length, length_to_byte

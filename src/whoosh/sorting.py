@@ -329,6 +329,8 @@ class FieldFacet(FacetType):
             return arry[global_id]
 
         def key_to_name(self, key):
+            if key >= len(self.values):
+                return None
             return self.values[key]
 
     class OverlappingFieldCategorizer(Categorizer):

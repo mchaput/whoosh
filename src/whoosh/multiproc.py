@@ -31,7 +31,7 @@ from multiprocessing import Process, Queue, cpu_count
 
 from whoosh.compat import xrange, iteritems, pickle
 from whoosh.codec import base
-from whoosh.filedb.filewriting import PostingPool, SegmentWriter
+from whoosh.writing import PostingPool, SegmentWriter
 from whoosh.externalsort import imerge
 
 

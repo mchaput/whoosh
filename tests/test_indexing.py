@@ -7,7 +7,6 @@ from datetime import datetime
 from whoosh import fields, query
 from whoosh.compat import u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
-from whoosh.filedb.filewriting import NO_MERGE
 from whoosh.writing import IndexingError
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex
@@ -174,12 +173,12 @@ def test_merged_lengths():
         w = ix.writer()
         w.add_document(f1=u("A"), f2=u("B C D E X Y"))
         w.add_document(f1=u("B C"), f2=u("X"))
-        w.commit(NO_MERGE)
+        w.commit(merge=False)
 
         w = ix.writer()
         w.add_document(f1=u("A B X Y Z"), f2=u("B C"))
         w.add_document(f1=u("Y X"), f2=u("A B"))
-        w.commit(NO_MERGE)
+        w.commit(merge=False)
 
         with ix.reader() as dr:
             assert_equal(dr.stored_fields(0)["f1"], u("A B C"))

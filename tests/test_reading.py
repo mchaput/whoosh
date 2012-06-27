@@ -5,7 +5,7 @@ from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, formats, reading
 from whoosh.compat import u, xrange
-from whoosh.filedb.filereading import SegmentReader
+from whoosh.reading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
 
