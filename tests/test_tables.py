@@ -8,7 +8,7 @@ from nose.tools import assert_equal  #@UnresolvedImport
 from whoosh.compat import b, xrange, iteritems
 from whoosh.filedb.filetables import (HashReader, HashWriter,
                                       OrderedHashWriter, OrderedHashReader)
-from whoosh.support.testing import TempStorage
+from whoosh.util.testing import TempStorage
 
 
 def test_hash():

@@ -39,8 +39,8 @@ from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
                            pack_uint, pack_long, pack_float, unpack_byte,
                            unpack_sbyte, unpack_ushort, unpack_int,
                            unpack_uint, unpack_long, unpack_float, IS_LITTLE)
-from whoosh.util import (varint, read_varint, signed_varint,
-                         decode_signed_varint, float_to_byte, byte_to_float)
+from whoosh.util.varints import (varint, read_varint, signed_varint,
+                                 decode_signed_varint)
 
 
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")
@@ -192,26 +192,6 @@ class StructFile(object):
     def read_byte(self):
         return ord(self.file.read(1))
 
-    def write_8bitfloat(self, f, mantissabits=5, zeroexp=2):
-        """Writes a byte-sized representation of floating point value f to the
-        wrapped file.
-        
-        :param mantissabits: the number of bits to use for the mantissa
-            (with the rest used for the exponent).
-        :param zeroexp: the zero point for the exponent.
-        """
-
-        self.write_byte(float_to_byte(f, mantissabits, zeroexp))
-
-    def read_8bitfloat(self, mantissabits=5, zeroexp=2):
-        """Reads a byte-sized representation of a floating point value.
-        
-        :param mantissabits: the number of bits to use for the mantissa
-            (with the rest used for the exponent).
-        :param zeroexp: the zero point for the exponent.
-        """
-        return byte_to_float(self.read_byte(), mantissabits, zeroexp)
-
     def write_pickle(self, obj, protocol= -1):
         """Writes a pickled representation of obj to the wrapped file.
         """
@@ -276,6 +256,10 @@ class StructFile(object):
         if IS_LITTLE:
             a.byteswap()
         return a
+
+    def get(self, position, length):
+        self.file.seek(position)
+        return self.file.read(length)
 
     def get_byte(self, position):
         self.file.seek(position)

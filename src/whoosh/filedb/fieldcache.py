@@ -35,7 +35,7 @@ from struct import Struct
 
 from whoosh.compat import u, b, xrange
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
-from whoosh.util import utf8encode
+from whoosh.util.text import utf8encode
 
 
 pack_int_le = Struct("<i").pack

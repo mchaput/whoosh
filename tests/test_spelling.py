@@ -3,12 +3,11 @@ import gzip
 
 from nose.tools import assert_equal, assert_not_equal, assert_raises
 
-from whoosh import analysis, fields, highlight, spelling
+from whoosh import analysis, fields, fst, highlight, spelling
 from whoosh.compat import u, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
-from whoosh.support import dawg
-from whoosh.support.testing import TempStorage, TempIndex
+from whoosh.util.testing import TempStorage, TempIndex
 
 
 def words_to_corrector(words):
@@ -16,7 +15,7 @@ def words_to_corrector(words):
     f = st.create_file("test")
     spelling.wordlist_to_graph_file(words, f)
     f = st.open_file("test")
-    return spelling.GraphCorrector(dawg.GraphReader(f))
+    return spelling.GraphCorrector(fst.GraphReader(f))
 
 
 def test_graph_corrector():
@@ -292,7 +291,7 @@ def test_find_self():
     f = st.create_file("test")
     spelling.wordlist_to_graph_file(wordlist, f)
 
-    gr = dawg.GraphReader(st.open_file("test"))
+    gr = fst.GraphReader(st.open_file("test"))
     gc = spelling.GraphCorrector(gr)
     assert_not_equal(gc.suggest("book")[0], "book")
     assert_not_equal(gc.suggest("bake")[0], "bake")

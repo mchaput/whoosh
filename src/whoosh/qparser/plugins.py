@@ -32,7 +32,7 @@ from whoosh.compat import iteritems, u, PY3
 from whoosh.qparser import syntax
 from whoosh.qparser.common import attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
-from whoosh.util import rcompile
+from whoosh.util.text import rcompile
 
 
 class Plugin(object):

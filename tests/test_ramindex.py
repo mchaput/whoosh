@@ -6,7 +6,7 @@ from whoosh import analysis, fields, formats, query
 from whoosh.compat import u, xrange, text_type
 from whoosh.ramindex import RamIndex
 from whoosh.reading import TermNotFound
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 
 
 def make_index():

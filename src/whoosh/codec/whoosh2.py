@@ -41,10 +41,11 @@ from whoosh.filedb.filetables import CodedOrderedWriter, CodedOrderedReader
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermNotFound
 from whoosh.store import Storage
-from whoosh.support.dawg import GraphWriter, GraphReader
+from whoosh.fst import GraphWriter, GraphReader
 from whoosh.system import (pack_ushort, pack_long, unpack_ushort, unpack_long,
                            _INT_SIZE, _LONG_SIZE)
-from whoosh.util import byte_to_length, length_to_byte, utf8encode, utf8decode
+from whoosh.util.numeric import byte_to_length, length_to_byte
+from whoosh.util.text import utf8encode, utf8decode
 
 
 # Standard codec top-level object

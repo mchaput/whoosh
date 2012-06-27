@@ -6,8 +6,8 @@ from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query
 from whoosh.compat import u, xrange, permutations
-from whoosh.support.testing import TempIndex, skip_if
-from whoosh.util import length_to_byte, byte_to_length
+from whoosh.util.numeric import length_to_byte, byte_to_length
+from whoosh.util.testing import TempIndex, skip_if
 
 
 def no_multi():

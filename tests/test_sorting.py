@@ -8,7 +8,7 @@ from nose.tools import assert_equal  # @UnresolvedImport
 from whoosh import fields, query, sorting
 from whoosh.compat import u, xrange, long_type
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.testing import skip_if_unavailable, skip_if, TempIndex
+from whoosh.util.testing import skip_if_unavailable, skip_if, TempIndex
 
 
 try:

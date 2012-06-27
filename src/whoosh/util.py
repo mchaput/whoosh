@@ -109,12 +109,17 @@ def bits_required(maxnum):
 
     return max(1, math.ceil(math.log(maxnum, 2)))
 
+
 def max_value(bitcount):
     """Returns the maximum (unsigned) integer representable in the given number
     of bits.
     """
 
     return ~(~0 << bitcount)
+
+
+def bytes_for_bits(bitcount):
+    return int(math.ceil(bitcount / 8.0))
 
 
 # Varint cache

@@ -1,6 +1,6 @@
 """
 This module contains generic base85 encoding and decoding functions. The
-whoosh.support.numeric module contains faster variants for encoding and
+whoosh.util.numeric module contains faster variants for encoding and
 decoding integers.
 
 Modified from:

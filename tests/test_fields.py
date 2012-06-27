@@ -7,7 +7,7 @@ from nose.tools import assert_raises  # @UnresolvedImport
 from whoosh import fields, qparser, query
 from whoosh.compat import long_type, u, b, xrange
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support import times
+from whoosh.util import times
 
 
 def test_schema_eq():

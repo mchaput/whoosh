@@ -37,10 +37,9 @@ from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
                              NgramWordAnalyzer, Analyzer)
 from whoosh.compat import (with_metaclass, itervalues, string_type, u, b,
                            integer_types, long_type, text_type, xrange, PY3)
-from whoosh.support.numeric import (int_to_text, text_to_int, long_to_text,
-                                    text_to_long, float_to_text, text_to_float,
-                                    )
-from whoosh.support.times import datetime_to_long
+from whoosh.util.numeric import (int_to_text, text_to_int, long_to_text,
+                                 text_to_long, float_to_text, text_to_float)
+from whoosh.util.times import datetime_to_long
 
 
 # "Default" values to indicate missing values when sorting and faceting numeric
@@ -570,7 +569,8 @@ class DATETIME(NUMERIC):
                                        unique=unique, shift_step=8)
 
     def to_text(self, x, shift=0):
-        from whoosh.support.times import floor
+        from whoosh.util.times import floor
+
         try:
             if isinstance(x, string_type):
                 # For indexing, support same strings as for query parsing
@@ -588,7 +588,7 @@ class DATETIME(NUMERIC):
     def _parse_datestring(self, qstring):
         # This method parses a very simple datetime representation of the form
         # YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
-        from whoosh.support.times import adatetime, fix, is_void
+        from whoosh.util.times import adatetime, fix, is_void
 
         qstring = qstring.replace(" ", "").replace("-", "").replace(".", "")
         year = month = day = hour = minute = second = microsecond = None
@@ -615,7 +615,7 @@ class DATETIME(NUMERIC):
 
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        from whoosh.support.times import is_ambiguous
+        from whoosh.util.times import is_ambiguous
 
         try:
             at = self._parse_datestring(qstring)

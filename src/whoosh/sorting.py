@@ -30,8 +30,8 @@ from collections import defaultdict
 
 from whoosh.compat import string_type, u, xrange, iteritems
 from whoosh.fields import DEFAULT_LONG
-from whoosh.support.times import (long_to_datetime, datetime_to_long,
-                                  timedelta_to_usecs)
+from whoosh.util.times import (long_to_datetime, datetime_to_long,
+                               timedelta_to_usecs)
 
 
 # Faceting objects

@@ -48,7 +48,8 @@ from whoosh.compat import (b, u, BytesIO, xrange, iteritems, iterkeys,
 from whoosh.filedb.structfile import StructFile
 from whoosh.system import (_INT_SIZE, pack_byte, pack_int, pack_uint,
                            pack_long, emptybytes)
-from whoosh.util import utf8encode, utf8decode, varint
+from whoosh.util.text import utf8encode, utf8decode
+from whoosh.util.varints import varint
 
 
 class FileVersionError(Exception):

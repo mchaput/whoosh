@@ -579,7 +579,6 @@ class BufferedWriter(IndexWriter):
             self.bufferedcount = 0
         return self.writer
 
-    @synchronized
     def reader(self, **kwargs):
         from whoosh.reading import MultiReader
 

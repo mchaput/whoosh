@@ -31,6 +31,7 @@ from datetime import date, datetime, timedelta
 
 from whoosh.compat import iteritems
 
+
 class TimeError(Exception):
     pass
 

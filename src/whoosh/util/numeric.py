@@ -25,10 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import struct
+import math, struct
 from array import array
+from bisect import bisect_left
+from struct import pack, unpack
 
-from whoosh.compat import long_type, PY3, array_tobytes
+from whoosh.compat import b, long_type, PY3, array_tobytes
 from whoosh.support.base85 import to_base85, from_base85
 
 _istruct = struct.Struct(">i")
@@ -38,8 +40,30 @@ _ipack, _iunpack = _istruct.pack, _istruct.unpack
 _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
-_max_sortable_int = long_type(4294967295)
-_max_sortable_long = long_type(18446744073709551615)
+_max_sortable_int = 4294967295
+_max_sortable_long = 18446744073709551615
+
+
+# Functions related to binary representations
+
+def bits_required(maxnum):
+    """Returns the number of bits required to represent the given (unsigned)
+    integer.
+    """
+
+    return max(1, math.ceil(math.log(maxnum, 2)))
+
+
+def max_value(bitcount):
+    """Returns the maximum (unsigned) integer representable in the given number
+    of bits.
+    """
+
+    return ~(~0 << bitcount)
+
+
+def bytes_for_bits(bitcount):
+    return int(math.ceil(bitcount / 8.0))
 
 
 # Functions for converting numbers to and from sortable representations
@@ -254,13 +278,13 @@ def to_7bit(x, islong):
         shift = 63
         nchars = 10
 
-    buffer = array("c", "\x00" * nchars)
+    buf = array("c", "\x00" * nchars)
     x += (1 << shift) - 1
     while x:
-        buffer[nchars - 1] = chr(x & 0x7f)
+        buf[nchars - 1] = chr(x & 0x7f)
         x >>= 7
         nchars -= 1
-    return array_tobytes(buffer)
+    return array_tobytes(buf)
 
 
 def from_7bit(text):
@@ -280,3 +304,115 @@ def from_7bit(text):
         x |= char
     x -= (1 << shift) - 1
     return int(x)
+
+
+# Float-to-byte encoding/decoding
+
+def float_to_byte(value, mantissabits=5, zeroexp=2):
+    """Encodes a floating point number in a single byte.
+    """
+
+    # Assume int size == float size
+
+    fzero = (63 - zeroexp) << mantissabits
+    bits = unpack("i", pack("f", value))[0]
+    smallfloat = bits >> (24 - mantissabits)
+    if smallfloat < fzero:
+        # Map negative numbers and 0 to 0
+        # Map underflow to next smallest non-zero number
+        if bits <= 0:
+            result = chr(0)
+        else:
+            result = chr(1)
+    elif smallfloat >= fzero + 0x100:
+        # Map overflow to largest number
+        result = chr(255)
+    else:
+        result = chr(smallfloat - fzero)
+    return b(result)
+
+
+def byte_to_float(b, mantissabits=5, zeroexp=2):
+    """Decodes a floating point number stored in a single byte.
+    """
+    if type(b) is not int:
+        b = ord(b)
+    if b == 0:
+        return 0.0
+
+    bits = (b & 0xff) << (24 - mantissabits)
+    bits += (63 - zeroexp) << 24
+    return unpack("f", pack("i", bits))[0]
+
+
+# Length-to-byte approximation functions
+
+# Old implementation:
+
+#def length_to_byte(length):
+#    """Returns a logarithmic approximation of the given number, in the range
+#    0-255. The approximation has high precision at the low end (e.g.
+#    1 -> 0, 2 -> 1, 3 -> 2 ...) and low precision at the high end. Numbers
+#    equal to or greater than 108116 all approximate to 255.
+#
+#    This is useful for storing field lengths, where the general case is small
+#    documents and very large documents are more rare.
+#    """
+#
+#    # This encoding formula works up to 108116 -> 255, so if the length is
+#    # equal to or greater than that limit, just return 255.
+#    if length >= 108116:
+#        return 255
+#
+#    # The parameters of this formula where chosen heuristically so that low
+#    # numbers would approximate closely, and the byte range 0-255 would cover
+#    # a decent range of document lengths (i.e. 1 to ~100000).
+#    return int(round(log((length / 27.0) + 1, 1.033)))
+#def _byte_to_length(n):
+#    return int(round((pow(1.033, n) - 1) * 27))
+#_b2l_cache = array("i", (_byte_to_length(i) for i in xrange(256)))
+#byte_to_length = _b2l_cache.__getitem__
+
+# New implementation
+
+# Instead of computing the actual formula to get the byte for any given length,
+# precompute the length associated with each byte, and use bisect to find the
+# nearest value. This gives quite a large speed-up.
+#
+# Note that this does not give all the same answers as the old, "real"
+# implementation since this implementation always "rounds down" (thanks to the
+# bisect_left) while the old implementation would "round up" or "round down"
+# depending on the input. Since this is a fairly gross approximation anyway,
+# I don't think it matters much.
+
+# Values generated using the formula from the "old" implementation above
+_length_byte_cache = array('i', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14,
+16, 17, 18, 20, 21, 23, 25, 26, 28, 30, 32, 34, 36, 38, 40, 42, 45, 47, 49, 52,
+54, 57, 60, 63, 66, 69, 72, 75, 79, 82, 86, 89, 93, 97, 101, 106, 110, 114,
+119, 124, 129, 134, 139, 145, 150, 156, 162, 169, 175, 182, 189, 196, 203, 211,
+219, 227, 235, 244, 253, 262, 271, 281, 291, 302, 313, 324, 336, 348, 360, 373,
+386, 399, 414, 428, 443, 459, 475, 491, 508, 526, 544, 563, 583, 603, 623, 645,
+667, 690, 714, 738, 763, 789, 816, 844, 873, 903, 933, 965, 998, 1032, 1066,
+1103, 1140, 1178, 1218, 1259, 1302, 1345, 1391, 1438, 1486, 1536, 1587, 1641,
+1696, 1753, 1811, 1872, 1935, 1999, 2066, 2135, 2207, 2280, 2356, 2435, 2516,
+2600, 2687, 2777, 2869, 2965, 3063, 3165, 3271, 3380, 3492, 3608, 3728, 3852,
+3980, 4112, 4249, 4390, 4536, 4686, 4842, 5002, 5168, 5340, 5517, 5700, 5889,
+6084, 6286, 6494, 6709, 6932, 7161, 7398, 7643, 7897, 8158, 8428, 8707, 8995,
+9293, 9601, 9918, 10247, 10586, 10936, 11298, 11671, 12057, 12456, 12868,
+13294, 13733, 14187, 14656, 15141, 15641, 16159, 16693, 17244, 17814, 18403,
+19011, 19640, 20289, 20959, 21652, 22367, 23106, 23869, 24658, 25472, 26314,
+27183, 28081, 29009, 29967, 30957, 31979, 33035, 34126, 35254, 36418, 37620,
+38863, 40146, 41472, 42841, 44256, 45717, 47227, 48786, 50397, 52061, 53780,
+55556, 57390, 59285, 61242, 63264, 65352, 67510, 69739, 72041, 74419, 76876,
+79414, 82035, 84743, 87541, 90430, 93416, 96499, 99684, 102975, 106374])
+
+
+def length_to_byte(length):
+    if length is None:
+        return 0
+    if length >= 106374:
+        return 255
+    else:
+        return bisect_left(_length_byte_cache, length)
+
+byte_to_length = _length_byte_cache.__getitem__

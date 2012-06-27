@@ -8,7 +8,7 @@ from whoosh.compat import u, xrange
 from whoosh.filedb.filereading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
 from whoosh.ramindex import RamIndex
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 
 
 def _create_index():
@@ -370,7 +370,7 @@ def test_doc_count():
 
 
 def test_reader_subclasses():
-    from whoosh.support.testing import check_abstract_methods
+    from whoosh.util.testing import check_abstract_methods
 
     check_abstract_methods(reading.IndexReader, SegmentReader)
     check_abstract_methods(reading.IndexReader, reading.MultiReader)

@@ -34,6 +34,33 @@ class NumberEncoding(object):
         return n
 
 
+class GrowableArray(object):
+    def __init__(self, inittype):
+        self.array = array(inittype)
+
+    def _retype(self, maxnum):
+        if maxnum < 2 ** 16:
+            newtype = "H"
+        elif maxnum < 2 ** 31:
+            newtype = "i"
+        elif maxnum < 2 ** 32:
+            newtype = "I"
+        else:
+            raise OverflowError
+        self.array = array(newtype, self.array)
+
+    def append(self, n):
+        try:
+            self.array.append(n)
+        except OverflowError:
+            self._retype(n)
+
+    def extend(self, ns):
+        append = self.append
+        for n in ns:
+            append(n)
+
+
 # Fixed width encodings
 
 class FixedEncoding(NumberEncoding):

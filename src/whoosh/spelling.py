@@ -31,11 +31,10 @@
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
-from whoosh import analysis, fields, highlight, query, scoring
+from whoosh import analysis, fields, fst, highlight, query, scoring
 from whoosh.compat import xrange, string_type
-from whoosh.support import dawg
 from whoosh.support.levenshtein import distance
-from whoosh.util import utf8encode
+from whoosh.util.text import utf8encode
 
 
 # Corrector objects
@@ -123,7 +122,7 @@ class ReaderCorrector(Corrector):
 
 class GraphCorrector(Corrector):
     """Suggests corrections based on the content of a raw
-    :class:`whoosh.support.dawg.GraphReader` object.
+    :class:`whoosh.fst.GraphReader` object.
     
     By default ranks suggestions based on the edit distance.
     """
@@ -132,7 +131,7 @@ class GraphCorrector(Corrector):
         self.graph = graph
 
     def _suggestions(self, text, maxdist, prefix):
-        for sug in dawg.within(self.graph, text, k=maxdist, prefix=prefix):
+        for sug in fst.within(self.graph, text, k=maxdist, prefix=prefix):
             # Higher scores are better, so negate the edit distance
             yield (0 - maxdist, sug)
 
@@ -169,7 +168,7 @@ def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
     if not isinstance(dbfile, StructFile):
         dbfile = StructFile(dbfile)
 
-    gw = dawg.GraphWriter(dbfile)
+    gw = fst.GraphWriter(dbfile)
     gw.start_field(fieldname)
     for word in wordlist:
         if strip:

@@ -10,8 +10,8 @@ from whoosh.compat import array_tobytes
 from whoosh.codec.base import FileTermInfo
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
-from whoosh.support.testing import TempStorage
-from whoosh.util import byte_to_length, length_to_byte
+from whoosh.util.numeric import byte_to_length, length_to_byte
+from whoosh.util.testing import TempStorage
 
 
 def _make_codec(**kwargs):

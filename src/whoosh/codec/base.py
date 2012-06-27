@@ -42,7 +42,7 @@ from whoosh.reading import TermInfo
 from whoosh.spans import Span
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_long, unpack_long,
                            IS_LITTLE)
-from whoosh.util import byte_to_length, length_to_byte
+from whoosh.util.numeric import byte_to_length, length_to_byte
 
 
 try:
@@ -599,7 +599,8 @@ class Segment(object):
         return "".join(random.choice(cls.IDCHARS) for _ in xrange(size))
 
     def __repr__(self):
-        return "<%s %s>" % (self.__class__.__name__, getattr(self, "segid", ""))
+        return "<%s %s>" % (self.__class__.__name__,
+                            getattr(self, "segid", ""))
 
     def codec(self):
         raise NotImplementedError

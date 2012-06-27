@@ -9,7 +9,7 @@ from whoosh import analysis, fields, formats, qparser, query
 from whoosh.compat import u, text_type, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import dateparse, default, plugins, syntax
-from whoosh.support.times import adatetime
+from whoosh.util.times import adatetime
 
 
 def _plugin_classes(ignore):
