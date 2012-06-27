@@ -82,97 +82,97 @@ def test_asyncwriter_no_stored():
                          list(range(20)))
 
 
-def test_buffered():
-    schema = fields.Schema(id=fields.ID, text=fields.TEXT)
-    with TempIndex(schema, "buffered") as ix:
-        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
-                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
-
-        w = writing.BufferedWriter(ix, period=None, limit=10,
-                                   commitargs={"merge": False})
-        for i in xrange(100):
-            w.add_document(id=text_type(i),
-                           text=u(" ").join(random.sample(domain, 5)))
-        time.sleep(0.5)
-        w.close()
-
-        assert_equal(len(ix._segments()), 10)
-
-
-def test_buffered_search():
-    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
-    with TempIndex(schema, "bufferedsearch") as ix:
-        w = writing.BufferedWriter(ix, period=None, limit=5)
-        w.add_document(id=1, text=u("alfa bravo charlie"))
-        w.add_document(id=2, text=u("bravo tango delta"))
-        w.add_document(id=3, text=u("tango delta echo"))
-        w.add_document(id=4, text=u("charlie delta echo"))
-
-        with w.searcher() as s:
-            r = s.search(query.Term("text", u("tango")))
-            assert_equal(sorted([d["id"] for d in r]), [2, 3])
-
-        w.add_document(id=5, text=u("foxtrot golf hotel"))
-        w.add_document(id=6, text=u("india tango juliet"))
-        w.add_document(id=7, text=u("tango kilo lima"))
-        w.add_document(id=8, text=u("mike november echo"))
-
-        with w.searcher() as s:
-            r = s.search(query.Term("text", u("tango")))
-            assert_equal(sorted([d["id"] for d in r]), [2, 3, 6, 7])
-
-        w.close()
-
-
-def test_buffered_update():
-    schema = fields.Schema(id=fields.ID(stored=True, unique=True),
-                           payload=fields.STORED)
-    with TempIndex(schema, "bufferedupdate") as ix:
-        w = writing.BufferedWriter(ix, period=None, limit=5)
-        for i in xrange(10):
-            for char in u("abc"):
-                fs = dict(id=char, payload=text_type(i) + char)
-                w.update_document(**fs)
-
-        with w.reader() as r:
-            assert_equal(sorted(r.all_stored_fields(), key=lambda x: x["id"]),
-                             [{'id': u('a'), 'payload': u('9a')},
-                              {'id': u('b'), 'payload': u('9b')},
-                              {'id': u('c'), 'payload': u('9c')}])
-            assert_equal(r.doc_count(), 3)
-
-        w.close()
-
-
-def test_buffered_threads():
-    class SimWriter(threading.Thread):
-        def __init__(self, w, domain):
-            threading.Thread.__init__(self)
-            self.w = w
-            self.domain = domain
-
-        def run(self):
-            w = self.w
-            domain = self.domain
-            for _ in xrange(10):
-                w.update_document(name=random.choice(domain))
-                time.sleep(random.uniform(0.01, 0.1))
-
-    schema = fields.Schema(name=fields.ID(unique=True, stored=True))
-    with TempIndex(schema, "buffthreads") as ix:
-        domain = u("alfa bravo charlie delta").split()
-        w = writing.BufferedWriter(ix, limit=10)
-        threads = [SimWriter(w, domain) for _ in xrange(10)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        w.close()
-
-        with ix.reader() as r:
-            assert_equal(r.doc_count(), 4)
-            assert_equal(sorted([d["name"] for d in r.all_stored_fields()]),
-                         domain)
+#def test_buffered():
+#    schema = fields.Schema(id=fields.ID, text=fields.TEXT)
+#    with TempIndex(schema, "buffered") as ix:
+#        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+#                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
+#
+#        w = writing.BufferedWriter(ix, period=None, limit=10,
+#                                   commitargs={"merge": False})
+#        for i in xrange(100):
+#            w.add_document(id=text_type(i),
+#                           text=u(" ").join(random.sample(domain, 5)))
+#        time.sleep(0.5)
+#        w.close()
+#
+#        assert_equal(len(ix._segments()), 10)
+#
+#
+#def test_buffered_search():
+#    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+#    with TempIndex(schema, "bufferedsearch") as ix:
+#        w = writing.BufferedWriter(ix, period=None, limit=5)
+#        w.add_document(id=1, text=u("alfa bravo charlie"))
+#        w.add_document(id=2, text=u("bravo tango delta"))
+#        w.add_document(id=3, text=u("tango delta echo"))
+#        w.add_document(id=4, text=u("charlie delta echo"))
+#
+#        with w.searcher() as s:
+#            r = s.search(query.Term("text", u("tango")))
+#            assert_equal(sorted([d["id"] for d in r]), [2, 3])
+#
+#        w.add_document(id=5, text=u("foxtrot golf hotel"))
+#        w.add_document(id=6, text=u("india tango juliet"))
+#        w.add_document(id=7, text=u("tango kilo lima"))
+#        w.add_document(id=8, text=u("mike november echo"))
+#
+#        with w.searcher() as s:
+#            r = s.search(query.Term("text", u("tango")))
+#            assert_equal(sorted([d["id"] for d in r]), [2, 3, 6, 7])
+#
+#        w.close()
+#
+#
+#def test_buffered_update():
+#    schema = fields.Schema(id=fields.ID(stored=True, unique=True),
+#                           payload=fields.STORED)
+#    with TempIndex(schema, "bufferedupdate") as ix:
+#        w = writing.BufferedWriter(ix, period=None, limit=5)
+#        for i in xrange(10):
+#            for char in u("abc"):
+#                fs = dict(id=char, payload=text_type(i) + char)
+#                w.update_document(**fs)
+#
+#        with w.reader() as r:
+#            assert_equal(sorted(r.all_stored_fields(), key=lambda x: x["id"]),
+#                             [{'id': u('a'), 'payload': u('9a')},
+#                              {'id': u('b'), 'payload': u('9b')},
+#                              {'id': u('c'), 'payload': u('9c')}])
+#            assert_equal(r.doc_count(), 3)
+#
+#        w.close()
+#
+#
+#def test_buffered_threads():
+#    class SimWriter(threading.Thread):
+#        def __init__(self, w, domain):
+#            threading.Thread.__init__(self)
+#            self.w = w
+#            self.domain = domain
+#
+#        def run(self):
+#            w = self.w
+#            domain = self.domain
+#            for _ in xrange(10):
+#                w.update_document(name=random.choice(domain))
+#                time.sleep(random.uniform(0.01, 0.1))
+#
+#    schema = fields.Schema(name=fields.ID(unique=True, stored=True))
+#    with TempIndex(schema, "buffthreads") as ix:
+#        domain = u("alfa bravo charlie delta").split()
+#        w = writing.BufferedWriter(ix, limit=10)
+#        threads = [SimWriter(w, domain) for _ in xrange(10)]
+#        for thread in threads:
+#            thread.start()
+#        for thread in threads:
+#            thread.join()
+#        w.close()
+#
+#        with ix.reader() as r:
+#            assert_equal(r.doc_count(), 4)
+#            assert_equal(sorted([d["name"] for d in r.all_stored_fields()]),
+#                         domain)
 
 
 def test_fractional_weights():
