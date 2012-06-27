@@ -7,7 +7,6 @@ from whoosh import analysis, fields, formats, reading
 from whoosh.compat import u, xrange
 from whoosh.filedb.filereading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
-from whoosh.ramindex import RamIndex
 from whoosh.util.testing import TempIndex
 
 
@@ -375,4 +374,3 @@ def test_reader_subclasses():
     check_abstract_methods(reading.IndexReader, SegmentReader)
     check_abstract_methods(reading.IndexReader, reading.MultiReader)
     check_abstract_methods(reading.IndexReader, reading.EmptyReader)
-    check_abstract_methods(reading.IndexReader, RamIndex)
