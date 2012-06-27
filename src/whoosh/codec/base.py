@@ -34,14 +34,16 @@ from array import array
 from struct import Struct, pack
 from bisect import bisect_right
 
-from whoosh.compat import (loads, dumps, b, bytes_type, string_type, xrange,
-                           array_frombytes, array_tobytes)
+from whoosh.compat import loads, dumps
+from whoosh.compat import b, bytes_type, string_type
+from whoosh.compat import array_frombytes, array_tobytes
+from whoosh.compat import xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.matching import Matcher, ReadTooFar
 from whoosh.reading import TermInfo
 from whoosh.spans import Span
-from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_long, unpack_long,
-                           IS_LITTLE)
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, IS_LITTLE
+from whoosh.system import pack_long, unpack_long
 from whoosh.util.numeric import byte_to_length, length_to_byte
 
 

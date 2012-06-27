@@ -66,8 +66,9 @@ import re
 from collections import deque
 from itertools import chain
 
-from whoosh.compat import (callable, iteritems, string_type, text_type,
-                           integer_types, u, xrange, next)
+from whoosh.compat import u
+from whoosh.compat import callable, iteritems, xrange, next
+from whoosh.compat import string_type, text_type, integer_types
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util.text import rcompile

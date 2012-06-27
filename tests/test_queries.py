@@ -8,10 +8,24 @@ from whoosh import fields, qparser, query
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
-from whoosh.query import (And, AndMaybe, ConstantScoreQuery, Every, DateRange,
-                          DisjunctionMax, FuzzyTerm, Not, NullQuery,
-                          NumericRange, Or, Phrase, Prefix, Require, Term,
-                          TermRange, Variations, Wildcard)
+from whoosh.query import And
+from whoosh.query import AndMaybe
+from whoosh.query import ConstantScoreQuery
+from whoosh.query import DateRange
+from whoosh.query import DisjunctionMax
+from whoosh.query import Every
+from whoosh.query import FuzzyTerm
+from whoosh.query import Not
+from whoosh.query import NullQuery
+from whoosh.query import NumericRange
+from whoosh.query import Or
+from whoosh.query import Phrase
+from whoosh.query import Prefix
+from whoosh.query import Require
+from whoosh.query import Term
+from whoosh.query import TermRange
+from whoosh.query import Variations
+from whoosh.query import Wildcard
 from whoosh.spans import SpanContains, SpanFirst, SpanNear, SpanNot, SpanOr
 
 

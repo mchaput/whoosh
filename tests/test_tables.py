@@ -3,11 +3,11 @@
 from __future__ import with_statement
 import random
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh.compat import b, xrange, iteritems
-from whoosh.filedb.filetables import (HashReader, HashWriter,
-                                      OrderedHashWriter, OrderedHashReader)
+from whoosh.filedb.filetables import HashReader, HashWriter
+from whoosh.filedb.filetables import OrderedHashWriter, OrderedHashReader
 from whoosh.util.testing import TempStorage
 
 

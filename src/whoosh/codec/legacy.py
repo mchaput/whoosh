@@ -34,7 +34,7 @@ from whoosh.codec import base
 from whoosh.codec.base import (deminimize_ids, deminimize_weights,
                                deminimize_values)
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, IS_LITTLE
-from whoosh.util import byte_to_length, utf8decode
+from whoosh.util.numeric import byte_to_length, utf8decode
 
 
 try:

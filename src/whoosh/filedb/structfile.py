@@ -34,13 +34,14 @@ from gzip import GzipFile
 from whoosh.compat import dump as dump_pickle
 from whoosh.compat import load as load_pickle
 from whoosh.compat import array_frombytes, array_tobytes
-from whoosh.system import (_INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE,
-                           pack_byte, pack_sbyte, pack_ushort, pack_int,
-                           pack_uint, pack_long, pack_float, unpack_byte,
-                           unpack_sbyte, unpack_ushort, unpack_int,
-                           unpack_uint, unpack_long, unpack_float, IS_LITTLE)
-from whoosh.util.varints import (varint, read_varint, signed_varint,
-                                 decode_signed_varint)
+from whoosh.system import _INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE
+from whoosh.system import IS_LITTLE
+from whoosh.system import pack_byte, unpack_byte, pack_sbyte, unpack_sbyte
+from whoosh.system import pack_ushort, unpack_ushort
+from whoosh.system import pack_int, unpack_int, pack_uint, unpack_uint
+from whoosh.system import pack_long, unpack_long, unpack_float
+from whoosh.util.varints import varint, read_varint
+from whoosh.util.varints import signed_varint, decode_signed_varint
 
 
 _SIZEMAP = dict((typecode, calcsize(typecode)) for typecode in "bBiIhHqQf")

@@ -32,13 +32,20 @@ import datetime, fnmatch, re, struct, sys
 from decimal import Decimal
 
 from whoosh import formats
-from whoosh.analysis import (IDAnalyzer, RegexAnalyzer, KeywordAnalyzer,
-                             StandardAnalyzer, NgramAnalyzer, Tokenizer,
-                             NgramWordAnalyzer, Analyzer)
-from whoosh.compat import (with_metaclass, itervalues, string_type, u, b,
-                           integer_types, long_type, text_type, xrange, PY3)
-from whoosh.util.numeric import (int_to_text, text_to_int, long_to_text,
-                                 text_to_long, float_to_text, text_to_float)
+from whoosh.analysis import Analyzer, Tokenizer
+from whoosh.analysis import IDAnalyzer
+from whoosh.analysis import RegexAnalyzer
+from whoosh.analysis import KeywordAnalyzer
+from whoosh.analysis import StandardAnalyzer
+from whoosh.analysis import NgramAnalyzer
+from whoosh.analysis import NgramWordAnalyzer
+from whoosh.compat import u, b, PY3
+from whoosh.compat import with_metaclass
+from whoosh.compat import itervalues, xrange
+from whoosh.compat import string_type, integer_types, long_type, text_type
+from whoosh.util.numeric import int_to_text, text_to_int
+from whoosh.util.numeric import long_to_text, text_to_long
+from whoosh.util.numeric import float_to_text, text_to_float
 from whoosh.util.times import datetime_to_long
 
 
