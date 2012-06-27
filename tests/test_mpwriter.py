@@ -108,21 +108,21 @@ def _do_basic(writerclass):
 
 @skip_if(no_multi)
 def test_basic_serial():
-    from whoosh.filedb.multiproc import SerialMpWriter
+    from whoosh.multiproc import SerialMpWriter
 
     _do_basic(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_basic_multi():
-    from whoosh.filedb.multiproc import MpWriter
+    from whoosh.multiproc import MpWriter
 
     _do_basic(MpWriter)
 
 
 @skip_if(no_multi)
 def test_no_add():
-    from whoosh.filedb.multiproc import MpWriter
+    from whoosh.multiproc import MpWriter
 
     schema = fields.Schema(text=fields.TEXT(stored=True, spelling=True,
                                             vector=True))
@@ -199,21 +199,21 @@ def _do_merge(writerclass):
 
 @skip_if(no_multi)
 def test_merge_serial():
-    from whoosh.filedb.multiproc import SerialMpWriter
+    from whoosh.multiproc import SerialMpWriter
 
     _do_merge(SerialMpWriter)
 
 
 @skip_if(no_multi)
 def test_merge_multi():
-    from whoosh.filedb.multiproc import MpWriter
+    from whoosh.multiproc import MpWriter
 
     _do_merge(MpWriter)
 
 
 @skip_if(no_multi)
 def test_no_score_no_store():
-    from whoosh.filedb.multiproc import MpWriter
+    from whoosh.multiproc import MpWriter
 
     schema = fields.Schema(a=fields.ID, b=fields.KEYWORD)
     domain = {}
@@ -236,7 +236,7 @@ def test_no_score_no_store():
 
 @skip_if(no_multi)
 def test_multisegment():
-    from whoosh.filedb.multiproc import MpWriter
+    from whoosh.multiproc import MpWriter
 
     schema = fields.Schema(a=fields.TEXT(stored=True, spelling=True,
                                          vector=True))
@@ -260,7 +260,7 @@ def test_multisegment():
 
 @skip_if(no_multi)
 def test_batchsize_eq_doccount():
-    from whoosh.filedb.multiproc import MpWriter
+    from whoosh.multiproc import MpWriter
 
     schema = fields.Schema(a=fields.KEYWORD(stored=True))
     with TempIndex(schema) as ix:

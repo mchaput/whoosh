@@ -2,9 +2,6 @@
 Concurrency, locking, and versioning
 ====================================
 
-The following refers to the default ``filedb`` backend.
-
-
 Concurrency
 ===========
 

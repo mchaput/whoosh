@@ -86,138 +86,138 @@ def try_sort(sortedby, key, q=None, limit=None, reverse=False):
                 assert_equal(rids, correct)
 
 
-def test_cached_lexicon():
-    schema = fields.Schema(tag=fields.ID)
-    with TempIndex(schema, "cachedlexicon") as ix:
-        w = ix.writer()
-        w.add_document(tag=u("sierra"))
-        w.add_document(tag=u("alfa"))
-        w.add_document(tag=u("juliet"))
-        w.add_document(tag=u("romeo"))
-        w.commit()
-
-        with ix.reader() as r:
-            _ = r.fieldcache("tag")
-            assert_equal(list(r.lexicon("tag")),
-                         ["alfa", "juliet", "romeo", "sierra"])
-
-
-def test_persistent_cache():
-    schema = fields.Schema(id=fields.ID(stored=True))
-    st = RamStorage()
-    ix = st.create_index(schema)
-    with ix.writer() as w:
-        for term in u("charlie alfa echo bravo delta").split():
-            w.add_document(id=term)
-
-    ix = st.open_index()
-    with ix.reader() as r:
-        _ = r.fieldcache("id")
-        del _
-    gc.collect()
-
-    ix = st.open_index()
-    with ix.reader() as r:
-        assert r.fieldcache_available("id")
-        assert not r.fieldcache_loaded("id")
-        fc = r.fieldcache("id")
-        assert r.fieldcache_loaded("id")
-        assert_equal(list(fc.order), [3, 1, 5, 2, 4])
-        assert_equal(list(fc.texts), [u('\uffff'), 'alfa', 'bravo',
-                                      'charlie', 'delta', 'echo'])
-
-
-def test_float_cache():
-    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=float))
-    with TempIndex(schema, "floatcache") as ix:
-        w = ix.writer()
-        w.add_document(id=1, num=1.5)
-        w.add_document(id=2, num= -8.25)
-        w.add_document(id=3, num=0.75)
-        w.commit()
-
-        with ix.reader() as r:
-            r.fieldcache("num")
-            assert r.fieldcache_loaded("num")
-            r.unload_fieldcache("num")
-            gc.collect()
-            assert not r.fieldcache_loaded("num")
-            assert r.fieldcache_available("num")
-
-            fc = r.fieldcache("num")
-            assert not fc.hastexts
-            assert_equal(fc.texts, None)
-            assert_equal(fc.typecode, "f")
-            assert_equal(list(fc.order), [1.5, -8.25, 0.75])
-
-
-def test_long_cache():
-    schema = fields.Schema(id=fields.STORED,
-                           num=fields.NUMERIC(type=long_type))
-    with TempIndex(schema, "longcache") as ix:
-        w = ix.writer()
-        w.add_document(id=1, num=2858205080241)
-        w.add_document(id=2, num= -3572050858202)
-        w.add_document(id=3, num=4985020582043)
-        w.commit()
-
-        with ix.reader() as r:
-            r.fieldcache("num")
-            assert r.fieldcache_loaded("num")
-            r.unload_fieldcache("num")
-            gc.collect()
-            assert not r.fieldcache_loaded("num")
-            assert r.fieldcache_available("num")
-
-            fc = r.fieldcache("num")
-            assert not fc.hastexts
-            assert_equal(fc.texts, None)
-            assert_equal(fc.typecode, "q")
-            assert_equal(list(fc.order),
-                         [2858205080241, -3572050858202, 4985020582043])
-
-
-def test_shared_cache():
-    with TempIndex(get_schema(), "sharedcache") as ix:
-        make_single_index(ix)
-        r1 = ix.reader()
-        fc1 = r1.fieldcache("id")
-
-        r2 = ix.reader()
-        fc2 = r2.fieldcache("id")
-
-        assert fc1 is fc2
-
-        r3 = ix.reader()
-        assert r3.fieldcache_loaded("id")
-
-        r1.close()
-        r2.close()
-        del r1, fc1, r2, fc2
-        gc.collect()
-
-        assert not r3.fieldcache_loaded("id")
-        r3.close()
-
-
-@skip_if_unavailable("multiprocessing")
-@skip_if(lambda: True)
-def test_mp_fieldcache():
-    schema = fields.Schema(key=fields.KEYWORD(stored=True))
-    with TempIndex(schema, "mpfieldcache") as ix:
-        domain = list(u("abcdefghijklmnopqrstuvwxyz"
-                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
-        random.shuffle(domain)
-        w = ix.writer()
-        for char in domain:
-            w.add_document(key=char)
-        w.commit()
-
-        tasks = [MPFCTask(ix.storage, ix.indexname) for _ in xrange(4)]
-        for task in tasks:
-            task.start()
-        for task in tasks:
-            task.join()
+#def test_cached_lexicon():
+#    schema = fields.Schema(tag=fields.ID)
+#    with TempIndex(schema, "cachedlexicon") as ix:
+#        w = ix.writer()
+#        w.add_document(tag=u("sierra"))
+#        w.add_document(tag=u("alfa"))
+#        w.add_document(tag=u("juliet"))
+#        w.add_document(tag=u("romeo"))
+#        w.commit()
+#
+#        with ix.reader() as r:
+#            _ = r.fieldcache("tag")
+#            assert_equal(list(r.lexicon("tag")),
+#                         ["alfa", "juliet", "romeo", "sierra"])
+#
+#
+#def test_persistent_cache():
+#    schema = fields.Schema(id=fields.ID(stored=True))
+#    st = RamStorage()
+#    ix = st.create_index(schema)
+#    with ix.writer() as w:
+#        for term in u("charlie alfa echo bravo delta").split():
+#            w.add_document(id=term)
+#
+#    ix = st.open_index()
+#    with ix.reader() as r:
+#        _ = r.fieldcache("id")
+#        del _
+#    gc.collect()
+#
+#    ix = st.open_index()
+#    with ix.reader() as r:
+#        assert r.fieldcache_available("id")
+#        assert not r.fieldcache_loaded("id")
+#        fc = r.fieldcache("id")
+#        assert r.fieldcache_loaded("id")
+#        assert_equal(list(fc.order), [3, 1, 5, 2, 4])
+#        assert_equal(list(fc.texts), [u('\uffff'), 'alfa', 'bravo',
+#                                      'charlie', 'delta', 'echo'])
+#
+#
+#def test_float_cache():
+#    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=float))
+#    with TempIndex(schema, "floatcache") as ix:
+#        w = ix.writer()
+#        w.add_document(id=1, num=1.5)
+#        w.add_document(id=2, num= -8.25)
+#        w.add_document(id=3, num=0.75)
+#        w.commit()
+#
+#        with ix.reader() as r:
+#            r.fieldcache("num")
+#            assert r.fieldcache_loaded("num")
+#            r.unload_fieldcache("num")
+#            gc.collect()
+#            assert not r.fieldcache_loaded("num")
+#            assert r.fieldcache_available("num")
+#
+#            fc = r.fieldcache("num")
+#            assert not fc.hastexts
+#            assert_equal(fc.texts, None)
+#            assert_equal(fc.typecode, "f")
+#            assert_equal(list(fc.order), [1.5, -8.25, 0.75])
+#
+#
+#def test_long_cache():
+#    schema = fields.Schema(id=fields.STORED,
+#                           num=fields.NUMERIC(type=long_type))
+#    with TempIndex(schema, "longcache") as ix:
+#        w = ix.writer()
+#        w.add_document(id=1, num=2858205080241)
+#        w.add_document(id=2, num= -3572050858202)
+#        w.add_document(id=3, num=4985020582043)
+#        w.commit()
+#
+#        with ix.reader() as r:
+#            r.fieldcache("num")
+#            assert r.fieldcache_loaded("num")
+#            r.unload_fieldcache("num")
+#            gc.collect()
+#            assert not r.fieldcache_loaded("num")
+#            assert r.fieldcache_available("num")
+#
+#            fc = r.fieldcache("num")
+#            assert not fc.hastexts
+#            assert_equal(fc.texts, None)
+#            assert_equal(fc.typecode, "q")
+#            assert_equal(list(fc.order),
+#                         [2858205080241, -3572050858202, 4985020582043])
+#
+#
+#def test_shared_cache():
+#    with TempIndex(get_schema(), "sharedcache") as ix:
+#        make_single_index(ix)
+#        r1 = ix.reader()
+#        fc1 = r1.fieldcache("id")
+#
+#        r2 = ix.reader()
+#        fc2 = r2.fieldcache("id")
+#
+#        assert fc1 is fc2
+#
+#        r3 = ix.reader()
+#        assert r3.fieldcache_loaded("id")
+#
+#        r1.close()
+#        r2.close()
+#        del r1, fc1, r2, fc2
+#        gc.collect()
+#
+#        assert not r3.fieldcache_loaded("id")
+#        r3.close()
+#
+#
+#@skip_if_unavailable("multiprocessing")
+#@skip_if(lambda: True)
+#def test_mp_fieldcache():
+#    schema = fields.Schema(key=fields.KEYWORD(stored=True))
+#    with TempIndex(schema, "mpfieldcache") as ix:
+#        domain = list(u("abcdefghijklmnopqrstuvwxyz"
+#                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+#        random.shuffle(domain)
+#        w = ix.writer()
+#        for char in domain:
+#            w.add_document(key=char)
+#        w.commit()
+#
+#        tasks = [MPFCTask(ix.storage, ix.indexname) for _ in xrange(4)]
+#        for task in tasks:
+#            task.start()
+#        for task in tasks:
+#            task.join()
 
 
 def test_sortedby():

@@ -17,13 +17,12 @@ To open an existing index::
     ix = DataStoreStorage().open_index()
 """
 
-from google.appengine.api import memcache  #@UnresolvedImport
-from google.appengine.ext import db  #@UnresolvedImport
+from google.appengine.api import memcache  # @UnresolvedImport
+from google.appengine.ext import db  # @UnresolvedImport
 
 from whoosh.compat import BytesIO
-from whoosh.store import Storage
-from whoosh.filedb.fileindex import TOC, FileIndex, _DEF_INDEX_NAME
-from whoosh.filedb.filestore import ReadOnlyError
+from whoosh.index import TOC, FileIndex, _DEF_INDEX_NAME
+from whoosh.filedb.filestore import ReadOnlyError, Storage
 from whoosh.filedb.structfile import StructFile
 
 

@@ -199,7 +199,7 @@ index (merge all the segments together). It simply creates a writer and calls
 For more control over segment merging, you can write your own merge policy
 function and use it as an argument to the ``commit()`` method. See the
 implementation of the ``NO_MERGE``, ``MERGE_SMALL``, and ``OPTIMIZE`` functions
-in the ``whoosh.filedb.filewriting`` module.
+in the ``whoosh.writing`` module.
 
 
 Deleting documents
@@ -225,7 +225,7 @@ to disk.
 
 ``delete_by_query(query)``
 
-    Deletes any documents that match the given query. ::
+    Deletes any documents that match the given query.::
 
         # Delete document by its path -- this field must be indexed
         ix.delete_by_term('path', u'/a/b/c')
