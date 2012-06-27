@@ -5,8 +5,9 @@ from nose.tools import assert_equal  # @UnresolvedImport
 from whoosh import analysis, fields
 from whoosh.compat import xrange, u
 from whoosh.codec import default_codec
-from whoosh.formats import (Characters, CharacterBoosts, Existence, Frequency,
-                            Positions, PositionBoosts)
+from whoosh.formats import Existence, Frequency
+from whoosh.formats import Positions, PositionBoosts
+from whoosh.formats import Characters, CharacterBoosts
 from whoosh.util.testing import TempStorage
 
 

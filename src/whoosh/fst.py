@@ -43,11 +43,13 @@ import sys, copy
 from array import array
 from hashlib import sha1  # @UnresolvedImport
 
-from whoosh.compat import (b, u, BytesIO, xrange, iteritems, iterkeys,
-                           bytes_type, text_type, izip, array_tobytes)
+from whoosh.compat import b, u, BytesIO
+from whoosh.compat import xrange, iteritems, iterkeys, izip, array_tobytes
+from whoosh.compat import bytes_type, text_type
 from whoosh.filedb.structfile import StructFile
-from whoosh.system import (_INT_SIZE, pack_byte, pack_int, pack_uint,
-                           pack_long, emptybytes)
+from whoosh.system import _INT_SIZE
+from whoosh.system import pack_byte, pack_int, pack_uint, pack_long
+from whoosh.system import emptybytes
 from whoosh.util.text import utf8encode, utf8decode
 from whoosh.util.varints import varint
 
