@@ -1,5 +1,6 @@
 from __future__ import with_statement
-from datetime import datetime, timedelta
+from datetime import datetime as dt
+from datetime import timedelta
 import random
 import gc
 
@@ -448,8 +449,8 @@ def test_date_facet():
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
-    d1 = datetime(2011, 7, 13)
-    d2 = datetime(1984, 3, 29)
+    d1 = dt(2011, 7, 13)
+    d2 = dt(1984, 3, 29)
     w.add_document(id=0, date=d1)
     w.add_document(id=1, date=d1)
     w.add_document(id=2)
@@ -504,19 +505,18 @@ def test_daterange_facet():
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
-    w.add_document(id=0, date=datetime(2001, 1, 15))
-    w.add_document(id=1, date=datetime(2001, 1, 10))
+    w.add_document(id=0, date=dt(2001, 1, 15))
+    w.add_document(id=1, date=dt(2001, 1, 10))
     w.add_document(id=2)
-    w.add_document(id=3, date=datetime(2001, 1, 3))
-    w.add_document(id=4, date=datetime(2001, 1, 8))
-    w.add_document(id=5, date=datetime(2001, 1, 6))
+    w.add_document(id=3, date=dt(2001, 1, 3))
+    w.add_document(id=4, date=dt(2001, 1, 8))
+    w.add_document(id=5, date=dt(2001, 1, 6))
     w.commit()
 
     with ix.searcher() as s:
-        rf = sorting.DateRangeFacet("date", datetime(2001, 1, 1),
-                                    datetime(2001, 1, 20), timedelta(days=5))
+        rf = sorting.DateRangeFacet("date", dt(2001, 1, 1),
+                                    dt(2001, 1, 20), timedelta(days=5))
         r = s.search(query.Every(), groupedby={"date": rf})
-        dt = datetime
         assert_equal(r.groups("date"),
                      {(dt(2001, 1, 1, 0, 0), dt(2001, 1, 6, 0, 0)): [3],
                       (dt(2001, 1, 6, 0, 0), dt(2001, 1, 11, 0, 0)): [1, 4, 5],
@@ -526,14 +526,13 @@ def test_daterange_facet():
 
 def test_relative_daterange():
     from whoosh.support.relativedelta import relativedelta
-    dt = datetime
 
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
     ix = RamStorage().create_index(schema)
-    basedate = datetime(2001, 1, 1)
+    basedate = dt(2001, 1, 1)
     count = 0
     with ix.writer() as w:
-        while basedate < datetime(2001, 12, 1):
+        while basedate < dt(2001, 12, 1):
             w.add_document(id=count, date=basedate)
             basedate += timedelta(days=14, hours=16)
             count += 1
@@ -881,7 +880,57 @@ def test_groupby_phrase():
         assert_equal(keys, ["London", "Paris", "San Francisco", "Tel Aviv"])
 
 
+def test_issue_267():
+    count = 5
 
+    # Sort ID
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           t1=fields.ID(stored=True),
+                           t2=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        for i in range(count):
+            w.add_document(id=unicode(i), t1=u'foo')
+    with ix.writer() as w:
+        w.add_document(id=u('100'), t1=u('bar'), t2=u('bbb'))
+        w.add_document(id=u('101'), t1=u('bar'), t2=u('aaa'))
+        w.add_document(id=u('102'), t1=u('bar'), t2=u('ccc'))
+        w.merge = False
+
+    with ix.searcher() as s:
+        assert not s.is_atomic()
+        results = s.search(query.Every(), sortedby=['t2'], limit=None)
+        for r in results:
+            print r, r.score
+        assert_equal(len(results), s.doc_count_all())
+        assert_equal(results[0].get('t2'), u'aaa')
+        assert_equal(results[1].get('t2'), u'bbb')
+        assert_equal(results[2].get('t2'), u'ccc')
+
+    # Sort datetime
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           t1=fields.DATETIME(stored=True),
+                           t2=fields.DATETIME(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for i in range(count):
+            w.add_document(id=unicode(i), t1=dt(1971, 1, 1))
+    with ix.writer() as w:
+        w.add_document(id=u'100', t1=dt(1973, 1, 1), t2=dt(1976, 1, 1))
+        w.add_document(id=u'101', t1=dt(1973, 1, 1), t2=dt(1975, 1, 1))
+        w.add_document(id=u'102', t1=dt(1973, 1, 1), t2=dt(1974, 1, 1))
+        w.merge = False
+
+    with ix.searcher() as s:
+        assert not s.is_atomic()
+        results = s.search(query.Every(), sortedby=['t2'], limit=None)
+        #for r in results:
+        #    print r
+        assert_equal(len(results), count + 3)
+        assert_equal(results[0].get('t2'), dt(1974, 1, 1))
+        assert_equal(results[1].get('t2'), dt(1975, 1, 1))
+        assert_equal(results[2].get('t2'), dt(1976, 1, 1))
 
 
 
