@@ -881,7 +881,7 @@ def test_groupby_phrase():
 
 
 def test_issue_267():
-    count = 5
+    count = 8
 
     # Sort ID
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -896,7 +896,6 @@ def test_issue_267():
         w.add_document(id=u('100'), t1=u('bar'), t2=u('bbb'))
         w.add_document(id=u('101'), t1=u('bar'), t2=u('aaa'))
         w.add_document(id=u('102'), t1=u('bar'), t2=u('ccc'))
-        w.merge = False
 
     with ix.searcher() as s:
         assert not s.is_atomic()
@@ -920,7 +919,6 @@ def test_issue_267():
         w.add_document(id=u'100', t1=dt(1973, 1, 1), t2=dt(1976, 1, 1))
         w.add_document(id=u'101', t1=dt(1973, 1, 1), t2=dt(1975, 1, 1))
         w.add_document(id=u'102', t1=dt(1973, 1, 1), t2=dt(1974, 1, 1))
-        w.merge = False
 
     with ix.searcher() as s:
         assert not s.is_atomic()
