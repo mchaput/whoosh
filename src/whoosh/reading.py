@@ -982,12 +982,25 @@ class MultiReader(IndexReader):
 
         current = []
         for it in iterlist:
-            term = next(it)
+            try:
+                term = next(it)
+            except StopIteration:
+                continue
             current.append((term, id(it)))
-        heapify(current)
-
         # Number of active iterators
         active = len(current)
+
+        # If only one iterator is active, just yield from it and return
+        if active == 1:
+            term, itid = current[0]
+            it = itermap[itid]
+            yield term
+            for term in it:
+                yield term
+            return
+
+        # Otherwise, do a streaming heap sort of the terms from the iterators
+        heapify(current)
         while active:
             # Peek at the first term in the sorted list
             term = current[0][0]
