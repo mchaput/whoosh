@@ -29,7 +29,7 @@
 This module contains classes for scoring (and sorting) search results.
 """
 
-from __future__ import division
+from __future__ import division, with_statement
 from math import log, pi
 
 from whoosh.compat import iteritems
