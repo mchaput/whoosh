@@ -305,7 +305,7 @@ class MpWriter(SegmentWriter):
         basedoc = self.docnum
         # A list to remember field length readers for each sub-segment (we'll
         # re-use them below)
-        lenreaders = [pdw.lengths_reader()]
+        lenreaders = []
 
         for _, segment in results:
             # Create a field length reader for the sub-segment
@@ -358,16 +358,18 @@ class MpWriter(SegmentWriter):
             items = self._read_and_renumber_run(runname, basedoc)
             sources.append(items)
             basedoc += segment.doccount
+        self.docnum = basedoc
 
         # Create a MultiLengths object combining the length files from the
         # subtask segments
+        pdw.close()
+        lenreaders.insert(0, self.lengths_reader())
         mlens = base.MultiLengths(lenreaders)
         try:
             # Merge the iterators into the field writer
             self.fieldwriter.add_postings(schema, mlens, imerge(sources))
         finally:
             mlens.close()
-        self.docnum = basedoc
         self._added = True
 
 
