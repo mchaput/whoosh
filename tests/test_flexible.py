@@ -3,7 +3,7 @@ from __future__ import with_statement
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields
-from whoosh.compat import u
+from whoosh.compat import u, b
 from whoosh.util.testing import TempIndex
 
 
@@ -74,7 +74,7 @@ def test_removefield():
         assert_equal(ixschema.stored_names(), ["id"])
 
         with ix.searcher() as s:
-            assert ("content", u("charlie")) not in s.reader()
+            assert ("content", b("charlie")) not in s.reader()
             assert_equal(s.document(id=u("c")), {"id": u("c")})
 
 

@@ -28,6 +28,7 @@
 import sys
 
 from whoosh import query
+from whoosh.compat import text_type
 from whoosh.qparser import syntax
 from whoosh.qparser.common import print_debug, QueryParserError
 
@@ -212,7 +213,8 @@ class QueryParser(object):
             # and return early
             if field.self_parsing():
                 try:
-                    return field.parse_query(fieldname, text, boost=boost)
+                    q = field.parse_query(fieldname, text, boost=boost)
+                    return q
                 except:
                     e = sys.exc_info()[1]
                     return query.error_query(e)
@@ -339,14 +341,17 @@ class QueryParser(object):
 
     def parse(self, text, normalize=True, debug=False):
         """Parses the input string and returns a :class:`whoosh.query.Query`
-        object/tree. 
+        object/tree.
         
-        :param text: the string to parse.
+        :param text: the unicode string to parse.
         :param normalize: whether to call normalize() on the query object/tree
             before returning it. This should be left on unless you're trying to
             debug the parser output.
         :rtype: :class:`whoosh.query.Query`
         """
+
+        if not isinstance(text, text_type):
+            text = text.decode("latin1")
 
         nodes = self.process(text, debug=debug)
         print_debug(debug, "Syntax tree: %r" % nodes)

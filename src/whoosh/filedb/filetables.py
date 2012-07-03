@@ -30,20 +30,22 @@ on-disk key-value database format. The current format is based heavily on
 D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 """
 
+import struct
 from binascii import crc32
 from collections import defaultdict
 from hashlib import md5  # @UnresolvedImport
-from struct import Struct
 
-from whoosh.compat import long_type, xrange, b, bytes_type
-from whoosh.system import _INT_SIZE, _LONG_SIZE
+from whoosh.compat import b, bytes_type
+from whoosh.compat import xrange
+from whoosh.util.numlists import GrowableArray
+from whoosh.system import _INT_SIZE, emptybytes
 
 
 _4GB = 4 * 1024 * 1024 * 1024
 
 
 def cdb_hash(key):
-    h = long_type(5381)
+    h = 5381
     for c in key:
         h = (h + (h << 5)) & 0xffffffff ^ ord(c)
     return h
@@ -59,38 +61,38 @@ def crc_hash(key):
 
 hash_functions = (hash, cdb_hash, md5_hash, crc_hash)
 
-_header_entry_struct = Struct("!qI")  # Position, number of slots
+_header_entry_struct = struct.Struct("!qI")  # Position, number of slots
 header_entry_size = _header_entry_struct.size
 pack_header_entry = _header_entry_struct.pack
 unpack_header_entry = _header_entry_struct.unpack
 
-_lengths_struct = Struct("!II")  # Length of key, length of data
+_lengths_struct = struct.Struct("!II")  # Length of key, length of data
 lengths_size = _lengths_struct.size
 pack_lengths = _lengths_struct.pack
 unpack_lengths = _lengths_struct.unpack
+
+_pointer_struct = struct.Struct("!Iq")  # Hash value, position
+pointer_size = _pointer_struct.size
+pack_pointer = _pointer_struct.pack
+unpack_pointer = _pointer_struct.unpack
 
 
 # Table classes
 
 class HashWriter(object):
-    def __init__(self, dbfile, format=1, hashtype=2):
+    def __init__(self, dbfile, hashtype=2):
         self.dbfile = dbfile
-        self.format = format
         self.hashtype = hashtype
+        self.extras = {}
 
-        if format:
-            dbfile.write(b("HASH"))
-            self.header_size = 16 + 256 * header_entry_size
-            _pointer_struct = Struct("!Iq")  # Hash value, position
-        else:
-            # Old format
-            self.header_size = 256 * header_entry_size
-            _pointer_struct = Struct("!qq")  # Hash value, position
-            self.hashtype = 0
+        self.startoffset = dbfile.tell()
+        dbfile.write(b("HASH"))  # Magic tag
+        dbfile.write_byte(self.hashtype)  # Identify hashing function used
+        dbfile.write(b("\x00\x00\x00"))  # Unused bytes
+        dbfile.write_long(0)  # Pointer to end of hashes
 
+        self.header_size = 16 + 256 * header_entry_size
         self.hash_func = hash_functions[self.hashtype]
-        self.pointer_size = _pointer_struct.size
-        self.pack_pointer = _pointer_struct.pack
 
         # Seek past the first "header_size" bytes of the file... we'll come
         # back here to write the header later
@@ -98,28 +100,23 @@ class HashWriter(object):
         # Store the directory of hashed values
         self.hashes = defaultdict(list)
 
-    def add_all(self, items):
-        dbfile = self.dbfile
-        hash_func = self.hash_func
-        hashes = self.hashes
-        pos = dbfile.tell()
-        write = dbfile.write
-
-        for key, value in items:
-            if not isinstance(key, bytes_type):
-                raise TypeError("Key %r should be bytes" % key)
-            if not isinstance(value, bytes_type):
-                raise TypeError("Value %r should be bytes" % value)
-            write(pack_lengths(len(key), len(value)))
-            write(key)
-            write(value)
-
-            h = hash_func(key)
-            hashes[h & 255].append((h, pos))
-            pos += lengths_size + len(key) + len(value)
-
     def add(self, key, value):
-        self.add_all(((key, value),))
+        assert isinstance(key, bytes_type)
+        assert isinstance(value, bytes_type)
+
+        dbfile = self.dbfile
+        pos = dbfile.tell()
+        dbfile.write(pack_lengths(len(key), len(value)))
+        dbfile.write(key)
+        dbfile.write(value)
+
+        h = self.hash_func(key)
+        self.hashes[h & 255].append((h, pos))
+
+    def add_all(self, items):
+        add = self.add
+        for key, value in items:
+            add(key, value)
 
     def _write_hashes(self):
         dbfile = self.dbfile
@@ -142,22 +139,28 @@ class HashWriter(object):
 
             write = dbfile.write
             for hashval, position in hashtable:
-                write(self.pack_pointer(hashval, position))
-                pos += self.pointer_size
+                write(pack_pointer(hashval, position))
+                pos += pointer_size
 
         dbfile.flush()
-        self._end_of_hashes = dbfile.tell()
+        self.extrasoffset = dbfile.tell()
+
+    def _write_extras(self):
+        self.dbfile.write_pickle(self.extras)
+        # Seek back and write the pointer to the extras
+        self.dbfile.flush()
+        self.dbfile.seek(self.startoffset + 8)
+        self.dbfile.write_long(self.extrasoffset)
 
     def _write_directory(self):
         dbfile = self.dbfile
         directory = self.directory
 
-        dbfile.seek(4)
-        if self.format:
-            dbfile.write_byte(self.hashtype)
-            dbfile.write(b("\x00\x00\x00"))  # Unused
-            dbfile.write_long(self._end_of_hashes)
-
+        # Seek back to the header
+        dbfile.seek(self.startoffset + 8)
+        # Write the pointer to the end of the hashes
+        dbfile.write_long(self.extrasoffset)
+        # Write the pointers to the hash tables
         for position, numslots in directory:
             dbfile.write(pack_header_entry(position, numslots))
 
@@ -166,41 +169,47 @@ class HashWriter(object):
 
     def close(self):
         self._write_hashes()
+        self._write_extras()
         self._write_directory()
         self.dbfile.close()
 
 
 class HashReader(object):
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, startoffset=0):
         self.dbfile = dbfile
+        self.startoffset = startoffset
+        self.is_closed = False
 
-        dbfile.seek(0)
+        dbfile.seek(startoffset)
+        # Check magic tag
         magic = dbfile.read(4)
-        if magic == b("HASH"):
-            self.format = 1
-            self.header_size = 16 + 256 * header_entry_size
-            _pointer_struct = Struct("!Iq")  # Hash value, position
-            self.hashtype = dbfile.read_byte()
-            dbfile.read(3)  # Unused
-            self._end_of_hashes = dbfile.read_long()
-            assert self._end_of_hashes >= self.header_size
-        else:
-            # Old format
-            self.format = self.hashtype = 0
-            self.header_size = 256 * header_entry_size
-            _pointer_struct = Struct("!qq")  # Hash value, position
+        if magic != b("HASH"):
+            raise Exception("Unknown file header %r" % magic)
 
+        self.hashtype = dbfile.read_byte()  # Hash function type
         self.hash_func = hash_functions[self.hashtype]
+
+        dbfile.read(3)  # Unused
+        self.extrasoffset = dbfile.read_long()  # Pointer to end of hashes
+
+        self.header_size = 16 + 256 * header_entry_size
+        assert self.extrasoffset >= self.header_size
+
+        # Read pointers to hash tables
         self.buckets = []
         for _ in xrange(256):
             he = unpack_header_entry(dbfile.read(header_entry_size))
             self.buckets.append(he)
         self._start_of_hashes = self.buckets[0][0]
 
-        self.pointer_size = _pointer_struct.size
-        self.unpack_pointer = _pointer_struct.unpack
+        dbfile.seek(self.extrasoffset)
+        self._read_extras()
 
-        self.is_closed = False
+    def _read_extras(self):
+        try:
+            self.extras = self.dbfile.read_pickle()
+        except EOFError:
+            self.extras = {}
 
     def close(self):
         if self.is_closed:
@@ -283,7 +292,6 @@ class HashReader(object):
 
     def ranges_for_key(self, key):
         read = self.read
-        pointer_size = self.pointer_size
         if not isinstance(key, bytes_type):
             raise TypeError("Key %r should be bytes" % key)
         keyhash = self.hash_func(key)
@@ -293,7 +301,7 @@ class HashReader(object):
 
         slotpos = hpos + (((keyhash >> 8) % hslots) * pointer_size)
         for _ in xrange(hslots):
-            slothash, pos = self.unpack_pointer(read(slotpos, pointer_size))
+            slothash, pos = unpack_pointer(read(slotpos, pointer_size))
             if not pos:
                 return
 
@@ -313,18 +321,11 @@ class HashReader(object):
             return item
         raise KeyError(key)
 
-    def end_of_hashes(self):
-        if self.format:
-            return self._end_of_hashes
-        else:
-            lastpos, lastnum = self.buckets[255]
-            return lastpos + lastnum * self.pointer_size
-
 
 class OrderedHashWriter(HashWriter):
     def __init__(self, dbfile):
         HashWriter.__init__(self, dbfile)
-        self.index = []
+        self.index = GrowableArray("H")
         self.lastkey = None
 
     def add_all(self, items):
@@ -335,13 +336,11 @@ class OrderedHashWriter(HashWriter):
         write = dbfile.write
 
         index = self.index
-        lk = self.lastkey or b('')
+        lk = self.lastkey or emptybytes
 
         for key, value in items:
-            if not isinstance(key, bytes_type):
-                raise TypeError("Key %r should be bytes" % key)
-            if not isinstance(value, bytes_type):
-                raise TypeError("Value %r should be bytes" % value)
+            assert isinstance(key, bytes_type)
+            assert isinstance(value, bytes_type)
             if key <= lk:
                 raise ValueError("Keys must increase: %r .. %r" % (lk, key))
             lk = key
@@ -358,44 +357,63 @@ class OrderedHashWriter(HashWriter):
 
         self.lastkey = lk
 
-    def close(self):
-        self._write_hashes()
+    def _write_extras(self):
         dbfile = self.dbfile
 
-        dbfile.write_uint(len(self.index))
-        for n in self.index:
-            dbfile.write_long(n)
+        # Save information about the index in the extras
+        ndxarray = self.index
+        self.extras["indexbase"] = dbfile.tell()
+        self.extras["indextype"] = ndxarray.typecode
+        self.extras["indexlen"] = len(ndxarray)
+        # Write key index
+        ndxarray.to_file(dbfile)
 
-        self._write_directory()
-        self.dbfile.close()
+        # Call the super method to write the extras
+        self.extrasoffset = dbfile.tell()
+        HashWriter._write_extras(self)
 
 
 class OrderedHashReader(HashReader):
     def __init__(self, dbfile):
         HashReader.__init__(self, dbfile)
-        dbfile.seek(self.end_of_hashes())
-        self.length = dbfile.read_uint()
-        self.indexbase = dbfile.tell()
+        self.indexbase = self.extras["indexbase"]
+        self.indexlen = self.extras["indexlen"]
+
+        self.indextype = indextype = self.extras["indextype"]
+        self._ixsize = struct.calcsize(indextype)
+        if indextype == "B":
+            self._ixpos = dbfile.get_byte
+        elif indextype == "H":
+            self._ixpos = dbfile.get_ushort
+        elif indextype == "i":
+            self._ixpos = dbfile.get_int
+        elif indextype == "I":
+            self._ixpos = dbfile.get_uint
+        elif indextype == "q":
+            self._ixpos = dbfile.get_long
+        else:
+            raise Exception("Unknown index type %r" % indextype)
 
     def _closest_key(self, key):
-        dbfile = self.dbfile
         key_at = self._key_at
         indexbase = self.indexbase
+        ixpos, ixsize = self._ixpos, self._ixsize
+
         lo = 0
-        hi = self.length
+        hi = self.indexlen
         if not isinstance(key, bytes_type):
             raise TypeError("Key %r should be bytes" % key)
         while lo < hi:
             mid = (lo + hi) // 2
-            midkey = key_at(dbfile.get_long(indexbase + mid * _LONG_SIZE))
+            midkey = key_at(ixpos(indexbase + mid * ixsize))
             if midkey < key:
                 lo = mid + 1
             else:
                 hi = mid
         #i = max(0, mid - 1)
-        if lo == self.length:
+        if lo == self.indexlen:
             return None
-        return dbfile.get_long(indexbase + lo * _LONG_SIZE)
+        return ixpos(indexbase + lo * ixsize)
 
     def closest_key(self, key):
         pos = self._closest_key(key)
@@ -421,128 +439,5 @@ class OrderedHashReader(HashReader):
         read = self.read
         for keypos, keylen, _, _ in self._ranges_from(key):
             yield read(keypos, keylen)
-
-    def values_from(self, key):
-        read = self.read
-        for _, _, datapos, datalen in self._ranges_from(key):
-            yield read(datapos, datalen)
-
-
-class CodedHashWriter(HashWriter):
-    # Abstract base class, subclass must implement keycoder and valuecoder
-
-    def __init__(self, dbfile):
-        sup = super(CodedHashWriter, self)
-        sup.__init__(dbfile)
-
-        self._add = sup.add
-
-    def add(self, key, data):
-        self._add(self.keycoder(key), self.valuecoder(data))
-
-
-class CodedHashReader(HashReader):
-    # Abstract base class, subclass must implement keycoder, keydecoder and
-    # valuecoder
-
-    def __init__(self, dbfile):
-        sup = super(CodedHashReader, self)
-        sup.__init__(dbfile)
-
-        self._items = sup.items
-        self._keys = sup.keys
-        self._get = sup.get
-        self._getitem = sup.__getitem__
-        self._contains = sup.__contains__
-
-    def __getitem__(self, key):
-        k = self.keycoder(key)
-        return self.valuedecoder(self._getitem(k))
-
-    def __contains__(self, key):
-        return self._contains(self.keycoder(key))
-
-    def get(self, key, default=None):
-        k = self.keycoder(key)
-        return self.valuedecoder(self._get(k, default))
-
-    def items(self):
-        kd = self.keydecoder
-        vd = self.valuedecoder
-        for key, value in self._items():
-            yield (kd(key), vd(value))
-
-    def keys(self):
-        kd = self.keydecoder
-        for k in self._keys():
-            yield kd(k)
-
-
-class CodedOrderedWriter(OrderedHashWriter):
-    # Abstract base class, subclasses must implement keycoder and valuecoder
-
-    def __init__(self, dbfile):
-        sup = super(CodedOrderedWriter, self)
-        sup.__init__(dbfile)
-        self._add = sup.add
-
-    def add(self, key, data):
-        self._add(self.keycoder(key), self.valuecoder(data))
-
-
-class CodedOrderedReader(OrderedHashReader):
-    # Abstract base class, subclasses must implement keycoder, keydecoder,
-    # and valuedecoder
-
-    def __init__(self, dbfile):
-        OrderedHashReader.__init__(self, dbfile)
-
-    def __getitem__(self, key):
-        k = self.keycoder(key)
-        return self.valuedecoder(OrderedHashReader.__getitem__(self, k))
-
-    def __contains__(self, key):
-        try:
-            codedkey = self.keycoder(key)
-        except KeyError:
-            return False
-        return OrderedHashReader.__contains__(self, codedkey)
-
-    def get(self, key, default=None):
-        k = self.keycoder(key)
-        return self.valuedecoder(OrderedHashReader.get(self, k, default))
-
-    def items(self):
-        kd = self.keydecoder
-        vd = self.valuedecoder
-        for key, value in OrderedHashReader.items(self):
-            yield (kd(key), vd(value))
-
-    def items_from(self, key):
-        fromkey = self.keycoder(key)
-        kd = self.keydecoder
-        vd = self.valuedecoder
-        for key, value in OrderedHashReader.items_from(self, fromkey):
-            yield (kd(key), vd(value))
-
-    def keys(self):
-        kd = self.keydecoder
-        for k in OrderedHashReader.keys(self):
-            yield kd(k)
-
-    def keys_from(self, key):
-        kd = self.keydecoder
-        for k in OrderedHashReader.keys_from(self, self.keycoder(key)):
-            yield kd(k)
-
-    def range_for_key(self, key):
-        return OrderedHashReader.range_for_key(self, self.keycoder(key))
-
-    def values(self):
-        vd = self.valuedecoder
-        for v in OrderedHashReader.values(self):
-            yield vd(v)
-
-
 
 

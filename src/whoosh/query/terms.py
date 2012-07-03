@@ -92,14 +92,13 @@ class Term(qcore.Query):
         return ixreader.doc_frequency(self.fieldname, self.text)
 
     def matcher(self, searcher, weighting=None):
+        fieldname = self.fieldname
         text = self.text
-        if self.fieldname not in searcher.schema:
+        if fieldname not in searcher.schema:
             return matching.NullMatcher()
-        # If someone created a query object with a non-text term,e.g.
-        # query.Term("printed", True), be nice and convert it to text
-        if not isinstance(text, (bytes_type, text_type)):
-            field = searcher.schema[self.fieldname]
-            text = field.to_text(text)
+
+        field = searcher.schema[fieldname]
+        text = field.to_bytes(text)
 
         if (self.fieldname, text) in searcher.reader():
             m = searcher.postings(self.fieldname, text, weighting=weighting)

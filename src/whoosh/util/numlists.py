@@ -1,6 +1,7 @@
 from array import array
 
 from whoosh.compat import xrange
+from whoosh.system import emptybytes
 from whoosh.system import pack_byte, unpack_byte
 from whoosh.system import pack_ushort_le, unpack_ushort_le
 from whoosh.system import pack_uint_le, unpack_uint_le
@@ -20,23 +21,19 @@ def delta_decode(nums):
         yield base
 
 
-class NumberEncoding(object):
-    def write_deltas(self, f, numbers):
-        return self.write_nums(f, delta_encode(numbers))
-
-    def read_deltas(self, f, n):
-        return delta_decode(self.read_nums(f, n))
-
-    def get(self, f, pos, i):
-        f.seek(pos)
-        for n in self.read_nums(i + 1):
-            pass
-        return n
-
-
 class GrowableArray(object):
-    def __init__(self, inittype):
+    def __init__(self, inittype="B", allow_longs=True):
         self.array = array(inittype)
+        self._allow_longs = allow_longs
+
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.array)
+
+    def __len__(self):
+        return len(self.array)
+
+    def __iter__(self):
+        return iter(self.array)
 
     def _retype(self, maxnum):
         if maxnum < 2 ** 16:
@@ -45,9 +42,15 @@ class GrowableArray(object):
             newtype = "i"
         elif maxnum < 2 ** 32:
             newtype = "I"
+        elif self._allow_longs:
+            newtype = "q"
         else:
-            raise OverflowError
-        self.array = array(newtype, self.array)
+            raise OverflowError("%r is too big to fit in an array" % maxnum)
+
+        try:
+            self.array = array(newtype, iter(self.array))
+        except ValueError:
+            self.array = list(self.array)
 
     def append(self, n):
         try:
@@ -60,28 +63,56 @@ class GrowableArray(object):
         for n in ns:
             append(n)
 
+    @property
+    def typecode(self):
+        if isinstance(self.array, array):
+            return self.array.typecode
+        else:
+            return "q"
+
+    def to_file(self, dbfile):
+        if isinstance(self.array, array):
+            dbfile.write_array(self.array)
+        else:
+            write_long = dbfile.write_long
+            for n in self.array:
+                write_long(n)
+
+
+# Number list encoding base class
+
+class NumberEncoding(object):
+    def write_deltas(self, f, numbers):
+        return self.write_nums(f, delta_encode(numbers))
+
+    def read_deltas(self, f, n):
+        return delta_decode(self.read_nums(f, n))
+
+    def get(self, f, pos, i):
+        f.seek(pos)
+        for n in self.read_nums(f, i + 1):
+            pass
+        return n
+
 
 # Fixed width encodings
 
 class FixedEncoding(NumberEncoding):
-    @classmethod
-    def write_nums(cls, f, numbers):
-        _encode = cls._encode
+    def write_nums(self, f, numbers):
+        _encode = self._encode
 
         for n in numbers:
             f.write(_encode(n))
 
-    @classmethod
-    def read_nums(cls, f, n):
-        _decode = cls._decode
+    def read_nums(self, f, n):
+        _decode = self._decode
 
         for _ in xrange(n):
-            f.write(_decode(n))
+            yield _decode(f.read(self.size))
 
-    @classmethod
-    def get(cls, f, pos, i):
-        f.seek(pos + i * cls.size)
-        return cls._decode(f.read(cls.size))
+    def get(self, f, pos, i):
+        f.seek(pos + i * self.size)
+        return self._decode(f.read(self.size))
 
 
 class ByteEncoding(FixedEncoding):
@@ -110,13 +141,11 @@ class UIntEncoding(FixedEncoding):
 class Varints(NumberEncoding):
     maxint = None
 
-    @staticmethod
-    def write_nums(f, numbers):
+    def write_nums(self, f, numbers):
         for n in numbers:
             f.write_varint(n)
 
-    @staticmethod
-    def read_nums(f, n):
+    def read_nums(self, f, n):
         for _ in xrange(n):
             yield f.read_varint()
 
@@ -159,9 +188,8 @@ class Simple16(NumberEncoding):
     (28,),
     ]
 
-    @classmethod
-    def write_nums(cls, f, numbers):
-        _compress = cls._compress
+    def write_nums(self, f, numbers):
+        _compress = self._compress
 
         i = 0
         while i < len(numbers):
@@ -169,12 +197,11 @@ class Simple16(NumberEncoding):
             f.write_uint_le(value)
             i += taken
 
-    @classmethod
-    def _compress(cls, inarray, inoffset, n):
-        _numsize = cls._numsize
-        _bitsize = cls._bitsize
-        _num = cls._num
-        _bits = cls._bits
+    def _compress(self, inarray, inoffset, n):
+        _numsize = self._numsize
+        _bitsize = self._bitsize
+        _num = self._num
+        _bits = self._bits
 
         for key in xrange(_numsize):
             value = key << _bitsize
@@ -193,9 +220,8 @@ class Simple16(NumberEncoding):
 
         raise Exception
 
-    @classmethod
-    def read_nums(cls, f, n):
-        _decompress = cls._decompress
+    def read_nums(self, f, n):
+        _decompress = self._decompress
 
         i = 0
         while i < n:
@@ -204,12 +230,11 @@ class Simple16(NumberEncoding):
                 yield v
                 i += 1
 
-    @classmethod
-    def _decompress(cls, value, n):
-        _numsize = cls._numsize
-        _bitsize = cls._bitsize
-        _num = cls._num
-        _bits = cls._bits
+    def _decompress(self, value, n):
+        _numsize = self._numsize
+        _bitsize = self._bitsize
+        _num = self._num
+        _bits = self._bits
 
         key = value >> _bitsize
         num = _num[key] if _num[key] < n else n
@@ -219,23 +244,22 @@ class Simple16(NumberEncoding):
             yield v & (0xffffffff >> (32 - _bits[key][j]))
             bits += _bits[key][j]
 
-    @classmethod
-    def get(cls, f, pos, i):
+    def get(self, f, pos, i):
         f.seek(pos)
         base = 0
         value = unpack_uint_le(f.read(4))
-        key = value >> cls._bitsize
-        num = cls._num[key]
+        key = value >> self._bitsize
+        num = self._num[key]
         while i > base + num:
             base += num
             value = unpack_uint_le(f.read(4))
-            key = value >> cls._bitsize
-            num = cls._num[key]
+            key = value >> self._bitsize
+            num = self._num[key]
 
         offset = i - base
         if offset:
-            value = value >> sum(cls._bits[key][:offset])
-        return value & (2 ** cls._bits[key][offset] - 1)
+            value = value >> sum(self._bits[key][:offset])
+        return value & (2 ** self._bits[key][offset] - 1)
 
 
 # Google Packed Ints algorithm: a set of four numbers is preceded by a "key"
@@ -261,32 +285,30 @@ class GInts(NumberEncoding):
     11, 12, 10, 11, 12, 13, 11, 12, 13, 14, 12, 13, 14, 15, 10, 11, 12, 13, 11,
     12, 13, 14, 12, 13, 14, 15, 13, 14, 15, 16])
 
-    @staticmethod
-    def key_to_sizes(key):
+    def key_to_sizes(self, key):
         """Returns a list of the sizes of the next four numbers given a key
         byte.
         """
 
         return [(key >> (i * 2) & 3) + 1 for i in xrange(4)]
 
-    @classmethod
-    def write_nums(cls, f, numbers):
-        buf = array("B")
+    def write_nums(self, f, numbers):
+        buf = emptybytes
         count = 0
         key = 0
         for v in numbers:
             shift = count * 2
             if v < 256:
-                buf.append(v)
+                buf += pack_byte(v)
             elif v < 65536:
                 key |= 1 << shift
-                buf.extend(pack_ushort_le(v))
+                buf += pack_ushort_le(v)
             elif v < 16777216:
                 key |= 2 << shift
-                buf.extend(pack_uint_le(v)[:3])
+                buf += pack_uint_le(v)[:3]
             else:
                 key |= 3 << shift
-                buf.extend(pack_uint_le(v))
+                buf += pack_uint_le(v)
 
             count += 1
             if count == 4:
@@ -294,17 +316,16 @@ class GInts(NumberEncoding):
                 f.write(buf)
                 count = 0
                 key = 0
-                del buf[:]  # Clear the buffer
+                buf = emptybytes  # Clear the buffer
 
         # Write out leftovers in the buffer
         if count:
             f.write_byte(key)
             f.write(buf)
 
-    @classmethod
-    def read_nums(cls, f, n):
+    def read_nums(self, f, n):
         """Read N integers from the bytes stream dbfile. Expects that the file
-        starts at a key byte.
+        is positioned at a key byte.
         """
 
         count = 0
@@ -324,19 +345,18 @@ class GInts(NumberEncoding):
 
             count = (count + 1) % 4
 
-    @classmethod
-    def get(cls, f, pos, i):
-        f.seek(pos)
-        base = 0
-        key = f.read_byte()
-        while i > base + 4:
-            base += 4
-            f.seek(cls._lens[key], 1)
-            key = f.read_byte()
-
-        for n in cls.read_nums((i + 1) - base):
-            pass
-        return n
+#    def get(self, f, pos, i):
+#        f.seek(pos)
+#        base = 0
+#        key = f.read_byte()
+#        while i > base + 4:
+#            base += 4
+#            f.seek(self._lens[key], 1)
+#            key = f.read_byte()
+#
+#        for n in self.read_nums(f, (i + 1) - base):
+#            pass
+#        return n
 
 
 

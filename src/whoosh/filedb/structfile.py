@@ -31,6 +31,7 @@ from copy import copy
 from struct import calcsize
 from gzip import GzipFile
 
+from whoosh.compat import BytesIO
 from whoosh.compat import dump as dump_pickle
 from whoosh.compat import load as load_pickle
 from whoosh.compat import array_frombytes, array_tobytes
@@ -38,8 +39,11 @@ from whoosh.system import _INT_SIZE, _SHORT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 from whoosh.system import IS_LITTLE
 from whoosh.system import pack_byte, unpack_byte, pack_sbyte, unpack_sbyte
 from whoosh.system import pack_ushort, unpack_ushort
+from whoosh.system import pack_ushort_le, unpack_ushort_le
 from whoosh.system import pack_int, unpack_int, pack_uint, unpack_uint
-from whoosh.system import pack_long, unpack_long, unpack_float
+from whoosh.system import pack_uint_le, unpack_uint_le
+from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
+from whoosh.system import pack_float, unpack_float
 from whoosh.util.varints import varint, read_varint
 from whoosh.util.varints import signed_varint, decode_signed_varint
 
@@ -59,20 +63,17 @@ class StructFile(object):
     "write_varint" and "write_long".
     """
 
-    def __init__(self, fileobj, name=None, onclose=None, gzip=False):
+    def __init__(self, fileobj, name=None, onclose=None, gzip=0):
 
         if gzip:
-            fileobj = GzipFile(fileobj=fileobj)
+            fileobj = GzipFile(fileobj=fileobj, compresslevel=gzip)
 
         self.file = fileobj
         self._name = name
         self.onclose = onclose
         self.is_closed = False
 
-        for attr in ("read", "readline", "write", "tell", "seek", "truncate"):
-            if hasattr(fileobj, attr):
-                setattr(self, attr, getattr(fileobj, attr))
-
+        self._copy_attrs()
         self.is_real = not gzip and hasattr(fileobj, "fileno")
         if self.is_real:
             self.fileno = fileobj.fileno
@@ -88,6 +89,12 @@ class StructFile(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def _copy_attrs(self):
+        fileobj = self.file
+        for attr in ("read", "readline", "write", "tell", "seek", "truncate"):
+            if hasattr(fileobj, attr):
+                setattr(self, attr, getattr(fileobj, attr))
 
     def flush(self):
         """Flushes the buffer of the wrapped file. This is a no-op if the
@@ -108,6 +115,12 @@ class StructFile(object):
         if hasattr(self.file, "close"):
             self.file.close()
         self.is_closed = True
+
+    def subset(self, offset, length, name=None):
+        from whoosh.filedb.compound import SubFile
+
+        name = name or self._name
+        return StructFile(SubFile(self.file, offset, length), name=name)
 
     def write_string(self, s):
         """Writes a string to the wrapped file. This method writes the length
@@ -212,11 +225,20 @@ class StructFile(object):
     def write_uint(self, n):
         self.file.write(pack_uint(n))
 
+    def write_uint_le(self, n):
+        self.file.write(pack_uint_le(n))
+
     def write_ushort(self, n):
         self.file.write(pack_ushort(n))
 
+    def write_ushort_le(self, n):
+        self.file.write(pack_ushort_le(n))
+
     def write_long(self, n):
         self.file.write(pack_long(n))
+
+    def write_ulong(self, n):
+        self.file.write(pack_ulong(n))
 
     def write_float(self, n):
         self.file.write(pack_float(n))
@@ -239,11 +261,20 @@ class StructFile(object):
     def read_uint(self):
         return unpack_uint(self.file.read(_INT_SIZE))[0]
 
+    def read_uint_le(self):
+        return unpack_uint_le(self.file.read(_INT_SIZE))[0]
+
     def read_ushort(self):
         return unpack_ushort(self.file.read(_SHORT_SIZE))[0]
 
+    def read_ushort_le(self):
+        return unpack_ushort_le(self.file.read(_SHORT_SIZE))[0]
+
     def read_long(self):
         return unpack_long(self.file.read(_LONG_SIZE))[0]
+
+    def read_ulong(self):
+        return unpack_ulong(self.file.read(_LONG_SIZE))[0]
 
     def read_float(self):
         return unpack_float(self.file.read(_FLOAT_SIZE))[0]
@@ -263,37 +294,58 @@ class StructFile(object):
         return self.file.read(length)
 
     def get_byte(self, position):
-        self.file.seek(position)
-        return self.read_byte()
+        return ord(self.get(position, 1))
 
     def get_sbyte(self, position):
-        self.file.seek(position)
-        return self.read_sbyte()
+        return unpack_sbyte(self.get(position, 1))[0]
 
     def get_int(self, position):
-        self.file.seek(position)
-        return self.read_int()
+        return unpack_int(self.get(position, _INT_SIZE))[0]
 
     def get_uint(self, position):
-        self.file.seek(position)
-        return self.read_uint()
+        return unpack_uint(self.get(position, _INT_SIZE))[0]
 
     def get_ushort(self, position):
-        self.file.seek(position)
-        return self.read_ushort()
+        return unpack_ushort(self.get(position, _SHORT_SIZE))[0]
 
     def get_long(self, position):
-        self.file.seek(position)
-        return self.read_long()
+        return unpack_long(self.get(position, _LONG_SIZE))[0]
+
+    def get_ulong(self, position):
+        return unpack_ulong(self.get(position, _LONG_SIZE))[0]
 
     def get_float(self, position):
-        self.file.seek(position)
-        return self.read_float()
+        return unpack_float(self.get(position, _FLOAT_SIZE))[0]
 
     def get_array(self, position, typecode, length):
         self.file.seek(position)
         return self.read_array(typecode, length)
 
+
+class BufferFile(StructFile):
+    def __init__(self, buf, name=None, onclose=None):
+        self._buf = buf
+        self._name = name
+        self.file = BytesIO(buf)
+        self.onclose = onclose
+
+        self._copy_attrs()
+        self.is_real = False
+        self.is_closed = False
+
+    def subset(self, position, length, name=None):
+        name = name or self._name
+        return BufferFile(self.get(position, length), name=name)
+
+    def get(self, position, length):
+        return self._buf[position:position + length]
+
+    def get_array(self, position, typecode, length):
+        a = array(typecode)
+        array_frombytes(a, self.get(position, length * _SIZEMAP[typecode]))
+        if IS_LITTLE:
+            a.byteswap()
+        return a
 
 
 

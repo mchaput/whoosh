@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os.path, shutil, sys, random, traceback
+import os.path, random, shutil, sys, tempfile, traceback
 from functools import wraps
 
 from whoosh.filedb.filestore import FileStorage
@@ -33,9 +33,10 @@ from whoosh.util import now
 
 
 class TempDir(object):
-    def __init__(self, basename=None, parentdir="tmp", ext="",
+    def __init__(self, basename=None, parentdir=None, ext=".whoosh",
                  suppress=frozenset(), keepdir=False):
         self.basename = basename or hex(random.randint(0, 1000000000))[2:]
+        parentdir = parentdir or tempfile.gettempdir()
         dirname = os.path.join(parentdir, self.basename + ext)
         self.dir = os.path.abspath(dirname)
         self.suppress = suppress

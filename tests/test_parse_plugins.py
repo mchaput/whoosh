@@ -40,7 +40,8 @@ def test_combos():
     count = 0
     for i, first in enumerate(pis):
         for j in xrange(len(pis)):
-            if i == j: continue
+            if i == j:
+                continue
             plist = [p for p in pis[:j] if p is not first] + [first]
             qp = qparser.QueryParser("text", None, plugins=plist)
             try:
@@ -50,6 +51,7 @@ def test_combos():
                 raise Exception(str(e) + " combo: %s %r" % (count, plist))
             count += 1
 
+
 def test_field_alias():
     qp = qparser.QueryParser("content", None)
     qp.add_plugin(plugins.FieldAliasPlugin({"title": ("article", "caption")}))
@@ -58,13 +60,16 @@ def test_field_alias():
                  u("(content:alfa AND title:bravo AND title:charlie AND " +
                    "title:delta)"))
 
+
 def test_dateparser():
     schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
     qp = default.QueryParser("text", schema)
 
     errs = []
+
     def cb(arg):
         errs.append(arg)
+
     basedate = datetime(2010, 9, 20, 15, 16, 6, 454000)
     qp.add_plugin(dateparse.DateParserPlugin(basedate, callback=cb))
 
@@ -110,6 +115,7 @@ def test_dateparser():
     assert_equal(q[0][0].__class__, query.DateRange)
     assert_equal(q[0][1].__class__, query.DateRange)
 
+
 def test_date_range():
     schema = fields.Schema(text=fields.TEXT, date=fields.DATETIME)
     qp = qparser.QueryParser("text", schema)
@@ -146,6 +152,7 @@ def test_date_range():
     assert_equal(q.startdate, adatetime(2010, 3, 30).floor())
     assert_equal(q.enddate, None)
 
+
 def test_daterange_multi():
     schema = fields.Schema(text=fields.TEXT, start=fields.DATETIME,
                            end=fields.DATETIME)
@@ -162,6 +169,7 @@ def test_daterange_multi():
     assert_equal(q[1].startdate, adatetime(2011).floor())
     assert_equal(q[1].enddate, adatetime(2011).ceil())
 
+
 def test_daterange_empty_field():
     schema = fields.Schema(test=fields.DATETIME)
     ix = RamStorage().create_index(schema)
@@ -171,9 +179,11 @@ def test_daterange_empty_field():
     writer.commit()
 
     with ix.searcher() as s:
-        q = query.DateRange("test", datetime.fromtimestamp(0), datetime.today())
+        q = query.DateRange("test", datetime.fromtimestamp(0),
+                            datetime.today())
         r = s.search(q)
         assert_equal(len(r), 0)
+
 
 def test_free_dates():
     a = analysis.StandardAnalyzer(stoplist=None)
@@ -232,6 +242,7 @@ def test_free_dates():
     assert_equal(q[0][0].__class__, query.DateRange)
     assert_equal(q[0][1].__class__, query.DateRange)
 
+
 def test_prefix_plugin():
     schema = fields.Schema(id=fields.ID, text=fields.TEXT)
     ix = RamStorage().create_index(schema)
@@ -254,6 +265,7 @@ def test_prefix_plugin():
         q = qp.parse(u("br*"))
         r = s.search(q, limit=None)
         assert_equal(len(r), 1)
+
 
 def test_custom_tokens():
     qp = qparser.QueryParser("text", None)
@@ -282,6 +294,7 @@ def test_custom_tokens():
     assert_equal(q[1].__class__, query.Not)
     assert_equal(q[1].query.text, "bravo")
     assert_equal(q[2].text, "NOT")
+
 
 def test_copyfield():
     qp = qparser.QueryParser("a", None)
@@ -325,6 +338,7 @@ def test_copyfield():
                  "((name:spruce OR name_phone:SPRS) AND " +
                  "(name:view OR name_phone:F OR name_phone:FF))")
 
+
 def test_gtlt():
     schema = fields.Schema(a=fields.KEYWORD, b=fields.NUMERIC,
                            c=fields.KEYWORD,
@@ -357,6 +371,7 @@ def test_gtlt():
     q = qp.parse(u("hello a:>500 there"))
     assert_equal(text_type(q), "(a:hello AND a:a: AND a:500 AND a:there)")
 
+
 def test_regex():
     schema = fields.Schema(a=fields.KEYWORD, b=fields.TEXT)
     qp = qparser.QueryParser("a", schema)
@@ -367,6 +382,7 @@ def test_regex():
 
     q = qp.parse(u('a:r"foo-bar" b:r"foo-bar"'))
     assert_equal(q.__unicode__(), '(a:r"foo-bar" AND b:r"foo-bar")')
+
 
 def test_pseudofield():
     schema = fields.Schema(a=fields.KEYWORD, b=fields.TEXT)

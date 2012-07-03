@@ -25,11 +25,11 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os
+import os, random
 from threading import Lock
 
-from whoosh.compat import BytesIO
-from whoosh.filedb.structfile import StructFile
+from whoosh.compat import BytesIO, memoryview_
+from whoosh.filedb.structfile import BufferFile, StructFile
 from whoosh.index import _DEF_INDEX_NAME
 from whoosh.util.filelock import FileLock
 
@@ -331,11 +331,11 @@ class RamStorage(Storage):
         f = StructFile(BytesIO(), name=name, onclose=onclose_fn)
         return f
 
-    def open_file(self, name, *args, **kwargs):
+    def open_file(self, name, **kwargs):
         if name not in self.files:
             raise NameError(name)
-        return StructFile(BytesIO(self.files[name]), name=name, *args,
-                          **kwargs)
+        buf = memoryview_(self.files[name])
+        return BufferFile(buf, name=name, **kwargs)
 
     def lock(self, name):
         if name not in self.locks:

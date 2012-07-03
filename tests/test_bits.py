@@ -170,7 +170,7 @@ def test_ondisk():
     f.close()
 
     f = st.open_file("test")
-    b = OnDiskBitSet(f, size)
+    b = OnDiskBitSet(f, 0, size)
     assert_equal(list(b), list(bs))
 
     assert_equal(b.after(0), 10)

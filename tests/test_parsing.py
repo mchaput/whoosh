@@ -956,7 +956,7 @@ def test_bool_True():
     q = qp.parse("bool:True")
     assert_equal(q.__class__, query.Term)
     assert_equal(q.fieldname, "bool")
-    assert_equal(q.text, "t")
+    assert_equal(q.text, True)
 
 
 def test_not_order():

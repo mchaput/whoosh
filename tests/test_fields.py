@@ -89,43 +89,62 @@ def test_badnames():
     assert_raises(fields.FieldConfigurationError, s.add, "a f", fields.ID)
 
 
-def test_numeric_support():
-    intf = fields.NUMERIC(int, shift_step=0)
-    longf = fields.NUMERIC(long_type, shift_step=0)
-    floatf = fields.NUMERIC(float, shift_step=0)
+#def test_numeric_support():
+#    intf = fields.NUMERIC(int, shift_step=0)
+#    longf = fields.NUMERIC(int, bits=64, shift_step=0)
+#    floatf = fields.NUMERIC(float, shift_step=0)
+#
+#    def roundtrip(obj, num):
+#        assert_equal(obj.from_bytes(obj.to_bytes(num)), num)
+#
+#    roundtrip(intf, 0)
+#    roundtrip(intf, 12345)
+#    roundtrip(intf, -12345)
+#    roundtrip(longf, 0)
+#    roundtrip(longf, 85020450482)
+#    roundtrip(longf, -85020450482)
+#    roundtrip(floatf, 0)
+#    roundtrip(floatf, 582.592)
+#    roundtrip(floatf, -582.592)
+#    roundtrip(floatf, -99.42)
+#
+#    from random import shuffle
+#
+#    def roundtrip_sort(obj, start, end, step):
+#        count = start
+#        rng = []
+#        while count < end:
+#            rng.append(count)
+#            count += step
+#
+#        scrabled = list(rng)
+#        shuffle(scrabled)
+#        round = [obj.from_text(t) for t
+#                 in sorted([obj.to_text(n) for n in scrabled])]
+#        assert_equal(round, rng)
+#
+#    roundtrip_sort(intf, -100, 100, 1)
+#    roundtrip_sort(longf, -58902, 58249, 43)
+#    roundtrip_sort(floatf, -99.42, 99.83, 2.38)
 
-    def roundtrip(obj, num):
-        assert_equal(obj.from_text(obj.to_text(num)), num)
 
-    roundtrip(intf, 0)
-    roundtrip(intf, 12345)
-    roundtrip(intf, -12345)
-    roundtrip(longf, 0)
-    roundtrip(longf, 85020450482)
-    roundtrip(longf, -85020450482)
-    roundtrip(floatf, 0)
-    roundtrip(floatf, 582.592)
-    roundtrip(floatf, -582.592)
-    roundtrip(floatf, -99.42)
-
-    from random import shuffle
-
-    def roundtrip_sort(obj, start, end, step):
-        count = start
-        rng = []
-        while count < end:
-            rng.append(count)
-            count += step
-
-        scrabled = list(rng)
-        shuffle(scrabled)
-        round = [obj.from_text(t) for t
-                 in sorted([obj.to_text(n) for n in scrabled])]
-        assert_equal(round, rng)
-
-    roundtrip_sort(intf, -100, 100, 1)
-    roundtrip_sort(longf, -58902, 58249, 43)
-    roundtrip_sort(floatf, -99.42, 99.83, 2.38)
+def test_index_numeric():
+    schema = fields.Schema(a=fields.NUMERIC(int, 32, signed=False),
+                           b=fields.NUMERIC(int, 32, signed=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=1, b=1)
+    with ix.searcher() as s:
+        assert_equal(list(s.lexicon("a")),
+                     ['\x00\x00\x00\x00\x01', '\x04\x00\x00\x00\x00',
+                      '\x08\x00\x00\x00\x00', '\x0c\x00\x00\x00\x00',
+                      '\x10\x00\x00\x00\x00', '\x14\x00\x00\x00\x00',
+                      '\x18\x00\x00\x00\x00', '\x1c\x00\x00\x00\x00'])
+        assert_equal(list(s.lexicon("b")),
+                     ['\x00\x80\x00\x00\x01', '\x04\x08\x00\x00\x00',
+                      '\x08\x00\x80\x00\x00', '\x0c\x00\x08\x00\x00',
+                      '\x10\x00\x00\x80\x00', '\x14\x00\x00\x08\x00',
+                      '\x18\x00\x00\x00\x80', '\x1c\x00\x00\x00\x08'])
 
 
 def test_numeric():
@@ -145,7 +164,8 @@ def test_numeric():
     with ix.searcher() as s:
         qp = qparser.QueryParser("integer", schema)
 
-        r = s.search(qp.parse("5820"))
+        q = qp.parse(u("5820"))
+        r = s.search(q)
         assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "a")
 
@@ -169,7 +189,7 @@ def test_decimal_numeric():
     schema = fields.Schema(id=fields.ID(stored=True), deci=f)
     ix = RamStorage().create_index(schema)
 
-    assert_equal(f.from_text(f.to_text(Decimal("123.56"))), Decimal("123.56"))
+    # assert_equal(f.from_text(f.to_text(Decimal("123.56"))), Decimal("123.56"))
 
     w = ix.writer()
     w.add_document(id=u("a"), deci=Decimal("123.56"))
@@ -180,11 +200,13 @@ def test_decimal_numeric():
 
     with ix.searcher() as s:
         qp = qparser.QueryParser("deci", schema)
-
-        r = s.search(qp.parse("123.56"))
+        q = qp.parse(u("123.56"))
+        r = s.search(q)
+        assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "a")
 
-        r = s.search(qp.parse("0.536255"))
+        r = s.search(qp.parse(u("0.536255")))
+        assert_equal(len(r), 1)
         assert_equal(r[0]["id"], "b")
 
 
@@ -192,20 +214,20 @@ def test_numeric_parsing():
     schema = fields.Schema(id=fields.ID(stored=True), number=fields.NUMERIC)
 
     qp = qparser.QueryParser("number", schema)
-    q = qp.parse("[10 to *]")
+    q = qp.parse(u("[10 to *]"))
     assert_equal(q, query.NullQuery)
 
-    q = qp.parse("[to 400]")
+    q = qp.parse(u("[to 400]"))
     assert q.__class__ is query.NumericRange
     assert_equal(q.start, None)
     assert_equal(q.end, 400)
 
-    q = qp.parse("[10 to]")
+    q = qp.parse(u("[10 to]"))
     assert q.__class__ is query.NumericRange
     assert_equal(q.start, 10)
     assert_equal(q.end, None)
 
-    q = qp.parse("[10 to 400]")
+    q = qp.parse(u("[10 to 400]"))
     assert q.__class__ is query.NumericRange
     assert_equal(q.start, 10)
     assert_equal(q.end, 400)
@@ -433,7 +455,7 @@ def test_boolean3():
         w.add_document(t=u("no hardcopy"), b=False, c=u("bravo"))
 
     with ix.searcher() as s:
-        q = query.Term("b", schema["b"].to_text(True))
+        q = query.Term("b", schema["b"].to_bytes(True))
         ts = [hit["t"] for hit in s.search(q)]
         assert_equal(ts, ["with hardcopy"])
 

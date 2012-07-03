@@ -33,6 +33,7 @@ from bisect import bisect_left, bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
 from whoosh import fst
+from whoosh.compat import b, bytes_type
 from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.support.levenshtein import distance
 from whoosh.compat import abstractmethod
@@ -44,9 +45,6 @@ from whoosh.filedb.filestore import OverlayStorage
 
 class TermNotFound(Exception):
     pass
-
-
-SAVE_BY_DEFAULT = False
 
 
 # Term Info base class
@@ -119,9 +117,6 @@ class IndexReader(object):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def is_atomic(self):
-        return True
-
     def __enter__(self):
         return self
 
@@ -134,6 +129,14 @@ class IndexReader(object):
         in this reader.
         """
         raise NotImplementedError
+
+    def is_atomic(self):
+        return True
+
+    def _text_to_bytes(self, fieldname, text):
+        if fieldname in self.schema:
+            text = self.schema[fieldname].to_bytes(text)
+        return text
 
     def close(self):
         """Closes the open files associated with this reader.
@@ -187,7 +190,7 @@ class IndexReader(object):
         """Yields all terms in the given field.
         """
 
-        for fn, text in self.terms_from(fieldname, ''):
+        for fn, text in self.terms_from(fieldname, b('')):
             if fn != fieldname:
                 return
             yield text
@@ -207,6 +210,7 @@ class IndexReader(object):
         """
 
         term_info = self.term_info
+        text = self._text_to_bytes(fieldname, text)
         for term in self.terms_from(fieldname, text):
             yield (term, term_info(*term))
 
@@ -214,6 +218,7 @@ class IndexReader(object):
         """Yields (text, terminfo) tuples for all terms in the given field.
         """
 
+        prefix = self._text_to_bytes(fieldname, prefix)
         for (fn, text), terminfo in self.iter_from(fieldname, prefix):
             if fn != fieldname:
                 return
@@ -224,6 +229,7 @@ class IndexReader(object):
         a certain prefix.
         """
 
+        prefix = self._text_to_bytes(fieldname, prefix)
         for text, terminfo in self.iter_field(fieldname, prefix):
             if not text.startswith(prefix):
                 return
@@ -336,6 +342,7 @@ class IndexReader(object):
         may be optimized in certain backends.
         """
 
+        text = self._text_to_bytes(fieldname, text)
         p = self.postings(fieldname, text)
         if p.is_active():
             return p.id()
@@ -506,12 +513,16 @@ class IndexReader(object):
     def supports_caches(self):
         return False
 
+    def has_column(self, fieldname):
+        return False
+
+    def column_reader(self, fieldname):
+        raise NotImplementedError
+
 
 # Segment-based reader
 
 class SegmentReader(IndexReader):
-    GZIP_CACHES = False
-
     def __init__(self, storage, schema, segment, generation=None, codec=None):
         self.storage = storage
         self.schema = schema
@@ -532,11 +543,12 @@ class SegmentReader(IndexReader):
         # This is different from the general storage (which will be used for
         # cahces) if the segment is in a compound file.
         if segment.is_compound():
-            # Use an overlay here instead of just the compound storage because
-            # in rare circumstances a segment file may be added after the
-            # segment is written
-            self.files = OverlayStorage(segment.open_compound_file(storage),
-                                        self.storage)
+            # Open the compound file as a storage object
+            files = segment.open_compound_file(storage)
+            # Use an overlay here instead of just the compound storage, in rare
+            # circumstances a segment file may be added after the segment is
+            # written
+            self.files = OverlayStorage(files, self.storage)
         else:
             self.files = storage
 
@@ -550,8 +562,6 @@ class SegmentReader(IndexReader):
         self._stored = codec.stored_fields_reader(self.files, self.segment)
         self._vectors = None  # Lazy open with self._open_vectors()
         self._graph = None  # Lazy open with self._open_dawg()
-
-        self.set_caching_policy()
 
     def _open_vectors(self):
         if self._vectors:
@@ -582,7 +592,11 @@ class SegmentReader(IndexReader):
         return "%s(%s)" % (self.__class__.__name__, self.segment)
 
     def __contains__(self, term):
-        return term in self._terms
+        fieldname, text = term
+        if fieldname not in self.schema:
+            return False
+        text = self._text_to_bytes(fieldname, text)
+        return (fieldname, text) in self._terms
 
     def close(self):
         self._terms.close()
@@ -647,6 +661,7 @@ class SegmentReader(IndexReader):
 
     def terms_from(self, fieldname, prefix):
         self._test_field(fieldname)
+        prefix = self._text_to_bytes(fieldname, prefix)
         schema = self.schema
         return ((fname, text) for fname, text
                 in self._terms.keys_from((fieldname, prefix))
@@ -654,25 +669,15 @@ class SegmentReader(IndexReader):
 
     def term_info(self, fieldname, text):
         self._test_field(fieldname)
+        text = self._text_to_bytes(fieldname, text)
         try:
             return self._terms[fieldname, text]
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
-    def _texts_in_fieldcache(self, fieldname, prefix=''):
-        # The first value in a fieldcache is the default
-        texts = self.fieldcache(fieldname).texts[1:]
-        if prefix:
-            i = bisect_left(texts, prefix)
-            while i < len(texts) and texts[i].startswith(prefix):
-                yield texts[i]
-                i += 1
-        else:
-            for text in texts:
-                yield text
-
     def expand_prefix(self, fieldname, prefix):
         self._test_field(fieldname)
+        prefix = self._text_to_bytes(fieldname, prefix)
         return IndexReader.expand_prefix(self, fieldname, prefix)
 
     def lexicon(self, fieldname):
@@ -687,6 +692,7 @@ class SegmentReader(IndexReader):
     def iter_from(self, fieldname, text):
         schema = self.schema
         self._test_field(fieldname)
+        text = self._text_to_bytes(fieldname, text)
         for term, terminfo in self._terms.items_from((fieldname, text)):
             if term[0] not in schema:
                 continue
@@ -694,6 +700,7 @@ class SegmentReader(IndexReader):
 
     def frequency(self, fieldname, text):
         self._test_field(fieldname)
+        text = self._text_to_bytes(fieldname, text)
         try:
             return self._terms.frequency((fieldname, text))
         except KeyError:
@@ -701,6 +708,7 @@ class SegmentReader(IndexReader):
 
     def doc_frequency(self, fieldname, text):
         self._test_field(fieldname)
+        text = self._text_to_bytes(fieldname, text)
         try:
             return self._terms.doc_frequency((fieldname, text))
         except KeyError:
@@ -711,6 +719,7 @@ class SegmentReader(IndexReader):
 
         if fieldname not in self.schema:
             raise TermNotFound("No  field %r" % fieldname)
+        text = self._text_to_bytes(fieldname, text)
         format_ = self.schema[fieldname].format
         matcher = self._terms.matcher(fieldname, text, format_, scorer=scorer)
         deleted = self.segment.deleted
@@ -754,90 +763,6 @@ class SegmentReader(IndexReader):
 
         return fst.within(self._graph, text, k=maxdist, prefix=prefix,
                            address=self._graph.root(fieldname))
-
-    # Field cache methods
-
-    def supports_caches(self):
-        return True
-
-    def set_caching_policy(self, cp=None, save=True, storage=None):
-        """This method lets you control the caching policy of the reader. You
-        can either pass a :class:`whoosh.filedb.fieldcache.FieldCachingPolicy`
-        as the first argument, *or* use the `save` and `storage` keywords to
-        alter the default caching policy::
-
-            # Use a custom field caching policy object
-            reader.set_caching_policy(MyPolicy())
-
-            # Use the default caching policy but turn off saving caches
-            reader.set_caching_policy(save=False)
-
-            # Use the default caching policy but save caches to a custom
-            # storage
-            from whoosh.filedb.filestore import FileStorage
-            mystorage = FileStorage("path/to/cachedir")
-            reader.set_caching_policy(storage=mystorage)
-
-        :param cp: a :class:`whoosh.filedb.fieldcache.FieldCachingPolicy`
-            object. If this argument is not given, the default caching policy
-            is used.
-        :param save: save field caches to disk for re-use. If a caching policy
-            object is specified using `cp`, this argument is ignored.
-        :param storage: a custom :class:`whoosh.store.Storage` object to use
-            for saving field caches. If a caching policy object is specified
-            using `cp` or `save` is `False`, this argument is ignored.
-        """
-
-        if not cp:
-            if save and storage is None:
-                storage = self.storage
-            elif not save:
-                storage = None
-
-            from whoosh.filedb.fieldcache import DefaultFieldCachingPolicy
-            cp = DefaultFieldCachingPolicy(self.segment.segment_id(),
-                                           storage=storage)
-        if type(cp) is type:
-            cp = cp()
-
-        self.caching_policy = cp
-
-    def _fieldkey(self, fieldname):
-        return "%s/%s" % (self.segid, fieldname)
-
-    def fieldcache(self, fieldname, save=SAVE_BY_DEFAULT):
-        """Returns a :class:`whoosh.filedb.fieldcache.FieldCache` object for
-        the given field.
-
-        :param fieldname: the name of the field to get a cache for.
-        :param save: if True (the default), the cache is saved to disk if it
-            doesn't already exist.
-        """
-
-        from whoosh.filedb.fieldcache import FieldCache
-
-        key = self._fieldkey(fieldname)
-        fc = self.caching_policy.get(key)
-        if not fc:
-            fc = FieldCache.from_field(self, fieldname)
-            self.caching_policy.put(key, fc, save=save)
-        return fc
-
-    def fieldcache_available(self, fieldname):
-        """Returns True if a field cache exists for the given field (either in
-        memory already or on disk).
-        """
-
-        return self._fieldkey(fieldname) in self.caching_policy
-
-    def fieldcache_loaded(self, fieldname):
-        """Returns True if a field cache for the given field is in memory.
-        """
-
-        return self.caching_policy.is_loaded(self._fieldkey(fieldname))
-
-    def unload_fieldcache(self, name):
-        self.caching_policy.delete(self._fieldkey(name))
 
 
 # Fake IndexReader class for empty indexes

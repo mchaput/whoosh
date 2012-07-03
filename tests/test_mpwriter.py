@@ -247,7 +247,7 @@ def test_multisegment():
             assert w.multisegment
 
             for ls in permutations(words, 3):
-                w.add_document(a=" ".join(ls))
+                w.add_document(a=u(" ").join(ls))
 
         assert_equal(len(ix._segments()), 3)
 

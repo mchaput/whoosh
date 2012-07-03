@@ -26,7 +26,7 @@ def _test_simple_compound(st):
     f = st.create_file("f")
     CompoundStorage.assemble(f, st, ["a", "b", "c"])
 
-    f = CompoundStorage(st, "f")
+    f = CompoundStorage(st.open_file("f"))
     with f.open_file("a") as af:
         for x in alist:
             assert_equal(x, af.read_int())

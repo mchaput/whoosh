@@ -32,7 +32,7 @@ def test_nested_parent():
         price = s.schema["price"]
 
         pq = query.Term("type", "product")
-        cq = query.Term("price", price.to_text(50))
+        cq = query.Term("price", 50)
         q = query.NestedParent(pq, cq)
 
         r = s.search(q)

@@ -28,8 +28,8 @@
 from array import array
 from collections import defaultdict
 
-from whoosh.compat import string_type, u, xrange, iteritems
-from whoosh.fields import DEFAULT_LONG
+from whoosh.compat import string_type, u
+from whoosh.compat import iteritems, izip, xrange
 from whoosh.util.times import long_to_datetime
 
 
@@ -275,10 +275,7 @@ class FieldFacet(FacetType):
         """
 
         def key_to_name(self, key):
-            if key == DEFAULT_LONG:
-                return None
-            else:
-                return long_to_datetime(key)
+            return long_to_datetime(key)
 
     class NoCacheFieldCategorizer(Categorizer):
         """This object builds an array caching the order of all documents
@@ -319,6 +316,7 @@ class FieldFacet(FacetType):
             self.docoffset = docoffset
 
         def key_for(self, matcher, docid):
+            print "key_for=", matcher, docid
             arry = self.array
             offset = self.docoffset
             global_id = offset + docid
@@ -767,6 +765,11 @@ class MultiFacet(FacetType):
         def key_for(self, matcher, docid):
             return tuple(catter.key_for(matcher, docid)
                          for catter in self.catters)
+
+        def key_to_name(self, key):
+            return tuple(catter.key_to_name(keypart)
+                         for catter, keypart
+                         in izip(self.catters, key))
 
 
 class Facets(object):

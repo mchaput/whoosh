@@ -112,7 +112,6 @@ class Format(object):
 # weight in the value string, so if you use field or term boosts
 # postreader.value_as("weight") will not match postreader.weight()
 
-
 def tokens(value, analyzer, kwargs):
     if isinstance(value, (tuple, list)):
         gen = entoken(value, **kwargs)

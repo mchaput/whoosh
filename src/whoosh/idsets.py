@@ -7,6 +7,7 @@ from array import array
 from bisect import bisect_left, bisect_right, insort
 
 from whoosh.compat import integer_types, izip, izip_longest, xrange
+from whoosh.util.numeric import bytes_for_bits
 
 
 # Number of '1' bits in each byte (0-255)
@@ -254,12 +255,12 @@ class OnDiskBitSet(BaseBitSet):
     [1, 2, 7, 10, 15]
     """
 
-    def __init__(self, dbfile, bytecount, basepos=0):
+    def __init__(self, dbfile, basepos, bytecount):
         """
         :param dbfile: a :class:`~whoosh.filedb.structfile.StructFile` object
             to read from.
-        :param bytecount: the number of bytes to use for the bit array.
         :param basepos: the base position of the bytes in the given file.
+        :param bytecount: the number of bytes to use for the bit array.
         """
 
         self._dbfile = dbfile
@@ -300,7 +301,7 @@ class BitSet(BaseBitSet):
         # If the source is a list, tuple, or set, we can guess the size
         if not size and isinstance(source, (list, tuple, set, frozenset)):
             size = max(source)
-        bytecount = self.bytes_required(size)
+        bytecount = bytes_for_bits(size)
         self.bits = array("B", (0 for _ in xrange(bytecount)))
 
         if source:
@@ -329,7 +330,7 @@ class BitSet(BaseBitSet):
 
     def _resize(self, tosize):
         curlength = len(self.bits)
-        newlength = tosize // 8 + 1
+        newlength = bytes_for_bits(tosize)
         if newlength > curlength:
             self.bits.extend((0,) * (newlength - curlength))
         elif newlength < curlength:
@@ -337,7 +338,7 @@ class BitSet(BaseBitSet):
 
     def _zero_extra_bits(self, size):
         bits = self.bits
-        spill = size - (len(bits) - 1) * 8
+        spill = size - ((len(bits) - 1) * 8)
         if spill:
             mask = 2 ** spill - 1
             bits[-1] = bits[-1] & mask
@@ -360,14 +361,14 @@ class BitSet(BaseBitSet):
         return len(self.bits)
 
     @classmethod
-    def from_disk(cls, dbfile, bytecount):
+    def from_bytes(cls, bs):
         b = cls()
-        b.bits = dbfile.read_array("B", bytecount)
+        b.bits = array("B", bs)
         return b
 
     @classmethod
-    def bytes_required(cls, maxnum):
-        return maxnum // 8 + 1
+    def from_disk(cls, dbfile, bytecount):
+        return cls.from_bytes(dbfile.read_array("B", bytecount))
 
     def copy(self):
         b = self.__class__()
@@ -381,7 +382,7 @@ class BitSet(BaseBitSet):
     def add(self, i):
         bucket = i >> 3
         if bucket >= len(self.bits):
-            self._resize(i)
+            self._resize(i + 1)
         self.bits[bucket] |= 1 << (i & 7)
 
     def discard(self, i):

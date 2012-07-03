@@ -30,28 +30,12 @@ This module contains base classes/interfaces for "codec" objects.
 """
 
 import random
-from array import array
-from struct import Struct, pack
 from bisect import bisect_right
 
-from whoosh.compat import loads, dumps
-from whoosh.compat import b, bytes_type, string_type
-from whoosh.compat import array_frombytes, array_tobytes
 from whoosh.compat import xrange
 from whoosh.filedb.compound import CompoundStorage
-from whoosh.matching import Matcher, ReadTooFar
-from whoosh.reading import TermInfo
+from whoosh.matching import Matcher
 from whoosh.spans import Span
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE, IS_LITTLE
-from whoosh.system import pack_long, unpack_long
-from whoosh.util.numeric import byte_to_length, length_to_byte
-
-
-try:
-    from zlib import compress, decompress
-    can_compress = True
-except ImportError:
-    can_compress = False
 
 
 # Base classes
@@ -65,7 +49,7 @@ class Codec(object):
     def field_writer(self, storage, segment):
         raise NotImplementedError
 
-    # Readers
+    # Index readers
 
     def terms_reader(self, storage, segment):
         raise NotImplementedError
@@ -80,6 +64,17 @@ class Codec(object):
         raise NotImplementedError
 
     def graph_reader(self, storage, segment):
+        raise NotImplementedError
+
+    # Columns
+
+    def supports_columns(self):
+        return False
+
+    def columns_writer(self, storage, segment):
+        raise NotImplementedError
+
+    def columns_reader(self, storage, segment):
         raise NotImplementedError
 
     # Segments and generations
@@ -116,9 +111,6 @@ class PerDocumentWriter(object):
     def finish_doc(self):
         pass
 
-    def lengths_reader(self):
-        raise NotImplementedError
-
 
 class FieldWriter(object):
     def add_postings(self, schema, lengths, items):
@@ -132,23 +124,24 @@ class FieldWriter(object):
         lastfn = None
         lasttext = None
         dfl = lengths.doc_field_length
-        for fieldname, text, docnum, weight, valuestring in items:
+        for fieldname, token, docnum, weight, value in items:
             # Items where docnum is None indicate words that should be added
             # to the spelling graph
-            if docnum is None and (fieldname != lastfn or text != lasttext):
-                self.add_spell_word(fieldname, text)
+            if docnum is None and (fieldname != lastfn or token != lasttext):
+                # TODO: how to decode the token bytes?
+                self.add_spell_word(fieldname, token.decode("utf8"))
                 lastfn = fieldname
-                lasttext = text
+                lasttext = token
                 continue
 
             # This comparison is so convoluted because Python 3 removed the
             # ability to compare a string to None
             if ((lastfn is not None and fieldname < lastfn)
                 or (fieldname == lastfn and lasttext is not None
-                    and text < lasttext)):
+                    and token < lasttext)):
                 raise Exception("Postings are out of order: %r:%s .. %r:%s" %
-                                (lastfn, lasttext, fieldname, text))
-            if fieldname != lastfn or text != lasttext:
+                                (lastfn, lasttext, fieldname, token))
+            if fieldname != lastfn or token != lasttext:
                 if lasttext is not None:
                     finish_term()
                 if fieldname != lastfn:
@@ -156,10 +149,10 @@ class FieldWriter(object):
                         finish_field()
                     start_field(fieldname, schema[fieldname])
                     lastfn = fieldname
-                start_term(text)
-                lasttext = text
+                start_term(token)
+                lasttext = token
             length = dfl(docnum, fieldname)
-            add(docnum, weight, valuestring, length)
+            add(docnum, weight, value, length)
         if lasttext is not None:
             finish_term()
             finish_field()
@@ -213,9 +206,6 @@ class TermsReader(object):
     def doc_frequency(self, fieldname, text):
         return self.terminfo(fieldname, text).doc_frequency()
 
-    def graph_reader(self, fieldname, text):
-        raise NotImplementedError
-
     def matcher(self, fieldname, text, format_, scorer=None):
         raise NotImplementedError
 
@@ -230,6 +220,8 @@ class VectorReader(object):
     def matcher(self, docnum, fieldname, format_):
         raise NotImplementedError
 
+
+# Lengths
 
 class LengthsReader(object):
     def doc_count_all(self):
@@ -289,6 +281,8 @@ class MultiLengths(LengthsReader):
             lr.close()
         self.is_closed = True
 
+
+# Stored fields
 
 class StoredFieldsReader(object):
     def __iter__(self):
@@ -356,220 +350,39 @@ class FilePostingMatcher(Matcher):
         return self.scorer.block_quality(self)
 
 
-class BlockPostingMatcher(FilePostingMatcher):
-    # Subclasses need to set
-    #   self.block -- BlockBase object for the current block
-    #   self.i -- Numerical index to the current place in the block
-    # And implement
-    #   _read_block()
-    #   _next_block()
-    #   _skip_to_block()
+# Columns
 
-    def id(self):
-        return self.block.ids[self.i]
+class ColumnsWriter(object):
+    def __init__(self, storage, segment):
+        self._storage = storage
+        self._segment = segment
 
-    def weight(self):
-        weights = self.block.weights
-        if not weights:
-            weights = self.block.read_weights()
-        return weights[self.i]
+    def add_field(self, fieldname, column):
+        raise NotImplementedError
 
-    def value(self):
-        values = self.block.values
-        if values is None:
-            values = self.block.read_values()
-        return values[self.i]
+    def has_field(self, fieldname):
+        raise NotImplementedError
 
-    def all_ids(self):
-        nextoffset = self.baseoffset
-        for _ in xrange(self.blockcount):
-            block = self._read_block(nextoffset)
-            nextoffset = block.nextoffset
-            ids = block.read_ids()
-            for id in ids:
-                yield id
+    def add_doc_value(self, docnum, fieldname, value):
+        raise NotImplementedError
 
-    def next(self):
-        if self.i == self.block.count - 1:
-            self._next_block()
-            return True
-        else:
-            self.i += 1
-            return False
-
-    def skip_to(self, id):
-        if not self.is_active():
-            raise ReadTooFar
-
-        i = self.i
-        # If we're already in the block with the target ID, do nothing
-        if id <= self.block.ids[i]:
-            return
-
-        # Skip to the block that would contain the target ID
-        if id > self.block.maxid:
-            self._skip_to_block(lambda: id > self.block.maxid)
-        if not self.is_active():
-            return
-
-        # Iterate through the IDs in the block until we find or pass the
-        # target
-        ids = self.block.ids
-        i = self.i
-        while ids[i] < id:
-            i += 1
-            if i == len(ids):
-                self._active = False
-                return
-        self.i = i
-
-    def skip_to_quality(self, minquality):
-        bq = self.block_quality
-        if bq() > minquality:
-            return 0
-        return self._skip_to_block(lambda: bq() <= minquality)
-
-    def block_min_length(self):
-        return self.block.min_length()
-
-    def block_max_length(self):
-        return self.block.max_length()
-
-    def block_max_weight(self):
-        return self.block.max_weight()
-
-    def block_max_wol(self):
-        return self.block.max_wol()
+    def close(self):
+        pass
 
 
-# File TermInfo
+class ColumnsReader(object):
+    def __init__(self, storage, segment):
+        self._storage = storage
+        self._segment = segment
 
-NO_ID = 0xffffffff
+    def has_column(self, fieldname):
+        return False
 
+    def reader(self, fieldname, column):
+        raise NotImplementedError
 
-class FileTermInfo(TermInfo):
-    # Freq, Doc freq, min len, max length, max weight, unused, min ID, max ID
-    struct = Struct("!fIBBffII")
-
-    def __init__(self, *args, **kwargs):
-        self.postings = None
-        if "postings" in kwargs:
-            self.postings = kwargs["postings"]
-            del kwargs["postings"]
-        TermInfo.__init__(self, *args, **kwargs)
-
-    # filedb specific methods
-
-    def add_block(self, block):
-        self._weight += sum(block.weights)
-        self._df += len(block)
-
-        ml = block.min_length()
-        if self._minlength is None:
-            self._minlength = ml
-        else:
-            self._minlength = min(self._minlength, ml)
-
-        self._maxlength = max(self._maxlength, block.max_length())
-        self._maxweight = max(self._maxweight, block.max_weight())
-        if self._minid is None:
-            self._minid = block.ids[0]
-        self._maxid = block.ids[-1]
-
-    def to_string(self):
-        # Encode the lengths as 0-255 values
-        ml = 0 if self._minlength is None else length_to_byte(self._minlength)
-        xl = length_to_byte(self._maxlength)
-        # Convert None values to the out-of-band NO_ID constant so they can be
-        # stored as unsigned ints
-        mid = NO_ID if self._minid is None else self._minid
-        xid = NO_ID if self._maxid is None else self._maxid
-
-        # Pack the term info into bytes
-        st = self.struct.pack(self._weight, self._df, ml, xl, self._maxweight,
-                              0, mid, xid)
-
-        if isinstance(self.postings, tuple):
-            # Postings are inlined - dump them using the pickle protocol
-            isinlined = 1
-            st += dumps(self.postings, -1)[2:-1]
-        else:
-            # Append postings pointer as long to end of term info bytes
-            isinlined = 0
-            # It's possible for a term info to not have a pointer to postings
-            # on disk, in which case postings will be None. Convert a None
-            # value to -1 so it can be stored as a long.
-            p = -1 if self.postings is None else self.postings
-            st += pack_long(p)
-
-        # Prepend byte indicating whether the postings are inlined to the term
-        # info bytes
-        return pack("B", isinlined) + st
-
-    @classmethod
-    def from_string(cls, s):
-        assert isinstance(s, bytes_type)
-
-        if isinstance(s, string_type):
-            hbyte = ord(s[0])  # Python 2.x - str
-        else:
-            hbyte = s[0]  # Python 3 - bytes
-
-        if hbyte < 2:
-            st = cls.struct
-            # Weight, Doc freq, min len, max len, max w, unused, min ID, max ID
-            w, df, ml, xl, xw, _, mid, xid = st.unpack(s[1:st.size + 1])
-            mid = None if mid == NO_ID else mid
-            xid = None if xid == NO_ID else xid
-            # Postings
-            pstr = s[st.size + 1:]
-            if hbyte == 0:
-                p = unpack_long(pstr)[0]
-            else:
-                p = loads(pstr + b("."))
-        else:
-            # Old format was encoded as a variable length pickled tuple
-            v = loads(s + b("."))
-            if len(v) == 1:
-                w = df = 1
-                p = v[0]
-            elif len(v) == 2:
-                w = df = v[1]
-                p = v[0]
-            else:
-                w, p, df = v
-            # Fake values for stats which weren't stored before
-            ml = 1
-            xl = 255
-            xw = 999999999
-            mid = -1
-            xid = -1
-
-        ml = byte_to_length(ml)
-        xl = byte_to_length(xl)
-        obj = cls(w, df, ml, xl, xw, mid, xid)
-        obj.postings = p
-        return obj
-
-    @classmethod
-    def read_weight(cls, dbfile, datapos):
-        return dbfile.get_float(datapos + 1)
-
-    @classmethod
-    def read_doc_freq(cls, dbfile, datapos):
-        return dbfile.get_uint(datapos + 1 + _FLOAT_SIZE)
-
-    @classmethod
-    def read_min_and_max_length(cls, dbfile, datapos):
-        lenpos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE
-        ml = byte_to_length(dbfile.get_byte(lenpos))
-        xl = byte_to_length(dbfile.get_byte(lenpos + 1))
-        return ml, xl
-
-    @classmethod
-    def read_max_weight(cls, dbfile, datapos):
-        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
-        return dbfile.get_float(weightspos)
+    def close(self):
+        pass
 
 
 # Segment base class
@@ -656,7 +469,8 @@ class Segment(object):
 
     def open_compound_file(self, storage):
         name = self.make_filename(self.COMPOUND_EXT)
-        return CompoundStorage(storage, name)
+        dbfile = storage.open_file(name)
+        return CompoundStorage(dbfile, use_mmap=storage.supports_mmap)
 
     # Abstract methods dealing with document counts and deletions
 
@@ -673,14 +487,14 @@ class Segment(object):
         Returns the number of (undeleted) documents in this segment.
         """
 
-        raise NotImplementedError
+        return self.doc_count_all() - self.deleted_count()
 
     def has_deletions(self):
         """
         Returns True if any documents in this segment are deleted.
         """
 
-        raise NotImplementedError
+        return self.deleted_count() > 0
 
     def deleted_count(self):
         """
@@ -707,151 +521,10 @@ class Segment(object):
         raise NotImplementedError
 
 
-# Posting block format
-
-class BlockBase(object):
-    def __init__(self, postingsize, stringids=False):
-        self.postingsize = postingsize
-        self.stringids = stringids
-        self.ids = [] if stringids else array("I")
-        self.weights = array("f")
-        self.values = None
-
-        self.minlength = None
-        self.maxlength = 0
-        self.maxweight = 0
-
-    def __len__(self):
-        return len(self.ids)
-
-    def __nonzero__(self):
-        return bool(self.ids)
-
-    def min_id(self):
-        if self.ids:
-            return self.ids[0]
-        else:
-            raise IndexError
-
-    def max_id(self):
-        if self.ids:
-            return self.ids[-1]
-        else:
-            raise IndexError
-
-    def min_length(self):
-        return self.minlength
-
-    def max_length(self):
-        return self.maxlength
-
-    def max_weight(self):
-        return self.maxweight
-
-    def add(self, id_, weight, valuestring, length=None):
-        self.ids.append(id_)
-        self.weights.append(weight)
-        if weight > self.maxweight:
-            self.maxweight = weight
-        if valuestring:
-            if self.values is None:
-                self.values = []
-            self.values.append(valuestring)
-        if length:
-            if self.minlength is None or length < self.minlength:
-                self.minlength = length
-            if length > self.maxlength:
-                self.maxlength = length
-
-    def to_file(self, postfile):
-        raise NotImplementedError
 
 
-# Utility functions
-
-def minimize_ids(arry, stringids, compression=0):
-    amax = arry[-1]
-
-    if stringids:
-        typecode = ''
-        string = dumps(arry)
-    else:
-        typecode = arry.typecode
-        if amax <= 255:
-            typecode = "B"
-        elif amax <= 65535:
-            typecode = "H"
-
-        if typecode != arry.typecode:
-            arry = array(typecode, iter(arry))
-        if not IS_LITTLE:
-            arry.byteswap()
-        string = array_tobytes(arry)
-    if compression:
-        string = compress(string, compression)
-    return (typecode, string)
 
 
-def deminimize_ids(typecode, count, string, compression=0):
-    if compression:
-        string = decompress(string)
-    if typecode == '':
-        return loads(string)
-    else:
-        arry = array(typecode)
-        array_frombytes(arry, string)
-        if not IS_LITTLE:
-            arry.byteswap()
-        return arry
-
-
-def minimize_weights(weights, compression=0):
-    if all(w == 1.0 for w in weights):
-        string = b("")
-    else:
-        if not IS_LITTLE:
-            weights.byteswap()
-        string = array_tobytes(weights)
-    if string and compression:
-        string = compress(string, compression)
-    return string
-
-
-def deminimize_weights(count, string, compression=0):
-    if not string:
-        return array("f", (1.0 for _ in xrange(count)))
-    if compression:
-        string = decompress(string)
-    arry = array("f")
-    array_frombytes(arry, string)
-    if not IS_LITTLE:
-        arry.byteswap()
-    return arry
-
-
-def minimize_values(postingsize, values, compression=0):
-    if postingsize < 0:
-        string = dumps(values, -1)[2:]
-    elif postingsize == 0:
-        string = b('')
-    else:
-        string = b('').join(values)
-    if string and compression:
-        string = compress(string, compression)
-    return string
-
-
-def deminimize_values(postingsize, count, string, compression=0):
-    if compression:
-        string = decompress(string)
-
-    if postingsize < 0:
-        return loads(string)
-    elif postingsize == 0:
-        return [None] * count
-    else:
-        return [string[i:i + postingsize] for i
-                in xrange(0, len(string), postingsize)]
 
 
 
