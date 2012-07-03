@@ -30,20 +30,27 @@ from array import array
 from collections import defaultdict
 from struct import Struct
 
-from whoosh.compat import (loads, dumps, xrange, iteritems, itervalues, b,
-                           bytes_type, string_type, integer_types)
+try:
+    import zlib
+except ImportError:
+    zlib = None
+
+from whoosh.compat import b
+from whoosh.compat import loads, dumps
+from whoosh.compat import xrange, iteritems
+from whoosh.compat import bytes_type, string_type, integer_types
+from whoosh.compat import array_frombytes, array_tobytes
 from whoosh.codec import base
-from whoosh.codec.base import (minimize_ids, deminimize_ids, minimize_weights,
-                               deminimize_weights, minimize_values,
-                               deminimize_values)
+from whoosh.filedb.filestore import Storage
+from whoosh.filedb.filetables import HashWriter, HashReader
+from whoosh.matching import ListMatcher, ReadTooFar
+from whoosh.reading import TermInfo, TermNotFound
+from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE, IS_LITTLE
+from whoosh.system import pack_byte
+from whoosh.system import pack_ushort, unpack_ushort, pack_long, unpack_long
+
 from whoosh.fst import GraphWriter, GraphReader
 from whoosh.index import TOC, clean_files
-from whoosh.filedb.filestore import Storage
-from whoosh.filedb.filetables import CodedOrderedWriter, CodedOrderedReader
-from whoosh.matching import ListMatcher
-from whoosh.reading import TermNotFound
-from whoosh.system import (pack_ushort, pack_long, unpack_ushort, unpack_long,
-                           _INT_SIZE, _LONG_SIZE)
 from whoosh.util.numeric import byte_to_length, length_to_byte
 from whoosh.util.text import utf8encode, utf8decode
 
@@ -89,12 +96,7 @@ class W2Codec(base.Codec):
         doccount = segment.doc_count_all()
 
         # Check the first byte of the file to see if it's an old format
-        firstbyte = flfile.read(1)
-        flfile.seek(0)
-        if firstbyte != b("~"):
-            from whoosh.codec.legacy import load_old_lengths
-            lengths = load_old_lengths(InMemoryLengths(), flfile, doccount)
-        elif self.loadlengths:
+        if self.loadlengths:
             lengths = InMemoryLengths.from_file(flfile, doccount)
         else:
             lengths = OnDiskLengths(flfile, doccount)
@@ -305,9 +307,9 @@ class W2FieldWriter(base.FieldWriter):
         if self.block is not None:
             raise Exception("Called start_term in a block")
         self.text = text
-        self.terminfo = base.FileTermInfo()
+        self.terminfo = FileTermInfo()
         if self.spelling:
-            self.dawg.insert(text)
+            self.dawg.insert(text.decode("utf8"))  # TODO: how to decode bytes?
         self._start_blocklist()
 
     def add(self, docnum, weight, valuestring, length):
@@ -370,7 +372,7 @@ class W2FieldWriter(base.FieldWriter):
 
 # Matcher
 
-class PostingMatcher(base.BlockPostingMatcher):
+class PostingMatcher(base.FilePostingMatcher):
     def __init__(self, postfile, startoffset, fmt, scorer=None, term=None,
                  stringids=False):
         self.postfile = postfile
@@ -382,11 +384,8 @@ class PostingMatcher(base.BlockPostingMatcher):
 
         postfile.seek(startoffset)
         magic = postfile.read(4)
-        if magic != W2Block.magic:
-            from whoosh.codec.legacy import old_block_type
-            self.blockclass = old_block_type(magic)
-        else:
-            self.blockclass = W2Block
+        assert magic == W2Block.magic
+        self.blockclass = W2Block
 
         self.blockcount = postfile.read_uint()
         self.baseoffset = postfile.tell()
@@ -395,8 +394,84 @@ class PostingMatcher(base.BlockPostingMatcher):
         self.currentblock = -1
         self._next_block()
 
+    def id(self):
+        return self.block.ids[self.i]
+
     def is_active(self):
         return self._active
+
+    def weight(self):
+        weights = self.block.weights
+        if not weights:
+            weights = self.block.read_weights()
+        return weights[self.i]
+
+    def value(self):
+        values = self.block.values
+        if values is None:
+            values = self.block.read_values()
+        return values[self.i]
+
+    def all_ids(self):
+        nextoffset = self.baseoffset
+        for _ in xrange(self.blockcount):
+            block = self._read_block(nextoffset)
+            nextoffset = block.nextoffset
+            ids = block.read_ids()
+            for id in ids:
+                yield id
+
+    def next(self):
+        if self.i == self.block.count - 1:
+            self._next_block()
+            return True
+        else:
+            self.i += 1
+            return False
+
+    def skip_to(self, id):
+        if not self.is_active():
+            raise ReadTooFar
+
+        i = self.i
+        # If we're already in the block with the target ID, do nothing
+        if id <= self.block.ids[i]:
+            return
+
+        # Skip to the block that would contain the target ID
+        if id > self.block.maxid:
+            self._skip_to_block(lambda: id > self.block.maxid)
+        if not self.is_active():
+            return
+
+        # Iterate through the IDs in the block until we find or pass the
+        # target
+        ids = self.block.ids
+        i = self.i
+        while ids[i] < id:
+            i += 1
+            if i == len(ids):
+                self._active = False
+                return
+        self.i = i
+
+    def skip_to_quality(self, minquality):
+        bq = self.block_quality
+        if bq() > minquality:
+            return 0
+        return self._skip_to_block(lambda: bq() <= minquality)
+
+    def block_min_length(self):
+        return self.block.min_length()
+
+    def block_max_length(self):
+        return self.block.max_length()
+
+    def block_max_weight(self):
+        return self.block.max_weight()
+
+    def block_max_wol(self):
+        return self.block.max_wol()
 
     def _read_block(self, offset):
         pf = self.postfile
@@ -444,18 +519,19 @@ class PostingMatcher(base.BlockPostingMatcher):
 
 # Tables
 
-# Term index
+# Writers
 
-class TermIndexWriter(CodedOrderedWriter):
+class TermIndexWriter(HashWriter):
     def __init__(self, dbfile):
-        super(TermIndexWriter, self).__init__(dbfile)
+        HashWriter.__init__(self, dbfile)
+        self.index = []
         self.fieldcounter = 0
         self.fieldmap = {}
 
-    def keycoder(self, key):
+    def keycoder(self, term):
         # Encode term
         fieldmap = self.fieldmap
-        fieldname, text = key
+        fieldname, text = term
 
         if fieldname in fieldmap:
             fieldnum = fieldmap[fieldname]
@@ -464,95 +540,23 @@ class TermIndexWriter(CodedOrderedWriter):
             fieldmap[fieldname] = fieldnum
             self.fieldcounter += 1
 
-        key = pack_ushort(fieldnum) + utf8encode(text)[0]
+        key = pack_ushort(fieldnum) + text
         return key
 
     def valuecoder(self, terminfo):
         return terminfo.to_string()
 
-    def close(self):
-        self._write_hashes()
-        dbfile = self.dbfile
+    def add(self, key, value):
+        pos = self.dbfile.tell()
+        self.index.append(pos)
+        HashWriter.add(self, self.keycoder(key), self.valuecoder(value))
 
+    def _write_extras(self):
+        dbfile = self.dbfile
         dbfile.write_uint(len(self.index))
         for n in self.index:
             dbfile.write_long(n)
         dbfile.write_pickle(self.fieldmap)
-
-        self._write_directory()
-        self.dbfile.close()
-
-
-class PostingIndexBase(CodedOrderedReader):
-    # Shared base class for terms index and vector index readers
-    def __init__(self, dbfile, postfile):
-        CodedOrderedReader.__init__(self, dbfile)
-        self.postfile = postfile
-
-        dbfile.seek(self.indexbase + self.length * _LONG_SIZE)
-        self.fieldmap = dbfile.read_pickle()
-        self.names = [None] * len(self.fieldmap)
-        for name, num in iteritems(self.fieldmap):
-            self.names[num] = name
-
-    def close(self):
-        CodedOrderedReader.close(self)
-        self.postfile.close()
-
-
-class W2TermsReader(PostingIndexBase):
-    # Implements whoosh.codec.base.TermsReader
-
-    def terminfo(self, fieldname, text):
-        return self[fieldname, text]
-
-    def matcher(self, fieldname, text, format_, scorer=None):
-        # Note this does not filter out deleted documents; a higher level is
-        # expected to wrap this matcher to eliminate deleted docs
-        pf = self.postfile
-        term = (fieldname, text)
-        try:
-            terminfo = self[term]
-        except KeyError:
-            raise TermNotFound("No term %s:%r" % (fieldname, text))
-
-        p = terminfo.postings
-        if isinstance(p, integer_types):
-            # terminfo.postings is an offset into the posting file
-            pr = PostingMatcher(pf, p, format_, scorer=scorer, term=term)
-        else:
-            # terminfo.postings is an inlined tuple of (ids, weights, values)
-            docids, weights, values = p
-            pr = ListMatcher(docids, weights, values, format_, scorer=scorer,
-                             term=term, terminfo=terminfo)
-        return pr
-
-    def keycoder(self, key):
-        fieldname, text = key
-        fnum = self.fieldmap.get(fieldname, 65535)
-        return pack_ushort(fnum) + utf8encode(text)[0]
-
-    def keydecoder(self, v):
-        assert isinstance(v, bytes_type)
-        return (self.names[unpack_ushort(v[:2])[0]], utf8decode(v[2:])[0])
-
-    def valuedecoder(self, v):
-        assert isinstance(v, bytes_type)
-        return base.FileTermInfo.from_string(v)
-
-    def frequency(self, key):
-        datapos = self.range_for_key(key)[0]
-        return base.FileTermInfo.read_weight(self.dbfile, datapos)
-
-    def doc_frequency(self, key):
-        datapos = self.range_for_key(key)[0]
-        return base.FileTermInfo.read_doc_freq(self.dbfile, datapos)
-
-
-# Vectors
-
-# docnum, fieldnum
-_vectorkey_struct = Struct("!IH")
 
 
 class VectorWriter(TermIndexWriter):
@@ -571,6 +575,168 @@ class VectorWriter(TermIndexWriter):
 
     def valuecoder(self, offset):
         return pack_long(offset)
+
+
+# Readers
+
+class PostingIndexBase(HashReader):
+    def __init__(self, dbfile, postfile):
+        HashReader.__init__(self, dbfile)
+        self.postfile = postfile
+
+    def _read_extras(self):
+        dbfile = self.dbfile
+
+        self.length = dbfile.read_uint()
+        self.indexbase = dbfile.tell()
+
+        dbfile.seek(self.indexbase + self.length * _LONG_SIZE)
+        self.fieldmap = dbfile.read_pickle()
+        self.names = [None] * len(self.fieldmap)
+        for name, num in iteritems(self.fieldmap):
+            self.names[num] = name
+
+    def _closest_key(self, key):
+        dbfile = self.dbfile
+        key_at = self._key_at
+        indexbase = self.indexbase
+        lo = 0
+        hi = self.length
+        if not isinstance(key, bytes_type):
+            raise TypeError("Key %r should be bytes" % key)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            midkey = key_at(dbfile.get_long(indexbase + mid * _LONG_SIZE))
+            if midkey < key:
+                lo = mid + 1
+            else:
+                hi = mid
+        #i = max(0, mid - 1)
+        if lo == self.length:
+            return None
+        return dbfile.get_long(indexbase + lo * _LONG_SIZE)
+
+    def closest_key(self, key):
+        pos = self._closest_key(key)
+        if pos is None:
+            return None
+        return self._key_at(pos)
+
+    def _ranges_from(self, key):
+        #read = self.read
+        pos = self._closest_key(key)
+        if pos is None:
+            return
+
+        for x in self._ranges(pos=pos):
+            yield x
+
+    def __getitem__(self, key):
+        k = self.keycoder(key)
+        return self.valuedecoder(HashReader.__getitem__(self, k))
+
+    def __contains__(self, key):
+        try:
+            codedkey = self.keycoder(key)
+        except KeyError:
+            return False
+        return HashReader.__contains__(self, codedkey)
+
+    def range_for_key(self, key):
+        return HashReader.range_for_key(self, self.keycoder(key))
+
+    def get(self, key, default=None):
+        k = self.keycoder(key)
+        return self.valuedecoder(HashReader.get(self, k, default))
+
+    def keys(self):
+        kd = self.keydecoder
+        for k in HashReader.keys(self):
+            yield kd(k)
+
+    def items(self):
+        kd = self.keydecoder
+        vd = self.valuedecoder
+        for key, value in HashReader.items(self):
+            yield (kd(key), vd(value))
+
+    def keys_from(self, key):
+        key = self.keycoder(key)
+        kd = self.keydecoder
+        read = self.read
+        for keypos, keylen, _, _ in self._ranges_from(key):
+            yield kd(read(keypos, keylen))
+
+    def items_from(self, key):
+        read = self.read
+        key = self.keycoder(key)
+        kd = self.keydecoder
+        vd = self.valuedecoder
+        for keypos, keylen, datapos, datalen in self._ranges_from(key):
+            yield (kd(read(keypos, keylen)), vd(read(datapos, datalen)))
+
+    def values(self):
+        vd = self.valuedecoder
+        for v in HashReader.values(self):
+            yield vd(v)
+
+    def close(self):
+        HashReader.close(self)
+        self.postfile.close()
+
+
+class W2TermsReader(PostingIndexBase):
+    # Implements whoosh.codec.base.TermsReader
+
+    def terminfo(self, fieldname, text):
+        return self[fieldname, text]
+
+    def matcher(self, fieldname, text, format_, scorer=None):
+        # Note this does not filter out deleted documents; a higher level is
+        # expected to wrap this matcher to eliminate deleted docs
+        pf = self.postfile
+
+        term = (fieldname, text)
+        try:
+            terminfo = self[term]
+        except KeyError:
+            raise TermNotFound("No term %s:%r" % (fieldname, text))
+
+        p = terminfo.postings
+        if isinstance(p, integer_types):
+            # terminfo.postings is an offset into the posting file
+            pr = PostingMatcher(pf, p, format_, scorer=scorer, term=term)
+        else:
+            # terminfo.postings is an inlined tuple of (ids, weights, values)
+            docids, weights, values = p
+            pr = ListMatcher(docids, weights, values, format_, scorer=scorer,
+                             term=term, terminfo=terminfo)
+        return pr
+
+    def keycoder(self, key):
+        fieldname, tbytes = key
+        fnum = self.fieldmap.get(fieldname, 65535)
+        return pack_ushort(fnum) + tbytes
+
+    def keydecoder(self, v):
+        assert isinstance(v, bytes_type)
+        return (self.names[unpack_ushort(v[:2])[0]], v[2:])
+
+    def valuedecoder(self, v):
+        assert isinstance(v, bytes_type)
+        return FileTermInfo.from_string(v)
+
+    def frequency(self, key):
+        datapos = self.range_for_key(key)[0]
+        return FileTermInfo.read_weight(self.dbfile, datapos)
+
+    def doc_frequency(self, key):
+        datapos = self.range_for_key(key)[0]
+        return FileTermInfo.read_doc_freq(self.dbfile, datapos)
+
+
+# docnum, fieldnum
+_vectorkey_struct = Struct("!IH")
 
 
 class W2VectorReader(PostingIndexBase):
@@ -593,9 +759,9 @@ class W2VectorReader(PostingIndexBase):
         return unpack_long(v)[0]
 
 
-# Field lengths
+# Single-byte field lengths implementations
 
-class LengthsBase(base.LengthsReader):
+class ByteLengthsBase(base.LengthsReader):
     magic = b("~LN1")
 
     def __init__(self):
@@ -643,9 +809,9 @@ class LengthsBase(base.LengthsReader):
         return self.maxlens.get(fieldname, 0)
 
 
-class InMemoryLengths(LengthsBase):
+class InMemoryLengths(ByteLengthsBase):
     def __init__(self):
-        LengthsBase.__init__(self)
+        ByteLengthsBase.__init__(self)
         self.totals = defaultdict(int)
         self.lengths = {}
         self._count = 0
@@ -764,9 +930,9 @@ class InMemoryLengths(LengthsBase):
             totals[fname] += other.totals[fname]
 
 
-class OnDiskLengths(LengthsBase):
+class OnDiskLengths(ByteLengthsBase):
     def __init__(self, dbfile, doccount=None):
-        LengthsBase.__init__(self)
+        ByteLengthsBase.__init__(self)
         self.dbfile = dbfile
         self._read_header(dbfile, doccount)
 
@@ -936,7 +1102,7 @@ class W2Segment(base.Segment):
         return self.doccount - self.deleted_count()
 
     def has_deletions(self):
-        return self.deleted_count() > 0
+        return self.deleted is not None and bool(self.deleted)
 
     def deleted_count(self):
         if self.deleted is None:
@@ -959,11 +1125,64 @@ class W2Segment(base.Segment):
 
 # Posting blocks
 
-class W2Block(base.BlockBase):
+class W2Block(object):
     magic = b("Blk3")
 
     infokeys = ("count", "maxid", "maxweight", "minlength", "maxlength",
                 "idcode", "compression", "idslen", "weightslen")
+
+    def __init__(self, postingsize, stringids=False):
+        self.postingsize = postingsize
+        self.stringids = stringids
+        self.ids = [] if stringids else array("I")
+        self.weights = array("f")
+        self.values = None
+
+        self.minlength = None
+        self.maxlength = 0
+        self.maxweight = 0
+
+    def __len__(self):
+        return len(self.ids)
+
+    def __nonzero__(self):
+        return bool(self.ids)
+
+    def min_id(self):
+        if self.ids:
+            return self.ids[0]
+        else:
+            raise IndexError
+
+    def max_id(self):
+        if self.ids:
+            return self.ids[-1]
+        else:
+            raise IndexError
+
+    def min_length(self):
+        return self.minlength
+
+    def max_length(self):
+        return self.maxlength
+
+    def max_weight(self):
+        return self.maxweight
+
+    def add(self, id_, weight, valuestring, length=None):
+        self.ids.append(id_)
+        self.weights.append(weight)
+        if weight > self.maxweight:
+            self.maxweight = weight
+        if valuestring:
+            if self.values is None:
+                self.values = []
+            self.values.append(valuestring)
+        if length:
+            if self.minlength is None or length < self.minlength:
+                self.minlength = length
+            if length > self.maxlength:
+                self.maxlength = length
 
     def to_file(self, postfile, compression=3):
         ids = self.ids
@@ -1036,4 +1255,220 @@ class W2Block(base.BlockBase):
         self.values = values
         return values
 
+
+# File TermInfo
+
+NO_ID = 0xffffffff
+
+
+class FileTermInfo(TermInfo):
+    # Freq, Doc freq, min len, max length, max weight, unused, min ID, max ID
+    struct = Struct("!fIBBffII")
+
+    def __init__(self, *args, **kwargs):
+        self.postings = None
+        if "postings" in kwargs:
+            self.postings = kwargs["postings"]
+            del kwargs["postings"]
+        TermInfo.__init__(self, *args, **kwargs)
+
+    # filedb specific methods
+
+    def add_block(self, block):
+        self._weight += sum(block.weights)
+        self._df += len(block)
+
+        ml = block.min_length()
+        if self._minlength is None:
+            self._minlength = ml
+        else:
+            self._minlength = min(self._minlength, ml)
+
+        self._maxlength = max(self._maxlength, block.max_length())
+        self._maxweight = max(self._maxweight, block.max_weight())
+        if self._minid is None:
+            self._minid = block.ids[0]
+        self._maxid = block.ids[-1]
+
+    def to_string(self):
+        # Encode the lengths as 0-255 values
+        ml = 0 if self._minlength is None else length_to_byte(self._minlength)
+        xl = length_to_byte(self._maxlength)
+        # Convert None values to the out-of-band NO_ID constant so they can be
+        # stored as unsigned ints
+        mid = NO_ID if self._minid is None else self._minid
+        xid = NO_ID if self._maxid is None else self._maxid
+
+        # Pack the term info into bytes
+        st = self.struct.pack(self._weight, self._df, ml, xl, self._maxweight,
+                              0, mid, xid)
+
+        if isinstance(self.postings, tuple):
+            # Postings are inlined - dump them using the pickle protocol
+            isinlined = 1
+            st += dumps(self.postings, -1)[2:-1]
+        else:
+            # Append postings pointer as long to end of term info bytes
+            isinlined = 0
+            # It's possible for a term info to not have a pointer to postings
+            # on disk, in which case postings will be None. Convert a None
+            # value to -1 so it can be stored as a long.
+            p = -1 if self.postings is None else self.postings
+            st += pack_long(p)
+
+        # Prepend byte indicating whether the postings are inlined to the term
+        # info bytes
+        return pack_byte(isinlined) + st
+
+    @classmethod
+    def from_string(cls, s):
+        assert isinstance(s, bytes_type)
+
+        if isinstance(s, string_type):
+            hbyte = ord(s[0])  # Python 2.x - str
+        else:
+            hbyte = s[0]  # Python 3 - bytes
+
+        if hbyte < 2:
+            st = cls.struct
+            # Weight, Doc freq, min len, max len, max w, unused, min ID, max ID
+            w, df, ml, xl, xw, _, mid, xid = st.unpack(s[1:st.size + 1])
+            mid = None if mid == NO_ID else mid
+            xid = None if xid == NO_ID else xid
+            # Postings
+            pstr = s[st.size + 1:]
+            if hbyte == 0:
+                p = unpack_long(pstr)[0]
+            else:
+                p = loads(pstr + b("."))
+        else:
+            # Old format was encoded as a variable length pickled tuple
+            v = loads(s + b("."))
+            if len(v) == 1:
+                w = df = 1
+                p = v[0]
+            elif len(v) == 2:
+                w = df = v[1]
+                p = v[0]
+            else:
+                w, p, df = v
+            # Fake values for stats which weren't stored before
+            ml = 1
+            xl = 255
+            xw = 999999999
+            mid = -1
+            xid = -1
+
+        ml = byte_to_length(ml)
+        xl = byte_to_length(xl)
+        obj = cls(w, df, ml, xl, xw, mid, xid)
+        obj.postings = p
+        return obj
+
+    @classmethod
+    def read_weight(cls, dbfile, datapos):
+        return dbfile.get_float(datapos + 1)
+
+    @classmethod
+    def read_doc_freq(cls, dbfile, datapos):
+        return dbfile.get_uint(datapos + 1 + _FLOAT_SIZE)
+
+    @classmethod
+    def read_min_and_max_length(cls, dbfile, datapos):
+        lenpos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE
+        ml = byte_to_length(dbfile.get_byte(lenpos))
+        xl = byte_to_length(dbfile.get_byte(lenpos + 1))
+        return ml, xl
+
+    @classmethod
+    def read_max_weight(cls, dbfile, datapos):
+        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
+        return dbfile.get_float(weightspos)
+
+
+# Utility functions
+
+def minimize_ids(arry, stringids, compression=0):
+    amax = arry[-1]
+
+    if stringids:
+        typecode = ''
+        string = dumps(arry)
+    else:
+        typecode = arry.typecode
+        if amax <= 255:
+            typecode = "B"
+        elif amax <= 65535:
+            typecode = "H"
+
+        if typecode != arry.typecode:
+            arry = array(typecode, iter(arry))
+        if not IS_LITTLE:
+            arry.byteswap()
+        string = array_tobytes(arry)
+    if compression:
+        string = zlib.compress(string, compression)
+    return (typecode, string)
+
+
+def deminimize_ids(typecode, count, string, compression=0):
+    if compression:
+        string = zlib.decompress(string)
+    if typecode == '':
+        return loads(string)
+    else:
+        arry = array(typecode)
+        array_frombytes(arry, string)
+        if not IS_LITTLE:
+            arry.byteswap()
+        return arry
+
+
+def minimize_weights(weights, compression=0):
+    if all(w == 1.0 for w in weights):
+        string = b("")
+    else:
+        if not IS_LITTLE:
+            weights.byteswap()
+        string = array_tobytes(weights)
+    if string and compression:
+        string = zlib.compress(string, compression)
+    return string
+
+
+def deminimize_weights(count, string, compression=0):
+    if not string:
+        return array("f", (1.0 for _ in xrange(count)))
+    if compression:
+        string = zlib.decompress(string)
+    arry = array("f")
+    array_frombytes(arry, string)
+    if not IS_LITTLE:
+        arry.byteswap()
+    return arry
+
+
+def minimize_values(postingsize, values, compression=0):
+    if postingsize < 0:
+        string = dumps(values, -1)[2:]
+    elif postingsize == 0:
+        string = b('')
+    else:
+        string = b('').join(values)
+    if string and compression:
+        string = zlib.compress(string, compression)
+    return string
+
+
+def deminimize_values(postingsize, count, string, compression=0):
+    if compression:
+        string = zlib.decompress(string)
+
+    if postingsize < 0:
+        return loads(string)
+    elif postingsize == 0:
+        return [None] * count
+    else:
+        return [string[i:i + postingsize] for i
+                in xrange(0, len(string), postingsize)]
 

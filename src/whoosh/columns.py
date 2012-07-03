@@ -26,20 +26,30 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division, with_statement
-import math
+import struct
 from array import array
-from struct import Struct
 
 try:
     import zlib
 except ImportError:
     zlib = None
 
-from whoosh.compat import array_tobytes, xrange, BytesIO
-from whoosh.filedb.structfile import StructFile
-from whoosh.system import _INT_SIZE, _SHORT_SIZE, unpack_ushort
-from whoosh.util.numeric import bytes_for_bits
+from whoosh.compat import b
+from whoosh.compat import array_tobytes, izip, xrange
+from whoosh.idsets import BitSet, OnDiskBitSet
+from whoosh.system import emptybytes, _INT_SIZE
+from whoosh.util.numeric import typecode_max, typecode_min
+from whoosh.util.numeric import typecode_pack, typecode_unpack
 from whoosh.util.numlists import GrowableArray
+
+
+# Exceptions
+
+class TooHigh(ValueError):
+    pass
+
+class TooLow(ValueError):
+    pass
 
 
 # Utility functions
@@ -106,28 +116,34 @@ class Column(object):
     def writer(self, dbfile):
         return self.Writer(dbfile)
 
-    def reader(self, dbfile, basepos, doccount):
-        return self.Reader(dbfile, basepos, doccount)
-
-    def ram_reader(self, reader):
-        return self.RamReader(reader)
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount)
 
 
 class ColumnWriter(object):
     def __init__(self, dbfile):
         self._dbfile = dbfile
+        self._count = 0
 
-    def add(self, value):
+    def fill(self, docnum):
+        dbfile = self._dbfile
+        dbytes = self._defaultbytes
+        if docnum > self._count:
+            for _ in xrange(docnum - self._count):
+                dbfile.write(dbytes)
+
+    def add(self, docnum, value):
         raise NotImplementedError
 
-    def finish(self):
+    def finish(self, docnum):
         pass
 
 
 class ColumnReader(object):
-    def __init__(self, dbfile, basepos, doccount):
+    def __init__(self, dbfile, basepos, length, doccount):
         self._dbfile = dbfile
         self._basepos = basepos
+        self._length = length
         self._doccount = doccount
 
     def __len__(self):
@@ -136,381 +152,470 @@ class ColumnReader(object):
     def __getitem__(self, docnum):
         raise NotImplementedError
 
+    def sort_key(self, docnum):
+        return self[docnum]
+
     def __iter__(self):
-        raise NotImplementedError
+        for i in xrange(self._doccount):
+            yield self[i]
+
+    def sort_keys(self):
+        for i in xrange(self._doccount):
+            yield self.sort_key(i)
+
+    def load(self):
+        return list(self)
 
 
 # Arbitrary bytes column
 
 class VarBytesColumn(Column):
+    """
+    The current implementation limits the total length of all document values
+    together to 2 GB.
+    """
+
     class Writer(ColumnWriter):
         def __init__(self, dbfile):
             self._dbfile = dbfile
+            self._count = 0
+            self._lengths = GrowableArray(allow_longs=False)
 
-            self._basepos = dbfile.tell()
-            self._dbfile.write_uint(0)
+            # Keep track of the minimum length needed to distinguish the values
+            # for the purposes of sorting
+            self._keylen = 0
+            self._lastkey = emptybytes
 
-            self._lengths = GrowableArray("B")
+        def fill(self, docnum):
+            if docnum > self._count:
+                self._lengths.extend(0 for _ in xrange(docnum - self._count))
 
-        def add(self, v):
-            self._lengths.append(len(v))
+        def add(self, docnum, v):
+            if docnum > self._count:
+                self.fill(docnum)
             self._dbfile.write(v)
+            self._lengths.append(len(v))
+            self._count = docnum + 1
 
-        def finish(self):
-            dbfile = self._dbfile
+            # If this value is indistinguishable from the previous one using
+            # the current "key length", increase the key length
+            if v[:self._keylen] == self._lastkey and len(v) > self._keylen:
+                self._keylen += 1
+            self._lastkey = v[:self._keylen]
 
-            dbfile.flush()
-            here = dbfile.tell()
-            dbfile.seek(self._basepos)
-            dbfile.write_uint(here)
-            dbfile.seek(here)
+        def finish(self, doccount):
+            self.fill(doccount)
+            lengths = self._lengths.array
 
-            lenarray = self._lengths.array
-            dbfile.write_byte(ord(lenarray.typecode))
-            dbfile.write_array(lenarray)
-
-        def enstack(self, dbfile, value):
-            dbfile.write_uint(len(value))
-            dbfile.write(value)
+            # Write the length of each value
+            self._dbfile.write_array(lengths)
+            # Write the typecode for the lengths
+            self._dbfile.write_byte(ord(lengths.typecode))
+            # Write the minimum key length
+            self._dbfile.write_int(self._keylen)
 
     class Reader(ColumnReader):
-        def __init__(self, dbfile, basepos, doccount):
+        def __init__(self, dbfile, basepos, length, doccount):
             self._dbfile = dbfile
             self._basepos = basepos
             self._doccount = doccount
+            self._values = None
 
-            diroffset = dbfile.read_uint()
-            dbfile.seek(diroffset)
+            # The absolute position of the end of the column data
+            endpos = basepos + length
+            # The end of the lengths array is the end of the data minus the
+            # typecode and minus the minimum key length int
+            endoflens = endpos - (_INT_SIZE + 1)
+            # Load the minimum key length int from the end of the data
+            self._keylen = dbfile.get_int(endpos - _INT_SIZE)
+            # Load the length typecode from before the key length
+            typecode = chr(dbfile.get_byte(endoflens))
+            # Load the length array from before the typecode
+            itemsize = struct.calcsize(typecode)
+            lengthsbase = endoflens - (itemsize * doccount)
+            self._lengths = dbfile.get_array(lengthsbase, typecode, doccount)
 
-            lentype = chr(dbfile.read_byte())
-            self._lengths = dbfile.read_array(lentype, doccount)
-            offsets = array("i", [0])
-            base = 0
-            for ln in self._lengths:
-                base += ln
-                offsets.append(base)
+            # Create an array of offsets into the strings using the lengths
+            offsets = array("i", (0,))
+            for length in self._lengths:
+                offsets.append(offsets[-1] + length)
             self._offsets = offsets
 
+        def _get(self, docnum, as_key):
+            length = self._lengths[docnum]
+            if not length:
+                return emptybytes
+            if as_key:
+                length = min(length, self._keylen)
+            offset = self._offsets[docnum]
+
+            if self._values is None:
+                return self._dbfile.get(self._basepos + offset, length)
+            else:
+                return self._values[offset:offset + length]
+
         def __getitem__(self, docnum):
-            dbfile = self._dbfile
-            pos = self._basepos + _INT_SIZE + self._offsets[docnum]
-            return dbfile.get(pos, self._lengths[docnum])
+            return self._get(docnum, False)
+
+        def sort_key(self, docnum):
+            return self._get(docnum, True)
 
         def __iter__(self):
             dbfile = self._dbfile
-            dbfile.seek(self._basepos + _INT_SIZE)
+            pos = self._basepos
             for length in self._lengths:
-                yield dbfile.read(length)
+                yield dbfile.get(pos, length)
+                pos += length
 
-        def destack(self, dbfile):
-            length = dbfile.read_uint()
-            return dbfile.read(length)
+        def load(self):
+            endoffset = self._offsets[-1]
+            self._values = self._dbfile.get(self._basepos, endoffset)
+            return self
 
 
 class FixedBytesColumn(Column):
-    def __init__(self, fixedlen):
+    def __init__(self, fixedlen, default=None):
         self._fixedlen = fixedlen
 
-    def writer(self, dbfile):
-        return self.Writer(dbfile, self._fixedlen)
+        if default is None:
+            default = b("\x00") * fixedlen
+        elif len(default) != fixedlen:
+            raise ValueError
+        self._default = default
 
-    def reader(self, dbfile, basepos, doccount):
-        return self.Reader(dbfile, basepos, doccount, self._fixedlen)
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self._fixedlen, self._default)
+
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount, self._fixedlen,
+                           self._default)
 
     class Writer(ColumnWriter):
-        def __init__(self, dbfile, fixedlen):
+        def __init__(self, dbfile, fixedlen, default):
             self._dbfile = dbfile
             self._fixedlen = fixedlen
+            self._default = self._defaultbytes = default
+            self._count = 0
 
-        def add(self, v):
+        def add(self, docnum, v):
+            if v == self._default:
+                return
+            if docnum > self._count:
+                self.fill(docnum)
             assert len(v) == self._fixedlen
             self._dbfile.write(v)
-
-        def enstack(self, dbfile, value):
-            assert len(value) == self._fixedlen
-            dbfile.write(value)
+            self._count = docnum + 1
 
     class Reader(ColumnReader):
-        def __init__(self, dbfile, basepos, doccount, fixedlen):
+        def __init__(self, dbfile, basepos, length, doccount, fixedlen,
+                     default):
             self._dbfile = dbfile
             self._basepos = basepos
             self._doccount = doccount
             self._fixedlen = fixedlen
+            self._default = self._defaultbytes = default
+            self._count = length // fixedlen
 
         def __getitem__(self, docnum):
+            if docnum >= self._count:
+                return self._defaultbytes
             pos = self._basepos + self._fixedlen * docnum
             return self._dbfile.get(pos, self._fixedlen)
 
         def __iter__(self):
-            dbfile = self._dbfile
-            fixedlen = self._fixedlen
-            dbfile.seek(self._basepos)
-            for _ in xrange(self._doccount):
-                yield dbfile.read(fixedlen)
+            count = self._count
+            default = self._default
+            for i in xrange(self._doccount):
+                if i < count:
+                    yield self[i]
+                else:
+                    yield default
 
-        def destack(self, dbfile):
-            return dbfile.read(self._fixedlen)
+        def load(self):
+            cls = FixedBytesColumn.RamReader
+            a = emptybytes.join(self)
+            return cls(a, self._fixedlen, self._defaultbytes, self._doccount)
+
+    class RamReader(ColumnReader):
+        def __init__(self, barray, itemsize, defaultbytes, doccount):
+            self._barray = barray
+            self._itemsize = itemsize
+            self._defaultbytes = defaultbytes
+            self._doccount = doccount
+
+        def __getitem__(self, docnum):
+            if docnum >= self._doccount:
+                return self._defaultbytes
+            itemsize = self._itemsize
+            return self._array[docnum * itemsize:docnum * itemsize + itemsize]
+
+        def __iter__(self):
+            barray = self._barray
+            itemsize = self._itemsize
+            defaultbytes = self._defaultbytes
+
+            for i in xrange(self._doccount):
+                pos = i * itemsize
+                if pos >= len(barray):
+                    yield defaultbytes
+                else:
+                    yield barray[pos:pos + itemsize]
 
 
-# Base classes for variable/fixed length reference (enum) writers and readers
+# Variable/fixed length reference (enum) column
 
 class RefBytesColumn(Column):
-    def __init__(self, fixedlen=0):
+    def __init__(self, fixedlen=0, typecode="H", default=None):
         self._fixedlen = fixedlen
 
-    def writer(self, dbfile):
-        return self.Writer(dbfile, self._fixedlen)
+        typecodes = "BHiIQ"
+        if typecode not in typecodes:
+            raise Exception("Typecode must be one of %s" % typecodes)
+        self._typecode = typecode
 
-    def reader(self, dbfile, basepos, doccount):
-        return self.Reader(dbfile, basepos, doccount, self._fixedlen)
+        if default is None:
+            default = b("\x00") * fixedlen if fixedlen else emptybytes
+        elif fixedlen and len(default) != fixedlen:
+            raise ValueError
+        self._default = default
+
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self._fixedlen, self._typecode,
+                           self._default)
+
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount, self._fixedlen,
+                           self._typecode)
 
     class Writer(ColumnWriter):
-        def __init__(self, dbfile, fixedlen=0):
+        def __init__(self, dbfile, fixedlen, typecode, default):
             self._dbfile = dbfile
-            self._refs = GrowableArray("B")
-            self._uniques = []
+            self._default = default
+            self._typecode = typecode
+            self._pack = typecode_pack[typecode]
+            self._defaultbytes = self._pack(0)
+            self._uniques = [default]
             self._fixedlen = fixedlen
+            self._count = 0
 
-        def add(self, v):
+        def add(self, docnum, v):
+            if docnum > self._count:
+                self.fill(docnum)
+
             uniques = self._uniques
             try:
                 i = uniques.index(v)
             except ValueError:
                 i = len(uniques)
+                if i > typecode_max[self._typecode]:
+                    raise OverflowError("Too many unique items")
                 uniques.append(v)
-            self._refs.append(i)
 
-        def finish(self):
+            self._dbfile.write(self._pack(i))
+            self._count = docnum + 1
+
+        def finish(self, doccount):
             dbfile = self._dbfile
             fixedlen = self._fixedlen
 
-            refarray = self._refs.array
-            dbfile.write_byte(ord(refarray.typecode))
-            dbfile.write_array(refarray)
+            if doccount > self._count:
+                self.fill(doccount)
 
             uniques = self._uniques
-            dbfile.write_int(len(uniques))
+            dbfile.write(self._pack(len(uniques)))
             for uv in uniques:
                 if not fixedlen:
                     dbfile.write_varint(len(uv))
                 dbfile.write(uv)
 
-        def enstack(self, dbfile, value):
-            if self._fixedlen:
-                assert len(value) == self._fixedlen
-            else:
-                dbfile.write_uint(len(value))
-            dbfile.write(value)
-
     class Reader(ColumnReader):
-        def __init__(self, dbfile, basepos, doccount, fixedlen=0):
+        def __init__(self, dbfile, basepos, length, doccount, fixedlen,
+                     typecode):
             self._dbfile = dbfile
             self._basepos = basepos
             self._doccount = doccount
+            self._fixedlen = fixedlen
+            self._typecode = typecode
+            self._itemsize = struct.calcsize(typecode)
+            self._unpack = typecode_unpack[typecode]
 
-            self._itemsize = None
-            self._get = None
-            self._read = None
+            self._uniques = self._read_uniques()
 
-            self._read_enumtype()
-            dbfile.seek(self._itemsize * doccount, 1)
-            self._read_uniques(fixedlen)
-
-        def _read_enumtype(self):
+        def _read_uniques(self):
             dbfile = self._dbfile
-            self._enumtype = enumtype = chr(dbfile.read_byte())
-            if enumtype == "B":
-                self._itemsize = 1
-                self._get = dbfile.get_byte
-                self._read = dbfile.read_byte
-            elif enumtype == "H":
-                self._itemsize = _SHORT_SIZE
-                self._get = dbfile.get_ushort
-                self._read = dbfile.read_ushort
-            elif enumtype == "i":
-                self._itemsize = _INT_SIZE
-                self._get = dbfile.get_int
-                self._read = dbfile.read_int
-            else:  # I
-                self._itemsize = _INT_SIZE
-                self._get = dbfile.get_uint
-                self._read = dbfile.read_uint
+            fixedlen = self._fixedlen
 
-        def _read_uniques(self, fixedlen=0):
-            dbfile = self._dbfile
+            dbfile.seek(self._basepos + self._itemsize * self._doccount)
             uniques = []
-            ucount = dbfile.read_int()
+            ucount = self._unpack(dbfile.read(self._itemsize))[0]
 
             length = fixedlen
             for _ in xrange(ucount):
                 if not fixedlen:
                     length = dbfile.read_varint()
                 uniques.append(dbfile.read(length))
-            self._uniques = uniques
+            return uniques
 
         def __getitem__(self, docnum):
-            base = self._basepos + 1
-            ref = self._get(base + docnum * self._itemsize)
+            dbfile = self._dbfile
+            pos = self._basepos + docnum * self._itemsize
+            ref = self._unpack(dbfile.get(pos, self._itemsize))[0]
             return self._uniques[ref]
 
         def __iter__(self):
+            get = self._dbfile.get
+            basepos = self._basepos
             uniques = self._uniques
-            _read = self._read
+            unpack = self._unpack
+            itemsize = self._itemsize
 
-            self._dbfile.seek(self._basepos + 1)
-            for _ in xrange(self._doccount):
-                ref = _read()
+            for i in xrange(self._doccount):
+                pos = basepos + i * itemsize
+                ref = unpack(get(pos, itemsize))[0]
                 yield uniques[ref]
 
-        def destack(self, dbfile):
-            length = self._fixedlen
-            if not length:
-                length = dbfile.read_uint()
-            return dbfile.read(length)
+        def load(self):
+            refs = self._dbfile.get_array(self._basepos, self._typecode,
+                                          self._doccount)
+            return RefBytesColumn.RamReader(refs, self._uniques)
+
+    class RamReader(ColumnReader):
+        def __init__(self, refs, uniques):
+            self._refs = refs
+            self._uniques = uniques
+
+        def __getitem__(self, docnum):
+            return self._uniques[self._refs[docnum]]
+
+        def __iter__(self):
+            uniques = self._uniques
+            return (uniques[ref] for ref in self._refs)
 
 
 # Numeric column
 
-class NumericColumn(Column):
-    def __init__(self, typecode):
+class NumericColumn(FixedBytesColumn):
+    def __init__(self, typecode, default=0):
         self._typecode = typecode
-        self._struct = Struct("!" + typecode)
-        self._size = self._struct.size
-        self._pack = self._struct.pack
+        self._default = default
 
     def writer(self, dbfile):
-        return self.Writer(dbfile, self._struct)
+        return self.Writer(dbfile, self._typecode, self._default)
 
-    def reader(self, dbfile, basepos, doccount):
-        return self.Reader(dbfile, basepos, doccount, self._struct)
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount, self._typecode,
+                           self._default)
 
-    class Writer(ColumnWriter):
-        def __init__(self, dbfile, struct):
+    class Writer(FixedBytesColumn.Writer):
+        def __init__(self, dbfile, typecode, default):
             self._dbfile = dbfile
-            self._struct = struct
-            self._pack = struct.pack
+            self._pack = typecode_pack[typecode]
+            self._default = default
+            self._defaultbytes = self._pack(default)
+            self._fixedlen = struct.calcsize(typecode)
+            self._count = 0
 
-        def add(self, value):
-            self._dbfile.write(self._pack(value))
+        def add(self, docnum, v):
+            if v == self._default:
+                return
+            if docnum > self._count:
+                self.fill(docnum)
+            self._dbfile.write(self._pack(v))
+            self._count = docnum + 1
 
-        def enstack(self, dbfile, value):
-            dbfile.write(self._pack(value))
-
-    class Reader(ColumnReader):
-        def __init__(self, dbfile, basepos, doccount, struct):
+    class Reader(FixedBytesColumn.Reader):
+        def __init__(self, dbfile, basepos, length, doccount, typecode,
+                     default):
             self._dbfile = dbfile
             self._basepos = basepos
             self._doccount = doccount
-            self._struct = struct
-            self._unpack = self._struct.unpack
-            self._size = self._struct.size
+            self._default = default
+            self._defaultbytes = typecode_pack[typecode](default)
+
+            self._typecode = typecode
+            self._unpack = typecode_unpack[typecode]
+            self._fixedlen = struct.calcsize(typecode)
+            self._count = length // self._fixedlen
 
         def __getitem__(self, docnum):
-            pos = self._basepos + docnum * self._size
-            s = self._dbfile.get(pos, self._size)
+            s = FixedBytesColumn.Reader.__getitem__(self, docnum)
             return self._unpack(s)[0]
 
-        def __iter__(self):
-            dbfile = self._dbfile
-            size = self._size
-
-            for _ in xrange(self._doccount):
-                yield self._unpack(dbfile.read(size))[0]
-
-        def destack(self, dbfile):
-            return self._unpack(dbfile.read(self._size))[0]
+        def load(self):
+            if self._typecode in "qQ":
+                return list(self)
+            else:
+                return array(self._typecode, self)
 
 
 # Column of boolean values
 
 class BitColumn(Column):
-    compress_limit = 2048
-    compression = 3
+    def __init__(self, compress_at=2048):
+        self._compressat = compress_at
+
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self._compressat)
 
     class Writer(ColumnWriter):
-        def __init__(self, dbfile):
+        def __init__(self, dbfile, compressat):
             self._dbfile = dbfile
+            self._compressat = compressat
+            self._bitset = BitSet()
 
-            self._bits = array("B", (0,))
-            self._place = 0
-            self._count = 0
-
-        def add(self, value):
-            bits = self._bits
-            place = self._place
-
-            if place == 8:
-                bits.append(0)
-                place = 0
-
+        def add(self, docnum, value):
             if value:
-                bits[-1] |= 1 << place
+                self._bitset.add(docnum)
 
-            self._place = place + 1
-            self._count += 1
-
-        def finish(self):
+        def finish(self, doccount):
             dbfile = self._dbfile
-            bits = self._bits
-            assert len(bits) == bytes_for_bits(self._count)
+            bits = self._bitset.bits
 
-            if zlib and len(bits) <= BitColumn.compress_limit:
-                compressed = zlib.compress(array_tobytes(bits),
-                                           BitColumn.compression)
-                dbfile.write_ushort(len(compressed))
+            if zlib and len(bits) <= self._compressat:
+                compressed = zlib.compress(array_tobytes(bits), 3)
                 dbfile.write(compressed)
+                dbfile.write_byte(1)
             else:
-                dbfile.write_ushort(0)
                 dbfile.write_array(bits)
-
-        def enstack(self, dbfile, value):
-            dbfile.write_byte(int(bool(value)))
+                dbfile.write_byte(0)
 
     class Reader(ColumnReader):
-        def __init__(self, dbfile, basepos, doccount):
+        def __init__(self, dbfile, basepos, length, doccount):
             self._dbfile = dbfile
             self._basepos = basepos
+            self._length = length
             self._doccount = doccount
 
-            clen = dbfile.get_ushort(basepos)
-            self._bytecount = bytes_for_bits(doccount)
-            self._bits = None
-            if clen:
-                self._bits = array("B")
-                self._bits.fromstring(zlib.decompress(dbfile.read(clen)))
-                self._get = self._bits.__getitem__
+            compressed = dbfile.get_byte(basepos + (length - 1))
+            if compressed:
+                bbytes = zlib.decompress(dbfile.get(basepos, length - 1))
+                bitset = BitSet.from_bytes(bbytes)
             else:
-                self._get = lambda i: dbfile.get_byte(basepos +
-                                                      _SHORT_SIZE + i)
+                dbfile.seek(basepos)
+                bitset = OnDiskBitSet(dbfile, basepos, length - 1)
+            self._bitset = bitset
 
         def __getitem__(self, i):
-            bucket = i // 8
-            return bool(self._get(bucket) & (1 << (i & 7)))
+            return i in self._bitset
 
         def __iter__(self):
-            doccount = self._doccount
-            bits = self._bits
+            i = 0
+            for num in self._bitset:
+                if num > i:
+                    for _ in xrange(num - i):
+                        yield False
+                yield True
+                i = num + 1
+            if self._doccount > i:
+                for _ in xrange(self._doccount - i):
+                    yield False
 
-            if bits:
-                gen = iter(bits)
-            else:
-                dbfile = self._dbfile
-                dbfile.seek(self._basepos + _SHORT_SIZE)
-
-                def gen():
-                    while True:
-                        yield dbfile.read_byte()
-
-            count = 0
-            for byte in gen:
-                for i in xrange(8):
-                    yield bool(byte & (1 << i))
-                    count += 1
-                    if count >= doccount:
-                        return
-
-        def destack(self, dbfile):
-            return bool(dbfile.read_byte())
+        def load(self):
+            if isinstance(self._bitset, OnDiskBitSet):
+                bs = self._dbfile.get_array(self._basepos, "B",
+                                            self._length - 1)
+                self._bitset = BitSet.from_bytes(bs)
+            return self
 
 
 # Create a synthetic column by reading all postings in a field
@@ -575,55 +680,35 @@ class PostingColumnReader(ColumnReader):
             else:
                 yield o
 
+    def load(self):
+        return self
 
-# Object that layers a growing update file over static column reader
 
-class StackedColumnReader(ColumnReader):
-    def __init__(self, storage, stackname, reader):
-        self._storage = storage
-        self._stackname = stackname
-        self._reader = reader
-        self._values = {}
+# Column wrappers
 
-        self._bookmark = 0
-        self.update()
+class ClampedNumericColumn(Column):
+    def __init__(self, child):
+        self._child = child
 
-    def update(self):
-        reader = self._reader
+    def writer(self, dbfile):
+        return self.Writer(self._child.writer(dbfile))
 
-        try:
-            stackfile = self._storage.open_filename(self._stackname)
-        except IOError:
-            return
+    def reader(self, *args, **kwargs):
+        return self._child.reader(*args, **kwargs)
 
-        stackfile.seek(self._bookmark)
-        updates = stackfile.read()
-        self._bookmark = stackfile.tell()
-        stackfile.close()
+    class Writer(ColumnWriter):
+        def __init__(self, childw):
+            self._childw = childw
+            self._min = typecode_min[childw._typecode]
+            self._max = typecode_max[childw._typecode]
 
-        if updates:
-            buf = StructFile(BytesIO(updates))
-            while True:
-                fieldid = buf.read(2)
-                if not len(fieldid):
-                    break
-                fieldid = unpack_ushort(fieldid)
-                docnum = buf.read_uint()
-                self._values[docnum] = reader.destack(buf)
+        def add(self, docnum, v):
+            v = min(v, self._min)
+            v = max(v, self._max)
+            self._childw.add(docnum, v)
 
-    def __len__(self):
-        return len(self._reader)
-
-    def __getitem__(self, docnum):
-        try:
-            return self._values[docnum]
-        except KeyError:
-            return self._reader[docnum]
-
-    def __iter__(self):
-        for docnum in xrange(len(self._reader)):
-            yield self[docnum]
-
+        def finish(self, doccount):
+            self._childw.finish(doccount)
 
 
 

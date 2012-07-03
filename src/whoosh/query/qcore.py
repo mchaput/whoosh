@@ -566,11 +566,14 @@ class _NullQuery(Query):
 
     boost = 1.0
 
+    def __init__(self):
+        self.error = None
+
     def __call__(self):
         return self
 
     def __repr__(self):
-        return "<%s>" % (self.__class__.__name__,)
+        return "<%s>" % (self.__class__.__name__)
 
     def __eq__(self, other):
         return isinstance(other, _NullQuery)
@@ -689,13 +692,13 @@ class Every(Query):
         if fieldname in (None, "", "*"):
             # This takes into account deletions
             doclist = array("I", reader.all_doc_ids())
-        elif (reader.supports_caches()
-              and reader.fieldcache_available(fieldname)):
-            # If the reader has a field cache, use it to quickly get the list
-            # of documents that have a value for this field
-            fc = reader.fieldcache(self.fieldname)
-            doclist = array("I", (docnum for docnum, ordinal in fc.ords()
-                                  if ordinal != 0))
+#        elif (reader.supports_caches()
+#              and reader.fieldcache_available(fieldname)):
+#            # If the reader has a field cache, use it to quickly get the list
+#            # of documents that have a value for this field
+#            fc = reader.fieldcache(self.fieldname)
+#            doclist = array("I", (docnum for docnum, ordinal in fc.ords()
+#                                  if ordinal != 0))
         else:
             # This is a hacky hack, but just create an in-memory set of all the
             # document numbers of every term in the field. This is SLOOOW for

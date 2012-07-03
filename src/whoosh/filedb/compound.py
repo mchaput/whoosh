@@ -26,11 +26,12 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import errno, mmap, sys
+from tempfile import TemporaryFile
 from threading import Lock
 from shutil import copyfileobj
 
 from whoosh.compat import BytesIO, memoryview_
-from whoosh.filedb.structfile import StructFile
+from whoosh.filedb.structfile import BufferFile, StructFile
 from whoosh.filedb.filestore import FileStorage
 from whoosh.system import emptybytes
 
@@ -38,27 +39,26 @@ from whoosh.system import emptybytes
 class CompoundStorage(FileStorage):
     readonly = True
 
-    def __init__(self, store, name, use_mmap=True, basepos=0):
-        self.name = name
-        self.file = store.open_file(name)
-        self.file.seek(basepos)
+    def __init__(self, dbfile, use_mmap=True, basepos=0):
+        self._file = dbfile
+        self._file.seek(basepos)
 
-        self.diroffset = self.file.read_long()
-        self.dirlength = self.file.read_int()
-        self.file.seek(self.diroffset)
-        self.dir = self.file.read_pickle()
-        self.options = self.file.read_pickle()
-        self.locks = {}
-        self.source = None
+        self._diroffset = self._file.read_long()
+        self._dirlength = self._file.read_int()
+        self._file.seek(self._diroffset)
+        self._dir = self._file.read_pickle()
+        self._options = self._file.read_pickle()
+        self._locks = {}
+        self._source = None
 
-        if use_mmap and store.supports_mmap and hasattr(self.file, "fileno"):
+        if use_mmap and hasattr(self._file, "fileno"):
             # Try to open the entire segment as a memory-mapped object
             try:
-                fileno = self.file.fileno()
-                self.source = mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)
+                fileno = self._file.fileno()
+                self._source = mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)
                 # If that worked, we can close the file handle we were given
-                self.file.close()
-                self.file = None
+                self._file.close()
+                self._file = None
             except OSError:
                 e = sys.exc_info()[1]
                 # If we got an error because there wasn't enough memory to
@@ -68,46 +68,51 @@ class CompoundStorage(FileStorage):
                     pass
 
     def __repr__(self):
-        return "<%s (%s)>" % (self.__class__.__name__, self.name)
+        return "<%s (%s)>" % (self.__class__.__name__, self._name)
 
     def close(self):
-        if self.source:
-            self.source.close()
-        if self.file:
-            self.file.close()
+        if self._source:
+            self._source.close()
+        if self._file:
+            self._file.close()
+
+    def range(self, name):
+        try:
+            fileinfo = self._dir[name]
+        except KeyError:
+            raise NameError("Unknown file %r" % (name,))
+        return (fileinfo["offset"], fileinfo["length"])
 
     def open_file(self, name, *args, **kwargs):
-        info = self.dir[name]
-        offset = info["offset"]
-        length = info["length"]
-
-        if self.source:
+        offset, length = self.range(name)
+        if self._source:
             # Create a memoryview/buffer from the mmap
-            buf = memoryview_(self.source, offset, length)
-            f = BytesIO(buf)
+            buf = memoryview_(self._source, offset, length)
+            f = BufferFile(buf, name=name)
+        elif hasattr(self._file, "subset"):
+            f = self._file.subset(offset, length, name=name)
         else:
-            # If mmap is not available, use the slower sub-file implementation
-            f = SubFile(self.file, offset, length)
-        return StructFile(f, name=name)
+            f = StructFile(SubFile(self._file, offset, length), name=name)
+        return f
 
     def list(self):
-        return list(self.dir.keys())
+        return list(self._dir.keys())
 
     def file_exists(self, name):
-        return name in self.dir
+        return name in self._dir
 
     def file_length(self, name):
-        info = self.dir[name]
+        info = self._dir[name]
         return info["length"]
 
     def file_modified(self, name):
-        info = self.dir[name]
+        info = self._dir[name]
         return info["modified"]
 
     def lock(self, name):
-        if name not in self.locks:
-            self.locks[name] = Lock()
-        return self.locks[name]
+        if name not in self._locks:
+            self._locks[name] = Lock()
+        return self._locks[name]
 
     @staticmethod
     def assemble(dbfile, store, names, **options):
@@ -133,6 +138,12 @@ class CompoundStorage(FileStorage):
             copyfileobj(f, dbfile)
             f.close()
 
+        CompoundStorage.write_dir(dbfile, basepos, directory, options)
+
+    @staticmethod
+    def write_dir(dbfile, basepos, directory, options=None):
+        options = options or {}
+
         dirpos = dbfile.tell()  # Remember the start of the directory
         dbfile.write_pickle(directory)  # Write the directory
         dbfile.write_pickle(options)
@@ -150,6 +161,7 @@ class SubFile(object):
         self._file = parentfile
         self._offset = offset
         self._length = length
+        self._end = offset + length
         self._pos = 0
 
         self.name = name
@@ -157,6 +169,14 @@ class SubFile(object):
 
     def close(self):
         self.closed = True
+
+    def subset(self, position, length, name=None):
+        start = self._offset + position
+        end = start + length
+        name = name or self.name
+        assert self._offset >= start >= self._end
+        assert self._offset >= end >= self._end
+        return SubFile(self._file, self._offset + position, length, name=name)
 
     def read(self, size=None):
         if size is None:
@@ -194,6 +214,78 @@ class SubFile(object):
 
     def tell(self):
         return self._pos
+
+
+class CompoundWriter(object):
+    def __init__(self, dbfile, buffersize=32 * 1024):
+        self._dbfile = dbfile
+        self._temp = TemporaryFile()
+        self._buffersize = buffersize
+        self._streams = {}
+
+    def create_file(self, name):
+        ss = self.SubStream(self._temp, self._buffersize)
+        self._streams[name] = ss
+        return ss
+
+    def close(self):
+        dbfile = self._dbfile
+        temp = self._temp
+
+        basepos = dbfile.tell()
+        dbfile.write_long(0)  # Directory offset
+        dbfile.write_int(0)  # Directory length
+
+        directory = {}
+        for name, substream in self._streams.items():
+            substream.close()
+            filestart = dbfile.tell()
+            for f, offset, length in substream.blocks:
+                if f is None:
+                    f = temp
+                f.seek(offset)
+                dbfile.write(f.read(length))
+            directory[name] = {"offset": filestart,
+                               "length": dbfile.tell() - filestart}
+        temp.close()
+
+        CompoundStorage.write_dir(dbfile, basepos, directory)
+
+    class SubStream(object):
+        def __init__(self, dbfile, buffersize):
+            self._dbfile = dbfile
+            self._buffersize = buffersize
+            self._buffer = BytesIO()
+            self.blocks = []
+
+        def tell(self):
+            return sum(b[2] for b in self.blocks) + self._buffer.tell()
+
+        def write(self, inbytes):
+            bio = self._buffer
+            buflen = bio.tell()
+            length = buflen + len(inbytes)
+            if length >= self._buffersize:
+                offset = self._dbfile.tell()
+                self._dbfile.write(bio.getvalue()[:buflen])
+                self._dbfile.write(inbytes)
+
+                self.blocks.append((None, offset, length))
+                self._buffer.seek(0)
+            else:
+                bio.write(inbytes)
+
+        def close(self):
+            bio = self._buffer
+            length = bio.tell()
+            if length:
+                self.blocks.append((bio, 0, length))
+
+
+
+
+
+
 
 
 

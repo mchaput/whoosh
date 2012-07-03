@@ -29,37 +29,20 @@
 """
 
 import datetime, fnmatch, re, struct, sys
+from array import array
 from decimal import Decimal
 
-from whoosh import formats
-from whoosh.analysis import Analyzer, Tokenizer
-from whoosh.analysis import IDAnalyzer
-from whoosh.analysis import RegexAnalyzer
-from whoosh.analysis import KeywordAnalyzer
-from whoosh.analysis import StandardAnalyzer
-from whoosh.analysis import NgramAnalyzer
-from whoosh.analysis import NgramWordAnalyzer
+from whoosh import analysis, columns, formats
 from whoosh.compat import u, b, PY3
 from whoosh.compat import with_metaclass
 from whoosh.compat import itervalues, xrange
-from whoosh.compat import string_type, integer_types, long_type, text_type
-from whoosh.util.numeric import int_to_text, text_to_int
-from whoosh.util.numeric import long_to_text, text_to_long
-from whoosh.util.numeric import float_to_text, text_to_float
-from whoosh.util.times import datetime_to_long
-
-
-# "Default" values to indicate missing values when sorting and faceting numeric
-# fields. There's no "out-of-band" value possible (except for floats, where we
-# use NaN), so we try to be conspicuous at least by using the maximum possible
-# value
-NaN = struct.unpack("<f", b('\x00\x00\xc0\xff'))[0]
-NUMERIC_DEFAULTS = {"b": 2 ** 7 - 1, "B": 2 ** 8 - 1, "h": 2 ** 15 - 1,
-                    "H": 2 ** 16 - 1, "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
-                    "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1, "f": NaN,
-                    "d": NaN,
-                    }
-DEFAULT_LONG = NUMERIC_DEFAULTS["q"]
+from whoosh.compat import bytes_type, string_type, integer_types, text_type
+from whoosh.system import emptybytes
+from whoosh.system import pack_byte, unpack_byte
+from whoosh.util.numeric import to_sortable, from_sortable
+from whoosh.util.numeric import typecode_max, NaN
+from whoosh.util.text import utf8encode, utf8decode
+from whoosh.util.times import datetime_to_long, long_to_datetime
 
 
 # Exceptions
@@ -119,12 +102,11 @@ class FieldType(object):
     multitoken_query = "default"
     sortable_typecode = None
     spelling = False
-
-    __inittypes__ = dict(format=formats.Format, vector=formats.Format,
-                         scorable=bool, stored=bool, unique=bool)
+    column_type = None
 
     def __init__(self, format, analyzer, vector=None, scorable=False,
-                 stored=False, unique=False, multitoken_query="default"):
+                 stored=False, unique=False, multitoken_query="default",
+                 column_type=None):
         assert isinstance(format, formats.Format)
 
         self.format = format
@@ -134,6 +116,7 @@ class FieldType(object):
         self.stored = stored
         self.unique = unique
         self.multitoken_query = multitoken_query
+        self.column_type = column_type
 
     def __repr__(self):
         temp = "%s(format=%r, vector=%r, scorable=%s, stored=%s, unique=%s)"
@@ -146,75 +129,17 @@ class FieldType(object):
                     (self.vector == other.vector),
                     (self.scorable == other.scorable),
                     (self.stored == other.stored),
-                    (self.unique == other.unique)))
+                    (self.unique == other.unique),
+                    (self.column_type == other.column_type)))
 
-    def __setstate__(self, state):
-        # Fix old fields pickled back when the analyzer was on the format
-        analyzer = state.get("analyzer")
-        format = state.get("format")
-        if (analyzer is None
-            and format is not None
-            and hasattr(format, "analyzer")):
-            state["analyzer"] = format.analyzer
-            del format.analyzer
-        self.__dict__.update(state)
-
-    def on_add(self, schema, fieldname):
-        pass
-
-    def on_remove(self, schema, fieldname):
-        pass
-
-    def supports(self, name):
-        """Returns True if the underlying format supports the given posting
-        value type.
-        
-        >>> field = TEXT()
-        >>> field.supports("positions")
-        True
-        >>> field.supports("characters")
-        False
-        """
-
-        return self.format.supports(name)
-
-    def clean(self):
-        """Clears any cached information in the field and any child objects.
-        """
-
-        if self.format and hasattr(self.format, "clean"):
-            self.format.clean()
-        if self.vector and hasattr(self.vector, "clean"):
-            self.vector.clean()
-
-    def has_morph(self):
-        """Returns True if this field by default performs morphological
-        transformations on its terms, e.g. stemming.
-        """
-
-        if self.analyzer:
-            return self.analyzer.has_morph()
-        else:
-            return False
-
-    def sortable_default(self):
-        """Returns a default value to use for "missing" values when sorting or
-        faceting in this field.
-        """
-
-        return u('\uFFFF')
-
-    def to_text(self, value):
-        """Returns a textual representation of the value. Non-textual fields
-        (such as NUMERIC and DATETIME) will override this to encode objects
-        as text.
-        """
-
-        return value
+    # Methods for converting input into indexing information
 
     def index(self, value, **kwargs):
-        """Returns an iterator of (termtext, frequency, weight, encoded_value)
+        """Returns an iterator of (token, frequency, weight, encoded_value)
         tuples for each unique word in the input value.
+        
+        The default implementation uses the ``analyzer`` attribute to tokenize
+        the value into strings, then encodes them into bytes using UTF-8.
         """
 
         if not self.format:
@@ -226,7 +151,11 @@ class FieldType(object):
 
         if "mode" not in kwargs:
             kwargs["mode"] = "index"
-        return self.format.word_values(value, self.analyzer, **kwargs)
+
+        wvs = self.format.word_values
+        ana = self.analyzer
+        for tstring, freq, wt, vbytes in wvs(value, ana, **kwargs):
+            yield (utf8encode(tstring)[0], freq, wt, vbytes)
 
     def process_text(self, qstring, mode='', **kwargs):
         """Analyzes the given string and returns an iterator of token strings.
@@ -249,6 +178,19 @@ class FieldType(object):
         if not self.analyzer:
             raise Exception("%s field has no analyzer" % self.__class__)
         return self.analyzer(value, **kwargs)
+
+    def to_bytes(self, value):
+        """Returns a bytes representation of the given value, appropriate to be
+        written to disk. The default implementation assumes a unicode value and
+        encodes it using UTF-8.
+        """
+
+        return utf8encode(value)[0]
+
+    def from_bytes(self, bs):
+        return utf8decode(bs)[0]
+
+    # Methods related to query parsing
 
     def self_parsing(self):
         """Subclasses should override this method to return True if they want
@@ -277,6 +219,8 @@ class FieldType(object):
 
         return None
 
+    # Methods related to sortings
+
     def sortable_values(self, ixreader, fieldname):
         """Returns an iterator of (term_text, sortable_value) pairs for the
         terms in the given reader and field. The sortable values can be used
@@ -289,6 +233,15 @@ class FieldType(object):
         """
 
         return ((text, text) for text in ixreader.lexicon(fieldname))
+
+    def sortable_default(self):
+        """Returns a default bytes value to use for "missing" values when
+        sorting or faceting in this field.
+        """
+
+        return emptybytes
+
+    # Methods related to spelling
 
     def separate_spelling(self):
         """Returns True if this field requires special handling of the words
@@ -316,9 +269,52 @@ class FieldType(object):
         this behavior.
         """
 
+        to_bytes = self.to_bytes
         wordset = sorted(set(token.text for token
                              in self.analyzer(value, no_morph=True)))
-        return iter(wordset)
+        return (to_bytes(word) for word in wordset)
+
+    def has_morph(self):
+        """Returns True if this field by default performs morphological
+        transformations on its terms, e.g. stemming.
+        """
+
+        if self.analyzer:
+            return self.analyzer.has_morph()
+        else:
+            return False
+
+    # Methods related to the posting/vector formats
+
+    def supports(self, name):
+        """Returns True if the underlying format supports the given posting
+        value type.
+        
+        >>> field = TEXT()
+        >>> field.supports("positions")
+        True
+        >>> field.supports("characters")
+        False
+        """
+
+        return self.format.supports(name)
+
+    def clean(self):
+        """Clears any cached information in the field and any child objects.
+        """
+
+        if self.format and hasattr(self.format, "clean"):
+            self.format.clean()
+        if self.vector and hasattr(self.vector, "clean"):
+            self.vector.clean()
+
+    # Event methods
+
+    def on_add(self, schema, fieldname):
+        pass
+
+    def on_remove(self, schema, fieldname):
+        pass
 
 
 class ID(FieldType):
@@ -336,7 +332,7 @@ class ID(FieldType):
             document.
         """
 
-        self.analyzer = IDAnalyzer()
+        self.analyzer = analysis.IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
@@ -363,7 +359,7 @@ class IDLIST(FieldType):
         """
 
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
-        self.analyzer = RegexAnalyzer(expression=expression)
+        self.analyzer = analysis.RegexAnalyzer(expression=expression)
         self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
@@ -371,18 +367,20 @@ class IDLIST(FieldType):
 
 
 class NUMERIC(FieldType):
-    """Special field type that lets you index int, long, or floating point
+    """Special field type that lets you index integer or floating point
     numbers in relatively short fixed-width terms. The field converts numbers
-    to sortable text for you before indexing.
+    to sortable bytes for you before indexing.
     
-    You specify the numeric type of the field when you create the NUMERIC
-    object. The default is ``int``.
+    You specify the numeric type of the field (``int`` or ``float``) when you
+    create the ``NUMERIC`` object. The default is ``int``. For ``int``, you can
+    specify a size in bits (``32`` or ``64``). For both ``int`` and ``float``
+    you can specify a ``signed`` keyword argument (default is ``True``).
     
-    >>> schema = Schema(path=STORED, position=NUMERIC(long))
+    >>> schema = Schema(path=STORED, position=NUMERIC(int, 64, signed=False))
     >>> ix = storage.create_index(schema)
-    >>> w = ix.writer()
-    >>> w.add_document(path="/a", position=5820402204)
-    >>> w.commit()
+    >>> with ix.writer() as w:
+    ...     w.add_document(path="/a", position=5820402204)
+    ...
     
     You can also use the NUMERIC field to store Decimal instances by specifying
     a type of ``int`` or ``long`` and the ``decimal_places`` keyword argument.
@@ -394,21 +392,26 @@ class NUMERIC(FieldType):
     >>> from decimal import Decimal
     >>> schema = Schema(path=STORED, position=NUMERIC(int, decimal_places=4))
     >>> ix = storage.create_index(schema)
-    >>> w = ix.writer()
-    >>> w.add_document(path="/a", position=Decimal("123.45")
-    >>> w.commit()
+    >>> with ix.writer() as w:
+    ...     w.add_document(path="/a", position=Decimal("123.45")
+    ...
+    
     """
 
-    def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
-                 decimal_places=0, shift_step=4, signed=True):
+    def __init__(self, numtype=int, bits=32, stored=False, unique=False,
+                 field_boost=1.0, decimal_places=0, shift_step=4, signed=True,
+                 sortable=False, default=None, column_type=None):
         """
-        :param type: the type of numbers that can be stored in this field: one
-            of ``int``, ``long``, ``float``, or ``Decimal``.
+        :param numtype: the type of numbers that can be stored in this field,
+            either ``int``, ``float``. If you use ``Decimal``,
+            use the ``decimal_places`` argument to control how many decimal
+            places the field will store.
         :param stored: Whether the value of this field is stored with the
             document.
         :param unique: Whether the value of this field is unique per-document.
         :param decimal_places: specifies the number of decimal places to save
-            when storing Decimal instances as ``int`` or ``float``.
+            when storing Decimal instances. If you set this, you will always
+            get Decimal instances back from the field.
         :param shift_steps: The number of bits of precision to shift away at
             each tiered indexing level. Values should generally be 1-8. Lower
             values yield faster searches but take up more space. A value
@@ -417,69 +420,103 @@ class NUMERIC(FieldType):
             negative.
         """
 
-        self.type = type
-        if self.type is long_type:
-            # This will catch the Python 3 int type
-            self._to_text = long_to_text
-            self._from_text = text_to_long
-            self.sortable_typecode = "q" if signed else "Q"
-        elif self.type is int:
-            self._to_text = int_to_text
-            self._from_text = text_to_int
-            self.sortable_typecode = "i" if signed else "I"
-        elif self.type is float:
-            self._to_text = float_to_text
-            self._from_text = text_to_float
-            self.sortable_typecode = "f"
-        elif self.type is Decimal:
-            raise TypeError("To store Decimal instances, set type to int or "
-                            "float and use the decimal_places argument")
-        else:
-            raise TypeError("%s field type can't store %r" % (self.__class__,
-                                                              self.type))
+        # Allow users to specify strings instead of Python types in case
+        # docstring isn't clear
+        if numtype == "int":
+            numtype = int
+        if numtype == "float":
+            numtype = float
+        # Raise an error if the user tries to use a type other than int or
+        # float
+        if numtype is Decimal:
+            raise TypeError("To store Decimal instances, set type to int use "
+                            "the decimal_places argument")
+        elif numtype not in (int, float):
+            raise TypeError("Can't use %r as a type, use int or float"
+                            % numtype)
+        # Sanity check
+        if numtype is float and decimal_places:
+            raise Exception("A float type and decimal_places argument %r are "
+                            "incompatible" % decimal_places)
 
+        # Set up field configuration based on type and size
+        if numtype is float:
+            bits = 64  # Floats are converted to 64 bit ints
+        intsizes = (8, 16, 32, 64)
+        intcodes = ("B", "H", "I", "Q")
+        if bits not in intsizes:
+            raise Exception("Invalid bits %r, use 8, 16, 32, or 64"
+                            % bits)
+        self.sortable_typecode = intcodes[intsizes.index(bits)]
+        self._struct = struct.Struct(">" + self.sortable_typecode)
+
+        self.numtype = numtype
+        self.bits = bits
         self.stored = stored
         self.unique = unique
         self.decimal_places = decimal_places
         self.shift_step = shift_step
         self.signed = signed
-        self.analyzer = IDAnalyzer()
+        self.analyzer = analysis.IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
 
-    def sortable_default(self):
-        return NUMERIC_DEFAULTS[self.sortable_typecode]
+        # Column configuration
+        if default is None:
+            if numtype is int:
+                default = typecode_max[self.sortable_typecode]
+            else:
+                default = NaN
+        elif not self.is_valid(default):
+            raise Exception("The default %r is not a valid number for this "
+                            "field" % default)
+        self.default = default
 
-    def _tiers(self, num):
-        t = self.type
-        if t is int and not PY3:
-            bitlen = 32
-        else:
-            bitlen = 64
+        if sortable and column_type is None:
+            column_type = columns.NumericColumn(self.sortable_typecode)
+        self.column_type = column_type
 
-        for shift in xrange(0, bitlen, self.shift_step):
-            yield self.to_text(num, shift=shift)
+    def __getstate__(self):
+        d = self.__dict__.copy()
+        del d["_struct"]
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+        self._struct = struct.Struct(">" + self.sortable_typecode)
+
+    def is_valid(self, x):
+        try:
+            x = self.to_bytes(x)
+        except ValueError:
+            return False
+        except OverflowError:
+            return False
+
+        return True
 
     def index(self, num, **kwargs):
         # If the user gave us a list of numbers, recurse on the list
         if isinstance(num, (list, tuple)):
-            items = []
             for n in num:
-                items.extend(self.index(n))
-            return items
+                for item in self.index(n):
+                    yield item
+            return
 
         # word, freq, weight, valuestring
         if self.shift_step:
-            return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
+            for shift in xrange(0, self.bits, self.shift_step):
+                yield (self.to_bytes(num, shift), 1, 1.0, '')
         else:
-            return [(self.to_text(num), 1, 1.0, '')]
+            yield (self.to_bytes(num), 1, 1.0, '')
 
     def prepare_number(self, x):
-        if x is None:
+        if x == emptybytes or x is None:
             return x
-        if self.decimal_places:
-            x = Decimal(x)
-            x *= 10 ** self.decimal_places
-        x = self.type(x)
+
+        dc = self.decimal_places
+        if dc and isinstance(x, (string_type, Decimal)):
+            x = Decimal(x) * (10 ** dc)
+        x = self.numtype(x)
         return x
 
     def unprepare_number(self, x):
@@ -489,60 +526,76 @@ class NUMERIC(FieldType):
             x = Decimal(s[:-dc] + "." + s[-dc:])
         return x
 
-    def to_text(self, x, shift=0):
-        return self._to_text(self.prepare_number(x), shift=shift,
-                             signed=self.signed)
+    def to_bytes(self, x, shift=0):
+        # Try to avoid re-encoding; this sucks because on Python 2 we can't
+        # tell the difference between a string and encoded bytes, so we have
+        # to require the user use unicode when they mean string
+        if isinstance(x, bytes_type):
+            return x
 
-    def from_text(self, t):
-        x = self._from_text(t, signed=self.signed)
-        return self.unprepare_number(x)
+        if x == emptybytes or x is None:
+            return self.sortable_to_bytes(0)
+
+        x = self.prepare_number(x)
+        x = to_sortable(self.numtype, self.bits, self.signed, x)
+        return self.sortable_to_bytes(x, shift)
+
+    def sortable_to_bytes(self, x, shift=0):
+        if shift:
+            x >>= shift
+        return pack_byte(shift) + self._struct.pack(x)
+
+    def from_bytes(self, bs):
+        x = self._struct.unpack(bs[1:])[0]
+        x = from_sortable(self.numtype, self.bits, self.signed, x)
+        x = self.unprepare_number(x)
+        return x
 
     def process_text(self, text, **kwargs):
-        return (self.to_text(text),)
+        return (self.to_bytes(text),)
 
     def self_parsing(self):
         return True
 
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
+        from whoosh.qparser.common import QueryParserError
 
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
 
-        try:
-            text = self.to_text(qstring)
-        except Exception:
-            e = sys.exc_info()[1]
-            return query.error_query(e)
+        if not self.is_valid(qstring):
+            raise QueryParserError("%r is not a valid number" % qstring)
 
-        return query.Term(fieldname, text, boost=boost)
+        token = self.to_bytes(qstring)
+        return query.Term(fieldname, token, boost=boost)
 
     def parse_range(self, fieldname, start, end, startexcl, endexcl,
                     boost=1.0):
         from whoosh import query
         from whoosh.qparser.common import QueryParserError
 
-        try:
-            if start is not None:
-                start = self.from_text(self.to_text(start))
-            if end is not None:
-                end = self.from_text(self.to_text(end))
-        except Exception:
-            e = sys.exc_info()[1]
-            raise QueryParserError(e)
-
+        if start is not None:
+            if not self.is_valid(start):
+                raise QueryParserError("Range start %r is not a valid number"
+                                       % start)
+            start = self.prepare_number(start)
+        if end is not None:
+            if not self.is_valid(end):
+                raise QueryParserError("Range end %r is not a valid number"
+                                       % end)
+            end = self.prepare_number(end)
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
                                   boost=boost)
 
     def sortable_values(self, ixreader, fieldname):
-        from_text = self._from_text
-
-        for text in ixreader.lexicon(fieldname):
-            if text[0] != "\x00":
+        from_bytes = self.from_bytes
+        for token in ixreader.lexicon(fieldname):
+            if token[0] != b("\x00"):
                 # Only yield the full-precision values
                 break
 
-            yield (text, from_text(text))
+            yield (token, from_bytes(token))
 
 
 class DATETIME(NUMERIC):
@@ -565,32 +618,38 @@ class DATETIME(NUMERIC):
 
     __inittypes__ = dict(stored=bool, unique=bool)
 
-    def __init__(self, stored=False, unique=False):
+    def __init__(self, stored=False, unique=False, sortable=False):
         """
         :param stored: Whether the value of this field is stored with the
             document.
         :param unique: Whether the value of this field is unique per-document.
         """
 
-        super(DATETIME, self).__init__(type=long_type, stored=stored,
-                                       unique=unique, shift_step=8)
+        super(DATETIME, self).__init__(int, 64, stored=stored,
+                                       unique=unique, shift_step=8,
+                                       sortable=sortable)
 
-    def to_text(self, x, shift=0):
+    def to_bytes(self, x, shift=0):
         from whoosh.util.times import floor
 
-        try:
-            if isinstance(x, string_type):
-                # For indexing, support same strings as for query parsing
-                x = self._parse_datestring(x)
-                x = floor(x)  # this makes most sense (unspecified = lowest)
-            if isinstance(x, datetime.datetime):
-                x = datetime_to_long(x)
-            elif not isinstance(x, integer_types):
-                raise TypeError()
-        except Exception:
-            raise ValueError("DATETIME.to_text can't convert from %r" % (x,))
+        if isinstance(x, text_type):
+            # For indexing, support same strings as for query parsing --
+            # convert unicode to datetime object
+            x = self._parse_datestring(x)
+            x = floor(x)  # this makes most sense (unspecified = lowest)
 
-        return super(DATETIME, self).to_text(x, shift=shift)
+        if isinstance(x, bytes_type):
+            return x
+        elif isinstance(x, datetime.datetime):
+            x = datetime_to_long(x)
+        elif not isinstance(x, integer_types):
+            raise TypeError("DATETIME.to_bytes can't convert %r" % (x,))
+
+        return NUMERIC.to_bytes(self, x, shift=shift)
+
+    def from_bytes(self, bs):
+        x = NUMERIC.from_bytes(self, bs)
+        return long_to_datetime(x)
 
     def _parse_datestring(self, qstring):
         # This method parses a very simple datetime representation of the form
@@ -635,7 +694,7 @@ class DATETIME(NUMERIC):
             endnum = datetime_to_long(at.ceil())
             return query.NumericRange(fieldname, startnum, endnum)
         else:
-            return query.Term(fieldname, self.to_text(at), boost=boost)
+            return query.Term(fieldname, at, boost=boost)
 
     def parse_range(self, fieldname, start, end, startexcl, endexcl,
                     boost=1.0):
@@ -666,7 +725,7 @@ class BOOLEAN(FieldType):
     >>> w.commit()
     """
 
-    strings = (u("f"), u("t"))
+    bytestrings = (b("f"), b("t"))
     trues = frozenset((u("t"), u("true"), u("yes"), u("1")))
     falses = frozenset((u("f"), u("false"), u("no"), u("0")))
 
@@ -682,12 +741,19 @@ class BOOLEAN(FieldType):
         self.field_boost = field_boost
         self.format = formats.Existence(field_boost=field_boost)
 
-    def to_text(self, bit):
-        if isinstance(bit, string_type):
-            bit = bit.lower() in self.trues
-        elif not isinstance(bit, bool):
-            raise ValueError("%r is not a boolean")
-        return self.strings[int(bit)]
+    def _obj_to_bool(self, x):
+        if isinstance(x, string_type):
+            x = x.lower() in self.trues
+        else:
+            x = bool(x)
+        return x
+
+    def to_bytes(self, x):
+        if isinstance(x, string_type):
+            x = x.lower() in self.trues
+        else:
+            x = bool(x)
+        return self.bytestrings[int(x)]
 
     def index(self, bit, **kwargs):
         if isinstance(bit, string_type):
@@ -695,25 +761,18 @@ class BOOLEAN(FieldType):
         else:
             bit = bool(bit)
         # word, freq, weight, valuestring
-        return [(self.strings[int(bit)], 1, 1.0, '')]
+        return [(self.bytestrings[int(bit)], 1, 1.0, '')]
 
     def self_parsing(self):
         return True
 
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        text = None
 
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
 
-        try:
-            text = self.to_text(qstring)
-        except ValueError:
-            e = sys.exc_info()[1]
-            return query.error_query(e)
-
-        return query.Term(fieldname, text, boost=boost)
+        return query.Term(fieldname, self._obj_to_bool(qstring), boost=boost)
 
 
 class STORED(FieldType):
@@ -748,7 +807,8 @@ class KEYWORD(FieldType):
         :param scorable: Whether this field is scorable.
         """
 
-        self.analyzer = KeywordAnalyzer(lowercase=lowercase, commas=commas)
+        self.analyzer = analysis.KeywordAnalyzer(lowercase=lowercase,
+                                                 commas=commas)
         self.format = formats.Frequency(field_boost=field_boost)
         self.scorable = scorable
         self.stored = stored
@@ -773,8 +833,8 @@ class TEXT(FieldType):
     searching. This field type is always scorable.
     """
 
-    __inittypes__ = dict(analyzer=Analyzer, phrase=bool, vector=object,
-                         stored=bool, field_boost=float)
+    __inittypes__ = dict(analyzer=analysis.Analyzer, phrase=bool,
+                         vector=object, stored=bool, field_boost=float)
 
     def __init__(self, analyzer=None, phrase=True, chars=False, vector=None,
                  stored=False, field_boost=1.0, multitoken_query="default",
@@ -799,7 +859,7 @@ class TEXT(FieldType):
             spelling suggestions much faster.
         """
 
-        self.analyzer = analyzer or StandardAnalyzer()
+        self.analyzer = analyzer or analysis.StandardAnalyzer()
 
         if chars:
             formatclass = formats.Characters
@@ -858,7 +918,7 @@ class NGRAM(FieldType):
         if phrase:
             formatclass = formats.Positions
 
-        self.analyzer = NgramAnalyzer(minsize, maxsize)
+        self.analyzer = analysis.NgramAnalyzer(minsize, maxsize)
         self.format = formatclass(field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
@@ -882,8 +942,8 @@ class NGRAMWORDS(NGRAM):
     """
 
     __inittypes__ = dict(minsize=int, maxsize=int, stored=bool,
-                         field_boost=float, tokenizer=Tokenizer, at=str,
-                         queryor=bool)
+                         field_boost=float, tokenizer=analysis.Tokenizer,
+                         at=str, queryor=bool)
     scorable = True
 
     def __init__(self, minsize=2, maxsize=4, stored=False, field_boost=1.0,
@@ -904,7 +964,8 @@ class NGRAMWORDS(NGRAM):
             default is to combine N-grams with an And query.
         """
 
-        self.analyzer = NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at)
+        self.analyzer = analysis.NgramWordAnalyzer(minsize, maxsize, tokenizer,
+                                                   at=at)
         self.format = formats.Frequency(field_boost=field_boost)
         self.stored = stored
         self.queryor = queryor
@@ -1210,3 +1271,146 @@ def merge_schemas(schemas):
     for i in xrange(1, len(schemas)):
         schema = merge_schema(schema, schemas[i])
     return schema
+
+
+#
+
+from whoosh.compat import long_type
+
+
+class OLD_NUMERIC(FieldType):
+    NUMERIC_DEFAULTS = {"b": 2 ** 7 - 1, "B": 2 ** 8 - 1, "h": 2 ** 15 - 1,
+                    "H": 2 ** 16 - 1, "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
+                    "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1, "f": NaN,
+                    "d": NaN,
+                    }
+
+    def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
+                 decimal_places=0, shift_step=4, signed=True):
+        self.type = type
+        if self.type is long_type:
+            # This will catch the Python 3 int type
+            self._to_text = self._long_to_text
+            self._from_text = self._text_to_long
+            self.sortable_typecode = "q" if signed else "Q"
+        elif self.type is int:
+            self._to_text = self._int_to_text
+            self._from_text = self._text_to_int
+            self.sortable_typecode = "i" if signed else "I"
+        elif self.type is float:
+            self._to_text = self._float_to_text
+            self._from_text = self._text_to_float
+            self.sortable_typecode = "f"
+        elif self.type is Decimal:
+            raise TypeError("To store Decimal instances, set type to int or "
+                            "float and use the decimal_places argument")
+        else:
+            raise TypeError("%s field type can't store %r" % (self.__class__,
+                                                              self.type))
+
+        self.stored = stored
+        self.unique = unique
+        self.decimal_places = decimal_places
+        self.shift_step = shift_step
+        self.signed = signed
+        self.analyzer = analysis.IDAnalyzer()
+        self.format = formats.Existence(field_boost=field_boost)
+
+    def sortable_default(self):
+        return self._NUMERIC_DEFAULTS[self.sortable_typecode]
+
+    def _tiers(self, num):
+        t = self.type
+        if t is int and not PY3:
+            bitlen = 32
+        else:
+            bitlen = 64
+
+        for shift in xrange(0, bitlen, self.shift_step):
+            yield self.to_text(num, shift=shift)
+
+    def index(self, num, **kwargs):
+        # If the user gave us a list of numbers, recurse on the list
+        if isinstance(num, (list, tuple)):
+            items = []
+            for n in num:
+                items.extend(self.index(n))
+            return items
+
+        # word, freq, weight, valuestring
+        if self.shift_step:
+            return [(txt, 1, 1.0, '') for txt in self._tiers(num)]
+        else:
+            return [(self.to_text(num), 1, 1.0, '')]
+
+    def prepare_number(self, x):
+        if x is None:
+            return x
+        if self.decimal_places:
+            x = Decimal(x)
+            x *= 10 ** self.decimal_places
+        x = self.type(x)
+        return x
+
+    def unprepare_number(self, x):
+        dc = self.decimal_places
+        if dc:
+            s = str(x)
+            x = Decimal(s[:-dc] + "." + s[-dc:])
+        return x
+
+    def to_text(self, x, shift=0):
+        return self._to_text(self.prepare_number(x), shift=shift,
+                             signed=self.signed)
+
+    def from_text(self, t):
+        x = self._from_text(t, signed=self.signed)
+        return self.unprepare_number(x)
+
+    def process_text(self, text, **kwargs):
+        return (self.to_text(text),)
+
+    def self_parsing(self):
+        return True
+
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        from whoosh import query
+
+        if qstring == "*":
+            return query.Every(fieldname, boost=boost)
+
+        try:
+            text = self.to_text(qstring)
+        except Exception:
+            e = sys.exc_info()[1]
+            return query.error_query(e)
+
+        return query.Term(fieldname, text, boost=boost)
+
+    def parse_range(self, fieldname, start, end, startexcl, endexcl,
+                    boost=1.0):
+        from whoosh import query
+        from whoosh.qparser.common import QueryParserError
+
+        try:
+            if start is not None:
+                start = self.from_text(self.to_text(start))
+            if end is not None:
+                end = self.from_text(self.to_text(end))
+        except Exception:
+            e = sys.exc_info()[1]
+            raise QueryParserError(e)
+
+        return query.NumericRange(fieldname, start, end, startexcl, endexcl,
+                                  boost=boost)
+
+    def sortable_values(self, ixreader, fieldname):
+        from_text = self._from_text
+
+        for text in ixreader.lexicon(fieldname):
+            if text[0] != "\x00":
+                # Only yield the full-precision values
+                break
+
+            yield (text, from_text(text))
+

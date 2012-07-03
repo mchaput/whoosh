@@ -30,18 +30,27 @@ from array import array
 from bisect import bisect_left
 from struct import pack, unpack
 
-from whoosh.compat import b, long_type, PY3, array_tobytes
-from whoosh.support.base85 import to_base85, from_base85
+from whoosh.compat import b
+from whoosh.system import pack_byte, unpack_byte, pack_ushort, unpack_ushort
+from whoosh.system import pack_int, unpack_int, pack_uint, unpack_uint
+from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
+from whoosh.system import pack_float, unpack_float, pack_double, unpack_double
 
-_istruct = struct.Struct(">i")
-_qstruct = struct.Struct(">q")
-_dstruct = struct.Struct(">d")
-_ipack, _iunpack = _istruct.pack, _istruct.unpack
-_qpack, _qunpack = _qstruct.pack, _qstruct.unpack
-_dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
-_max_sortable_int = 4294967295
-_max_sortable_long = 18446744073709551615
+NaN = struct.unpack("<d", b('\xff\xff\xff\xff\xff\xff\xff\xff'))[0]
+
+typecode_max = {"b": 127, "B": 255, "h": 2 ** 15 - 1, "H": 2 ** 16 - 1,
+                "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
+                "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1}
+typecode_min = {"b": 0 - 128, "B": 0, "h": 0 - 2 ** 15, "H": 0,
+                "i": 0 - 2 ** 31, "I": 0,
+                "q": 0 - 2 ** 63, "Q": 0}
+typecode_pack = {"B": pack_byte, "H": pack_ushort, "i": pack_int,
+                 "I": pack_uint, "q": pack_long, "Q": pack_ulong,
+                 "f": pack_float, "d": pack_double}
+typecode_unpack = {"B": unpack_byte, "H": unpack_ushort, "i": unpack_int,
+                   "I": unpack_uint, "q": unpack_long, "Q": unpack_ulong,
+                   "f": unpack_float, "d": unpack_double}
 
 
 # Functions related to binary representations
@@ -54,6 +63,21 @@ def bits_required(maxnum):
     return max(1, math.ceil(math.log(maxnum, 2)))
 
 
+def typecode_required(maxnum):
+    if maxnum < 256:
+        return "B"
+    elif maxnum < 2 ** 16:
+        return "H"
+    elif maxnum < 2 ** 31 - 1:
+        return "i"
+    elif maxnum < 2 ** 32:
+        return "I"
+    elif maxnum < 2 ** 63 - 1:
+        return "q"
+    else:
+        return "Q"
+
+
 def max_value(bitcount):
     """Returns the maximum (unsigned) integer representable in the given number
     of bits.
@@ -63,38 +87,39 @@ def max_value(bitcount):
 
 
 def bytes_for_bits(bitcount):
-    return int(math.ceil(bitcount / 8.0))
+    r = int(math.ceil((bitcount + 1) / 8.0))
+    return r
 
 
 # Functions for converting numbers to and from sortable representations
 
-def int_to_sortable_int(x, signed=True):
-    if signed:
-        x += 1 << 31
-    assert x >= 0
-    return x
+_istruct = struct.Struct(">i")
+_qstruct = struct.Struct(">q")
+_dstruct = struct.Struct(">d")
+_ipack, _iunpack = _istruct.pack, _istruct.unpack
+_qpack, _qunpack = _qstruct.pack, _qstruct.unpack
+_dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
 
-def sortable_int_to_int(x, signed=True):
-    if signed:
-        x -= 1 << 31
-    return x
+def to_sortable(numtype, intsize, signed, x):
+    if numtype is int:
+        if signed:
+            x += (1 << intsize - 1)
+        return x
+    else:
+        return float_to_sortable_long(x, signed)
 
 
-def long_to_sortable_long(x, signed=True):
-    if signed:
-        x += 1 << 63
-    assert x >= 0
-    return x
+def from_sortable(numtype, intsize, signed, x):
+    if numtype is int:
+        if signed:
+            x -= (1 << intsize - 1)
+        return x
+    else:
+        return sortable_long_to_float(x, signed)
 
 
-def sortable_long_to_long(x, signed=True):
-    if signed:
-        x -= 1 << 63
-    return x
-
-
-def float_to_sortable_long(x, signed=True):
+def float_to_sortable_long(x, signed):
     x = _qunpack(_dpack(x))[0]
     if x < 0:
         x ^= 0x7fffffffffffffff
@@ -104,7 +129,7 @@ def float_to_sortable_long(x, signed=True):
     return x
 
 
-def sortable_long_to_float(x, signed=True):
+def sortable_long_to_float(x, signed):
     if signed:
         x -= 1 << 63
     if x < 0:
@@ -113,75 +138,9 @@ def sortable_long_to_float(x, signed=True):
     return x
 
 
-# Functions for converting numbers to and from text
-
-def int_to_text(x, shift=0, signed=True):
-    x = int_to_sortable_int(x, signed)
-    return sortable_int_to_text(x, shift)
-
-
-def text_to_int(text, signed=True):
-    x = text_to_sortable_int(text)
-    x = sortable_int_to_int(x, signed)
-    return x
-
-
-def long_to_text(x, shift=0, signed=True):
-    x = long_to_sortable_long(x, signed)
-    return sortable_long_to_text(x, shift)
-
-
-def text_to_long(text, signed=True):
-    x = text_to_sortable_long(text)
-    x = sortable_long_to_long(x, signed)
-    return x
-
-
-def float_to_text(x, shift=0, signed=True):
-    x = float_to_sortable_long(x, signed)
-    return sortable_long_to_text(x, shift)
-
-
-def text_to_float(text, signed=True):
-    x = text_to_sortable_long(text)
-    x = sortable_long_to_float(x, signed)
-    return x
-
-
-# Functions for converting sortable representations to and from text.
-
-def sortable_int_to_text(x, shift=0):
-    if shift:
-        x >>= shift
-    #text = chr(shift) + u"%08x" % x
-    text = chr(shift) + to_base85(x, False)
-    return text
-
-
-def sortable_long_to_text(x, shift=0):
-    if shift:
-        x >>= shift
-    #text = chr(shift) + u"%016x" % x
-    #assert len(text) == 17
-    text = chr(shift) + to_base85(x, True)
-    return text
-
-
-def text_to_sortable_int(text):
-    #assert len(text) == 9
-    #return int(text[1:], 16)
-    return from_base85(text[1:])
-
-
-def text_to_sortable_long(text):
-    #assert len(text) == 17
-    #return long(text[1:], 16)
-    return from_base85(text[1:])
-
-
 # Functions for generating tiered ranges
 
-def split_range(valsize, step, start, end):
+def split_ranges(intsize, step, start, end):
     """Splits a range of numbers (from ``start`` to ``end``, inclusive)
     into a sequence of trie ranges of the form ``(start, end, shift)``. The
     consumer of these tuples is expected to shift the ``start`` and ``end``
@@ -201,11 +160,11 @@ def split_range(valsize, step, start, end):
         haslower = (start & mask) != 0
         hasupper = (end & mask) != mask
 
-        not_mask = ~mask & ((1 << valsize + 1) - 1)
+        not_mask = ~mask & ((1 << intsize + 1) - 1)
         nextstart = (start + diff if haslower else start) & not_mask
         nextend = (end - diff if hasupper else end) & not_mask
 
-        if shift + step >= valsize or nextstart > nextend:
+        if shift + step >= intsize or nextstart > nextend:
             yield (start, setbits(end), shift)
             break
 
@@ -219,91 +178,31 @@ def split_range(valsize, step, start, end):
         shift += step
 
 
-def tiered_ranges(numtype, signed, start, end, shift_step, startexcl, endexcl):
-    # First, convert the start and end of the range to sortable representations
-
-    if PY3:
-        valsize = 64
-    else:
-        valsize = 32 if numtype is int else 64
+def tiered_ranges(numtype, intsize, signed, start, end, shift_step,
+                  startexcl, endexcl):
+    assert numtype in (int, float)
+    assert intsize in (8, 16, 32, 64)
 
     # Convert start and end values to sortable ints
     if start is None:
         start = 0
     else:
-        if numtype is int and not PY3:
-            start = int_to_sortable_int(start, signed)
-        elif numtype is long_type:
-            start = long_to_sortable_long(start, signed)
-        elif numtype is float:
-            start = float_to_sortable_long(start, signed)
+        start = to_sortable(numtype, intsize, signed, start)
         if startexcl:
             start += 1
 
     if end is None:
-        end = _max_sortable_int if valsize == 32 else _max_sortable_long
+        end = 2 ** intsize - 1
     else:
-        if numtype is int and not PY3:
-            end = int_to_sortable_int(end, signed)
-        elif numtype is long_type:
-            end = long_to_sortable_long(end, signed)
-        elif numtype is float:
-            end = float_to_sortable_long(end, signed)
+        end = to_sortable(numtype, intsize, signed, end)
         if endexcl:
             end -= 1
 
-    if numtype is int and not PY3:
-        to_text = sortable_int_to_text
-    else:
-        to_text = sortable_long_to_text
-
     if not shift_step:
-        yield (to_text(start), to_text(end))
-        return
+        return ((start, end, 0),)
 
-    # Yield the term ranges for the different resolutions
-    for rstart, rend, shift in split_range(valsize, shift_step, start, end):
-        starttext = to_text(rstart, shift=shift)
-        endtext = to_text(rend, shift=shift)
-        yield (starttext, endtext)
-
-
-# Older, slower number-to-ascii functions
-
-def to_7bit(x, islong):
-    if not islong:
-        shift = 31
-        nchars = 5
-    else:
-        shift = 63
-        nchars = 10
-
-    buf = array("c", "\x00" * nchars)
-    x += (1 << shift) - 1
-    while x:
-        buf[nchars - 1] = chr(x & 0x7f)
-        x >>= 7
-        nchars -= 1
-    return array_tobytes(buf)
-
-
-def from_7bit(text):
-    if len(text) == 5:
-        shift = 31
-    elif len(text) == 10:
-        shift = 63
-    else:
-        raise ValueError("text is not 5 or 10 bytes")
-
-    x = 0
-    for char in text:
-        x <<= 7
-        char = ord(char)
-        if char > 0x7f:
-            raise Exception
-        x |= char
-    x -= (1 << shift) - 1
-    return int(x)
+    # Yield (rstart, rend, shift) ranges for the different resolutions
+    return split_ranges(intsize, shift_step, start, end)
 
 
 # Float-to-byte encoding/decoding
@@ -416,3 +315,5 @@ def length_to_byte(length):
         return bisect_left(_length_byte_cache, length)
 
 byte_to_length = _length_byte_cache.__getitem__
+
+

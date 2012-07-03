@@ -299,7 +299,7 @@ class Searcher(object):
     def _kw_to_text(self, kw):
         for k, v in iteritems(kw):
             field = self.schema[k]
-            kw[k] = field.to_text(v)
+            kw[k] = field.to_bytes(v)
 
     def _query_for_kw(self, kw):
         subqueries = []

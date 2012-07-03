@@ -262,18 +262,26 @@ class NumericRange(RangeMixin, qcore.Query):
             raise Exception("NumericRange: field %r is not numeric"
                             % self.fieldname)
 
-        start = field.prepare_number(self.start)
-        end = field.prepare_number(self.end)
+        start = self.start
+        if start is not None:
+            start = field.prepare_number(start)
+        end = self.end
+        if end is not None:
+            end = field.prepare_number(end)
 
         subqueries = []
+        stb = field.sortable_to_bytes
         # Get the term ranges for the different resolutions
-        for starttext, endtext in tiered_ranges(field.type, field.signed,
-                                                start, end, field.shift_step,
-                                                self.startexcl, self.endexcl):
-            if starttext == endtext:
-                subq = terms.Term(self.fieldname, starttext)
+        ranges = tiered_ranges(field.numtype, field.bits, field.signed,
+                               start, end, field.shift_step,
+                               self.startexcl, self.endexcl)
+        for startnum, endnum, shift in ranges:
+            if startnum == endnum:
+                subq = terms.Term(self.fieldname, stb(startnum, shift))
             else:
-                subq = TermRange(self.fieldname, starttext, endtext)
+                startbytes = stb(startnum, shift)
+                endbytes = stb(endnum, shift)
+                subq = TermRange(self.fieldname, startbytes, endbytes)
             subqueries.append(subq)
 
         if len(subqueries) == 1:

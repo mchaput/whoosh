@@ -49,7 +49,7 @@ docs = ({"id": u("zulu"), "num": 100, "tag": u("one"), "frac": 0.75},
 def get_schema():
     return fields.Schema(id=fields.ID(stored=True),
                          num=fields.NUMERIC(stored=True),
-                         frac=fields.NUMERIC(type=float, stored=True),
+                         frac=fields.NUMERIC(float, stored=True),
                          tag=fields.ID(stored=True),
                          ev=fields.ID,
                          )

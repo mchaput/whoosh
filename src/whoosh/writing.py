@@ -30,12 +30,13 @@ import threading, time
 from bisect import bisect_right
 from contextlib import contextmanager
 
-from whoosh.compat import abstractmethod
+from whoosh.compat import abstractmethod, bytes_type, text_type
 from whoosh.externalsort import SortingPool
 from whoosh.fields import UnknownFieldError
 from whoosh.index import LockError
 from whoosh.util import fib
 from whoosh.util.filelock import try_for
+from whoosh.util.text import utf8encode
 
 
 # Exceptions
@@ -114,7 +115,8 @@ class PostingPool(SortingPool):
         self.currentsize = 0
 
     def add(self, item):
-        # item = (fieldname, text, docnum, weight, valuestring)
+        # item = (fieldname, tbytes, docnum, weight, valuestring)
+        assert isinstance(item[1], bytes_type)
         size = (28 + 4 * 5  # tuple = 28 + 4 * length
                 + 21 + len(item[0])  # fieldname = str = 21 + length
                 + 26 + len(item[1]) * 2  # text = unicode = 26 + 2 * length
@@ -700,12 +702,11 @@ class SegmentWriter(IndexWriter):
                 # Only store the length if the field is marked scorable
                 scorable = field.scorable
                 # Add the terms to the pool
-                for text, freq, weight, valuestring in items:
-                    #assert w != ""
+                for tbytes, freq, weight, valuestring in items:
                     weight *= fieldboost
                     if scorable:
                         length += freq
-                    add_post((fieldname, text, docnum, weight, valuestring))
+                    add_post((fieldname, tbytes, docnum, weight, valuestring))
 
             if field.separate_spelling():
                 # For fields which use different tokens for spelling, insert
@@ -713,8 +714,8 @@ class SegmentWriter(IndexWriter):
                 # means "this is a spelling word"
 
                 # TODO: think of something less hacktacular
-                for text in field.spellable_words(value):
-                    add_post((fieldname, text, None, None, None))
+                for tbytes in field.spellable_words(value):
+                    add_post((fieldname, tbytes, None, None, None))
 
             vformat = field.vector
             if vformat:

@@ -49,7 +49,7 @@ if sys.version_info[0] < 3:
     zip_ = zip
 
     def memoryview_(source, offset=None, length=None):
-        if offset:
+        if offset or length:
             return buffer(source, offset, length)
         else:
             return buffer(source)
@@ -97,7 +97,7 @@ else:
 
     def memoryview_(source, offset=None, length=None):
         mv = memoryview(source)
-        if offset:
+        if offset or length:
             return mv[offset:offset + length]
         else:
             return mv
