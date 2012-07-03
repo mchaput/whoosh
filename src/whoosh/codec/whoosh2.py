@@ -140,6 +140,7 @@ class W2PerDocWriter(base.PerDocumentWriter):
         self.blocklimit = blocklimit
         self.compression = compression
         self.doccount = 0
+        self.is_closed = False
 
         sffile = segment.create_file(storage, W2Codec.STORED_EXT)
         self.stored = StoredFieldWriter(sffile)
@@ -227,6 +228,7 @@ class W2PerDocWriter(base.PerDocumentWriter):
         if self.vindex:
             self.vindex.close()
             self.vpostfile.close()
+        self.is_closed = True
 
 
 # Inverted index writer

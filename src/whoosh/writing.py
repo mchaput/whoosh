@@ -748,6 +748,11 @@ class SegmentWriter(IndexWriter):
         newsegment.doccount = self.doc_count()
         return newsegment
 
+    def lengths_reader(self):
+        if not self.perdocwriter.is_closed:
+            raise Exception("Per-doc writer is still open")
+        return self.codec.lengths_reader(self.storage, self.get_segment())
+
     def _merge_segments(self, mergetype, optimize, merge):
         if mergetype:
             pass
@@ -763,12 +768,14 @@ class SegmentWriter(IndexWriter):
         return mergetype(self, self.segments)
 
     def _flush_segment(self):
-        lengths = self.perdocwriter.lengths_reader()
+        self.perdocwriter.close()
+        lengths = self.lengths_reader()
         postings = self.pool.iter_postings()
         self.fieldwriter.add_postings(self.schema, lengths, postings)
 
     def _close_segment(self):
-        self.perdocwriter.close()
+        if not self.perdocwriter.is_closed:
+            self.perdocwriter.close()
         self.fieldwriter.close()
         self.pool.cleanup()
 
