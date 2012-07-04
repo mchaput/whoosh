@@ -8,6 +8,7 @@ from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import And, Term
 from whoosh.util import make_binary_tree
+from whoosh.scoring import WeightScorer
 
 
 def _keys(searcher, docnums):
@@ -50,6 +51,18 @@ def test_listmatcher():
         ls.append(lm.id())
         lm.next()
     assert_equal(ls, [9, 10])
+
+
+def test_listmatcher_skip_to_quality_identical_scores():
+    ids = [1, 2, 5, 9, 10]
+
+    lm = matching.ListMatcher(ids, scorer=WeightScorer(1.0))
+    lm.skip_to_quality(0.3)
+    ls = []
+    while lm.is_active():
+        ls.append((lm.id(), lm.score()))
+        lm.next()
+    assert_equal(ls, [(1, 1.0), (2, 1.0), (5, 1.0), (9, 1.0), (10, 1.0)])
 
 
 def test_wrapper():
