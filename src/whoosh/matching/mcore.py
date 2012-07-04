@@ -431,8 +431,7 @@ class ListMatcher(Matcher):
         return self._scorer.block_quality(self)
 
     def skip_to_quality(self, minquality):
-        self._i += 1
-        while self._i < len(self._ids) and self.quality() <= minquality:
+        while self._i < len(self._ids) and self.block_quality() <= minquality:
             self._i += 1
         return 0
 
