@@ -1382,9 +1382,9 @@ class Results(object):
         docset = set(self.searcher.docs_for_query(self.q))
 
         # Apply the filter and mask, if any, from the original search
-        if self._filter:
+        if hasattr(self, "_filter") and ) and isinstance(self._filter, (list, tuple, set)):
             docset.intersection_update(self._filter)
-        if self._mask:
+        if hasattr(self, "_mask") and isinstance(self._mask, (list, tuple, set)):
             docset.difference_update(self._mask)
 
         self.docset = docset

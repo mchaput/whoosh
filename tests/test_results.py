@@ -212,6 +212,31 @@ def test_pages():
         assert_equal(r.pagenum, 2)
         assert_equal(r.pagelen, 2)
 
+def test_pages_with_filter():
+    from whoosh.scoring import Frequency
+
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           type=fields.TEXT(),
+                           c=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+
+    w = ix.writer()
+    w.add_document(id=u("1"), type=u("odd"), c=u("alfa alfa alfa alfa alfa alfa"))
+    w.add_document(id=u("2"), type=u("even"), c=u("alfa alfa alfa alfa alfa"))
+    w.add_document(id=u("3"), type=u("odd"), c=u("alfa alfa alfa alfa"))
+    w.add_document(id=u("4"), type=u("even"), c=u("alfa alfa alfa"))
+    w.add_document(id=u("5"), type=u("odd"), c=u("alfa alfa"))
+    w.add_document(id=u("6"), type=u("even"), c=u("alfa"))
+    w.commit()
+
+    with ix.searcher(weighting=Frequency) as s:
+        q = query.Term("c", u("alfa"))
+        filterq = query.Term("type", u("even"))
+        r = s.search(q, filter=filterq)
+        assert_equal([d["id"] for d in r], ["2", "4", "6"])
+        r = s.search_page(q, 2, pagelen=2, filter=filterq)
+        assert_equal([d["id"] for d in r], ["6"])
+
 
 def test_extra_slice():
     schema = fields.Schema(key=fields.ID(stored=True))
