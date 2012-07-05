@@ -1077,9 +1077,9 @@ class Results(object):
         docset = set(self.searcher.docs_for_query(self.q))
 
         # Apply the filter and mask, if any, from the original search
-        if hasattr(self, "allowed"):
+        if hasattr(self, "allowed") and isinstance(self.allowed, (list, tuple, set)):
             docset.intersection_update(self.allowed)
-        if hasattr(self, "restricted"):
+        if hasattr(self, "restricted") and isinstance(self.restricted, (list, tuple, set)):
             docset.difference_update(self.restricted)
 
         self.docset = docset
