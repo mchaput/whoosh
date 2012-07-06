@@ -32,7 +32,8 @@ This module contains base classes/interfaces for "codec" objects.
 import random
 from bisect import bisect_right
 
-from whoosh.compat import xrange
+from whoosh import columns
+from whoosh.compat import izip, xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.matching import Matcher
 from whoosh.spans import Span
@@ -54,27 +55,10 @@ class Codec(object):
     def terms_reader(self, storage, segment):
         raise NotImplementedError
 
-    def lengths_reader(self, storage, segment):
-        raise NotImplementedError
-
-    def vector_reader(self, storage, segment):
-        raise NotImplementedError
-
-    def stored_fields_reader(self, storage, segment):
+    def per_document_reader(self, storage, segment):
         raise NotImplementedError
 
     def graph_reader(self, storage, segment):
-        raise NotImplementedError
-
-    # Columns
-
-    def supports_columns(self):
-        return False
-
-    def columns_writer(self, storage, segment):
-        raise NotImplementedError
-
-    def columns_reader(self, storage, segment):
         raise NotImplementedError
 
     # Segments and generations
@@ -213,96 +197,6 @@ class TermsReader(object):
         pass
 
 
-class VectorReader(object):
-    def __contains__(self, key):
-        raise NotImplementedError
-
-    def matcher(self, docnum, fieldname, format_):
-        raise NotImplementedError
-
-
-# Lengths
-
-class LengthsReader(object):
-    def doc_count_all(self):
-        raise NotImplementedError
-
-    def doc_field_length(self, docnum, fieldname, default=0):
-        raise NotImplementedError
-
-    def field_length(self, fieldname):
-        raise NotImplementedError
-
-    def min_field_length(self, fieldname):
-        raise NotImplementedError
-
-    def max_field_length(self, fieldname):
-        raise NotImplementedError
-
-    def close(self):
-        pass
-
-
-class MultiLengths(LengthsReader):
-    def __init__(self, lengths, offset=0):
-        self.lengths = []
-        self.doc_offsets = []
-        self._count = 0
-        for lr in lengths:
-            if lr.doc_count_all():
-                self.lengths.append(lr)
-                self.doc_offsets.append(self._count)
-                self._count += lr.doc_count_all()
-        self.is_closed = False
-
-    def _document_reader(self, docnum):
-        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
-
-    def _reader_and_docnum(self, docnum):
-        lnum = self._document_reader(docnum)
-        offset = self.doc_offsets[lnum]
-        return lnum, docnum - offset
-
-    def doc_count_all(self):
-        return self._count
-
-    def doc_field_length(self, docnum, fieldname, default=0):
-        x, y = self._reader_and_docnum(docnum)
-        return self.lengths[x].doc_field_length(y, fieldname, default=default)
-
-    def min_field_length(self):
-        return min(lr.min_field_length() for lr in self.lengths)
-
-    def max_field_length(self):
-        return max(lr.max_field_length() for lr in self.lengths)
-
-    def close(self):
-        for lr in self.lengths:
-            lr.close()
-        self.is_closed = True
-
-
-# Stored fields
-
-class StoredFieldsReader(object):
-    def __iter__(self):
-        raise NotImplementedError
-
-    def __getitem__(self, docnum):
-        raise NotImplementedError
-
-    def cell(self, docnum, fieldname):
-        fielddict = self.get(docnum)
-        return fielddict.get(fieldname)
-
-    def column(self, fieldname):
-        for fielddict in self:
-            yield fielddict.get(fieldname)
-
-    def close(self):
-        pass
-
-
 # File posting matcher middleware
 
 class FilePostingMatcher(Matcher):
@@ -350,39 +244,201 @@ class FilePostingMatcher(Matcher):
         return self.scorer.block_quality(self)
 
 
-# Columns
+# Per-doc value reader
 
-class ColumnsWriter(object):
-    def __init__(self, storage, segment):
-        self._storage = storage
-        self._segment = segment
-
-    def add_field(self, fieldname, column):
-        raise NotImplementedError
-
-    def has_field(self, fieldname):
-        raise NotImplementedError
-
-    def add_doc_value(self, docnum, fieldname, value):
-        raise NotImplementedError
-
+class PerDocReader(object):
     def close(self):
         pass
 
+    def doc_count(self):
+        raise NotImplementedError
 
-class ColumnsReader(object):
-    def __init__(self, storage, segment):
-        self._storage = storage
-        self._segment = segment
+    def doc_count_all(self):
+        raise NotImplementedError
+
+    # Deletions
+
+    def has_deletions(self):
+        raise NotImplementedError
+
+    def is_deleted(self, docnum):
+        raise NotImplementedError
+
+    def deleted_docs(self):
+        raise NotImplementedError
+
+    def all_doc_ids(self):
+        """Returns an iterator of all (undeleted) document IDs in the reader.
+        """
+
+        is_deleted = self.is_deleted
+        return (docnum for docnum in xrange(self.doc_count_all())
+                if not is_deleted(docnum))
+
+    # Columns
+
+    def supports_columns(self):
+        return False
 
     def has_column(self, fieldname):
         return False
 
-    def reader(self, fieldname, column):
+    def column_reader(self, fieldname, column):
         raise NotImplementedError
 
+    # Lengths
+
+    def doc_field_length(self, docnum, fieldname, default=0):
+        raise NotImplementedError
+
+    def field_length(self, fieldname):
+        raise NotImplementedError
+
+    def min_field_length(self, fieldname):
+        raise NotImplementedError
+
+    def max_field_length(self, fieldname):
+        raise NotImplementedError
+
+    # Vectors
+
+    def has_vector(self, docnum, fieldname):
+        return False
+
+    def vector(self, docnum, fieldname, format_):
+        raise NotImplementedError
+
+    # Stored
+
+    def stored_fields(self, docnum):
+        raise NotImplementedError
+
+    def all_stored_fields(self):
+        for docnum in self.all_doc_ids():
+            yield self.stored_fields(docnum)
+
+
+class MultiPerDocReader(PerDocReader):
+    def __init__(self, readers, offset=0):
+        self._readers = readers
+
+        self._doc_offsets = []
+        self._doccount = 0
+        for pdr in readers:
+            self._doc_offsets.append(self._doccount)
+            self._doccount += pdr.doc_count_all()
+
+        self.is_closed = False
+
     def close(self):
-        pass
+        for r in self._readers:
+            r.close()
+        self.is_closed = True
+
+    def doc_count_all(self):
+        return self._doccount
+
+    def doc_count(self):
+        total = 0
+        for r in self._readers:
+            total += r.doc_count()
+        return total
+
+    def _document_reader(self, docnum):
+        return max(0, bisect_right(self._doc_offsets, docnum) - 1)
+
+    def _reader_and_docnum(self, docnum):
+        rnum = self._document_reader(docnum)
+        offset = self._doc_offsets[rnum]
+        return rnum, docnum - offset
+
+    # Deletions
+
+    def has_deletions(self):
+        return any(r.has_deletions() for r in self._readers)
+
+    def is_deleted(self, docnum):
+        x, y = self._reader_and_docnum(docnum)
+        return self._readers[x].is_deleted(y)
+
+    def deleted_docs(self):
+        for r, offset in izip(self._readers, self._doc_offsets):
+            for docnum in r.deleted_docs():
+                yield docnum + offset
+
+    def all_doc_ids(self):
+        for r, offset in izip(self._readers, self._doc_offsets):
+            for docnum in r.all_doc_ids():
+                yield docnum + offset
+
+    # Columns
+
+    def has_column(self, fieldname):
+        return any(r.has_column(fieldname) for r in self._readers)
+
+    def column_reader(self, fieldname, column):
+        if not self.has_column(fieldname):
+            raise ValueError("No column %r" % (fieldname,))
+
+        default = column.default_value()
+        colreaders = []
+        for r in self._readers:
+            if r.has_column(fieldname):
+                cr = r.column_reader(fieldname, column)
+            else:
+                cr = columns.EmptyColumnReader(default, r.doc_count_all())
+            colreaders.append(cr)
+
+        if len(colreaders) == 1:
+            return colreaders[0]
+        else:
+            return MultiColumnReader(colreaders)
+
+    # Lengths
+
+    def doc_field_length(self, docnum, fieldname, default=0):
+        x, y = self._reader_and_docnum(docnum)
+        return self._readers[x].doc_field_length(y, fieldname, default)
+
+    def field_length(self, fieldname):
+        total = 0
+        for r in self._readers:
+            total += r.field_length(fieldname)
+        return total
+
+    def min_field_length(self):
+        return min(r.min_field_length() for r in self._readers)
+
+    def max_field_length(self):
+        return max(r.max_field_length() for r in self._readers)
+
+
+class MultiColumnReader(columns.ColumnReader):
+    def __init__(self, readers):
+        self._readers = readers
+
+        self._doc_offsets = []
+        self._doccount = 0
+        for r in readers:
+            self._doc_offsets.append(self._doccount)
+            self._doccount += len(r)
+
+    def _document_reader(self, docnum):
+        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
+
+    def _reader_and_docnum(self, docnum):
+        rnum = self._document_reader(docnum)
+        offset = self.doc_offsets[rnum]
+        return rnum, docnum - offset
+
+    def __getitem__(self, docnum):
+        x, y = self._reader_and_docnum(docnum)
+        return self._readers[x][y]
+
+    def __iter__(self):
+        for r in self._readers:
+            for v in r:
+                yield v
 
 
 # Segment base class

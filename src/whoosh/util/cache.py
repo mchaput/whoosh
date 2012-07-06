@@ -60,7 +60,7 @@ def lru_cache(maxsize=100):
 
     Arguments to the cached function must be hashable.
 
-    View the cache statistics named tuple (hits, misses, maxsize, currsize)
+    View the cache statistics tuple ``(hits, misses, maxsize, currsize)``
     with f.cache_info().  Clear the cache and statistics with f.cache_clear().
     Access the underlying function with f.__wrapped__.
     """

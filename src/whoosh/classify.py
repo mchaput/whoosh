@@ -158,6 +158,7 @@ class Expander(object):
         model = self.model
         fieldname = self.fieldname
         ixreader = self.ixreader
+        field = ixreader.schema[fieldname]
         tlist = []
         maxweight = 0
 
@@ -166,8 +167,9 @@ class Expander(object):
             return []
 
         for word, weight in iteritems(self.topN_weight):
-            if (fieldname, word) in ixreader:
-                cf = ixreader.frequency(fieldname, word)
+            token = field.to_bytes(word)
+            if (fieldname, token) in ixreader:
+                cf = ixreader.frequency(fieldname, token)
                 score = model.score(weight, cf, self.top_total)
                 if score > maxweight:
                     maxweight = score

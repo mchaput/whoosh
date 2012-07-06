@@ -600,8 +600,6 @@ class SegmentWriter(IndexWriter):
         if hasdel:
             docmap = {}
             for docnum in reader.all_doc_ids():
-                if reader.is_deleted(docnum):
-                    continue
                 docmap[docnum] = newdoc
                 newdoc += 1
         else:
@@ -610,11 +608,15 @@ class SegmentWriter(IndexWriter):
         # Return the map and the new lowest unused document number
         return docmap, newdoc
 
-    def _merge_per_doc(self, reader, docmap):
+    def _merge_per_doc(self, schema, reader, docmap, basedoc=None):
+        # This can be called with either an IndexReader or PerDocReader as the
+        # second argument (that's why it gets a schema as the first argument
+        # instead of just doing reader.schema)
+
         schema = self.schema
-        newdoc = self.docnum
+        newdoc = self.docnum if basedoc is None else basedoc
         perdocwriter = self.perdocwriter
-        sharedfields = set(schema.names()) & set(reader.schema.names())
+        sharedfields = set(schema.names()) & set(schema.names())
 
         for docnum in reader.all_doc_ids():
             # Skip deleted documents
@@ -637,7 +639,7 @@ class SegmentWriter(IndexWriter):
                 perdocwriter.add_field(fieldname, field, d.get(fieldname),
                                        length)
                 if field.vector and reader.has_vector(docnum, fieldname):
-                    v = reader.vector(docnum, fieldname)
+                    v = reader.vector(docnum, fieldname, field.vector)
                     perdocwriter.add_vector_matcher(fieldname, field, v)
             # Finish the new document
             perdocwriter.finish_doc()
@@ -657,7 +659,7 @@ class SegmentWriter(IndexWriter):
         # Make a docnum map to renumber around deleted documents
         docmap, newdoc = self._make_docmap(reader, self.docnum)
         # Add per-document values
-        self._merge_per_doc(reader, docmap)
+        self._merge_per_doc(reader.schema, reader, docmap)
         # Add field postings
         self._merge_fields(reader, docmap)
 
@@ -748,10 +750,10 @@ class SegmentWriter(IndexWriter):
         newsegment.doccount = self.doc_count()
         return newsegment
 
-    def lengths_reader(self):
+    def per_document_reader(self):
         if not self.perdocwriter.is_closed:
             raise Exception("Per-doc writer is still open")
-        return self.codec.lengths_reader(self.storage, self.get_segment())
+        return self.codec.per_document_reader(self.storage, self.get_segment())
 
     def _merge_segments(self, mergetype, optimize, merge):
         if mergetype:
@@ -769,9 +771,9 @@ class SegmentWriter(IndexWriter):
 
     def _flush_segment(self):
         self.perdocwriter.close()
-        lengths = self.lengths_reader()
+        pdr = self.per_document_reader()
         postings = self.pool.iter_postings()
-        self.fieldwriter.add_postings(self.schema, lengths, postings)
+        self.fieldwriter.add_postings(self.schema, pdr, postings)
 
     def _close_segment(self):
         if not self.perdocwriter.is_closed:

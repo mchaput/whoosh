@@ -66,7 +66,8 @@ def test_vector_merge():
 
 
 def test_vector_unicode():
-    schema = fields.Schema(content=fields.TEXT(vector=True))
+    cf = fields.TEXT(vector=True)
+    schema = fields.Schema(content=cf)
     ix = RamStorage().create_index(schema)
 
     writer = ix.writer()

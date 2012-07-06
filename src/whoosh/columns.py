@@ -35,21 +35,13 @@ except ImportError:
     zlib = None
 
 from whoosh.compat import b
-from whoosh.compat import array_tobytes, izip, xrange
+from whoosh.compat import array_tobytes, xrange
 from whoosh.idsets import BitSet, OnDiskBitSet
 from whoosh.system import emptybytes, _INT_SIZE
+from whoosh.util.cache import lru_cache
 from whoosh.util.numeric import typecode_max, typecode_min
 from whoosh.util.numeric import typecode_pack, typecode_unpack
 from whoosh.util.numlists import GrowableArray
-
-
-# Exceptions
-
-class TooHigh(ValueError):
-    pass
-
-class TooLow(ValueError):
-    pass
 
 
 # Utility functions
@@ -110,14 +102,37 @@ def make_array(typecode, size=0, default=None):
 # Base classes
 
 class Column(object):
-    """Base class for column objects.
+    """Represents a "column" of rows mapping docnums to document values.
     """
 
     def writer(self, dbfile):
+        """Returns a :class:`ColumnWriter` object you can use to use to create
+        a column of this type on disk.
+        
+        :param dbfile: the :class:`~whoosh.filedb.structfile.StructFile` to
+            write to.
+        """
+
         return self.Writer(dbfile)
 
     def reader(self, dbfile, basepos, length, doccount):
+        """Returns a :class:`ColumnReader` object you can use to read a column
+        of this type from disk.
+        
+        :param dbfile: the :class:`~whoosh.filedb.structfile.StructFile` to
+            read from.
+        :param basepos: the offset within the file at which the column starts.
+        :param length: the length in bytes of the column occupies in the file.
+        :param doccount: the number of rows (documents) in the column.
+        """
+
         return self.Reader(dbfile, basepos, length, doccount)
+
+    def default_value(self):
+        """Returns the default value for this column type.
+        """
+
+        return self._default
 
 
 class ColumnWriter(object):
@@ -166,6 +181,9 @@ class ColumnReader(object):
     def load(self):
         return list(self)
 
+    def as_list(self, docnum):
+        return [self[docnum]]
+
 
 # Arbitrary bytes column
 
@@ -175,14 +193,17 @@ class VarBytesColumn(Column):
     together to 2 GB.
     """
 
+    _default = emptybytes
+
     class Writer(ColumnWriter):
-        def __init__(self, dbfile):
+        def __init__(self, dbfile, savekeylen=True):
             self._dbfile = dbfile
             self._count = 0
             self._lengths = GrowableArray(allow_longs=False)
 
             # Keep track of the minimum length needed to distinguish the values
             # for the purposes of sorting
+            self._savekeylen = savekeylen
             self._keylen = 0
             self._lastkey = emptybytes
 
@@ -191,17 +212,17 @@ class VarBytesColumn(Column):
                 self._lengths.extend(0 for _ in xrange(docnum - self._count))
 
         def add(self, docnum, v):
-            if docnum > self._count:
-                self.fill(docnum)
+            self.fill(docnum)
             self._dbfile.write(v)
             self._lengths.append(len(v))
             self._count = docnum + 1
 
-            # If this value is indistinguishable from the previous one using
-            # the current "key length", increase the key length
-            if v[:self._keylen] == self._lastkey and len(v) > self._keylen:
-                self._keylen += 1
-            self._lastkey = v[:self._keylen]
+            if self._savekeylen:
+                # If this value is indistinguishable from the previous one
+                # using the current "key length", increase the key length
+                if v[:self._keylen] == self._lastkey and len(v) > self._keylen:
+                    self._keylen += 1
+                self._lastkey = v[:self._keylen]
 
         def finish(self, doccount):
             self.fill(doccount)
@@ -218,8 +239,23 @@ class VarBytesColumn(Column):
         def __init__(self, dbfile, basepos, length, doccount):
             self._dbfile = dbfile
             self._basepos = basepos
+            self._length = length
             self._doccount = doccount
             self._values = None
+
+            self._read_lengths()
+
+            # Create an array of offsets into the strings using the lengths
+            offsets = array("i", (0,))
+            for length in self._lengths:
+                offsets.append(offsets[-1] + length)
+            self._offsets = offsets
+
+        def _read_lengths(self):
+            dbfile = self._dbfile
+            basepos = self._basepos
+            length = self._length
+            doccount = self._doccount
 
             # The absolute position of the end of the column data
             endpos = basepos + length
@@ -235,12 +271,7 @@ class VarBytesColumn(Column):
             lengthsbase = endoflens - (itemsize * doccount)
             self._lengths = dbfile.get_array(lengthsbase, typecode, doccount)
 
-            # Create an array of offsets into the strings using the lengths
-            offsets = array("i", (0,))
-            for length in self._lengths:
-                offsets.append(offsets[-1] + length)
-            self._offsets = offsets
-
+        @lru_cache()
         def _get(self, docnum, as_key):
             length = self._lengths[docnum]
             if not length:
@@ -261,16 +292,173 @@ class VarBytesColumn(Column):
             return self._get(docnum, True)
 
         def __iter__(self):
-            dbfile = self._dbfile
+            get = self._dbfile.get
             pos = self._basepos
             for length in self._lengths:
-                yield dbfile.get(pos, length)
+                yield get(pos, length)
                 pos += length
 
         def load(self):
             endoffset = self._offsets[-1]
             self._values = self._dbfile.get(self._basepos, endoffset)
             return self
+
+
+class CompressedBytesColumn(Column):
+    def __init__(self, level=3, module="zlib"):
+        self._level = level
+        self._module = module
+
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self._level, self._module)
+
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount, self._module)
+
+    class Writer(VarBytesColumn.Writer):
+        def __init__(self, dbfile, level, module):
+            VarBytesColumn.Writer.__init__(self, dbfile, savekeylen=False)
+            self._level = level
+            self._compress = __import__(module).compress
+
+        def add(self, docnum, v):
+            v = self._compress(v, self._level)
+            VarBytesColumn.Writer.add(self, docnum, v)
+
+    class Reader(VarBytesColumn.Reader):
+        def __init__(self, dbfile, basepos, length, doccount, module):
+            VarBytesColumn.Reader.__init__(self, dbfile, basepos, length,
+                                           doccount)
+            self._decompress = __import__(module).decompress
+
+        def _get(self, docnum, as_key):
+            v = VarBytesColumn.Reader._get(self, docnum, False)
+            if v:
+                v = self._decompress(v)
+            return v
+
+        def __iter__(self):
+            for v in VarBytesColumn.Reader.__iter__(self):
+                yield self._decompress(v)
+
+        def load(self):
+            return list(self)
+
+
+class CompressedBlockColumn(Column):
+    def __init__(self, level=3, blocksize=64, module="zlib"):
+        self._level = level
+        self._blocksize = blocksize
+        self._module = module
+
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self._level, self._blocksize, self._module)
+
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount, self._module)
+
+    class Writer(ColumnWriter):
+        def __init__(self, dbfile, level, blocksize, module):
+            self._dbfile = dbfile
+            self._blocksize = blocksize * 1024
+            self._level = level
+            self._compress = __import__(module).compress
+
+            self._reset()
+
+        def _reset(self):
+            self._startdoc = None
+            self._block = emptybytes
+            self._lengths = []
+
+        def _emit(self):
+            dbfile = self._dbfile
+            block = self._compress(self._block, self._level)
+            header = (self._startdoc, self._lastdoc, len(block),
+                      tuple(self._lengths))
+            dbfile.write_pickle(header)
+            dbfile.write(block)
+
+        def add(self, docnum, v):
+            if self._startdoc is None:
+                self._startdoc = docnum
+            self._lengths.append((docnum, len(v)))
+            self._lastdoc = docnum
+
+            self._block += v
+            if len(self._block) >= self._blocksize:
+                self._emit()
+                self._reset()
+
+        def finish(self, doccount):
+            # If there's still a pending block, write it out
+            if self._startdoc is not None:
+                self._emit()
+
+    class Reader(ColumnReader):
+        def __init__(self, dbfile, basepos, length, doccount, module):
+            ColumnReader.__init__(self, dbfile, basepos, length, doccount)
+            self._decompress = __import__(module).decompress
+
+            self._blocks = []
+            dbfile.seek(basepos)
+            pos = 0
+            while pos < length:
+                startdoc, enddoc, blocklen, lengths = dbfile.read_pickle()
+                here = dbfile.tell()
+                self._blocks.append((startdoc, enddoc, here, blocklen,
+                                     lengths))
+                dbfile.seek(blocklen, 1)
+                pos = here + blocklen
+
+        def _find_block(self, docnum):
+            # TODO: use binary search instead of linear
+            for i, b in enumerate(self._blocks):
+                if docnum < b[0]:
+                    return None
+                elif docnum <= b[1]:
+                    return i
+            return None
+
+        def _get_block(self, blocknum):
+            block = self._blocks[blocknum]
+            pos = block[2]
+            blocklen = block[3]
+            lengths = block[4]
+
+            data = self._decompress(self._dbfile.get(self._basepos + pos,
+                                                     blocklen))
+            values = {}
+            base = 0
+            for docnum, vlen in lengths:
+                values[docnum] = data[base:base + vlen]
+                base += vlen
+            return values
+
+        def __getitem__(self, docnum):
+            i = self._find_block(docnum)
+            if i is None:
+                return emptybytes
+            return self._get_block(i)[docnum]
+
+        def __iter__(self):
+            last = -1
+            for i, block in enumerate(self._blocks):
+                startdoc = block[0]
+                enddoc = block[1]
+                if startdoc > (last + 1):
+                    for _ in xrange(startdoc - last):
+                        yield emptybytes
+                values = self._get_block(i)
+                for docnum in xrange(startdoc, enddoc + 1):
+                    if docnum in values:
+                        yield values[docnum]
+                    else:
+                        yield emptybytes
+                last = enddoc
+            if enddoc < self._doccount - 1:
+                for _ in xrange(self._doccount - enddoc):
+                    yield emptybytes
 
 
 class FixedBytesColumn(Column):
@@ -551,6 +739,8 @@ class NumericColumn(FixedBytesColumn):
 # Column of boolean values
 
 class BitColumn(Column):
+    _default = False
+
     def __init__(self, compress_at=2048):
         self._compressat = compress_at
 
@@ -616,6 +806,47 @@ class BitColumn(Column):
                                             self._length - 1)
                 self._bitset = BitSet.from_bytes(bs)
             return self
+
+
+class SparseColumn(Column):
+    def __init__(self, default=emptybytes):
+        self._default = default
+
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self._default)
+
+    def reader(self, dbfile, basepos, length, doccount):
+        return self.Reader(dbfile, basepos, length, doccount, self._default)
+
+    class Writer(ColumnWriter):
+        def __init__(self, dbfile):
+            self._dbfile = dbfile
+            self._values = {}
+
+        def add(self, docnum, v):
+            self._dbfile.write_varint(docnum)
+            self._dbfile.write_varint(len(v))
+            self._dbfile.write(v)
+
+    class Reader(ColumnReader):
+        def __init__(self, dbfile, basepos, length, doccount, default):
+            ColumnReader.__init__(self, dbfile, basepos, length, doccount)
+            self._default = default
+            self._dir = {}
+
+            dbfile.seek(basepos)
+            pos = 0
+            while pos < length:
+                docnum = dbfile.read_varint()
+                vlen = dbfile.read_varint()
+                here = dbfile.tell()
+                self._dir[docnum] = (here, vlen)
+
+                pos = here + vlen
+                dbfile.seek(vlen, 1)
+
+        def __getitem__(self, docnum):
+            return self._dir.get(docnum, self._default)
 
 
 # Create a synthetic column by reading all postings in a field
@@ -686,7 +917,7 @@ class PostingColumnReader(ColumnReader):
 
 # Column wrappers
 
-class ClampedNumericColumn(Column):
+class WrapperColumn(Column):
     def __init__(self, child):
         self._child = child
 
@@ -696,6 +927,8 @@ class ClampedNumericColumn(Column):
     def reader(self, *args, **kwargs):
         return self._child.reader(*args, **kwargs)
 
+
+class ClampedNumericColumn(WrapperColumn):
     class Writer(ColumnWriter):
         def __init__(self, childw):
             self._childw = childw
@@ -709,6 +942,28 @@ class ClampedNumericColumn(Column):
 
         def finish(self, doccount):
             self._childw.finish(doccount)
+
+
+# Utility readers
+
+class EmptyColumnReader(ColumnReader):
+    def __init__(self, default, doccount):
+        self._default = default
+        self._doccount = doccount
+
+    def __getitem__(self, docnum):
+        return self._default
+
+    def __iter__(self):
+        return (self._default for _ in xrange(self._doccount))
+
+    def load(self):
+        return self
+
+
+
+
+
 
 
 

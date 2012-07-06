@@ -316,7 +316,6 @@ class FieldFacet(FacetType):
             self.docoffset = docoffset
 
         def key_for(self, matcher, docid):
-            print "key_for=", matcher, docid
             arry = self.array
             offset = self.docoffset
             global_id = offset + docid
