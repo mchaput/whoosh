@@ -133,10 +133,10 @@ class IndexReader(object):
     def is_atomic(self):
         return True
 
-    def _text_to_bytes(self, fieldname, text):
-        if fieldname in self.schema:
-            text = self.schema[fieldname].to_bytes(text)
-        return text
+    def _text_to_bytes(self, fieldname, token):
+        if fieldname not in self.schema:
+            raise TermNotFound((fieldname, token))
+        return self.schema[fieldname].to_bytes(token)
 
     def close(self):
         """Closes the open files associated with this reader.
@@ -247,11 +247,6 @@ class IndexReader(object):
         """Returns an iterator of all (undeleted) document IDs in the reader.
         """
 
-        # This default implementation works for backends like filedb that use
-        # a continuous 0-N range of numbers to address documents, but will need
-        # to be overridden if a backend, e.g., looks up documents using
-        # persistent ID strings.
-
         is_deleted = self.is_deleted
         return (docnum for docnum in xrange(self.doc_count_all())
                 if not is_deleted(docnum))
@@ -294,7 +289,7 @@ class IndexReader(object):
         """Returns the total number of UNDELETED documents in this reader.
         """
 
-        raise NotImplementedError
+        return self.doc_count_all() - self.deleted_count()
 
     @abstractmethod
     def frequency(self, fieldname, text):
@@ -384,7 +379,7 @@ class IndexReader(object):
         raise NotImplementedError
 
     @abstractmethod
-    def vector(self, docnum, fieldname):
+    def vector(self, docnum, fieldname, format_=None):
         """Returns a :class:`~whoosh.matching.Matcher` object for the
         given term vector.
         
@@ -524,20 +519,13 @@ class IndexReader(object):
 
 class SegmentReader(IndexReader):
     def __init__(self, storage, schema, segment, generation=None, codec=None):
-        self.storage = storage
         self.schema = schema
-        self.segment = segment
-        self._gen = generation
         self.is_closed = False
-        # Copy info from underlying segment
-        self._has_deletions = segment.has_deletions()
-        self._dc = segment.doc_count()
-        self._dc_all = segment.doc_count_all()
-        if hasattr(self.segment, "segment_id"):
-            self.segid = self.segment.segment_id()
-        else:
-            from whoosh.codec.base import Segment
-            self.segid = Segment._random_id()
+
+        self._storage = storage
+        self._segment = segment
+        self._segid = self._segment.segment_id()
+        self._gen = generation
 
         # self.files is a storage object from which to load the segment files.
         # This is different from the general storage (which will be used for
@@ -548,42 +536,36 @@ class SegmentReader(IndexReader):
             # Use an overlay here instead of just the compound storage, in rare
             # circumstances a segment file may be added after the segment is
             # written
-            self.files = OverlayStorage(files, self.storage)
+            self._files = OverlayStorage(files, self._storage)
         else:
-            self.files = storage
+            self._files = storage
 
-        # Get microreaders from codec
         if codec is None:
             from whoosh.codec import default_codec
             codec = default_codec()
         self._codec = codec
-        self._terms = codec.terms_reader(self.files, self.segment)
-        self._lengths = codec.lengths_reader(self.files, self.segment)
-        self._stored = codec.stored_fields_reader(self.files, self.segment)
-        self._vectors = None  # Lazy open with self._open_vectors()
-        self._graph = None  # Lazy open with self._open_dawg()
 
-    def _open_vectors(self):
-        if self._vectors:
-            return
-        self._vectors = self._codec.vector_reader(self.files, self.segment)
+        # Get subreaders from codec
+        self._terms = codec.terms_reader(self._files, self._segment)
+        self._perdoc = codec.per_document_reader(self._files, self._segment)
+        self._graph = None  # Lazy open with self._open_dawg()
 
     def _open_dawg(self):
         if self._graph:
             return
-        self._graph = self._codec.graph_reader(self.files, self.segment)
+        self._graph = self._codec.graph_reader(self._files, self._segment)
 
     def has_deletions(self):
-        return self._has_deletions
+        return self._perdoc.has_deletions()
 
     def doc_count(self):
-        return self._dc
+        return self._perdoc.doc_count()
 
     def doc_count_all(self):
-        return self._dc_all
+        return self._perdoc.doc_count_all()
 
     def is_deleted(self, docnum):
-        return self.segment.is_deleted(docnum)
+        return self._perdoc.is_deleted(docnum)
 
     def generation(self):
         return self._gen
@@ -600,53 +582,39 @@ class SegmentReader(IndexReader):
 
     def close(self):
         self._terms.close()
-        self._stored.close()
-        if self._lengths:
-            self._lengths.close()
-        if self._vectors:
-            self._vectors.close()
+        self._perdoc.close()
         if self._graph:
             self._graph.close()
-        self.files.close()
-
-        self.caching_policy = None
+        self._files.close()
         self.is_closed = True
 
     def stored_fields(self, docnum):
         assert docnum >= 0
         schema = self.schema
-        return dict(item for item in iteritems(self._stored[docnum])
-                    if item[0] in schema)
+        sfs = self._perdoc.stored_fields(docnum)
+        # Double-check with schema to filter out removed fields
+        return dict(item for item in iteritems(sfs) if item[0] in schema)
+
+    def all_doc_ids(self):
+        return self._perdoc.all_doc_ids()
 
     def all_stored_fields(self):
-        is_deleted = self.segment.is_deleted
-        sf = self.stored_fields
-        for docnum in xrange(self._dc_all):
-            if not is_deleted(docnum):
-                yield sf(docnum)
+        return self._perdoc.all_stored_fields()
 
     def field_length(self, fieldname):
-        return self._lengths.field_length(fieldname)
+        return self._perdoc.field_length(fieldname)
 
     def min_field_length(self, fieldname):
-        return self._lengths.min_field_length(fieldname)
+        return self._perdoc.min_field_length(fieldname)
 
     def max_field_length(self, fieldname):
-        return self._lengths.max_field_length(fieldname)
+        return self._perdoc.max_field_length(fieldname)
 
     def doc_field_length(self, docnum, fieldname, default=0):
-        return self._lengths.doc_field_length(docnum, fieldname,
-                                              default=default)
+        return self._perdoc.doc_field_length(docnum, fieldname, default)
 
     def has_vector(self, docnum, fieldname):
-        if self.schema[fieldname].vector:
-            try:
-                self._open_vectors()
-            except (NameError, IOError):
-                return False
-            return (docnum, fieldname) in self._vectors
-        else:
-            return False
+        return self._perdoc.has_vector(docnum, fieldname)
 
     def _test_field(self, fieldname):
         if fieldname not in self.schema:
@@ -722,20 +690,18 @@ class SegmentReader(IndexReader):
         text = self._text_to_bytes(fieldname, text)
         format_ = self.schema[fieldname].format
         matcher = self._terms.matcher(fieldname, text, format_, scorer=scorer)
-        deleted = self.segment.deleted
+        deleted = frozenset(self._perdoc.deleted_docs())
         if deleted:
             matcher = FilterMatcher(matcher, deleted, exclude=True)
         return matcher
 
-    def vector(self, docnum, fieldname):
+    def vector(self, docnum, fieldname, format_=None):
         if fieldname not in self.schema:
             raise TermNotFound("No  field %r" % fieldname)
-        vformat = self.schema[fieldname].vector
+        vformat = format_ or self.schema[fieldname].vector
         if not vformat:
             raise Exception("No vectors are stored for field %r" % fieldname)
-
-        self._open_vectors()
-        return self._vectors.matcher(docnum, fieldname, vformat)
+        return self._perdoc.vector(docnum, fieldname, vformat)
 
     # DAWG methods
 
@@ -837,7 +803,7 @@ class EmptyReader(IndexReader):
     def has_vector(self, docnum, fieldname):
         return False
 
-    def vector(self, docnum, fieldname):
+    def vector(self, docnum, fieldname, format_=None):
         raise KeyError("No document number %s" % docnum)
 
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
@@ -1055,7 +1021,7 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].has_vector(segmentdoc, fieldname)
 
-    def vector(self, docnum, fieldname):
+    def vector(self, docnum, fieldname, format_=None):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].vector(segmentdoc, fieldname)
 
@@ -1113,8 +1079,5 @@ class MultiReader(IndexReader):
     def leaf_readers(self):
         return zip_(self.readers, self.doc_offsets)
 
-    def set_caching_policy(self, *args, **kwargs):
-        for r in self.readers:
-            r.set_caching_policy(*args, **kwargs)
 
 

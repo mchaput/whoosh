@@ -89,7 +89,12 @@ class Term(qcore.Query):
         return q
 
     def estimate_size(self, ixreader):
-        return ixreader.doc_frequency(self.fieldname, self.text)
+        fieldname = self.fieldname
+        if fieldname not in ixreader.schema:
+            return 0
+        field = ixreader.schema[fieldname]
+        text = field.to_bytes(self.text)
+        return ixreader.doc_frequency(fieldname, text)
 
     def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname

@@ -91,25 +91,8 @@ class W2Codec(base.Codec):
         postfile = segment.open_file(storage, self.POSTS_EXT)
         return W2TermsReader(tifile, postfile)
 
-    def lengths_reader(self, storage, segment):
-        flfile = segment.open_file(storage, self.LENGTHS_EXT)
-        doccount = segment.doc_count_all()
-
-        # Check the first byte of the file to see if it's an old format
-        if self.loadlengths:
-            lengths = InMemoryLengths.from_file(flfile, doccount)
-        else:
-            lengths = OnDiskLengths(flfile, doccount)
-        return lengths
-
-    def vector_reader(self, storage, segment):
-        vifile = segment.open_file(storage, self.VECTOR_EXT)
-        postfile = segment.open_file(storage, self.VPOSTS_EXT)
-        return W2VectorReader(vifile, postfile)
-
-    def stored_fields_reader(self, storage, segment):
-        sffile = segment.open_file(storage, self.STORED_EXT)
-        return StoredFieldReader(sffile)
+    def per_document_reader(self, storage, segment):
+        return W2PerDocReader(storage, segment)
 
     def graph_reader(self, storage, segment):
         dawgfile = segment.open_file(storage, self.DAWG_EXT)
@@ -215,9 +198,6 @@ class W2PerDocWriter(base.PerDocumentWriter):
     def finish_doc(self):
         self.stored.add(self.storedfields)
         self.storedfields = None
-
-    def lengths_reader(self):
-        return self.lengths
 
     def close(self):
         if self.storedfields is not None:
@@ -761,9 +741,87 @@ class W2VectorReader(PostingIndexBase):
         return unpack_long(v)[0]
 
 
+class W2PerDocReader(base.PerDocReader):
+    def __init__(self, storage, segment):
+        self._storage = storage
+        self._segment = segment
+        self._doccount = segment.doc_count_all()
+
+        flfile = segment.open_file(storage, W2Codec.LENGTHS_EXT)
+        self._lengths = InMemoryLengths.from_file(flfile, self._doccount)
+
+        sffile = segment.open_file(storage, W2Codec.STORED_EXT)
+        self._stored = StoredFieldReader(sffile)
+
+        self._vectors = None  # Lazy load
+
+    def supports_columns(self):
+        return False
+
+    def close(self):
+        self._lengths.close()
+        if self._vectors:
+            self._vectors.close()
+        self._stored.close()
+
+    def doc_count(self):
+        return self._segment.doc_count()
+
+    def doc_count_all(self):
+        return self._doccount
+
+    def has_deletions(self):
+        return self._segment.has_deletions()
+
+    def is_deleted(self, docnum):
+        return self._segment.is_deleted(docnum)
+
+    def deleted_docs(self):
+        return self._segment.deleted_docs()
+
+    # Lengths
+
+    def doc_field_length(self, docnum, fieldname, default=0):
+        return self._lengths.doc_field_length(docnum, fieldname, default)
+
+    def field_length(self, fieldname):
+        return self._lengths.field_length(fieldname)
+
+    def min_field_length(self, fieldname):
+        return self._lengths.min_field_length(fieldname)
+
+    def max_field_length(self, fieldname):
+        return self._lengths.max_field_length(fieldname)
+
+    # Vectors
+
+    def _prep_vectors(self):
+        vifile = self._segment.open_file(self._storage, W2Codec.VECTOR_EXT)
+        vpostfile = self._segment.open_file(self._storage, W2Codec.VPOSTS_EXT)
+        self._vectors = W2VectorReader(vifile, vpostfile)
+
+    def has_vector(self, docnum, fieldname):
+        if self._vectors is None:
+            try:
+                self._prep_vectors()
+            except (NameError, IOError):
+                return False
+        return (docnum, fieldname) in self._vectors
+
+    def vector(self, docnum, fieldname, format_):
+        if self._vectors is None:
+            self._prep_vectors()
+        return self._vectors.matcher(docnum, fieldname, format_)
+
+    # Stored
+
+    def stored_fields(self, docnum):
+        return self._stored[docnum]
+
+
 # Single-byte field lengths implementations
 
-class ByteLengthsBase(base.LengthsReader):
+class ByteLengthsBase(object):
     magic = b("~LN1")
 
     def __init__(self):
@@ -778,11 +836,7 @@ class ByteLengthsBase(base.LengthsReader):
         version = dbfile.read_int()  # Version number
         assert version == 1
 
-        dc = dbfile.read_uint()  # Number of documents saved
-        if doccount is None:
-            doccount = dc
-        assert dc == doccount, "read=%s argument=%s" % (dc, doccount)
-        self._count = doccount
+        self._count = dbfile.read_uint()  # Number of documents saved
 
         fieldcount = dbfile.read_ushort()  # Number of fields
         # Read per-field info
@@ -817,6 +871,9 @@ class InMemoryLengths(ByteLengthsBase):
         self.totals = defaultdict(int)
         self.lengths = {}
         self._count = 0
+
+    def close(self):
+        pass
 
     # IO
 
@@ -1123,6 +1180,12 @@ class W2Segment(base.Segment):
         if self.deleted is None:
             return False
         return docnum in self.deleted
+
+    def deleted_docs(self):
+        if self.deleted is None:
+            return ()
+        else:
+            return iter(self.deleted)
 
 
 # Posting blocks

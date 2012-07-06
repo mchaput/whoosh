@@ -185,7 +185,9 @@ class FieldType(object):
         encodes it using UTF-8.
         """
 
-        return utf8encode(value)[0]
+        if not isinstance(value, bytes_type):
+            value = utf8encode(value)[0]
+        return value
 
     def from_bytes(self, bs):
         return utf8decode(bs)[0]

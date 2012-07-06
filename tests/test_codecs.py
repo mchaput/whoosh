@@ -120,22 +120,22 @@ def test_stored_fields():
         dw.finish_doc()
 
         dw.close()
+        seg.doccount = 4
 
-        dr = codec.stored_fields_reader(st, seg)
-        assert_equal(dr[0], {"a": "hello", "b": "there"})
+        pdr = codec.per_document_reader(st, seg)
+        assert_equal(pdr.stored_fields(0), {"a": "hello", "b": "there"})
         # Note: access out of order
-        assert_equal(dr[3], {"a": "alfa", "b": "bravo"})
-        assert_equal(dr[1], {"a": "one", "b": "two", "c": "three"})
-        dr.close()
+        assert_equal(pdr.stored_fields(3), {"a": "alfa", "b": "bravo"})
+        assert_equal(pdr.stored_fields(1), {"a": "one", "b": "two", "c": "three"})
 
-        dr = codec.stored_fields_reader(st, seg)
-        sfs = list(dr)
+        sfs = list(pdr.all_stored_fields())
+        assert_equal(len(sfs), 4)
         assert_equal(sfs, [{"a": "hello", "b": "there"},
                            {"a": "one", "b": "two", "c": "three"},
                            {},
                            {"a": "alfa", "b": "bravo"},
                            ])
-        dr.close()
+        pdr.close()
 
 
 def test_termindex():
@@ -231,11 +231,9 @@ def test_docwriter_one():
     dw.close()
     seg.doccount = 1
 
-    lr = codec.lengths_reader(st, seg)
-    assert_equal(lr.doc_field_length(0, "text"), 4)
-
-    sr = codec.stored_fields_reader(st, seg)
-    assert_equal(sr[0], {"text": "Testing one two three"})
+    pdr = codec.per_document_reader(st, seg)
+    assert_equal(pdr.doc_field_length(0, "text"), 4)
+    assert_equal(pdr.stored_fields(0), {"text": "Testing one two three"})
 
 
 def test_docwriter_two():
@@ -253,15 +251,16 @@ def test_docwriter_two():
     dw.close()
     seg.doccount = 2
 
-    lr = codec.lengths_reader(st, seg)
-    assert_equal(lr.doc_field_length(0, "title"), 2)
-    assert_equal(lr.doc_field_length(0, "text"), 4)
-    assert_equal(lr.doc_field_length(1, "title"), 3)
-    assert_equal(lr.doc_field_length(1, "text"), 1)
+    pdr = codec.per_document_reader(st, seg)
+    assert_equal(pdr.doc_field_length(0, "title"), 2)
+    assert_equal(pdr.doc_field_length(0, "text"), 4)
+    assert_equal(pdr.doc_field_length(1, "title"), 3)
+    assert_equal(pdr.doc_field_length(1, "text"), 1)
 
-    sr = codec.stored_fields_reader(st, seg)
-    assert_equal(sr[0], {"title": ("a", "b"), "text": "Testing one two three"})
-    assert_equal(sr[1], {"title": "The second document", "text": 500})
+    assert_equal(pdr.stored_fields(0),
+                 {"title": ("a", "b"), "text": "Testing one two three"})
+    assert_equal(pdr.stored_fields(1),
+                 {"title": "The second document", "text": 500})
 
 
 def test_vector():
@@ -276,11 +275,10 @@ def test_vector():
     dw.close()
     seg.doccount = 1
 
-    sf = codec.stored_fields_reader(st, seg)
-    assert_equal(sf[0], {})
+    pdr = codec.per_document_reader(st, seg)
+    assert_equal(pdr.stored_fields(0), {})
 
-    vr = codec.vector_reader(st, seg)
-    m = vr.matcher(0, "title", field.vector)
+    m = pdr.vector(0, "title", field.vector)
     assert m.is_active()
     ps = []
     while m.is_active():
@@ -301,8 +299,8 @@ def test_vector_values():
     dw.finish_doc()
     dw.close()
 
-    vr = codec.vector_reader(st, seg)
-    m = vr.matcher(0, "f1", field.vector)
+    vr = codec.per_document_reader(st, seg)
+    m = vr.vector(0, "f1", field.vector)
     assert_equal(list(m.items_as("frequency")), [("alfa", 2), ("bravo", 1),
                                                  ("charlie", 1)])
 
@@ -323,10 +321,10 @@ def test_no_lengths():
     dw.close()
     seg.doccount = 3
 
-    lr = codec.lengths_reader(st, seg)
-    assert_equal(lr.doc_field_length(0, "name"), 0)
-    assert_equal(lr.doc_field_length(1, "name"), 0)
-    assert_equal(lr.doc_field_length(2, "name"), 0)
+    pdr = codec.per_document_reader(st, seg)
+    assert_equal(pdr.doc_field_length(0, "name"), 0)
+    assert_equal(pdr.doc_field_length(1, "name"), 0)
+    assert_equal(pdr.doc_field_length(2, "name"), 0)
 
 
 def test_store_zero():
@@ -339,8 +337,8 @@ def test_store_zero():
     dw.close()
     seg.doccount = 1
 
-    sr = codec.stored_fields_reader(st, seg)
-    assert_equal(sr[0], {"name": 0})
+    sr = codec.per_document_reader(st, seg)
+    assert_equal(sr.stored_fields(0), {"name": 0})
 
 
 def test_fieldwriter_single_term():

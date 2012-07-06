@@ -125,20 +125,26 @@ class Phrase(qcore.Query):
         fieldname = self.fieldname
         reader = searcher.reader()
 
+        if fieldname not in searcher.schema:
+            return matching.NullMatcher()
+        field = searcher.schema[fieldname]
+
+        words = [field.to_bytes(word) for word in self.words]
+
         # Shortcut the query if one of the words doesn't exist.
-        for word in self.words:
+        for word in words:
             if (fieldname, word) not in reader:
                 return matching.NullMatcher()
 
-        field = searcher.schema[fieldname]
         if not field.format or not field.format.supports("positions"):
             raise qcore.QueryError("Phrase search: %r field has no positions"
-                                  % self.fieldname)
+                                   % self.fieldname)
 
         # Construct a tree of SpanNear queries representing the words in the
         # phrase and return its matcher
         from whoosh.spans import SpanNear
-        q = SpanNear.phrase(fieldname, self.words, slop=self.slop)
+
+        q = SpanNear.phrase(fieldname, words, slop=self.slop)
         m = q.matcher(searcher, weighting=weighting)
         if self.boost != 1.0:
             m = matching.WrappingMatcher(m, boost=self.boost)

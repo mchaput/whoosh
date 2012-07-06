@@ -57,6 +57,7 @@ class GrowableArray(object):
             self.array.append(n)
         except OverflowError:
             self._retype(n)
+            self.array.append(n)
 
     def extend(self, ns):
         append = self.append

@@ -296,55 +296,24 @@ class MpWriter(SegmentWriter):
         schema = self.schema
         storage = self.storage
         codec = self.codec
-        fieldnames = list(schema.names())
 
         # Merge per-document information
         pdw = self.perdocwriter
-        # Names of fields that store term vectors
-        vnames = set(schema.vector_names())
-        basedoc = self.docnum
         # A list to remember field length readers for each sub-segment (we'll
         # re-use them below)
-        lenreaders = []
+        pdreaders = []
 
+        basedoc = self.docnum
         for _, segment in results:
-            # Create a field length reader for the sub-segment
-            lenreader = codec.lengths_reader(storage, segment)
+            # Create a per doc reader for the sub-segment
+            pdreader = codec.per_document_reader(storage, segment)
             # Remember it in the list for later
-            lenreaders.append(lenreader)
-            # Vector reader for the sub-segment
-            vreader = None
-            if schema.has_vectored_fields():
-                vreader = codec.vector_reader(storage, segment)
-            # Stored field reader for the sub-segment
-            sfreader = codec.stored_fields_reader(storage, segment)
-            try:
-                # Iterating on the stored field reader yields a dictionary of
-                # stored fields for *every* document in the segment (even if the
-                # document has no stored fields it should yield {})
-                for i, fs in enumerate(sfreader):
-                    # Add the base doc count to the sub-segment doc num
-                    pdw.start_doc(basedoc + i)
-                    # Call add_field to store the field values and lengths
-                    for fieldname in fieldnames:
-                        value = fs.get(fieldname)
-                        length = lenreader.doc_field_length(i, fieldname)
-                        pdw.add_field(fieldname, schema[fieldname], value, length)
-                    # Copy over the vectors. TODO: would be much faster to bulk-
-                    # copy the postings
-                    if vreader:
-                        for fieldname in vnames:
-                            if (i, fieldname) in vreader:
-                                field = schema[fieldname]
-                                vformat = field.vector
-                                vmatcher = vreader.matcher(i, fieldname, vformat)
-                                pdw.add_vector_matcher(fieldname, field, vmatcher)
-                    pdw.finish_doc()
-            finally:
-                sfreader.close()
-                if vreader:
-                    vreader.close()
-            basedoc += segment.doccount
+            pdreaders.append(pdreader)
+
+            # Merge the per-document values
+            docmap, newbasedoc = self._make_docmap(pdreader, basedoc)
+            self._merge_per_doc(schema, pdreader, docmap, basedoc)
+            basedoc = newbasedoc
 
         # If information was added to this writer the conventional (e.g.
         # through add_reader or merging segments), add it as an extra source
@@ -352,6 +321,7 @@ class MpWriter(SegmentWriter):
             sources = [self.pool.iter_postings()]
         else:
             sources = []
+
         # Add iterators from the run filenames
         basedoc = self.docnum
         for runname, segment in results:
@@ -363,8 +333,8 @@ class MpWriter(SegmentWriter):
         # Create a MultiLengths object combining the length files from the
         # subtask segments
         pdw.close()
-        lenreaders.insert(0, self.lengths_reader())
-        mlens = base.MultiLengths(lenreaders)
+        pdreaders.insert(0, self.per_document_reader())
+        mlens = base.MultiPerDocReader(pdreaders)
         try:
             # Merge the iterators into the field writer
             self.fieldwriter.add_postings(schema, mlens, imerge(sources))
