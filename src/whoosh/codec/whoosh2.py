@@ -160,7 +160,7 @@ class W2PerDocWriter(base.PerDocumentWriter):
         if self.vindex is None:
             self._make_vector_files()
 
-        # items = (text, freq, weight, valuestring) ...
+        # items = (text, weight, value_bytes) ...
         postfile = self.vpostfile
         blocklimit = self.blocklimit
         block = self._new_block(fieldobj.vector)
@@ -171,7 +171,7 @@ class W2PerDocWriter(base.PerDocumentWriter):
         postfile.write_uint(0)  # Placeholder for block count
 
         countdown = blocklimit
-        for text, _, weight, valuestring in items:
+        for text, weight, valuestring in items:
             block.add(text, weight, valuestring)
             countdown -= 1
             if countdown == 0:
@@ -495,9 +495,6 @@ class PostingMatcher(base.FilePostingMatcher):
 
         return skipped
 
-    def score(self):
-        return self.scorer.score(self)
-
 
 # Tables
 
@@ -642,6 +639,9 @@ class PostingIndexBase(HashReader):
         for key, value in HashReader.items(self):
             yield (kd(key), vd(value))
 
+    def terms_from(self, fieldname, prefix):
+        return self.keys_from((fieldname, prefix))
+
     def keys_from(self, key):
         key = self.keycoder(key)
         kd = self.keydecoder
@@ -649,9 +649,9 @@ class PostingIndexBase(HashReader):
         for keypos, keylen, _, _ in self._ranges_from(key):
             yield kd(read(keypos, keylen))
 
-    def items_from(self, key):
+    def items_from(self, fieldname, prefix):
         read = self.read
-        key = self.keycoder(key)
+        key = self.keycoder((fieldname, prefix))
         kd = self.keydecoder
         vd = self.valuedecoder
         for keypos, keylen, datapos, datalen in self._ranges_from(key):
@@ -670,7 +670,10 @@ class PostingIndexBase(HashReader):
 class W2TermsReader(PostingIndexBase):
     # Implements whoosh.codec.base.TermsReader
 
-    def terminfo(self, fieldname, text):
+    def terms(self):
+        return self.keys()
+
+    def term_info(self, fieldname, text):
         return self[fieldname, text]
 
     def matcher(self, fieldname, text, format_, scorer=None):
@@ -708,12 +711,14 @@ class W2TermsReader(PostingIndexBase):
         assert isinstance(v, bytes_type)
         return FileTermInfo.from_string(v)
 
-    def frequency(self, key):
-        datapos = self.range_for_key(key)[0]
+    def frequency(self, fieldname, token):
+        assert isinstance(token, bytes_type)
+        datapos = self.range_for_key((fieldname, token))[0]
         return FileTermInfo.read_weight(self.dbfile, datapos)
 
-    def doc_frequency(self, key):
-        datapos = self.range_for_key(key)[0]
+    def doc_frequency(self, fieldname, token):
+        assert isinstance(token, bytes_type)
+        datapos = self.range_for_key((fieldname, token))[0]
         return FileTermInfo.read_doc_freq(self.dbfile, datapos)
 
 
@@ -1153,6 +1158,9 @@ class W2Segment(base.Segment):
 
     def codec(self, **kwargs):
         return W2Codec(**kwargs)
+
+    def set_doc_count(self, dc):
+        self.doccount = dc
 
     def doc_count_all(self):
         return self.doccount

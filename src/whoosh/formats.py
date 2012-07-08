@@ -69,6 +69,11 @@ class Format(object):
     def __repr__(self):
         return "%s(boost=%s)" % (self.__class__.__name__, self.field_boost)
 
+    def fixed_value_size(self):
+        if self.posting_size < 0:
+            return None
+        return self.posting_size
+
     def word_values(self, value, analyzer, **kwargs):
         """Takes the text value to be indexed and yields a series of
         ("tokentext", frequency, weight, valuestring) tuples, where frequency

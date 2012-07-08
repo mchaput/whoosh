@@ -157,6 +157,8 @@ class Categorizer(object):
         return key
 
 
+# General field facet
+
 class FieldFacet(FacetType):
     """Sorts/facest by the contents of a field.
     
@@ -189,198 +191,169 @@ class FieldFacet(FacetType):
         return self.fieldname
 
     def categorizer(self, global_searcher):
-        from whoosh.fields import NUMERIC, DATETIME
+        from whoosh.fields import DATETIME
 
         # The searcher we're passed here may wrap a multireader, but the
         # actual key functions will always be called per-segment following a
         # Categorizer.set_searcher method call
         fieldname = self.fieldname
-        field = None
-        if fieldname in global_searcher.schema:
-            field = global_searcher.schema[fieldname]
-        hascache = global_searcher.reader().supports_caches()
+        fieldobj = global_searcher.schema[fieldname]
 
+        # If we're grouping with allow_overlap=True, all we can use is
+        # OverlappingCategorizer
         if self.allow_overlap:
-            return self.OverlappingFieldCategorizer(fieldname)
-
-        elif hascache and isinstance(field, DATETIME):
-            # Return a subclass of NumericFieldCategorizer that formats dates
-            return self.DateFieldCategorizer(fieldname, self.reverse)
-
-        elif hascache and isinstance(field, NUMERIC):
-            # Numeric fields are naturally reversible
-            return self.NumericFieldCategorizer(fieldname, self.reverse)
-
-        elif hascache and not self.reverse:
-            # Straightforward: use the field cache to sort/categorize
-            return self.FieldCategorizer(fieldname)
-
+            c = OverlappingCategorizer(fieldname)
         else:
-            # If the reader does not support field caches or we need to
-            # reverse-sort a string field, we need to do more work
-            return self.NoCacheFieldCategorizer(global_searcher, fieldname,
-                                                self.reverse)
-
-    class FieldCategorizer(Categorizer):
-        """Categorizer for regular, unreversed fields. Just uses the
-        fieldcache to get the keys.
-        """
-
-        def __init__(self, fieldname):
-            self.fieldname = fieldname
-
-        def set_searcher(self, segment_searcher, docoffset):
-            r = segment_searcher.reader()
-            self.fieldcache = r.fieldcache(self.fieldname)
-
-        def key_for(self, matcher, docid):
-            return self.fieldcache.key_for(docid)
-
-        def key_to_name(self, key):
-            if key == u('\uFFFF'):
-                return None
+            if global_searcher.reader().has_column(fieldname):
+                coltype = fieldobj.column_type
+                if coltype.reversible or not self.reverse:
+                    c = ColumnCategorizer(fieldname, self.reverse)
+                else:
+                    c = ReversedColumnCategorizer(global_searcher, fieldname)
             else:
-                return key
+                c = PostingCategorizer(global_searcher, fieldname,
+                                            self.reverse)
 
-    class NumericFieldCategorizer(Categorizer):
-        """Categorizer for numeric fields, which are naturally reversible.
-        """
+        return c
 
-        def __init__(self, fieldname, reverse):
-            self.fieldname = fieldname
-            self.reverse = reverse
 
-        def set_searcher(self, segment_searcher, docoffset):
-            r = segment_searcher.reader()
-            fieldobj = segment_searcher.schema[self.fieldname]
-            self.default = fieldobj.sortable_default()
-            self.fieldcache = r.fieldcache(self.fieldname)
+class ColumnCategorizer(Categorizer):
+    def __init__(self, fieldname, reverse=False):
+        self._fieldname = fieldname
+        self._reverse = reverse
 
-        def key_for(self, matcher, docid):
-            value = self.fieldcache.key_for(docid)
-            if self.reverse:
-                return 0 - value
-            else:
-                return value
+    def set_searcher(self, segment_searcher, docoffset):
+        r = segment_searcher.reader()
+        self._creader = r.column_reader(self._fieldname)
 
-        def key_to_name(self, key):
-            if key == self.default:
-                return None
-            else:
-                return key
+    def key_for(self, matcher, segment_docnum):
+        return self._creader.sort_key(segment_docnum, self._reverse)
 
-    class DateFieldCategorizer(NumericFieldCategorizer):
-        """Categorizer for date fields. Same as NumericFieldCategorizer, but
-        converts the numeric keys back to dates for better labels.
-        """
 
-        def key_to_name(self, key):
-            return long_to_datetime(key)
+class ReversedColumnCategorizer(ColumnCategorizer):
+    def __init__(self, global_searcher, fieldname):
+        self._fieldname = fieldname
 
-    class NoCacheFieldCategorizer(Categorizer):
-        """This object builds an array caching the order of all documents
-        according to the field, then uses the cached order as a numeric key.
-        This is useful when a field cache is not available, and also for
-        reversed fields (since field cache keys for non- numeric fields are
-        arbitrary data, it's not possible to "negate" them to reverse the sort
-        order).
-        """
+        reader = global_searcher.reader()
+        self._doccount = reader.doc_count_all()
 
-        def __init__(self, global_searcher, fieldname, reverse):
-            # Cache the relative positions of all docs with the given field
-            # across the entire index
-            reader = global_searcher.reader()
-            dc = reader.doc_count_all()
-            fieldobj = global_searcher.schema[fieldname]
+        global_creader = reader.column_reader(fieldname)
+        self._values = sorted(set(global_creader))
 
-            self.values = []
-            self.array = array("i", [dc + 1] * dc)
+    def key_for(self, matcher, segment_docnum):
+        value = self._creader[segment_docnum]
+        order = self._values.index(value)
+        # Subtract from 0 to reverse the order
+        return 0 - order
 
-            # sortable_values() returns an iterator of (actual_term,
-            # sortable_value) pairs
-            tvs = fieldobj.sortable_values(reader, fieldname)
-            for i, (t, v) in enumerate(tvs):
-                self.values.append(v)
-                if reverse:
-                    i = dc - i
+    def key_to_name(self, key):
+        # Re-reverse the key to get the index into the
+        return self._values[0 - key]
 
-                # Get global docids from global reader
+
+class PostingCategorizer(Categorizer):
+    """This object builds an array caching the order of all documents
+    according to the field, then uses the cached order as a numeric key.
+    This is useful when a field cache is not available, and also for
+    reversed fields (since field cache keys for non- numeric fields are
+    arbitrary data, it's not possible to "negate" them to reverse the sort
+    order).
+    """
+
+    def __init__(self, global_searcher, fieldname, reverse):
+        # Cache the relative positions of all docs with the given field
+        # across the entire index
+        reader = global_searcher.reader()
+        dc = reader.doc_count_all()
+        fieldobj = global_searcher.schema[fieldname]
+
+        self.values = []
+        self.array = array("i", [dc + 1] * dc)
+
+        # sortable_values() returns an iterator of (actual_term,
+        # sortable_value) pairs
+        tvs = fieldobj.sortable_values(reader, fieldname)
+        for i, (t, v) in enumerate(tvs):
+            self.values.append(v)
+            if reverse:
+                i = dc - i
+
+            # Get global docids from global reader
+            postings = reader.postings(fieldname, t)
+            for docid in postings.all_ids():
+                self.array[docid] = i
+
+        if reverse:
+            self.values.reverse()
+
+    def set_searcher(self, segment_searcher, docoffset):
+        self._searcher = segment_searcher
+        self.docoffset = docoffset
+
+    def key_for(self, matcher, segment_docnum):
+        global_docnum = self.docoffset + segment_docnum
+        return self.array[global_docnum]
+
+    def key_to_name(self, key):
+        if key >= len(self.values):
+            return None
+        return self.values[key]
+
+
+class OverlappingCategorizer(Categorizer):
+    allow_overlap = True
+
+    def __init__(self, fieldname):
+        self.fieldname = fieldname
+        self.use_vectors = False
+
+    def set_searcher(self, segment_searcher, docoffset):
+        fieldname = self.fieldname
+        dc = segment_searcher.doc_count_all()
+        field = segment_searcher.schema[fieldname]
+        reader = segment_searcher.reader()
+
+        if field.vector:
+            # If the field was indexed with term vectors, use the vectors
+            # to get the list of values in each matched document
+            self.use_vectors = True
+            self.segment_searcher = segment_searcher
+        else:
+            # Otherwise, cache the values in each document in a huge list
+            # of lists
+            self.use_vectors = False
+            self.lists = [[] for _ in xrange(dc)]
+            for t, _ in field.sortable_values(reader, fieldname):
                 postings = reader.postings(fieldname, t)
                 for docid in postings.all_ids():
-                    self.array[docid] = i
+                    self.lists[docid].append(t)
 
-            if reverse:
-                self.values.reverse()
-
-        def set_searcher(self, segment_searcher, docoffset):
-            self.docoffset = docoffset
-
-        def key_for(self, matcher, docid):
-            arry = self.array
-            offset = self.docoffset
-            global_id = offset + docid
-            assert docid >= 0
-            assert global_id < len(arry), ("%s + %s >= %s"
-                                           % (docid, offset, len(arry)))
-            return arry[global_id]
-
-        def key_to_name(self, key):
-            if key >= len(self.values):
+    def keys_for(self, matcher, docid):
+        if self.use_vectors:
+            try:
+                v = self.segment_searcher.vector(docid, self.fieldname)
+                return list(v.all_ids())
+            except KeyError:
                 return None
-            return self.values[key]
+        else:
+            return self.lists[docid] or None
 
-    class OverlappingFieldCategorizer(Categorizer):
-        allow_overlap = True
-
-        def __init__(self, fieldname):
-            self.fieldname = fieldname
-            self.use_vectors = False
-
-        def set_searcher(self, segment_searcher, docoffset):
-            fieldname = self.fieldname
-            dc = segment_searcher.doc_count_all()
-            field = segment_searcher.schema[fieldname]
-            reader = segment_searcher.reader()
-
-            if field.vector:
-                # If the field was indexed with term vectors, use the vectors
-                # to get the list of values in each matched document
-                self.use_vectors = True
-                self.segment_searcher = segment_searcher
+    def key_for(self, matcher, docid):
+        if self.use_vectors:
+            try:
+                v = self.segment_searcher.vector(docid, self.fieldname)
+                return v.id()
+            except KeyError:
+                return None
+        else:
+            ls = self.lists[docid]
+            if ls:
+                return ls[0]
             else:
-                # Otherwise, cache the values in each document in a huge list
-                # of lists
-                self.use_vectors = False
-                self.lists = [[] for _ in xrange(dc)]
-                for t, _ in field.sortable_values(reader, fieldname):
-                    postings = reader.postings(fieldname, t)
-                    for docid in postings.all_ids():
-                        self.lists[docid].append(t)
+                return None
 
-        def keys_for(self, matcher, docid):
-            if self.use_vectors:
-                try:
-                    v = self.segment_searcher.vector(docid, self.fieldname)
-                    return list(v.all_ids())
-                except KeyError:
-                    return None
-            else:
-                return self.lists[docid] or None
 
-        def key_for(self, matcher, docid):
-            if self.use_vectors:
-                try:
-                    v = self.segment_searcher.vector(docid, self.fieldname)
-                    return v.id()
-                except KeyError:
-                    return None
-            else:
-                ls = self.lists[docid]
-                if ls:
-                    return ls[0]
-                else:
-                    return None
-
+# Special facet types
 
 class QueryFacet(FacetType):
     """Sorts/facets based on the results of a series of queries.

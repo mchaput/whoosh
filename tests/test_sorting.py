@@ -821,7 +821,7 @@ def test_nocachefield_segments():
         facet = sorting.FieldFacet("a", reverse=True)
 
         cat = facet.categorizer(s)
-        assert_equal(cat.__class__, sorting.FieldFacet.NoCacheFieldCategorizer)
+        assert_equal(cat.__class__, sorting.PostingCategorizer)
 
         r = s.search(q, sortedby=facet)
         assert_equal([hit["a"] for hit in r],

@@ -113,6 +113,48 @@ def test_andnot():
                [u("E")])
 
 
+def test_andnot2():
+    schema = fields.Schema(a=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(a=u("bravo"))
+    w.add_document(a=u("echo"))
+    w.add_document(a=u("juliet"))
+    w.commit()
+    w = ix.writer()
+    w.add_document(a=u("kilo"))
+    w.add_document(a=u("foxtrot"))
+    w.add_document(a=u("charlie"))
+    w.commit(merge=False)
+    w = ix.writer()
+    w.delete_by_term("a", u("echo"))
+    w.add_document(a=u("alfa"))
+    w.add_document(a=u("india"))
+    w.add_document(a=u("delta"))
+    w.commit(merge=False)
+
+    with ix.searcher() as s:
+        q = query.TermRange("a", u("bravo"), u("k"))
+        qr = [hit["a"] for hit in s.search(q)]
+        assert_equal(" ".join(sorted(qr)),
+                     "bravo charlie delta foxtrot india juliet")
+
+        oq = query.Or([query.Term("a", "bravo"), query.Term("a", "delta")])
+        oqr = [hit["a"] for hit in s.search(oq)]
+        assert_equal(" ".join(sorted(oqr)),
+                     "bravo delta")
+
+        anq = query.AndNot(q, oq)
+
+        m = anq.matcher(s)
+        print "=", m.id()
+
+        r = s.search(anq)
+        assert_equal(list(anq.docs(s)), sorted(hit.docnum for hit in r))
+        assert_equal(" ".join(sorted(hit["a"] for hit in r)),
+                     "charlie foxtrot india juliet")
+
+
 def test_variations():
     _run_query(query.Variations("value", u("render")),
                [u("A"), u("C"), u("E")])

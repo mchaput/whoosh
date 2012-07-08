@@ -236,13 +236,6 @@ class FieldType(object):
 
         return ((text, text) for text in ixreader.lexicon(fieldname))
 
-    def sortable_default(self):
-        """Returns a default bytes value to use for "missing" values when
-        sorting or faceting in this field.
-        """
-
-        return emptybytes
-
     # Methods related to spelling
 
     def separate_spelling(self):
@@ -1317,9 +1310,6 @@ class OLD_NUMERIC(FieldType):
         self.signed = signed
         self.analyzer = analysis.IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
-
-    def sortable_default(self):
-        return self._NUMERIC_DEFAULTS[self.sortable_typecode]
 
     def _tiers(self, num):
         t = self.type

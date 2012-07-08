@@ -641,9 +641,6 @@ class AndNotMatcher(BiMatcher):
     def id(self):
         return self.a.id()
 
-    def all_ids(self):
-        return iter(sorted(set(self.a.all_ids()) - set(self.b.all_ids())))
-
     def next(self):
         if not self.a.is_active():
             raise mcore.ReadTooFar

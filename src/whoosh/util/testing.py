@@ -68,16 +68,21 @@ class TempDir(object):
 
 
 class TempStorage(TempDir):
+    def __init__(self, debug=False, **kwargs):
+        TempDir.__init__(self, *kwargs)
+        self._debug = debug
+
     def __enter__(self):
         dirpath = TempDir.__enter__(self)
-        store = FileStorage(dirpath)
+        store = FileStorage(dirpath, debug=self._debug)
         self.onexit = lambda: store.close()
         return store
 
 
 class TempIndex(TempStorage):
-    def __init__(self, schema, ixname='', **kwargs):
-        TempStorage.__init__(self, basename=ixname, **kwargs)
+    def __init__(self, schema, ixname='', storage_debug=False, **kwargs):
+        TempStorage.__init__(self, basename=ixname, debug=storage_debug,
+                             **kwargs)
         self.schema = schema
 
     def __enter__(self):
