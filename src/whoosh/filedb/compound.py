@@ -25,10 +25,15 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import errno, mmap, sys
+import errno, sys
 from tempfile import TemporaryFile
 from threading import Lock
 from shutil import copyfileobj
+
+try:
+    import mmap
+except ImportError:
+    mmap = None
 
 from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import BufferFile, StructFile
@@ -51,7 +56,7 @@ class CompoundStorage(FileStorage):
         self._locks = {}
         self._source = None
 
-        if use_mmap and hasattr(self._file, "fileno"):
+        if mmap and use_mmap and hasattr(self._file, "fileno"):
             # Try to open the entire segment as a memory-mapped object
             try:
                 fileno = self._file.fileno()
@@ -226,7 +231,7 @@ class CompoundWriter(object):
     def create_file(self, name):
         ss = self.SubStream(self._temp, self._buffersize)
         self._streams[name] = ss
-        return ss
+        return StructFile(ss)
 
     def close(self):
         dbfile = self._dbfile

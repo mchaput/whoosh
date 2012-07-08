@@ -33,12 +33,12 @@ from bisect import bisect_left, bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
 from whoosh import fst
-from whoosh.compat import b, bytes_type
-from whoosh.compat import xrange, zip_, next, iteritems
-from whoosh.support.levenshtein import distance
 from whoosh.compat import abstractmethod
-from whoosh.matching import MultiMatcher
+from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.filedb.filestore import OverlayStorage
+from whoosh.matching import MultiMatcher
+from whoosh.support.levenshtein import distance
+from whoosh.system import emptybytes
 
 
 # Exceptions
@@ -190,7 +190,7 @@ class IndexReader(object):
         """Yields all terms in the given field.
         """
 
-        for fn, text in self.terms_from(fieldname, b('')):
+        for fn, text in self.terms_from(fieldname, emptybytes):
             if fn != fieldname:
                 return
             yield text
@@ -571,7 +571,7 @@ class SegmentReader(IndexReader):
         return self._gen
 
     def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, self.segment)
+        return "%s(%s)" % (self.__class__.__name__, self._segment)
 
     def __contains__(self, term):
         fieldname, text = term
@@ -624,7 +624,7 @@ class SegmentReader(IndexReader):
 
     def all_terms(self):
         schema = self.schema
-        return ((fieldname, text) for fieldname, text in self._terms.keys()
+        return ((fieldname, text) for fieldname, text in self._terms.terms()
                 if fieldname in schema)
 
     def terms_from(self, fieldname, prefix):
@@ -632,14 +632,14 @@ class SegmentReader(IndexReader):
         prefix = self._text_to_bytes(fieldname, prefix)
         schema = self.schema
         return ((fname, text) for fname, text
-                in self._terms.keys_from((fieldname, prefix))
+                in self._terms.terms_from(fieldname, prefix)
                 if fname in schema)
 
     def term_info(self, fieldname, text):
         self._test_field(fieldname)
         text = self._text_to_bytes(fieldname, text)
         try:
-            return self._terms[fieldname, text]
+            return self._terms.term_info(fieldname, text)
         except KeyError:
             raise TermNotFound("%s:%r" % (fieldname, text))
 
@@ -661,7 +661,7 @@ class SegmentReader(IndexReader):
         schema = self.schema
         self._test_field(fieldname)
         text = self._text_to_bytes(fieldname, text)
-        for term, terminfo in self._terms.items_from((fieldname, text)):
+        for term, terminfo in self._terms.items_from(fieldname, text):
             if term[0] not in schema:
                 continue
             yield (term, terminfo)
@@ -670,7 +670,7 @@ class SegmentReader(IndexReader):
         self._test_field(fieldname)
         text = self._text_to_bytes(fieldname, text)
         try:
-            return self._terms.frequency((fieldname, text))
+            return self._terms.frequency(fieldname, text)
         except KeyError:
             return 0
 
@@ -678,7 +678,7 @@ class SegmentReader(IndexReader):
         self._test_field(fieldname)
         text = self._text_to_bytes(fieldname, text)
         try:
-            return self._terms.doc_frequency((fieldname, text))
+            return self._terms.doc_frequency(fieldname, text)
         except KeyError:
             return 0
 
@@ -729,6 +729,16 @@ class SegmentReader(IndexReader):
 
         return fst.within(self._graph, text, k=maxdist, prefix=prefix,
                            address=self._graph.root(fieldname))
+
+    # Column methods
+
+    def has_column(self, fieldname):
+        coltype = self.schema[fieldname].column_type
+        return coltype and self._perdoc.has_column(fieldname)
+
+    def column_reader(self, fieldname):
+        column = self.schema[fieldname].column_type
+        return self._perdoc.column_reader(fieldname, column)
 
 
 # Fake IndexReader class for empty indexes

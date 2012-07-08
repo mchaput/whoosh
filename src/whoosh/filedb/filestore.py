@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os, random
+import os, random, sys, traceback
 from threading import Lock
 
 from whoosh.compat import BytesIO, memoryview_
@@ -180,10 +180,11 @@ class FileStorage(Storage):
 
     supports_mmap = True
 
-    def __init__(self, path, supports_mmap=True, readonly=False):
+    def __init__(self, path, supports_mmap=True, readonly=False, debug=False):
         self.folder = path
         self.supports_mmap = supports_mmap
         self.readonly = readonly
+        self._debug = debug
         self.locks = {}
 
         if not os.path.exists(path):

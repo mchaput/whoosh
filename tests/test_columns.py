@@ -1,13 +1,33 @@
 from __future__ import with_statement
-import random
+import inspect, random, sys
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import columns
-from whoosh.compat import b, u, izip, xrange, BytesIO
+from whoosh.compat import b, u, BytesIO
+from whoosh.compat import izip, xrange, dumps, loads
 from whoosh.filedb import compound
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempStorage
+
+
+def test_pickleability():
+    # Ignore base classes
+    ignore = (columns.Column, columns.WrapperColumn,)
+    # Required arguments
+    init_args = {"FixedBytesColumn": (5,)}
+
+    coltypes = [c for _, c in inspect.getmembers(columns, inspect.isclass)
+                if columns.Column in c.__bases__ and not c in ignore]
+
+    for coltype in coltypes:
+        args = init_args.get(coltype.__name__, ())
+        try:
+            inst = coltype(*args)
+        except TypeError:
+            e = sys.exc_info()[1]
+            raise TypeError("Error instantiating %r: %s" % (coltype, e))
+        _ = loads(dumps(inst, -1))
 
 
 def test_multistream():
@@ -66,7 +86,7 @@ def test_random_multistream():
         msr.close()
 
 
-def _roundtrip(c, values, default):
+def _rt(c, values, default):
     # Continuous
     st = RamStorage()
     f = st.create_file("test1")
@@ -111,26 +131,32 @@ def _roundtrip(c, values, default):
 
 
 def test_roundtrip():
-    _roundtrip(columns.VarBytesColumn(),
-               [b("a"), b("bb"), b("ccc"), b("dd"), b("e")], b(""))
-    _roundtrip(columns.FixedBytesColumn(5),
-               [b("aaaaa"), b("bbbbb"), b("ccccc"), b("ddddd"), b("eeeee")],
+    _rt(columns.VarBytesColumn(),
+               [b("a"), b("ccc"), b("bbb"), b("e"), b("dd")], b(""))
+    _rt(columns.FixedBytesColumn(5),
+        [b("aaaaa"), b("eeeee"), b("ccccc"), b("bbbbb"), b("eeeee")],
                b("\x00") * 5)
-    _roundtrip(columns.RefBytesColumn(),
-               [b("a"), b("bb"), b("ccc"), b("a"), b("bb"), b("ccc")], b(""))
-    _roundtrip(columns.RefBytesColumn(3),
-               [b("aaa"), b("bbb"), b("ccc"), b("aaa"), b("bbb"), b("ccc")],
-               b("\x00") * 3)
+    _rt(columns.RefBytesColumn(),
+        [b("a"), b("ccc"), b("bb"), b("ccc"), b("a"), b("bb")], b(""))
+    _rt(columns.RefBytesColumn(3),
+        [b("aaa"), b("bbb"), b("ccc"), b("aaa"), b("bbb"), b("ccc")],
+        b("\x00") * 3)
 
-    _roundtrip(columns.NumericColumn("i"), [10, -20, 30, -25, 15], 0)
-    _roundtrip(columns.NumericColumn("q"), [10, -20, 30, -25, 15], 0)
-    _roundtrip(columns.NumericColumn("f"), [1.5, -2.5, 3.5, -4.5, 1.25], 0)
-    _roundtrip(columns.NumericColumn("d"), [1.5, -2.5, 3.5, -4.5, 1.25], 0)
+    numcol = columns.NumericColumn
+    _rt(numcol("b"), [10, -20, 30, -25, 15], 0)
+    _rt(numcol("B"), [10, 20, 30, 25, 15], 0)
+    _rt(numcol("h"), [1000, -2000, 3000, -15000, 32000], 0)
+    _rt(numcol("H"), [1000, 2000, 3000, 15000, 50000], 0)
+    _rt(numcol("i"), [2 ** 16, -(2 ** 20), 2 ** 24, -(2 ** 28), 2 ** 30], 0)
+    _rt(numcol("I"), [2 ** 16, 2 ** 20, 2 ** 24, 2 ** 28, 2 ** 31], 0)
+    _rt(numcol("q"), [10, -20, 30, -25, 15], 0)
+    _rt(numcol("Q"), [2 ** 35, 2 ** 40, 2 ** 48, 2 ** 52, 2 ** 63], 0)
+    _rt(numcol("f"), [1.5, -2.5, 3.5, -4.5, 1.25], 0)
+    _rt(numcol("d"), [1.5, -2.5, 3.5, -4.5, 1.25], 0)
 
     c = columns.BitColumn(compress_at=10)
-    _roundtrip(c, [bool(random.randint(0, 1)) for _ in xrange(70)], False)
-    _roundtrip(c, [bool(random.randint(0, 1)) for _ in xrange(90)], False)
-
+    _rt(c, [bool(random.randint(0, 1)) for _ in xrange(70)], False)
+    _rt(c, [bool(random.randint(0, 1)) for _ in xrange(90)], False)
 
 
 

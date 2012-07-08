@@ -61,7 +61,7 @@ def _do_basic(writerclass):
                                             vector=True),
                            row=fields.NUMERIC(stored=True))
 
-    with TempIndex(schema) as ix:
+    with TempIndex(schema, storage_debug=True) as ix:
         # Add the domain data to the index
         with writerclass(ix, procs=3) as w:
             for i, value in enumerate(docs):

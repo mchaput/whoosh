@@ -549,7 +549,7 @@ class SegmentWriter(IndexWriter):
 
     def delete_document(self, docnum, delete=True):
         self._check_state()
-        if docnum >= sum(seg.doccount for seg in self.segments):
+        if docnum >= sum(seg.doc_count_all() for seg in self.segments):
             raise IndexingError("No document ID %r in this index" % docnum)
         segment, segdocnum = self._segment_and_docnum(docnum)
         segment.delete_document(segdocnum, delete=delete)
@@ -722,8 +722,11 @@ class SegmentWriter(IndexWriter):
             vformat = field.vector
             if vformat:
                 analyzer = field.analyzer
-                vitems = sorted(vformat.word_values(value, analyzer,
-                                                    mode="index"))
+                # Call the format's word_values method to get posting values
+                vitems = vformat.word_values(value, analyzer, mode="index")
+                # Remove unused frequency field from the tuple
+                vitems = sorted((text, weight, vbytes)
+                                for text, _, weight, vbytes in vitems)
                 perdocwriter.add_vector_items(fieldname, field, vitems)
 
             # Figure out what value to store for this field
@@ -747,7 +750,7 @@ class SegmentWriter(IndexWriter):
 
     def get_segment(self):
         newsegment = self.newsegment
-        newsegment.doccount = self.doc_count()
+        newsegment.set_doc_count(self.doc_count())
         return newsegment
 
     def per_document_reader(self):

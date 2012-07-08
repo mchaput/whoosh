@@ -327,7 +327,7 @@ class MpWriter(SegmentWriter):
         for runname, segment in results:
             items = self._read_and_renumber_run(runname, basedoc)
             sources.append(items)
-            basedoc += segment.doccount
+            basedoc += segment.doc_count_all()
         self.docnum = basedoc
 
         # Create a MultiLengths object combining the length files from the

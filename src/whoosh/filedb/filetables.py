@@ -328,34 +328,13 @@ class OrderedHashWriter(HashWriter):
         self.index = GrowableArray("H")
         self.lastkey = None
 
-    def add_all(self, items):
-        dbfile = self.dbfile
-        hashes = self.hashes
-        hash_func = self.hash_func
-        pos = dbfile.tell()
-        write = dbfile.write
-
-        index = self.index
-        lk = self.lastkey or emptybytes
-
-        for key, value in items:
-            assert isinstance(key, bytes_type)
-            assert isinstance(value, bytes_type)
-            if key <= lk:
-                raise ValueError("Keys must increase: %r .. %r" % (lk, key))
-            lk = key
-
-            index.append(pos)
-            write(pack_lengths(len(key), len(value)))
-            write(key)
-            write(value)
-
-            h = hash_func(key)
-            hashes[h & 255].append((h, pos))
-
-            pos += lengths_size + len(key) + len(value)
-
-        self.lastkey = lk
+    def add(self, key, value):
+        if key <= self.lastkey:
+            raise ValueError("Keys must increase: %r..%r"
+                             % (self.lastkey, key))
+        self.index.append(self.dbfile.tell())
+        HashWriter.add(self, key, value)
+        self.lastkey = key
 
     def _write_extras(self):
         dbfile = self.dbfile

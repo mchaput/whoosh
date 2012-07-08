@@ -37,6 +37,7 @@ from whoosh.compat import izip, xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.matching import Matcher
 from whoosh.spans import Span
+from whoosh.system import emptybytes
 
 
 # Base classes
@@ -88,9 +89,10 @@ class PerDocumentWriter(object):
                 text = vmatcher.id()
                 weight = vmatcher.weight()
                 valuestring = vmatcher.value()
-                yield (text, None, weight, valuestring)
+                yield (text, weight, valuestring)
                 vmatcher.next()
-        self.add_vector_items(fieldname, fieldobj, readitems())
+        items = list(readitems())
+        self.add_vector_items(fieldname, fieldobj, items)  #readitems())
 
     def finish_doc(self):
         pass
@@ -136,6 +138,10 @@ class FieldWriter(object):
                 start_term(token)
                 lasttext = token
             length = dfl(docnum, fieldname)
+
+            if value is None:
+                value = emptybytes
+
             add(docnum, weight, value, length)
         if lasttext is not None:
             finish_term()
@@ -181,14 +187,14 @@ class TermsReader(object):
     def items_from(self, fieldname, prefix):
         raise NotImplementedError
 
-    def terminfo(self, fieldname, text):
+    def term_info(self, fieldname, text):
         raise NotImplementedError
 
     def frequency(self, fieldname, text):
-        return self.terminfo(fieldname, text).weight()
+        return self.term_info(fieldname, text).weight()
 
     def doc_frequency(self, fieldname, text):
-        return self.terminfo(fieldname, text).doc_frequency()
+        return self.term_info(fieldname, text).doc_frequency()
 
     def matcher(self, fieldname, text, format_, scorer=None):
         raise NotImplementedError
@@ -201,13 +207,12 @@ class TermsReader(object):
 
 class FilePostingMatcher(Matcher):
     # Subclasses need to set
-    #   self._term -- (fieldname, text) or None
     #   self.scorer -- a Scorer object or None
     #   self.format -- Format object for the posting values
 
     def __repr__(self):
-        return "%s(%r, %r, %s)" % (self.__class__.__name__, str(self.postfile),
-                                   self.term(), self.is_active())
+        return "%s(%r, %s)" % (self.__class__.__name__, self.term(),
+                               self.is_active())
 
     def term(self):
         return self._term
@@ -242,6 +247,9 @@ class FilePostingMatcher(Matcher):
 
     def block_quality(self):
         return self.scorer.block_quality(self)
+
+    def score(self):
+        return self.scorer.score(self)
 
 
 # Per-doc value reader
@@ -471,7 +479,7 @@ class Segment(object):
 
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__,
-                            getattr(self, "segid", ""))
+                            self.segment_id())
 
     def codec(self):
         raise NotImplementedError

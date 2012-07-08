@@ -35,7 +35,8 @@ except ImportError:
     zlib = None
 
 from whoosh.compat import b
-from whoosh.compat import array_tobytes, xrange
+from whoosh.compat import array_tobytes, iteritems, xrange
+from whoosh.filedb.structfile import StructFile
 from whoosh.idsets import BitSet, OnDiskBitSet
 from whoosh.system import emptybytes, _INT_SIZE
 from whoosh.util.cache import lru_cache
@@ -105,6 +106,8 @@ class Column(object):
     """Represents a "column" of rows mapping docnums to document values.
     """
 
+    reversible = False
+
     def writer(self, dbfile):
         """Returns a :class:`ColumnWriter` object you can use to use to create
         a column of this type on disk.
@@ -141,11 +144,11 @@ class ColumnWriter(object):
         self._count = 0
 
     def fill(self, docnum):
-        dbfile = self._dbfile
-        dbytes = self._defaultbytes
+        write = self._dbfile.write
+        default = self._defaultbytes
         if docnum > self._count:
             for _ in xrange(docnum - self._count):
-                dbfile.write(dbytes)
+                write(default)
 
     def add(self, docnum, value):
         raise NotImplementedError
@@ -167,22 +170,15 @@ class ColumnReader(object):
     def __getitem__(self, docnum):
         raise NotImplementedError
 
-    def sort_key(self, docnum):
+    def sort_key(self, docnum, reverse=False):
         return self[docnum]
 
     def __iter__(self):
         for i in xrange(self._doccount):
             yield self[i]
 
-    def sort_keys(self):
-        for i in xrange(self._doccount):
-            yield self.sort_key(i)
-
     def load(self):
         return list(self)
-
-    def as_list(self, docnum):
-        return [self[docnum]]
 
 
 # Arbitrary bytes column
@@ -196,16 +192,14 @@ class VarBytesColumn(Column):
     _default = emptybytes
 
     class Writer(ColumnWriter):
-        def __init__(self, dbfile, savekeylen=True):
+        def __init__(self, dbfile):
+            assert isinstance(dbfile, StructFile)
             self._dbfile = dbfile
             self._count = 0
             self._lengths = GrowableArray(allow_longs=False)
 
-            # Keep track of the minimum length needed to distinguish the values
-            # for the purposes of sorting
-            self._savekeylen = savekeylen
-            self._keylen = 0
-            self._lastkey = emptybytes
+        def __repr__(self):
+            return "<VarBytes.Writer>"
 
         def fill(self, docnum):
             if docnum > self._count:
@@ -217,23 +211,13 @@ class VarBytesColumn(Column):
             self._lengths.append(len(v))
             self._count = docnum + 1
 
-            if self._savekeylen:
-                # If this value is indistinguishable from the previous one
-                # using the current "key length", increase the key length
-                if v[:self._keylen] == self._lastkey and len(v) > self._keylen:
-                    self._keylen += 1
-                self._lastkey = v[:self._keylen]
-
         def finish(self, doccount):
             self.fill(doccount)
             lengths = self._lengths.array
 
-            # Write the length of each value
             self._dbfile.write_array(lengths)
             # Write the typecode for the lengths
             self._dbfile.write_byte(ord(lengths.typecode))
-            # Write the minimum key length
-            self._dbfile.write_int(self._keylen)
 
     class Reader(ColumnReader):
         def __init__(self, dbfile, basepos, length, doccount):
@@ -241,15 +225,16 @@ class VarBytesColumn(Column):
             self._basepos = basepos
             self._length = length
             self._doccount = doccount
-            self._values = None
 
             self._read_lengths()
-
             # Create an array of offsets into the strings using the lengths
             offsets = array("i", (0,))
             for length in self._lengths:
                 offsets.append(offsets[-1] + length)
             self._offsets = offsets
+
+        def __repr__(self):
+            return "<VarBytes.Reader>"
 
         def _read_lengths(self):
             dbfile = self._dbfile
@@ -260,10 +245,8 @@ class VarBytesColumn(Column):
             # The absolute position of the end of the column data
             endpos = basepos + length
             # The end of the lengths array is the end of the data minus the
-            # typecode and minus the minimum key length int
-            endoflens = endpos - (_INT_SIZE + 1)
-            # Load the minimum key length int from the end of the data
-            self._keylen = dbfile.get_int(endpos - _INT_SIZE)
+            # typecode byte
+            endoflens = endpos - 1
             # Load the length typecode from before the key length
             typecode = chr(dbfile.get_byte(endoflens))
             # Load the length array from before the typecode
@@ -272,24 +255,12 @@ class VarBytesColumn(Column):
             self._lengths = dbfile.get_array(lengthsbase, typecode, doccount)
 
         @lru_cache()
-        def _get(self, docnum, as_key):
+        def __getitem__(self, docnum):
             length = self._lengths[docnum]
             if not length:
                 return emptybytes
-            if as_key:
-                length = min(length, self._keylen)
             offset = self._offsets[docnum]
-
-            if self._values is None:
-                return self._dbfile.get(self._basepos + offset, length)
-            else:
-                return self._values[offset:offset + length]
-
-        def __getitem__(self, docnum):
-            return self._get(docnum, False)
-
-        def sort_key(self, docnum):
-            return self._get(docnum, True)
+            return self._dbfile.get(self._basepos + offset, length)
 
         def __iter__(self):
             get = self._dbfile.get
@@ -297,11 +268,6 @@ class VarBytesColumn(Column):
             for length in self._lengths:
                 yield get(pos, length)
                 pos += length
-
-        def load(self):
-            endoffset = self._offsets[-1]
-            self._values = self._dbfile.get(self._basepos, endoffset)
-            return self
 
 
 class CompressedBytesColumn(Column):
@@ -317,9 +283,12 @@ class CompressedBytesColumn(Column):
 
     class Writer(VarBytesColumn.Writer):
         def __init__(self, dbfile, level, module):
-            VarBytesColumn.Writer.__init__(self, dbfile, savekeylen=False)
+            VarBytesColumn.Writer.__init__(self, dbfile)
             self._level = level
             self._compress = __import__(module).compress
+
+        def __repr__(self):
+            return "<CompressedBytes.Writer>"
 
         def add(self, docnum, v):
             v = self._compress(v, self._level)
@@ -331,8 +300,11 @@ class CompressedBytesColumn(Column):
                                            doccount)
             self._decompress = __import__(module).decompress
 
-        def _get(self, docnum, as_key):
-            v = VarBytesColumn.Reader._get(self, docnum, False)
+        def __repr__(self):
+            return "<CompressedBytes.Reader>"
+
+        def __getitem__(self, docnum):
+            v = VarBytesColumn.Reader.__getitem__(self, docnum)
             if v:
                 v = self._decompress(v)
             return v
@@ -346,7 +318,7 @@ class CompressedBytesColumn(Column):
 
 
 class CompressedBlockColumn(Column):
-    def __init__(self, level=3, blocksize=64, module="zlib"):
+    def __init__(self, level=3, blocksize=32, module="zlib"):
         self._level = level
         self._blocksize = blocksize
         self._module = module
@@ -365,6 +337,9 @@ class CompressedBlockColumn(Column):
             self._compress = __import__(module).compress
 
             self._reset()
+
+        def __repr__(self):
+            return "<CompressedBlock.Writer>"
 
         def _reset(self):
             self._startdoc = None
@@ -410,6 +385,9 @@ class CompressedBlockColumn(Column):
                                      lengths))
                 dbfile.seek(blocklen, 1)
                 pos = here + blocklen
+
+        def __repr__(self):
+            return "<CompressedBlock.Reader>"
 
         def _find_block(self, docnum):
             # TODO: use binary search instead of linear
@@ -485,6 +463,9 @@ class FixedBytesColumn(Column):
             self._default = self._defaultbytes = default
             self._count = 0
 
+        def __repr__(self):
+            return "<FixedBytes.Writer>"
+
         def add(self, docnum, v):
             if v == self._default:
                 return
@@ -504,6 +485,9 @@ class FixedBytesColumn(Column):
             self._default = self._defaultbytes = default
             self._count = length // fixedlen
 
+        def __repr__(self):
+            return "<FixedBytes.Reader>"
+
         def __getitem__(self, docnum):
             if docnum >= self._count:
                 return self._defaultbytes
@@ -519,47 +503,18 @@ class FixedBytesColumn(Column):
                 else:
                     yield default
 
-        def load(self):
-            cls = FixedBytesColumn.RamReader
-            a = emptybytes.join(self)
-            return cls(a, self._fixedlen, self._defaultbytes, self._doccount)
-
-    class RamReader(ColumnReader):
-        def __init__(self, barray, itemsize, defaultbytes, doccount):
-            self._barray = barray
-            self._itemsize = itemsize
-            self._defaultbytes = defaultbytes
-            self._doccount = doccount
-
-        def __getitem__(self, docnum):
-            if docnum >= self._doccount:
-                return self._defaultbytes
-            itemsize = self._itemsize
-            return self._array[docnum * itemsize:docnum * itemsize + itemsize]
-
-        def __iter__(self):
-            barray = self._barray
-            itemsize = self._itemsize
-            defaultbytes = self._defaultbytes
-
-            for i in xrange(self._doccount):
-                pos = i * itemsize
-                if pos >= len(barray):
-                    yield defaultbytes
-                else:
-                    yield barray[pos:pos + itemsize]
-
 
 # Variable/fixed length reference (enum) column
 
 class RefBytesColumn(Column):
-    def __init__(self, fixedlen=0, typecode="H", default=None):
-        self._fixedlen = fixedlen
+    # NOTE that RefBytes is reversible within a single column (we could just
+    # negate the reference number), but it's NOT reversible ACROSS SEGMENTS
+    # (since different segments can have different uniques values in their
+    # columns), so we have to say that the column type is not reversible
+    reversible = False
 
-        typecodes = "BHiIQ"
-        if typecode not in typecodes:
-            raise Exception("Typecode must be one of %s" % typecodes)
-        self._typecode = typecode
+    def __init__(self, fixedlen=0, default=None):
+        self._fixedlen = fixedlen
 
         if default is None:
             default = b("\x00") * fixedlen if fixedlen else emptybytes
@@ -568,72 +523,85 @@ class RefBytesColumn(Column):
         self._default = default
 
     def writer(self, dbfile):
-        return self.Writer(dbfile, self._fixedlen, self._typecode,
-                           self._default)
+        return self.Writer(dbfile, self._fixedlen, self._default)
 
     def reader(self, dbfile, basepos, length, doccount):
-        return self.Reader(dbfile, basepos, length, doccount, self._fixedlen,
-                           self._typecode)
+        return self.Reader(dbfile, basepos, length, doccount, self._fixedlen)
 
     class Writer(ColumnWriter):
-        def __init__(self, dbfile, fixedlen, typecode, default):
+        def __init__(self, dbfile, fixedlen, default):
             self._dbfile = dbfile
-            self._default = default
-            self._typecode = typecode
-            self._pack = typecode_pack[typecode]
-            self._defaultbytes = self._pack(0)
-            self._uniques = [default]
             self._fixedlen = fixedlen
+            self._default = default
+
+            self._refs = GrowableArray(allow_longs=False)
+            self._uniques = [default]
             self._count = 0
 
-        def add(self, docnum, v):
+        def __repr__(self):
+            return "<RefBytes.Writer>"
+
+        def fill(self, docnum):
             if docnum > self._count:
-                self.fill(docnum)
+                self._refs.extend(0 for _ in xrange(docnum - self._count))
+
+        def add(self, docnum, v):
+            self.fill(docnum)
 
             uniques = self._uniques
             try:
                 i = uniques.index(v)
             except ValueError:
                 i = len(uniques)
-                if i > typecode_max[self._typecode]:
-                    raise OverflowError("Too many unique items")
                 uniques.append(v)
 
-            self._dbfile.write(self._pack(i))
+            self._refs.append(i)
             self._count = docnum + 1
 
         def finish(self, doccount):
+            self.fill(doccount)
+
             dbfile = self._dbfile
             fixedlen = self._fixedlen
-
-            if doccount > self._count:
-                self.fill(doccount)
-
             uniques = self._uniques
-            dbfile.write(self._pack(len(uniques)))
-            for uv in uniques:
+            refs = self._refs.array
+
+            # Sort the unique values, and then rewrite the refs array to
+            # reflect the new, sorted position of the unique values
+            suniques = sorted((v, i) for i, v in enumerate(uniques))
+            remap = dict((old_i, i) for i, (v, old_i) in enumerate(suniques))
+            for i in xrange(len(refs)):
+                refs[i] = remap[refs[i]]
+
+            dbfile.write_byte(ord(refs.typecode))
+            dbfile.write_array(refs)
+            dbfile.write(struct.pack("!" + refs.typecode, len(uniques)))
+            for uv, _ in suniques:
                 if not fixedlen:
                     dbfile.write_varint(len(uv))
                 dbfile.write(uv)
 
     class Reader(ColumnReader):
-        def __init__(self, dbfile, basepos, length, doccount, fixedlen,
-                     typecode):
+        def __init__(self, dbfile, basepos, length, doccount, fixedlen):
             self._dbfile = dbfile
             self._basepos = basepos
             self._doccount = doccount
             self._fixedlen = fixedlen
-            self._typecode = typecode
-            self._itemsize = struct.calcsize(typecode)
-            self._unpack = typecode_unpack[typecode]
 
+            self._typecode = chr(dbfile.get_byte(basepos))
+            st = struct.Struct("!" + self._typecode)
+            self._unpack = st.unpack
+            self._itemsize = st.size
             self._uniques = self._read_uniques()
+
+        def __repr__(self):
+            return "<RefBytes.Reader>"
 
         def _read_uniques(self):
             dbfile = self._dbfile
             fixedlen = self._fixedlen
 
-            dbfile.seek(self._basepos + self._itemsize * self._doccount)
+            dbfile.seek(self._basepos + 1 + self._itemsize * self._doccount)
             uniques = []
             ucount = self._unpack(dbfile.read(self._itemsize))[0]
 
@@ -644,11 +612,15 @@ class RefBytesColumn(Column):
                 uniques.append(dbfile.read(length))
             return uniques
 
+        def _get_ref(self, docnum):
+            pos = self._basepos + 1 + docnum * self._itemsize
+            return self._unpack(self._dbfile.get(pos, self._itemsize))[0]
+
         def __getitem__(self, docnum):
-            dbfile = self._dbfile
-            pos = self._basepos + docnum * self._itemsize
-            ref = self._unpack(dbfile.get(pos, self._itemsize))[0]
-            return self._uniques[ref]
+            return self._uniques[self._get_ref(docnum)]
+
+        def sort_key(self, docnum, reverse=False):
+            return self._get_ref(docnum)
 
         def __iter__(self):
             get = self._dbfile.get
@@ -658,31 +630,16 @@ class RefBytesColumn(Column):
             itemsize = self._itemsize
 
             for i in xrange(self._doccount):
-                pos = basepos + i * itemsize
+                pos = basepos + 1 + i * itemsize
                 ref = unpack(get(pos, itemsize))[0]
                 yield uniques[ref]
-
-        def load(self):
-            refs = self._dbfile.get_array(self._basepos, self._typecode,
-                                          self._doccount)
-            return RefBytesColumn.RamReader(refs, self._uniques)
-
-    class RamReader(ColumnReader):
-        def __init__(self, refs, uniques):
-            self._refs = refs
-            self._uniques = uniques
-
-        def __getitem__(self, docnum):
-            return self._uniques[self._refs[docnum]]
-
-        def __iter__(self):
-            uniques = self._uniques
-            return (uniques[ref] for ref in self._refs)
 
 
 # Numeric column
 
 class NumericColumn(FixedBytesColumn):
+    reversible = True
+
     def __init__(self, typecode, default=0):
         self._typecode = typecode
         self._default = default
@@ -697,11 +654,14 @@ class NumericColumn(FixedBytesColumn):
     class Writer(FixedBytesColumn.Writer):
         def __init__(self, dbfile, typecode, default):
             self._dbfile = dbfile
-            self._pack = typecode_pack[typecode]
+            self._pack = struct.Struct("!" + typecode).pack
             self._default = default
             self._defaultbytes = self._pack(default)
             self._fixedlen = struct.calcsize(typecode)
             self._count = 0
+
+        def __repr__(self):
+            return "<Numeric.Writer>"
 
         def add(self, docnum, v):
             if v == self._default:
@@ -718,16 +678,25 @@ class NumericColumn(FixedBytesColumn):
             self._basepos = basepos
             self._doccount = doccount
             self._default = default
-            self._defaultbytes = typecode_pack[typecode](default)
 
             self._typecode = typecode
-            self._unpack = typecode_unpack[typecode]
+            self._unpack = struct.Struct("!" + typecode).unpack
+            self._defaultbytes = struct.pack("!" + typecode, default)
             self._fixedlen = struct.calcsize(typecode)
             self._count = length // self._fixedlen
+
+        def __repr__(self):
+            return "<Numeric.Reader>"
 
         def __getitem__(self, docnum):
             s = FixedBytesColumn.Reader.__getitem__(self, docnum)
             return self._unpack(s)[0]
+
+        def sort_key(self, docnum, reverse=False):
+            key = self[docnum]
+            if reverse:
+                key = 0 - key
+            return key
 
         def load(self):
             if self._typecode in "qQ":
@@ -739,6 +708,7 @@ class NumericColumn(FixedBytesColumn):
 # Column of boolean values
 
 class BitColumn(Column):
+    reversible = True
     _default = False
 
     def __init__(self, compress_at=2048):
@@ -752,6 +722,9 @@ class BitColumn(Column):
             self._dbfile = dbfile
             self._compressat = compressat
             self._bitset = BitSet()
+
+        def __repr__(self):
+            return "<Bit.Writer>"
 
         def add(self, docnum, value):
             if value:
@@ -785,8 +758,14 @@ class BitColumn(Column):
                 bitset = OnDiskBitSet(dbfile, basepos, length - 1)
             self._bitset = bitset
 
+        def __repr__(self):
+            return "<Bit.Reader>"
+
         def __getitem__(self, i):
             return i in self._bitset
+
+        def sort_key(self, docnum, reverse=False):
+            return int(self[docnum] ^ reverse)
 
         def __iter__(self):
             i = 0
@@ -823,6 +802,9 @@ class SparseColumn(Column):
             self._dbfile = dbfile
             self._values = {}
 
+        def __repr__(self):
+            return "<Sparse.Writer>"
+
         def add(self, docnum, v):
             self._dbfile.write_varint(docnum)
             self._dbfile.write_varint(len(v))
@@ -845,74 +827,11 @@ class SparseColumn(Column):
                 pos = here + vlen
                 dbfile.seek(vlen, 1)
 
+        def __repr__(self):
+            return "<Sparse.Reader>"
+
         def __getitem__(self, docnum):
             return self._dir.get(docnum, self._default)
-
-
-# Create a synthetic column by reading all postings in a field
-
-class PostingColumnReader(ColumnReader):
-    def __init__(self, ixreader, fieldname):
-        self._fieldname = fieldname
-        self._doccount = ixreader.doc_count_all()
-
-        # Set up the order array
-        field = ixreader.schema[self._fieldname]
-        hastexts = field.sortable_typecode is None
-        texts = None
-        if hastexts:
-            typecode = "I"
-            texts = [field.sortable_default()]
-            defaultnum = 0
-        else:
-            typecode = field.sortable_typecode
-            defaultnum = field.sortable_default()
-        order = make_array(typecode, self._doccount, defaultnum)
-
-        # Read every term in the field in order; for each document containing
-        # the term, set the term's ordinal as the document order
-        enum = enumerate(field.sortable_values(ixreader, fieldname))
-        for i, (text, sortable) in enum:
-            if hastexts:
-                texts.append(sortable)
-
-            ps = ixreader.postings(fieldname, text)
-            for docnum in ps.all_ids():
-                if hastexts:
-                    order[docnum] = i + 1
-                else:
-                    order[docnum] = sortable
-
-        # Compact the order array if possible
-        if hastexts:
-            newtypecode = _mintype(len(texts))
-            if newtypecode != typecode:
-                order = array(newtypecode, iter(order))
-
-        self._field = field
-        self._hastexts = hastexts
-        self._texts = texts
-        self._order = order
-
-    def __getitem__(self, docnum):
-        o = self._order[docnum]
-        if self._hastexts:
-            return self._texts[o]
-        else:
-            return o
-
-    def __iter__(self):
-        _hastexts = self._hastexts
-        _texts = self._texts
-
-        for o in self._order:
-            if _hastexts:
-                yield _texts[o]
-            else:
-                yield o
-
-    def load(self):
-        return self
 
 
 # Column wrappers
