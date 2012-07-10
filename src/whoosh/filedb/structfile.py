@@ -29,7 +29,6 @@ import os
 from array import array
 from copy import copy
 from struct import calcsize
-from gzip import GzipFile
 
 from whoosh.compat import BytesIO
 from whoosh.compat import dump as dump_pickle
@@ -63,18 +62,14 @@ class StructFile(object):
     "write_varint" and "write_long".
     """
 
-    def __init__(self, fileobj, name=None, onclose=None, gzip=0):
-
-        if gzip:
-            fileobj = GzipFile(fileobj=fileobj, compresslevel=gzip)
-
+    def __init__(self, fileobj, name=None, onclose=None):
         self.file = fileobj
         self._name = name
         self.onclose = onclose
         self.is_closed = False
 
         self._copy_attrs()
-        self.is_real = not gzip and hasattr(fileobj, "fileno")
+        self.is_real = hasattr(fileobj, "fileno")
         if self.is_real:
             self.fileno = fileobj.fileno
 
@@ -128,7 +123,7 @@ class StructFile(object):
         know how long it was.
         """
         self.write_varint(len(s))
-        self.file.write(s)
+        self.write(s)
 
     def write_string2(self, s):
         self.write(pack_ushort(len(s)) + s)
@@ -136,7 +131,7 @@ class StructFile(object):
     def read_string(self):
         """Reads a string from the wrapped file.
         """
-        return self.file.read(self.read_varint())
+        return self.read(self.read_varint())
 
     def read_string2(self):
         l = self.read_ushort()
@@ -149,24 +144,24 @@ class StructFile(object):
     def write_varint(self, i):
         """Writes a variable-length unsigned integer to the wrapped file.
         """
-        self.file.write(varint(i))
+        self.write(varint(i))
 
     def write_svarint(self, i):
         """Writes a variable-length signed integer to the wrapped file.
         """
-        self.file.write(signed_varint(i))
+        self.write(signed_varint(i))
 
     def read_varint(self):
         """Reads a variable-length encoded unsigned integer from the wrapped
         file.
         """
-        return read_varint(self.file.read)
+        return read_varint(self.read)
 
     def read_svarint(self):
         """Reads a variable-length encoded signed integer from the wrapped
         file.
         """
-        return decode_signed_varint(read_varint(self.file.read))
+        return decode_signed_varint(read_varint(self.read))
 
     def write_tagint(self, i):
         """Writes a sometimes-compressed unsigned integer to the wrapped file.
@@ -177,11 +172,11 @@ class StructFile(object):
         # Store numbers 0-253 in one byte. Byte 254 means "an unsigned 16-bit
         # int follows." Byte 255 means "An unsigned 32-bit int follows."
         if i <= 253:
-            self.file.write(chr(i))
+            self.write(chr(i))
         elif i <= 65535:
-            self.file.write("\xFE" + pack_ushort(i))
+            self.write("\xFE" + pack_ushort(i))
         else:
-            self.file.write("\xFF" + pack_uint(i))
+            self.write("\xFF" + pack_uint(i))
 
     def read_tagint(self):
         """Reads a sometimes-compressed unsigned integer from the wrapped file.
@@ -189,11 +184,11 @@ class StructFile(object):
         faster format.
         """
 
-        tb = ord(self.file.read(1))
+        tb = ord(self.read(1))
         if tb == 254:
-            return self.file.read_ushort()
+            return self.read_ushort()
         elif tb == 255:
-            return self.file.read_uint()
+            return self.read_uint()
         else:
             return tb
 
@@ -201,10 +196,10 @@ class StructFile(object):
         """Writes a single byte to the wrapped file, shortcut for
         ``file.write(chr(n))``.
         """
-        self.file.write(pack_byte(n))
+        self.write(pack_byte(n))
 
     def read_byte(self):
-        return ord(self.file.read(1))
+        return ord(self.read(1))
 
     def write_pickle(self, obj, protocol= -1):
         """Writes a pickled representation of obj to the wrapped file.
@@ -217,31 +212,31 @@ class StructFile(object):
         return load_pickle(self.file)
 
     def write_sbyte(self, n):
-        self.file.write(pack_sbyte(n))
+        self.write(pack_sbyte(n))
 
     def write_int(self, n):
-        self.file.write(pack_int(n))
+        self.write(pack_int(n))
 
     def write_uint(self, n):
-        self.file.write(pack_uint(n))
+        self.write(pack_uint(n))
 
     def write_uint_le(self, n):
-        self.file.write(pack_uint_le(n))
+        self.write(pack_uint_le(n))
 
     def write_ushort(self, n):
-        self.file.write(pack_ushort(n))
+        self.write(pack_ushort(n))
 
     def write_ushort_le(self, n):
-        self.file.write(pack_ushort_le(n))
+        self.write(pack_ushort_le(n))
 
     def write_long(self, n):
-        self.file.write(pack_long(n))
+        self.write(pack_long(n))
 
     def write_ulong(self, n):
-        self.file.write(pack_ulong(n))
+        self.write(pack_ulong(n))
 
     def write_float(self, n):
-        self.file.write(pack_float(n))
+        self.write(pack_float(n))
 
     def write_array(self, arry):
         if IS_LITTLE:
@@ -250,48 +245,48 @@ class StructFile(object):
         if self.is_real:
             arry.tofile(self.file)
         else:
-            self.file.write(array_tobytes(arry))
+            self.write(array_tobytes(arry))
 
     def read_sbyte(self):
-        return unpack_sbyte(self.file.read(1))[0]
+        return unpack_sbyte(self.read(1))[0]
 
     def read_int(self):
-        return unpack_int(self.file.read(_INT_SIZE))[0]
+        return unpack_int(self.read(_INT_SIZE))[0]
 
     def read_uint(self):
-        return unpack_uint(self.file.read(_INT_SIZE))[0]
+        return unpack_uint(self.read(_INT_SIZE))[0]
 
     def read_uint_le(self):
-        return unpack_uint_le(self.file.read(_INT_SIZE))[0]
+        return unpack_uint_le(self.read(_INT_SIZE))[0]
 
     def read_ushort(self):
-        return unpack_ushort(self.file.read(_SHORT_SIZE))[0]
+        return unpack_ushort(self.read(_SHORT_SIZE))[0]
 
     def read_ushort_le(self):
-        return unpack_ushort_le(self.file.read(_SHORT_SIZE))[0]
+        return unpack_ushort_le(self.read(_SHORT_SIZE))[0]
 
     def read_long(self):
-        return unpack_long(self.file.read(_LONG_SIZE))[0]
+        return unpack_long(self.read(_LONG_SIZE))[0]
 
     def read_ulong(self):
-        return unpack_ulong(self.file.read(_LONG_SIZE))[0]
+        return unpack_ulong(self.read(_LONG_SIZE))[0]
 
     def read_float(self):
-        return unpack_float(self.file.read(_FLOAT_SIZE))[0]
+        return unpack_float(self.read(_FLOAT_SIZE))[0]
 
     def read_array(self, typecode, length):
         a = array(typecode)
         if self.is_real:
             a.fromfile(self.file, length)
         else:
-            array_frombytes(a, self.file.read(length * _SIZEMAP[typecode]))
+            array_frombytes(a, self.read(length * _SIZEMAP[typecode]))
         if IS_LITTLE:
             a.byteswap()
         return a
 
     def get(self, position, length):
-        self.file.seek(position)
-        return self.file.read(length)
+        self.seek(position)
+        return self.read(length)
 
     def get_byte(self, position):
         return ord(self.get(position, 1))
@@ -318,7 +313,7 @@ class StructFile(object):
         return unpack_float(self.get(position, _FLOAT_SIZE))[0]
 
     def get_array(self, position, typecode, length):
-        self.file.seek(position)
+        self.seek(position)
         return self.read_array(typecode, length)
 
 
@@ -346,6 +341,38 @@ class BufferFile(StructFile):
         if IS_LITTLE:
             a.byteswap()
         return a
+
+
+class ChecksumFile(StructFile):
+    def __init__(self, child):
+        self._child = child
+        self._check = 0
+        self._crc32 = __import__("zlib").crc32
+
+    def __getattr__(self, name):
+        if name in self.__dict__:
+            return self.__dict__[name]
+        else:
+            return getattr(self._child, name)
+
+    def seek(self, *args):
+        raise Exception("Cannot seek on a ChecksumFile")
+
+    def read(self, *args, **kwargs):
+        b = self._child.read(*args, **kwargs)
+        self._check = self._crc32(b, self._check)
+        return b
+
+    def write(self, b):
+        self._check = self._crc32(b, self._check)
+        self._child.write(b)
+
+    def checksum(self):
+        return self._check & 0xffffffff
+
+
+
+
 
 
 
