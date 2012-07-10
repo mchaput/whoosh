@@ -217,6 +217,16 @@ class Searcher(object):
             return default
         return self.field_length(fieldname) / (self._doccount or 1)
 
+    def iter_docs(self):
+        """Yields a series of ``(docnum, stored_fields_dict)`` tuples for the
+        undeleted documents in the index.
+        """
+
+        r = self.reader()
+        for docnum in xrange(self.doc_count_all()):
+            if not r.is_deleted(docnum):
+                yield docnum, self.stored_fields(docnum)
+
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`.
         """
