@@ -175,28 +175,12 @@ def test_stored_fields2():
     schema = fields.Schema(content=fields.TEXT(stored=True),
                            title=fields.TEXT(stored=True),
                            summary=fields.STORED,
-                           path=fields.ID(stored=True),
-                           helpid=fields.KEYWORD,
-                           parent=fields.KEYWORD,
-                           context=fields.KEYWORD(stored=True),
-                           type=fields.KEYWORD(stored=True),
-                           status=fields.KEYWORD(stored=True),
-                           superclass=fields.KEYWORD(stored=True),
-                           exampleFor=fields.KEYWORD(stored=True),
-                           chapter=fields.KEYWORD(stored=True),
-                           replaces=fields.KEYWORD,
-                           time=fields.STORED,
-                           methods=fields.STORED,
-                           exampleFile=fields.STORED,
-                           )
+                           path=fields.ID(stored=True))
 
-    storedkeys = ["chapter", "content", "context", "exampleFile",
-                  "exampleFor", "methods", "path", "status", "summary",
-                  "superclass", "time", "title", "type"]
+    storedkeys = ["content", "path", "summary", "title"]
     assert_equal(storedkeys, schema.stored_names())
 
-    st = RamStorage()
-    ix = st.create_index(schema)
+    ix = RamStorage().create_index(schema)
 
     writer = ix.writer()
     writer.add_document(content=u("Content of this document."),
@@ -207,9 +191,7 @@ def test_stored_fields2():
     writer.add_document(content=u("Third document."), title=u("Title 3"),
                         summary=u("Summary treo"), path=u("/san"))
     writer.commit()
-    ix.close()
 
-    ix = st.open_index()
     with ix.searcher() as s:
         doc = s.document(path="/main")
         assert doc is not None
@@ -218,6 +200,31 @@ def test_stored_fields2():
                     "This is the summary", "This is the title"])
 
     ix.close()
+
+
+def test_all_stored_fields():
+    # all_stored_fields() should yield all stored fields, even for deleted
+    # documents
+
+    schema = fields.Schema(a=fields.ID(stored=True), b=fields.STORED)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=u("alfa"), b=u("bravo"))
+        w.add_document(a=u("apple"), b=u("bear"))
+        w.add_document(a=u("alpaca"), b=u("beagle"))
+        w.add_document(a=u("aim"), b=u("box"))
+
+    w = ix.writer()
+    w.delete_by_term("a", "apple")
+    w.delete_by_term("a", "aim")
+    w.commit(merge=False)
+
+    with ix.searcher() as s:
+        assert_equal(s.doc_count_all(), 4)
+        assert_equal(s.doc_count(), 2)
+        sfs = list((sf["a"], sf["b"]) for sf in s.all_stored_fields())
+        assert_equal(sfs, [("alfa", "bravo"), ("apple", "bear"),
+                           ("alpaca", "beagle"), ("aim", "box")])
 
 
 def test_first_id():

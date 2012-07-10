@@ -153,7 +153,7 @@ def test_nested_delete():
         assert_equal(sorted(hit["name"] for hit in r),
                      ["Calculator", "Deleter", "Index"])
 
-        names = [fs["name"] for fs in s.all_stored_fields()]
+        names = [fs["name"] for _, fs in s.iter_docs()]
         assert_equal(names, ["Index", "add document", "add reader", "close",
                              "Calculator", "add", "add all", "add some",
                              "multiply", "close", "Deleter", "add", "delete"])
@@ -166,7 +166,7 @@ def test_nested_delete():
 
     # Check the CLASSES AND METHODS are gone
     with ix.searcher() as s:
-        names = [fs["name"] for fs in s.all_stored_fields()]
+        names = [fs["name"] for _, fs in s.iter_docs()]
         assert_equal(names, ["Deleter", "add", "delete"])
 
 

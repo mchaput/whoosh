@@ -269,12 +269,12 @@ class IndexReader(object):
         raise NotImplementedError
 
     def all_stored_fields(self):
-        """Yields the stored fields for all documents.
+        """Yields the stored fields for all documents (including deleted
+        documents).
         """
 
         for docnum in xrange(self.doc_count_all()):
-            if not self.is_deleted(docnum):
-                yield self.stored_fields(docnum)
+            yield self.stored_fields(docnum)
 
     @abstractmethod
     def doc_count_all(self):
@@ -540,14 +540,11 @@ class SegmentReader(IndexReader):
         else:
             self._files = storage
 
-        if codec is None:
-            from whoosh.codec import default_codec
-            codec = default_codec()
-        self._codec = codec
+        self._codec = codec if codec else segment.codec()
 
         # Get subreaders from codec
-        self._terms = codec.terms_reader(self._files, self._segment)
-        self._perdoc = codec.per_document_reader(self._files, self._segment)
+        self._terms = self._codec.terms_reader(self._files, segment)
+        self._perdoc = self._codec.per_document_reader(self._files, segment)
         self._graph = None  # Lazy open with self._open_dawg()
 
     def _open_dawg(self):

@@ -343,9 +343,9 @@ def test_update2():
             w.commit()
 
         with ix.searcher() as s:
-            results = [d["key"] for d in s.all_stored_fields()]
-            results.sort()
-            assert_equal(results, ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+            results = [d["key"] for _, d in s.iter_docs()]
+            results = " ".join(sorted(results))
+            assert_equal(results, "0 1 2 3 4 5 6 7 8 9")
 
 
 def test_reindex():
