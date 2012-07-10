@@ -6,6 +6,7 @@ import random
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh.compat import b, xrange, iteritems
+from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import HashReader, HashWriter
 from whoosh.filedb.filetables import OrderedHashWriter, OrderedHashReader
 from whoosh.util.testing import TempStorage
@@ -120,5 +121,50 @@ def test_ordered_closest():
         assert_equal(list(hr.values()), values)
         assert_equal(list(hr.keys_from(b('f'))), keys[5:])
         hr.close()
+
+
+def test_checksum_file():
+    from whoosh.filedb.structfile import ChecksumFile
+    from zlib import crc32
+
+    def wr(f):
+        f.write(b("Testing"))
+        f.write_int(-100)
+        f.write_varint(10395)
+        f.write_string(b("Hello"))
+        f.write_ushort(32959)
+
+    st = RamStorage()
+    # Write a file normally
+    f = st.create_file("control")
+    wr(f)
+    f.close()
+    # Checksum the contents
+    f = st.open_file("control")
+    target = crc32(f.read()) & 0xffffffff
+    f.close()
+
+    # Write a file with checksumming
+    f = st.create_file("test")
+    cf = ChecksumFile(f)
+    wr(cf)
+    assert_equal(cf.checksum(), target)
+    f.close()
+
+    # Read the file with checksumming
+    f = st.open_file("test")
+    cf = ChecksumFile(f)
+    assert_equal(cf.read(7), "Testing")
+    assert_equal(cf.read_int(), -100)
+    assert_equal(cf.read_varint(), 10395)
+    assert_equal(cf.read_string(), "Hello")
+    assert_equal(cf.read_ushort(), 32959)
+    assert_equal(cf.checksum(), target)
+    cf.close()
+
+
+
+
+
 
 
