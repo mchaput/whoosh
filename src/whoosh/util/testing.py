@@ -35,6 +35,7 @@ from whoosh.util import now
 class TempDir(object):
     def __init__(self, basename=None, parentdir=None, ext=".whoosh",
                  suppress=frozenset(), keepdir=False):
+        assert basename != "basename"
         self.basename = basename or hex(random.randint(0, 1000000000))[2:]
         parentdir = parentdir or tempfile.gettempdir()
         dirname = os.path.join(parentdir, self.basename + ext)
@@ -57,8 +58,8 @@ class TempDir(object):
             except OSError:
                 e = sys.exc_info()[1]
                 sys.stderr.write("Can't remove temp dir: " + str(e) + "\n")
-                if exc_type is None:
-                    raise
+                #if exc_type is None:
+                #    raise
 
         if exc_type is not None:
             if self.keepdir:
@@ -69,7 +70,7 @@ class TempDir(object):
 
 class TempStorage(TempDir):
     def __init__(self, debug=False, **kwargs):
-        TempDir.__init__(self, *kwargs)
+        TempDir.__init__(self, **kwargs)
         self._debug = debug
 
     def __enter__(self):
