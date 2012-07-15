@@ -233,10 +233,12 @@ class Positions(Format):
         for pos in poslist:
             deltas.append(pos - base)
             base = pos
-        return pack_uint(len(deltas)) + dumps(deltas, -1)[2:-1]
+        return pack_uint(len(deltas)) + dumps(deltas, -1)
 
     def decode_positions(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE:] + b("."))
+        if not valuestring.endswith(b(".")):
+            valuestring += b(".")
+        codes = loads(valuestring[_INT_SIZE:])
         position = 0
         positions = []
         for code in codes:
@@ -293,10 +295,12 @@ class Characters(Positions):
                            endchar - startchar))
             posbase = pos
             charbase = endchar
-        return pack_uint(len(deltas)) + dumps(deltas, -1)[2:-1]
+        return pack_uint(len(deltas)) + dumps(deltas, -1)
 
     def decode_characters(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE:] + b("."))
+        if not valuestring.endswith(b(".")):
+            valuestring += b(".")
+        codes = loads(valuestring[_INT_SIZE:])
         position = 0
         endchar = 0
         posns_chars = []
@@ -308,7 +312,9 @@ class Characters(Positions):
         return posns_chars
 
     def decode_positions(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE:] + b("."))
+        if not valuestring.endswith(b(".")):
+            valuestring += b(".")
+        codes = loads(valuestring[_INT_SIZE:])
         position = 0
         posns = []
         for code in codes:
@@ -360,10 +366,12 @@ class PositionBoosts(Positions):
             codes.append((pos - base, boost))
             base = pos
         return (pack_uint(len(poses)) + pack_float(summedboost)
-                + dumps(codes, -1)[2:-1])
+                + dumps(codes, -1))
 
     def decode_position_boosts(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + b("."))
+        if not valuestring.endswith(b(".")):
+            valuestring += b(".")
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:])
         position = 0
         posns_boosts = []
         for code in codes:
@@ -372,7 +380,9 @@ class PositionBoosts(Positions):
         return posns_boosts
 
     def decode_positions(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + b("."))
+        if not valuestring.endswith(b(".")):
+            valuestring += b(".")
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:])
         position = 0
         posns = []
         for code in codes:
@@ -428,10 +438,12 @@ class CharacterBoosts(Characters):
             summedboost += boost
 
         return ((pack_uint(len(poses)) + pack_float(summedboost * fb)
-                 + dumps(codes, -1)[2:-1]), summedboost)
+                 + dumps(codes, -1)), summedboost)
 
     def decode_character_boosts(self, valuestring):
-        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:] + b("."))
+        if not valuestring.endswith(b(".")):
+            valuestring += b(".")
+        codes = loads(valuestring[_INT_SIZE + _FLOAT_SIZE:])
         position = 0
         endchar = 0
         posn_char_boosts = []

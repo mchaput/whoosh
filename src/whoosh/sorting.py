@@ -231,6 +231,10 @@ class ColumnCategorizer(Categorizer):
 
 
 class ReversedColumnCategorizer(ColumnCategorizer):
+    """Categorizer that reverses column values for columns that aren't
+    naturally reversible.
+    """
+
     def __init__(self, global_searcher, fieldname):
         self._fieldname = fieldname
 
@@ -252,12 +256,16 @@ class ReversedColumnCategorizer(ColumnCategorizer):
 
 
 class PostingCategorizer(Categorizer):
-    """This object builds an array caching the order of all documents
-    according to the field, then uses the cached order as a numeric key.
-    This is useful when a field cache is not available, and also for
-    reversed fields (since field cache keys for non- numeric fields are
-    arbitrary data, it's not possible to "negate" them to reverse the sort
-    order).
+    """Categorizer for fields that don't store column values. This is very
+    inefficient. Instead of relying on this categorizer you should plan for
+    which fields you'll want to sort on and set ``sortable=True`` in their
+    field type.
+    
+    This object builds an array caching the order of all documents according to
+    the field, then uses the cached order as a numeric key. This is useful when
+    a field cache is not available, and also for reversed fields (since field
+    cache keys for non- numeric fields are arbitrary data, it's not possible to
+    "negate" them to reverse the sort order).
     """
 
     def __init__(self, global_searcher, fieldname, reverse):
@@ -708,7 +716,8 @@ class MultiFacet(FacetType):
 
     def add_facet(self, facet):
         if not isinstance(facet, FacetType):
-            raise Exception()
+            raise TypeError("%r is not a facet object, perhaps you meant "
+                            "add_field()" % (facet,))
         self.facets.append(facet)
         return self
 

@@ -57,10 +57,9 @@ VECTOR_COLUMN = columns.NumericColumn("I", default=0)
 STORED_COLUMN = columns.CompressedBytesColumn()
 
 
-class W3Codec(base.Codec):
+class W3Codec(base.CodecWithGraph):
     TERMS_EXT = ".trm"  # Term index
     POSTS_EXT = ".pst"  # Term postings
-    DAWG_EXT = ".dag"  # Spelling graph file
     VPOSTS_EXT = ".vps"  # Vector postings
     COLUMN_EXT = ".col"  # Per-document value columns
 
@@ -68,8 +67,6 @@ class W3Codec(base.Codec):
         self._blocklimit = blocklimit
         self._compression = compression
         self._inlinelimit = inlinelimit
-
-        self.stored_column = STORED_COLUMN
 
     # Per-document value writer
     def per_document_writer(self, storage, segment):
@@ -92,9 +89,7 @@ class W3Codec(base.Codec):
         postfile = segment.open_file(storage, self.POSTS_EXT)
         return W3TermsReader(tifile, postfile)
 
-    def graph_reader(self, storage, segment):
-        dawgfile = segment.open_file(storage, self.DAWG_EXT)
-        return GraphReader(dawgfile)
+    # Graph methods from CodecWithGraph
 
     # Columns
 
@@ -104,17 +99,7 @@ class W3Codec(base.Codec):
     # Segments and generations
 
     def new_segment(self, storage, indexname):
-        return W3Segment(indexname)
-
-    def commit_toc(self, storage, indexname, schema, segments, generation,
-                   clean=True):
-        from whoosh.index import TOC, clean_files
-
-        toc = TOC(schema, segments, generation)
-        toc.write(storage, indexname)
-        # Delete leftover files
-        if clean:
-            clean_files(storage, indexname, generation, segments)
+        return W3Segment(self, indexname)
 
 
 # Common functions
@@ -122,12 +107,14 @@ class W3Codec(base.Codec):
 def _vecfield(fieldname):
     return "_%s_vec" % fieldname
 
+
 def _lenfield(fieldname):
     return "_%s_len" % fieldname
 
+
 # Per-doc information writer
 
-class W3PerDocWriter(base.PerDocumentWriter):
+class W3PerDocWriter(base.PerDocWriterWithColumns):
     def __init__(self, storage, segment, blocklimit=128, compression=3):
         self._storage = storage
         self._segment = segment
@@ -137,7 +124,7 @@ class W3PerDocWriter(base.PerDocumentWriter):
         colfile = self._create_file(W3Codec.COLUMN_EXT)
         self._cols = compound.CompoundWriter(colfile)
         self._colwriters = {}
-        self._add_column("_stored", STORED_COLUMN)
+        self._create_column("_stored", STORED_COLUMN)
 
         self._fieldlengths = defaultdict(int)
         self._doccount = 0
@@ -156,13 +143,16 @@ class W3PerDocWriter(base.PerDocumentWriter):
     def _has_column(self, fieldname):
         return fieldname in self._colwriters
 
-    def _add_column(self, fieldname, column):
+    def _create_column(self, fieldname, column):
         writers = self._colwriters
         if fieldname in writers:
             raise Exception("Already added column %r" % fieldname)
 
         f = self._cols.create_file(fieldname)
         writers[fieldname] = column.writer(f)
+
+    def _get_column(self, fieldname):
+        return self._colwriters[fieldname]
 
     def _prep_vectors(self):
         self._vpostfile = self._create_file(W3Codec.VPOSTS_EXT)
@@ -182,24 +172,16 @@ class W3PerDocWriter(base.PerDocumentWriter):
         self._storedfields = {}
         self._indoc = True
 
-    def _add_length(self, fieldname, length):
-        lenfield = _lenfield(fieldname)
-        if not self._has_column(lenfield):
-            self._add_column(lenfield, LENGTHS_COLUMN)
-        self._colwriters[lenfield].add(self._docnum, length_to_byte(length))
-
     def add_field(self, fieldname, fieldobj, value, length):
-        if length:
-            self._add_length(fieldname, length)
-            self._fieldlengths[fieldname] += length
-
         if value is not None:
-            if fieldobj.column_type:
-                if not self._has_field(fieldname):
-                    self._add_field(fieldname, fieldobj.column_type)
-                self._colwriters[fieldname].add(self._docnum, value)
-
             self._storedfields[fieldname] = value
+        if length:
+            # Add byte to length column
+            lenfield = _lenfield(fieldname)
+            lb = length_to_byte(length)
+            self.add_column_value(lenfield, LENGTHS_COLUMN, lb)
+            # Add length to total field length
+            self._fieldlengths[fieldname] += length
 
     def add_vector_items(self, fieldname, fieldobj, items):
         if self._vpostfile is None:
@@ -212,18 +194,16 @@ class W3PerDocWriter(base.PerDocumentWriter):
         bwriter.start(W3TermInfo())
         for text, weight, vbytes in items:
             bwriter.add(text, weight, vbytes)
-        startoffset = bwriter.finish()
+        offset = bwriter.finish()
 
         # Add row to vector column
         vecfield = _vecfield(fieldname)
-        if not self._has_column(vecfield):
-            self._add_column(vecfield, VECTOR_COLUMN)
-        self._colwriters[vecfield].add(self._docnum, startoffset)
+        self.add_column_value(vecfield, VECTOR_COLUMN, offset)
 
     def finish_doc(self):
         sf = self._storedfields
         if sf:
-            self._colwriters["_stored"].add(self._docnum, dumps(sf, -1))
+            self.add_column_value("_stored", STORED_COLUMN, dumps(sf, -1))
             sf.clear()
         self._indoc = False
 
@@ -246,7 +226,7 @@ class W3PerDocWriter(base.PerDocumentWriter):
         self.is_closed = True
 
 
-class W3FieldWriter(base.FieldWriter):
+class W3FieldWriter(base.FieldWriterWithGraph):
     def __init__(self, storage, segment, blocklimit=128, compression=3,
                  inlinelimit=1):
         self._storage = storage
@@ -260,7 +240,6 @@ class W3FieldWriter(base.FieldWriter):
         self._token = None
         self._fieldobj = None
         self._format = None
-        self._spelling = None
 
         self._fieldmap = {}
         _tifile = self._create_file(W3Codec.TERMS_EXT)
@@ -269,19 +248,13 @@ class W3FieldWriter(base.FieldWriter):
 
         self._postfile = self._create_file(W3Codec.POSTS_EXT)
 
-        # We'll wait to create the DAWG builder until someone actually adds
-        # a spelled field
-        self._gwriter = None
-
         self._blockwriter = None
         self._terminfo = None
         self._infield = False
+        self.is_closed = False
 
     def _create_file(self, ext):
         return self._segment.create_file(self._storage, ext)
-
-    def _prep_dawg(self):
-        self._gwriter = GraphWriter(self._create_file(W3Codec.DAWG_EXT))
 
     def start_field(self, fieldname, fieldobj):
         fmap = self._fieldmap
@@ -296,18 +269,8 @@ class W3FieldWriter(base.FieldWriter):
         self._format = fieldobj.format
         self._infield = True
 
-        # True if this field is added to graph in any way
-        self._grfield = fieldobj.spelling or fieldobj.separate_spelling()
-        # True if the tokens should be added to the graph directly
-        self._grtokens = fieldobj.spelling and not fieldobj.separate_spelling()
-
-        # If we're adding this field to the graph, tell the graph writer to
-        # start a new field
-        if self._grfield:
-            if self._gwriter is None:
-                self._prep_dawg()
-            self._gwriter.start_field(fieldname)
-
+        # Set up graph for this field if necessary
+        self._start_graph_field(fieldname, fieldobj)
         # Start a new blockwriter for this field
         self._blockwriter = BlockWriter(self._postfile, self._format,
                                         self._blocklimit,
@@ -317,19 +280,13 @@ class W3FieldWriter(base.FieldWriter):
         if self._blockwriter is None:
             raise Exception("Called start_term before start_field")
         self._token = token
-        if self._grtokens:
-            self._gwriter.insert(token)
-
         self._terminfo = W3TermInfo()
         self._blockwriter.start(self._terminfo)
+        # Add the word to the graph if necessary
+        self._insert_graph_token(token)
 
     def add(self, docnum, weight, vbytes, length):
         self._blockwriter.add(docnum, weight, vbytes, length)
-
-    def add_spell_word(self, fieldname, token):
-        if self._gwriter is None:
-            self._prep_dawg()
-        self._gwriter.insert(token)
 
     def finish_term(self):
         blockwriter = self._blockwriter
@@ -346,26 +303,25 @@ class W3FieldWriter(base.FieldWriter):
         valbytes = terminfo.to_bytes(postings)
         self._tindex.add(keybytes, valbytes)
 
+    # FieldWriterWithGraph.add_spell_word
+
     def finish_field(self):
         if not self._infield:
             raise Exception("Called finish_field before start_field")
         self._infield = False
-
-        if self._grfield:
-            self._gwriter.finish_field()
-
         self._blockwriter = None
+        self._finish_graph_field()
 
     def close(self):
         self._tindex.close()
         self._postfile.close()
-        if self._gwriter is not None:
-            self._gwriter.close()
+        self._close_graph()
+        self.is_closed = True
 
 
 # Reader objects
 
-class W3PerDocReader(base.PerDocReader):
+class W3PerDocReader(base.PerDocumentReader):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -1067,18 +1023,17 @@ class W3TermInfo(TermInfo):
 # Segment implementation
 
 class W3Segment(base.Segment):
-    def __init__(self, indexname, doccount=0, segid=None, deleted=None):
-        self._indexname = indexname
+    def __init__(self, codec, indexname, doccount=0, segid=None, deleted=None):
+        self.indexname = indexname
+        self.segid = self._random_id() if segid is None else segid
+
+        self._codec = codec
         self._doccount = doccount
-        self._segid = self._random_id() if segid is None else segid
         self._deleted = deleted
         self.compound = False
 
     def codec(self, **kwargs):
-        return W3Codec(**kwargs)
-
-    def segment_id(self):
-        return self._segid
+        return self._codec
 
     def set_doc_count(self, dc):
         self._doccount = dc
@@ -1110,54 +1065,6 @@ class W3Segment(base.Segment):
             return False
         return docnum in self._deleted
 
-
-## Object that layers a growing update file over static column reader
-#
-#class StackedColumnReader(columns.ColumnReader):
-#    def __init__(self, storage, stackname, reader):
-#        self._storage = storage
-#        self._stackname = stackname
-#        self._reader = reader
-#        self._values = {}
-#
-#        self._bookmark = 0
-#        self.update()
-#
-#    def update(self):
-#        reader = self._reader
-#
-#        try:
-#            stackfile = self._storage.open_filename(self._stackname)
-#        except IOError:
-#            return
-#
-#        stackfile.seek(self._bookmark)
-#        updates = stackfile.read()
-#        self._bookmark = stackfile.tell()
-#        stackfile.close()
-#
-#        if updates:
-#            buf = StructFile(BytesIO(updates))
-#            while True:
-#                fieldid = buf.read(2)
-#                if not len(fieldid):
-#                    break
-#                fieldid = unpack_ushort(fieldid)[0]
-#                docnum = buf.read_uint()
-#                self._values[docnum] = reader.destack(buf)
-#
-#    def __len__(self):
-#        return len(self._reader)
-#
-#    def __getitem__(self, docnum):
-#        try:
-#            return self._values[docnum]
-#        except KeyError:
-#            return self._reader[docnum]
-#
-#    def __iter__(self):
-#        for docnum in xrange(len(self._reader)):
-#            yield self[docnum]
 
 
 

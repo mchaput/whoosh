@@ -32,7 +32,7 @@ from math import log
 from bisect import bisect_left, bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh import fst
+from whoosh import columns, fst
 from whoosh.compat import abstractmethod
 from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.filedb.filestore import OverlayStorage
@@ -44,6 +44,9 @@ from whoosh.system import emptybytes
 # Exceptions
 
 class TermNotFound(Exception):
+    pass
+
+class NoGraphError(Exception):
     pass
 
 
@@ -64,6 +67,21 @@ class TermInfo(object):
         self._maxweight = maxweight
         self._minid = minid
         self._maxid = maxid
+
+    def add_posting(self, docnum, weight, length=None):
+        if self._minid is None:
+            self._minid = docnum
+        self._maxid = docnum
+        self._weight += weight
+        self._df += 1
+        self._maxweight = max(self._maxweight, weight)
+
+        if length is not None:
+            if self._minlength is None:
+                self._minlength = length
+            else:
+                self._minlength = min(self._minlength, length)
+            self._maxlength = max(self._maxlength, length)
 
     def weight(self):
         """Returns the total frequency of the term across all documents.
@@ -251,6 +269,14 @@ class IndexReader(object):
         return (docnum for docnum in xrange(self.doc_count_all())
                 if not is_deleted(docnum))
 
+    def iter_docs(self):
+        """Yields a series of ``(docnum, stored_fields_dict)``
+        tuples for the undeleted documents in the reader.
+        """
+
+        for docnum in self.all_doc_ids():
+            yield docnum, self.stored_fields(docnum)
+
     @abstractmethod
     def is_deleted(self, docnum):
         """Returns True if the given document number is marked deleted.
@@ -348,10 +374,10 @@ class IndexReader(object):
         ``(fieldname, text, docnum, weight, valuestring)`` tuples.
         """
 
-        for fieldname, text in self.all_terms():
-            m = self.postings(fieldname, text)
+        for fieldname, token in self.all_terms():
+            m = self.postings(fieldname, token)
             while m.is_active():
-                yield (fieldname, text, m.id(), m.weight(), m.value())
+                yield (fieldname, token, m.id(), m.weight(), m.value())
                 m.next()
 
     @abstractmethod
@@ -540,17 +566,16 @@ class SegmentReader(IndexReader):
         else:
             self._files = storage
 
-        self._codec = codec if codec else segment.codec()
-
         # Get subreaders from codec
+        self._codec = codec if codec else segment.codec()
         self._terms = self._codec.terms_reader(self._files, segment)
         self._perdoc = self._codec.per_document_reader(self._files, segment)
-        self._graph = None  # Lazy open with self._open_dawg()
+        self._graph = None  # Lazy open with self._get_graph()
 
-    def _open_dawg(self):
-        if self._graph:
-            return
-        self._graph = self._codec.graph_reader(self._files, self._segment)
+    def _get_graph(self):
+        if not self._graph:
+            self._graph = self._codec.graph_reader(self._files, self._segment)
+        return self._graph
 
     def has_deletions(self):
         return self._perdoc.has_deletions()
@@ -568,7 +593,8 @@ class SegmentReader(IndexReader):
         return self._gen
 
     def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, self._segment)
+        return "%s(%r, %r)" % (self.__class__.__name__, self._storage,
+                               self._segment)
 
     def __contains__(self, term):
         fieldname, text = term
@@ -582,7 +608,12 @@ class SegmentReader(IndexReader):
         self._perdoc.close()
         if self._graph:
             self._graph.close()
-        self._files.close()
+
+        # It's possible some weird codec that doesn't use storage might have
+        # passed None instead of a storage object
+        if self._files:
+            self._files.close()
+
         self.is_closed = True
 
     def stored_fields(self, docnum):
@@ -592,8 +623,13 @@ class SegmentReader(IndexReader):
         # Double-check with schema to filter out removed fields
         return dict(item for item in iteritems(sfs) if item[0] in schema)
 
+    # Delegate doc methods to the per-doc reader
+
     def all_doc_ids(self):
         return self._perdoc.all_doc_ids()
+
+    def iter_docs(self):
+        return self._perdoc.iter_docs()
 
     def all_stored_fields(self):
         return self._perdoc.all_stored_fields()
@@ -612,6 +648,8 @@ class SegmentReader(IndexReader):
 
     def has_vector(self, docnum, fieldname):
         return self._perdoc.has_vector(docnum, fieldname)
+
+    #
 
     def _test_field(self, fieldname):
         if fieldname not in self.schema:
@@ -700,31 +738,34 @@ class SegmentReader(IndexReader):
             raise Exception("No vectors are stored for field %r" % fieldname)
         return self._perdoc.vector(docnum, fieldname, vformat)
 
-    # DAWG methods
+    # Graph methods
 
     def has_word_graph(self, fieldname):
         if fieldname not in self.schema:
             return False
         if not self.schema[fieldname].spelling:
             return False
+
         try:
-            self._open_dawg()
-        except (NameError, IOError, fst.FileVersionError):
+            gr = self._get_graph()
+        except NoGraphError:
             return False
-        return self._graph.has_root(fieldname)
+
+        return gr.has_root(fieldname)
 
     def word_graph(self, fieldname):
         if not self.has_word_graph(fieldname):
             raise KeyError("No word graph for field %r" % fieldname)
-        return fst.Node(self._graph, self._graph.root(fieldname))
+        gr = self._get_graph()
+        return fst.Node(gr, gr.root(fieldname))
 
     def terms_within(self, fieldname, text, maxdist, prefix=0):
         if not self.has_word_graph(fieldname):
             # This reader doesn't have a graph stored, use the slow method
             return IndexReader.terms_within(self, fieldname, text, maxdist,
                                             prefix=prefix)
-
-        return fst.within(self._graph, text, k=maxdist, prefix=prefix,
+        gr = self._get_graph()
+        return fst.within(gr, text, k=maxdist, prefix=prefix,
                            address=self._graph.root(fieldname))
 
     # Column methods
@@ -733,9 +774,14 @@ class SegmentReader(IndexReader):
         coltype = self.schema[fieldname].column_type
         return coltype and self._perdoc.has_column(fieldname)
 
-    def column_reader(self, fieldname):
-        column = self.schema[fieldname].column_type
-        return self._perdoc.column_reader(fieldname, column)
+    def column_reader(self, fieldname, column=None):
+        fieldobj = self.schema[fieldname]
+        column = column or fieldobj.column_type
+        reader = self._perdoc.column_reader(fieldname, column)
+
+        translate = fieldobj.from_column_value
+        reader = columns.TranslatingColumnReader(reader, translate)
+        return reader
 
 
 # Fake IndexReader class for empty indexes
@@ -826,9 +872,6 @@ class MultiReader(IndexReader):
     """Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def is_atomic(self):
-        return False
-
     def __init__(self, readers, generation=None):
         self.readers = readers
         self._gen = generation
@@ -844,9 +887,6 @@ class MultiReader(IndexReader):
 
         self.is_closed = False
 
-    def __contains__(self, term):
-        return any(r.__contains__(term) for r in self.readers)
-
     def _document_segment(self, docnum):
         return max(0, bisect_right(self.doc_offsets, docnum) - 1)
 
@@ -854,6 +894,12 @@ class MultiReader(IndexReader):
         segmentnum = self._document_segment(docnum)
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
+
+    def is_atomic(self):
+        return False
+
+    def leaf_readers(self):
+        return zip_(self.readers, self.doc_offsets)
 
     def add_reader(self, reader):
         self.readers.append(reader)
@@ -867,6 +913,23 @@ class MultiReader(IndexReader):
 
     def generation(self):
         return self._gen
+
+    def format(self, fieldname):
+        for r in self.readers:
+            fmt = r.format(fieldname)
+            if fmt is not None:
+                return fmt
+
+    def vector_format(self, fieldname):
+        for r in self.readers:
+            vfmt = r.vector_format(fieldname)
+            if vfmt is not None:
+                return vfmt
+
+    # Term methods
+
+    def __contains__(self, term):
+        return any(r.__contains__(term) for r in self.readers)
 
     def _merge_terms(self, iterlist):
         # Merge-sorts terms coming from a list of term iterators.
@@ -953,6 +1016,47 @@ class MultiReader(IndexReader):
 
         return TermInfo(w, df, ml, xl, xw, mid, xid)
 
+    def frequency(self, fieldname, text):
+        return sum(r.frequency(fieldname, text) for r in self.readers)
+
+    def doc_frequency(self, fieldname, text):
+        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
+
+    def postings(self, fieldname, text, scorer=None):
+        postreaders = []
+        docoffsets = []
+        term = (fieldname, text)
+
+        for i, r in enumerate(self.readers):
+            if term in r:
+                offset = self.doc_offsets[i]
+
+                # Get a posting reader for the term and add it to the list
+                pr = r.postings(fieldname, text, scorer=scorer)
+                postreaders.append(pr)
+                docoffsets.append(offset)
+
+        if not postreaders:
+            raise TermNotFound(fieldname, text)
+        else:
+            return MultiMatcher(postreaders, docoffsets)
+
+    def first_id(self, fieldname, text):
+        for i, r in enumerate(self.readers):
+            try:
+                id = r.first_id(fieldname, text)
+            except (KeyError, TermNotFound):
+                pass
+            else:
+                if id is None:
+                    raise TermNotFound((fieldname, text))
+                else:
+                    return self.doc_offsets[i] + id
+
+        raise TermNotFound((fieldname, text))
+
+    # Deletion methods
+
     def has_deletions(self):
         return any(r.has_deletions() for r in self.readers)
 
@@ -963,6 +1067,8 @@ class MultiReader(IndexReader):
     def stored_fields(self, docnum):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].stored_fields(segmentdoc)
+
+    # Per doc methods
 
     def all_stored_fields(self):
         for reader in self.readers:
@@ -989,41 +1095,6 @@ class MultiReader(IndexReader):
         reader = self.readers[segmentnum]
         return reader.doc_field_length(segmentdoc, fieldname, default=default)
 
-    # max_field_length
-
-    def first_id(self, fieldname, text):
-        for i, r in enumerate(self.readers):
-            try:
-                id = r.first_id(fieldname, text)
-            except (KeyError, TermNotFound):
-                pass
-            else:
-                if id is None:
-                    raise TermNotFound((fieldname, text))
-                else:
-                    return self.doc_offsets[i] + id
-
-        raise TermNotFound((fieldname, text))
-
-    def postings(self, fieldname, text, scorer=None):
-        postreaders = []
-        docoffsets = []
-        term = (fieldname, text)
-
-        for i, r in enumerate(self.readers):
-            if term in r:
-                offset = self.doc_offsets[i]
-
-                # Get a posting reader for the term and add it to the list
-                pr = r.postings(fieldname, text, scorer=scorer)
-                postreaders.append(pr)
-                docoffsets.append(offset)
-
-        if not postreaders:
-            raise TermNotFound(fieldname, text)
-        else:
-            return MultiMatcher(postreaders, docoffsets)
-
     def has_vector(self, docnum, fieldname):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].has_vector(segmentdoc, fieldname)
@@ -1036,6 +1107,8 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].vector_as(astype, segmentdoc,
                                                   fieldname)
+
+    # Graph methods
 
     def has_word_graph(self, fieldname):
         return any(r.has_word_graph(fieldname) for r in self.readers)
@@ -1062,29 +1135,27 @@ class MultiReader(IndexReader):
                                        prefix=prefix))
         return tset
 
-    def format(self, fieldname):
+    # Column methods
+
+    def has_column(self, fieldname):
+        return any(r.has_column(fieldname) for r in self.readers)
+
+    def column_reader(self, fieldname):
+        column = self.schema[fieldname].column_type
+        if not column:
+            raise Exception("Field %r has no column type" % (fieldname,))
+        default = column.default_value()
+        doccount = self.doc_count_all()
+
+        creaders = []
         for r in self.readers:
-            fmt = r.format(fieldname)
-            if fmt is not None:
-                return fmt
+            if r.has_column(fieldname):
+                creaders.append(r.column_reader(fieldname))
+            else:
+                creaders.append(columns.EmptyColumnReader(default, doccount))
 
-    def vector_format(self, fieldname):
-        for r in self.readers:
-            vfmt = r.vector_format(fieldname)
-            if vfmt is not None:
-                return vfmt
+        return columns.MultiColumnReader(creaders)
 
-    def frequency(self, fieldname, text):
-        return sum(r.frequency(fieldname, text) for r in self.readers)
-
-    def doc_frequency(self, fieldname, text):
-        return sum(r.doc_frequency(fieldname, text) for r in self.readers)
-
-    # most_frequent_terms
-    # most_distinctive_terms
-
-    def leaf_readers(self):
-        return zip_(self.readers, self.doc_offsets)
 
 
 

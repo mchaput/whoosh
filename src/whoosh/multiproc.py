@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from __future__ import with_statement
 import os, tempfile
 from multiprocessing import Process, Queue, cpu_count
 
@@ -45,8 +46,8 @@ def finish_subsegment(writer, k=64):
 
     # The filename of the single remaining run
     runname = writer.pool.runs[0]
-    # The segment ID (parent can use this to re-open the files created
-    # by my sub-writer)
+    # The segment object (parent can use this to re-open the files created
+    # by the sub-writer)
     segment = writer._partial_segment()
 
     return runname, segment
@@ -115,10 +116,7 @@ class SubWriterTask(Process):
             if multisegment:
                 # Actually finish the segment and return it with no run
                 runname = None
-                writer._flush_segment()
-                writer._close_segment()
-                writer._assemble_segment()
-                segment = writer.get_segment()
+                segment = writer._finalize_segment()
             else:
                 # Merge all runs in the writer's pool into one run, close the
                 # segment, and return the run name and the segment
@@ -240,7 +238,7 @@ class MpWriter(SegmentWriter):
             return ((fname, text, docnum + offset, weight, value)
                     for fname, text, docnum, weight, value in gen)
 
-    def commit(self, mergetype=None, optimize=False, merge=True):
+    def commit(self, mergetype=None, optimize=None, merge=None):
         if self._added_sub:
             # If documents have been added to sub-writers, use the parallel
             # merge commit code
@@ -275,16 +273,13 @@ class MpWriter(SegmentWriter):
             if self.multisegment:
                 finalsegments += [s for _, s in results]
                 if self._added:
-                    self._flush_segment()
-                    self._close_segment()
-                    self._assemble_segment()
-                    finalsegments.append(self.get_segment())
+                    finalsegments.append(self._finalize_segment())
                 else:
                     self._close_segment()
             else:
                 # Merge the posting sources from the sub-writers and my
                 # postings into this writer
-                self._merge_subsegments(results, mergetype, optimize, merge)
+                self._merge_subsegments(results, mergetype)
                 self._close_segment()
                 self._assemble_segment()
                 finalsegments.append(self.get_segment())
@@ -292,54 +287,38 @@ class MpWriter(SegmentWriter):
         finally:
             self._finish()
 
-    def _merge_subsegments(self, results, mergetype, optimize, merge):
-        schema = self.schema
+    def _merge_subsegments(self, results, mergetype):
         storage = self.storage
         codec = self.codec
-
-        # Merge per-document information
-        pdw = self.perdocwriter
-        # A list to remember field length readers for each sub-segment (we'll
-        # re-use them below)
-        pdreaders = []
-
-        basedoc = self.docnum
-        for _, segment in results:
-            # Create a per doc reader for the sub-segment
-            pdreader = codec.per_document_reader(storage, segment)
-            # Remember it in the list for later
-            pdreaders.append(pdreader)
-
-            # Merge the per-document values
-            docmap, newbasedoc = self._make_docmap(pdreader, basedoc)
-            self._merge_per_doc(schema, pdreader, docmap, basedoc)
-            basedoc = newbasedoc
+        sources = []
 
         # If information was added to this writer the conventional (e.g.
         # through add_reader or merging segments), add it as an extra source
         if self._added:
-            sources = [self.pool.iter_postings()]
-        else:
-            sources = []
+            sources.append(self.pool.iter_postings())
 
-        # Add iterators from the run filenames
-        basedoc = self.docnum
+        pdrs = []
         for runname, segment in results:
+            pdr = codec.per_document_reader(storage, segment)
+            pdrs.append(pdr)
+            basedoc = self.docnum
+            docmap = self.write_per_doc(pdr)
+            assert docmap is None
+
             items = self._read_and_renumber_run(runname, basedoc)
             sources.append(items)
-            basedoc += segment.doc_count_all()
-        self.docnum = basedoc
 
         # Create a MultiLengths object combining the length files from the
         # subtask segments
-        pdw.close()
-        pdreaders.insert(0, self.per_document_reader())
-        mlens = base.MultiPerDocReader(pdreaders)
+        self.perdocwriter.close()
+        pdrs.insert(0, self.per_document_reader())
+        mpdr = base.MultiPerDocumentReader(pdrs)
+
         try:
             # Merge the iterators into the field writer
-            self.fieldwriter.add_postings(schema, mlens, imerge(sources))
+            self.fieldwriter.add_postings(self.schema, mpdr, imerge(sources))
         finally:
-            mlens.close()
+            mpdr.close()
         self._added = True
 
 
@@ -371,7 +350,7 @@ class SerialMpWriter(MpWriter):
             results = []
             for writer in self.tasks:
                 results.append(finish_subsegment(writer))
-            self._merge_subsegments(results, mergetype, optimize, merge)
+            self._merge_subsegments(results, mergetype)
             self._close_segment()
             self._assemble_segment()
             finalsegments.append(self.get_segment())

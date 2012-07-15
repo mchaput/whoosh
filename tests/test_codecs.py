@@ -4,7 +4,7 @@ from array import array
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh import fields, formats
+from whoosh import analysis, fields, formats, query
 from whoosh.compat import u, b, text_type
 from whoosh.compat import array_tobytes, xrange
 from whoosh.codec import default_codec
@@ -544,5 +544,158 @@ def test_special_spelled_field():
 
     cur = codec.graph_reader(st, seg).cursor("text")
     assert_equal(list(cur.flatten_strings()), ["specials", "specifically"])
+
+
+def test_plaintext_codec():
+    from whoosh.codec.plaintext import PlainTextCodec
+
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(a=fields.TEXT(vector=True, sortable=True),
+                           b=fields.STORED,
+                           c=fields.NUMERIC(stored=True, sortable=True),
+                           d=fields.TEXT(analyzer=ana, spelling=True))
+
+    st = RamStorage()
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=u("alfa bravo charlie"), b="hello", c=100,
+                       d=u("quelling whining echoing"))
+        w.add_document(a=u("bravo charlie delta"), b=1000, c=200,
+                       d=u("rolling timing yelling"))
+        w.add_document(a=u("charlie delta echo"), b=5.5, c=300,
+                       d=u("using opening pulling"))
+        w.add_document(a=u("delta echo foxtrot"), b=True, c= -100,
+                       d=u("aching selling dipping"))
+        w.add_document(a=u("echo foxtrot india"), b=None, c= -200,
+                       d=u("filling going hopping"))
+
+    with ix.reader() as r:
+        assert r.has_column("a")
+        c = r.column_reader("a")
+        assert_equal(c[2], u("charlie delta echo"))
+
+    w = ix.writer(codec=PlainTextCodec())
+    w.commit(optimize=True)
+
+    with ix.searcher() as s:
+        reader = s.reader()
+
+        r = s.search(query.Term("a", "delta"))
+        assert_equal(len(r), 3)
+        assert_equal([hit["b"] for hit in r], [1000, 5.5, True])
+
+        assert_equal(" ".join(s.lexicon("a")),
+                     "alfa bravo charlie delta echo foxtrot india")
+
+        assert_equal(reader.doc_field_length(2, "a"), 3)
+
+        c_values = [v for _, v in schema["c"].sortable_values(reader, "c")]
+        assert_equal(c_values, [-200, -100, 100, 200, 300])
+
+        assert reader.has_column("a")
+        c = reader.column_reader("a")
+        assert_equal(c[2], u("charlie delta echo"))
+
+        assert reader.has_column("c")
+        c = reader.column_reader("c")
+        assert_equal(list(c), [100, 200, 300, -100, -200])
+
+        assert s.has_vector(2, "a")
+        v = s.vector(2, "a")
+        assert_equal(" ".join(v.all_ids()), "charlie delta echo")
+
+
+def test_memory_codec():
+    from whoosh.codec import memory
+    from whoosh.searching import Searcher
+
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(a=fields.TEXT(vector=True),
+                           b=fields.STORED,
+                           c=fields.NUMERIC(stored=True, sortable=True),
+                           d=fields.TEXT(analyzer=ana, spelling=True))
+
+    codec = memory.MemoryCodec()
+    with codec.writer(schema) as w:
+        w.add_document(a=u("alfa bravo charlie"), b="hello", c=100,
+                       d=u("quelling whining echoing"))
+        w.add_document(a=u("bravo charlie delta"), b=1000, c=200,
+                       d=u("rolling timing yelling"))
+        w.add_document(a=u("charlie delta echo"), b=5.5, c=300,
+                       d=u("using opening pulling"))
+        w.add_document(a=u("delta echo foxtrot"), b=True, c= -100,
+                       d=u("aching selling dipping"))
+        w.add_document(a=u("echo foxtrot india"), b=None, c= -200,
+                       d=u("filling going hopping"))
+
+    reader = codec.reader(schema)
+    s = Searcher(reader)
+
+    assert ("a", "delta") in reader
+    q = query.Term("a", "delta")
+    r = s.search(q)
+    assert_equal(len(r), 3)
+    assert_equal([hit["b"] for hit in r], [1000, 5.5, True])
+
+    assert_equal(" ".join(s.lexicon("a")),
+                 "alfa bravo charlie delta echo foxtrot india")
+
+    c_values = [v for _, v in schema["c"].sortable_values(reader, "c")]
+    assert_equal(c_values, [-200, -100, 100, 200, 300])
+
+    c_values = list(reader.column_reader("c"))
+    assert_equal(c_values, [100, 200, 300, -100, -200])
+
+    assert s.has_vector(2, "a")
+    v = s.vector(2, "a")
+    assert_equal(" ".join(v.all_ids()), "charlie delta echo")
+
+    assert reader.has_word_graph("d")
+    gr = reader.word_graph("d")
+    assert_equal(" ".join(gr.flatten()),
+                 "aching dipping echoing filling going hopping opening "
+                 "pulling quelling rolling selling timing using whining "
+                 "yelling")
+
+
+def test_memory_multiwrite():
+    from whoosh.codec import memory
+
+    domain = ["alfa bravo charlie delta",
+              "bravo charlie delta echo",
+              "charlie delta echo foxtrot",
+              "delta echo foxtrot india",
+              "echo foxtrot india juliet"]
+
+    schema = fields.Schema(line=fields.TEXT(stored=True))
+    codec = memory.MemoryCodec()
+
+    for line in domain:
+        with codec.writer(schema) as w:
+            w.add_document(line=u(line))
+
+    reader = codec.reader(schema)
+    assert_equal([sf["line"] for sf in reader.all_stored_fields()], domain)
+    assert_equal(" ".join(reader.lexicon("line")),
+                 "alfa bravo charlie delta echo foxtrot india juliet")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

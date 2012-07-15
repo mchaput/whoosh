@@ -882,10 +882,64 @@ def test_groupby_phrase():
         assert_equal(keys, ["London", "Paris", "San Francisco", "Tel Aviv"])
 
 
+def test_sort_text_field():
+    domain = (("Visual Display of Quantitative Information, The", 10),
+              ("Envisioning Information", 10),
+              ("Visual Explanations", 10),
+              ("Beautiful Evidence", -10),
+              ("Visual and Statistical Thinking", -10),
+              ("Cognitive Style of Powerpoint", -10))
+    sorted_titles = sorted(d[0] for d in domain)
 
+    schema = fields.Schema(title=fields.TEXT(stored=True, sortable=True),
+                           num=fields.NUMERIC(sortable=True))
 
+    def test(ix):
+        with ix.searcher() as s:
+            # Sort by title
+            r = s.search(query.Every(), sortedby="title")
+            assert_equal([hit["title"] for hit in r], sorted_titles)
 
+            # Sort by reverse title
+            facet = sorting.FieldFacet("title", reverse=True)
+            r = s.search(query.Every(), sortedby=facet)
+            assert_equal([hit["title"] for hit in r],
+                         list(reversed(sorted_titles)))
 
+            # Sort by num (-10 to 10) first, and within that, by reverse title
+            facet = sorting.MultiFacet()
+            facet.add_field("num")
+            facet.add_field("title", reverse=True)
+
+            r = s.search(query.Every(), sortedby=facet)
+            assert_equal([hit["title"] for hit in r],
+                         ["Visual and Statistical Thinking",
+                          "Cognitive Style of Powerpoint",
+                          "Beautiful Evidence",
+                          "Visual Explanations",
+                          "Visual Display of Quantitative Information, The",
+                          "Envisioning Information",
+                          ])
+
+    # Single segment
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for title, num in domain:
+            w.add_document(title=u(title), num=num)
+    test(ix)
+
+    # Multisegment
+    ix = RamStorage().create_index(schema)
+    # Segment 1
+    with ix.writer() as w:
+        for title, num in domain[:3]:
+            w.add_document(title=u(title), num=num)
+    # Segment 2
+    with ix.writer() as w:
+        for title, num in domain[3:]:
+            w.add_document(title=u(title), num=num)
+        w.merge = False
+    test(ix)
 
 
 
