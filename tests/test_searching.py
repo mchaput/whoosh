@@ -1397,7 +1397,34 @@ def test_collapse_order():
               "h b l i k d")
 
 
+def test_coord():
+    schema = fields.Schema(id=fields.STORED, hits=fields.STORED,
+                           tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, hits=0, tags=u("blah blah blah blah"))
+        w.add_document(id=1, hits=0, tags=u("echo echo blah blah"))
+        w.add_document(id=2, hits=1, tags=u("bravo charlie delta echo"))
+        w.add_document(id=3, hits=2, tags=u("charlie delta echo foxtrot"))
+        w.add_document(id=4, hits=3, tags=u("delta echo foxtrot golf"))
+        w.add_document(id=5, hits=3, tags=u("echo foxtrot golf hotel"))
+        w.add_document(id=6, hits=2, tags=u("foxtrot golf hotel india"))
+        w.add_document(id=7, hits=1, tags=u("golf hotel india juliet"))
+        w.add_document(id=8, hits=0, tags=u("foxtrot foxtrot foo foo"))
+        w.add_document(id=9, hits=0, tags=u("foo foo foo foo"))
 
+    og = qparser.OrGroup.factory(0.9)
+    qp = qparser.QueryParser("tags", schema, group=og)
+    q = qp.parse("golf foxtrot echo")
+    assert_equal(q.__class__, query.Or)
+    assert_equal(q.scale, 0.9)
+
+    with ix.searcher() as s:
+        r = s.search(q, optimize=False)
+        for hit in r:
+            print hit["id"], hit.score
+
+        assert_equal([hit["id"] for hit in r], [4, 5, 3, 6, 1, 8, 2, 7])
 
 
 

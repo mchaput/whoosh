@@ -129,9 +129,15 @@ class UnionMatcher(AdditiveBiMatcher):
 
         # If neither sub-matcher on its own has a high enough max quality to
         # contribute, convert to an intersection matcher
-        if (minquality and a_active and b_active
-            and a.max_quality() < minquality and b.max_quality() < minquality):
-            return IntersectionMatcher(a, b).replace(minquality)
+        if minquality and a_active and b_active:
+            a_max = a.max_quality()
+            b_max = b.max_quality()
+            if a_max < minquality and b_max < minquality:
+                return IntersectionMatcher(a, b).replace(minquality)
+            elif a_max < minquality:
+                return AndMaybeMatcher(b, a)
+            elif b_max < minquality:
+                return AndMaybeMatcher(a, b)
 
         # If one or both of the sub-matchers are inactive, convert
         if not (a_active or b_active):
@@ -361,9 +367,6 @@ class DisjunctionMaxMatcher(UnionMatcher):
         else:
             return self
 
-    def max_quality(self):
-        return max(self.a.max_quality(), self.b.max_quality())
-
     def score(self):
         if not self.a.is_active():
             return self.b.score()
@@ -371,6 +374,9 @@ class DisjunctionMaxMatcher(UnionMatcher):
             return self.a.score()
         else:
             return max(self.a.score(), self.b.score())
+
+    def max_quality(self):
+        return max(self.a.max_quality(), self.b.max_quality())
 
     def block_quality(self):
         return max(self.a.block_quality(), self.b.block_quality())

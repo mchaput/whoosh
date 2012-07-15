@@ -34,8 +34,7 @@ from whoosh.compat import b, bytes_type, string_type, integer_types
 from whoosh.compat import dumps, loads, iteritems
 from whoosh.codec import base
 from whoosh.filedb import compound, filetables
-from whoosh.fst import GraphWriter, GraphReader
-from whoosh.matching import ListMatcher, ReadTooFar
+from whoosh.matching import ListMatcher, ReadTooFar, LeafMatcher
 from whoosh.reading import TermInfo, TermNotFound
 from whoosh.system import emptybytes
 from whoosh.system import _SHORT_SIZE, _INT_SIZE, _LONG_SIZE, _FLOAT_SIZE
@@ -426,7 +425,7 @@ class W3PerDocReader(base.PerDocumentReader):
         if self._vpostfile is None:
             self._prep_vectors()
         offset = self._vector_offset(docnum, fieldname)
-        m = W3PostingMatcher(self._vpostfile, offset, format_, byteids=True)
+        m = W3LeafMatcher(self._vpostfile, offset, format_, byteids=True)
         return m
 
     # Stored fields
@@ -509,8 +508,8 @@ class W3TermsReader(base.TermsReader):
         term = (fieldname, tbytes)
         if isinstance(p, integer_types):
             # p is an offset into the posting file
-            pr = W3PostingMatcher(self._postfile, p, format_, scorer=scorer,
-                                  term=term)
+            pr = W3LeafMatcher(self._postfile, p, format_, scorer=scorer,
+                               term=term)
         else:
             # p is an inlined tuple of (ids, weights, values)
             docids, weights, values = p
@@ -521,115 +520,6 @@ class W3TermsReader(base.TermsReader):
     def close(self):
         self._tindex.close()
         self._postfile.close()
-
-
-# Posting matcher
-
-class W3PostingMatcher(base.FilePostingMatcher):
-    def __init__(self, postfile, startoffset, format_, scorer=None, term=None,
-                 byteids=False):
-        self._postfile = postfile
-        self._startoffset = startoffset
-        self.format = format_
-        self.scorer = scorer
-        self._term = term
-        self._byteids = byteids
-
-        postfile.seek(startoffset)
-        magic = postfile.read(4)
-        if magic != WHOOSH3_HEADER_MAGIC:
-            raise Exception("Can't read a block with signature %r" % magic)
-
-        self._blockcount = postfile.read_uint()
-        self._baseoffset = postfile.tell()
-        self._currentblock = 0
-        self._i = 0
-
-        self._blockreader = BlockReader(postfile, self._baseoffset, format_,
-                                        byteids)
-
-    def is_active(self):
-        return (self._currentblock < self._blockcount
-                and self._i < len(self._blockreader))
-
-    def id(self):
-        return self._blockreader.id(self._i)
-
-    def weight(self):
-        return self._blockreader.weight(self._i)
-
-    def value(self):
-        return self._blockreader.value(self._i)
-
-    def next(self):
-        if self._i == len(self._blockreader) - 1:
-            self._next_block()
-            return True
-        else:
-            self._i += 1
-            return False
-
-    def _next_block(self):
-        if self._currentblock >= self._blockcount:
-            raise Exception("No next block")
-
-        self._currentblock += 1
-        if self._currentblock == self._blockcount:
-            # Reached the end of the postings
-            return
-
-        self._blockreader.next_block()
-        self._i = 0
-
-    def skip_to(self, targetid):
-        if not self.is_active():
-            raise ReadTooFar
-        i = self._i
-        br = self._blockreader
-
-        # If we're already at or past target ID, do nothing
-        if targetid <= br.id(i):
-            return
-
-        # Skip to the block that would contain the target ID
-        if targetid > br.max_id():
-            self._skip_to_block(lambda: targetid > br.max_id())
-        if not self.is_active():
-            return
-
-        # Iterate through the IDs in the block until we find or pass the
-        # target
-        ids = br.all_ids()
-        i = self._i
-        while ids[i] < targetid:
-            i += 1
-            if i == len(ids):
-                # This should never happen
-                self._next_block()
-                return
-        self._i = i
-
-    def skip_to_quality(self, minquality):
-        bq = self.block_quality
-        if bq() > minquality:
-            return 0
-        return self._skip_to_block(lambda: bq() <= minquality)
-
-    def _skip_to_block(self, targetfn):
-        skipped = 0
-        while self.is_active() and targetfn():
-            self._next_block()
-            skipped += 1
-        return skipped
-
-    def block_min_length(self):
-        return self._blockreader.min_length()
-
-    def block_max_length(self):
-        return self._blockreader.max_length()
-
-    def block_max_weight(self):
-        return self._blockreader.max_weight()
 
 
 # Support objects
@@ -704,7 +594,7 @@ class BlockWriter(object):
             if length > self._maxlength:
                 self._maxlength = length
 
-        if len(self._ids) > self._blocklimit:
+        if len(self._ids) >= self._blocklimit:
             self._write_block()
 
     def finish_inline(self):
@@ -799,28 +689,49 @@ class BlockWriter(object):
         self.new_block()
 
 
-class BlockReader(object):
-    def __init__(self, postfile, baseoffset, format_, byteids=False):
+class W3LeafMatcher(LeafMatcher):
+    def __init__(self, postfile, startoffset, format_, scorer=None,
+                 term=None, byteids=False):
         self._postfile = postfile
-        self._fixedsize = format_.fixed_value_size()
+        self._startoffset = startoffset
+        self.format = format_
+        self.scorer = scorer
+        self._term = term
         self._byteids = byteids
 
-        self._postcount = None
+        self._fixedsize = format_.fixed_value_size()
+        self._read_header()
+        self.reset()
+
+    def _read_header(self):
+        postfile = self._postfile
+
+        postfile.seek(self._startoffset)
+        magic = postfile.read(4)
+        if magic != WHOOSH3_HEADER_MAGIC:
+            raise Exception("Can't read a block with signature %r" % magic)
+        self._blockcount = postfile.read_uint()
+        self._baseoffset = postfile.tell()
+
+    def reset(self):
+        self._blocklength = None
         self._maxid = None
         self._maxweight = None
         self._compression = None
         self._minlength = None
         self._maxlength = None
 
-        self.go_to(baseoffset)
+        self._currentblock = 0
+        self._goto(self._baseoffset)
 
-    def go_to(self, position):
+    def _goto(self, position):
         postfile = self._postfile
 
         self._data = None
         self._ids = None
         self._weights = None
         self._values = None
+        self._i = 0
 
         postfile.seek(position)
         length = postfile.read_int()
@@ -828,50 +739,91 @@ class BlockReader(object):
         info = postfile.read_pickle()
         self._dataoffset = postfile.tell()
 
-        (self._postcount, self._maxid, self._maxweight, self._compression,
+        (self._blocklength, self._maxid, self._maxweight, self._compression,
          mnlen, mxlen) = info
         self._minlength = byte_to_length(mnlen)
         self._maxlength = byte_to_length(mxlen)
 
-    def next_block(self):
-        self.go_to(self._nextoffset)
+    def _next_block(self):
+        if self._currentblock >= self._blockcount:
+            raise Exception("No next block")
+        self._currentblock += 1
+        if self._currentblock == self._blockcount:
+            # Reached the end of the postings
+            return
+        self._goto(self._nextoffset)
 
-    def __len__(self):
-        return self._postcount
+    def _skip_to_block(self, skipwhile):
+        skipped = 0
+        while self.is_active() and skipwhile():
+            self._next_block()
+            skipped += 1
+        return skipped
 
-    def id(self, n):
+    def is_active(self):
+        return (self._currentblock < self._blockcount
+                and self._i < self._blocklength)
+
+    def id(self):
         if self._ids is None:
             self._read_ids()
-        return self._ids[n]
+        return self._ids[self._i]
 
-    def all_ids(self):
-        if self._ids is None:
-            self._read_ids()
-        return self._ids
+    def next(self):
+        self._i += 1
+        if self._i == self._blocklength:
+            self._next_block()
+            return True
+        else:
+            return False
 
-    def weight(self, n):
+    def skip_to(self, targetid):
+        if not self.is_active():
+            raise ReadTooFar
+
+        # If we're already at or past target ID, do nothing
+        if targetid <= self.id():
+            return
+
+        # Skip to the block that would contain the target ID
+        block_max_id = self.block_max_id
+        if targetid > block_max_id():
+            self._skip_to_block(lambda: targetid > block_max_id())
+
+        # Iterate through the IDs in the block until we find or pass the
+        # target
+        while self.is_active() and self.id() < targetid:
+            self.next()
+
+    def skip_to_quality(self, minquality):
+        block_quality = self.block_quality
+        if block_quality() > minquality:
+            return 0
+        return self._skip_to_block(lambda: block_quality() <= minquality)
+
+    def weight(self):
         if self._weights is None:
             self._read_weights()
-        return self._weights[n]
+        return self._weights[self._i]
 
-    def value(self, n):
+    def value(self):
         if self._values is None:
             self._read_values()
-        return self._values[n]
+        return self._values[self._i]
 
-    def min_id(self):
+    def block_min_id(self):
         return self.id(0)
 
-    def max_id(self):
+    def block_max_id(self):
         return self._maxid
 
-    def min_length(self):
+    def block_min_length(self):
         return self._minlength
 
-    def max_length(self):
+    def block_max_length(self):
         return self._maxlength
 
-    def max_weight(self):
+    def block_max_weight(self):
         return self._maxweight
 
     def _read_data(self):
@@ -895,7 +847,7 @@ class BlockReader(object):
     def _read_weights(self):
         if self._data is None:
             self._read_data()
-        postcount = self._postcount
+        postcount = self._blocklength
         wts = self._data[1]
 
         if wts is None:
@@ -914,7 +866,7 @@ class BlockReader(object):
         if fixedsize is None or fixedsize < 0:
             self._values = vs
         elif fixedsize is 0:
-            self._values = (None,) * self._postcount
+            self._values = (None,) * self._blocklength
         else:
             assert isinstance(vs, bytes_type)
             self._values = tuple(vs[i:i + fixedsize]
