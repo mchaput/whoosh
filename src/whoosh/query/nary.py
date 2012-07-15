@@ -283,9 +283,22 @@ class Or(CompoundQuery):
     intersect_merge = False
     matcher_class = matching.UnionMatcher
 
-    def __init__(self, subqueries, boost=1.0, minmatch=0):
+    def __init__(self, subqueries, boost=1.0, minmatch=0, scale=None):
+        """
+        :param subqueries: a list of :class:`Query` objects to search for.
+        :param boost: a boost factor to apply to the scores of all matching
+            documents.
+        :param minmatch: not yet implemented.
+        :param scale: a scaling factor for a "coordination bonus". If this
+            value is not None, it should be a floating point number greater
+            than 0 and less than 1. The scores of the matching documents are
+            boosted/penalized based on the number of query terms that matched
+            in the document. This number scales the effect of the bonuses.
+        """
+
         CompoundQuery.__init__(self, subqueries, boost=boost)
         self.minmatch = minmatch
+        self.scale = scale
 
     def __unicode__(self):
         r = u("(")
@@ -301,6 +314,7 @@ class Or(CompoundQuery):
         norm = CompoundQuery.normalize(self)
         if norm.__class__ is self.__class__:
             norm.minmatch = self.minmatch
+            norm.scale = self.scale
         return norm
 
     def requires(self):
@@ -311,8 +325,12 @@ class Or(CompoundQuery):
 
     def matcher(self, searcher, weighting=None):
         r = searcher.reader()
-        return self._matcher(self.matcher_class, lambda q: q.estimate_size(r),
-                             searcher, weighting=weighting)
+        m = self._matcher(self.matcher_class, lambda q: q.estimate_size(r),
+                          searcher, weighting=weighting)
+        if self.scale:
+            if any(m.term_matchers()):
+                m = matching.CoordMatcher(m, scale=self.scale)
+        return m
 
 
 class DisjunctionMax(CompoundQuery):

@@ -91,6 +91,20 @@ present for a document to match, i.e.::
     parser = qparser.QueryParser(fieldname, schema=myindex.schema,
                                  group=qparser.OrGroup)
 
+The Or query lets you specify that documents that contain more of the query
+terms score higher. For example, if the user searches for ``foo bar``, a
+document with four occurances of ``foo`` would normally outscore a document
+that contained one occurance each of ``foo`` and ``bar``. However, users
+usually expect documents that contain more of the words they searched for
+to score higher. To configure the parser to produce Or groups with this
+behavior, use the ``factory()`` class method of ``OrGroup``::
+
+	og = qparser.OrGroup.factory(0.9)
+	parser = qparser.QueryParser(fieldname, schema, group=og)
+
+where the argument to ``factory()`` is a scaling factor on the bonus
+(between 0 and 1).
+
 
 Letting the user search multiple fields by default
 --------------------------------------------------

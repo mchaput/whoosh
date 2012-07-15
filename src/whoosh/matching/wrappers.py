@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from __future__ import division
 import sys
 from whoosh.compat import xrange
 from whoosh.matching import mcore
@@ -62,9 +63,6 @@ class WrappingMatcher(mcore.Matcher):
             return self._replacement(r)
         else:
             return self
-
-    def max_quality(self):
-        return self.child.max_quality()
 
     def id(self):
         return self.child.id()
@@ -104,6 +102,9 @@ class WrappingMatcher(mcore.Matcher):
 
     def skip_to_quality(self, minquality):
         return self.child.skip_to_quality(minquality / self.boost)
+
+    def max_quality(self):
+        return self.child.max_quality() * self.boost
 
     def block_quality(self):
         return self.child.block_quality() * self.boost
@@ -181,9 +182,6 @@ class MultiMatcher(mcore.Matcher):
         # offset. Have to check whether that's actually faster, though.
         return m
 
-    def max_quality(self):
-        return self.matchers[self.current].max_quality()
-
     def id(self):
         current = self.current
         return self.matchers[current].id() + self.offsets[current]
@@ -238,6 +236,9 @@ class MultiMatcher(mcore.Matcher):
     def supports_block_quality(self):
         return all(mr.supports_block_quality() for mr
                    in self.matchers[self.current:])
+
+    def max_quality(self):
+        return max(m.max_quality() for m in self.matchers[self.current:])
 
     def block_quality(self):
         return self.matchers[self.current].block_quality()
@@ -493,11 +494,74 @@ class ConstantScoreMatcher(WrappingMatcher):
     def _replacement(self, newchild):
         return self.__class__(newchild, score=self._score)
 
+    def max_quality(self):
+        return self._score
+
     def block_quality(self):
         return self._score
 
     def score(self):
         return self._score
+
+
+class SingleTermMatcher(WrappingMatcher):
+    """Makes a tree of matchers act as if they were a matcher for a single
+    term for the purposes of "what terms are matching?" questions.
+    """
+
+    def __init__(self, child, term):
+        WrappingMatcher.__init__(self, child)
+        self._term = term
+
+    def term(self):
+        return self._term
+
+
+class CoordMatcher(WrappingMatcher):
+    """Modifies the computed score to penalize documents that don't match all
+    terms in the matcher tree.
+    
+    Because this matcher modifies the score, it may give unexpected results
+    when compared to another matcher returning the unmodified score.
+    """
+
+    def __init__(self, child, scale=1.0):
+        WrappingMatcher.__init__(self, child)
+        self._termcount = len(list(child.term_matchers()))
+        self._maxqual = child.max_quality()
+        self._scale = scale
+
+    def _sqr(self, score, matching):
+        termcount = self._termcount  # Number of terms in this tree
+        # maxqual = self._maxqual  # Maximum possible score of the tree
+        scale = self._scale  # Scaling factor
+
+        sqr = ((score + ((matching - 1) / (termcount - scale) ** 2))
+               * ((termcount - 1) / termcount))
+        return sqr
+
+    def max_quality(self):
+        return self._sqr(self.child.max_quality(), self._termcount)
+
+    def block_quality(self):
+        return self._sqr(self.child.block_quality(), self._termcount)
+
+    def score(self):
+        child = self.child
+
+        score = child.score()
+        matching = 0
+        for _ in child.matching_terms(child.id()):
+            matching += 1
+
+        return self._sqr(score, matching)
+
+
+
+
+
+
+
 
 
 

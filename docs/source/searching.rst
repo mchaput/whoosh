@@ -33,8 +33,7 @@ The Searcher object is the main high-level interface for reading the index. It
 has lots of useful methods for getting information about the index, such as
 ``lexicon(fieldname)``.
 
->>> list(searcher.lexicon("content"))
-[u"document", u"index", u"whoosh]
+>>> list(searcher.lexicon("content")) [u"document", u"index", u"whoosh]
 
 However, the most important method on the Searcher object is
 :meth:`~whoosh.searching.Searcher.search`, which takes a
@@ -54,9 +53,9 @@ more results, use the ``limit`` keyword::
 
     results = s.search(q, limit=20)
 
-If you want all results, use ``limit=None``. However, setting the limit
-whenever possible makes searches faster because Whoosh doesn't need to examine
-and score every document.
+If you want all results, use ``limit=None``. However, setting the limit whenever
+possible makes searches faster because Whoosh doesn't need to examine and score
+every document.
 
 Since displaying a page of results at a time is a common pattern, the
 ``search_page`` method lets you conveniently retrieve only the results on a
@@ -64,8 +63,8 @@ given page::
 
     results = s.search_page(q, 1)
 
-The default page length is 10 hits. You can use the ``pagelen`` keyword
-argument to set a different page length::
+The default page length is 10 hits. You can use the ``pagelen`` keyword argument
+to set a different page length::
 
     results = s.search_page(q, 5, pagelen=20)
 
@@ -77,24 +76,18 @@ The :class:`~whoosh.searching.Results` object acts like a list of the matched
 documents. You can use it to access the stored fields of each hit document, to
 display to the user.
 
->>> # Show the best hit's stored fields
->>> results[0]
-{"title": u"Hello World in Python", "path": u"/a/b/c"}
->>> results[0:2]
-[{"title": u"Hello World in Python", "path": u"/a/b/c"}, {"title": u"Foo", "path": u"/bar"}]
+>>> # Show the best hit's stored fields >>> results[0] {"title": u"Hello World
+in Python", "path": u"/a/b/c"} >>> results[0:2] [{"title": u"Hello World in
+Python", "path": u"/a/b/c"}, {"title": u"Foo", "path": u"/bar"}]
 
 By default, ``Searcher.search(myquery)`` limits the number of hits to 20, So the
 number of scored hits in the ``Results`` object may be less than the number of
 matching documents in the index.
 
->>> # How many documents in the entire index would have matched?
->>> len(results)
-27
->>> # How many scored and sorted documents in this Results object?
->>> # This will often be less than len() if the number of hits was limited
->>> # (the default).
->>> results.scored_length()
-10
+>>> # How many documents in the entire index would have matched? >>>
+len(results) 27 >>> # How many scored and sorted documents in this Results
+object? >>> # This will often be less than len() if the number of hits was
+limited >>> # (the default). >>> results.scored_length() 10
 
 Calling ``len(Results)`` runs a fast (unscored) version of the query again to
 figure out the total number of matching documents. This is usually very fast
@@ -225,10 +218,10 @@ from the results. This can be useful in a few situations:
 * Restricting the number of matches per source. For example, in a web search
   application, you might want to show at most three matches from any website.
 
-Whether a document should be collapsed is determined by the value of a
-"collapse facet". If a document has an empty collapse key, it will never be
-collapsed, but otherwise only the top N documents with the same collapse key
-will appear in the results.
+Whether a document should be collapsed is determined by the value of a "collapse
+facet". If a document has an empty collapse key, it will never be collapsed,
+but otherwise only the top N documents with the same collapse key will appear
+in the results.
 
 See :doc:`/facets` for information on facets.
 
@@ -245,8 +238,8 @@ See :doc:`/facets` for information on facets.
 Collapsing works with both scored and sorted results. You can use any of the
 facet types available in the :mod:`whoosh.sorting` module.
 
-By default, Whoosh uses the results order (score or sort key) to determine
-the documents to collapse. For example, in scored results, the best scoring
+By default, Whoosh uses the results order (score or sort key) to determine the
+documents to collapse. For example, in scored results, the best scoring
 documents would be kept. You can optionally specify a ``collapse_order`` facet
 to control which documents to keep when collapsing.
 
@@ -313,10 +306,9 @@ arguments.
 This is especially useful for fields such as dates/times, identifiers, paths,
 and so on.
 
->>> list(searcher.documents(indexeddate=u"20051225"))
-[{"title": u"Christmas presents"}, {"title": u"Turkey dinner report"}]
->>> print searcher.document(path=u"/a/b/c")
-{"title": "Document C"}
+>>> list(searcher.documents(indexeddate=u"20051225")) [{"title": u"Christmas
+presents"}, {"title": u"Turkey dinner report"}] >>> print
+searcher.document(path=u"/a/b/c") {"title": "Document C"}
 
 These methods have some limitations:
 
