@@ -484,4 +484,39 @@ def test_terms():
             assert txt in value
 
 
+def test_hit_column():
+    # Not stored
+    schema = fields.Schema(text=fields.TEXT())
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie"))
+
+    with ix.searcher() as s:
+        r = s.search(query.Term("text", "alfa"))
+        assert_equal(len(r), 1)
+        hit = r[0]
+        assert_raises(KeyError, hit.__getitem__, "text")
+
+    # With column
+    schema = fields.Schema(text=fields.TEXT(sortable=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie"))
+
+    with ix.searcher() as s:
+        r = s.search(query.Term("text", "alfa"))
+        assert_equal(len(r), 1)
+        hit = r[0]
+        assert_equal(hit["text"], "alfa bravo charlie")
+
+
+
+
+
+
+
+
+
+
+
 
