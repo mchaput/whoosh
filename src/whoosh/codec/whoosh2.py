@@ -44,7 +44,7 @@ from whoosh.compat import array_frombytes, array_tobytes
 from whoosh.codec import base
 from whoosh.filedb.filestore import Storage
 from whoosh.filedb.filetables import HashWriter, HashReader
-from whoosh.matching import ListMatcher, ReadTooFar
+from whoosh.matching import ListMatcher, ReadTooFar, LeafMatcher
 from whoosh.reading import NoGraphError, TermInfo, TermNotFound
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE, IS_LITTLE
 from whoosh.system import emptybytes
@@ -353,7 +353,7 @@ class W2FieldWriter(base.FieldWriter):
 
 # Matcher
 
-class PostingMatcher(base.FilePostingMatcher):
+class W2LeafMatcher(LeafMatcher):
     def __init__(self, postfile, startoffset, fmt, scorer=None, term=None,
                  stringids=False):
         self.postfile = postfile
@@ -689,12 +689,12 @@ class W2TermsReader(PostingIndexBase):
         p = terminfo.postings
         if isinstance(p, integer_types):
             # terminfo.postings is an offset into the posting file
-            pr = PostingMatcher(pf, p, format_, scorer=scorer, term=term)
+            pr = W2LeafMatcher(pf, p, format_, scorer=scorer, term=term)
         else:
             # terminfo.postings is an inlined tuple of (ids, weights, values)
             docids, weights, values = p
             pr = ListMatcher(docids, weights, values, format_, scorer=scorer,
-                             term=term, terminfo=terminfo)
+                             term=term)
         return pr
 
     def keycoder(self, key):
@@ -731,7 +731,7 @@ class W2VectorReader(PostingIndexBase):
     def matcher(self, docnum, fieldname, format_):
         pf = self.postfile
         offset = self[(docnum, fieldname)]
-        pr = PostingMatcher(pf, offset, format_, stringids=True)
+        pr = W2LeafMatcher(pf, offset, format_, stringids=True)
         return pr
 
     def keycoder(self, key):

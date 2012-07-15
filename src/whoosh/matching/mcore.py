@@ -171,6 +171,15 @@ class Matcher(object):
 
         return False
 
+    def max_quality(self):
+        """Returns the maximum possible quality measurement for this matcher,
+        according to the current weighting algorithm. Raises
+        ``NoQualityAvailable`` if the matcher or weighting do not support
+        quality measurements.
+        """
+
+        raise NoQualityAvailable(self.__class__)
+
     def block_quality(self):
         """Returns a quality measurement of the current block of postings,
         according to the current weighting algorithm. Raises
@@ -339,6 +348,9 @@ class NullMatcherClass(Matcher):
     def supports_block_quality(self):
         return True
 
+    def max_quality(self):
+        return 0
+
     def block_quality(self):
         return 0
 
@@ -356,9 +368,6 @@ class NullMatcherClass(Matcher):
 
     def copy(self):
         return self
-
-    def max_quality(self):
-        return 0
 
 
 # Singleton instance
@@ -420,12 +429,14 @@ class ListMatcher(Matcher):
         else:
             return self
 
-    def max_quality(self):
-        return self.block_max_weight()
-
     def supports_block_quality(self):
         return (self._scorer is not None
                 and self._scorer.supports_block_quality())
+
+    def max_quality(self):
+        # This matcher treats all postings in the list as one "block", so the
+        # block quality is the same as the quality of the entire list
+        return self._scorer.block_quality(self)
 
     def block_quality(self):
         return self._scorer.block_quality(self)
@@ -513,5 +524,54 @@ class ListMatcher(Matcher):
             return self.weight()
 
 
+# Term/vector leaf posting matcher middleware
+
+class LeafMatcher(Matcher):
+    # Subclasses need to set
+    #   self.scorer -- a Scorer object or None
+    #   self.format -- Format object for the posting values
+
+    def __repr__(self):
+        return "%s(%r, %s)" % (self.__class__.__name__, self.term(),
+                               self.is_active())
+
+    def term(self):
+        return self._term
+
+    def items_as(self, astype):
+        decoder = self.format.decoder(astype)
+        for id, value in self.all_items():
+            yield (id, decoder(value))
+
+    def supports(self, astype):
+        return self.format.supports(astype)
+
+    def value_as(self, astype):
+        decoder = self.format.decoder(astype)
+        return decoder(self.value())
+
+    def spans(self):
+        from whoosh.spans import Span
+
+        if self.supports("characters"):
+            return [Span(pos, startchar=startchar, endchar=endchar)
+                    for pos, startchar, endchar in self.value_as("characters")]
+        elif self.supports("positions"):
+            return [Span(pos) for pos in self.value_as("positions")]
+        else:
+            raise Exception("Field does not support positions (%r)"
+                            % self.term())
+
+    def supports_block_quality(self):
+        return self.scorer and self.scorer.supports_block_quality()
+
+    def max_quality(self):
+        return self.scorer.max_quality()
+
+    def block_quality(self):
+        return self.scorer.block_quality(self)
+
+    def score(self):
+        return self.scorer.score(self)
 
 

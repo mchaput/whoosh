@@ -495,12 +495,22 @@ class SpanOr(SpanQuery):
             super(SpanOr.SpanOrMatcher, self).__init__(um)
 
         def _get_spans(self):
-            if (self.a.is_active()
-                and self.b.is_active()
-                and self.a.id() == self.b.id()):
-                spans = sorted(set(self.a.spans()) | set(self.b.spans()))
-            elif not self.b.is_active() or self.a.id() < self.b.id():
-                spans = self.a.spans()
+            a_active = self.a.is_active()
+            b_active = self.b.is_active()
+
+            if a_active:
+                a_id = self.a.id()
+                if b_active:
+                    b_id = self.b.id()
+                    if a_id == b_id:
+                        spans = sorted(set(self.a.spans())
+                                       | set(self.b.spans()))
+                    elif a_id < b_id:
+                        spans = self.a.spans()
+                    else:
+                        spans = self.b.spans()
+                else:
+                    spans = self.a.spans()
             else:
                 spans = self.b.spans()
 
