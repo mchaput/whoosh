@@ -1481,8 +1481,16 @@ class Hit(object):
     def __iter__(self):
         return iterkeys(self.fields())
 
-    def __getitem__(self, key):
-        return self.fields().__getitem__(key)
+    def __getitem__(self, fieldname):
+        if fieldname in self.fields():
+            return self._fields[fieldname]
+
+        reader = self.searcher.reader()
+        if reader.has_column(fieldname):
+            cr = reader.column_reader(fieldname)
+            return cr[self.docnum]
+
+        raise KeyError(fieldname)
 
     def __contains__(self, key):
         return key in self.fields()
