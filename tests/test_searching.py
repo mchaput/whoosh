@@ -1413,17 +1413,16 @@ def test_coord():
         w.add_document(id=8, hits=0, tags=u("foxtrot foxtrot foo foo"))
         w.add_document(id=9, hits=0, tags=u("foo foo foo foo"))
 
-    og = qparser.OrGroup.factory(0.9)
+    og = qparser.OrGroup.factory(0.99)
     qp = qparser.QueryParser("tags", schema, group=og)
     q = qp.parse("golf foxtrot echo")
     assert_equal(q.__class__, query.Or)
-    assert_equal(q.scale, 0.9)
+    assert_equal(q.scale, 0.99)
 
     with ix.searcher() as s:
         r = s.search(q, optimize=False)
         for hit in r:
             print hit["id"], hit.score
-
         assert_equal([hit["id"] for hit in r], [4, 5, 3, 6, 1, 8, 2, 7])
 
 

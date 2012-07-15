@@ -394,6 +394,12 @@ class AndGroup(GroupNode):
 class OrGroup(GroupNode):
     qclass = query.Or
 
+    @classmethod
+    def factory(cls, scale=1.0):
+        def maker(nodes=None, **kwargs):
+            return cls(nodes=nodes, scale=scale, **kwargs)
+        return maker
+
 
 class DisMaxGroup(GroupNode):
     qclass = query.DisjunctionMax
