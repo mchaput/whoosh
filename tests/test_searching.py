@@ -147,8 +147,6 @@ def test_andnot2():
         anq = query.AndNot(q, oq)
 
         m = anq.matcher(s)
-        print "=", m.id()
-
         r = s.search(anq)
         assert_equal(list(anq.docs(s)), sorted(hit.docnum for hit in r))
         assert_equal(" ".join(sorted(hit["a"] for hit in r)),

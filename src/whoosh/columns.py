@@ -28,6 +28,7 @@
 from __future__ import division, with_statement
 import struct
 from array import array
+from bisect import bisect_right
 
 try:
     import zlib
@@ -834,6 +835,85 @@ class SparseColumn(Column):
             return self._dir.get(docnum, self._default)
 
 
+# Utility readers
+
+class EmptyColumnReader(ColumnReader):
+    def __init__(self, default, doccount):
+        self._default = default
+        self._doccount = doccount
+
+    def __getitem__(self, docnum):
+        return self._default
+
+    def __iter__(self):
+        return (self._default for _ in xrange(self._doccount))
+
+    def load(self):
+        return self
+
+
+class MultiColumnReader(ColumnReader):
+    def __init__(self, readers):
+        self._readers = readers
+
+        self._doc_offsets = []
+        self._doccount = 0
+        for r in readers:
+            self._doc_offsets.append(self._doccount)
+            self._doccount += len(r)
+
+    def _document_reader(self, docnum):
+        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
+
+    def _reader_and_docnum(self, docnum):
+        rnum = self._document_reader(docnum)
+        offset = self.doc_offsets[rnum]
+        return rnum, docnum - offset
+
+    def __getitem__(self, docnum):
+        x, y = self._reader_and_docnum(docnum)
+        return self._readers[x][y]
+
+    def __iter__(self):
+        for r in self._readers:
+            for v in r:
+                yield v
+
+
+class ListColumnReader(ColumnReader):
+    def __init__(self, values):
+        self._values = list(values)
+        self._length = len(self._values)
+
+    def __len__(self):
+        return self._length
+
+    def __getitem__(self, n):
+        return self._values[n]
+
+    def __iter__(self):
+        return iter(self._values)
+
+
+class TranslatingColumnReader(ColumnReader):
+    def __init__(self, reader, translate):
+        self._reader = reader
+        self._translate = translate
+
+    def raw_column(self):
+        return self._reader
+
+    def __len__(self):
+        return len(self._reader)
+
+    def __getitem__(self, docnum):
+        return self._translate(self._reader[docnum])
+
+    def __iter__(self):
+        translate = self._translate
+        return (translate(v) for v in self._reader)
+
+
 # Column wrappers
 
 class WrapperColumn(Column):
@@ -863,21 +943,8 @@ class ClampedNumericColumn(WrapperColumn):
             self._childw.finish(doccount)
 
 
-# Utility readers
 
-class EmptyColumnReader(ColumnReader):
-    def __init__(self, default, doccount):
-        self._default = default
-        self._doccount = doccount
 
-    def __getitem__(self, docnum):
-        return self._default
-
-    def __iter__(self):
-        return (self._default for _ in xrange(self._doccount))
-
-    def load(self):
-        return self
 
 
 

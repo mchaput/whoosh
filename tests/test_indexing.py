@@ -4,7 +4,7 @@ import random
 from collections import defaultdict
 from datetime import datetime
 
-from whoosh import fields, query
+from whoosh import analysis, fields, query
 from whoosh.compat import u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.writing import IndexingError
@@ -466,6 +466,16 @@ def test_deleteall():
             assert_equal(list(r), [])
 
 
+def test_simple_stored():
+    schema = fields.Schema(a=fields.ID(stored=True), b=fields.ID(stored=False))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=u("alfa"), b=u("bravo"))
+    with ix.searcher() as s:
+        sf = s.stored_fields(0)
+        assert_equal(sf, {"a": "alfa"})
+
+
 def test_single():
     schema = fields.Schema(id=fields.ID(stored=True), text=fields.TEXT)
     with TempIndex(schema, "single") as ix:
@@ -498,18 +508,21 @@ def test_indentical_fields():
 
 
 def test_multivalue():
+    ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME,
-                           num=fields.NUMERIC)
+                           num=fields.NUMERIC,
+                           txt=fields.TEXT(analyzer=ana))
     ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    w.add_document(id=1, date=datetime(2001, 1, 1), num=5)
-    w.add_document(id=2, date=[datetime(2002, 2, 2), datetime(2003, 3, 3)],
-                   num=[1, 2, 3, 12])
-    w.commit()
+    with ix.writer() as w:
+        w.add_document(id=1, date=datetime(2001, 1, 1), num=5)
+        w.add_document(id=2, date=[datetime(2002, 2, 2), datetime(2003, 3, 3)],
+                       num=[1, 2, 3, 12])
+        w.add_document(txt=u("a b c").split())
 
     with ix.reader() as r:
         assert ("num", 3) in r
         assert ("date", datetime(2003, 3, 3)) in r
+        assert_equal(list(r.lexicon("txt")), ["a", "b", "c"])
 
 
 def test_doc_boost():

@@ -68,7 +68,6 @@ class StructFile(object):
         self.onclose = onclose
         self.is_closed = False
 
-        self._copy_attrs()
         self.is_real = hasattr(fileobj, "fileno")
         if self.is_real:
             self.fileno = fileobj.fileno
@@ -85,11 +84,26 @@ class StructFile(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def _copy_attrs(self):
-        fileobj = self.file
-        for attr in ("read", "readline", "write", "tell", "seek", "truncate"):
-            if hasattr(fileobj, attr):
-                setattr(self, attr, getattr(fileobj, attr))
+    def __iter__(self):
+        return iter(self.file)
+
+    def read(self, *args, **kwargs):
+        return self.file.read(*args, **kwargs)
+
+    def readline(self, *args, **kwargs):
+        return self.file.readline(*args, **kwargs)
+
+    def write(self, *args, **kwargs):
+        return self.file.write(*args, **kwargs)
+
+    def tell(self, *args, **kwargs):
+        return self.file.tell(*args, **kwargs)
+
+    def seek(self, *args, **kwargs):
+        return self.file.seek(*args, **kwargs)
+
+    def truncate(self, *args, **kwargs):
+        return self.file.truncate(*args, **kwargs)
 
     def flush(self):
         """Flushes the buffer of the wrapped file. This is a no-op if the
@@ -324,7 +338,6 @@ class BufferFile(StructFile):
         self.file = BytesIO(buf)
         self.onclose = onclose
 
-        self._copy_attrs()
         self.is_real = False
         self.is_closed = False
 
@@ -354,6 +367,11 @@ class ChecksumFile(StructFile):
             return self.__dict__[name]
         else:
             return getattr(self._child, name)
+
+    def __iter__(self):
+        for line in self._child:
+            self._check = self._crc32(line, self._check)
+            yield line
 
     def seek(self, *args):
         raise Exception("Cannot seek on a ChecksumFile")

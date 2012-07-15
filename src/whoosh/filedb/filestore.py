@@ -25,12 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os, random, sys, traceback
+import os, random
 from threading import Lock
 
 from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import BufferFile, StructFile
-from whoosh.index import _DEF_INDEX_NAME
+from whoosh.index import _DEF_INDEX_NAME, EmptyIndexError
 from whoosh.util.filelock import FileLock
 
 
@@ -40,22 +40,7 @@ class ReadOnlyError(Exception):
     pass
 
 
-# Common functions
-
-def create_index(storage, schema, indexname):
-    from whoosh.index import TOC, FileIndex
-
-    if storage.readonly:
-        raise ReadOnlyError
-    TOC.create(storage, schema, indexname)
-    return FileIndex(storage, schema, indexname)
-
-
-def open_index(storage, schema, indexname):
-    from whoosh.index import FileIndex
-
-    return FileIndex(storage, schema=schema, indexname=indexname)
-
+# Base class
 
 class Storage(object):
     """Abstract base class for storage objects.
@@ -67,11 +52,31 @@ class Storage(object):
     def __iter__(self):
         return iter(self.list())
 
-    def create_index(self, schema, indexname=None):
-        raise NotImplementedError
+    def create_index(self, schema, indexname=_DEF_INDEX_NAME, indexclass=None):
+        if self.readonly:
+            raise ReadOnlyError
+        if indexclass is None:
+            import whoosh.index
+            indexclass = whoosh.index.FileIndex
+        return indexclass.create(self, schema, indexname)
 
-    def open_index(self, indexname=None, schema=None):
-        raise NotImplementedError
+    def open_index(self, indexname=_DEF_INDEX_NAME, schema=None, indexclass=None):
+        if indexclass is None:
+            import whoosh.index
+            indexclass = whoosh.index.FileIndex
+        return indexclass(self, schema=schema, indexname=indexname)
+
+    def index_exists(self, indexname=None):
+        if indexname is None:
+            indexname = _DEF_INDEX_NAME
+        try:
+            ix = self.open_index(indexname)
+            gen = ix.latest_generation()
+            ix.close()
+            return gen > -1
+        except EmptyIndexError:
+            pass
+        return False
 
     def create_file(self, name):
         raise NotImplementedError
@@ -190,12 +195,6 @@ class FileStorage(Storage):
         if not os.path.exists(path):
             raise IOError("Directory %s does not exist" % path)
 
-    def create_index(self, schema, indexname=_DEF_INDEX_NAME):
-        return create_index(self, schema, indexname)
-
-    def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
-        return open_index(self, schema, indexname)
-
     def create_file(self, name, excl=False, mode="wb", **kwargs):
         if self.readonly:
             raise ReadOnlyError
@@ -284,12 +283,6 @@ class RamStorage(Storage):
         self.files = {}
         self.locks = {}
         self.folder = ''
-
-    def create_index(self, schema, indexname=_DEF_INDEX_NAME):
-        return create_index(self, schema, indexname)
-
-    def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
-        return open_index(self, schema, indexname)
 
     def list(self):
         return list(self.files.keys())

@@ -25,9 +25,10 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-
+import sys
 from array import array
 from collections import defaultdict
+from decimal import Decimal
 from struct import Struct
 
 try:
@@ -35,7 +36,7 @@ try:
 except ImportError:
     zlib = None
 
-from whoosh.compat import b
+from whoosh.compat import b, PY3
 from whoosh.compat import loads, dumps
 from whoosh.compat import xrange, iteritems
 from whoosh.compat import bytes_type, string_type, integer_types
@@ -44,14 +45,15 @@ from whoosh.codec import base
 from whoosh.filedb.filestore import Storage
 from whoosh.filedb.filetables import HashWriter, HashReader
 from whoosh.matching import ListMatcher, ReadTooFar
-from whoosh.reading import TermInfo, TermNotFound
+from whoosh.reading import NoGraphError, TermInfo, TermNotFound
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE, IS_LITTLE
+from whoosh.system import emptybytes
 from whoosh.system import pack_byte
 from whoosh.system import pack_ushort, unpack_ushort, pack_long, unpack_long
 
 from whoosh.fst import GraphWriter, GraphReader
-from whoosh.index import TOC, clean_files
 from whoosh.util.numeric import byte_to_length, length_to_byte
+from whoosh.util.numeric import to_sortable, from_sortable, NaN
 from whoosh.util.text import utf8encode, utf8decode
 
 
@@ -60,7 +62,7 @@ from whoosh.util.text import utf8encode, utf8decode
 class W2Codec(base.Codec):
     TERMS_EXT = ".trm"  # Term index
     POSTS_EXT = ".pst"  # Term postings
-    DAWG_EXT = ".dag"  # Spelling graph file
+    DAWG_EXT = FST_EXT = ".dag"  # Spelling graph file
     LENGTHS_EXT = ".fln"  # Field lengths file
     VECTOR_EXT = ".vec"  # Vector index
     VPOSTS_EXT = ".vps"  # Vector postings
@@ -95,21 +97,16 @@ class W2Codec(base.Codec):
         return W2PerDocReader(storage, segment)
 
     def graph_reader(self, storage, segment):
-        dawgfile = segment.open_file(storage, self.DAWG_EXT)
+        try:
+            dawgfile = segment.open_file(storage, self.DAWG_EXT)
+        except:
+            raise NoGraphError
         return GraphReader(dawgfile)
 
     # Segments and generations
 
     def new_segment(self, storage, indexname):
         return W2Segment(indexname)
-
-    def commit_toc(self, storage, indexname, schema, segments, generation,
-                   clean=True):
-        toc = TOC(schema, segments, generation)
-        toc.write(storage, indexname)
-        # Delete leftover files
-        if clean:
-            clean_files(storage, indexname, generation, segments)
 
 
 # Per-document value writer
@@ -244,6 +241,7 @@ class W2FieldWriter(base.FieldWriter):
         self.block = None
         self.terminfo = None
         self._infield = False
+        self.is_closed = False
 
     def _make_dawg_files(self):
         dawgfile = self.segment.create_file(self.storage, W2Codec.DAWG_EXT)
@@ -350,6 +348,7 @@ class W2FieldWriter(base.FieldWriter):
         self.postfile.close()
         if self.dawg is not None:
             self.dawg.close()
+        self.is_closed = True
 
 
 # Matcher
@@ -746,7 +745,7 @@ class W2VectorReader(PostingIndexBase):
         return unpack_long(v)[0]
 
 
-class W2PerDocReader(base.PerDocReader):
+class W2PerDocReader(base.PerDocumentReader):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -1544,4 +1543,211 @@ def deminimize_values(postingsize, count, string, compression=0):
     else:
         return [string[i:i + postingsize] for i
                 in xrange(0, len(string), postingsize)]
+
+
+# Legacy field types
+
+from whoosh.compat import long_type
+from whoosh.fields import NUMERIC
+
+
+class OLD_NUMERIC(NUMERIC):
+    NUMERIC_DEFAULTS = {"b": 2 ** 7 - 1, "B": 2 ** 8 - 1, "h": 2 ** 15 - 1,
+                    "H": 2 ** 16 - 1, "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
+                    "q": 2 ** 63 - 1, "Q": 2 ** 64 - 1, "f": NaN,
+                    "d": NaN,
+                    }
+
+    def __init__(self, type=int, stored=False, unique=False, field_boost=1.0,
+                 decimal_places=0, shift_step=4, signed=True):
+        from whoosh import analysis, formats
+
+        self.type = type
+        if self.type is long_type:
+            # This will catch the Python 3 int type
+            self._to_text = self._long_to_text
+            self._from_text = self._text_to_long
+            self.sortable_typecode = "q" if signed else "Q"
+        elif self.type is int:
+            self._to_text = self._int_to_text
+            self._from_text = self._text_to_int
+            self.sortable_typecode = "i" if signed else "I"
+        elif self.type is float:
+            self._to_text = self._float_to_text
+            self._from_text = self._text_to_float
+            self.sortable_typecode = "f"
+        elif self.type is Decimal:
+            raise TypeError("To store Decimal instances, set type to int or "
+                            "float and use the decimal_places argument")
+        else:
+            raise TypeError("%s field type can't store %r" % (self.__class__,
+                                                              self.type))
+
+        self.stored = stored
+        self.unique = unique
+        self.decimal_places = decimal_places
+        self.shift_step = shift_step
+        self.signed = signed
+
+        self.analyzer = analysis.IDAnalyzer()
+        self.format = formats.Existence(field_boost=field_boost)
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+        self.numtype = d["type"]
+        self.bits = 32 if (d["type"] is int and not PY3) else 64
+
+    def prepare_number(self, x):
+        if x is None or x == emptybytes:
+            return x
+        if self.decimal_places:
+            x = Decimal(x)
+            x *= 10 ** self.decimal_places
+        x = self.type(x)
+        return x
+
+    def unprepare_number(self, x):
+        dc = self.decimal_places
+        if dc:
+            s = str(x)
+            x = Decimal(s[:-dc] + "." + s[-dc:])
+        return x
+
+    def to_bytes(self, x, shift=0):
+        if isinstance(x, bytes_type):
+            return x
+        return utf8encode(self.to_text(x, shift))[0]
+
+    def from_bytes(self, bs):
+        return self.from_text(utf8decode(bs)[0])
+
+    def sortable_to_bytes(self, x, shift=0):
+        if shift:
+            x >>= shift
+        return pack_byte(shift) + self._to_text()
+
+    # 
+
+    def to_text(self, x, shift=0):
+        return self._to_text(self.prepare_number(x), shift=shift,
+                             signed=self.signed)
+
+    def from_text(self, t):
+        x = self._from_text(t, signed=self.signed)
+        return self.unprepare_number(x)
+
+    def process_text(self, text, **kwargs):
+        return (self.to_text(text),)
+
+    def self_parsing(self):
+        return True
+
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        from whoosh import query
+
+        if qstring == "*":
+            return query.Every(fieldname, boost=boost)
+
+        try:
+            text = self.to_text(qstring)
+        except Exception:
+            e = sys.exc_info()[1]
+            return query.error_query(e)
+
+        return query.Term(fieldname, text, boost=boost)
+
+    def parse_range(self, fieldname, start, end, startexcl, endexcl,
+                    boost=1.0):
+        from whoosh import query
+        from whoosh.qparser.common import QueryParserError
+
+        try:
+            if start is not None:
+                start = self.from_text(self.to_text(start))
+            if end is not None:
+                end = self.from_text(self.to_text(end))
+        except Exception:
+            e = sys.exc_info()[1]
+            raise QueryParserError(e)
+
+        return query.NumericRange(fieldname, start, end, startexcl, endexcl,
+                                  boost=boost)
+
+    def sortable_values(self, ixreader, fieldname):
+        from_text = self._from_text
+
+        for text in ixreader.lexicon(fieldname):
+            if text[0] != "\x00":
+                # Only yield the full-precision values
+                break
+
+            yield (text, from_text(text))
+
+
+# Functions for converting numbers to and from text
+
+def int_to_text(x, shift=0, signed=True):
+    x = to_sortable(int, 32, signed, x)
+    return sortable_int_to_text(x, shift)
+
+
+def text_to_int(text, signed=True):
+    x = text_to_sortable_int(text)
+    x = from_sortable(int, 32, signed, x)
+    return x
+
+
+def long_to_text(x, shift=0, signed=True):
+    x = to_sortable(long_type, 64, signed, x)
+    return sortable_long_to_text(x, shift)
+
+
+def text_to_long(text, signed=True):
+    x = text_to_sortable_long(text)
+    x = from_sortable(long_type, 64, signed, x)
+    return x
+
+
+def float_to_text(x, shift=0, signed=True):
+    x = to_sortable(float, 32, signed, x)
+    return sortable_long_to_text(x, shift)
+
+
+def text_to_float(text, signed=True):
+    x = text_to_sortable_long(text)
+    x = from_sortable(float, 32, signed, x)
+    return x
+
+
+# Functions for converting sortable representations to and from text.
+
+from whoosh.support.base85 import to_base85, from_base85
+
+def sortable_int_to_text(x, shift=0):
+    if shift:
+        x >>= shift
+    #text = chr(shift) + u"%08x" % x
+    text = chr(shift) + to_base85(x, False)
+    return text
+
+
+def sortable_long_to_text(x, shift=0):
+    if shift:
+        x >>= shift
+    #text = chr(shift) + u"%016x" % x
+    #assert len(text) == 17
+    text = chr(shift) + to_base85(x, True)
+    return text
+
+
+def text_to_sortable_int(text):
+    #assert len(text) == 9
+    #return int(text[1:], 16)
+    return from_base85(text[1:])
+
+
+def text_to_sortable_long(text):
+    #assert len(text) == 17
+    #return long(text[1:], 16)
+    return from_base85(text[1:])
 

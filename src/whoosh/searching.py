@@ -114,7 +114,7 @@ class Searcher(object):
         for name in ("stored_fields", "all_stored_fields", "has_vector",
                      "vector", "vector_as", "lexicon", "frequency",
                      "doc_frequency", "term_info", "doc_field_length",
-                     "corrector"):
+                     "corrector", "iter_docs"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -216,16 +216,6 @@ class Searcher(object):
         if not self.schema[fieldname].scorable:
             return default
         return self.field_length(fieldname) / (self._doccount or 1)
-
-    def iter_docs(self):
-        """Yields a series of ``(docnum, stored_fields_dict)`` tuples for the
-        undeleted documents in the index.
-        """
-
-        r = self.reader()
-        for docnum in xrange(self.doc_count_all()):
-            if not r.is_deleted(docnum):
-                yield docnum, self.stored_fields(docnum)
 
     def reader(self):
         """Returns the underlying :class:`~whoosh.reading.IndexReader`.

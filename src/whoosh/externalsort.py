@@ -34,7 +34,7 @@ from __future__ import with_statement
 import os, tempfile
 from heapq import heapify, heappop, heapreplace
 
-from whoosh.compat import xrange, dump, load
+from whoosh.compat import dump, load
 
 
 ## Python 3.2 had a bug that make marshal.load unusable

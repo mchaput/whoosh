@@ -34,13 +34,15 @@ import os.path, re, sys
 from time import time, sleep
 
 from whoosh import __version__
-from whoosh.compat import pickle, string_type, xrange
+from whoosh.filedb.structfile import ChecksumFile
+from whoosh.legacy import toc_loaders
+from whoosh.compat import dumps, loads, string_type
 from whoosh.fields import ensure_schema
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 
 
 _DEF_INDEX_NAME = "MAIN"
-_INDEX_VERSION = -110
+_CURRENT_TOC_VERSION = -111
 
 
 # Exceptions
@@ -93,17 +95,15 @@ def create_in(dirname, schema, indexname=None):
     :returns: :class:`Index`
     """
 
-    from whoosh.filedb.filestore import create_index
+    from whoosh.filedb.filestore import FileStorage
 
     if not indexname:
         indexname = _DEF_INDEX_NAME
-
-    from whoosh.filedb.filestore import FileStorage
     storage = FileStorage(dirname)
-    return create_index(schema, indexname)
+    return FileIndex.create(storage, schema, indexname)
 
 
-def open_dir(dirname, indexname=None, readonly=False):
+def open_dir(dirname, indexname=None, readonly=False, schema=None):
     """Convenience function for opening an index in a directory. Takes care of
     creating a FileStorage object for you. dirname is the filename of the
     directory in containing the index. indexname is the name of the index to
@@ -116,12 +116,12 @@ def open_dir(dirname, indexname=None, readonly=False):
         this if you have multiple indexes within the same storage object.
     """
 
+    from whoosh.filedb.filestore import FileStorage
+
     if indexname is None:
         indexname = _DEF_INDEX_NAME
-
-    from whoosh.filedb.filestore import FileStorage
     storage = FileStorage(dirname, readonly=readonly)
-    return storage.open_index(indexname)
+    return FileIndex(storage, schema=schema, indexname=indexname)
 
 
 def exists_in(dirname, indexname=None):
@@ -144,7 +144,7 @@ def exists_in(dirname, indexname=None):
 
 
 def exists(storage, indexname=None):
-    """Returns True if the given Storage object contains a Whoosh index.
+    """Deprecated; use ``storage.index_exists()``.
     
     :param storage: a store.Storage object.
     :param indexname: the name of the index. If None, the default index name is
@@ -152,18 +152,7 @@ def exists(storage, indexname=None):
     :param rtype: bool
     """
 
-    if indexname is None:
-        indexname = _DEF_INDEX_NAME
-
-    try:
-        ix = storage.open_index(indexname)
-        gen = ix.latest_generation()
-        ix.close()
-        return gen > -1
-    except EmptyIndexError:
-        pass
-
-    return False
+    return storage.index_exists(indexname)
 
 
 def version_in(dirname, indexname=None):
@@ -417,133 +406,6 @@ def clean_files(storage, indexname, gen, segments):
             pass
 
 
-class TOC(object):
-    """Object representing the state of the complete index after a commit.
-    """
-
-    @classmethod
-    def _filename(cls, indexname, gen):
-        return "_%s_%s.toc" % (indexname, gen)
-
-    @classmethod
-    def _pattern(cls, indexname):
-        return re.compile("^_%s_([0-9]+).toc$" % indexname)
-
-    @classmethod
-    def _segment_pattern(cls, indexname):
-        return re.compile("(%s_[0-9a-z]+)[.][a-z]+" % indexname)
-
-    @classmethod
-    def _latest_generation(cls, storage, indexname):
-        pattern = cls._pattern(indexname)
-
-        mx = -1
-        for filename in storage:
-            m = pattern.match(filename)
-            if m:
-                mx = max(int(m.group(1)), mx)
-        return mx
-
-    @classmethod
-    def create(cls, storage, schema, indexname=_DEF_INDEX_NAME):
-        schema = ensure_schema(schema)
-
-        # Clear existing files
-        prefix = "_%s_" % indexname
-        for filename in storage:
-            if filename.startswith(prefix):
-                storage.delete_file(filename)
-
-        # Write a TOC file with an empty list of segments
-        toc = cls(schema, [], 0)
-        toc.write(storage, indexname)
-
-    @classmethod
-    def read(cls, storage, indexname, gen=None, schema=None):
-        if gen is None:
-            gen = cls._latest_generation(storage, indexname)
-            if gen < 0:
-                raise EmptyIndexError("Index %r does not exist in %r"
-                                      % (indexname, storage))
-
-        # Read the content of this index from the .toc file.
-        tocfilename = cls._filename(indexname, gen)
-        stream = storage.open_file(tocfilename)
-
-        def check_size(name, target):
-            sz = stream.read_varint()
-            if sz != target:
-                raise IndexError("Index was created on different architecture:"
-                                 " saved %s = %s, this computer = %s"
-                                 % (name, sz, target))
-
-        check_size("int", _INT_SIZE)
-        check_size("long", _LONG_SIZE)
-        check_size("float", _FLOAT_SIZE)
-
-        if not stream.read_int() == -12345:
-            raise IndexError("Number misread: byte order problem")
-
-        version = stream.read_int()
-        if version != _INDEX_VERSION:
-            raise IndexVersionError("Can't read format %s" % version, version)
-        release = (stream.read_varint(), stream.read_varint(),
-                   stream.read_varint())
-
-        # If the user supplied a schema object with the constructor, don't load
-        # the pickled schema from the saved index.
-        if schema:
-            stream.skip_string()
-        else:
-            schema = pickle.loads(stream.read_string())
-        schema = ensure_schema(schema)
-
-        # Generation
-        index_gen = stream.read_int()
-        assert gen == index_gen
-
-        _ = stream.read_int()  # Unused
-        segments = stream.read_pickle()
-
-        stream.close()
-        return cls(schema, segments, gen, version=version, release=release)
-
-    def __init__(self, schema, segments, generation,
-                 version=_INDEX_VERSION, release=__version__):
-        self.schema = schema
-        self.segments = segments
-        self.generation = generation
-        self.version = version
-        self.release = release
-
-    def write(self, storage, indexname):
-        schema = ensure_schema(self.schema)
-        schema.clean()
-
-        # Use a temporary file for atomic write.
-        tocfilename = self._filename(indexname, self.generation)
-        tempfilename = '%s.%s' % (tocfilename, time())
-        stream = storage.create_file(tempfilename)
-
-        stream.write_varint(_INT_SIZE)
-        stream.write_varint(_LONG_SIZE)
-        stream.write_varint(_FLOAT_SIZE)
-        stream.write_int(-12345)
-
-        stream.write_int(_INDEX_VERSION)
-        for num in __version__[:3]:
-            stream.write_varint(num)
-
-        stream.write_string(pickle.dumps(schema, -1))
-        stream.write_int(self.generation)
-        stream.write_int(0)  # Unused
-        stream.write_pickle(self.segments)
-        stream.close()
-
-        # Rename temporary file to the proper filename
-        storage.rename_file(tempfilename, tocfilename, safe=True)
-
-
 class FileIndex(Index):
     def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
         from whoosh.filedb.filestore import Storage
@@ -562,6 +424,11 @@ class FileIndex(Index):
 
         # Try reading the TOC to see if it's possible
         TOC.read(self.storage, self.indexname, schema=self._schema)
+
+    @classmethod
+    def create(cls, storage, schema, indexname=_DEF_INDEX_NAME):
+        TOC.create(storage, schema, indexname)
+        return cls(storage, schema, indexname)
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__,
@@ -686,3 +553,185 @@ class FileIndex(Index):
                 if retries <= 0:
                     raise e
                 sleep(0.05)
+
+
+# TOC class
+
+class TOC(object):
+    """Object representing the state of the index after a commit. Essentially
+    a container for the index's schema and the list of segment objects.
+    """
+
+    def __init__(self, schema, segments, generation,
+                 version=_CURRENT_TOC_VERSION, release=__version__):
+        self.schema = schema
+        self.segments = segments
+        self.generation = generation
+        self.version = version
+        self.release = release
+
+    @classmethod
+    def _filename(cls, indexname, gen):
+        return "_%s_%s.toc" % (indexname, gen)
+
+    @classmethod
+    def _pattern(cls, indexname):
+        return re.compile("^_%s_([0-9]+).toc$" % indexname)
+
+    @classmethod
+    def _segment_pattern(cls, indexname):
+        return re.compile("(%s_[0-9a-z]+)[.][a-z]+" % indexname)
+
+    @classmethod
+    def _latest_generation(cls, storage, indexname):
+        pattern = cls._pattern(indexname)
+
+        mx = -1
+        for filename in storage:
+            m = pattern.match(filename)
+            if m:
+                mx = max(int(m.group(1)), mx)
+        return mx
+
+    @classmethod
+    def create(cls, storage, schema, indexname=_DEF_INDEX_NAME):
+        schema = ensure_schema(schema)
+
+        # Clear existing files
+        prefix = "_%s_" % indexname
+        for filename in storage:
+            if filename.startswith(prefix):
+                storage.delete_file(filename)
+
+        # Write a TOC file with an empty list of segments
+        toc = cls(schema, [], 0)
+        toc.write(storage, indexname)
+
+    @classmethod
+    def _read_preamble(cls, stream):
+        # Check that the number of bytes per data type are the same on this
+        # platform as where the index was created, otherwise it'll be crazy
+        def check_size(name, target):
+            sz = stream.read_varint()
+            if sz != target:
+                raise IndexError("Index was created on different architecture:"
+                                 " saved %s = %s, this computer = %s"
+                                 % (name, sz, target))
+        check_size("int", _INT_SIZE)
+        check_size("long", _LONG_SIZE)
+        check_size("float", _FLOAT_SIZE)
+
+        if not stream.read_int() == -12345:
+            raise IndexError("Number misread: byte order problem")
+
+        # Index format version
+        toc_version = stream.read_int()
+        # Whoosh release version, e.g. (2, 4, 1)
+        release = (stream.read_varint(), stream.read_varint(),
+                   stream.read_varint())
+
+        return toc_version, release
+
+    @classmethod
+    def _write_preamble(cls, stream):
+        stream.write_varint(_INT_SIZE)
+        stream.write_varint(_LONG_SIZE)
+        stream.write_varint(_FLOAT_SIZE)
+        stream.write_int(-12345)
+
+        stream.write_int(_CURRENT_TOC_VERSION)
+        for num in __version__[:3]:
+            stream.write_varint(num)
+
+    @classmethod
+    def read(cls, storage, indexname, gen=None, schema=None):
+        if gen is None:
+            gen = cls._latest_generation(storage, indexname)
+            if gen < 0:
+                raise EmptyIndexError("Index %r does not exist in %r"
+                                      % (indexname, storage))
+        tocfilename = cls._filename(indexname, gen)
+        stream = storage.open_file(tocfilename)
+        stream = ChecksumFile(stream)
+
+        # Do general sanity checks at the beginning and read the version
+        # numbers
+        toc_version, release = cls._read_preamble(stream)
+
+        if toc_version != _CURRENT_TOC_VERSION:
+            # If there's a backwards-compatible loader function for this
+            # version, use it to load the rest of the TOC
+            if toc_version in toc_loaders:
+                loader = toc_loaders[toc_version]
+                schema, segments = loader(stream, gen, schema, toc_version)
+            else:
+                # Otherwise, raise an error
+                raise IndexVersionError("Can't read format %s" % toc_version,
+                                        toc_version)
+        else:
+            loader = cls._read_info
+            schema, segments = loader(stream, gen, schema, toc_version)
+            file_check = stream.checksum()
+            orig_check = stream.read_uint()
+            if file_check != orig_check:
+                raise Exception("TOC checksum does not match %d != %d"
+                                % (file_check, orig_check))
+
+        stream.close()
+        return cls(schema, segments, gen, version=toc_version, release=release)
+
+    @classmethod
+    def _read_info(cls, stream, gen, schema, version):
+        # Read the schema and segments from the TOC file
+
+        # Read the pickled schema bytes
+        pick = stream.read_string()
+        # If the user passed a schema, use it, otherwise unpickle the schema
+        # we just read
+        if not schema:
+            schema = loads(pick)
+
+        # Read the list of segments
+        numsegments = stream.read_varint()
+        segments = []
+        for _ in xrange(numsegments):
+            segtype = stream.read_string()  # @UnusedVariable
+            segment = loads(stream.read_string())
+            segments.append(segment)
+
+        return schema, segments
+
+
+    def write(self, storage, indexname):
+        schema = ensure_schema(self.schema)
+        schema.clean()
+
+        # Use a temporary file for atomic write
+        tocfilename = self._filename(indexname, self.generation)
+        tempfilename = '%s.%s' % (tocfilename, time())
+        stream = storage.create_file(tempfilename)
+        stream = ChecksumFile(stream)
+
+        # Write the sanity checks and version numbers
+        self._write_preamble(stream)
+
+        # Write pickles as strings to allow them to be skipped
+        stream.write_string(dumps(schema, -1))
+        # Write the list of segments
+        stream.write_varint(len(self.segments))
+        for segment in self.segments:
+            # Write the segment's module and class name before the pickle to
+            # possibly allow later versions to load the segment differently
+            # based on the class (for backwards compatibility)
+            segtype = segment.__class__
+            typename = "%s.%s" % (segtype.__module__, segtype.__name__)
+            stream.write_string(typename.encode("latin1"))
+            stream.write_string(dumps(segment, -1))
+
+        stream.write_uint(stream.checksum())
+        stream.close()
+        storage.rename_file(tempfilename, tocfilename, safe=True)
+
+
+
+

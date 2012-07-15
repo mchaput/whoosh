@@ -3,7 +3,7 @@ import inspect, random, sys
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh import columns
+from whoosh import columns, fields
 from whoosh.compat import b, u, BytesIO
 from whoosh.compat import izip, xrange, dumps, loads
 from whoosh.filedb import compound
@@ -159,29 +159,35 @@ def test_roundtrip():
     _rt(c, [bool(random.randint(0, 1)) for _ in xrange(90)], False)
 
 
+def test_multivalue():
+    schema = fields.Schema(s=fields.TEXT(sortable=True),
+                           n=fields.NUMERIC(sortable=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(s=u("alfa foxtrot charlie").split(), n=[100, 200, 300])
+        w.add_document(s=u("juliet bravo india").split(), n=[10, 20, 30])
+
+    with ix.reader() as r:
+        scr = r.column_reader("s")
+        assert_equal(list(scr), ["alfa", "juliet"])
+
+        ncr = r.column_reader("n")
+        assert_equal(list(ncr), [100, 10])
 
 
-#def test_pcr():
-#    schema = fields.Schema(a=fields.ID, b=fields.NUMERIC)
-#    ix = RamStorage().create_index(schema)
-#
-#    with ix.writer() as w:
-#        w.add_document(a=u("alfa"), b=10)
-#        w.add_document(a=u("bravo"), b=20)
-#        w.add_document(a=u("charlie"), b=50)
-#        w.add_document(a=u("delta"), b=30)
-#        w.add_document(a=u("echo"), b=5)
-#
-#    with ix.reader() as r:
-#        ar = columns.PostingColumnReader(r, "a")
-#        assert_equal([ar[n] for n in xrange(5)],
-#                     ["alfa", "bravo", "charlie", "delta", "echo"])
-#        assert_equal(list(ar),
-#                     ["alfa", "bravo", "charlie", "delta", "echo"])
-#
-#        br = columns.PostingColumnReader(r, "b")
-#        assert_equal([br[n] for n in xrange(5)], [10, 20, 50, 30, 5])
-#        assert_equal(list(br), [10, 20, 50, 30, 5])
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
