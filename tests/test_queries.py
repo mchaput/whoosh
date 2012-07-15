@@ -26,7 +26,11 @@ from whoosh.query import Term
 from whoosh.query import TermRange
 from whoosh.query import Variations
 from whoosh.query import Wildcard
-from whoosh.spans import SpanContains, SpanFirst, SpanNear, SpanNot, SpanOr
+from whoosh.query.spans import SpanContains
+from whoosh.query.spans import SpanFirst
+from whoosh.query.spans import SpanNear
+from whoosh.query.spans import SpanNot
+from whoosh.query.spans import SpanOr
 
 
 def test_all_terms():
