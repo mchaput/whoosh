@@ -270,12 +270,13 @@ class Matcher(object):
                                   % self.__class__)
 
     def spans(self):
-        """Returns a list of :class:`whoosh.spans.Span` objects for the matches
-        in this document. Raises an exception if the field being searched does
-        not store positions.
+        """Returns a list of :class:`~whoosh.query.spans.Span` objects for the
+        matches in this document. Raises an exception if the field being
+        searched does not store positions.
         """
 
-        from whoosh.spans import Span
+        from whoosh.query.spans import Span
+
         if self.supports("characters"):
             return [Span(pos, startchar=startchar, endchar=endchar)
                     for pos, startchar, endchar in self.value_as("characters")]
@@ -551,7 +552,7 @@ class LeafMatcher(Matcher):
         return decoder(self.value())
 
     def spans(self):
-        from whoosh.spans import Span
+        from whoosh.query.spans import Span
 
         if self.supports("characters"):
             return [Span(pos, startchar=startchar, endchar=endchar)

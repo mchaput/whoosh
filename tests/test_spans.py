@@ -2,9 +2,10 @@ from __future__ import with_statement
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh import analysis, fields, formats, spans
+from whoosh import analysis, fields, formats
 from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
+from whoosh.query import spans
 from whoosh.query import And, Or, Term, Phrase
 
 

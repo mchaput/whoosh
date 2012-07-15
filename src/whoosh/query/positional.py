@@ -142,7 +142,7 @@ class Phrase(qcore.Query):
 
         # Construct a tree of SpanNear queries representing the words in the
         # phrase and return its matcher
-        from whoosh.spans import SpanNear
+        from whoosh.query.spans import SpanNear
 
         q = SpanNear.phrase(fieldname, words, slop=self.slop)
         m = q.matcher(searcher, weighting=weighting)
@@ -158,7 +158,7 @@ class Ordered(nary.And):
     JOINT = " BEFORE "
 
     def matcher(self, searcher, weighting=None):
-        from whoosh.spans import SpanBefore
+        from whoosh.query.spans import SpanBefore
 
         return self._matcher(SpanBefore._Matcher, None, searcher,
                              weighting=weighting)
