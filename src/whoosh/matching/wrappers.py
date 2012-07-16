@@ -38,6 +38,7 @@ class WrappingMatcher(mcore.Matcher):
     def __init__(self, child, boost=1.0):
         self.child = child
         self.boost = boost
+        self._active = True
 
     def __repr__(self):
         return "%s(%r, boost=%s)" % (self.__class__.__name__, self.child,
@@ -71,7 +72,10 @@ class WrappingMatcher(mcore.Matcher):
         return self.child.all_ids()
 
     def is_active(self):
-        return self.child.is_active()
+        return self._active and self.child.is_active()
+
+    def go_inactive(self):
+        self._active = False
 
     def reset(self):
         self.child.reset()
@@ -139,6 +143,9 @@ class MultiMatcher(mcore.Matcher):
 
     def is_active(self):
         return self.current < len(self.matchers)
+
+    def go_inactive(self):
+        self.current = len(self.matchers)
 
     def reset(self):
         for mr in self.matchers:
@@ -483,9 +490,9 @@ class RequireMatcher(WrappingMatcher):
         return self.a.value_as(astype)
 
 
-class ConstantScoreMatcher(WrappingMatcher):
+class ConstantScoreWrapperMatcher(WrappingMatcher):
     def __init__(self, child, score=1.0):
-        super(ConstantScoreMatcher, self).__init__(child)
+        WrappingMatcher.__init__(self, child)
         self._score = score
 
     def copy(self):

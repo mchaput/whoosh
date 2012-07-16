@@ -86,6 +86,14 @@ class Matcher(object):
         raise NotImplementedError
 
     @abstractmethod
+    def go_inactive(self):
+        """Tells the matcher to go into a state where ``is_active()`` will
+        return False.
+        """
+
+        raise NotImplementedError
+
+    @abstractmethod
     def reset(self):
         """Returns to the start of the posting list.
 
@@ -338,6 +346,31 @@ class Matcher(object):
     def __ge__(self, other):
         return self.__eq__(other) or self.__gt__(other)
 
+
+# Simple intermediate classes
+
+class ConstantScoreMatcher(Matcher):
+    def __init__(self, score=1.0):
+        self._score = score
+
+    def supports_block_quality(self):
+        return True
+
+    def max_quality(self):
+        return self._score
+
+    def block_quality(self):
+        return self._score
+
+    def skip_to_quality(self, minquality):
+        if minquality >= self._score:
+            self.go_inactive()
+
+    def score(self):
+        return self._score
+
+
+# Null matcher
 
 class NullMatcherClass(Matcher):
     """Matcher with no postings which is never active.

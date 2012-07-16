@@ -3,12 +3,12 @@ import inspect, random, sys
 
 from nose.tools import assert_equal  # @UnresolvedImport
 
-from whoosh import columns, fields
-from whoosh.compat import b, u, BytesIO
+from whoosh import columns, fields, query
+from whoosh.compat import b, u, BytesIO, bytes_type, text_type
 from whoosh.compat import izip, xrange, dumps, loads
 from whoosh.filedb import compound
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import TempStorage
+from whoosh.util.testing import TempIndex, TempStorage
 
 
 def test_pickleability():
@@ -175,9 +175,56 @@ def test_multivalue():
         assert_equal(list(ncr), [100, 10])
 
 
+def test_column_field():
+    schema = fields.Schema(a=fields.TEXT(sortable=True),
+                           b=fields.COLUMN(columns.RefBytesColumn()))
+    with TempIndex(schema, "columnfield") as ix:
+        with ix.writer() as w:
+            w.add_document(a=u("alfa bravo"), b=b("charlie delta"))
+            w.add_document(a=u("bravo charlie"), b=b("delta echo"))
+            w.add_document(a=u("charlie delta"), b=b("echo foxtrot"))
+
+        with ix.reader() as r:
+            assert r.has_column("a")
+            assert r.has_column("b")
+
+            cra = r.column_reader("a")
+            assert_equal(cra[0], u("alfa bravo"))
+            assert_equal(type(cra[0]), text_type)
+
+            crb = r.column_reader("b")
+            assert_equal(crb[0], b("charlie delta"))
+            assert_equal(type(crb[0]), bytes_type)
 
 
+def test_column_query():
+    schema = fields.Schema(id=fields.STORED,
+                           a=fields.ID(sortable=True),
+                           b=fields.NUMERIC(sortable=True))
+    with TempIndex(schema, "columnquery") as ix:
+        with ix.writer() as w:
+            w.add_document(id=1, a=u("alfa"), b=10)
+            w.add_document(id=2, a=u("bravo"), b=20)
+            w.add_document(id=3, a=u("charlie"), b=30)
+            w.add_document(id=4, a=u("delta"), b=40)
+            w.add_document(id=5, a=u("echo"), b=50)
+            w.add_document(id=6, a=u("foxtrot"), b=60)
 
+        with ix.searcher() as s:
+            def check(q):
+                return [s.stored_fields(docnum)["id"] for docnum in q.docs(s)]
+
+            q = query.ColumnQuery("a", u("bravo"))
+            assert_equal(check(q), [2])
+
+            q = query.ColumnQuery("b", 30)
+            assert_equal(check(q), [3])
+
+            q = query.ColumnQuery("a", lambda v: v != u("delta"))
+            assert_equal(check(q), [1, 2, 3, 5, 6])
+
+            q = query.ColumnQuery("b", lambda v: v > 30)
+            assert_equal(check(q), [4, 5, 6])
 
 
 

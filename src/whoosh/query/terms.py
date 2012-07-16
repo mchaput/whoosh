@@ -163,6 +163,7 @@ class MultiTerm(qcore.Query):
     def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         constantscore = self.constantscore
+
         reader = searcher.reader()
         qs = [Term(fieldname, word) for word in self._words(reader)]
         if not qs:
@@ -173,8 +174,8 @@ class MultiTerm(qcore.Query):
             q = qs[0]
         elif constantscore or len(qs) > self.TOO_MANY_CLAUSES:
             # If there's so many clauses that an Or search would take forever,
-            # trade memory for time and just find all the matching docs serve
-            # them up as one or more ListMatchers
+            # trade memory for time and just find all the matching docs and
+            # serve them as one ListMatcher
             fmt = searcher.schema[fieldname].format
             doc_to_values = defaultdict(list)
             doc_to_weights = defaultdict(float)
@@ -200,13 +201,16 @@ class MultiTerm(qcore.Query):
                 kwargs["weights"] = [doc_to_weights[docnum]
                                      for docnum in docnums]
 
+            #return matching.ListMatcher(docnums, term=term, **kwargs)
             return matching.ListMatcher(docnums, **kwargs)
         else:
             # The default case: Or the terms together
             from whoosh.query import Or
             q = Or(qs)
 
-        return q.matcher(searcher, weighting=weighting)
+        m = q.matcher(searcher, weighting=weighting)
+        #m = matching.SingleTermMatcher(m, term)
+        return m
 
 
 class PatternQuery(MultiTerm):

@@ -835,6 +835,28 @@ class STORED(FieldType):
         pass
 
 
+class COLUMN(FieldType):
+    """Configured field type for fields you want to store as a per-document
+    value column but not index.
+    """
+
+    indexed = False
+    stored = False
+
+    def __init__(self, columnobj=None):
+        if columnobj is None:
+            columnobj = columns.VarBytesColumn()
+        if not isinstance(columnobj, columns.Column):
+            raise TypeError("%r is not a column object" % (columnobj,))
+        self.column_type = columnobj
+
+    def to_bytes(self, v):
+        return v
+
+    def from_bytes(self, b):
+        return b
+
+
 class KEYWORD(FieldType):
     """Configured field type for fields containing space-separated or
     comma-separated keyword-like data (such as tags). The default is to not
