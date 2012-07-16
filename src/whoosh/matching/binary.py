@@ -694,8 +694,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
     """
 
     def __init__(self, a, b):
-        self.a = a
-        self.b = b
+        AdditiveBiMatcher.__init__(self, a, b)
         self._first_b()
 
     def reset(self):

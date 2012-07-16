@@ -436,7 +436,7 @@ class RequireMatcher(WrappingMatcher):
 
         self.a = a
         self.b = b
-        self.child = IntersectionMatcher(a, b)
+        WrappingMatcher.__init__(self, IntersectionMatcher(a, b))
 
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
