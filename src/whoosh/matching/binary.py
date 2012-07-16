@@ -37,10 +37,15 @@ class BiMatcher(mcore.Matcher):
         super(BiMatcher, self).__init__()
         self.a = a
         self.b = b
+        self._active = True
+
+    def go_inactive(self):
+        self._active = False
 
     def reset(self):
         self.a.reset()
         self.b.reset()
+        self._active = True
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.a, self.b)
@@ -157,7 +162,7 @@ class UnionMatcher(AdditiveBiMatcher):
             return self
 
     def is_active(self):
-        return self.a.is_active() or self.b.is_active()
+        return self._active and (self.a.is_active() or self.b.is_active())
 
     def skip_to(self, id):
         self._id = None
@@ -464,7 +469,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
             return self
 
     def is_active(self):
-        return self.a.is_active() and self.b.is_active()
+        return self._active and self.a.is_active() and self.b.is_active()
 
     def _find_next(self):
         a = self.a
@@ -583,7 +588,7 @@ class AndNotMatcher(BiMatcher):
             self._find_next()
 
     def is_active(self):
-        return self.a.is_active()
+        return self._active and self.a.is_active()
 
     def _find_next(self):
         pos = self.a
@@ -705,7 +710,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             b.skip_to(a.id())
 
     def is_active(self):
-        return self.a.is_active()
+        return self._active and self.a.is_active()
 
     def id(self):
         return self.a.id()

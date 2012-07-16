@@ -145,6 +145,9 @@ class NestedParent(WrappingQuery):
         def is_active(self):
             return self._nextdoc is not None
 
+        def go_inactive(self):
+            self._nextdoc = None
+
         def supports_block_quality(self):
             return False
 

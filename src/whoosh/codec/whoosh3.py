@@ -764,6 +764,9 @@ class W3LeafMatcher(LeafMatcher):
         return (self._currentblock < self._blockcount
                 and self._i < self._blocklength)
 
+    def go_inactive(self):
+        self._currentblock = self._blockcount
+
     def id(self):
         if self._ids is None:
             self._read_ids()

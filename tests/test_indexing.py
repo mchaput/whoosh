@@ -547,3 +547,10 @@ def test_doc_boost():
         r = s.search(query.Term("a", "alfa"))
         assert_equal([hit["id"] for hit in r], [1, 0, 3, 2])
 
+
+
+
+
+
+
+
