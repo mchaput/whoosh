@@ -36,7 +36,7 @@ try:
 except ImportError:
     zlib = None
 
-from whoosh.compat import b, PY3
+from whoosh.compat import b, text_type, PY3
 from whoosh.compat import loads, dumps
 from whoosh.compat import xrange, iteritems
 from whoosh.compat import bytes_type, string_type, integer_types
@@ -55,6 +55,7 @@ from whoosh.fst import GraphWriter, GraphReader
 from whoosh.util.numeric import byte_to_length, length_to_byte
 from whoosh.util.numeric import to_sortable, from_sortable, NaN
 from whoosh.util.text import utf8encode, utf8decode
+from whoosh.util.times import datetime_to_long, long_to_datetime
 
 
 # Standard codec top-level object
@@ -1629,11 +1630,10 @@ class OLD_NUMERIC(NUMERIC):
             x >>= shift
         return pack_byte(shift) + self._to_text()
 
-    # 
-
     def to_text(self, x, shift=0):
-        return self._to_text(self.prepare_number(x), shift=shift,
-                             signed=self.signed)
+        x = self.prepare_number(x)
+        x = self._to_text(x, shift=shift, signed=self.signed)
+        return x
 
     def from_text(self, t):
         x = self._from_text(t, signed=self.signed)
@@ -1680,11 +1680,102 @@ class OLD_NUMERIC(NUMERIC):
         from_text = self._from_text
 
         for text in ixreader.lexicon(fieldname):
-            if text[0] != "\x00":
+            if text[0:1] != "\x00":
                 # Only yield the full-precision values
                 break
 
             yield (text, from_text(text))
+
+
+class OLD_DATETIME(OLD_NUMERIC):
+    def __init__(self, stored=False, unique=False):
+        OLD_NUMERIC.__init__(self, type=long_type, stored=stored,
+                             unique=unique, shift_step=8)
+
+    def to_text(self, x, shift=0):
+        from datetime import datetime
+        from whoosh.util.times import floor
+
+        try:
+            if isinstance(x, text_type):
+                # For indexing, support same strings as for query parsing
+                x = self._parse_datestring(x)
+                x = floor(x)  # this makes most sense (unspecified = lowest)
+            if isinstance(x, datetime):
+                x = datetime_to_long(x)
+            elif not isinstance(x, integer_types):
+                raise TypeError()
+        except Exception:
+            raise ValueError("DATETIME.to_text can't convert from %r" % (x,))
+
+        x = OLD_NUMERIC.to_text(self, x, shift=shift)
+        return x
+
+    def from_text(self, x):
+        x = OLD_NUMERIC.from_text(self, x)
+        return long_to_datetime(x)
+
+    def _parse_datestring(self, qstring):
+        # This method parses a very simple datetime representation of the form
+        # YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
+        from whoosh.util.times import adatetime, fix, is_void
+
+        qstring = qstring.replace(" ", "").replace("-", "").replace(".", "")
+        year = month = day = hour = minute = second = microsecond = None
+        if len(qstring) >= 4:
+            year = int(qstring[:4])
+        if len(qstring) >= 6:
+            month = int(qstring[4:6])
+        if len(qstring) >= 8:
+            day = int(qstring[6:8])
+        if len(qstring) >= 10:
+            hour = int(qstring[8:10])
+        if len(qstring) >= 12:
+            minute = int(qstring[10:12])
+        if len(qstring) >= 14:
+            second = int(qstring[12:14])
+        if len(qstring) == 20:
+            microsecond = int(qstring[14:])
+
+        at = fix(adatetime(year, month, day, hour, minute, second,
+                           microsecond))
+        if is_void(at):
+            raise Exception("%r is not a parseable date" % qstring)
+        return at
+
+    def parse_query(self, fieldname, qstring, boost=1.0):
+        from whoosh import query
+        from whoosh.util.times import is_ambiguous
+
+        try:
+            at = self._parse_datestring(qstring)
+        except:
+            e = sys.exc_info()[1]
+            return query.error_query(e)
+
+        if is_ambiguous(at):
+            startnum = datetime_to_long(at.floor())
+            endnum = datetime_to_long(at.ceil())
+            return query.NumericRange(fieldname, startnum, endnum)
+        else:
+            return query.Term(fieldname, self.to_text(at), boost=boost)
+
+    def parse_range(self, fieldname, start, end, startexcl, endexcl,
+                    boost=1.0):
+        from whoosh import query
+
+        if start is None and end is None:
+            return query.Every(fieldname, boost=boost)
+
+        if start is not None:
+            startdt = self._parse_datestring(start).floor()
+            start = datetime_to_long(startdt)
+
+        if end is not None:
+            enddt = self._parse_datestring(end).ceil()
+            end = datetime_to_long(enddt)
+
+        return query.NumericRange(fieldname, start, end, boost=boost)
 
 
 # Functions for converting numbers to and from text
@@ -1725,6 +1816,7 @@ def text_to_float(text, signed=True):
 # Functions for converting sortable representations to and from text.
 
 from whoosh.support.base85 import to_base85, from_base85
+
 
 def sortable_int_to_text(x, shift=0):
     if shift:

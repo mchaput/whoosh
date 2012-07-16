@@ -47,6 +47,7 @@ def load_110_toc(stream, gen, schema, version):
         # Remap the old classes and functions to their moved versions as we
         # unpickle the schema
         objmap = {"whoosh.fields.NUMERIC": "whoosh.codec.whoosh2.OLD_NUMERIC",
+                  "whoosh.fields.DATETIME": "whoosh.codec.whoosh2.OLD_DATETIME",
                   "whoosh.support.numeric.int_to_text": "whoosh.codec.whoosh2.int_to_text",
                   "whoosh.support.numeric.text_to_int": "whoosh.codec.whoosh2.text_to_int",
                   "whoosh.support.numeric.long_to_text": "whoosh.codec.whoosh2.long_to_text",

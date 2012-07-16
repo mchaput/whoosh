@@ -30,7 +30,7 @@ from array import array
 from bisect import bisect_left
 from struct import pack, unpack
 
-from whoosh.compat import b
+from whoosh.compat import b, long_type
 from whoosh.system import pack_byte, unpack_byte, pack_ushort, unpack_ushort
 from whoosh.system import pack_int, unpack_int, pack_uint, unpack_uint
 from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
@@ -102,7 +102,7 @@ _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
 
 def to_sortable(numtype, intsize, signed, x):
-    if numtype is int:
+    if numtype is int or numtype is long_type:
         if signed:
             x += (1 << intsize - 1)
         return x
@@ -111,7 +111,7 @@ def to_sortable(numtype, intsize, signed, x):
 
 
 def from_sortable(numtype, intsize, signed, x):
-    if numtype is int:
+    if numtype is int or numtype is long_type:
         if signed:
             x -= (1 << intsize - 1)
         return x
