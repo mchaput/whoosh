@@ -466,8 +466,8 @@ class NUMERIC(FieldType):
         # Set up field configuration based on type and size
         if numtype is float:
             bits = 64  # Floats are converted to 64 bit ints
-        intsizes = (8, 16, 32, 64)
-        intcodes = ("B", "H", "I", "Q")
+        intsizes = [8, 16, 32, 64]
+        intcodes = ["B", "H", "I", "Q"]
         if bits not in intsizes:
             raise Exception("Invalid bits %r, use 8, 16, 32, or 64"
                             % bits)
