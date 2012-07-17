@@ -117,7 +117,7 @@ def test_lengths():
 
 
 def test_many_lengths():
-    domain = u("alfa bravo charlie delta echo foxtrot golf hotel").split()
+    domain = u("alfa bravo charlie delta echo").split()
     schema = fields.Schema(text=fields.TEXT)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
