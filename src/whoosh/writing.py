@@ -789,7 +789,8 @@ class SegmentWriter(IndexWriter):
         postings = self.pool.iter_postings()
         self.fieldwriter.add_postings(self.schema, pdr, postings)
         self.fieldwriter.close()
-        pdr.close()
+        if pdr:
+            pdr.close()
 
     def _close_segment(self):
         if not self.perdocwriter.is_closed:
