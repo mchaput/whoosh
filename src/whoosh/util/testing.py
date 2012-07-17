@@ -57,7 +57,7 @@ class TempDir(object):
                 shutil.rmtree(self.dir)
             except OSError:
                 e = sys.exc_info()[1]
-                sys.stderr.write("Can't remove temp dir: " + str(e) + "\n")
+                #sys.stderr.write("Can't remove temp dir: " + str(e) + "\n")
                 #if exc_type is None:
                 #    raise
 
@@ -99,8 +99,8 @@ def skip_if(cond):
     def decorating_function(testfn):
         @wraps(testfn)
         def wrapper(*args, **kwargs):
+            from nose.plugins.skip import SkipTest
             if cond():
-                from nose.plugins.skip import SkipTest
                 raise SkipTest
             else:
                 return testfn(*args, **kwargs)

@@ -2,7 +2,7 @@ from __future__ import with_statement
 import random
 from array import array
 
-from nose.tools import assert_equal  # @UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, formats, query
 from whoosh.compat import u, b, text_type
@@ -37,15 +37,15 @@ def test_termkey():
     fieldobj = fields.TEXT()
     tw.start_field("alfa", fieldobj)
     tw.start_term(b("bravo"))
-    tw.add(0, 1.0, "", 3)
+    tw.add(0, 1.0, b(""), 3)
     tw.finish_term()
     tw.start_term(b('\xc3\xa6\xc3\xaf\xc5\xc3\xba'))
-    tw.add(0, 4.0, "", 3)
+    tw.add(0, 4.0, b(""), 3)
     tw.finish_term()
     tw.finish_field()
     tw.start_field("text", fieldobj)
-    tw.start_term(b('\xe6\xa5\xe6\u0153\xac\xe8\xaa'))
-    tw.add(0, 7.0, "", 9)
+    tw.start_term(b('\xe6\xa5\xe6\xac\xe8\xaa'))
+    tw.add(0, 7.0, b(""), 9)
     tw.finish_term()
     tw.finish_field()
     tw.close()
@@ -53,7 +53,7 @@ def test_termkey():
     tr = codec.terms_reader(st, seg)
     assert ("alfa", b("bravo")) in tr
     assert ("alfa", b('\xc3\xa6\xc3\xaf\xc5\xc3\xba')) in tr
-    assert ("text", b('\xe6\xa5\xe6\u0153\xac\xe8\xaa')) in tr
+    assert ("text", b('\xe6\xa5\xe6\xac\xe8\xaa')) in tr
     tr.close()
 
 
@@ -82,7 +82,7 @@ def test_random_termkeys():
             tw.start_field(fieldname, fieldobj)
             lastfield = fieldname
         tw.start_term(text)
-        tw.add(0, 1.0, "", 1)
+        tw.add(0, 1.0, b(""), 1)
         tw.finish_term()
     if lastfield:
         tw.finish_field()
@@ -147,15 +147,15 @@ def test_termindex():
     schema = fields.Schema(a=fields.TEXT, b=fields.TEXT)
 
     tw = codec.field_writer(st, seg)
-    postings = ((fname, text, 0, i, "") for (i, (fname, text))
+    postings = ((fname, b(text), 0, i, b("")) for (i, (fname, text))
                 in enumerate(terms))
     tw.add_postings(schema, FakeLengths(), postings)
     tw.close()
 
     tr = codec.terms_reader(st, seg)
     for i, (fieldname, token) in enumerate(terms):
-        assert (fieldname, token) in tr
-        ti = tr.term_info(fieldname, token)
+        assert (fieldname, b(token)) in tr
+        ti = tr.term_info(fieldname, b(token))
         assert_equal(ti.weight(), i)
         assert_equal(ti.doc_frequency(), 1)
 
@@ -276,8 +276,8 @@ def test_vector():
     dw = codec.per_document_writer(st, seg)
     dw.start_doc(0)
     dw.add_field("title", field, None, 1)
-    dw.add_vector_items("title", field, [(u("alfa"), 1.0, "t1"),
-                                         (u("bravo"), 2.0, "t2")])
+    dw.add_vector_items("title", field, [(u("alfa"), 1.0, b("t1")),
+                                         (u("bravo"), 2.0, b("t2"))])
     dw.finish_doc()
     dw.close()
     seg.set_doc_count(1)
@@ -291,7 +291,7 @@ def test_vector():
     while m.is_active():
         ps.append((m.id(), m.weight(), m.value()))
         m.next()
-    assert_equal(ps, [("alfa", 1.0, "t1"), ("bravo", 2.0, "t2")])
+    assert_equal(ps, [(u("alfa"), 1.0, b("t1")), (u("bravo"), 2.0, b("t2"))])
 
 
 def test_vector_values():
@@ -362,7 +362,7 @@ def test_fieldwriter_single_term():
     fw.close()
 
     tr = codec.terms_reader(st, seg)
-    assert ("text", "alfa") in tr
+    assert ("text", b("alfa")) in tr
     ti = tr.term_info("text", b("alfa"))
     assert_equal(ti.weight(), 1.5)
     assert_equal(ti.doc_frequency(), 1)
@@ -392,7 +392,7 @@ def test_fieldwriter_two_terms():
 
     tr = codec.terms_reader(st, seg)
     assert ("text", b("alfa")) in tr
-    ti = tr.term_info("text", "alfa")
+    ti = tr.term_info("text", b("alfa"))
     assert_equal(ti.weight(), 3.0)
     assert_equal(ti.doc_frequency(), 2)
     assert_equal(ti.min_length(), 1)
@@ -401,7 +401,7 @@ def test_fieldwriter_two_terms():
     assert_equal(ti.min_id(), 0)
     assert_equal(ti.max_id(), 1)
     assert ("text", b("bravo")) in tr
-    ti = tr.term_info("text", "bravo")
+    ti = tr.term_info("text", b("bravo"))
     assert_equal(ti.weight(), 5.0)
     assert_equal(ti.doc_frequency(), 2)
     assert_equal(ti.min_length(), 2)
@@ -410,7 +410,7 @@ def test_fieldwriter_two_terms():
     assert_equal(ti.min_id(), 0)
     assert_equal(ti.max_id(), 2)
 
-    m = tr.matcher("text", "bravo", field.format)
+    m = tr.matcher("text", b("bravo"), field.format)
     assert_equal(list(m.all_ids()), [0, 2])
 
 
@@ -431,7 +431,7 @@ def test_fieldwriter_multiblock():
     fw.close()
 
     tr = codec.terms_reader(st, seg)
-    ti = tr.term_info("text", "alfa")
+    ti = tr.term_info("text", b("alfa"))
     assert_equal(ti.weight(), 15.0)
     assert_equal(ti.doc_frequency(), 5)
     assert_equal(ti.min_length(), 1)
@@ -441,7 +441,7 @@ def test_fieldwriter_multiblock():
     assert_equal(ti.max_id(), 4)
 
     ps = []
-    m = tr.matcher("text", "alfa", field.format)
+    m = tr.matcher("text", b("alfa"), field.format)
     while m.is_active():
         ps.append((m.id(), m.weight(), m.value()))
         m.next()
@@ -466,8 +466,9 @@ def test_term_values():
 
     tr = codec.terms_reader(st, seg)
     ps = [(term, ti.weight(), ti.doc_frequency()) for term, ti in tr.items()]
-    assert_equal(ps, [(("f1", "alfa"), 2.0, 1), (("f1", "bravo"), 1.0, 1),
-                      (("f1", "charlie"), 1.0, 1)])
+    assert_equal(ps, [(("f1", b("alfa")), 2.0, 1),
+                      (("f1", b("bravo")), 1.0, 1),
+                      (("f1", b("charlie")), 1.0, 1)])
 
 
 def test_skip():
@@ -479,13 +480,13 @@ def test_skip():
     fw.start_field("f1", fieldobj)
     fw.start_term(b("test"))
     for n in _docnums:
-        fw.add(n, 1.0, '', None)
+        fw.add(n, 1.0, b(''), None)
     fw.finish_term()
     fw.finish_field()
     fw.close()
 
     tr = codec.terms_reader(st, seg)
-    m = tr.matcher("f1", "test", fieldobj.format)
+    m = tr.matcher("f1", b("test"), fieldobj.format)
     assert_equal(m.id(), 1)
     m.skip_to(220)
     assert_equal(m.id(), 283)
@@ -540,7 +541,8 @@ def test_special_spelled_field():
     fw.close()
 
     tr = codec.terms_reader(st, seg)
-    assert_equal(list(tr.terms()), [("text", "special"), ("text", "specific")])
+    assert_equal(list(tr.terms()), [("text", b("special")),
+                                    ("text", b("specific"))])
 
     cur = codec.graph_reader(st, seg).cursor("text")
     assert_equal(list(cur.flatten_strings()), ["specials", "specifically"])
@@ -585,13 +587,17 @@ def test_plaintext_codec():
         assert_equal(len(r), 3)
         assert_equal([hit["b"] for hit in r], [1000, 5.5, True])
 
-        assert_equal(" ".join(s.lexicon("a")),
+        assert_equal(" ".join(s.field_terms("a")),
                      "alfa bravo charlie delta echo foxtrot india")
 
         assert_equal(reader.doc_field_length(2, "a"), 3)
 
-        c_values = [v for _, v in schema["c"].sortable_values(reader, "c")]
-        assert_equal(c_values, [-200, -100, 100, 200, 300])
+        cfield = schema["c"]
+        assert_equal(type(cfield), fields.NUMERIC)
+        sortables = list(cfield.sortable_terms(reader, "c"))
+        assert_not_equal(sortables, [])
+        assert_equal([cfield.from_bytes(t) for t in sortables],
+                     [-200, -100, 100, 200, 300])
 
         assert reader.has_column("a")
         c = reader.column_reader("a")
@@ -638,10 +644,12 @@ def test_memory_codec():
     assert_equal(len(r), 3)
     assert_equal([hit["b"] for hit in r], [1000, 5.5, True])
 
-    assert_equal(" ".join(s.lexicon("a")),
+    assert_equal(" ".join(s.field_terms("a")),
                  "alfa bravo charlie delta echo foxtrot india")
 
-    c_values = [v for _, v in schema["c"].sortable_values(reader, "c")]
+    cfield = schema["c"]
+    c_sortables = cfield.sortable_terms(reader, "c")
+    c_values = [cfield.from_bytes(t) for t in c_sortables]
     assert_equal(c_values, [-200, -100, 100, 200, 300])
 
     c_values = list(reader.column_reader("c"))
@@ -653,7 +661,7 @@ def test_memory_codec():
 
     assert reader.has_word_graph("d")
     gr = reader.word_graph("d")
-    assert_equal(" ".join(gr.flatten()),
+    assert_equal(" ".join(gr.flatten_strings()),
                  "aching dipping echoing filling going hopping opening "
                  "pulling quelling rolling selling timing using whining "
                  "yelling")
@@ -677,7 +685,7 @@ def test_memory_multiwrite():
 
     reader = codec.reader(schema)
     assert_equal([sf["line"] for sf in reader.all_stored_fields()], domain)
-    assert_equal(" ".join(reader.lexicon("line")),
+    assert_equal(" ".join(reader.field_terms("line")),
                  "alfa bravo charlie delta echo foxtrot india juliet")
 
 

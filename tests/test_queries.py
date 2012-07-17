@@ -5,7 +5,7 @@ from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 import copy
 
 from whoosh import fields, qparser, query
-from whoosh.compat import u
+from whoosh.compat import b, u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.query import And
@@ -55,15 +55,11 @@ def test_existing_terms():
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
 
     ts = q.existing_terms(r, phrases=False)
-    assert_equal(sorted(ts), [("value", "alfa"), ("value", "hotel")])
+    assert_equal(sorted(ts), [("value", b("alfa")), ("value", b("hotel"))])
 
     ts = q.existing_terms(r)
-    assert_equal(sorted(ts), [("value", "alfa"), ("value", "bravo"),
-                              ("value", "hotel")])
-
-    ts = set()
-    q.existing_terms(r, ts, reverse=True)
-    assert_equal(sorted(ts), [("value", "sierra"), ("value", "tango")])
+    assert_equal(sorted(ts), [("value", b("alfa")), ("value", b("bravo")),
+                              ("value", b("hotel"))])
 
 
 def test_wildcard_existing_terms():
@@ -82,25 +78,25 @@ def test_wildcard_existing_terms():
         for t in terms:
             assert t[0] == "value"
             z.append(t[1])
-        return " ".join(sorted(z))
+        return b(" ").join(sorted(z))
 
     q = qp.parse(u("b*"))
     ts = q.existing_terms(r)
     assert_equal(ts, set())
     ts = q.existing_terms(r, expand=True)
-    assert_equal(words(ts), "bear boggle bravo")
+    assert_equal(words(ts), b("bear boggle bravo"))
 
     q = qp.parse(u("[a TO f]"))
     ts = q.existing_terms(r)
     assert_equal(ts, set())
     ts = q.existing_terms(r, expand=True)
-    assert_equal(words(ts), "alfa bear boggle bravo charlie delta echo")
+    assert_equal(words(ts), b("alfa bear boggle bravo charlie delta echo"))
 
     q = query.Variations("value", "render")
     ts = q.existing_terms(r, expand=False)
-    assert_equal(ts, set())
+    assert_equal(ts, set([("value", b("render"))]))
     ts = q.existing_terms(r, expand=True)
-    assert_equal(words(ts), "render rendering renders")
+    assert_equal(words(ts), b("render rendering renders"))
 
 
 def test_replace():
@@ -170,9 +166,9 @@ def test_simplify():
 
     r = ix.reader()
     q1 = And([Prefix("v", "b", boost=2.0), Term("v", "juliet")])
-    q2 = And([Or([Term('v', u('bear'), boost=2.0),
-                  Term('v', u('bee'), boost=2.0),
-                  Term('v', u('brie'), boost=2.0)]),
+    q2 = And([Or([Term('v', 'bear', boost=2.0),
+                  Term('v', 'bee', boost=2.0),
+                  Term('v', 'brie', boost=2.0)]),
               Term('v', 'juliet')])
     assert_equal(q1.simplify(r), q2)
 
@@ -386,9 +382,10 @@ def test_patterns():
             w.add_document(word=word)
 
     with ix.reader() as r:
-        assert_equal(list(r.lexicon("word")), domain)
+        assert_equal(list(r.field_terms("word")), domain)
 
-        assert_equal(list(r.expand_prefix("word", "al")), ["alembic", "all"])
+        assert_equal(list(r.expand_prefix("word", "al")),
+                     [b("alembic"), b("all")])
         q = query.Prefix("word", "al")
         assert_equal(q.simplify(r).__unicode__(), "(word:alembic OR word:all)")
 

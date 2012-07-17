@@ -4,7 +4,7 @@ from random import randint, choice, sample
 from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 
 from whoosh import fields, matching, qparser, query
-from whoosh.compat import u, xrange, permutations
+from whoosh.compat import b, u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import And, Term
 from whoosh.util import make_binary_tree
@@ -464,7 +464,7 @@ def test_current_terms():
 
         while m.is_active():
             assert_equal(sorted(m.matching_terms()),
-                         [("text", "alfa"), ("text", "charlie")])
+                         [("text", b("alfa")), ("text", b("charlie"))])
             m.next()
 
 

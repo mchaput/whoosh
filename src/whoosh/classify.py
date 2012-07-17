@@ -144,8 +144,15 @@ class Expander(object):
                             % (self.fieldname, docnum))
 
     def add_text(self, string):
+        # Unfortunately since field.index() yields bytes tokens, and we want
+        # unicode, we end up encoding and decoding unnecessarily.
+        # 
+        # TODO: Find a way around this
+
         field = self.ixreader.schema[self.fieldname]
-        self.add((text, weight) for text, _, weight, _ in field.index(string))
+        from_bytes = field.from_bytes
+        self.add((from_bytes(text), weight) for text, _, weight, _
+                 in field.index(string))
 
     def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.

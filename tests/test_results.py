@@ -474,8 +474,10 @@ def test_terms():
     q = qp.parse(u("(bravo AND charlie) OR foxtrot OR missing"))
     r = ix.searcher().search(q, terms=True)
 
+    fieldobj = schema["text"]
+
     def txts(tset):
-        return sorted(t[1] for t in tset)
+        return sorted(fieldobj.from_bytes(t[1]) for t in tset)
 
     assert_equal(txts(r.matched_terms()), ["bravo", "charlie", "foxtrot"])
     for hit in r:

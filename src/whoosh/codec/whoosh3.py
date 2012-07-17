@@ -31,7 +31,7 @@ from collections import defaultdict
 
 from whoosh import columns
 from whoosh.compat import b, bytes_type, string_type, integer_types
-from whoosh.compat import dumps, loads, iteritems
+from whoosh.compat import dumps, loads, iteritems, xrange
 from whoosh.codec import base
 from whoosh.filedb import compound, filetables
 from whoosh.matching import ListMatcher, ReadTooFar, LeafMatcher
@@ -336,6 +336,8 @@ class W3PerDocReader(base.PerDocumentReader):
 
     def close(self):
         self._cols.close()
+        if self._vpostfile:
+            self._vpostfile.close()
 
     def doc_count(self):
         return self._doccount - self._segment.deleted_count()
@@ -451,6 +453,7 @@ class W3TermsReader(base.TermsReader):
             self._fieldunmap[num] = fieldname
 
     def _keycoder(self, fieldname, tbytes):
+        assert isinstance(tbytes, bytes_type), "tbytes=%r" % tbytes
         fnum = self._fieldmap.get(fieldname, 65535)
         return pack_ushort(fnum) + tbytes
 

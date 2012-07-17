@@ -1676,15 +1676,12 @@ class OLD_NUMERIC(NUMERIC):
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
                                   boost=boost)
 
-    def sortable_values(self, ixreader, fieldname):
-        from_text = self._from_text
-
-        for text in ixreader.lexicon(fieldname):
-            if text[0:1] != "\x00":
+    def sortable_terms(self, ixreader, fieldname):
+        for token in ixreader.lexicon(fieldname):
+            if token[0:1] != "\x00":
                 # Only yield the full-precision values
                 break
-
-            yield (text, from_text(text))
+            yield token
 
 
 class OLD_DATETIME(OLD_NUMERIC):

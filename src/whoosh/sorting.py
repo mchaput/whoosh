@@ -202,24 +202,25 @@ class FieldFacet(FacetType):
         # If we're grouping with allow_overlap=True, all we can use is
         # OverlappingCategorizer
         if self.allow_overlap:
-            c = OverlappingCategorizer(fieldname)
+            c = OverlappingCategorizer(global_searcher, fieldname)
         else:
             if global_searcher.reader().has_column(fieldname):
                 coltype = fieldobj.column_type
                 if coltype.reversible or not self.reverse:
-                    c = ColumnCategorizer(fieldname, self.reverse)
+                    c = ColumnCategorizer(global_searcher, fieldname,
+                                          self.reverse)
                 else:
                     c = ReversedColumnCategorizer(global_searcher, fieldname)
             else:
                 c = PostingCategorizer(global_searcher, fieldname,
                                             self.reverse)
-
         return c
 
 
 class ColumnCategorizer(Categorizer):
-    def __init__(self, fieldname, reverse=False):
+    def __init__(self, global_searcher, fieldname, reverse=False):
         self._fieldname = fieldname
+        self._fieldobj = global_searcher.schema[self._fieldname]
         self._reverse = reverse
 
     def set_searcher(self, segment_searcher, docoffset):
@@ -229,6 +230,9 @@ class ColumnCategorizer(Categorizer):
     def key_for(self, matcher, segment_docnum):
         return self._creader.sort_key(segment_docnum, self._reverse)
 
+    def key_to_name(self, key):
+        return self._fieldobj.from_column_value(key)
+
 
 class ReversedColumnCategorizer(ColumnCategorizer):
     """Categorizer that reverses column values for columns that aren't
@@ -236,7 +240,7 @@ class ReversedColumnCategorizer(ColumnCategorizer):
     """
 
     def __init__(self, global_searcher, fieldname):
-        self._fieldname = fieldname
+        ColumnCategorizer.__init__(self, global_searcher, fieldname)
 
         reader = global_searcher.reader()
         self._doccount = reader.doc_count_all()
@@ -251,8 +255,9 @@ class ReversedColumnCategorizer(ColumnCategorizer):
         return 0 - order
 
     def key_to_name(self, key):
-        # Re-reverse the key to get the index into the
-        return self._values[0 - key]
+        # Re-reverse the key to get the index into _values
+        key = self._values[0 - key]
+        return ColumnCategorizer.key_to_name(self, key)
 
 
 class PostingCategorizer(Categorizer):
@@ -273,21 +278,20 @@ class PostingCategorizer(Categorizer):
         # across the entire index
         reader = global_searcher.reader()
         dc = reader.doc_count_all()
-        fieldobj = global_searcher.schema[fieldname]
+        self._fieldobj = global_searcher.schema[fieldname]
+        from_bytes = self._fieldobj.from_bytes
 
         self.values = []
         self.array = array("i", [dc + 1] * dc)
 
-        # sortable_values() returns an iterator of (actual_term,
-        # sortable_value) pairs
-        tvs = fieldobj.sortable_values(reader, fieldname)
-        for i, (t, v) in enumerate(tvs):
-            self.values.append(v)
+        tokens = self._fieldobj.sortable_terms(reader, fieldname)
+        for i, token in enumerate(tokens):
+            self.values.append(from_bytes(token))
             if reverse:
                 i = dc - i
 
             # Get global docids from global reader
-            postings = reader.postings(fieldname, t)
+            postings = reader.postings(fieldname, token)
             for docid in postings.all_ids():
                 self.array[docid] = i
 
@@ -311,50 +315,53 @@ class PostingCategorizer(Categorizer):
 class OverlappingCategorizer(Categorizer):
     allow_overlap = True
 
-    def __init__(self, fieldname):
-        self.fieldname = fieldname
-        self.use_vectors = False
+    def __init__(self, global_searcher, fieldname):
+        self._fieldname = fieldname
+        self._fieldobj = global_searcher.schema[fieldname]
+        self._use_vectors = False
 
     def set_searcher(self, segment_searcher, docoffset):
-        fieldname = self.fieldname
+        fieldname = self._fieldname
         dc = segment_searcher.doc_count_all()
         field = segment_searcher.schema[fieldname]
+        from_bytes = field.from_bytes
         reader = segment_searcher.reader()
 
         if field.vector:
             # If the field was indexed with term vectors, use the vectors
             # to get the list of values in each matched document
-            self.use_vectors = True
-            self.segment_searcher = segment_searcher
+            self._use_vectors = True
+            self._segment_searcher = segment_searcher
         else:
             # Otherwise, cache the values in each document in a huge list
             # of lists
-            self.use_vectors = False
-            self.lists = [[] for _ in xrange(dc)]
-            for t, _ in field.sortable_values(reader, fieldname):
-                postings = reader.postings(fieldname, t)
+            self._use_vectors = False
+            self._lists = [[] for _ in xrange(dc)]
+            for token in field.sortable_terms(reader, fieldname):
+                text = from_bytes(token)
+                postings = reader.postings(fieldname, token)
                 for docid in postings.all_ids():
-                    self.lists[docid].append(t)
+                    self._lists[docid].append(text)
 
     def keys_for(self, matcher, docid):
-        if self.use_vectors:
+        if self._use_vectors:
             try:
-                v = self.segment_searcher.vector(docid, self.fieldname)
+                v = self._segment_searcher.vector(docid, self.fieldname)
                 return list(v.all_ids())
             except KeyError:
                 return None
         else:
-            return self.lists[docid] or None
+            return self._lists[docid] or None
 
     def key_for(self, matcher, docid):
-        if self.use_vectors:
+        if self._use_vectors:
             try:
-                v = self.segment_searcher.vector(docid, self.fieldname)
+                v = self._segment_searcher.vector(docid, self.fieldname)
                 return v.id()
             except KeyError:
                 return None
         else:
-            ls = self.lists[docid]
+            ls = self._lists[docid]
             if ls:
                 return ls[0]
             else:

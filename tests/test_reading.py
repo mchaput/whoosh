@@ -4,7 +4,7 @@ import random, threading, time
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, formats, reading
-from whoosh.compat import u, xrange
+from whoosh.compat import b, u, xrange
 from whoosh.reading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
@@ -62,12 +62,12 @@ def _fstats(r):
 
 
 def test_readers():
-    target = [("f1", u('A'), 4, 6), ("f1", u('B'), 2, 2), ("f1", u('C'), 2, 2),
-              ("f1", u('D'), 1, 1), ("f1", u('E'), 2, 2), ("f1", u('F'), 1, 1),
-              ("f2", u('1'), 3, 3), ("f2", u('2'), 3, 3), ("f2", u('3'), 2, 2),
-              ("f2", u('4'), 2, 2), ("f2", u('5'), 2, 2), ("f2", u('6'), 2, 2),
-              ("f3", u('Q'), 2, 2), ("f3", u('R'), 2, 2), ("f3", u('S'), 2, 2),
-              ("f3", u('X'), 3, 3), ("f3", u('Y'), 3, 3), ("f3", u('Z'), 2, 2)]
+    target = [("f1", b('A'), 4, 6), ("f1", b('B'), 2, 2), ("f1", b('C'), 2, 2),
+              ("f1", b('D'), 1, 1), ("f1", b('E'), 2, 2), ("f1", b('F'), 1, 1),
+              ("f2", b('1'), 3, 3), ("f2", b('2'), 3, 3), ("f2", b('3'), 2, 2),
+              ("f2", b('4'), 2, 2), ("f2", b('5'), 2, 2), ("f2", b('6'), 2, 2),
+              ("f3", b('Q'), 2, 2), ("f3", b('R'), 2, 2), ("f3", b('S'), 2, 2),
+              ("f3", b('X'), 3, 3), ("f3", b('Y'), 3, 3), ("f3", b('Z'), 2, 2)]
     target = sorted(target)
 
     stored = [{"f1": "A B C"}, {"f1": "D E F"}, {"f1": "A E C"},
@@ -100,32 +100,31 @@ def test_term_inspection():
     writer.commit()
 
     reader = ix.reader()
-    assert_equal(list(reader.lexicon("content")),
-                 [u('aa'), u('ab'), u('ax'), u('bb'), u('cc'), u('dd'),
-                  u('ee')])
+    assert_equal(" ".join(reader.field_terms("content")),
+                 "aa ab ax bb cc dd ee")
     assert_equal(list(reader.expand_prefix("content", "a")),
-                 [u('aa'), u('ab'), u('ax')])
+                 [b('aa'), b('ab'), b('ax')])
     assert_equal(set(reader.all_terms()),
-                 set([('content', u('aa')), ('content', u('ab')),
-                      ('content', u('ax')), ('content', u('bb')),
-                      ('content', u('cc')), ('content', u('dd')),
-                      ('content', u('ee')), ('title', u('document')),
-                      ('title', u('my')), ('title', u('other'))]))
+                 set([('content', b('aa')), ('content', b('ab')),
+                      ('content', b('ax')), ('content', b('bb')),
+                      ('content', b('cc')), ('content', b('dd')),
+                      ('content', b('ee')), ('title', b('document')),
+                      ('title', b('my')), ('title', b('other'))]))
     # (text, doc_freq, index_freq)
     assert_equal(_fstats(reader.iter_field("content")),
-                 [(u('aa'), 2, 6), (u('ab'), 1, 1), (u('ax'), 1, 2),
-                  (u('bb'), 2, 5), (u('cc'), 2, 3), (u('dd'), 2, 2),
-                  (u('ee'), 2, 4)])
+                 [(b('aa'), 2, 6), (b('ab'), 1, 1), (b('ax'), 1, 2),
+                  (b('bb'), 2, 5), (b('cc'), 2, 3), (b('dd'), 2, 2),
+                  (b('ee'), 2, 4)])
     assert_equal(_fstats(reader.iter_field("content", prefix="c")),
-                 [(u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
+                 [(b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)])
     assert_equal(list(reader.most_frequent_terms("content")),
-                 [(6, u('aa')), (5, u('bb')), (4, u('ee')), (3, u('cc')),
-                  (2, u('dd'))])
+                 [(6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')),
+                  (2, b('dd'))])
     assert_equal(list(reader.most_frequent_terms("content", prefix="a")),
-                 [(6, u('aa')), (2, u('ax')), (1, u('ab'))])
+                 [(6, b('aa')), (2, b('ax')), (1, b('ab'))])
     assert_equal(list(reader.most_distinctive_terms("content", 3)),
-                 [(1.3862943611198906, u('ax')), (0.6931471805599453, u('ab')),
-                  (0.0, u('ee'))])
+                 [(1.3862943611198906, b('ax')), (0.6931471805599453, b('ab')),
+                  (0.0, b('ee'))])
 
 
 def test_vector_postings():
@@ -315,7 +314,7 @@ def test_nonexclusive_read():
         def fn():
             for _ in xrange(5):
                 r = ix.reader()
-                assert_equal(list(r.lexicon("text")),
+                assert_equal(list(r.field_terms("text")),
                              ["document", "five", "four", "one", "test",
                               "three", "two"])
                 r.close()

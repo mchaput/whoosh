@@ -77,7 +77,10 @@ class CompoundStorage(FileStorage):
 
     def close(self):
         if self._source:
-            self._source.close()
+            try:
+                self._source.close()
+            except BufferError:
+                del self._source
         if self._file:
             self._file.close()
 

@@ -154,10 +154,10 @@ def test_checksum_file():
     # Read the file with checksumming
     f = st.open_file("test")
     cf = ChecksumFile(f)
-    assert_equal(cf.read(7), "Testing")
+    assert_equal(cf.read(7), b("Testing"))
     assert_equal(cf.read_int(), -100)
     assert_equal(cf.read_varint(), 10395)
-    assert_equal(cf.read_string(), "Hello")
+    assert_equal(cf.read_string(), b("Hello"))
     assert_equal(cf.read_ushort(), 32959)
     assert_equal(cf.checksum(), target)
     cf.close()

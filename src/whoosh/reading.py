@@ -205,13 +205,22 @@ class IndexReader(object):
             yield text
 
     def lexicon(self, fieldname):
-        """Yields all terms in the given field.
+        """Yields all tokens (bytestrings) in the given field.
         """
 
-        for fn, text in self.terms_from(fieldname, emptybytes):
+        for fn, token in self.terms_from(fieldname, emptybytes):
             if fn != fieldname:
                 return
-            yield text
+            yield token
+
+    def field_terms(self, fieldname):
+        """Yields all term values (converted from on-disk bytes) in the given
+        field.
+        """
+
+        from_bytes = self.schema[fieldname].from_bytes
+        for token in self.lexicon(fieldname):
+            yield from_bytes(token)
 
     def __iter__(self):
         """Yields ((fieldname, text), terminfo) tuples for each term in the
@@ -499,7 +508,9 @@ class IndexReader(object):
             not be yielded.
         """
 
-        for word in self.expand_prefix(fieldname, text[:prefix]):
+        fieldobj = self.schema[fieldname]
+        for token in self.expand_prefix(fieldname, text[:prefix]):
+            word = fieldobj.from_bytes(token)
             k = distance(word, text, limit=maxdist)
             if k <= maxdist:
                 yield word
@@ -571,7 +582,6 @@ class SegmentReader(IndexReader):
         self._terms = self._codec.terms_reader(self._files, segment)
         self._perdoc = self._codec.per_document_reader(self._files, segment)
         self._graph = None  # Lazy open with self._get_graph()
-        self._creaders = {}  # Column reader cache
 
     def _get_graph(self):
         if not self._graph:
@@ -772,23 +782,16 @@ class SegmentReader(IndexReader):
     # Column methods
 
     def has_column(self, fieldname):
-        if fieldname in self._creaders:
-            return True
-
         coltype = self.schema[fieldname].column_type
         return coltype and self._perdoc.has_column(fieldname)
 
     def column_reader(self, fieldname, column=None):
-        if fieldname in self._creaders and column is None:
-            return self._creaders[fieldname]
-
         fieldobj = self.schema[fieldname]
         column = column or fieldobj.column_type
         reader = self._perdoc.column_reader(fieldname, column)
 
         translate = fieldobj.from_column_value
         creader = columns.TranslatingColumnReader(reader, translate)
-        self._creaders[fieldname] = creader
         return creader
 
 

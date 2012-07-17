@@ -251,18 +251,16 @@ class FieldType(object):
 
     # Methods related to sortings
 
-    def sortable_values(self, ixreader, fieldname):
-        """Returns an iterator of (term_text, sortable_value) pairs for the
-        terms in the given reader and field. The sortable values can be used
-        for sorting. The default implementation simply returns the texts of all
-        terms in the field.
+    def sortable_terms(self, ixreader, fieldname):
+        """Returns an iterator of the "sortable" tokens in the given reader and
+        field. These values can be used for sorting. The default implementation
+        simply returns all tokens in the field.
         
         This can be overridden by field types such as NUMERIC where some values
-        in a field are not useful for sorting, and where the sortable values
-        can be expressed more compactly as numbers.
+        in a field are not useful for sorting.
         """
 
-        return ((text, text) for text in ixreader.lexicon(fieldname))
+        return ixreader.lexicon(fieldname)
 
     # Methods related to spelling
 
@@ -532,9 +530,9 @@ class NUMERIC(FieldType):
         # word, freq, weight, valuestring
         if self.shift_step:
             for shift in xrange(0, self.bits, self.shift_step):
-                yield (self.to_bytes(num, shift), 1, 1.0, '')
+                yield (self.to_bytes(num, shift), 1, 1.0, emptybytes)
         else:
-            yield (self.to_bytes(num), 1, 1.0, '')
+            yield (self.to_bytes(num), 1, 1.0, emptybytes)
 
     def prepare_number(self, x):
         if x == emptybytes or x is None:
@@ -625,14 +623,13 @@ class NUMERIC(FieldType):
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
                                   boost=boost)
 
-    def sortable_values(self, ixreader, fieldname):
-        from_bytes = self.from_bytes
+    def sortable_terms(self, ixreader, fieldname):
+        zero = b("\x00")
         for token in ixreader.lexicon(fieldname):
-            if token[0] != b("\x00"):
+            if token[0:1] != zero:
                 # Only yield the full-precision values
                 break
-
-            yield (token, from_bytes(token))
+            yield token
 
 
 class DATETIME(NUMERIC):
@@ -775,8 +772,8 @@ class BOOLEAN(FieldType):
     """
 
     bytestrings = (b("f"), b("t"))
-    trues = frozenset((u("t"), u("true"), u("yes"), u("1")))
-    falses = frozenset((u("f"), u("false"), u("no"), u("0")))
+    trues = frozenset(u("t true yes 1").split())
+    falses = frozenset(u("f false no 0").split())
 
     __inittypes__ = dict(stored=bool, field_boost=float)
 
@@ -798,11 +795,14 @@ class BOOLEAN(FieldType):
         return x
 
     def to_bytes(self, x):
-        if isinstance(x, string_type):
+        if isinstance(x, bytes_type):
+            return x
+        elif isinstance(x, string_type):
             x = x.lower() in self.trues
         else:
             x = bool(x)
-        return self.bytestrings[int(x)]
+        bs = self.bytestrings[int(x)]
+        return bs
 
     def index(self, bit, **kwargs):
         if isinstance(bit, string_type):
@@ -810,7 +810,7 @@ class BOOLEAN(FieldType):
         else:
             bit = bool(bit)
         # word, freq, weight, valuestring
-        return [(self.bytestrings[int(bit)], 1, 1.0, '')]
+        return [(self.bytestrings[int(bit)], 1, 1.0, emptybytes)]
 
     def self_parsing(self):
         return True

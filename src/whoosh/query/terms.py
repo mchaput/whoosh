@@ -82,6 +82,10 @@ class Term(qcore.Query):
                     boost=boost * self.boost, startchar=self.startchar,
                     endchar=self.endchar, chars=True)
 
+    def terms(self, phrases=False):
+        if self.field():
+            yield (self.field(), self.text)
+
     def replace(self, fieldname, oldtext, newtext):
         q = copy.copy(self)
         if q.fieldname == fieldname and q.text == oldtext:
@@ -122,12 +126,30 @@ class MultiTerm(qcore.Query):
     TOO_MANY_CLAUSES = 1024
     constantscore = False
 
-    def _words(self, ixreader):
-        raise NotImplementedError
+    def _btexts(self, ixreader):
+        raise NotImplementedError(self.__class__.__name__)
+
+    def expanded_terms(self, ixreader):
+        fieldname = self.field()
+        if fieldname:
+            for btext in self._btexts(ixreader):
+                yield (fieldname, btext)
+
+    def tokens(self, boost=1.0):
+        yield Token(fieldname=self.fieldname, text=self.text,
+                    boost=boost * self.boost, startchar=self.startchar,
+                    endchar=self.endchar, chars=True)
 
     def simplify(self, ixreader):
-        existing = [Term(self.fieldname, word, boost=self.boost)
-                    for word in sorted(set(self._words(ixreader)))]
+        if self.fieldname not in ixreader.schema:
+            return qcore.NullQuery()
+        field = ixreader.schema[self.fieldname]
+
+        existing = []
+        for btext in sorted(set(self._btexts(ixreader))):
+            text = field.from_bytes(btext)
+            existing.append(Term(self.fieldname, text, boost=self.boost))
+
         if len(existing) == 1:
             return existing[0]
         elif existing:
@@ -138,34 +160,18 @@ class MultiTerm(qcore.Query):
 
     def estimate_size(self, ixreader):
         return sum(ixreader.doc_frequency(self.fieldname, text)
-                   for text in self._words(ixreader))
+                   for text in self._btexts(ixreader))
 
     def estimate_min_size(self, ixreader):
         return min(ixreader.doc_frequency(self.fieldname, text)
-                   for text in self._words(ixreader))
-
-    def existing_terms(self, ixreader, termset=None, reverse=False,
-                       phrases=True, expand=False):
-        termset, test = self._existing_terms_helper(ixreader, termset, reverse)
-
-        if not expand:
-            return termset
-        fieldname = self.field()
-        if fieldname is None:
-            return termset
-
-        for word in self._words(ixreader):
-            term = (fieldname, word)
-            if test(term):
-                termset.add(term)
-        return termset
+                   for text in self._btexts(ixreader))
 
     def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         constantscore = self.constantscore
 
         reader = searcher.reader()
-        qs = [Term(fieldname, word) for word in self._words(reader)]
+        qs = [Term(fieldname, word) for word in self._btexts(reader)]
         if not qs:
             return matching.NullMatcher()
 
@@ -254,7 +260,9 @@ class PatternQuery(MultiTerm):
                 break
         return text[:i]
 
-    def _words(self, ixreader):
+    def _btexts(self, ixreader):
+        field = ixreader.schema[self.fieldname]
+
         exp = re.compile(self._get_pattern())
         prefix = self._find_prefix(self.text)
         if prefix:
@@ -262,9 +270,11 @@ class PatternQuery(MultiTerm):
         else:
             candidates = ixreader.lexicon(self.fieldname)
 
-        for text in candidates:
+        from_bytes = field.from_bytes
+        for token in candidates:
+            text = from_bytes(token)
             if exp.match(text):
-                yield text
+                yield token
 
 
 class Prefix(PatternQuery):
@@ -279,7 +289,7 @@ class Prefix(PatternQuery):
 
     __str__ = __unicode__
 
-    def _words(self, ixreader):
+    def _btexts(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
 
@@ -318,7 +328,7 @@ class Wildcard(PatternQuery):
         else:
             return self
 
-    # _words() implemented in PatternQuery
+    # _btexts() implemented in PatternQuery
 
 
 class Regex(PatternQuery):
@@ -356,7 +366,7 @@ class Regex(PatternQuery):
             prefix = prefix[:-1]
         return prefix
 
-    # _words() implemented in PatternQuery
+    # _btexts() implemented in PatternQuery
 
 
 class ExpandingTerm(MultiTerm):
@@ -367,10 +377,9 @@ class ExpandingTerm(MultiTerm):
     def has_terms(self):
         return True
 
-    def tokens(self, boost=1.0):
-        yield Token(fieldname=self.fieldname, text=self.text,
-                    boost=boost * self.boost, startchar=self.startchar,
-                    endchar=self.endchar, chars=True)
+    def terms(self, phrases=False):
+        if self.field():
+            yield (self.field(), self.text)
 
 
 class FuzzyTerm(ExpandingTerm):
@@ -430,7 +439,7 @@ class FuzzyTerm(ExpandingTerm):
                 ^ hash(self.maxdist) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
-    def _words(self, ixreader):
+    def _btexts(self, ixreader):
         return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
                                      prefix=self.prefixlength)
 
@@ -460,10 +469,13 @@ class Variations(ExpandingTerm):
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
-    def _words(self, ixreader):
+    def _btexts(self, ixreader):
         fieldname = self.fieldname
-        return [word for word in variations(self.text)
-                if (fieldname, word) in ixreader]
+        to_bytes = ixreader.schema[fieldname].to_bytes
+        for word in variations(self.text):
+            token = to_bytes(word)
+            if (fieldname, token) in ixreader:
+                yield token
 
     def __unicode__(self):
         return u("%s:<%s>") % (self.fieldname, self.text)

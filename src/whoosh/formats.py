@@ -35,6 +35,7 @@ from collections import defaultdict
 
 from whoosh.analysis import unstopped, entoken
 from whoosh.compat import iteritems, dumps, loads, b
+from whoosh.system import emptybytes
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE
 from whoosh.system import pack_uint, unpack_uint, pack_float, unpack_float
 
@@ -143,10 +144,10 @@ class Existence(Format):
     def word_values(self, value, analyzer, **kwargs):
         fb = self.field_boost
         wordset = set(t.text for t in tokens(value, analyzer, kwargs))
-        return ((w, 1, fb, '') for w in wordset)
+        return ((w, 1, fb, emptybytes) for w in wordset)
 
     def encode(self, value):
-        return ''
+        return emptybytes
 
     def decode_frequency(self, valuestring):
         return 1
@@ -155,7 +156,7 @@ class Existence(Format):
         return self.field_boost
 
     def combine(self, vs):
-        return ''
+        return emptybytes
 
 
 class Frequency(Format):

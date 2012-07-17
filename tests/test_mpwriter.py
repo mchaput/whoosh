@@ -5,7 +5,7 @@ from collections import deque
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query
-from whoosh.compat import u, xrange, permutations
+from whoosh.compat import u, izip, xrange, permutations
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex, skip_if
 
@@ -71,7 +71,8 @@ def _do_basic(writerclass):
             r = s.reader()
 
             # Check the lexicon
-            assert_equal(list(r.lexicon("text")), words)
+            for word, term in izip(words, r.field_terms("text")):
+                assert_equal(word, term)
             # Check the doc count
             assert_equal(r.doc_count_all(), len(docs))
 
@@ -172,10 +173,10 @@ def _do_merge(writerclass):
 
             assert_equal(s.doc_count(), len(domain))
 
-            assert_equal("".join(r.lexicon("key")), "acdefghijk")
-            assert_equal(" ".join(r.lexicon("value")),
-                         "aa cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr" +
-                         " ss tt uu ww xx yy zz")
+            assert_equal("".join(r.field_terms("key")), "acdefghijk")
+            assert_equal(" ".join(r.field_terms("value")),
+                         "aa cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr "
+                         "ss tt uu ww xx yy zz")
 
             for key in domain:
                 docnum = s.document_number(key=key)
@@ -189,7 +190,7 @@ def _do_merge(writerclass):
                 assert_equal(domain[key], sf["value"])
 
             words = sorted(set((" ".join(domain.values())).split()))
-            assert_equal(words, list(r.lexicon("value")))
+            assert_equal(words, list(r.field_terms("value")))
 
             for word in words:
                 hits = s.search(query.Term("value", word))

@@ -30,6 +30,8 @@ from array import array
 from functools import wraps
 from threading import Lock
 
+from whoosh.compat import xrange
+
 
 def unbound_cache(func):
     """Caching decorator with an unbounded cache size.

@@ -303,7 +303,7 @@ class StructFile(object):
         return self.read(length)
 
     def get_byte(self, position):
-        return ord(self.get(position, 1))
+        return unpack_byte(self.get(position, 1))[0]
 
     def get_sbyte(self, position):
         return unpack_sbyte(self.get(position, 1))[0]

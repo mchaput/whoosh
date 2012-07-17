@@ -1,5 +1,5 @@
 from __future__ import with_statement
-import gzip
+import gzip, sys
 
 from nose.tools import assert_equal, assert_not_equal, assert_raises
 
@@ -49,8 +49,8 @@ def test_reader_corrector_nograph():
     with ix.reader() as r:
         sp = spelling.ReaderCorrector(r, "text")
         assert_equal(sp.suggest(u("kaola"), maxdist=1), ['koala'])
-        assert_equal(sp.suggest(u("kaola"), maxdist=2), ['koala', 'kaori',
-                                                         'ooala', 'zoala'])
+        assert_equal(sp.suggest(u("kaola"), maxdist=2),
+                     ['koala', 'kaori', 'ooala', 'zoala'])
 
 
 def test_reader_corrector():
@@ -127,7 +127,9 @@ def test_multisegment():
     ix.optimize()
     with ix.reader() as r:
         assert r.is_atomic()
-        assert_equal(list(r.lexicon("text")), sorted(domain))
+        fieldobj = schema["text"]
+        assert_equal([fieldobj.from_bytes(t) for t in r.lexicon("text")],
+                     sorted(domain))
         assert r.has_word_graph("text")
         words = list(r.word_graph("text").flatten_strings())
         assert_equal(words, sorted(domain))
@@ -201,7 +203,7 @@ def test_query_highlight():
     assert_equal(do("a b c d", ["b"]),
                  'a <strong class="match term0">b</strong> c d')
     assert_equal(do('a (x:b OR y:"c d") e', ("b", "c")),
-                 'a (x:<strong class="match term0">b</strong> OR ' +
+                 'a (x:<strong class="match term0">b</strong> OR '
                  'y:"<strong class="match term1">c</strong> d") e')
 
 
@@ -264,7 +266,8 @@ def test_bypass_stemming():
     w.commit()
 
     with ix.reader() as r:
-        assert_equal(list(r.lexicon("text")),
+        fieldobj = schema["text"]
+        assert_equal([fieldobj.from_bytes(t) for t in r.lexicon("text")],
                      ["model", "reaction", "render", "shade"])
         assert_equal(list(r.word_graph("text").flatten_strings()),
                      ["modeling", "reactions", "rendering", "shading"])

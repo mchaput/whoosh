@@ -298,68 +298,62 @@ class Query(object):
 
         return copy.deepcopy(self)
 
-    def all_terms(self, termset=None, phrases=True):
+    def all_terms(self, phrases=True):
         """Returns a set of all terms in this query tree.
-
-        This method exists for backwards compatibility. For more flexibility
-        use the :meth:`Query.iter_all_terms` method instead, which simply
-        yields the terms in the query.
+        
+        This method exists for backwards-compatibility. Use iter_all_terms()
+        instead.
 
         :param phrases: Whether to add words found in Phrase queries.
         :rtype: set
         """
 
-        from whoosh.query import Phrase
+        return set(self.iter_all_terms(phrases=phrases))
 
-        if not termset:
-            termset = set()
-        for q in self.leaves():
-            if q.has_terms():
-                if phrases or not isinstance(q, Phrase):
-                    termset.update(q.terms())
-        return termset
+    def terms(self, phrases=False):
+        """Yields zero or more (fieldname, text) pairs queried by this object.
+        You can check whether a query object targets specific terms before you
+        call this method using :meth:`Query.has_terms`.
 
-    def _existing_terms_helper(self, ixreader, termset, reverse):
-        if termset is None:
-            termset = set()
-        if reverse:
-            test = lambda t: t not in ixreader
-        else:
-            test = lambda t: t in ixreader
+        To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
+        
+        :param exreader: a reader to use to expand multiterm queries such as
+            prefixes and wildcards. The default is None meaning do not expand.
+        """
 
-        return termset, test
+        return iter(())
 
-    def existing_terms(self, ixreader, termset=None, reverse=False,
-                       phrases=True, expand=False):
-        """Returns a set of all terms in this query tree that exist in the
-        given ixreaderder.
+    def expanded_terms(self, ixreader):
+        return self.terms()
 
-        This method exists for backwards compatibility. For more flexibility
-        use the :meth:`Query.iter_all_terms` method instead, which simply
-        yields the terms in the query.
-
+    def existing_terms(self, ixreader, phrases=True, expand=False):
+        """Returns a set of all byteterms in this query tree that exist in
+        the given ixreader.
+        
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
-        :param reverse: If True, this method adds *missing* terms rather than
-            *existing* terms to the set.
         :param phrases: Whether to add words found in Phrase queries.
         :param expand: If True, queries that match multiple terms
-            (such as :class:`Wildcard` and :class:`Prefix`) will return all
-            matching expansions.
+            will return all matching expansions.
         :rtype: set
         """
 
-        # By default, this method calls all_terms() and then filters based on
-        # the contents of the reader. Subclasses that need to use the reader to
-        # generate the terms (i.e. MultiTerm) need to override this
-        # implementation
+        schema = ixreader.schema
+        termset = set()
 
-        termset, test = self._existing_terms_helper(ixreader, termset, reverse)
-        if self.is_leaf():
-            gen = self.all_terms(phrases=phrases)
-            termset.update(t for t in gen if test(t))
-        else:
-            for q in self.children():
-                q.existing_terms(ixreader, termset, reverse, phrases, expand)
+        for q in self.leaves():
+            if expand:
+                terms = q.expanded_terms(ixreader)
+            else:
+                terms = q.terms(phrases)
+
+            for fieldname, text in terms:
+                if (fieldname, text) in termset:
+                    continue
+                if fieldname in schema:
+                    field = schema[fieldname]
+                    btext = field.to_bytes(text)
+                    if (fieldname, btext) in ixreader:
+                        termset.add((fieldname, btext))
         return termset
 
     def leaves(self):
@@ -374,8 +368,8 @@ class Query(object):
                 for qq in q.leaves():
                     yield qq
 
-    def iter_all_terms(self):
-        """Returns an iterator of ("fieldname", "text") pairs for all terms in
+    def iter_all_terms(self, phrases=True):
+        """Returns an iterator of (fieldname, text) pairs for all terms in
         this query tree.
 
         >>> qp = qparser.QueryParser("text", myindex.schema)
@@ -391,11 +385,16 @@ class Query(object):
         >>> # the index
         >>> [t for t in q.iter_all_terms() if r.doc_frequency(t[0], t[1]) < 5]
         [("title", "charlie")]
+        
+        :param phrases: Whether to add words found in Phrase queries.
+        :param expand: If True, queries that match multiple terms
+            (such as :class:`Wildcard` and :class:`Prefix`) will return all
+            matching expansions.
         """
 
         for q in self.leaves():
             if q.has_terms():
-                for t in q.terms():
+                for t in q.terms(phrases=phrases):
                     yield t
 
     def all_tokens(self, boost=1.0):
@@ -416,18 +415,7 @@ class Query(object):
                 for token in child.all_tokens(boost):
                     yield token
 
-    def terms(self):
-        """Yields zero or more ("fieldname", "text") pairs searched for by this
-        query object. You can check whether a query object targets specific
-        terms before you call this method using :meth:`Query.has_terms`.
-
-        To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
-        """
-
-        for token in self.tokens():
-            yield (token.fieldname, token.text)
-
-    def tokens(self, boost=1.0):
+    def tokens(self, boost=1.0, exreader=None):
         """Yields zero or more :class:`analysis.Token` objects corresponding to
         the terms searched for by this query object. You can check whether a
         query object targets specific terms before you call this method using
@@ -439,9 +427,12 @@ class Query(object):
         indexing into the original user query.
 
         To get all tokens for a query tree, use :meth:`Query.all_tokens`.
+        
+        :param exreader: a reader to use to expand multiterm queries such as
+            prefixes and wildcards. The default is None meaning do not expand.
         """
 
-        return []
+        return iter(())
 
     def requires(self):
         """Returns a set of queries that are *known* to be required to match
