@@ -190,7 +190,7 @@ class MemFieldWriter(base.FieldWriterWithGraph):
         self._storage = storage
         self._segment = segment
         self._fieldname = None
-        self._token = None
+        self._btext = None
         self.is_closed = False
 
     def start_field(self, fieldname, fieldobj):
@@ -207,36 +207,36 @@ class MemFieldWriter(base.FieldWriterWithGraph):
 
         self._start_graph_field(fieldname, fieldobj)
 
-    def start_term(self, token):
-        if self._token is not None:
+    def start_term(self, btext):
+        if self._btext is not None:
             raise Exception("Called start_term in a term")
         fieldname = self._fieldname
 
         fielddict = self._segment._invindex[fieldname]
         terminfos = self._segment._terminfos
         with self._segment._lock:
-            if token not in fielddict:
-                fielddict[token] = []
+            if btext not in fielddict:
+                fielddict[btext] = []
 
-            if (fieldname, token) not in terminfos:
-                terminfos[fieldname, token] = TermInfo()
+            if (fieldname, btext) not in terminfos:
+                terminfos[fieldname, btext] = TermInfo()
 
-        self._postings = fielddict[token]
-        self._terminfo = terminfos[fieldname, token]
-        self._token = token
+        self._postings = fielddict[btext]
+        self._terminfo = terminfos[fieldname, btext]
+        self._btext = btext
 
-        self._insert_graph_token(token)
+        self._insert_graph_key(btext)
 
     def add(self, docnum, weight, vbytes, length):
         self._postings.append((docnum, weight, vbytes))
         self._terminfo.add_posting(docnum, weight, length)
 
     def finish_term(self):
-        if self._token is None:
+        if self._btext is None:
             raise Exception("Called finish_term outside a term")
 
         self._postings = None
-        self._token = None
+        self._btext = None
         self._terminfo = None
 
     def finish_field(self):
@@ -263,8 +263,8 @@ class MemTermsReader(base.TermsReader):
 
     def terms(self):
         for fieldname in self._invindex:
-            for token in self._invindex[fieldname]:
-                yield (fieldname, token)
+            for btext in self._invindex[fieldname]:
+                yield (fieldname, btext)
 
     def terms_from(self, fieldname, prefix):
         if fieldname not in self._invindex:
@@ -279,8 +279,8 @@ class MemTermsReader(base.TermsReader):
     def term_info(self, fieldname, text):
         return self._segment._terminfos[fieldname, text]
 
-    def matcher(self, fieldname, token, format_, scorer=None):
-        items = self._invindex[fieldname][token]
+    def matcher(self, fieldname, btext, format_, scorer=None):
+        items = self._invindex[fieldname][btext]
         ids, weights, values = zip(*items)
         return ListMatcher(ids, weights, values, format_, scorer=scorer)
 

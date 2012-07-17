@@ -404,7 +404,7 @@ class SpanNear(SpanQuery):
             SpanNear.phrase("content", ["alfa", "bravo", "charlie", "delta"])
         
         :param fieldname: the name of the field to search in.
-        :param words: a sequence of token texts to search for.
+        :param words: a sequence of texts to search for.
         :param slop: the number of positions within which the terms must
             occur. Default is 1, meaning the terms must occur right next
             to each other.

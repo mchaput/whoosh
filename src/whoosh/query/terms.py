@@ -271,10 +271,10 @@ class PatternQuery(MultiTerm):
             candidates = ixreader.lexicon(self.fieldname)
 
         from_bytes = field.from_bytes
-        for token in candidates:
-            text = from_bytes(token)
+        for btext in candidates:
+            text = from_bytes(btext)
             if exp.match(text):
-                yield token
+                yield btext
 
 
 class Prefix(PatternQuery):
@@ -473,9 +473,9 @@ class Variations(ExpandingTerm):
         fieldname = self.fieldname
         to_bytes = ixreader.schema[fieldname].to_bytes
         for word in variations(self.text):
-            token = to_bytes(word)
-            if (fieldname, token) in ixreader:
-                yield token
+            btext = to_bytes(word)
+            if (fieldname, btext) in ixreader:
+                yield btext
 
     def __unicode__(self):
         return u("%s:<%s>") % (self.fieldname, self.text)

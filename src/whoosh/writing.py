@@ -38,6 +38,7 @@ from whoosh.index import LockError
 from whoosh.system import emptybytes
 from whoosh.util import fib
 from whoosh.util.filelock import try_for
+from whoosh.util.text import utf8encode
 
 
 # Exceptions
@@ -712,12 +713,13 @@ class SegmentWriter(IndexWriter):
                     add_post((fieldname, tbytes, docnum, weight, vbytes))
 
             if field.separate_spelling():
-                # For fields which use different tokens for spelling,
+                # For fields which use different morphemes for spelling,
                 # insert fake postings for the spellable words, where
                 # docnum=None means "this is a spelling word"
 
                 # TODO: think of something less hacktacular
                 for word in field.spellable_words(value):
+                    word = utf8encode(word)[0]
                     add_post((fieldname, word, None, None, emptybytes))
 
             vformat = field.vector

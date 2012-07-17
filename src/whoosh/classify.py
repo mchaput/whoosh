@@ -144,9 +144,9 @@ class Expander(object):
                             % (self.fieldname, docnum))
 
     def add_text(self, string):
-        # Unfortunately since field.index() yields bytes tokens, and we want
+        # Unfortunately since field.index() yields bytes texts, and we want
         # unicode, we end up encoding and decoding unnecessarily.
-        # 
+        #
         # TODO: Find a way around this
 
         field = self.ixreader.schema[self.fieldname]
@@ -174,9 +174,9 @@ class Expander(object):
             return []
 
         for word, weight in iteritems(self.topN_weight):
-            token = field.to_bytes(word)
-            if (fieldname, token) in ixreader:
-                cf = ixreader.frequency(fieldname, token)
+            btext = field.to_bytes(word)
+            if (fieldname, btext) in ixreader:
+                cf = ixreader.frequency(fieldname, btext)
                 score = model.score(weight, cf, self.top_total)
                 if score > maxweight:
                     maxweight = score

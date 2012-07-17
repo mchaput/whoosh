@@ -864,8 +864,8 @@ class DateTimeNode(syntax.SyntaxNode):
         field = parser.schema[fieldname]
         dt = self.dt
         if isinstance(self.dt, datetime):
-            token = field.to_bytes(dt)
-            return query.Term(fieldname, token, boost=self.boost)
+            btext = field.to_bytes(dt)
+            return query.Term(fieldname, btext, boost=self.boost)
         elif isinstance(self.dt, timespan):
             return query.DateRange(fieldname, dt.start, dt.end,
                                    boost=self.boost)

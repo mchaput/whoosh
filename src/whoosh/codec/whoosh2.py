@@ -714,14 +714,14 @@ class W2TermsReader(PostingIndexBase):
         assert isinstance(v, bytes_type)
         return FileTermInfo.from_string(v)
 
-    def frequency(self, fieldname, token):
-        assert isinstance(token, bytes_type)
-        datapos = self.range_for_key((fieldname, token))[0]
+    def frequency(self, fieldname, btext):
+        assert isinstance(btext, bytes_type)
+        datapos = self.range_for_key((fieldname, btext))[0]
         return FileTermInfo.read_weight(self.dbfile, datapos)
 
-    def doc_frequency(self, fieldname, token):
-        assert isinstance(token, bytes_type)
-        datapos = self.range_for_key((fieldname, token))[0]
+    def doc_frequency(self, fieldname, btext):
+        assert isinstance(btext, bytes_type)
+        datapos = self.range_for_key((fieldname, btext))[0]
         return FileTermInfo.read_doc_freq(self.dbfile, datapos)
 
 
@@ -1677,11 +1677,11 @@ class OLD_NUMERIC(NUMERIC):
                                   boost=boost)
 
     def sortable_terms(self, ixreader, fieldname):
-        for token in ixreader.lexicon(fieldname):
-            if token[0:1] != "\x00":
+        for btext in ixreader.lexicon(fieldname):
+            if btext[0:1] != "\x00":
                 # Only yield the full-precision values
                 break
-            yield token
+            yield btext
 
 
 class OLD_DATETIME(OLD_NUMERIC):

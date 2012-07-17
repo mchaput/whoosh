@@ -33,6 +33,7 @@ import random
 from bisect import bisect_right
 
 from whoosh import columns
+from whoosh.compat import text_type
 from whoosh.compat import abstractmethod, izip, xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.system import emptybytes
@@ -130,24 +131,24 @@ class FieldWriter(object):
 
         lastfn = None
         lasttext = None
-        for fieldname, token, docnum, weight, value in items:
+        for fieldname, btext, docnum, weight, value in items:
             # Items where docnum is None indicate words that should be added
             # to the spelling graph
-            if docnum is None and (fieldname != lastfn or token != lasttext):
-                # TODO: how to decode the token bytes?
-                self.add_spell_word(fieldname, token.decode("utf8"))
+            if docnum is None and (fieldname != lastfn or btext != lasttext):
+                # TODO: how to decode the btext bytes?
+                self.add_spell_word(fieldname, btext.decode("utf8"))
                 lastfn = fieldname
-                lasttext = token
+                lasttext = btext
                 continue
 
             # This comparison is so convoluted because Python 3 removed the
             # ability to compare a string to None
             if ((lastfn is not None and fieldname < lastfn)
                 or (fieldname == lastfn and lasttext is not None
-                    and token < lasttext)):
+                    and btext < lasttext)):
                 raise Exception("Postings are out of order: %r:%s .. %r:%s" %
-                                (lastfn, lasttext, fieldname, token))
-            if fieldname != lastfn or token != lasttext:
+                                (lastfn, lasttext, fieldname, btext))
+            if fieldname != lastfn or btext != lasttext:
                 if lasttext is not None:
                     finish_term()
                 if fieldname != lastfn:
@@ -155,8 +156,8 @@ class FieldWriter(object):
                         finish_field()
                     start_field(fieldname, schema[fieldname])
                     lastfn = fieldname
-                start_term(token)
-                lasttext = token
+                start_term(btext)
+                lasttext = btext
             length = dfl(docnum, fieldname)
 
             if value is None:
@@ -610,7 +611,7 @@ class CodecWithGraph(Codec):
 
 
 class FieldWriterWithGraph(FieldWriter):
-    # Requires attributes _storage, _segment
+    # Requires attributes _storage, _segment, _fieldobj
 
     FST_EXT = CodecWithGraph.FST_EXT
 
@@ -631,13 +632,15 @@ class FieldWriterWithGraph(FieldWriter):
                 self._prep_graph()
             self._gwriter.start_field(fieldname)
 
-    def _insert_graph_token(self, key):
+    def _insert_graph_key(self, btext):
         if self._auto_graph:
+            key = self._fieldobj.from_bytes(btext)
             self.add_spell_word(self._fieldname, key)
 
-    def add_spell_word(self, fieldname, token):
+    def add_spell_word(self, fieldname, word):
         assert fieldname == self._fieldname
-        self._gwriter.insert(token)
+        assert isinstance(word, text_type)
+        self._gwriter.insert(word)
 
     def _finish_graph_field(self):
         if self._needs_graph:
