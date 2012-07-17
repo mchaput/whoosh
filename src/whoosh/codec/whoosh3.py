@@ -236,7 +236,7 @@ class W3FieldWriter(base.FieldWriterWithGraph):
 
         self._fieldname = None
         self._fieldid = None
-        self._token = None
+        self._btext = None
         self._fieldobj = None
         self._format = None
 
@@ -275,14 +275,14 @@ class W3FieldWriter(base.FieldWriterWithGraph):
                                         self._blocklimit,
                                         compression=self._compression)
 
-    def start_term(self, token):
+    def start_term(self, btext):
         if self._blockwriter is None:
             raise Exception("Called start_term before start_field")
-        self._token = token
+        self._btext = btext
         self._terminfo = W3TermInfo()
         self._blockwriter.start(self._terminfo)
         # Add the word to the graph if necessary
-        self._insert_graph_token(token)
+        self._insert_graph_key(btext)
 
     def add(self, docnum, weight, vbytes, length):
         self._blockwriter.add(docnum, weight, vbytes, length)
@@ -298,7 +298,7 @@ class W3FieldWriter(base.FieldWriterWithGraph):
         else:
             postings = blockwriter.finish()
 
-        keybytes = pack_ushort(self._fieldid) + self._token
+        keybytes = pack_ushort(self._fieldid) + self._btext
         valbytes = terminfo.to_bytes(postings)
         self._tindex.add(keybytes, valbytes)
 

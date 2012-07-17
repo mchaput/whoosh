@@ -99,11 +99,11 @@ def test_lengths():
                       f2=fields.KEYWORD(stored=True, scorable=True))
     with TempIndex(s, "testlengths") as ix:
         w = ix.writer()
-        tokens = u("ABCDEFG")
+        items = u("ABCDEFG")
         from itertools import cycle, islice
         lengths = [10, 20, 2, 102, 45, 3, 420, 2]
         for length in lengths:
-            w.add_document(f2=u(" ").join(islice(cycle(tokens), length)))
+            w.add_document(f2=u(" ").join(islice(cycle(items), length)))
         w.commit()
 
         with ix.reader() as dr:

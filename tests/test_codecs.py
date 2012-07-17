@@ -61,11 +61,11 @@ def test_random_termkeys():
     def random_fieldname():
         return "".join(chr(random.randint(65, 90)) for _ in xrange(1, 20))
 
-    def random_token():
+    def random_btext():
         a = array("H", (random.randint(0, 0xd7ff) for _ in xrange(1, 20)))
         return array_tobytes(a).decode("utf-16")
 
-    domain = sorted(set([(random_fieldname(), random_token().encode("utf8"))
+    domain = sorted(set([(random_fieldname(), random_btext().encode("utf8"))
                          for _ in xrange(1000)]))
 
     st, codec, seg = _make_codec()
@@ -153,9 +153,9 @@ def test_termindex():
     tw.close()
 
     tr = codec.terms_reader(st, seg)
-    for i, (fieldname, token) in enumerate(terms):
-        assert (fieldname, b(token)) in tr
-        ti = tr.term_info(fieldname, b(token))
+    for i, (fieldname, text) in enumerate(terms):
+        assert (fieldname, b(text)) in tr
+        ti = tr.term_info(fieldname, b(text))
         assert_equal(ti.weight(), i)
         assert_equal(ti.doc_frequency(), 1)
 
@@ -535,8 +535,8 @@ def test_special_spelled_field():
     fw.start_term(b("specific"))
     fw.add(1, 1.0, b("test2"), 1)
     fw.finish_term()
-    fw.add_spell_word("text", b("specials"))
-    fw.add_spell_word("text", b("specifically"))
+    fw.add_spell_word("text", "specials")
+    fw.add_spell_word("text", "specifically")
     fw.finish_field()
     fw.close()
 

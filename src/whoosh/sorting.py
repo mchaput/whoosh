@@ -284,14 +284,14 @@ class PostingCategorizer(Categorizer):
         self.values = []
         self.array = array("i", [dc + 1] * dc)
 
-        tokens = self._fieldobj.sortable_terms(reader, fieldname)
-        for i, token in enumerate(tokens):
-            self.values.append(from_bytes(token))
+        btexts = self._fieldobj.sortable_terms(reader, fieldname)
+        for i, btext in enumerate(btexts):
+            self.values.append(from_bytes(btext))
             if reverse:
                 i = dc - i
 
             # Get global docids from global reader
-            postings = reader.postings(fieldname, token)
+            postings = reader.postings(fieldname, btext)
             for docid in postings.all_ids():
                 self.array[docid] = i
 
@@ -337,9 +337,9 @@ class OverlappingCategorizer(Categorizer):
             # of lists
             self._use_vectors = False
             self._lists = [[] for _ in xrange(dc)]
-            for token in field.sortable_terms(reader, fieldname):
-                text = from_bytes(token)
-                postings = reader.postings(fieldname, token)
+            for btext in field.sortable_terms(reader, fieldname):
+                text = from_bytes(btext)
+                postings = reader.postings(fieldname, btext)
                 for docid in postings.all_ids():
                     self._lists[docid].append(text)
 

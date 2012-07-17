@@ -149,7 +149,7 @@ class FieldType(object):
     # Methods for converting input into indexing information
 
     def index(self, value, **kwargs):
-        """Returns an iterator of (token, frequency, weight, encoded_value)
+        """Returns an iterator of (btext, frequency, weight, encoded_value)
         tuples for each unique word in the input value.
         
         The default implementation uses the ``analyzer`` attribute to tokenize
@@ -172,7 +172,7 @@ class FieldType(object):
             yield (utf8encode(tstring)[0], freq, wt, vbytes)
 
     def process_text(self, qstring, mode='', **kwargs):
-        """Analyzes the given string and returns an iterator of token strings.
+        """Analyzes the given string and returns an iterator of token texts.
         
         >>> field = fields.TEXT()
         >>> list(field.process_text("The ides of March"))
@@ -205,7 +205,6 @@ class FieldType(object):
             value = utf8encode(value)[0]
         return value
 
-    # Only need to override this 
     def to_column_value(self, value):
         """Returns an object suitable to be inserted into the document values
         column for this field. The default implementation simply calls
@@ -290,10 +289,9 @@ class FieldType(object):
         this behavior.
         """
 
-        to_bytes = self.to_bytes
         wordset = sorted(set(token.text for token
                              in self.analyzer(value, no_morph=True)))
-        return (to_bytes(word) for word in wordset)
+        return iter(wordset)
 
     def has_morph(self):
         """Returns True if this field by default performs morphological

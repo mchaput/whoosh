@@ -868,7 +868,7 @@ class Highlighter(object):
             if fieldname not in results._char_cache:
                 self._load_chars(results, fieldname, words, to_bytes)
 
-            # Grab the token->[(startchar, endchar)] map for this docnum
+            # Grab the word->[(startchar, endchar)] map for this docnum
             cmap = results._char_cache[fieldname][hitobj.docnum]
             # A list of Token objects for matched words
             tokens = []

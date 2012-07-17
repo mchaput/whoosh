@@ -151,10 +151,10 @@ class IndexReader(object):
     def is_atomic(self):
         return True
 
-    def _text_to_bytes(self, fieldname, token):
+    def _text_to_bytes(self, fieldname, text):
         if fieldname not in self.schema:
-            raise TermNotFound((fieldname, token))
-        return self.schema[fieldname].to_bytes(token)
+            raise TermNotFound((fieldname, text))
+        return self.schema[fieldname].to_bytes(text)
 
     def close(self):
         """Closes the open files associated with this reader.
@@ -205,13 +205,13 @@ class IndexReader(object):
             yield text
 
     def lexicon(self, fieldname):
-        """Yields all tokens (bytestrings) in the given field.
+        """Yields all bytestrings in the given field.
         """
 
-        for fn, token in self.terms_from(fieldname, emptybytes):
+        for fn, btext in self.terms_from(fieldname, emptybytes):
             if fn != fieldname:
                 return
-            yield token
+            yield btext
 
     def field_terms(self, fieldname):
         """Yields all term values (converted from on-disk bytes) in the given
@@ -219,8 +219,8 @@ class IndexReader(object):
         """
 
         from_bytes = self.schema[fieldname].from_bytes
-        for token in self.lexicon(fieldname):
-            yield from_bytes(token)
+        for btext in self.lexicon(fieldname):
+            yield from_bytes(btext)
 
     def __iter__(self):
         """Yields ((fieldname, text), terminfo) tuples for each term in the
@@ -383,10 +383,10 @@ class IndexReader(object):
         ``(fieldname, text, docnum, weight, valuestring)`` tuples.
         """
 
-        for fieldname, token in self.all_terms():
-            m = self.postings(fieldname, token)
+        for fieldname, btext in self.all_terms():
+            m = self.postings(fieldname, btext)
             while m.is_active():
-                yield (fieldname, token, m.id(), m.weight(), m.value())
+                yield (fieldname, btext, m.id(), m.weight(), m.value())
                 m.next()
 
     @abstractmethod
@@ -509,8 +509,8 @@ class IndexReader(object):
         """
 
         fieldobj = self.schema[fieldname]
-        for token in self.expand_prefix(fieldname, text[:prefix]):
-            word = fieldobj.from_bytes(token)
+        for btext in self.expand_prefix(fieldname, text[:prefix]):
+            word = fieldobj.from_bytes(btext)
             k = distance(word, text, limit=maxdist)
             if k <= maxdist:
                 yield word

@@ -319,9 +319,9 @@ class PlainFieldWriter(base.FieldWriter, LineWriter):
         self._fieldobj = fieldobj
         self._print_line(1, "TERMFIELD", fn=fieldname)
 
-    def start_term(self, token):
+    def start_term(self, btext):
         self._terminfo = TermInfo()
-        self._print_line(2, "TOKEN", t=token)
+        self._print_line(2, "BTEXT", t=btext)
 
     def add(self, docnum, weight, vbytes, length):
         self._terminfo.add_posting(docnum, weight, length)
@@ -360,18 +360,18 @@ class PlainTermsReader(base.TermsReader, LineReader):
             yield c["fn"]
             c = self._find_line(1, "TERMFIELD")
 
-    def _iter_tokens(self):
-        c = self._find_line(2, "TOKEN")
+    def _iter_btexts(self):
+        c = self._find_line(2, "BTEXT")
         while c is not None:
             yield c["t"]
-            c = self._find_line(2, "TOKEN")
+            c = self._find_line(2, "BTEXT")
 
-    def _find_term(self, fieldname, token):
+    def _find_term(self, fieldname, btext):
         self._find_field(fieldname)
-        for t in self._iter_tokens():
-            if t == token:
+        for t in self._iter_btexts():
+            if t == btext:
                 return True
-            elif t > token:
+            elif t > btext:
                 break
         return False
 
@@ -380,37 +380,37 @@ class PlainTermsReader(base.TermsReader, LineReader):
         return TermInfo(**c)
 
     def __contains__(self, term):
-        fieldname, token = term
-        return self._find_term(fieldname, token)
+        fieldname, btext = term
+        return self._find_term(fieldname, btext)
 
     def terms(self):
         for fieldname in self._iter_fields():
-            for token in self._iter_tokens():
-                yield (fieldname, token)
+            for btext in self._iter_btexts():
+                yield (fieldname, btext)
 
     def terms_from(self, fieldname, prefix):
         self._find_field(fieldname)
-        for token in self._iter_tokens():
-            if token < prefix:
+        for btext in self._iter_btexts():
+            if btext < prefix:
                 continue
-            yield (fieldname, token)
+            yield (fieldname, btext)
 
     def items(self):
-        for fieldname, token in self.terms():
-            yield (fieldname, token), self._find_terminfo()
+        for fieldname, btext in self.terms():
+            yield (fieldname, btext), self._find_terminfo()
 
     def items_from(self, fieldname, prefix):
-        for fieldname, token in self.terms_from(fieldname, prefix):
-            yield (fieldname, token), self._find_terminfo()
+        for fieldname, btext in self.terms_from(fieldname, prefix):
+            yield (fieldname, btext), self._find_terminfo()
 
-    def term_info(self, fieldname, token):
-        if not self._find_term(fieldname, token):
-            raise TermNotFound((fieldname, token))
+    def term_info(self, fieldname, btext):
+        if not self._find_term(fieldname, btext):
+            raise TermNotFound((fieldname, btext))
         return self._find_terminfo()
 
-    def matcher(self, fieldname, token, format_, scorer=None):
-        if not self._find_term(fieldname, token):
-            raise TermNotFound((fieldname, token))
+    def matcher(self, fieldname, btext, format_, scorer=None):
+        if not self._find_term(fieldname, btext):
+            raise TermNotFound((fieldname, btext))
 
         ids = []
         weights = []
