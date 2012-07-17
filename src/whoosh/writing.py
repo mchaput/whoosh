@@ -709,7 +709,6 @@ class SegmentWriter(IndexWriter):
                     weight *= fieldboost
                     if scorable:
                         length += freq
-                    assert isinstance(vbytes, bytes_type), "field=%r format=%r v=%r" % (field, field.format, vbytes)
                     add_post((fieldname, tbytes, docnum, weight, vbytes))
 
             if field.separate_spelling():
@@ -790,6 +789,7 @@ class SegmentWriter(IndexWriter):
         postings = self.pool.iter_postings()
         self.fieldwriter.add_postings(self.schema, pdr, postings)
         self.fieldwriter.close()
+        pdr.close()
 
     def _close_segment(self):
         if not self.perdocwriter.is_closed:
