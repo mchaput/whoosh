@@ -54,9 +54,6 @@ class ColumnQuery(Query):
     def is_leaf(self):
         return True
 
-    def has_terms(self):
-        return False
-
     def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         try:

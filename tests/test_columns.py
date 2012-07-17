@@ -40,18 +40,18 @@ def test_multistream():
     msw = compound.CompoundWriter(f)
     files = dict((name, msw.create_file(name)) for name in "abc")
     for name, data in domain:
-        files[name].write(data)
+        files[name].write(b(data))
     msw.close()
 
     f = st.open_file("test")
     msr = compound.CompoundStorage(f)
-    assert_equal(msr.open_file("a").read(), "123456789abc")
-    assert_equal(msr.open_file("b").read(), "abcdefghijk")
-    assert_equal(msr.open_file("c").read(), "AaBbCcDdEeFfGgHh")
+    assert_equal(msr.open_file("a").read(), b("123456789abc"))
+    assert_equal(msr.open_file("b").read(), b("abcdefghijk"))
+    assert_equal(msr.open_file("c").read(), b("AaBbCcDdEeFfGgHh"))
 
 
 def test_random_multistream():
-    from string import letters
+    letters = "abcdefghijklmnopqrstuvwxyz"
 
     def randstring(n):
         s = "".join(random.choice(letters) for _ in xrange(n))
@@ -72,7 +72,7 @@ def test_random_multistream():
         for name in domain:
             mfiles[name] = msw.create_file(name)
         while outfiles:
-            name = random.choice(outfiles.keys())
+            name = random.choice(list(outfiles.keys()))
             v = outfiles[name].read(1000)
             mfiles[name].write(v)
             if len(v) < 1000:

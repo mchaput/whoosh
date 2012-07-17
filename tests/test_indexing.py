@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from whoosh import analysis, fields, query
-from whoosh.compat import u, xrange, text_type, PY3, permutations
+from whoosh.compat import b, u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.writing import IndexingError
 from whoosh.util.numeric import length_to_byte, byte_to_length
@@ -64,7 +64,6 @@ def _check_writer(name, writer_fn):
 
         with ix.searcher() as s:
             for word in domain:
-                print(word)
                 rset = sorted([hit["id"] for hit
                                in s.search(query.Term("text", word),
                                            limit=None)])
@@ -91,8 +90,8 @@ def test_integrity():
 
     tr = ix.reader()
     assert_equal(ix.doc_count_all(), 3)
-    assert_equal(list(tr.lexicon("name")), ["alpha", "beta", "brown", "one",
-                                            "two", "yellow"])
+    assert_equal(" ".join(tr.field_terms("name")),
+                 "alpha beta brown one two yellow")
 
 
 def test_lengths():
@@ -215,9 +214,12 @@ def test_frequency_keyword():
         stats = [(fname, text, ti.doc_frequency(), ti.weight())
                  for (fname, text), ti in tr]
 
-        assert_equal(stats, [("content", u("A"), 1, 1), ("content", u("B"), 2, 5),
-                             ("content", u("C"), 2, 2), ("content", u("D"), 3, 4),
-                             ("content", u("E"), 2, 2), ("content", u("F"), 1, 1)])
+        assert_equal(stats, [("content", b("A"), 1, 1),
+                             ("content", b("B"), 2, 5),
+                             ("content", b("C"), 2, 2),
+                             ("content", b("D"), 3, 4),
+                             ("content", b("E"), 2, 2),
+                             ("content", b("F"), 1, 1)])
 
 
 def test_frequency_text():
@@ -248,9 +250,12 @@ def test_frequency_text():
         stats = [(fname, text, ti.doc_frequency(), ti.weight())
              for (fname, text), ti in tr]
 
-        assert_equal(stats, [("content", u("alfa"), 1, 1), ("content", u("bravo"), 2, 5),
-                             ("content", u("charlie"), 2, 2), ("content", u("delta"), 3, 4),
-                             ("content", u("echo"), 2, 2), ("content", u("foxtrot"), 1, 1)])
+        assert_equal(stats, [("content", b("alfa"), 1, 1),
+                             ("content", b("bravo"), 2, 5),
+                             ("content", b("charlie"), 2, 2),
+                             ("content", b("delta"), 3, 4),
+                             ("content", b("echo"), 2, 2),
+                             ("content", b("foxtrot"), 1, 1)])
 
 
 def test_deletion():
@@ -288,7 +293,8 @@ def test_deletion():
         assert_equal(ix.doc_count(), 4)
 
         with ix.reader() as tr:
-            assert_equal(list(tr.lexicon("name")), ["brown", "one", "two", "yellow"])
+            assert_equal(" ".join(tr.field_terms("name")),
+                         "brown one two yellow")
 
 
 def test_writer_reuse():
@@ -499,9 +505,9 @@ def test_indentical_fields():
         w.commit()
 
         with ix.searcher() as s:
-            assert_equal(list(s.lexicon("f1")), ["alfa"])
-            assert_equal(list(s.lexicon("f2")), ["alfa"])
-            assert_equal(list(s.lexicon("f3")), ["alfa"])
+            assert_equal(list(s.lexicon("f1")), [b("alfa")])
+            assert_equal(list(s.lexicon("f2")), [b("alfa")])
+            assert_equal(list(s.lexicon("f3")), [b("alfa")])
             assert_equal(list(s.documents(f1="alfa")), [{"id": 1}])
             assert_equal(list(s.documents(f2="alfa")), [{"id": 1}])
             assert_equal(list(s.documents(f3="alfa")), [{"id": 1}])
@@ -522,7 +528,7 @@ def test_multivalue():
     with ix.reader() as r:
         assert ("num", 3) in r
         assert ("date", datetime(2003, 3, 3)) in r
-        assert_equal(list(r.lexicon("txt")), ["a", "b", "c"])
+        assert_equal(" ".join(r.field_terms("txt")), "a b c")
 
 
 def test_doc_boost():

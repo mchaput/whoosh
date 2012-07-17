@@ -112,9 +112,9 @@ class Searcher(object):
 
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "has_vector",
-                     "vector", "vector_as", "lexicon", "frequency",
-                     "doc_frequency", "term_info", "doc_field_length",
-                     "corrector", "iter_docs"):
+                     "vector", "vector_as", "lexicon", "field_terms",
+                     "frequency", "doc_frequency", "term_info",
+                     "doc_field_length", "corrector", "iter_docs"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -576,55 +576,6 @@ class Searcher(object):
         """
 
         return sorting.Sorter(self, *args, **kwargs)
-
-    def add_facet_field(self, name, facet, save=False):
-        """This is an experimental feature which may change in future versions.
-
-        Adds a field cache for a computed field defined by a
-        :class:`whoosh.sorting.FacetType` object, for example a
-        :class:`~whoosh.sorting.QueryFacet` or
-        :class:`~whoosh.sorting.RangeFacet`.
-
-        This creates a field cache from the facet, so once you define the
-        "facet field", sorting/grouping by it will be faster than using the
-        original facet object.
-
-        For example, sorting using a :class:`~whoosh.sorting.QueryFacet`
-        recomputes the queries at sort time, which may be slow::
-
-            qfacet = sorting.QueryFacet({"a-z": TermRange(...
-            results = searcher.search(myquery, sortedby=qfacet)
-
-        You can cache the results of the query facet in a field cache::
-
-            searcher.define_facets("nameranges", qfacet, save=True)
-
-        ..then use the pseudo-field for sorting::
-
-            results = searcher.search(myquery, sortedby="nameranges")
-
-        See :doc:`/facets`.
-
-        :param name: a name for the pseudo-field to cache the query results in.
-        :param qs: a :class:`~whoosh.sorting.FacetType` object.
-        :param save: if True, saves the field cache to disk so it is persistent
-            across searchers. The default is False, which only creates the
-            field cache in memory.
-        """
-
-        if self.subsearchers:
-            ss = self.subsearchers
-        else:
-            ss = [(self, 0)]
-
-        for s, offset in ss:
-            doclists = defaultdict(list)
-            catter = facet.categorizer(self)
-            catter.set_searcher(s, offset)
-            for docnum in xrange(s.doc_count_all()):
-                key = catter.key_for_id(docnum)
-                doclists[key].append(docnum)
-            s.reader().define_facets(name, doclists, save=save)
 
     def docs_for_query(self, q, for_deletion=False):
         """Returns an iterator of document numbers for documents matching the

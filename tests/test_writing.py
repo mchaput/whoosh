@@ -144,7 +144,6 @@ def test_buffered_update():
                 w.update_document(**fs)
 
         with w.reader() as r:
-            print [r.is_deleted(n) for n in xrange(r.doc_count_all())]
             sfs = [sf for _, sf in r.iter_docs()]
             sfs = sorted(sfs, key=lambda x: x["id"])
             assert_equal(sfs, [{'id': u('a'), 'payload': u('9a')},
@@ -329,15 +328,19 @@ def test_add_reader():
             assert_equal(r.doc_count_all(), 4)
 
             sfs = list(r.all_stored_fields())
-            assert_equal(sfs, [{"i": u("4"), "a": u("hotel india juliet kilo")},
-                               {"i": u("5"), "a": u("india juliet kilo lima")},
-                               {"i": u("0"), "a": u("alfa bravo charlie delta")},
-                               {"i": u("2"), "a": u("charlie delta echo foxtrot")},
+            assert_equal(sfs, [{"i": u("4"),
+                                "a": u("hotel india juliet kilo")},
+                               {"i": u("5"), "a":
+                                u("india juliet kilo lima")},
+                               {"i": u("0"), "a":
+                                u("alfa bravo charlie delta")},
+                               {"i": u("2"), "a":
+                                u("charlie delta echo foxtrot")},
                                ])
 
-            assert_equal(list(r.lexicon("a")),
-                         ["alfa", "bravo", "charlie", "delta", "echo",
-                          "foxtrot", "hotel", "india", "juliet", "kilo", "lima"])
+            assert_equal(" ".join(r.field_terms("a")),
+                         "alfa bravo charlie delta echo foxtrot hotel india "
+                         "juliet kilo lima")
 
             vs = []
             for docnum in r.all_doc_ids():
@@ -377,16 +380,15 @@ class test_add_reader_spelling():
                            b=u("undoing indicating opening pressing"))
 
         with ix.searcher() as s:
-            print s.reader().word_graph
             gr = s.reader().word_graph("a")
-            assert_equal(" ".join(gr.flatten()),
+            assert_equal(" ".join(gr.flatten_strings()),
                          "compositing enabling eyeing flying indicating "
                          "modeling opening polling pressing quitting "
                          "rendering ripping rolling timing tying undoing "
                          "writing yelling")
 
             gr = s.reader().word_graph("b")
-            assert_equal(" ".join(gr.flatten()),
+            assert_equal(" ".join(gr.flatten_strings()),
                          "compositing enabling eyeing flying indicating "
                          "modeling opening polling pressing quitting "
                          "rendering ripping rolling timing tying undoing "

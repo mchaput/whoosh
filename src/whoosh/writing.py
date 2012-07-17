@@ -35,6 +35,7 @@ from whoosh.compat import abstractmethod, bytes_type
 from whoosh.externalsort import SortingPool
 from whoosh.fields import UnknownFieldError
 from whoosh.index import LockError
+from whoosh.system import emptybytes
 from whoosh.util import fib
 from whoosh.util.filelock import try_for
 
@@ -115,8 +116,10 @@ class PostingPool(SortingPool):
         self.currentsize = 0
 
     def add(self, item):
-        # item = (fieldname, tbytes, docnum, weight, valuestring)
-        assert isinstance(item[1], bytes_type)
+        # item = (fieldname, tbytes, docnum, weight, vbytes)
+        assert isinstance(item[1], bytes_type), "tbytes=%r" % item[1]
+        if item[4] is not None:
+            assert isinstance(item[4], bytes_type), "vbytes=%r" % item[4]
         size = (28 + 4 * 5  # tuple = 28 + 4 * length
                 + 21 + len(item[0])  # fieldname = str = 21 + length
                 + 26 + len(item[1]) * 2  # text = unicode = 26 + 2 * length
@@ -706,6 +709,7 @@ class SegmentWriter(IndexWriter):
                     weight *= fieldboost
                     if scorable:
                         length += freq
+                    assert isinstance(vbytes, bytes_type), "field=%r format=%r v=%r" % (field, field.format, vbytes)
                     add_post((fieldname, tbytes, docnum, weight, vbytes))
 
             if field.separate_spelling():
@@ -715,7 +719,7 @@ class SegmentWriter(IndexWriter):
 
                 # TODO: think of something less hacktacular
                 for word in field.spellable_words(value):
-                    add_post((fieldname, word, None, None, None))
+                    add_post((fieldname, word, None, None, emptybytes))
 
             vformat = field.vector
             if vformat:

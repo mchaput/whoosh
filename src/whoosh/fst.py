@@ -1434,7 +1434,7 @@ def to_labels(key):
     # I hate the Python 3 bytes object so friggin much
     if keytype is tuple or keytype is list:
         if not all(isinstance(e, bytes_type) for e in key):
-            raise TypeError("%r contains a non-bytestring")
+            raise TypeError("%r contains a non-bytestring" % key)
         if keytype is list:
             key = tuple(key)
     elif isinstance(key, bytes_type):

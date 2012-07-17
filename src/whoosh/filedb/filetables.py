@@ -326,7 +326,7 @@ class OrderedHashWriter(HashWriter):
     def __init__(self, dbfile):
         HashWriter.__init__(self, dbfile)
         self.index = GrowableArray("H")
-        self.lastkey = None
+        self.lastkey = emptybytes
 
     def add(self, key, value):
         if key <= self.lastkey:

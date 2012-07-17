@@ -161,7 +161,6 @@ class FieldWriter(object):
 
             if value is None:
                 value = emptybytes
-
             add(docnum, weight, value, length)
         if lasttext is not None:
             finish_term()

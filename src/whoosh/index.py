@@ -34,6 +34,7 @@ import os.path, re, sys
 from time import time, sleep
 
 from whoosh import __version__
+from whoosh.compat import xrange
 from whoosh.filedb.structfile import ChecksumFile
 from whoosh.legacy import toc_loaders
 from whoosh.compat import dumps, loads, string_type

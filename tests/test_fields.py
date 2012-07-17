@@ -136,15 +136,15 @@ def test_index_numeric():
         w.add_document(a=1, b=1)
     with ix.searcher() as s:
         assert_equal(list(s.lexicon("a")),
-                     ['\x00\x00\x00\x00\x01', '\x04\x00\x00\x00\x00',
-                      '\x08\x00\x00\x00\x00', '\x0c\x00\x00\x00\x00',
-                      '\x10\x00\x00\x00\x00', '\x14\x00\x00\x00\x00',
-                      '\x18\x00\x00\x00\x00', '\x1c\x00\x00\x00\x00'])
+                     [b('\x00\x00\x00\x00\x01'), b('\x04\x00\x00\x00\x00'),
+                      b('\x08\x00\x00\x00\x00'), b('\x0c\x00\x00\x00\x00'),
+                      b('\x10\x00\x00\x00\x00'), b('\x14\x00\x00\x00\x00'),
+                      b('\x18\x00\x00\x00\x00'), b('\x1c\x00\x00\x00\x00')])
         assert_equal(list(s.lexicon("b")),
-                     ['\x00\x80\x00\x00\x01', '\x04\x08\x00\x00\x00',
-                      '\x08\x00\x80\x00\x00', '\x0c\x00\x08\x00\x00',
-                      '\x10\x00\x00\x80\x00', '\x14\x00\x00\x08\x00',
-                      '\x18\x00\x00\x00\x80', '\x1c\x00\x00\x00\x08'])
+                     [b('\x00\x80\x00\x00\x01'), b('\x04\x08\x00\x00\x00'),
+                      b('\x08\x00\x80\x00\x00'), b('\x0c\x00\x08\x00\x00'),
+                      b('\x10\x00\x00\x80\x00'), b('\x14\x00\x00\x08\x00'),
+                      b('\x18\x00\x00\x00\x80'), b('\x1c\x00\x00\x00\x08')])
 
 
 def test_numeric():
@@ -366,7 +366,7 @@ def test_datetime():
     for month in xrange(1, 12):
         for day in xrange(1, 28):
             w.add_document(id=u("%s-%s") % (month, day),
-                           date=datetime(2010, month, day, 14, 00, 00))
+                           date=datetime(2010, month, day, 14, 0, 0))
     w.commit()
 
     with ix.searcher() as s:
@@ -414,7 +414,11 @@ def test_boolean():
         assert_equal(sorted([d["id"] for d in r]), ["a", "c", "e"])
         assert all(d["done"] for d in r)
 
-        r = s.search(qp.parse("done:false"))
+        q = qp.parse("done:false")
+        assert_equal(q.__class__, query.Term)
+        assert_equal(q.text, False)
+        assert_equal(schema["done"].to_bytes(False), b("f"))
+        r = s.search(q)
         assert_equal(sorted([d["id"] for d in r]), ["b", "d"])
         assert not any(d["done"] for d in r)
 
@@ -555,8 +559,8 @@ def test_token_boost():
     ana = RegexTokenizer() | DoubleMetaphoneFilter()
     field = fields.TEXT(analyzer=ana, phrase=False)
     results = list(field.index(u("spruce view")))
-    assert_equal(results, [('SPRS', 1, 1.0, b('\x00\x00\x00\x01')),
-                           ('FF', 1, 0.5, b('\x00\x00\x00\x01')),
-                           ('F', 1, 1.0, b('\x00\x00\x00\x01'))])
+    assert_equal(results, [(b('SPRS'), 1, 1.0, b('\x00\x00\x00\x01')),
+                           (b('FF'), 1, 0.5, b('\x00\x00\x00\x01')),
+                           (b('F'), 1, 1.0, b('\x00\x00\x00\x01'))])
 
 

@@ -27,22 +27,33 @@
 
 from ast import literal_eval
 
-from whoosh.compat import iteritems, dumps, loads
+from whoosh.compat import b, bytes_type, text_type, integer_types, PY3
+from whoosh.compat import iteritems, dumps, loads, xrange
 from whoosh.columns import ListColumnReader
 from whoosh.codec import base
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo, TermNotFound
+
+if not PY3:
+    class memoryview:
+        pass
+
+_reprable = (bytes_type, text_type, integer_types, float)
 
 
 # Mixin classes for producing and consuming the simple text format
 
 class LineWriter(object):
     def _print_line(self, indent, command, **kwargs):
-        self._dbfile.write("  " * indent)
+        self._dbfile.write(b("  ") * indent)
         self._dbfile.write(command.encode("latin1"))
         for k, v in iteritems(kwargs):
-            self._dbfile.write("\t%s=%r" % (k, v))
-        self._dbfile.write("\n")
+            if isinstance(v, memoryview):
+                v = bytes(v)
+            if v is not None and not isinstance(v, _reprable):
+                raise TypeError(type(v))
+            self._dbfile.write(("\t%s=%r" % (k, v)).encode("latin1"))
+        self._dbfile.write(b("\n"))
 
 
 class LineReader(object):
@@ -76,6 +87,7 @@ class LineReader(object):
                 return None
 
     def _parse_line(self, line):
+        line = line.decode("latin1")
         line = line.rstrip()
         l = len(line)
         line = line.lstrip()

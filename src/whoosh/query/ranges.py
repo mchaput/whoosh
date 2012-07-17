@@ -27,7 +27,7 @@
 
 from __future__ import division
 
-from whoosh.compat import u
+from whoosh.compat import b, u
 from whoosh.query import qcore, terms, nary, wrappers
 from whoosh.util.times import datetime_to_long
 
@@ -183,12 +183,20 @@ class TermRange(RangeMixin, terms.MultiTerm):
     #            q.end = newtext
     #    return q
 
-    def _words(self, ixreader):
+    def _btexts(self, ixreader):
         fieldname = self.fieldname
-        start = '' if self.start is None else self.start
-        end = u('\uFFFF') if self.end is None else self.end
+        field = ixreader.schema[fieldname]
         startexcl = self.startexcl
         endexcl = self.endexcl
+
+        if self.start is None:
+            start = b("")
+        else:
+            start = field.to_bytes(self.start)
+        if self.end is None:
+            end = b("\xFF\xFF\xFF\xFF")
+        else:
+            end = field.to_bytes(self.end)
 
         for fname, t in ixreader.terms_from(fieldname, start):
             if fname != fieldname:

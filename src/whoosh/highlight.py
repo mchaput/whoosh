@@ -49,6 +49,7 @@ See :doc:`/highlight` for more information.
 """
 
 from __future__ import division
+import sys
 from collections import deque
 from heapq import nlargest
 
@@ -709,8 +710,8 @@ class GenshiFormatter(Formatter):
         self.qname = qname
         self.between = between
 
-        from genshi.core import START, END, TEXT  #@UnresolvedImport
-        from genshi.core import Attrs, Stream  #@UnresolvedImport
+        from genshi.core import START, END, TEXT  # @UnresolvedImport
+        from genshi.core import Attrs, Stream  # @UnresolvedImport
         self.START, self.END, self.TEXT = START, END, TEXT
         self.Attrs, self.Stream = Attrs, Stream
 
@@ -796,27 +797,38 @@ class Highlighter(object):
         self.always_retokenize = always_retokenize
 
     def can_load_chars(self, results, fieldname):
+        # Is it possible to build a mapping between the matched terms/docs and
+        # their start and end chars for "pinpoint" highlighting (ie not require
+        # re-tokenizing text)?
+
         if self.always_retokenize:
+            # No, we've been configured to always retokenize some text
             return False
         if not results.has_matched_terms():
+            # No, we don't know what the matched terms are yet
             return False
         if self.fragmenter.must_retokenize():
+            # No, the configured fragmenter doesn't support it
             return False
 
+        # Maybe, if the field was configured to store characters
         field = results.searcher.schema[fieldname]
         return field.supports("characters")
 
-    def _load_chars(self, results, fieldname, texts):
+    def _load_chars(self, results, fieldname, texts, to_bytes):
+        # For each docnum, create a mapping of text -> [(startchar, endchar)]
+        # for the matched terms
+
         results._char_cache[fieldname] = cache = {}
         sorted_ids = sorted(docnum for _, docnum in results.top_n)
-        texts = [t[1] for t in results.matched_terms() if t[0] == fieldname]
 
         for docnum in sorted_ids:
             cache[docnum] = {}
 
         for text in texts:
-            m = results.searcher.postings(fieldname, text)
-            docset = set(results.termdocs[(fieldname, text)])
+            btext = to_bytes(text)
+            m = results.searcher.postings(fieldname, btext)
+            docset = set(results.termdocs[(fieldname, btext)])
             for docnum in sorted_ids:
                 if docnum in docset:
                     m.skip_to(docnum)
@@ -825,6 +837,10 @@ class Highlighter(object):
 
     def highlight_hit(self, hitobj, fieldname, text=None, top=3):
         results = hitobj.results
+        schema = results.searcher.schema
+        field = schema[fieldname]
+        to_bytes = field.to_bytes
+        from_bytes = field.from_bytes
 
         if text is None:
             d = hitobj.fields()
@@ -834,26 +850,31 @@ class Highlighter(object):
             text = d[fieldname]
 
         # Get the terms searched for/matched
-        if results.has_matched_terms() is None:
-            terms = hitobj.matched_terms()
+        if results.has_matched_terms():
+            bterms = hitobj.matched_terms()
         else:
-            terms = results.query_terms(expand=True)
-        # Get the words searched for in the field
-        words = set(termtext for fname, termtext in terms
-                    if fname == fieldname)
+            bterms = results.query_terms(expand=True)
+        # Convert bytes to unicode, only take terms in this field
+        words = frozenset(from_bytes(btext) for fname, btext in bterms
+                          if fname == fieldname)
+
         if not words:
             # No terms matches in this field
             return self.formatter.format([])
 
+        # If we can do "pinpoint" highlighting...
         if self.can_load_chars(results, fieldname):
+            # Build the docnum->[(startchar, endchar),] map
             if fieldname not in results._char_cache:
-                self._load_chars(results, fieldname, words)
+                self._load_chars(results, fieldname, words, to_bytes)
 
-            map = results._char_cache[fieldname][hitobj.docnum]
+            # Grab the token->[(startchar, endchar)] map for this docnum
+            cmap = results._char_cache[fieldname][hitobj.docnum]
+            # A list of Token objects for matched words
             tokens = []
             charlimit = self.fragmenter.charlimit
             for word in words:
-                chars = map[word]
+                chars = cmap[word]
                 for pos, startchar, endchar in chars:
                     if charlimit and endchar > charlimit:
                         break
@@ -862,13 +883,30 @@ class Highlighter(object):
             tokens.sort(key=lambda t: t.startchar)
             fragments = self.fragmenter.fragment_matches(text, tokens)
         else:
+            # Retokenize the text
             analyzer = results.searcher.schema[fieldname].analyzer
-            termset = frozenset(words)
             tokens = analyzer(text, chars=True, mode="query",
                               removestops=False)
-            tokens = set_matched_filter(tokens, termset)
+            # Set Token.matched attribute for tokens that match a query term
+            tokens = set_matched_filter(tokens, words)
             fragments = self.fragmenter.fragment_tokens(text, tokens)
 
         fragments = top_fragments(fragments, top, self.scorer, self.order)
         output = self.formatter.format(fragments)
         return output
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

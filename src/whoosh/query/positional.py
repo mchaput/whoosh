@@ -79,6 +79,11 @@ class Phrase(qcore.Query):
     def has_terms(self):
         return True
 
+    def terms(self, phrases=False):
+        if phrases and self.field():
+            for word in self.words:
+                yield (self.field(), word)
+
     def tokens(self, boost=1.0):
         char_ranges = self.char_ranges
         startchar = endchar = None

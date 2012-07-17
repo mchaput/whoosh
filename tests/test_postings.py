@@ -29,9 +29,9 @@ def _roundtrip(content, format_, astype, ana=None):
 
         tr = codec.terms_reader(st, seg)
         ps = []
-        for fieldname, text in tr.terms():
-            m = tr.matcher(fieldname, text, format_)
-            ps.append((text, m.value_as(astype)))
+        for fieldname, token in tr.terms():
+            m = tr.matcher(fieldname, token, format_)
+            ps.append((field.from_bytes(token), m.value_as(astype)))
         tr.close()
         return ps
 
