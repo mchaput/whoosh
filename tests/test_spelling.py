@@ -73,6 +73,47 @@ def test_reader_corrector():
                                                          u('zoala')])
 
 
+def test_simple_spelling():
+    schema = fields.Schema(text=fields.TEXT(spelling=True))
+
+    domain = [u("alfa"), u("bravo"), u("charlie")]
+
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for word in domain:
+            w.add_document(text=word)
+
+    with ix.searcher() as s:
+        r = ix.reader()
+        assert r.has_word_graph("text")
+        c = r._get_graph().cursor("text")
+        assert_equal(list(r.word_graph("text").flatten_strings()), domain)
+
+
+def test_unicode_spelling():
+    schema = fields.Schema(text=fields.ID(spelling=True))
+
+    domain = [u("\u0924\u092a\u093e\u0907\u0939\u0930\u0941"),
+              u("\u65e5\u672c"),
+              u("\uc774\uc124\ud76c"),
+              ]
+
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for word in domain:
+            w.add_document(text=word)
+
+    with ix.reader() as r:
+        assert r.has_word_graph("text")
+        c = r._get_graph().cursor("text")
+        assert_equal(list(c.flatten_strings()), domain)
+        assert_equal(list(r.word_graph("text").flatten_strings()), domain)
+
+        rc = spelling.ReaderCorrector(r, "text")
+        assert_equal(rc.suggest(u("\u65e5\u672e\u672c")),
+                     [u("\u65e5\u672c")])
+
+
 def test_add_spelling():
     schema = fields.Schema(text1=fields.TEXT, text2=fields.TEXT)
     ix = RamStorage().create_index(schema)
