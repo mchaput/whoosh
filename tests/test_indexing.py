@@ -341,7 +341,7 @@ def test_update2():
     schema = fields.Schema(key=fields.ID(unique=True, stored=True),
                            p=fields.ID(stored=True))
     with TempIndex(schema, "update2") as ix:
-        nums = list(range(100))
+        nums = list(range(21))
         random.shuffle(nums)
         for i, n in enumerate(nums):
             w = ix.writer()
