@@ -281,8 +281,8 @@ def test_pystemmer():
 
     ix = st.open_index()
     with ix.reader() as r:
-        assert_equal(r.field_terms("text"), ["fall", "pain", "rain", "stall",
-                                             "strang", "strong"])
+        assert_equal(list(r.field_terms("text")),
+                     ["fall", "pain", "rain", "stall", "strang", "strong"])
 
 
 def test_url():
