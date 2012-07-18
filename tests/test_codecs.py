@@ -535,8 +535,8 @@ def test_special_spelled_field():
     fw.start_term(b("specific"))
     fw.add(1, 1.0, b("test2"), 1)
     fw.finish_term()
-    fw.add_spell_word("text", "specials")
-    fw.add_spell_word("text", "specifically")
+    fw.add_spell_word("text", u("specials"))
+    fw.add_spell_word("text", u("specifically"))
     fw.finish_field()
     fw.close()
 
