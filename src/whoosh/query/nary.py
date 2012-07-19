@@ -331,7 +331,7 @@ class Or(CompoundQuery):
             return set()
 
     def _matcher(self, subs, searcher, context):
-        needs_current = context.needs_current if context else False
+        needs_current = context.needs_current if context else True
 
         # A binary tree of UnionMatchers is usually slower than
         # ArrayUnionMatcher, but in certain circumstances the binary tree is
