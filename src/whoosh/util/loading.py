@@ -33,8 +33,12 @@ class RenamingUnpickler(pickle.Unpickler):
     loading them.
     """
 
-    def __init__(self, f, objmap):
+    def __init__(self, f, objmap, shortcuts=None):
         pickle.Unpickler.__init__(self, f)
+
+        if shortcuts:
+            objmap = dict((k % shortcuts, v % shortcuts)
+                          for k, v in objmap.items())
         self._objmap = objmap
 
     def find_class(self, modulename, objname):
