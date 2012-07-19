@@ -105,11 +105,11 @@ class NestedParent(WrappingQuery):
     def requires(self):
         return self.child.requires()
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return matching.NullMatcher
-        m = self.child.matcher(searcher, weighting=weighting)
+        m = self.child.matcher(searcher, context)
         if not m.is_active():
             return matching.NullMatcher
 
@@ -117,11 +117,13 @@ class NestedParent(WrappingQuery):
                                         searcher.doc_count_all())
 
     def deletion_docs(self, searcher):
+        from whoosh.searching import boolean_context
+
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return
 
-        m = self.child.matcher(searcher)
+        m = self.child.matcher(searcher, boolean_context)
         maxdoc = searcher.doc_count_all()
         while m.is_active():
             docnum = m.id()
@@ -144,9 +146,6 @@ class NestedParent(WrappingQuery):
 
         def is_active(self):
             return self._nextdoc is not None
-
-        def go_inactive(self):
-            self._nextdoc = None
 
         def supports_block_quality(self):
             return False
@@ -265,12 +264,12 @@ class NestedChildren(WrappingQuery):
         self.child = subq
         self.boost = boost
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return matching.NullMatcher
 
-        m = self.child.matcher(searcher, weighting=weighting)
+        m = self.child.matcher(searcher, context)
         if not m.is_active():
             return matching.NullMatcher
 

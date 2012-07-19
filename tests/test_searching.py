@@ -1125,8 +1125,8 @@ def test_timelimit():
             self.child.next()
 
     class SlowQuery(query.WrappingQuery):
-        def matcher(self, searcher):
-            return SlowMatcher(self.child.matcher(searcher))
+        def matcher(self, searcher, context=None):
+            return SlowMatcher(self.child.matcher(searcher, context))
 
     with ix.searcher() as s:
         oq = query.Term("text", u("alfa"))
@@ -1401,6 +1401,8 @@ def test_collapse_order():
 
 
 def test_coord():
+    from whoosh.matching import CoordMatcher
+
     schema = fields.Schema(id=fields.STORED, hits=fields.STORED,
                            tags=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
@@ -1423,6 +1425,9 @@ def test_coord():
     assert_equal(q.scale, 0.99)
 
     with ix.searcher() as s:
+        m = q.matcher(s)
+        assert_equal(type(m), CoordMatcher)
+
         r = s.search(q, optimize=False)
         assert_equal([hit["id"] for hit in r], [4, 5, 3, 6, 1, 8, 2, 7])
 

@@ -126,7 +126,7 @@ class Phrase(qcore.Query):
     def estimate_min_size(self, ixreader):
         return self._and_query().estimate_min_size(ixreader)
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         fieldname = self.fieldname
         reader = searcher.reader()
 
@@ -150,7 +150,7 @@ class Phrase(qcore.Query):
         from whoosh.query.spans import SpanNear
 
         q = SpanNear.phrase(fieldname, words, slop=self.slop)
-        m = q.matcher(searcher, weighting=weighting)
+        m = q.matcher(searcher, context)
         if self.boost != 1.0:
             m = matching.WrappingMatcher(m, boost=self.boost)
         return m
@@ -162,11 +162,11 @@ class Ordered(nary.And):
 
     JOINT = " BEFORE "
 
-    def matcher(self, searcher, weighting=None):
+    def _matcher(self, subs, searcher, context):
         from whoosh.query.spans import SpanBefore
 
-        return self._matcher(SpanBefore._Matcher, None, searcher,
-                             weighting=weighting)
+        return self._tree_matcher(subs, SpanBefore._Matcher, searcher,
+                                  context, None)
 
 
 

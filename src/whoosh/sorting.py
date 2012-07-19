@@ -86,17 +86,17 @@ class Categorizer(object):
     potentially overlapping groups. The default is ``False``.
     
     If a categorizer subclass can categorize the document using only the
-    document number, it should set ``Collector.requires_matcher`` to ``False``
+    document number, it should set ``Collector.needs_current`` to ``False``
     (this is the default) and NOT USE the given matcher in the ``key_for`` or
     ``keys_for`` methods, since in that case ``segment_docnum`` is not
     guaranteed to be consistent with the given matcher. If a categorizer
     subclass needs to access information on the matcher, it should set
-    ``requires_matcher`` to ``True``. This will prevent the caller from using
+    ``needs_current`` to ``True``. This will prevent the caller from using
     optimizations that might leave the matcher in an inconsistent state.
     """
 
     allow_overlap = False
-    requires_matcher = False
+    needs_current = False
 
     def set_searcher(self, segment_searcher, docoffset):
         """Called by the collector when the collector moves to a new segment.
@@ -112,7 +112,7 @@ class Categorizer(object):
         """Returns a key for the current match.
         
         :param matcher: a :class:`whoosh.matching.Matcher` object. If
-            ``self.requires_matcher`` is ``False``, DO NOT use this object,
+            ``self.needs_current`` is ``False``, DO NOT use this object,
             since it may be inconsistent. Use the given ``segment_docnum``
             instead.
         :param segment_docnum: the segment-relative document number of the
@@ -134,7 +134,7 @@ class Categorizer(object):
         ``self.allow_overlap`` is ``True``.
         
         :param matcher: a :class:`whoosh.matching.Matcher` object. If
-            ``self.requires_matcher`` is ``False``, DO NOT use this object,
+            ``self.needs_current`` is ``False``, DO NOT use this object,
             since it may be inconsistent. Use the given ``segment_docnum``
             instead.
         :param segment_docnum: the segment-relative document number of the
@@ -544,7 +544,7 @@ class ScoreFacet(FacetType):
         return self.ScoreCategorizer(global_searcher)
 
     class ScoreCategorizer(Categorizer):
-        requires_matcher = True
+        needs_current = True
 
         def __init__(self, global_searcher):
             w = global_searcher.weighting
@@ -743,8 +743,8 @@ class MultiFacet(FacetType):
             self.catters = catters
 
         @property
-        def requires_matcher(self):
-            return any(c.requires_matcher for c in self.catters)
+        def needs_current(self):
+            return any(c.needs_current for c in self.catters)
 
         def set_searcher(self, segment_searcher, docoffset):
             for catter in self.catters:

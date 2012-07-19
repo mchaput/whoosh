@@ -54,9 +54,9 @@ Here's an example of a simple collector that instead of remembering the matched
 documents just counts up the number of matches::
 
     class CountingCollector(Collector):
-        def prepare(self, top_searcher, q, requires_matcher=False):
+        def prepare(self, top_searcher, q, context):
             # Always call super method in prepare
-            Collector.prepare(self, top_searcher, q, requires_matcher)
+            Collector.prepare(self, top_searcher, q, context)
             
             self.count = 0
         
@@ -93,7 +93,7 @@ class Collector(object):
     """Base class for collectors.
     """
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
+    def prepare(self, top_searcher, q, context):
         """This method is called before a search.
         
         Subclasses can override this to perform set-up work, but
@@ -104,26 +104,26 @@ class Collector(object):
             The top-level searcher.
         self.q
             The query object
-        self.requires_matcher
-            Whether a wrapping collector requires that this collector's matcher
-            be in a valid state at every call to ``collect()``. If this is
-            ``False``, the collector is free to use faster methods that don't
-            necessarily keep the matcher updated, such as
-            ``matcher.all_ids()``.
+        self.context
+            ``context.needs_current`` controls whether a wrapping collector
+            requires that this collector's matcher be in a valid state at every
+            call to ``collect()``. If this is ``False``, the collector is free
+            to use faster methods that don't necessarily keep the matcher
+            updated, such as ``matcher.all_ids()``.
         
         :param top_searcher: the top-level :class:`whoosh.searching.Searcher`
             object.
         :param q: the :class:`whoosh.query.Query` object being searched for.
-        :param requires_matcher: whether a wrapping collector needs this
-            collector to step through the matches individually.
+        :param context: a :class:`whoosh.searching.SearchContext` object
+            containing information about the search.
         """
 
         self.top_searcher = top_searcher
         self.q = q
-        self.requires_matcher = requires_matcher
+        self.context = context
 
-        self.runtime = None
         self.starttime = now()
+        self.runtime = None
         self.docset = set()
 
     def set_subsearcher(self, subsearcher, offset):
@@ -149,7 +149,7 @@ class Collector(object):
 
         self.subsearcher = subsearcher
         self.offset = offset
-        self.matcher = self.q.matcher(subsearcher)
+        self.matcher = self.q.matcher(subsearcher, self.context)
 
     def collect_matches(self):
         """This method calls :meth:`Collector.matches` and then for each
@@ -191,7 +191,7 @@ class Collector(object):
         same value returned by :meth:`Collector.collect`, but without the side
         effect of adding the current document to the results.
 
-        If the collector has been prepared with ``requires_matcher=True``,
+        If the collector has been prepared with ``context.needs_current=True``,
         this method can use ``self.matcher`` to get information, for example
         the score. Otherwise, it should only use the provided ``sub_docnum``,
         since the matcher may be in an inconsistent state.
@@ -227,7 +227,7 @@ class Collector(object):
 
         # We jump through a lot of hoops to avoid stepping through the matcher
         # "manually" if we can because all_ids() is MUCH faster
-        if self.requires_matcher:
+        if self.context.needs_current:
             return self._step_through_matches()
         else:
             return self.matcher.all_ids()
@@ -275,9 +275,10 @@ class ScoredCollector(Collector):
         Collector.__init__(self, **kwargs)
         self.replace = replace
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
+    def prepare(self, top_searcher, q, context):
         # This collector requires a valid matcher at each step
-        Collector.prepare(self, top_searcher, q, True)
+        Collector.prepare(self, top_searcher, q,
+                          context.set(needs_current=True))
 
         if top_searcher.weighting.use_final:
             self.final_fn = top_searcher.weighting.final
@@ -423,7 +424,7 @@ class TopCollector(ScoredCollector):
 
 
 class UnlimitedCollector(ScoredCollector):
-    """A collector that only returns all scored results.
+    """A collector that returns **all** scored results.
     """
 
     def __init__(self, reverse=False):
@@ -468,12 +469,13 @@ class SortingCollector(Collector):
         self.limit = limit
         self.reverse = reverse
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
+    def prepare(self, top_searcher, q, context):
         self.categorizer = self.sortfacet.categorizer(top_searcher)
         # If the categorizer requires a valid matcher, then tell the child
         # collector that we need it
-        Collector.prepare(self, top_searcher, q,
-                          self.categorizer.requires_matcher)
+        rm = context.needs_current or self.categorizer.needs_current
+        Collector.prepare(self, top_searcher, q, context.set(needs_current=rm))
+
         # List of (sortkey, docnum) pairs
         self.items = []
 
@@ -508,8 +510,8 @@ class WrappingCollector(Collector):
     def __init__(self, child):
         self.child = child
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
-        self.child.prepare(top_searcher, q, requires_matcher)
+    def prepare(self, top_searcher, q, context):
+        self.child.prepare(top_searcher, q, context)
 
     def set_subsearcher(self, subsearcher, offset):
         self.child.set_subsearcher(subsearcher, offset)
@@ -577,8 +579,8 @@ class FilterCollector(WrappingCollector):
         self.allow = allow
         self.restrict = restrict
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
-        self.child.prepare(top_searcher, q, requires_matcher)
+    def prepare(self, top_searcher, q, context):
+        self.child.prepare(top_searcher, q, context)
 
         allow = self.allow
         restrict = self.restrict
@@ -644,7 +646,7 @@ class FacetCollector(WrappingCollector):
         self.facets = sorting.Facets.from_groupedby(groupedby)
         self.maptype = maptype
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
+    def prepare(self, top_searcher, q, context):
         facets = self.facets
 
         # For each facet we're grouping by:
@@ -652,19 +654,19 @@ class FacetCollector(WrappingCollector):
         # - Create a categorizer (to generate document keys)
         self.facetmaps = {}
         self.categorizers = {}
-        # True if any of the categorizers require the matcher to work
-        reqm = requires_matcher
+
+        # Set needs_current to True if any of the categorizers require the
+        # current document to work
+        needs_current = context.needs_current
         for facetname, facet in facets.items():
             self.facetmaps[facetname] = facet.map(self.maptype)
 
             ctr = facet.categorizer(top_searcher)
             self.categorizers[facetname] = ctr
-            if ctr.requires_matcher:
-                reqm = True
+            needs_current = needs_current or ctr.needs_current
+        context = context.set(needs_current=needs_current)
 
-        # If any of the categorizers require the matcher, tell the child
-        # collector we need it
-        self.child.prepare(top_searcher, q, reqm)
+        self.child.prepare(top_searcher, q, context)
 
     def set_subsearcher(self, subsearcher, offset):
         child = self.child
@@ -748,7 +750,7 @@ class CollapseCollector(WrappingCollector):
         else:
             self.orderfacet = None
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
+    def prepare(self, top_searcher, q, context):
         # Categorizer for getting the collapse key of a document
         self.keyer = self.keyfacet.categorizer(top_searcher)
         # Categorizer for getting the collapse order of a document
@@ -765,9 +767,11 @@ class CollapseCollector(WrappingCollector):
 
         # If the keyer or orderer require a valid matcher, tell the child
         # collector we need it
-        reqm = (self.keyer.requires_matcher
-                or (self.orderer and self.orderer.requires_matcher))
-        self.child.prepare(top_searcher, q, reqm)
+        needs_current = (context.needs_current
+                     or self.keyer.needs_current
+                     or (self.orderer and self.orderer.needs_current))
+        self.child.prepare(top_searcher, q,
+                           context.set(needs_current=needs_current))
 
     def set_subsearcher(self, subsearcher, offset):
         self.child.set_subsearcher(subsearcher, offset)
@@ -859,8 +863,8 @@ class TimeLimitCollector(WrappingCollector):
         self.timelimit = timelimit
         self.greedy = greedy
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
-        self.child.prepare(top_searcher, q, requires_matcher)
+    def prepare(self, top_searcher, q, context):
+        self.child.prepare(top_searcher, q, context)
 
         # Start a timer thread. If the timer fires, it will call this object's
         # _timestop() method
@@ -924,9 +928,9 @@ class TermsCollector(WrappingCollector):
         self.child = child
         self.settype = settype
 
-    def prepare(self, top_searcher, q, requires_matcher=False):
+    def prepare(self, top_searcher, q, context):
         # This collector requires a valid matcher at each step
-        self.child.prepare(top_searcher, q, True)
+        self.child.prepare(top_searcher, q, context.set(needs_current=True))
 
         # A dictionary mapping (fieldname, text) pairs to arrays of docnums
         self.termdocs = defaultdict(lambda: array("I"))

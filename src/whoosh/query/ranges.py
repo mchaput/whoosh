@@ -303,9 +303,9 @@ class NumericRange(RangeMixin, qcore.Query):
             q = wrappers.ConstantScoreQuery(q, self.boost)
         return q
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         q = self._compile_query(searcher.reader())
-        return q.matcher(searcher, weighting=weighting)
+        return q.matcher(searcher, context)
 
 
 class DateRange(NumericRange):
