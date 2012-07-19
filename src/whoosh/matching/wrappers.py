@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-import sys
+
 from whoosh.compat import xrange
 from whoosh.matching import mcore
 
@@ -38,7 +38,6 @@ class WrappingMatcher(mcore.Matcher):
     def __init__(self, child, boost=1.0):
         self.child = child
         self.boost = boost
-        self._active = True
 
     def __repr__(self):
         return "%s(%r, boost=%s)" % (self.__class__.__name__, self.child,
@@ -72,10 +71,7 @@ class WrappingMatcher(mcore.Matcher):
         return self.child.all_ids()
 
     def is_active(self):
-        return self._active and self.child.is_active()
-
-    def go_inactive(self):
-        self._active = False
+        return self.child.is_active()
 
     def reset(self):
         self.child.reset()
@@ -143,9 +139,6 @@ class MultiMatcher(mcore.Matcher):
 
     def is_active(self):
         return self.current < len(self.matchers)
-
-    def go_inactive(self):
-        self.current = len(self.matchers)
 
     def reset(self):
         for mr in self.matchers:
@@ -562,7 +555,6 @@ class CoordMatcher(WrappingMatcher):
             matching += 1
 
         return self._sqr(score, matching)
-
 
 
 

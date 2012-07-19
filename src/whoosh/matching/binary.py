@@ -37,15 +37,10 @@ class BiMatcher(mcore.Matcher):
         super(BiMatcher, self).__init__()
         self.a = a
         self.b = b
-        self._active = True
-
-    def go_inactive(self):
-        self._active = False
 
     def reset(self):
         self.a.reset()
         self.b.reset()
-        self._active = True
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.a, self.b)
@@ -162,7 +157,7 @@ class UnionMatcher(AdditiveBiMatcher):
             return self
 
     def is_active(self):
-        return self._active and (self.a.is_active() or self.b.is_active())
+        return self.a.is_active() or self.b.is_active()
 
     def skip_to(self, id):
         self._id = None
@@ -193,8 +188,8 @@ class UnionMatcher(AdditiveBiMatcher):
 
     # Using sets is faster in most cases, but could potentially use a lot of
     # memory. Comment out this method override to not use sets.
-    def all_ids(self):
-        return iter(sorted(set(self.a.all_ids()) | set(self.b.all_ids())))
+    #def all_ids(self):
+    #    return iter(sorted(set(self.a.all_ids()) | set(self.b.all_ids())))
 
     def next(self):
         self._id = None
@@ -469,7 +464,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
             return self
 
     def is_active(self):
-        return self._active and self.a.is_active() and self.b.is_active()
+        return self.a.is_active() and self.b.is_active()
 
     def _find_next(self):
         a = self.a
@@ -588,7 +583,7 @@ class AndNotMatcher(BiMatcher):
             self._find_next()
 
     def is_active(self):
-        return self._active and self.a.is_active()
+        return self.a.is_active()
 
     def _find_next(self):
         pos = self.a
@@ -709,7 +704,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
             b.skip_to(a.id())
 
     def is_active(self):
-        return self._active and self.a.is_active()
+        return self.a.is_active()
 
     def id(self):
         return self.a.id()

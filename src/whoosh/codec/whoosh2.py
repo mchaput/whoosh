@@ -382,9 +382,6 @@ class W2LeafMatcher(LeafMatcher):
     def is_active(self):
         return self._active
 
-    def go_inactive(self):
-        self._active = False
-
     def weight(self):
         weights = self.block.weights
         if not weights:
