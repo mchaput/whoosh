@@ -86,14 +86,6 @@ class Matcher(object):
         raise NotImplementedError
 
     @abstractmethod
-    def go_inactive(self):
-        """Tells the matcher to go into a state where ``is_active()`` will
-        return False.
-        """
-
-        raise NotImplementedError
-
-    @abstractmethod
     def reset(self):
         """Returns to the start of the posting list.
 

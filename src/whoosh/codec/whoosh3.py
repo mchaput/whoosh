@@ -120,8 +120,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         self._blocklimit = blocklimit
         self._compression = compression
 
-        colfile = self._create_file(W3Codec.COLUMN_EXT)
-        self._cols = compound.CompoundWriter(colfile)
+        self._cols = compound.CompoundWriter()
         self._colwriters = {}
         self._create_column("_stored", STORED_COLUMN)
 
@@ -216,7 +215,8 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         # Finish open columns and close the columns writer
         for writer in self._colwriters.values():
             writer.finish(self._doccount)
-        self._cols.close()
+        colfile = self._create_file(W3Codec.COLUMN_EXT)
+        self._cols.save_as_compound(colfile)
 
         # If vectors were written, close the vector writers
         if self._vpostfile:
@@ -766,9 +766,6 @@ class W3LeafMatcher(LeafMatcher):
     def is_active(self):
         return (self._currentblock < self._blockcount
                 and self._i < self._blocklength)
-
-    def go_inactive(self):
-        self._currentblock = self._blockcount
 
     def id(self):
         if self._ids is None:

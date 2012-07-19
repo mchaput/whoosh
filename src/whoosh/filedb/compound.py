@@ -225,8 +225,8 @@ class SubFile(object):
 
 
 class CompoundWriter(object):
-    def __init__(self, dbfile, buffersize=32 * 1024):
-        self._dbfile = dbfile
+    def __init__(self, buffersize=32 * 1024):
+        assert isinstance(buffersize, int)
         self._temp = TemporaryFile()
         self._buffersize = buffersize
         self._streams = {}
@@ -236,28 +236,42 @@ class CompoundWriter(object):
         self._streams[name] = ss
         return StructFile(ss)
 
-    def close(self):
-        dbfile = self._dbfile
+    def _readback(self):
         temp = self._temp
+        for name, substream in self._streams.items():
+            substream.close()
 
+            def gen():
+                for f, offset, length in substream.blocks:
+                    if f is None:
+                        f = temp
+                    f.seek(offset)
+                    yield f.read(length)
+
+            yield (name, gen)
+        temp.close()
+
+    def save_as_compound(self, dbfile):
         basepos = dbfile.tell()
         dbfile.write_long(0)  # Directory offset
         dbfile.write_int(0)  # Directory length
 
         directory = {}
-        for name, substream in self._streams.items():
-            substream.close()
+        for name, blocks in self._readback():
             filestart = dbfile.tell()
-            for f, offset, length in substream.blocks:
-                if f is None:
-                    f = temp
-                f.seek(offset)
-                dbfile.write(f.read(length))
+            for block in blocks():
+                dbfile.write(block)
             directory[name] = {"offset": filestart,
                                "length": dbfile.tell() - filestart}
-        temp.close()
 
         CompoundStorage.write_dir(dbfile, basepos, directory)
+
+    def save_as_files(self, storage, name_fn):
+        for name, blocks in self._readback():
+            f = storage.create_file(name_fn(name))
+            for block in blocks():
+                f.write(block)
+            f.close()
 
     class SubStream(object):
         def __init__(self, dbfile, buffersize):

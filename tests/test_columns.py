@@ -36,12 +36,12 @@ def test_multistream():
               ("b", "ijk"), ("c", "fGgHh"), ("a", "9abc")]
 
     st = RamStorage()
-    f = st.create_file("test")
-    msw = compound.CompoundWriter(f)
+    msw = compound.CompoundWriter()
     files = dict((name, msw.create_file(name)) for name in "abc")
     for name, data in domain:
         files[name].write(b(data))
-    msw.close()
+    f = st.create_file("test")
+    msw.save_as_compound(f)
 
     f = st.open_file("test")
     msr = compound.CompoundStorage(f)
@@ -66,8 +66,7 @@ def test_random_multistream():
     outfiles = dict((name, BytesIO(value)) for name, value in domain.items())
 
     with TempStorage() as st:
-        f = st.create_file("test")
-        msw = compound.CompoundWriter(f, buffersize=4096)
+        msw = compound.CompoundWriter(buffersize=4096)
         mfiles = {}
         for name in domain:
             mfiles[name] = msw.create_file(name)
@@ -77,7 +76,8 @@ def test_random_multistream():
             mfiles[name].write(v)
             if len(v) < 1000:
                 del outfiles[name]
-        msw.close()
+        f = st.create_file("test")
+        msw.save_as_compound(f)
 
         f = st.open_file("test")
         msr = compound.CompoundStorage(f)
