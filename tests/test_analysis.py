@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  # @UnresolvedImport
+from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, qparser
 from whoosh.compat import u, unichr
@@ -51,13 +51,16 @@ def test_composition3():
 
 
 def test_composing_functions():
+    from operator import or_
+
+    tokenizer = analysis.RegexTokenizer()
+
     def filter(tokens):
         for t in tokens:
             t.text = t.text.upper()
             yield t
 
-    analyzer = analysis.RegexTokenizer() | filter
-    assert_equal([t.text for t in analyzer(u("abc def"))], ["ABC", "DEF"])
+    assert_raises(TypeError, or_, tokenizer, filter)
 
 
 def test_shared_composition():
