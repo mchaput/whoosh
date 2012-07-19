@@ -489,7 +489,7 @@ class Query(object):
 
         return self.estimate_size(ixreader)
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
 
@@ -508,8 +508,10 @@ class Query(object):
         :param searcher: A :class:`whoosh.searching.Searcher` object.
         """
 
+        from whoosh.searching import boolean_context
+
         try:
-            return self.matcher(searcher).all_ids()
+            return self.matcher(searcher, boolean_context).all_ids()
         except TermNotFound:
             return iter([])
 
@@ -596,7 +598,7 @@ class _NullQuery(Query):
     def docs(self, searcher):
         return []
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         return matching.NullMatcher()
 
 
@@ -676,20 +678,13 @@ class Every(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         fieldname = self.fieldname
         reader = searcher.reader()
 
         if fieldname in (None, "", "*"):
             # This takes into account deletions
             doclist = array("I", reader.all_doc_ids())
-#        elif (reader.supports_caches()
-#              and reader.fieldcache_available(fieldname)):
-#            # If the reader has a field cache, use it to quickly get the list
-#            # of documents that have a value for this field
-#            fc = reader.fieldcache(self.fieldname)
-#            doclist = array("I", (docnum for docnum, ordinal in fc.ords()
-#                                  if ordinal != 0))
         else:
             # This is a hacky hack, but just create an in-memory set of all the
             # document numbers of every term in the field. This is SLOOOW for

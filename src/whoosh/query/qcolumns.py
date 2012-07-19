@@ -33,9 +33,8 @@ class ColumnQuery(Query):
     """A query that matches per-document values stored in a column rather than
     terms in the inverted index.
     
-    This may be useful in special circumstances, especially since it lets you
-    specify a callable condition, but note that this is MUCH SLOWER than
-    searching an indexed field.
+    This may be useful in special circumstances, but note that this is MUCH
+    SLOWER than searching an indexed field.
     """
 
     def __init__(self, fieldname, condition):
@@ -54,13 +53,8 @@ class ColumnQuery(Query):
     def is_leaf(self):
         return True
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         fieldname = self.fieldname
-        try:
-            fieldobj = searcher.schema[fieldname]
-        except KeyError:
-            return NullMatcher()
-
         condition = self.condition
         if callable(condition):
             comp = condition
@@ -95,9 +89,6 @@ class ColumnMatcher(ConstantScoreMatcher):
     def is_active(self):
         return self._i < len(self.creader)
 
-    def go_inactive(self):
-        self._i = len(self.creader)
-
     def next(self):
         if not self.is_active():
             raise ReadTooFar
@@ -119,6 +110,12 @@ class ColumnMatcher(ConstantScoreMatcher):
 
     def supports(self, astype):
         return False
+
+    def skip_to_quality(self, minquality):
+        if self._score <= minquality:
+            self._i = len(self.creader)
+            return True
+
 
 
 

@@ -1000,7 +1000,7 @@ class AsyncWriter(threading.Thread, IndexWriter):
             self.writer.cancel(*args, **kwargs)
 
 
-# Misc functions
+# Ex post factor functions
 
 def add_spelling(ix, fieldnames, commit=True):
     """Adds spelling files to an existing index that was created without

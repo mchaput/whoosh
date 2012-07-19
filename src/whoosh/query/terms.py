@@ -100,7 +100,7 @@ class Term(qcore.Query):
         text = field.to_bytes(self.text)
         return ixreader.doc_frequency(fieldname, text)
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         fieldname = self.fieldname
         text = self.text
         if fieldname not in searcher.schema:
@@ -110,7 +110,12 @@ class Term(qcore.Query):
         text = field.to_bytes(text)
 
         if (self.fieldname, text) in searcher.reader():
-            m = searcher.postings(self.fieldname, text, weighting=weighting)
+            if context is None:
+                w = searcher.weighting
+            else:
+                w = context.weighting
+
+            m = searcher.postings(self.fieldname, text, weighting=w)
             if self.boost != 1.0:
                 m = matching.WrappingMatcher(m, boost=self.boost)
             return m
@@ -166,7 +171,7 @@ class MultiTerm(qcore.Query):
         return min(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._btexts(ixreader))
 
-    def matcher(self, searcher, weighting=None):
+    def matcher(self, searcher, context=None):
         fieldname = self.fieldname
         constantscore = self.constantscore
 
@@ -214,7 +219,7 @@ class MultiTerm(qcore.Query):
             from whoosh.query import Or
             q = Or(qs)
 
-        m = q.matcher(searcher, weighting=weighting)
+        m = q.matcher(searcher, context)
         #m = matching.SingleTermMatcher(m, term)
         return m
 

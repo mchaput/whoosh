@@ -59,6 +59,37 @@ class TimeLimit(Exception):
     can get partial results by calling :meth:`TimeLimitedCollector.results`.
     """
 
+    pass
+
+
+# Context class
+
+class SearchContext(object):
+    needs_current = False
+    weighting = None
+
+    def __init__(self, **kwargs):
+        """
+        :param needs_current: if True, the search requires that the matcher
+            tree be "valid" and able to access information about the current
+            match. For queries during matcher instantiation, this means they
+            should not instantiate a matcher that doesn't allow access to the
+            current match's value, weight, and so on. For collectors, this
+            means they should advanced the matcher doc-by-doc rather than using
+            shortcut methods such as all_ids().
+        :param weighting: the Weighting object to use for scoring documents.
+        """
+
+        self.__dict__.update(kwargs)
+
+    def set(self, **kwargs):
+        ctx = copy.copy(self)
+        ctx.__dict__.update(kwargs)
+        return ctx
+
+
+boolean_context = SearchContext(needs_current=False, weighting=None)
+
 
 # Searcher class
 
@@ -337,7 +368,7 @@ class Searcher(object):
             except TermNotFound:
                 return None
         else:
-            m = self._query_for_kw(kw).matcher(self)
+            m = self._query_for_kw(kw).matcher(self, boolean_context)
             if m.is_active():
                 return m.id()
 
@@ -737,7 +768,8 @@ class Searcher(object):
             the results into.
         """
 
-        collector.prepare(self, q)
+        context = SearchContext(weighting=self.weighting)
+        collector.prepare(self, q, context)
 
         # Make a list of subsearchers (if the searcher is atomic, it's a list
         # of one)
