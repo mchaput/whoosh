@@ -96,6 +96,9 @@ class SyntaxNode(object):
 
         return False
 
+    def is_text(self):
+        return False
+
     def set_fieldname(self, name, override=False):
         """Sets the fieldname associated with this node. If ``override`` is
         False (the default), the fieldname will only be replaced if this node
@@ -304,8 +307,8 @@ class GroupNode(SyntaxNode):
     def extend(self, vs):
         self.nodes.extend(vs)
 
-    def pop(self):
-        return self.nodes.pop()
+    def pop(self, *args, **kwargs):
+        return self.nodes.pop(*args, **kwargs)
 
     def reverse(self):
         self.nodes.reverse()
@@ -507,6 +510,9 @@ class TextNode(SyntaxNode):
 
     def r(self):
         return "%s %r" % (self.__class__.__name__, self.text)
+
+    def is_text(self):
+        return True
 
     def query(self, parser):
         fieldname = self.fieldname or parser.fieldname
