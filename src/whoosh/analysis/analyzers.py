@@ -235,16 +235,54 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
         than matching on the expression.
     """
 
-    ret = RegexTokenizer(expression=expression, gaps=gaps)
-    iwf = IntraWordFilter(splitwords=splitwords, splitnums=splitnums,
-                          mergewords=mergewords, mergenums=mergenums)
-    lcf = LowercaseFilter()
-    swf = StopFilter(stoplist=stoplist, minsize=minsize)
-
-    return ret | iwf | lcf | swf
-
+    return (RegexTokenizer(expression=expression, gaps=gaps)
+            | IntraWordFilter(splitwords=splitwords, splitnums=splitnums,
+                              mergewords=mergewords, mergenums=mergenums)
+            | LowercaseFilter()
+            | StopFilter(stoplist=stoplist, minsize=minsize)
+            )
 
 
+def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
+                     cachesize=50000):
+    """Configures a simple analyzer for the given language, with a
+    LowercaseFilter, StopFilter, and StemFilter.
+    
+    >>> ana = LanguageAnalyzer("es")
+    >>> [token.text for token in ana("Por el mar corren las liebres")]
+    ['mar', 'corr', 'liebr']
+    
+    :param expression: The regular expression pattern to use to extract tokens.
+    :param gaps: If True, the tokenizer *splits* on the expression, rather
+        than matching on the expression.
+    :param cachesize: the maximum number of stemmed words to cache. The larger
+        this number, the faster stemming will be but the more memory it will
+        use.
+    """
+
+    from whoosh.lang import NoStemmer, NoStopWords
+    from whoosh.lang import stemmer_for_language
+    from whoosh.lang import stopwords_for_language
+
+    # Make the start of the chain
+    chain = (RegexTokenizer(expression=expression, gaps=gaps)
+             | LowercaseFilter())
+
+    # Add a stop word filter
+    try:
+        stoplist = stopwords_for_language(lang)
+        chain = chain | StopFilter(stoplist=stoplist)
+    except NoStopWords:
+        pass
+
+    # Add a stemming filter
+    try:
+        stemfn = stemmer_for_language(lang)
+        chain = chain | StemFilter(stemfn=stemfn, cachesize=cachesize)
+    except NoStemmer:
+        pass
+
+    return chain
 
 
 

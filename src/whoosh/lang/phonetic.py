@@ -118,5 +118,7 @@ def soundex_ar(word):
             prevcode = code
     return r
 
-if __name__ == "__main__":
-    print(soundex_esp("solidad"))
+
+
+
+

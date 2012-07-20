@@ -1,9 +1,12 @@
+# coding=utf-8
+
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
+from nose.tools import assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, qparser
-from whoosh.compat import u, unichr
+from whoosh.compat import u, unichr, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import skip_if_unavailable
 
@@ -368,6 +371,18 @@ def test_ngrams():
     assert_equal(tokens, [("cdefg", 2, 7), ("defg", 3, 7), ("efg", 4, 7),
                           ("fg", 5, 7), ("ij", 10, 12), ("klm", 13, 16),
                           ("lm", 14, 16)])
+
+
+def test_language_analyzer():
+    domain = [("es", u("Por el mar corren las liebres"),
+               ['mar', 'corr', 'liebr']),
+              ]
+
+    for lang, source, target in domain:
+        ana = analysis.LanguageAnalyzer(lang)
+        words = [t.text for t in ana(source)]
+        assert_equal(words, target)
+
 
 
 

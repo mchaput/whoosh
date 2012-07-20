@@ -166,9 +166,9 @@ class FieldType(object):
         if "mode" not in kwargs:
             kwargs["mode"] = "index"
 
-        wvs = self.format.word_values
+        word_values = self.format.word_values
         ana = self.analyzer
-        for tstring, freq, wt, vbytes in wvs(value, ana, **kwargs):
+        for tstring, freq, wt, vbytes in word_values(value, ana, **kwargs):
             yield (utf8encode(tstring)[0], freq, wt, vbytes)
 
     def process_text(self, qstring, mode='', **kwargs):
@@ -345,13 +345,13 @@ class ID(FieldType):
     __inittypes__ = dict(stored=bool, unique=bool, field_boost=float)
 
     def __init__(self, stored=False, unique=False, field_boost=1.0,
-                 spelling=False, sortable=False):
+                 spelling=False, sortable=False, analyzer=None):
         """
         :param stored: Whether the value of this field is stored with the
             document.
         """
 
-        self.analyzer = analysis.IDAnalyzer()
+        self.analyzer = analyzer or analysis.IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored
         self.unique = unique
@@ -907,7 +907,7 @@ class TEXT(FieldType):
 
     def __init__(self, analyzer=None, phrase=True, chars=False, vector=None,
                  stored=False, field_boost=1.0, multitoken_query="default",
-                 spelling=False, sortable=False):
+                 spelling=False, sortable=False, lang=None):
         """
         :param analyzer: The analysis.Analyzer to use to index the field
             contents. See the analysis module for more information. If you omit
@@ -929,9 +929,17 @@ class TEXT(FieldType):
         :param sortable: If True, make this field sortable using the default
             column type. If you pass a :class:`whoosh.columns.Column` instance
             instead of True, the field will use the given column type.
+        :param lang: automaticaly configure a
+            :class:`whoosh.analysis.LanguageAnalyzer` for the given language.
+            This is ignored if you also specify an ``analyzer``.
         """
 
-        self.analyzer = analyzer or analysis.StandardAnalyzer()
+        if analyzer:
+            self.analyzer = analyzer
+        elif lang:
+            self.analyzer = analysis.LanguageAnalyzer(lang)
+        else:
+            self.analyzer = analysis.StandardAnalyzer()
 
         if chars:
             formatclass = formats.Characters

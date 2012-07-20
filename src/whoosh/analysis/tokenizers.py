@@ -80,8 +80,6 @@ class RegexTokenizer(Tokenizer):
     ["hi", "there", "3.141", "big", "time", "under_score"]
     """
 
-    __inittypes__ = dict(expression=text_type, gaps=bool)
-
     def __init__(self, expression=default_pattern, gaps=False):
         """
         :param expression: A regular expression object or string. Each match
