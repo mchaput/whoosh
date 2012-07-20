@@ -48,7 +48,7 @@ class Plugin(object):
 
     def filters(self, parser):
         """Should return a list of ``(filter_function, priority)`` tuples to
-        add to parser.
+        add to parser. Lower priority numbers run first.
         
         Filter functions will be called with ``(parser, groupnode)`` and should
         return a group node.
@@ -145,27 +145,56 @@ class PrefixPlugin(TaggingPlugin):
 
 
 class WildcardPlugin(TaggingPlugin):
+    # \u055E = Armenian question mark
+    # \u061F = Arabic question mark
+    # \u1367 = Ethiopic question mark
+    qmarks = u("?\u055E\u061F\u1367")
+    expr = "(?P<text>[*%s])" % qmarks
+
+    def filters(self, parser):
+        # Run early, but definitely before multifield plugin
+        return [(self.do_wildcards, 50)]
+
+    def do_wildcards(self, parser, group):
+        i = 0
+        while i < len(group):
+            node = group[i]
+            if isinstance(node, self.WildcardNode):
+                if i < len(group) - 1 and group[i + 1].is_text():
+                    nextnode = group.pop(i + 1)
+                    node.text += nextnode.text
+                if i > 0 and group[i - 1].is_text():
+                    prevnode = group.pop(i - 1)
+                    node.text = prevnode.text + node.text
+                else:
+                    i += 1
+            else:
+                if isinstance(node, syntax.GroupNode):
+                    self.do_wildcards(parser, node)
+                i += 1
+
+        for i in xrange(len(group)):
+            node = group[i]
+            if isinstance(node, self.WildcardNode):
+                text = node.text
+                if len(text) > 1 and not any(qm in text for qm in self.qmarks):
+                    if text.find("*") == len(text) - 1:
+                        newnode = PrefixPlugin.PrefixNode(text[:-1])
+                        newnode.startchar = node.startchar
+                        newnode.endchar = node.endchar
+                        group[i] = newnode
+        return group
+
     class WildcardNode(syntax.TextNode):
         # Note that this node inherits tokenize = False from TextNode,
         # so the text in this node will not be analyzed... just passed
         # straight to the query
-
-        # TODO: instead of parsing a "wildcard word", create marker nodes for
-        # individual ? and * characters. This will have to wait for a more
-        # advanced wikiparser-like parser.
 
         qclass = query.Wildcard
 
         def r(self):
             return "Wild %r" % self.text
 
-    # Any number of word chars, followed by at least one question mark or
-    # star, followed by any number of word chars, question marks, or stars
-    # \u055E = Armenian question mark
-    # \u061F = Arabic question mark
-    # \u1367 = Ethiopic question mark
-    qms = u("\u055E\u061F\u1367")
-    expr = u("(?P<text>(\\w|[-])*[*?%s](\\w|[-*?%s])*)") % (qms, qms)
     nodetype = WildcardNode
 
 
@@ -870,6 +899,7 @@ class FieldAliasPlugin(Plugin):
                 self.reverse[value] = key
 
     def filters(self, parser):
+        # Run before fields plugin at 100
         return [(self.do_aliases, 90)]
 
     def do_aliases(self, parser, group):

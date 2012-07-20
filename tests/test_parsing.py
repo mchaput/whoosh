@@ -27,13 +27,6 @@ def test_prefix():
                  "<AndGroup <None:'a'>, <None:'b'*>, <None:'c'>>")
 
 
-def test_wild():
-    p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
-                                        plugins.WildcardPlugin()])
-    assert_equal(repr(p.process("a b*c? d")),
-                 "<AndGroup <None:'a'>, <None:Wild 'b*c?'>, <None:'d'>>")
-
-
 def test_range():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.RangePlugin()])
@@ -286,7 +279,16 @@ def test_boosts():
     assert_equal(q.__unicode__(), "(t:alfa AND t:bravo^24.0 AND t:charlie)")
 
 
-def test_wildcard1():
+def test_wild():
+    qp = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
+                                         plugins.WildcardPlugin()])
+    assert_equal(repr(qp.process("a b*c? d")),
+                 "<AndGroup <None:'a'>, <None:Wild 'b*c?'>, <None:'d'>>")
+    assert_equal(repr(qp.process("a * ? d")),
+                 "<AndGroup <None:'a'>, <None:Wild '*'>, "
+                 "<None:Wild '?'>, <None:'d'>>")
+
+    #
     qp = default.QueryParser("content", None)
     q = qp.parse(u("hello *the?e* ?star*s? test"))
     assert_equal(len(q), 4)
@@ -299,8 +301,7 @@ def test_wildcard1():
     assert_equal(q[3].__class__, query.Term)
     assert_equal(q[3].text, "test")
 
-
-def test_wildcard2():
+    #
     qp = default.QueryParser("content", None)
     q = qp.parse(u("*the?e*"))
     assert_equal(q.__class__, query.Wildcard)
@@ -932,9 +933,10 @@ def test_star_paren():
 
 
 def test_dash():
-    ana = analysis.StandardAnalyzer("[ \t\r\n()*?]+")
+    ana = analysis.StandardAnalyzer("[^ \t\r\n()*?]+")
     schema = fields.Schema(title=fields.TEXT(analyzer=ana),
-                           text=fields.TEXT(analyzer=ana), time=fields.ID)
+                           text=fields.TEXT(analyzer=ana),
+                           time=fields.ID)
     qtext = u("*Ben-Hayden*")
 
     qp = default.QueryParser("text", schema)
