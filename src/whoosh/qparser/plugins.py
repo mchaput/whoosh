@@ -28,7 +28,8 @@
 import copy
 
 from whoosh import query
-from whoosh.compat import iteritems, u, PY3
+from whoosh.compat import u
+from whoosh.compat import iteritems, xrange
 from whoosh.qparser import syntax
 from whoosh.qparser.common import attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
