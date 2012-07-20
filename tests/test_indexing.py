@@ -4,7 +4,7 @@ import random
 from collections import defaultdict
 from datetime import datetime
 
-from whoosh import analysis, fields, query
+from whoosh import analysis, fields, qparser, query
 from whoosh.compat import b, u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.writing import IndexingError
@@ -262,9 +262,12 @@ def test_deletion():
     s = fields.Schema(key=fields.ID, name=fields.TEXT, value=fields.TEXT)
     with TempIndex(s, "deletion") as ix:
         w = ix.writer()
-        w.add_document(key=u("A"), name=u("Yellow brown"), value=u("Blue red green purple?"))
-        w.add_document(key=u("B"), name=u("Alpha beta"), value=u("Gamma delta epsilon omega."))
-        w.add_document(key=u("C"), name=u("One two"), value=u("Three four five."))
+        w.add_document(key=u("A"), name=u("Yellow brown"),
+                       value=u("Blue red green purple?"))
+        w.add_document(key=u("B"), name=u("Alpha beta"),
+                       value=u("Gamma delta epsilon omega."))
+        w.add_document(key=u("C"), name=u("One two"),
+                       value=u("Three four five."))
         w.commit()
 
         w = ix.writer()
@@ -276,9 +279,12 @@ def test_deletion():
         assert_equal(ix.doc_count(), 2)
 
         w = ix.writer()
-        w.add_document(key=u("A"), name=u("Yellow brown"), value=u("Blue red green purple?"))
-        w.add_document(key=u("B"), name=u("Alpha beta"), value=u("Gamma delta epsilon omega."))
-        w.add_document(key=u("C"), name=u("One two"), value=u("Three four five."))
+        w.add_document(key=u("A"), name=u("Yellow brown"),
+                       value=u("Blue red green purple?"))
+        w.add_document(key=u("B"), name=u("Alpha beta"),
+                       value=u("Gamma delta epsilon omega."))
+        w.add_document(key=u("C"), name=u("One two"),
+                       value=u("Three four five."))
         w.commit()
 
         # This will match both documents with key == B, one of which is already
@@ -319,9 +325,12 @@ def test_writer_reuse():
 
 def test_update():
     # Test update with multiple unique keys
-    SAMPLE_DOCS = [{"id": u("test1"), "path": u("/test/1"), "text": u("Hello")},
-                   {"id": u("test2"), "path": u("/test/2"), "text": u("There")},
-                   {"id": u("test3"), "path": u("/test/3"), "text": u("Reader")},
+    SAMPLE_DOCS = [{"id": u("test1"), "path": u("/test/1"),
+                    "text": u("Hello")},
+                   {"id": u("test2"), "path": u("/test/2"),
+                    "text": u("There")},
+                   {"id": u("test3"), "path": u("/test/3"),
+                    "text": u("Reader")},
                    ]
 
     schema = fields.Schema(id=fields.ID(unique=True, stored=True),
@@ -334,7 +343,8 @@ def test_update():
                 w.add_document(**doc)
 
         with ix.writer() as w:
-            w.update_document(id=u("test2"), path=u("test/1"), text=u("Replacement"))
+            w.update_document(id=u("test2"), path=u("test/1"),
+                              text=u("Replacement"))
 
 
 def test_update2():
@@ -356,9 +366,12 @@ def test_update2():
 
 def test_reindex():
     SAMPLE_DOCS = [
-        {'id': u('test1'), 'text': u('This is a document. Awesome, is it not?')},
+        {'id': u('test1'),
+         'text': u('This is a document. Awesome, is it not?')},
         {'id': u('test2'), 'text': u('Another document. Astounding!')},
-        {'id': u('test3'), 'text': u('A fascinating article on the behavior of domestic steak knives.')},
+        {'id': u('test3'),
+         'text': u('A fascinating article on the behavior of domestic '
+                   'steak knives.')},
     ]
 
     schema = fields.Schema(text=fields.TEXT(stored=True),
@@ -377,8 +390,9 @@ def test_reindex():
 
 
 def test_noscorables1():
-    values = [u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"), u("foxtrot"),
-              u("golf"), u("hotel"), u("india"), u("juliet"), u("kilo"), u("lima")]
+    values = [u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
+              u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"),
+              u("kilo"), u("lima")]
     from random import choice, sample, randint
 
     times = 1000
@@ -387,7 +401,8 @@ def test_noscorables1():
     with TempIndex(schema, "noscorables1") as ix:
         w = ix.writer()
         for _ in xrange(times):
-            w.add_document(id=choice(values), tags=u(" ").join(sample(values, randint(2, 7))))
+            w.add_document(id=choice(values),
+                           tags=u(" ").join(sample(values, randint(2, 7))))
         w.commit()
 
         with ix.searcher() as s:
@@ -407,9 +422,12 @@ def test_multi():
                            content=fields.KEYWORD(stored=True))
     with TempIndex(schema, "multi") as ix:
         writer = ix.writer()
-        writer.add_document(id=u("1"), content=u("alfa bravo charlie")) #deleted 1
-        writer.add_document(id=u("2"), content=u("bravo charlie delta echo")) #deleted 1
-        writer.add_document(id=u("3"), content=u("charlie delta echo foxtrot")) #deleted 2
+        # Deleted 1
+        writer.add_document(id=u("1"), content=u("alfa bravo charlie"))
+        # Deleted 1
+        writer.add_document(id=u("2"), content=u("bravo charlie delta echo"))
+        # Deleted 2
+        writer.add_document(id=u("3"), content=u("charlie delta echo foxtrot"))
         writer.commit()
 
         writer = ix.writer()
@@ -417,8 +435,10 @@ def test_multi():
         writer.delete_by_term("id", "2")
         writer.add_document(id=u("4"), content=u("apple bear cherry donut"))
         writer.add_document(id=u("5"), content=u("bear cherry donut eggs"))
-        writer.add_document(id=u("6"), content=u("delta echo foxtrot golf")) #deleted 2
-        writer.add_document(id=u("7"), content=u("echo foxtrot golf hotel")) # no d
+        # Deleted 2
+        writer.add_document(id=u("6"), content=u("delta echo foxtrot golf"))
+        # no d
+        writer.add_document(id=u("7"), content=u("echo foxtrot golf hotel"))
         writer.commit(merge=False)
 
         writer = ix.writer()
@@ -462,7 +482,8 @@ def test_deleteall():
         w.commit()
 
         with ix.searcher() as s:
-            r = s.search(query.Or([query.Term("text", u("alfa")), query.Term("text", u("bravo"))]))
+            r = s.search(query.Or([query.Term("text", u("alfa")),
+                                   query.Term("text", u("bravo"))]))
             assert_equal(len(r), 0)
 
         ix.optimize()
@@ -529,6 +550,59 @@ def test_multivalue():
         assert ("num", 3) in r
         assert ("date", datetime(2003, 3, 3)) in r
         assert_equal(" ".join(r.field_terms("txt")), "a b c")
+
+
+def test_multi_language():
+    # Analyzer for English
+    ana_eng = analysis.StemmingAnalyzer()
+
+    # analyzer for Pig Latin
+    def stem_piglatin(w):
+        if w.endswith("ay"):
+            w = w[:-2]
+        return w
+    ana_pig = analysis.StemmingAnalyzer(stoplist=["nday", "roay"],
+                                        stemfn=stem_piglatin)
+
+    # Dictionary mapping languages to analyzers
+    analyzers = {"eng": ana_eng, "pig": ana_pig}
+
+    # Fake documents
+    corpus = {(u("eng"), u("Such stuff as dreams are made on")),
+              (u("pig"), u("Otay ebay, roay otnay otay ebay"))}
+
+    schema = fields.Schema(content=fields.TEXT(stored=True),
+                           lang=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        for doclang, content in corpus:
+            ana = analyzers[doclang]
+            # "Pre-analyze" the field into token strings
+            words = [token.text for token in ana(content)]
+            # Note we store the original value but index the pre-analyzed words
+            w.add_document(lang=doclang, content=words,
+                           _stored_content=content)
+
+    with ix.searcher() as s:
+        schema = s.schema
+
+        # Modify the schema to fake the correct analyzer for the language
+        # we're searching in
+        schema["content"].analyzer = analyzers["eng"]
+
+        qp = qparser.QueryParser("content", schema)
+        q = qp.parse("dreaming")
+        r = s.search(q)
+        assert_equal(len(r), 1)
+        assert_equal(r[0]["content"], "Such stuff as dreams are made on")
+
+        schema["content"].analyzer = analyzers["pig"]
+        qp = qparser.QueryParser("content", schema)
+        q = qp.parse("otnay")
+        r = s.search(q)
+        assert_equal(len(r), 1)
+        assert_equal(r[0]["content"], "Otay ebay, roay otnay otay ebay")
 
 
 def test_doc_boost():
