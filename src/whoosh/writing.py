@@ -701,7 +701,7 @@ class SegmentWriter(IndexWriter):
                 # setting start_pos/start_char?
                 fieldboost = self._field_boost(fields, fieldname, docboost)
                 # Ask the field to return a list of (text, weight, vbytes)
-                # tuples and the number of terms in the field
+                # tuples
                 items = field.index(value)
                 # Only store the length if the field is marked scorable
                 scorable = field.scorable
@@ -1212,7 +1212,8 @@ class BufferedWriter(IndexWriter):
             if docnum < base:
                 self.writer.delete_document(docnum, delete=delete)
             else:
-                self.codec.segment.delete_document(docnum - base, delete=delete)
+                ramsegment = self.codec.segment
+                ramsegment.delete_document(docnum - base, delete=delete)
 
     def is_deleted(self, docnum):
         base = self.index.doc_count_all()
