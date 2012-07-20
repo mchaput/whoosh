@@ -568,8 +568,8 @@ def test_multi_language():
     analyzers = {"eng": ana_eng, "pig": ana_pig}
 
     # Fake documents
-    corpus = {(u("eng"), u("Such stuff as dreams are made on")),
-              (u("pig"), u("Otay ebay, roay otnay otay ebay"))}
+    corpus = [(u("eng"), u("Such stuff as dreams are made on")),
+              (u("pig"), u("Otay ebay, roay otnay otay ebay"))]
 
     schema = fields.Schema(content=fields.TEXT(stored=True),
                            lang=fields.ID(stored=True))
