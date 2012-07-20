@@ -29,7 +29,7 @@
 
 from itertools import chain
 
-from whoosh.compat import xrange
+from whoosh.compat import next, xrange
 from whoosh.analysis.acore import Composable
 from whoosh.util.text import rcompile
 
