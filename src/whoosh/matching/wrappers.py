@@ -532,8 +532,15 @@ class CoordMatcher(WrappingMatcher):
         self._scale = scale
 
     def _sqr(self, score, matching):
+        # This is the "SQR" (Short Query Ranking) function used by Apple's old
+        # V-twin search library, described in the paper "V-Twin: A Lightweight
+        # Engine for Interactive Use".
+        #
+        # http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.56.1916
+
+        # score - document score using the current weighting function
+        # matching - number of matching terms in the current document
         termcount = self._termcount  # Number of terms in this tree
-        # maxqual = self._maxqual  # Maximum possible score of the tree
         scale = self._scale  # Scaling factor
 
         sqr = ((score + ((matching - 1) / (termcount - scale) ** 2))
