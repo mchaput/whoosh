@@ -53,7 +53,7 @@ WHOOSH3_HEADER_MAGIC = b("W3Bl")
 
 LENGTHS_COLUMN = columns.NumericColumn("B", default=0)
 VECTOR_COLUMN = columns.NumericColumn("I", default=0)
-STORED_COLUMN = columns.CompressedBytesColumn()
+STORED_COLUMN = columns.PickleColumn(columns.CompressedBytesColumn())
 
 
 class W3Codec(base.CodecWithGraph):
@@ -201,7 +201,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
     def finish_doc(self):
         sf = self._storedfields
         if sf:
-            self.add_column_value("_stored", STORED_COLUMN, dumps(sf, -1))
+            self.add_column_value("_stored", STORED_COLUMN, sf)
             sf.clear()
         self._indoc = False
 
@@ -434,11 +434,10 @@ class W3PerDocReader(base.PerDocumentReader):
 
     def stored_fields(self, docnum):
         reader = self._cached_reader("_stored", STORED_COLUMN)
-        pck = reader[docnum]
-        if pck:
-            return loads(pck)
-        else:
-            return {}
+        v = reader[docnum]
+        if v is None:
+            v = {}
+        return v
 
 
 class W3TermsReader(base.TermsReader):

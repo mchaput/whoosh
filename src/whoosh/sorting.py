@@ -318,24 +318,29 @@ class OverlappingCategorizer(Categorizer):
     def __init__(self, global_searcher, fieldname):
         self._fieldname = fieldname
         self._fieldobj = global_searcher.schema[fieldname]
-        self._use_vectors = False
+
+        field = global_searcher.schema[fieldname]
+        reader = global_searcher.reader()
+        self._use_vectors = bool(field.vector)
+        self._use_column = (reader.has_column(fieldname)
+                            and field.column_type.stores_lists())
 
     def set_searcher(self, segment_searcher, docoffset):
         fieldname = self._fieldname
-        dc = segment_searcher.doc_count_all()
-        field = segment_searcher.schema[fieldname]
-        from_bytes = field.from_bytes
+        self._segment_searcher = segment_searcher
         reader = segment_searcher.reader()
 
-        if field.vector:
-            # If the field was indexed with term vectors, use the vectors
-            # to get the list of values in each matched document
-            self._use_vectors = True
-            self._segment_searcher = segment_searcher
+        if self._use_vectors:
+            pass
+        elif self._use_column:
+            self._creader = reader.column_reader(fieldname)
         else:
             # Otherwise, cache the values in each document in a huge list
             # of lists
-            self._use_vectors = False
+            dc = segment_searcher.doc_count_all()
+            field = segment_searcher.schema[fieldname]
+            from_bytes = field.from_bytes
+
             self._lists = [[] for _ in xrange(dc)]
             for btext in field.sortable_terms(reader, fieldname):
                 text = from_bytes(btext)
@@ -346,20 +351,24 @@ class OverlappingCategorizer(Categorizer):
     def keys_for(self, matcher, docid):
         if self._use_vectors:
             try:
-                v = self._segment_searcher.vector(docid, self.fieldname)
+                v = self._segment_searcher.vector(docid, self._fieldname)
                 return list(v.all_ids())
             except KeyError:
-                return None
+                return []
+        elif self._use_column:
+            return self._columnreader[docid]
         else:
             return self._lists[docid] or None
 
     def key_for(self, matcher, docid):
         if self._use_vectors:
             try:
-                v = self._segment_searcher.vector(docid, self.fieldname)
+                v = self._segment_searcher.vector(docid, self._fieldname)
                 return v.id()
             except KeyError:
                 return None
+        elif self._use_column:
+            return self._columnreader.sort_key(docid)
         else:
             ls = self._lists[docid]
             if ls:

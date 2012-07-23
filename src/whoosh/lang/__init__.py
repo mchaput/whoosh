@@ -1,3 +1,5 @@
+# coding=utf-8
+
 # Copyright 2012 Matt Chaput. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -95,12 +97,11 @@ def two_letter_code(name):
 # Getter functions
 
 def stemmer_for_language(lang):
-    if lang == "porter":
+    if lang == "en_porter":
+        # Original porter stemming algorithm is several times faster than the
+        # more correct porter2 algorithm in snowball package
         from .porter import stem as porter_stem
         return porter_stem
-    elif lang == "porter2":
-        from .porter2 import stem as porter2_stem
-        return porter2_stem
 
     tlc = two_letter_code(lang)
 

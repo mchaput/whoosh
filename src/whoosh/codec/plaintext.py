@@ -29,7 +29,6 @@ from ast import literal_eval
 
 from whoosh.compat import b, bytes_type, text_type, integer_types, PY3
 from whoosh.compat import iteritems, dumps, loads, xrange
-from whoosh.columns import ListColumnReader
 from whoosh.codec import base
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo, TermNotFound
@@ -243,7 +242,7 @@ class PlainPerDocReader(base.PerDocumentReader, LineReader):
         return False
 
     def column_reader(self, fieldname, column):
-        return ListColumnReader(self._column_values(fieldname))
+        return self._column_values(fieldname)
 
     def field_length(self, fieldname):
         return sum(self._iter_lengths(fieldname))
