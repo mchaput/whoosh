@@ -425,7 +425,37 @@ def test_relative_daterange():
                       })
 
 
-def test_overlapping_facet():
+def test_overlapping_vector():
+    schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD(vector=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, tags=u("alfa bravo charlie"))
+        w.add_document(id=1, tags=u("bravo charlie delta"))
+        w.add_document(id=2, tags=u("charlie delta echo"))
+        w.add_document(id=3, tags=u("delta echo alfa"))
+        w.add_document(id=4, tags=u("echo alfa bravo"))
+
+    with ix.searcher() as s:
+        of = sorting.FieldFacet("tags", allow_overlap=True)
+        cat = of.categorizer(s)
+        assert cat._use_vectors
+
+        r = s.search(query.Every(), groupedby={"tags": of})
+        assert_equal(r.groups("tags"),
+                     {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
+                      'charlie': [0, 1, 2], 'delta': [1, 2, 3],
+                      'echo': [2, 3, 4]})
+
+        fcts = sorting.Facets()
+        fcts.add_field("tags", allow_overlap=True)
+        r = s.search(query.Every(), groupedby=fcts)
+        assert_equal(r.groups("tags"),
+                     {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
+                      'charlie': [0, 1, 2], 'delta': [1, 2, 3],
+                      'echo': [2, 3, 4]})
+
+
+def test_overlapping_lists():
     schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
@@ -437,6 +467,9 @@ def test_overlapping_facet():
 
     with ix.searcher() as s:
         of = sorting.FieldFacet("tags", allow_overlap=True)
+        cat = of.categorizer(s)
+        assert not cat._use_vectors
+
         r = s.search(query.Every(), groupedby={"tags": of})
         assert_equal(r.groups("tags"),
                      {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],

@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from .bases import _ScandinavianStemmer
 
 

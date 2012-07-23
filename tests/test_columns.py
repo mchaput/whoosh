@@ -13,12 +13,18 @@ from whoosh.util.testing import TempIndex, TempStorage
 
 def test_pickleability():
     # Ignore base classes
-    ignore = (columns.Column, columns.WrapperColumn,)
+    ignore = (columns.Column, columns.WrappedColumn, columns.ListColumn)
     # Required arguments
-    init_args = {"FixedBytesColumn": (5,)}
+    init_args = {"ClampedNumericColumn": (columns.NumericColumn("B"),),
+                 "FixedBytesColumn": (5,),
+                 "FixedBytesListColumn": (5,),
+                 "NumericColumn": ("i",),
+                 "PickleColumn": (columns.VarBytesColumn(),),
+                 "StructColumn": ("=if", (0, 0.0)),
+                 }
 
     coltypes = [c for _, c in inspect.getmembers(columns, inspect.isclass)
-                if columns.Column in c.__bases__ and not c in ignore]
+                if issubclass(c, columns.Column) and not c in ignore]
 
     for coltype in coltypes:
         args = init_args.get(coltype.__name__, ())
@@ -132,15 +138,19 @@ def _rt(c, values, default):
 
 def test_roundtrip():
     _rt(columns.VarBytesColumn(),
-               [b("a"), b("ccc"), b("bbb"), b("e"), b("dd")], b(""))
+        [b("a"), b("ccc"), b("bbb"), b("e"), b("dd")], b(""))
     _rt(columns.FixedBytesColumn(5),
         [b("aaaaa"), b("eeeee"), b("ccccc"), b("bbbbb"), b("eeeee")],
-               b("\x00") * 5)
+        b("\x00") * 5)
     _rt(columns.RefBytesColumn(),
         [b("a"), b("ccc"), b("bb"), b("ccc"), b("a"), b("bb")], b(""))
     _rt(columns.RefBytesColumn(3),
         [b("aaa"), b("bbb"), b("ccc"), b("aaa"), b("bbb"), b("ccc")],
         b("\x00") * 3)
+    _rt(columns.StructColumn("ifH", (0, 0.0, 0)),
+        [(100, 1.5, 15000), (-100, -5.0, 0), (5820, 6.5, 462),
+         (-57829, -1.5, 6), (0, 0, 0)],
+        (0, 0.0, 0))
 
     numcol = columns.NumericColumn
     _rt(numcol("b"), [10, -20, 30, -25, 15], 0)
@@ -157,6 +167,9 @@ def test_roundtrip():
     c = columns.BitColumn(compress_at=10)
     _rt(c, [bool(random.randint(0, 1)) for _ in xrange(70)], False)
     _rt(c, [bool(random.randint(0, 1)) for _ in xrange(90)], False)
+
+    c = columns.PickleColumn(columns.VarBytesColumn())
+    _rt(c, [None, True, False, 100, -7, "hello"], None)
 
 
 def test_multivalue():
