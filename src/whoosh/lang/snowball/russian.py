@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 class RussianStemmer(object):
     """
     The Russian Snowball stemmer.
