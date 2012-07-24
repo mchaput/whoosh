@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division, with_statement
-import struct
+import struct, warnings
 from array import array
 from bisect import bisect_right
 
@@ -367,8 +367,16 @@ class RefBytesColumn(Column):
     columns stores a value for each document, this column keeps a list of all
     the unique values in the field, and for each document stores a short
     pointer into the unique list. For fields where the number of possible
-    values is smaller than the number of documents (for example, a
-    "category", "chapter"), this saves significant space.
+    values is smaller than the number of documents (for example,
+    "category" or "chapter"), this saves significant space.
+    
+    This column type supports a maximum of 65535 unique values across all
+    documents in a segment. You should generally use this column type where the
+    number of unique values is in no danger of approaching that number (for
+    example, a "tags" field). If you try to index too many unique values, the
+    column will convert additional unique values to the default value and issue
+    a warning using the ``warnings`` module (this will usually be preferable to
+    crashing the indexer and potentially losing indexed documents).
     """
 
     # NOTE that RefBytes is reversible within a single column (we could just
@@ -408,7 +416,11 @@ class RefBytesColumn(Column):
             self._fixedlen = fixedlen
             self._default = default
 
-            self._refs = GrowableArray(allow_longs=False)
+            # At first we'll buffer refs in a byte array. If the number of
+            # uniques stays below 256, we can just write the byte array. As
+            # soon as the ref count goes above 255, we know we're going to have
+            # to write shorts, so we'll switch to writing directly.
+            self._refs = array("B")
             self._uniques = {default: 0}
             self._count = 0
 
@@ -417,17 +429,38 @@ class RefBytesColumn(Column):
 
         def fill(self, docnum):
             if docnum > self._count:
-                self._refs.extend(0 for _ in xrange(docnum - self._count))
+                if self._refs is not None:
+                    self._refs.extend(0 for _ in xrange(docnum - self._count))
+                else:
+                    dbfile = self._dbfile
+                    for _ in xrange(docnum - self._count):
+                        dbfile.write_ushort(0)
 
         def add(self, docnum, v):
+            dbfile = self._dbfile
+            refs = self._refs
             self.fill(docnum)
 
             uniques = self._uniques
             try:
-                i = uniques[v]
+                ref = uniques[v]
             except KeyError:
-                uniques[v] = i = len(uniques)
-            self._refs.append(i)
+                uniques[v] = ref = len(uniques)
+                if refs is not None and ref >= 256:
+                    # We won't be able to use bytes, we have to switch to
+                    # writing unbuffered ushorts
+                    for n in refs:
+                        dbfile.write_ushort(n)
+                    refs = self._refs = None
+
+            if refs is not None:
+                self._refs.append(ref)
+            else:
+                if ref > 65535:
+                    warnings.warn("RefBytesColumn dropped unique value %r" % v,
+                                  UserWarning)
+                    ref = 0
+                dbfile.write_ushort(ref)
 
             self._count = docnum + 1
 
@@ -436,7 +469,7 @@ class RefBytesColumn(Column):
             fixedlen = self._fixedlen
             uniques = self._uniques
 
-            dbfile.write(struct.pack("!" + typecode, len(uniques)))
+            dbfile.write_varint(len(uniques))
             # Sort unique values by position
             vs = sorted(uniques.keys(), key=lambda key: uniques[key])
             for v in vs:
@@ -446,12 +479,16 @@ class RefBytesColumn(Column):
 
         def finish(self, doccount):
             dbfile = self._dbfile
-            refs = self._refs.array
-
+            refs = self._refs
             self.fill(doccount)
-            dbfile.write_byte(ord(refs.typecode))
-            self._write_uniques(refs.typecode)
-            dbfile.write_array(refs)
+
+            typecode = "H"
+            if refs is not None:
+                dbfile.write_array(refs)
+                typecode = refs.typecode
+
+            self._write_uniques(typecode)
+            dbfile.write_byte(ord(typecode))
 
     class Reader(ColumnReader):
         def __init__(self, dbfile, basepos, length, doccount, fixedlen):
@@ -460,14 +497,14 @@ class RefBytesColumn(Column):
             self._doccount = doccount
             self._fixedlen = fixedlen
 
-            dbfile.seek(basepos)
-            self._typecode = chr(dbfile.read_byte())
+            self._typecode = chr(dbfile.get_byte(basepos + length - 1))
+
             st = struct.Struct("!" + self._typecode)
             self._unpack = st.unpack
             self._itemsize = st.size
 
+            dbfile.seek(basepos + doccount * self._itemsize)
             self._uniques = self._read_uniques()
-            self._refbase = dbfile.tell()
 
         def __repr__(self):
             return "<RefBytes.Reader>"
@@ -476,10 +513,9 @@ class RefBytesColumn(Column):
             dbfile = self._dbfile
             fixedlen = self._fixedlen
 
-            uniques = []
-            ucount = self._unpack(dbfile.read(self._itemsize))[0]
-
+            ucount = dbfile.read_varint()
             length = fixedlen
+            uniques = []
             for _ in xrange(ucount):
                 if not fixedlen:
                     length = dbfile.read_varint()
@@ -487,19 +523,19 @@ class RefBytesColumn(Column):
             return uniques
 
         def __getitem__(self, docnum):
-            pos = self._refbase + docnum * self._itemsize
+            pos = self._basepos + docnum * self._itemsize
             ref = self._unpack(self._dbfile.get(pos, self._itemsize))[0]
             return self._uniques[ref]
 
         def __iter__(self):
             get = self._dbfile.get
-            refbase = self._refbase
+            basepos = self._basepos
             uniques = self._uniques
             unpack = self._unpack
             itemsize = self._itemsize
 
             for i in xrange(self._doccount):
-                pos = refbase + i * itemsize
+                pos = basepos + i * itemsize
                 ref = unpack(get(pos, itemsize))[0]
                 yield uniques[ref]
 
@@ -1209,111 +1245,111 @@ class FixedBytesListColumn(ListColumn):
             return ls
 
 
-class RefListColumn(Column):
-    def __init__(self, fixedlen=0):
-        """
-        :param fixedlen: an optional fixed length for the values. If you
-            specify a number other than 0, the column will require all values
-            to be the specified length.
-        :param default: a default value to use for documents that don't specify
-            one. If you don't specify a default, the column will use an empty
-            bytestring (``b''``), or if you specify a fixed length,
-            ``b'\\x00' * fixedlen``.
-        """
-
-        self._fixedlen = fixedlen
-
-    def stores_lists(self):
-        return True
-
-    def writer(self, dbfile):
-        return self.Writer(dbfile, self._fixedlen)
-
-    def reader(self, dbfile, basepos, length, doccount):
-        return self.Reader(dbfile, basepos, length, doccount, self._fixedlen)
-
-    class Writer(ColumnWriter):
-        def __init__(self, dbfile, fixedlen):
-            self._dbfile = dbfile
-            self._fixedlen = fixedlen
-
-            self._refs = GrowableArray(allow_longs=False)
-            self._lengths = GrowableArray(allow_longs=False)
-            self._count = 0
-
-        def __repr__(self):
-            return "<RefList.Writer>"
-
-        def fill(self, docnum):
-            if docnum > self._count:
-                self._lengths.extend(0 for _ in xrange(docnum - self._count))
-
-        def add(self, docnum, ls):
-            uniques = self._uniques
-            refs = self._refs
-
-            self.fill(docnum)
-            self._lengths.append(len(ls))
-            for v in ls:
-                try:
-                    i = uniques[v]
-                except KeyError:
-                    uniques[v] = i = len(uniques)
-                refs.append(i)
-
-            self._count = docnum + 1
-
-        def finish(self, doccount):
-            dbfile = self._dbfile
-            refs = self._refs.array
-            lengths = self._lengths.array
-
-            self.fill(doccount)
-            dbfile.write_byte(ord(lengths.typecode))
-            dbfile.write_array(lengths)
-            dbfile.write_byte(ord(refs.typecode))
-            self._write_uniques(refs.typecode)
-            dbfile.write_array(refs)
-
-    class Reader(ListColumnReader):
-        def __init__(self, dbfile, basepos, length, doccount, fixedlen):
-            self._dbfile = dbfile
-            self._basepos = basepos
-            self._doccount = doccount
-            self._fixedlen = fixedlen
-
-            dbfile.seek(basepos)
-            lencode = chr(dbfile.read_byte())
-            self._lengths = dbfile.read_array(lencode, doccount)
-
-            self._typecode = chr(dbfile.read_byte())
-            refst = struct.Struct("!" + self._typecode)
-            self._unpack = refst.unpack
-            self._itemsize = refst.size
-
-            self._read_uniques()
-            self._refbase = dbfile.tell()
-
-            # Create an array of offsets into the references using the lengths
-            offsets = array("i", (0,))
-            for length in self._lengths:
-                offsets.append(offsets[-1] + length)
-            self._offsets = offsets
-
-        def __repr__(self):
-            return "<RefBytes.Reader>"
-
-        def _get_ref(self, docnum):
-            pos = self._basepos + 1 + docnum * self._itemsize
-            return self._unpack(self._dbfile.get(pos, self._itemsize))[0]
-
-        def __getitem__(self, docnum):
-            offset = self._offsets[docnum]
-            length = self._lengths[docnum]
-
-            pos = self._refbase + offset * self._itemsize
-            reflist = self._dbfile.get_array(pos, self._typecode, length)
-            return [self._uniques[ref] for ref in reflist]
+#class RefListColumn(Column):
+#    def __init__(self, fixedlen=0):
+#        """
+#        :param fixedlen: an optional fixed length for the values. If you
+#            specify a number other than 0, the column will require all values
+#            to be the specified length.
+#        :param default: a default value to use for documents that don't specify
+#            one. If you don't specify a default, the column will use an empty
+#            bytestring (``b''``), or if you specify a fixed length,
+#            ``b'\\x00' * fixedlen``.
+#        """
+#
+#        self._fixedlen = fixedlen
+#
+#    def stores_lists(self):
+#        return True
+#
+#    def writer(self, dbfile):
+#        return self.Writer(dbfile, self._fixedlen)
+#
+#    def reader(self, dbfile, basepos, length, doccount):
+#        return self.Reader(dbfile, basepos, length, doccount, self._fixedlen)
+#
+#    class Writer(ColumnWriter):
+#        def __init__(self, dbfile, fixedlen):
+#            self._dbfile = dbfile
+#            self._fixedlen = fixedlen
+#
+#            self._refs = GrowableArray(allow_longs=False)
+#            self._lengths = GrowableArray(allow_longs=False)
+#            self._count = 0
+#
+#        def __repr__(self):
+#            return "<RefList.Writer>"
+#
+#        def fill(self, docnum):
+#            if docnum > self._count:
+#                self._lengths.extend(0 for _ in xrange(docnum - self._count))
+#
+#        def add(self, docnum, ls):
+#            uniques = self._uniques
+#            refs = self._refs
+#
+#            self.fill(docnum)
+#            self._lengths.append(len(ls))
+#            for v in ls:
+#                try:
+#                    i = uniques[v]
+#                except KeyError:
+#                    uniques[v] = i = len(uniques)
+#                refs.append(i)
+#
+#            self._count = docnum + 1
+#
+#        def finish(self, doccount):
+#            dbfile = self._dbfile
+#            refs = self._refs.array
+#            lengths = self._lengths.array
+#
+#            self.fill(doccount)
+#            dbfile.write_byte(ord(lengths.typecode))
+#            dbfile.write_array(lengths)
+#            dbfile.write_byte(ord(refs.typecode))
+#            self._write_uniques(refs.typecode)
+#            dbfile.write_array(refs)
+#
+#    class Reader(ListColumnReader):
+#        def __init__(self, dbfile, basepos, length, doccount, fixedlen):
+#            self._dbfile = dbfile
+#            self._basepos = basepos
+#            self._doccount = doccount
+#            self._fixedlen = fixedlen
+#
+#            dbfile.seek(basepos)
+#            lencode = chr(dbfile.read_byte())
+#            self._lengths = dbfile.read_array(lencode, doccount)
+#
+#            self._typecode = chr(dbfile.read_byte())
+#            refst = struct.Struct("!" + self._typecode)
+#            self._unpack = refst.unpack
+#            self._itemsize = refst.size
+#
+#            self._read_uniques()
+#            self._refbase = dbfile.tell()
+#
+#            # Create an array of offsets into the references using the lengths
+#            offsets = array("i", (0,))
+#            for length in self._lengths:
+#                offsets.append(offsets[-1] + length)
+#            self._offsets = offsets
+#
+#        def __repr__(self):
+#            return "<RefBytes.Reader>"
+#
+#        def _get_ref(self, docnum):
+#            pos = self._basepos + 1 + docnum * self._itemsize
+#            return self._unpack(self._dbfile.get(pos, self._itemsize))[0]
+#
+#        def __getitem__(self, docnum):
+#            offset = self._offsets[docnum]
+#            length = self._lengths[docnum]
+#
+#            pos = self._refbase + offset * self._itemsize
+#            reflist = self._dbfile.get_array(pos, self._typecode, length)
+#            return [self._uniques[ref] for ref in reflist]
 
 
 

@@ -240,8 +240,43 @@ def test_column_query():
             assert_equal(check(q), [4, 5, 6])
 
 
+def test_ref_switch():
+    import warnings
 
+    col = columns.RefBytesColumn()
 
+    def rw(size):
+        st = RamStorage()
+
+        f = st.create_file("test")
+        cw = col.writer(f)
+        for i in xrange(size):
+            cw.add(i, str(i).encode("latin1"))
+        cw.finish(size)
+        length = f.tell()
+        f.close()
+
+        f = st.open_file("test")
+        cr = col.reader(f, 0, length, size)
+        for i in xrange(size):
+            v = cr[i]
+            # Column ignores additional unique values after 65535
+            if i <= 65535 - 1:
+                assert_equal(v, str(i).encode("latin1"))
+            else:
+                assert_equal(v, b(''))
+        f.close()
+
+    rw(255)
+
+    # Column warns on additional unique values after 65535
+    with warnings.catch_warnings(record=True) as w:
+        # Cause all warnings to always be triggered.
+        warnings.simplefilter("always")
+        rw(65537)
+
+        assert_equal(len(w), 2)
+        assert issubclass(w[-1].category, UserWarning)
 
 
 
