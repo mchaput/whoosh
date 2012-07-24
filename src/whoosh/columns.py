@@ -1104,7 +1104,7 @@ class PickleColumn(WrappedColumn):
 
         def add(self, docnum, v):
             if v is None:
-                v = ''
+                v = emptybytes
             else:
                 v = dumps(v, -1)
             self._child.add(docnum, v)
@@ -1115,14 +1115,14 @@ class PickleColumn(WrappedColumn):
 
         def __getitem__(self, docnum):
             v = self._child[docnum]
-            if v == '':
+            if not v:
                 return None
             else:
                 return loads(v)
 
         def __iter__(self):
             for v in self._child:
-                if v == '':
+                if not v:
                     yield None
                 else:
                     yield loads(v)
