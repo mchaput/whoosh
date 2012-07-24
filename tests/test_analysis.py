@@ -374,7 +374,16 @@ def test_ngrams():
 
 
 def test_language_analyzer():
-    domain = [("es", u("Por el mar corren las liebres"),
+    domain = [("da", u("Jeg gik mig over s\xf8 og land"),
+               [u('gik'), u('s\xf8'), u('land')]),
+
+              ("nl", u("Daar komt een muisje aangelopen"),
+               [u('komt'), u('muisj'), u('aangelop')]),
+
+              ("de", u("Berlin war ihm zu gro\xdf, da baut' er sich ein Schlo\xdf."),
+               [u('berlin'), u('gross'), u('baut'), u('schloss')]),
+
+              ("es", u("Por el mar corren las liebres"),
                ['mar', 'corr', 'liebr']),
               ]
 
