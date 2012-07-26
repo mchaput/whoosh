@@ -141,12 +141,10 @@ class Not(qcore.Query):
         return 1 if ixreader.doc_count() else 0
 
     def matcher(self, searcher, context=None):
-        from whoosh.searching import boolean_context
-
         # Usually only called if Not is the root query. Otherwise, queries such
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
-        child = self.query.matcher(searcher, boolean_context)
+        child = self.query.matcher(searcher, searcher.boolean_context())
         return matching.InverseMatcher(child, reader.doc_count_all(),
                                        missing=reader.is_deleted)
 

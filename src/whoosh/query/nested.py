@@ -117,13 +117,11 @@ class NestedParent(WrappingQuery):
                                         searcher.doc_count_all())
 
     def deletion_docs(self, searcher):
-        from whoosh.searching import boolean_context
-
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return
 
-        m = self.child.matcher(searcher, boolean_context)
+        m = self.child.matcher(searcher, searcher.boolean_context())
         maxdoc = searcher.doc_count_all()
         while m.is_active():
             docnum = m.id()

@@ -508,10 +508,9 @@ class Query(object):
         :param searcher: A :class:`whoosh.searching.Searcher` object.
         """
 
-        from whoosh.searching import boolean_context
-
         try:
-            return self.matcher(searcher, boolean_context).all_ids()
+            context = searcher.boolean_context()
+            return self.matcher(searcher, context).all_ids()
         except TermNotFound:
             return iter([])
 

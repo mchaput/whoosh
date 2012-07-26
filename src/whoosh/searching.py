@@ -88,9 +88,6 @@ class SearchContext(object):
         return ctx
 
 
-boolean_context = SearchContext(needs_current=False, weighting=None)
-
-
 # Searcher class
 
 class Searcher(object):
@@ -253,8 +250,21 @@ class Searcher(object):
         """
         return self.ixreader
 
-    def set_caching_policy(self, *args, **kwargs):
-        self.ixreader.set_caching_policy(*args, **kwargs)
+    def context(self, **kwargs):
+        """Generates a :class:`SearchContext` for this searcher.
+        """
+
+        if "weighting" not in kwargs:
+            kwargs["weighting"] = self.weighting
+
+        return SearchContext(**kwargs)
+
+    def boolean_context(self):
+        """Shortcut returns a SearchContext set for unscored (boolean)
+        searching.
+        """
+
+        return self.context(needs_current=False, weighting=None)
 
     def postings(self, fieldname, text, weighting=None, qf=1):
         """Returns a :class:`whoosh.matching.Matcher` for the postings of the
@@ -768,7 +778,7 @@ class Searcher(object):
             the results into.
         """
 
-        context = SearchContext(weighting=self.weighting)
+        context = self.context()
         collector.prepare(self, q, context)
 
         # Make a list of subsearchers (if the searcher is atomic, it's a list
@@ -1345,6 +1355,7 @@ class Hit(object):
 
         self.results = results
         self.searcher = results.searcher
+        self.reader = self.searcher.reader()
         self.pos = self.rank = pos
         self.docnum = docnum
         self.score = score
@@ -1468,7 +1479,7 @@ class Hit(object):
         if fieldname in self.fields():
             return self._fields[fieldname]
 
-        reader = self.searcher.reader()
+        reader = self.reader
         if reader.has_column(fieldname):
             cr = reader.column_reader(fieldname)
             return cr[self.docnum]
@@ -1476,7 +1487,8 @@ class Hit(object):
         raise KeyError(fieldname)
 
     def __contains__(self, key):
-        return key in self.fields()
+        return (key in self.fields()
+                or self.reader.has_column(key))
 
     def items(self):
         return list(self.fields().items())
