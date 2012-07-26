@@ -67,29 +67,44 @@ class ArrayUnionMatcher(CombinationMatcher):
     current document, just an array of scores.
     """
 
-    def __init__(self, submatchers, doccount, boost=1.0, partsize=1024):
+    def __init__(self, submatchers, doccount, boost=1.0, scored=True,
+                 partsize=256):
         CombinationMatcher.__init__(self, submatchers, boost=boost)
+        self._scored = scored
         self._doccount = doccount
         self._partsize = partsize
 
-        self._a = array("f", (0.0 for _ in xrange(self._partsize)))
+        self._a = array("f", (0 for _ in xrange(self._partsize)))
         self._docnum = 0
         self._offset = 0
         self._limit = 0
         self._read_part()
         self._find_next()
 
+    def __repr__(self):
+        return ("%s(%r, boost=%f, scored=%r, partsize=%d)"
+                % (self.__class__.__name__, self._submatchers, self._boost,
+                   self._scored, self._partsize))
+
     def _read_part(self):
+        scored = self._scored
         boost = self._boost
         limit = min(self._limit + self._partsize, self._doccount)
         offset = self._limit
         a = self._a
-        for i in xrange(self._partsize):
-            a[i] = 0.0
 
+        # Clear the array
+        for i in xrange(self._partsize):
+            a[i] = 0
+
+        # Add the scores from the submatchers into the array
         for m in self._submatchers:
             while m.is_active() and m.id() < limit:
-                a[m.id() - offset] = m.score() * boost
+                i = m.id() - offset
+                if scored:
+                    a[i] += m.score() * boost
+                else:
+                    a[i] = 1
                 m.next()
 
         self._offset = offset

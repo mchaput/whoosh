@@ -371,6 +371,9 @@ class NullMatcherClass(Matcher):
     def __call__(self):
         return self
 
+    def __repr__(self):
+        return "<NullMatcher>"
+
     def supports_block_quality(self):
         return True
 

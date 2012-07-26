@@ -94,6 +94,27 @@ def test_or():
     _run_query(query.Or([]), [])
 
 
+def test_ors():
+    domain = u("alfa bravo charlie delta echo foxtrot").split()
+    s = fields.Schema(num=fields.STORED, text=fields.TEXT)
+    st = RamStorage()
+    ix = st.create_index(s)
+    with ix.writer() as w:
+        for i, ls in enumerate(permutations(domain)):
+            w.add_document(num=i, text=" ".join(ls))
+
+    with ix.searcher() as s:
+        qs = [query.Term("text", word) for word in domain]
+        for i in xrange(1, len(domain)):
+            q = query.Or(qs[:i])
+            r1 = [(hit.docnum, hit.score) for hit in s.search(q, limit=None)]
+
+            q.binary_matcher = True
+            r2 = [(hit.docnum, hit.score) for hit in s.search(q, limit=None)]
+
+            assert_equal(r1, r2)
+
+
 def test_not():
     _run_query(query.Or([query.Term("value", u("red")),
                          query.Term("name", u("yellow")),
@@ -1432,7 +1453,7 @@ def test_coord():
         assert_equal([hit["id"] for hit in r], [4, 5, 3, 6, 1, 8, 2, 7])
 
 
-
-
+def test_version_field():
+    pass
 
 
