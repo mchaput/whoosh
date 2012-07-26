@@ -236,7 +236,6 @@ class QueryParser(object):
             # example, on a stop word)
             if not texts:
                 return None
-
             text = texts[0]
 
         return termclass(fieldname, text, boost=boost)

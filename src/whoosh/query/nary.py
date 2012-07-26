@@ -197,8 +197,6 @@ class CompoundQuery(qcore.Query):
             return qcore.NullQuery
 
     def matcher(self, searcher, context=None):
-        from whoosh.searching import boolean_context
-
         # Pull any queries inside a Not() out into their own list
         subs, nots = self._split_queries()
         if not subs:
@@ -216,7 +214,7 @@ class CompoundQuery(qcore.Query):
                 notq = nots[0]
             else:
                 notq = Or(nots)
-            notm = notq.matcher(searcher, boolean_context)
+            notm = notq.matcher(searcher, searcher.boolean_context())
             if notm.is_active():
                 m = matching.AndNotMatcher(m, notm)
 
@@ -332,6 +330,7 @@ class Or(CompoundQuery):
 
     def _matcher(self, subs, searcher, context):
         needs_current = context.needs_current if context else True
+        scored = context.weighting is not None if context else True
 
         # A binary tree of UnionMatchers is usually slower than
         # ArrayUnionMatcher, but in certain circumstances the binary tree is
@@ -348,10 +347,15 @@ class Or(CompoundQuery):
             m = self._tree_matcher(subs, matching.UnionMatcher, searcher,
                                    context, q_weight_fn)
         else:
-            # Make an ArrayUnionMatcher object
+            # Get submatchers
             ms = [subq.matcher(searcher, context) for subq in subs]
+            # Remove null matchers
+            ms = [m for m in ms if m.is_active()]
+            if not ms:
+                return matching.NullMatcher()
+            # Make an ArrayUnionMatcher object
             m = matching.ArrayUnionMatcher(ms, searcher.doc_count_all(),
-                                           boost=self.boost)
+                                           boost=self.boost, scored=scored)
 
         # If a scaling factor was given, wrap the matcher in a CoordMatcher
         # to alter scores based on term coordination
@@ -457,7 +461,6 @@ class AndNot(BinaryQuery):
     """
 
     JOINT = " ANDNOT "
-    matcherclass = matching.AndNotMatcher
 
     def with_boost(self, boost):
         return self.__class__(self.a.with_boost(boost), self.b)
@@ -475,6 +478,11 @@ class AndNot(BinaryQuery):
 
     def requires(self):
         return self.a.requires()
+
+    def matcher(self, searcher, context=None):
+        scoredm = self.a.matcher(searcher, context)
+        notm = self.b.matcher(searcher, searcher.boolean_context())
+        return matching.AndNotMatcher(scoredm, notm)
 
 
 class Otherwise(BinaryQuery):
@@ -521,6 +529,11 @@ class Require(BinaryQuery):
 
     def docs(self, searcher):
         return And(self.subqueries).docs(searcher)
+
+    def matcher(self, searcher, context=None):
+        scoredm = self.a.matcher(searcher, context)
+        requiredm = self.b.matcher(searcher, searcher.boolean_context())
+        return matching.AndNotMatcher(scoredm, requiredm)
 
 
 class AndMaybe(BinaryQuery):
