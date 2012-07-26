@@ -242,7 +242,7 @@ class PlainPerDocReader(base.PerDocumentReader, LineReader):
         return False
 
     def column_reader(self, fieldname, column):
-        return self._column_values(fieldname)
+        return list(self._column_values(fieldname))
 
     def field_length(self, fieldname):
         return sum(self._iter_lengths(fieldname))
