@@ -269,14 +269,18 @@ def test_ref_switch():
 
     rw(255)
 
-    # Column warns on additional unique values after 65535
-    with warnings.catch_warnings(record=True) as w:
-        # Cause all warnings to always be triggered.
-        warnings.simplefilter("always")
-        rw(65537)
+    # warnings.catch_warnings is not available in Python 2.5
+    if hasattr(warnings, "catch_warnings"):
+        # Column warns on additional unique values after 65535
+        with warnings.catch_warnings(record=True) as w:
+            # Cause all warnings to always be triggered.
+            warnings.simplefilter("always")
+            rw(65537)
 
-        assert_equal(len(w), 2)
-        assert issubclass(w[-1].category, UserWarning)
+            assert_equal(len(w), 2)
+            assert issubclass(w[-1].category, UserWarning)
+    else:
+        rw(65537)
 
 
 

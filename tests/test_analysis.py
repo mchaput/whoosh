@@ -373,6 +373,7 @@ def test_ngrams():
                           ("lm", 14, 16)])
 
 
+@skip_if_unavailable("__future__", "unicode_literals")
 def test_language_analyzer():
     domain = [("da", u("Jeg gik mig over s\xf8 og land"),
                [u('gik'), u('s\xf8'), u('land')]),
