@@ -283,7 +283,7 @@ class QueryParser(object):
             # Try each tagger to see if it matches at the current position
             for tagger in taggers:
                 node = tagger.match(self, text, pos)
-                if node:
+                if node is not None:
                     if node.endchar <= pos:
                         raise Exception("Token %r did not move cursor forward."
                                         " (%r, %s)" % (tagger, text, pos))
