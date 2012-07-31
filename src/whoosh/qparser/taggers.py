@@ -60,10 +60,9 @@ class RegexTagger(Tagger):
         match = self.expr.match(text, pos)
         if match:
             node = self.create(parser, match)
-            if node is None:
-                raise Exception("%s.match() did not return a node"
-                                % (self.__class__.__name__))
-            return node.set_range(match.start(), match.end())
+            if node is not None:
+                node = node.set_range(match.start(), match.end())
+                return node
 
     def create(self, parser, match):
         """When the regular expression matches, this method is called to
@@ -92,3 +91,9 @@ class FnTagger(RegexTagger):
 
     def create(self, parser, match):
         return self.fn(**match.groupdict())
+
+
+
+
+
+

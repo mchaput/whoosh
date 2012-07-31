@@ -430,7 +430,7 @@ class FuzzyTerm(ExpandingTerm):
                     self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = self.text + u("~")
+        r = u("%s:%s") % (self.fieldname, self.text) + u("~")
         if self.maxdist > 1:
             r += u("%d") % self.maxdist
         if self.boost != 1.0:
