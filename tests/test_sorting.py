@@ -6,7 +6,8 @@ import gc
 from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query, sorting
-from whoosh.compat import b, u, xrange, long_type
+from whoosh.compat import b, u
+from whoosh.compat import permutations, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import skip_if_unavailable, skip_if, TempIndex
 
@@ -839,6 +840,36 @@ def test_sort_text_field():
             w.add_document(title=u(title), num=num)
         w.merge = False
     test(ix)
+
+
+def test_filtered_grouped():
+    schema = fields.Schema(tag=fields.ID, text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    domain = u("alfa bravo charlie delta echo foxtrot").split()
+
+    with ix.writer() as w:
+        for i, ls in enumerate(permutations(domain, 3)):
+            tag = u(str(i % 3))
+            w.add_document(tag=tag, text=u(" ").join(ls))
+
+    with ix.searcher() as s:
+        f = query.And([query.Term("text", "charlie"),
+                       query.Term("text", "delta")])
+        r = s.search(query.Every(), filter=f, groupedby="tag", limit=None)
+        assert_equal(len(r), 24)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -590,22 +590,29 @@ class FilterCollector(WrappingCollector):
         self._restrict = ftc(restrict) if restrict else None
         self.filtered_count = 0
 
+    def set_subsearcher(self, subsearcher, offset):
+        self.offset = offset
+        self.child.set_subsearcher(subsearcher, offset)
+
     def collect_matches(self):
         child = self.child
         _allow = self._allow
         _restrict = self._restrict
-        filtered_count = self.filtered_count
 
-        for sub_docnum in child.matches():
-            global_docnum = child.offset + sub_docnum
-            if ((_allow and global_docnum not in _allow)
-                or (_restrict and global_docnum in _restrict)):
-                filtered_count += 1
-                continue
-
-            child.collect(sub_docnum)
-
-        self.filtered_count = filtered_count
+        if _allow or _restrict:
+            filtered_count = self.filtered_count
+            for sub_docnum in child.matches():
+                global_docnum = self.offset + sub_docnum
+                if ((_allow and global_docnum not in _allow)
+                    or (_restrict and global_docnum in _restrict)):
+                    filtered_count += 1
+                    continue
+                child.collect(sub_docnum)
+            self.filtered_count = filtered_count
+        else:
+            # If there was no allow or restrict set, don't do anything special,
+            # just forward the call to the child collector
+            child.collect_matches()
 
     def results(self):
         r = self.child.results()
