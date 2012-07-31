@@ -301,7 +301,7 @@ class GroupPlugin(Plugin):
         def r(self):
             return ")"
 
-    def __init__(self, openexpr="\\(", closeexpr="\\)"):
+    def __init__(self, openexpr="[(]", closeexpr="[)]"):
         self.openexpr = openexpr
         self.closeexpr = closeexpr
 
@@ -443,6 +443,188 @@ class FieldsPlugin(TaggingPlugin):
 
             newgroup.append(node)
         newgroup.reverse()
+        return newgroup
+
+
+class FuzzyTermPlugin(TaggingPlugin):
+    """Adds syntax to the query parser to create "fuzzy" term queries, which
+    match any term within a certain "edit distance" (number of inserted,
+    deleted, or transposed characters) by appending a tilde (``~``) and an
+    optional maximum edit distance to a term. If you don't specify an explicit
+    maximum edit distance, the default is 1.
+    
+    >>> qp = qparser.QueryParser("content", myschema)
+    >>> qp.add_plugin(qparser.FuzzyTermPlugin())
+    >>> q = qp.parse("Stephen~2 Colbert")
+    
+    For example, the following query creates a :class:`whoosh.query.FuzzyTerm`
+    query with a maximum edit distance of 1::
+    
+        bob~
+    
+    The following creates a fuzzy term query with a maximum edit distance of
+    2::
+    
+        bob~2
+    
+    The maximum edit distance can only be a single digit. Note that edit
+    distances greater than 2 can take an extremely long time and are generally
+    not useful.
+    """
+
+    class FuzzinessNode(syntax.SyntaxNode):
+        def __init__(self, maxdist):
+            self.maxdist = maxdist
+
+    class FuzzyTermNode(syntax.TextNode):
+        qclass = query.FuzzyTerm
+
+        def __init__(self, wordnode, maxdist):
+            self.fieldname = wordnode.fieldname
+            self.text = wordnode.text
+            self.boost = wordnode.boost
+            self.startchar = wordnode.startchar
+            self.endchar = wordnode.endchar
+            self.maxdist = maxdist
+
+        def query(self, parser):
+            q = syntax.TextNode.query(self, parser)
+            q.maxdist = self.maxdist
+            return q
+
+    def __init__(self, expr="[~](?P<maxdist>[0-9])?"):
+        self.expr = rcompile(expr)
+
+    def create(self, parser, match):
+        mdstr = match.group("maxdist")
+        if mdstr is None or mdstr == '':
+            maxdist = 1
+        else:
+            maxdist = int(mdstr)
+        return self.FuzzinessNode(maxdist)
+
+    def filters(self, parser):
+        return [(self.do_fuzzyterms, 0)]
+
+    def do_fuzzyterms(self, parser, group):
+        newgroup = group.empty_copy()
+        for i, node in enumerate(group):
+            if i < len(group) - 2 and isinstance(node, syntax.WordNode):
+                nextnode = group[i + 1]
+                if isinstance(nextnode, self.FuzzinessNode):
+                    node = self.FuzzyTermNode(node, nextnode.maxdist)
+            if isinstance(node, self.FuzzinessNode):
+                continue
+            if isinstance(node, syntax.GroupNode):
+                node = self.do_fuzzyterms(parser, node)
+
+            newgroup.append(node)
+        return newgroup
+
+
+class FunctionPlugin(TaggingPlugin):
+    """Adds an abitrary "function call" syntax to the query parser to allow
+    advanced and extensible query functionality.
+    
+    This is unfinished and experimental.
+    """
+
+    expr = rcompile("""
+    [#](?P<name>[A-Za-z_][A-Za-z0-9._]*)  # function name
+    (                                     # optional args
+        \\[                               # inside square brackets
+        (?P<args>.*?)
+        \\]
+    )?
+    """, verbose=True)
+
+    class FunctionNode(syntax.SyntaxNode):
+        has_fieldname = False
+        has_boost = True
+        merging = False
+
+        def __init__(self, name, fn, args, kwargs):
+            self.name = name
+            self.fn = fn
+            self.args = args
+            self.kwargs = kwargs
+            self.nodes = []
+            self.boost = None
+
+        def __repr__(self):
+            return "#%s<%r>(%r)" % (self.name, self.args, self.nodes)
+
+        def query(self, parser):
+            qs = [n.query(parser) for n in self.nodes]
+            kwargs = self.kwargs
+            if "boost" not in kwargs and self.boost is not None:
+                kwargs["boost"] = self.boost
+            # TODO: If this call raises an exception, return an error query
+            return self.fn(qs, *self.args, **self.kwargs)
+
+    def __init__(self, fns):
+        """
+        :param fns: a dictionary mapping names to functions that return a
+            query.
+        """
+
+        self.fns = fns
+
+    def create(self, parser, match):
+        name = match.group("name")
+        if name in self.fns:
+            fn = self.fns[name]
+            argstring = match.group("args")
+            if argstring:
+                args, kwargs = self._parse_args(argstring)
+            else:
+                args = ()
+                kwargs = {}
+            return self.FunctionNode(name, fn, args, kwargs)
+
+    def _parse_args(self, argstring):
+        args = []
+        kwargs = {}
+
+        parts = argstring.split(",")
+        for part in parts:
+            if "=" in part:
+                name, value = part.split("=", 1)
+                name = name.strip()
+            else:
+                name = None
+                value = part
+
+            value = value.strip()
+            if value.startswith("'") and value.endswith("'"):
+                value = value[1:-1]
+
+            if name:
+                kwargs[name] = value
+            else:
+                args.append(value)
+
+        return args, kwargs
+
+    def filters(self, parser):
+        return [(self.do_functions, 600)]
+
+    def do_functions(self, parser, group):
+        newgroup = group.empty_copy()
+        i = 0
+        while i < len(group):
+            node = group[i]
+            if (isinstance(node, self.FunctionNode)
+                and i < len(group) - 1
+                and isinstance(group[i + 1], syntax.GroupNode)):
+                nextnode = group[i + 1]
+                node.nodes = list(self.do_functions(parser, nextnode))
+                i += 1
+            elif isinstance(node, syntax.GroupNode):
+                node = self.do_functions(parser, node)
+
+            newgroup.append(node)
+            i += 1
         return newgroup
 
 
@@ -1105,4 +1287,14 @@ class PseudoFieldPlugin(Plugin):
             newgroup.append(node)
 
         return newgroup
+
+
+
+
+
+
+
+
+
+
 
