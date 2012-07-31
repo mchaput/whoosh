@@ -590,7 +590,8 @@ class FunctionPlugin(TaggingPlugin):
         for part in parts:
             if "=" in part:
                 name, value = part.split("=", 1)
-                name = name.strip()
+                # Wrap with str() because Python 2.5 can't handle unicode kws
+                name = str(name.strip())
             else:
                 name = None
                 value = part

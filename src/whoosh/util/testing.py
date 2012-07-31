@@ -109,7 +109,7 @@ def skip_if(cond):
     return decorating_function
 
 
-def skip_if_unavailable(modulename):
+def skip_if_unavailable(modulename, attr=None):
     """A Nose test decorator that only runs the decorated test if a module
     can be imported::
     
@@ -121,7 +121,11 @@ def skip_if_unavailable(modulename):
 
     def cantimport():
         try:
-            __import__(modulename)
+            if attr:
+                mod = __import__(modulename, fromlist=[attr])
+                return not hasattr(mod, attr)
+            else:
+                __import__(modulename)
         except ImportError:
             return True
         else:
