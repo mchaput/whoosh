@@ -1002,8 +1002,13 @@ def test_fuzzy_plugin():
     qp = default.QueryParser("f", schema)
     qp.add_plugin(plugins.FuzzyTermPlugin())
 
+    q = qp.parse("bob~")
+    assert_equal(q.__class__, query.FuzzyTerm)
+    assert_equal(q.fieldname, "f")
+    assert_equal(q.text, "bob")
+    assert_equal(q.maxdist, 1)
+
     q = qp.parse("Alfa Bravo~ Charlie")
-    print q
     assert_equal(q.__class__, query.And)
     assert_equal(q[0].__class__, query.Term)
     assert_equal(q[0].text, "alfa")
@@ -1015,7 +1020,6 @@ def test_fuzzy_plugin():
     assert_equal(q[2].text, "charlie")
 
     q = qp.parse("Alfa Bravo~2 Charlie")
-    print q
     assert_equal(q.__class__, query.And)
     assert_equal(q[0].__class__, query.Term)
     assert_equal(q[0].text, "alfa")
@@ -1025,6 +1029,12 @@ def test_fuzzy_plugin():
     assert_equal(q[1].maxdist, 2)
     assert_equal(q[2].__class__, query.Term)
     assert_equal(q[2].text, "charlie")
+
+    qp = default.QueryParser("f", None)
+    q = qp.parse("'bob~'")
+    assert_equal(q.__class__, query.Term)
+    assert_equal(q.fieldname, "f")
+    assert_equal(q.text, "bob~")
 
 
 def test_function_plugin():

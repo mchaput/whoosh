@@ -509,7 +509,7 @@ class FuzzyTermPlugin(TaggingPlugin):
     def do_fuzzyterms(self, parser, group):
         newgroup = group.empty_copy()
         for i, node in enumerate(group):
-            if i < len(group) - 2 and isinstance(node, syntax.WordNode):
+            if i < len(group) - 1 and isinstance(node, syntax.WordNode):
                 nextnode = group[i + 1]
                 if isinstance(nextnode, self.FuzzinessNode):
                     node = self.FuzzyTermNode(node, nextnode.maxdist)
