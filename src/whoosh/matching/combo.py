@@ -75,22 +75,22 @@ class ArrayUnionMatcher(CombinationMatcher):
         self._partsize = partsize
 
         self._a = array("f", (0 for _ in xrange(self._partsize)))
-        self._docnum = 0
-        self._offset = 0
-        self._limit = 0
+        self._docnum = self._min_id()
         self._read_part()
-        self._find_next()
 
     def __repr__(self):
         return ("%s(%r, boost=%f, scored=%r, partsize=%d)"
                 % (self.__class__.__name__, self._submatchers, self._boost,
                    self._scored, self._partsize))
 
+    def _min_id(self):
+        return min(subm.id() for subm in self._submatchers if subm.is_active())
+
     def _read_part(self):
         scored = self._scored
         boost = self._boost
-        limit = min(self._limit + self._partsize, self._doccount)
-        offset = self._limit
+        limit = min(self._docnum + self._partsize, self._doccount)
+        offset = self._docnum
         a = self._a
 
         # Clear the array
@@ -108,25 +108,24 @@ class ArrayUnionMatcher(CombinationMatcher):
                 m.next()
 
         self._offset = offset
-        self._docnum = offset
         self._limit = limit
 
     def _find_next(self):
         a = self._a
-        doccount = self._doccount
+        docnum = self._docnum
         offset = self._offset
         limit = self._limit
 
-        while self._docnum < doccount:
-            dn = self._docnum
-            if dn == limit:
-                self._read_part()
-                limit = self._limit
-                offset = self._offset
-            elif a[dn - offset] <= 0.0:
-                self._docnum += 1
-            else:
+        while docnum < limit:
+            if a[docnum - offset] > 0:
                 break
+            docnum += 1
+
+        if docnum == limit:
+            self._docnum = self._min_id()
+            self._read_part()
+        else:
+            self._docnum = docnum
 
     def is_active(self):
         return self._docnum < self._doccount
@@ -139,17 +138,33 @@ class ArrayUnionMatcher(CombinationMatcher):
 
     def skip_to(self, docnum):
         if docnum < self._offset:
+            # We've already passed it
+            return
+        elif docnum < self._limit:
+            # It's in the current part
+            self._docnum = docnum
+            self._find_next()
             return
 
-        while docnum >= self._limit:
+        # Advance all submatchers
+        submatchers = self._submatchers
+        active = False
+        for subm in submatchers:
+            subm.skip_to(docnum)
+            active = active or subm.is_active()
+
+        if active:
+            # Rebuffer
+            self._docnum = self._min_id()
             self._read_part()
-        self._docnum = docnum
-        self._find_next()
+        else:
+            self._docnum = self._doccount
 
     def skip_to_quality(self, minquality):
         skipped = 0
         while self.block_quality() <= minquality:
             skipped += 1
+            self._docnum = self._limit
             self._read_part()
         self._find_next()
         return skipped
@@ -170,6 +185,7 @@ class ArrayUnionMatcher(CombinationMatcher):
 
             docnum += 1
             if docnum == limit:
+                self._docnum = docnum
                 self._read_part()
                 offset = self._offset
                 limit = self._limit

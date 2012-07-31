@@ -491,4 +491,23 @@ def test_exclusion():
         assert_equal(r.scored_length(), 39)  # Number of docs in the results
 
 
+def test_arrayunion():
+    l1 = matching.ListMatcher([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    l2 = matching.ListMatcher([100, 200, 300, 400, 500, 600])
+    aum = matching.ArrayUnionMatcher([l1, l2], 600, partsize=5)
+    assert_equal(aum.id(), 10)
+    aum.skip_to(45)
+    assert_equal(aum.id(), 50)
+    aum.skip_to(550)
+    assert_equal(aum.id(), 600)
+
+
+
+
+
+
+
+
+
+
 
