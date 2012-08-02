@@ -142,6 +142,9 @@ class FieldType(object):
                     (self.stored == other.stored),
                     (self.unique == other.unique)))
 
+    def __ne__(self, other):
+        return not(self.__eq__(other))
+
     def __setstate__(self, state):
         # Fix old fields pickled back when the analyzer was on the format
         analyzer = state.get("analyzer")
@@ -969,6 +972,9 @@ class Schema(object):
     def __eq__(self, other):
         return (other.__class__ is self.__class__
                 and list(self.items()) == list(other.items()))
+
+    def __ne__(self, other):
+        return not(self.__eq__(other))
 
     def __repr__(self):
         return "<%s: %r>" % (self.__class__.__name__, self.names())
