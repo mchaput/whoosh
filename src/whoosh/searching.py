@@ -32,14 +32,12 @@
 from __future__ import division
 import copy
 import weakref
-from collections import defaultdict
 from math import ceil
 
 from whoosh import classify, highlight, query, scoring, sorting
 from whoosh.compat import iteritems, itervalues, iterkeys, xrange
 from whoosh.idsets import DocIdSet, BitSet
 from whoosh.reading import TermNotFound
-from whoosh.util import now
 from whoosh.util.cache import lru_cache
 
 
@@ -378,7 +376,7 @@ class Searcher(object):
             except TermNotFound:
                 return None
         else:
-            m = self._query_for_kw(kw).matcher(self, boolean_context)
+            m = self._query_for_kw(kw).matcher(self, self.boolean_context())
             if m.is_active():
                 return m.id()
 
@@ -642,7 +640,7 @@ class Searcher(object):
     def collector(self, limit=10, sortedby=None, reverse=False, groupedby=None,
                   collapse=None, collapse_limit=1, collapse_order=None,
                   optimize=True, filter=None, mask=None, terms=False,
-                  maptype=None):
+                  maptype=None, scored=True):
         """Low-level method: returns a configured
         :class:`whoosh.collectors.Collector` object based on the given
         arguments. You can use this object with
@@ -676,7 +674,9 @@ class Searcher(object):
         if limit is not None and limit < 1:
             raise ValueError("limit must be >= 1")
 
-        if sortedby:
+        if not scored and not sortedby:
+            c = collectors.UnsortedCollector()
+        elif sortedby:
             c = collectors.SortingCollector(sortedby, limit=limit,
                                             reverse=reverse)
         elif groupedby or reverse or not limit or limit >= self.doc_count():
@@ -716,6 +716,10 @@ class Searcher(object):
         :param limit: the maximum number of documents to score. If you're only
             interested in the top N documents, you can set limit=N to limit the
             scoring for a faster search. Default is 10.
+        :param scored: whether to score the results. Overriden by ``sortedby``.
+            If both ``scored=False`` and ``sortedby=None``, the results will be
+            in arbitrary order, but will usually be computed faster than
+            scored or sorted results.
         :param sortedby: see :doc:`/facets`.
         :param reverse: Reverses the direction of the sort. Default is False.
         :param groupedby: see :doc:`/facets`.
@@ -778,24 +782,19 @@ class Searcher(object):
             the results into.
         """
 
+        # Get the search context object from the searcher
         context = self.context()
-        collector.prepare(self, q, context)
+        # Allow collector to set up based on the top-level information
+        self.prepare(self, q, context)
 
-        # Make a list of subsearchers (if the searcher is atomic, it's a list
-        # of one)
+        # Get a list of (subsearcher, offset) tuples (if the searcher is
+        # atomic, it's a list of one)
         if self.is_atomic():
             subsearchers = [(self, 0)]
         else:
             subsearchers = self.subsearchers
 
-        try:
-            # for each sub-searcher, run the query and collect the matching
-            # docs
-            for subsearcher, offset in subsearchers:
-                collector.set_subsearcher(subsearcher, offset)
-                collector.collect_matches()
-        finally:
-            collector.finish()
+        collector.run(subsearchers)
 
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
