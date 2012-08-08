@@ -93,6 +93,15 @@ class Collector(object):
     """Base class for collectors.
     """
 
+    def run(self, subsearchers):
+        # Collect matches for each sub-searcher
+        try:
+            for subsearcher, offset in subsearchers:
+                self.set_subsearcher(subsearcher, offset)
+                self.collect_matches()
+        finally:
+            self.finish()
+
     def prepare(self, top_searcher, q, context):
         """This method is called before a search.
         
@@ -498,6 +507,22 @@ class SortingCollector(Collector):
         items.sort(reverse=self.reverse)
         if self.limit:
             items = items[:self.limit]
+        return self._results(items, docset=self.docset)
+
+
+class UnsortedCollector(Collector):
+    def prepare(self, top_searcher, q, context):
+        Collector.prepare(self, top_searcher, q,
+                          top_searcher.boolean_context())
+        self.items = []
+
+    def collect(self, sub_docnum):
+        global_docnum = self.offset + sub_docnum
+        self.items.append((None, global_docnum))
+        self.docset.add(global_docnum)
+
+    def results(self):
+        items = self.items
         return self._results(items, docset=self.docset)
 
 
