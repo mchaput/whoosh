@@ -785,7 +785,7 @@ class Searcher(object):
         # Get the search context object from the searcher
         context = self.context()
         # Allow collector to set up based on the top-level information
-        self.prepare(self, q, context)
+        collector.prepare(self, q, context)
 
         # Get a list of (subsearcher, offset) tuples (if the searcher is
         # atomic, it's a list of one)
