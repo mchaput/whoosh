@@ -61,6 +61,11 @@ def test_phrase():
     assert_equal(repr(p.process('"b c"')),
                  "<AndGroup <None:PhraseNode 'b c'~1>>")
 
+    q = p.parse('alfa "bravo charlie"~2 delta')
+    assert_equal(q[1].__class__, query.Phrase)
+    assert_equal(q[1].words, ["bravo", "charlie"])
+    assert_equal(q[1].slop, 2)
+
 
 def test_groups():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
@@ -997,104 +1002,17 @@ def test_spacespace_and():
     assert_equal(q[1], query.Term("f", "B"))
 
 
-def test_fuzzy_plugin():
-    schema = fields.Schema(f=fields.TEXT)
-    qp = default.QueryParser("f", schema)
-    qp.add_plugin(plugins.FuzzyTermPlugin())
-
-    q = qp.parse("bob~")
-    assert_equal(q.__class__, query.FuzzyTerm)
-    assert_equal(q.fieldname, "f")
-    assert_equal(q.text, "bob")
-    assert_equal(q.maxdist, 1)
-
-    q = qp.parse("Alfa Bravo~ Charlie")
-    assert_equal(q.__class__, query.And)
-    assert_equal(q[0].__class__, query.Term)
-    assert_equal(q[0].text, "alfa")
-    assert_equal(q[1].__class__, query.FuzzyTerm)
-    assert_equal(q[1].fieldname, "f")
-    assert_equal(q[1].text, "bravo")
-    assert_equal(q[1].maxdist, 1)
-    assert_equal(q[2].__class__, query.Term)
-    assert_equal(q[2].text, "charlie")
-
-    q = qp.parse("Alfa Bravo~2 Charlie")
-    assert_equal(q.__class__, query.And)
-    assert_equal(q[0].__class__, query.Term)
-    assert_equal(q[0].text, "alfa")
-    assert_equal(q[1].__class__, query.FuzzyTerm)
-    assert_equal(q[1].fieldname, "f")
-    assert_equal(q[1].text, "bravo")
-    assert_equal(q[1].maxdist, 2)
-    assert_equal(q[2].__class__, query.Term)
-    assert_equal(q[2].text, "charlie")
-
-    qp = default.QueryParser("f", None)
-    q = qp.parse("'bob~'")
-    assert_equal(q.__class__, query.Term)
-    assert_equal(q.fieldname, "f")
-    assert_equal(q.text, "bob~")
 
 
-def test_function_plugin():
-    class FakeQuery(query.Query):
-        def __init__(self, children, *args, **kwargs):
-            self.children = children
-            self.args = args
-            self.kwargs = kwargs
-            self.fieldname = None
 
-        def __hash__(self):
-            return hash(tuple(self.children)) ^ hash(self.args)
 
-        def __unicode__(self):
-            qs = "|".join(str(q) for q in self.children)
-            args = ",".join(self.args)
-            kwargs = ",".join("%s:%s" % item for item in self.kwargs.items())
-            return u("<%s %s %s>") % (qs, args, kwargs)
 
-        __str__ = __unicode__
 
-    def fuzzy(qs, prefix=0, maxdist=2):
-        prefix = int(prefix)
-        maxdist = int(maxdist)
-        return query.FuzzyTerm(qs[0].fieldname, qs[0].text,
-                               prefixlength=prefix, maxdist=maxdist)
 
-    fp = plugins.FunctionPlugin({"foo": FakeQuery, "fuzzy": fuzzy})
-    qp = default.QueryParser("f", None)
-    qp.add_plugin(fp)
 
-    def check(qstring, target):
-        q = qp.parse(u(qstring), normalize=False)
-        assert_equal(str(q), target)
 
-    check("alfa #foo charlie delta",
-          "(f:alfa AND <  > AND f:charlie AND f:delta)")
 
-    check("alfa #foo(charlie delta) echo",
-          "(f:alfa AND <f:charlie|f:delta  > AND f:echo)")
 
-    check("alfa #foo(charlie AND delta) echo",
-          "(f:alfa AND <(f:charlie AND f:delta)  > AND f:echo)")
 
-    check("alfa #foo[a] charlie delta",
-          "(f:alfa AND < a > AND f:charlie AND f:delta)")
-
-    check("alfa #foo[a, b](charlie delta) echo",
-          "(f:alfa AND <f:charlie|f:delta a,b > AND f:echo)")
-
-    check("alfa #foo[a,b,c=d](charlie AND delta) echo",
-          "(f:alfa AND <(f:charlie AND f:delta) a,b c:d> AND f:echo)")
-
-    check("alfa #foo[a,b,c=d]() (charlie AND delta)",
-          "(f:alfa AND < a,b c:d> AND ((f:charlie AND f:delta)))")
-
-    check("alfa #foo[a=1,b=2](charlie AND delta)^2.0 echo",
-          "(f:alfa AND <(f:charlie AND f:delta)  a:1,b:2,boost:2.0> AND f:echo)")
-
-    check("alfa #fuzzy[maxdist=2](bravo) charlie",
-          "(f:alfa AND f:bravo~2 AND f:charlie)")
 
 

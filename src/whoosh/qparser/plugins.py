@@ -470,11 +470,31 @@ class FuzzyTermPlugin(TaggingPlugin):
     The maximum edit distance can only be a single digit. Note that edit
     distances greater than 2 can take an extremely long time and are generally
     not useful.
+    
+    You can specify a prefix length using ``~n/m``. For example, to allow a
+    maximum edit distance of 2 and require a prefix match of 3 characters::
+    
+        johannson~2/3
+    
+    To specify a prefix with the default edit distance::
+    
+        johannson~/3
     """
 
+    expr = rcompile("""
+    (?<=\\S)                          # Only match right after non-space
+    ~                                 # Initial tilde
+    (?P<maxdist>[0-9])?               # Optional maxdist
+    (/                                # Optional prefix slash
+        (?P<prefix>[1-9][0-9]*)       # prefix
+    )?                                # (end prefix group)
+    """, verbose=True)
+
     class FuzzinessNode(syntax.SyntaxNode):
-        def __init__(self, maxdist):
+        def __init__(self, maxdist, prefix, original):
             self.maxdist = maxdist
+            self.prefix = prefix
+            self.original = original
 
         def __repr__(self):
             return "<~%d>" % (self.maxdist,)
@@ -482,49 +502,58 @@ class FuzzyTermPlugin(TaggingPlugin):
     class FuzzyTermNode(syntax.TextNode):
         qclass = query.FuzzyTerm
 
-        def __init__(self, wordnode, maxdist):
+        def __init__(self, wordnode, maxdist, prefix):
             self.fieldname = wordnode.fieldname
             self.text = wordnode.text
             self.boost = wordnode.boost
             self.startchar = wordnode.startchar
             self.endchar = wordnode.endchar
             self.maxdist = maxdist
+            self.prefix = prefix
 
         def r(self):
             return "%s ~%d" % (self.text, self.maxdist)
 
         def query(self, parser):
+            # Use the superclass's query() method to create a FuzzyTerm query
+            # (it looks at self.qclass), just because it takes care of some
+            # extra checks and attributes
             q = syntax.TextNode.query(self, parser)
+            # Set FuzzyTerm-specific attributes
             q.maxdist = self.maxdist
+            q.prefix = self.prefix
             return q
-
-    def __init__(self, expr="[~](?P<maxdist>[0-9])?"):
-        self.expr = rcompile(expr)
 
     def create(self, parser, match):
         mdstr = match.group("maxdist")
-        if mdstr is None or mdstr == '':
-            maxdist = 1
-        else:
-            maxdist = int(mdstr)
-        return self.FuzzinessNode(maxdist)
+        maxdist = int(mdstr) if mdstr else 1
+
+        pstr = match.group("prefix")
+        prefix = int(pstr) if pstr else 0
+
+        return self.FuzzinessNode(maxdist, prefix, match.group(0))
 
     def filters(self, parser):
         return [(self.do_fuzzyterms, 0)]
 
     def do_fuzzyterms(self, parser, group):
         newgroup = group.empty_copy()
-        for i, node in enumerate(group):
+        i = 0
+        while i < len(group):
+            node = group[i]
             if i < len(group) - 1 and isinstance(node, syntax.WordNode):
                 nextnode = group[i + 1]
                 if isinstance(nextnode, self.FuzzinessNode):
-                    node = self.FuzzyTermNode(node, nextnode.maxdist)
+                    node = self.FuzzyTermNode(node, nextnode.maxdist,
+                                              nextnode.prefix)
+                    i += 1
             if isinstance(node, self.FuzzinessNode):
-                continue
+                node = syntax.to_word(node)
             if isinstance(node, syntax.GroupNode):
                 node = self.do_fuzzyterms(parser, node)
 
             newgroup.append(node)
+            i += 1
         return newgroup
 
 
@@ -699,17 +728,20 @@ class PhrasePlugin(Plugin):
 
     class PhraseTagger(RegexTagger):
         def create(self, parser, match):
-            return PhrasePlugin.PhraseNode(match.group("text"),
-                                           match.start("text"))
+            text = match.group("text")
+            textstartchar = match.start("text")
+            slopstr = match.group("slop")
+            slop = int(slopstr) if slopstr else 1
+            return PhrasePlugin.PhraseNode(text, textstartchar, slop)
 
-    def __init__(self, expr='"(?P<text>.*?)"'):
+    def __init__(self, expr='"(?P<text>.*?)"(~(?P<slop>[1-9][0-9]*))?'):
         self.expr = expr
 
     def taggers(self, parser):
         return [(self.PhraseTagger(self.expr), 0)]
 
 
-class ComplexPhrasePlugin(Plugin):
+class SequencePlugin(Plugin):
     """Adds the ability to group arbitrary queries inside double quotes to
     produce a query matching the individual sub-queries in sequence.
     
@@ -718,14 +750,14 @@ class ComplexPhrasePlugin(Plugin):
     
         qp = qparser.QueryParser("field", my_schema)
         qp.remove_plugin_class(qparser.PhrasePlugin)
-        qp.add_plugin(qparser.ComplexPhrasePlugin())
+        qp.add_plugin(qparser.SequencePlugin())
     
     This enables parsing "phrases" such as::
     
         "(jon OR john OR jonathan~1) smith*"
     """
 
-    def __init__(self, expr='["]'):
+    def __init__(self, expr='["](~(?P<slop>[1-9][0-9]*))?'):
         """
         :param expr: a regular expression for the marker at the start and end
             of a phrase. The default is the double-quotes character.
@@ -733,48 +765,55 @@ class ComplexPhrasePlugin(Plugin):
 
         self.expr = expr
 
-    class ComplexPhraseNode(syntax.GroupNode):
+    class SequenceNode(syntax.GroupNode):
         qclass = query.Sequence
 
     class QuoteNode(syntax.MarkerNode):
-        pass
-
-    class QuoteTagger(RegexTagger):
-        def create(self, parser, match):
-            return ComplexPhrasePlugin.QuoteNode()
+        def __init__(self, slop=None):
+            self.slop = int(slop) if slop else 1
 
     def taggers(self, parser):
-        return [(self.QuoteTagger(self.expr), 0)]
+        return [(FnTagger(self.expr, self.QuoteNode, "quote"), 0)]
 
     def filters(self, parser):
         return [(self.do_quotes, 650)]
 
     def do_quotes(self, parser, group):
+        # New group to copy nodes into
         newgroup = group.empty_copy()
-        phrase = None
+        # Buffer for sequence nodes; when it's None, it means we're not in
+        # a sequence
+        seq = None
+
+        # Start copying nodes from group to newgroup. When we find a quote
+        # node, start copying nodes into the buffer instead. When we find
+        # the next (end) quote, put the buffered nodes into a SequenceNode
+        # and add it to newgroup.
         for node in group:
             if isinstance(node, syntax.GroupNode):
+                # Recurse
                 node = self.do_quotes(parser, node)
 
             if isinstance(node, self.QuoteNode):
-                if phrase is None:
-                    # Start a new phrase
-                    phrase = []
+                if seq is None:
+                    # Start a new sequence
+                    seq = []
                 else:
-                    # End the current phrase
-                    newgroup.append(self.ComplexPhraseNode(phrase))
-                    phrase = None
-            elif phrase is None:
-                # Not in a phrase, add directly
+                    # End the current sequence
+                    sn = self.SequenceNode(seq, slop=node.slop)
+                    newgroup.append(sn)
+                    seq = None
+            elif seq is None:
+                # Not in a sequence, add directly
                 newgroup.append(node)
             else:
-                # In a phrase, add it to the buffer
-                phrase.append(node)
+                # In a sequence, add it to the buffer
+                seq.append(node)
 
         # We can end up with buffered nodes if there was an unbalanced quote;
-        # just put the nodes back into the group
-        if phrase is not None:
-            newgroup.extend(phrase)
+        # just add the buffered nodes directly to newgroup
+        if seq is not None:
+            newgroup.extend(seq)
 
         return newgroup
 
