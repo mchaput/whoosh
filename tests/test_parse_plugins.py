@@ -44,11 +44,7 @@ def test_combos():
                 continue
             plist = [p for p in pis[:j] if p is not first] + [first]
             qp = qparser.QueryParser("text", None, plugins=plist)
-            try:
-                qp.parse(qs)
-            except Exception:
-                e = sys.exc_info()[1]
-                raise Exception(str(e) + " combo: %s %r" % (count, plist))
+            qp.parse(qs)
             count += 1
 
 
@@ -422,7 +418,39 @@ def test_pseudofield():
                  '(content:alfa AND (reverse:bravo OR reverse:ovarb))')
 
 
+def test_complex_phrase():
+    qp = default.QueryParser("f", None)
+    qp.remove_plugin_class(plugins.PhrasePlugin)
+    qp.add_plugin(plugins.FuzzyTermPlugin())
+    qp.add_plugin(plugins.ComplexPhrasePlugin())
 
+    q = qp.parse(u('alfa "bravo charlie~2 (delta OR echo)" foxtrot'))
+    assert_equal(q.__unicode__(),
+                 "(f:alfa AND "
+                 "(f:bravo NEAR f:charlie~2 NEAR (f:delta OR f:echo))"
+                 " AND f:foxtrot)")
+    assert_equal(q[1].__class__, query.Sequence)
+
+    q = qp.parse(u('alfa "bravo charlie~2 d?lt*'))
+    assert_equal(q[0].text, "alfa")
+    assert_equal(q[1].text, "bravo")
+    assert_equal(q[2].__class__, query.FuzzyTerm)
+    assert_equal(q[3].__class__, query.Wildcard)
+
+    q = qp.parse(u('alfa "bravo charlie~2" d?lt* "[a TO z] [0 TO 9]" echo'))
+    assert_equal(q.__unicode__(),
+                 "(f:alfa AND "
+                 "(f:bravo NEAR f:charlie~2)"
+                 " AND f:d?lt* AND "
+                 "(f:[a TO z] NEAR f:[0 TO 9])"
+                 " AND f:echo)")
+    assert_equal(q[0].text, "alfa")
+    assert_equal(q[1].__class__, query.Sequence)
+    assert_equal(q[2].__class__, query.Wildcard)
+    assert_equal(q[3].__class__, query.Sequence)
+    assert_equal(q[3][0].__class__, query.TermRange)
+    assert_equal(q[3][1].__class__, query.TermRange)
+    assert_equal(q[4].text, "echo")
 
 
 

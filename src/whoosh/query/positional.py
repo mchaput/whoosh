@@ -34,6 +34,87 @@ from whoosh.compat import u
 from whoosh.query import qcore, terms, nary
 
 
+class Sequence(nary.CompoundQuery):
+    """Matches documents containing a list of sub-queries in adjacent
+    positions.
+    
+    This object has no sanity check to prevent you from using queries in
+    different fields.
+    """
+
+    JOINT = " NEAR "
+    intersect_merge = True
+
+    def __init__(self, subqueries, slop=1, ordered=True, boost=1.0):
+        """
+        :param subqueries: a list of :class:`whoosh.query.Query` objects to
+            match in sequence.
+        :param slop: the maximum difference in position allowed between the
+            subqueries.
+        :param ordered: if True, the position differences between subqueries
+            must be positive (that is, each subquery in the list must appear
+            after the previous subquery in the document).
+        :param boost: a boost factor to add to the score of documents matching
+            this query.
+        """
+
+        nary.CompoundQuery.__init__(self, subqueries, boost=boost)
+        self.slop = slop
+        self.ordered = ordered
+
+    def __eq__(self, other):
+        return (other and type(self) is type(other)
+                and self.subqueries == other.subqueries
+                and self.boost == other.boost)
+
+    def __repr__(self):
+        return "%s(%r, slop=%d, boost=%f)" % (self.__class__.__name__,
+                                              self.subqueries, self.slop,
+                                              self.boost)
+
+    def __hash__(self):
+        h = hash(self.slop) ^ hash(self.boost)
+        for q in self.subqueries:
+            h ^= hash(q)
+        return h
+
+    def normalize(self):
+        # Because the subqueries are in sequence, we can't do the fancy merging
+        # that CompoundQuery does
+        return self.__class__([q.normalize() for q in self.subqueries],
+                              self.slop, self.ordered, self.boost)
+
+    def _and_query(self):
+        return nary.And([terms.Term(self.fieldname, word)
+                         for word in self.words])
+
+    def estimate_size(self, ixreader):
+        return self._and_query().estimate_size(ixreader)
+
+    def estimate_min_size(self, ixreader):
+        return self._and_query().estimate_min_size(ixreader)
+
+    def _matcher(self, subs, searcher, context):
+        from whoosh.query.spans import SpanNear
+
+        return self._tree_matcher(subs, SpanNear.SpanNearMatcher, searcher,
+                                  context, None, slop=self.slop,
+                                  ordered=self.ordered)
+
+
+class Ordered(Sequence):
+    """Matches documents containing a list of sub-queries in the given order.
+    """
+
+    JOINT = " BEFORE "
+
+    def _matcher(self, subs, searcher, context):
+        from whoosh.query.spans import SpanBefore
+
+        return self._tree_matcher(subs, SpanBefore._Matcher, searcher,
+                                  context, None)
+
+
 class Phrase(qcore.Query):
     """Matches documents containing a given phrase."""
 
@@ -57,9 +138,11 @@ class Phrase(qcore.Query):
         self.char_ranges = char_ranges
 
     def __eq__(self, other):
-        return (other and self.__class__ is other.__class__ and
-                self.fieldname == other.fieldname and self.words == other.words
-                and self.slop == other.slop and self.boost == other.boost)
+        return (other and self.__class__ is other.__class__
+                and self.fieldname == other.fieldname
+                and self.words == other.words
+                and self.slop == other.slop
+                and self.boost == other.boost)
 
     def __repr__(self):
         return "%s(%r, %r, slop=%s, boost=%f)" % (self.__class__.__name__,
@@ -68,6 +151,7 @@ class Phrase(qcore.Query):
 
     def __unicode__(self):
         return u('%s:"%s"') % (self.fieldname, u(" ").join(self.words))
+
     __str__ = __unicode__
 
     def __hash__(self):
@@ -156,17 +240,7 @@ class Phrase(qcore.Query):
         return m
 
 
-class Ordered(nary.And):
-    """Matches documents containing a list of sub-queries in the given order.
-    """
 
-    JOINT = " BEFORE "
-
-    def _matcher(self, subs, searcher, context):
-        from whoosh.query.spans import SpanBefore
-
-        return self._tree_matcher(subs, SpanBefore._Matcher, searcher,
-                                  context, None)
 
 
 

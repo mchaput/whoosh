@@ -476,6 +476,9 @@ class FuzzyTermPlugin(TaggingPlugin):
         def __init__(self, maxdist):
             self.maxdist = maxdist
 
+        def __repr__(self):
+            return "<~%d>" % (self.maxdist,)
+
     class FuzzyTermNode(syntax.TextNode):
         qclass = query.FuzzyTerm
 
@@ -486,6 +489,9 @@ class FuzzyTermPlugin(TaggingPlugin):
             self.startchar = wordnode.startchar
             self.endchar = wordnode.endchar
             self.maxdist = maxdist
+
+        def r(self):
+            return "%s ~%d" % (self.text, self.maxdist)
 
         def query(self, parser):
             q = syntax.TextNode.query(self, parser)
@@ -701,6 +707,76 @@ class PhrasePlugin(Plugin):
 
     def taggers(self, parser):
         return [(self.PhraseTagger(self.expr), 0)]
+
+
+class ComplexPhrasePlugin(Plugin):
+    """Adds the ability to group arbitrary queries inside double quotes to
+    produce a query matching the individual sub-queries in sequence.
+    
+    To enable this plugin, first remove the default PhrasePlugin, then add
+    this plugin::
+    
+        qp = qparser.QueryParser("field", my_schema)
+        qp.remove_plugin_class(qparser.PhrasePlugin)
+        qp.add_plugin(qparser.ComplexPhrasePlugin())
+    
+    This enables parsing "phrases" such as::
+    
+        "(jon OR john OR jonathan~1) smith*"
+    """
+
+    def __init__(self, expr='["]'):
+        """
+        :param expr: a regular expression for the marker at the start and end
+            of a phrase. The default is the double-quotes character.
+        """
+
+        self.expr = expr
+
+    class ComplexPhraseNode(syntax.GroupNode):
+        qclass = query.Sequence
+
+    class QuoteNode(syntax.MarkerNode):
+        pass
+
+    class QuoteTagger(RegexTagger):
+        def create(self, parser, match):
+            return ComplexPhrasePlugin.QuoteNode()
+
+    def taggers(self, parser):
+        return [(self.QuoteTagger(self.expr), 0)]
+
+    def filters(self, parser):
+        return [(self.do_quotes, 650)]
+
+    def do_quotes(self, parser, group):
+        newgroup = group.empty_copy()
+        phrase = None
+        for node in group:
+            if isinstance(node, syntax.GroupNode):
+                node = self.do_quotes(parser, node)
+
+            if isinstance(node, self.QuoteNode):
+                if phrase is None:
+                    # Start a new phrase
+                    phrase = []
+                else:
+                    # End the current phrase
+                    newgroup.append(self.ComplexPhraseNode(phrase))
+                    phrase = None
+            elif phrase is None:
+                # Not in a phrase, add directly
+                newgroup.append(node)
+            else:
+                # In a phrase, add it to the buffer
+                phrase.append(node)
+
+        # We can end up with buffered nodes if there was an unbalanced quote;
+        # just put the nodes back into the group
+        if phrase is not None:
+            newgroup.extend(phrase)
+
+        return newgroup
 
 
 class RangePlugin(Plugin):
