@@ -229,6 +229,95 @@ a field specifier, and translates the expression into the equivalent range::
     date:[31 march 2001 to]
 
 
+Adding fuzzy term queries
+-------------------------
+
+Fuzzy queries are good for catching misspellings and similar words.
+The :class:`whoosh.qparser.FuzzyTermPlugin` lets you search for "fuzzy" terms,
+that is, terms that don't have to match exactly. The fuzzy term will match any
+similar term within a certain number of "edits" (character insertions,
+deletions, and/or transpositions -- this is called the "Damerau-Levenshtein
+edit distance").
+
+To add the fuzzy plugin::
+
+    parser = qparser.QueryParser("fieldname", my_index.schema)
+    parser.add_plugin(qparser.FuzzyTermPlugin())
+
+Once you add the fuzzy plugin to the parser, you can specify a fuzzy term by
+adding a ``~`` followed by an optional maximum edit distance. If you don't
+specify an edit distance, the default is ``1``.
+
+For example, the following "fuzzy" term query::
+
+    cat~
+
+would match ``cat`` and all terms in the index within one "edit" of cat,
+for example ``cast`` (insert ``s``), ``at`` (delete ``c``), and ``act``
+(transpose ``c`` and ``a``).
+
+If you wanted ``cat`` to match ``bat``, it requires two edits (delete ``c`` and
+insert ``b``) so you would need to set the maximum edit distance to ``2``::
+
+    cat~2
+
+Because each additional edit you allow increases the number of possibilities
+that must be checked, edit distances greater than ``2`` can be very slow.
+
+It is often useful to require that the first few characters of a fuzzy term
+match exactly. This is called a prefix. You can set the length of the prefix
+by adding a slash and a number after the edit distance. For example, to use
+a maximum edit distance of ``2`` and a prefix length of ``3``::
+
+    johannson~2/3
+
+You can specify a prefix without specifying an edit distance::
+
+    johannson~/3
+
+The default prefix distance is ``0``.
+
+
+Allowing complex phrase queries
+-------------------------------
+
+The default parser setup allows phrase (proximity) queries such as::
+
+    "whoosh search library"
+
+The default phrase query tokenizes the text between the quotes and creates a
+search for those terms in proximity.
+
+If you want to do more complex proximity searches, you can replace the phrase
+plugin with the :class:`whoosh.qparser.SequencePlugin`, which allows any query
+between the quotes. For example::
+
+    "(john OR jon OR jonathan~) peters*"
+
+The sequence syntax lets you add a "slop" factor just like the regular phrase::
+
+    "(john OR jon OR jonathan~) peters*"~2
+
+To replace the default phrase plugin with the sequence plugin::
+
+    parser = qparser.QueryParser("fieldname", my_index.schema)
+    parser.remove_plugin_class(qparser.PhrasePlugin)
+    parser.add_plugin(qparser.SequencePlugin())
+
+Alternatively, you could keep the default phrase plugin and give the sequence
+plugin different syntax by specifying a regular expression for the start/end
+marker when you create the sequence plugin. The regular expression should have
+a named group ``slop`` for the slop factor. For example::
+
+    parser = qparser.QueryParser("fieldname", my_index.schema)
+    parser.add_plugin(qparser.SequencePlugin("!(~(?P<slop>[1-9][0-9]*))?"))
+
+This would allow you to use regular phrase queries and sequence queries at the
+same time::
+
+    "regular phrase" AND !sequence query~2!
+
+
 Advanced customization
 ======================
 

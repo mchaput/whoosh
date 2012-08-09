@@ -16,6 +16,9 @@ Whoosh supports indexing text in different *fields*. You must specify the
 This is the field in which any terms the user does not explicitly specify a field
 for will be searched.
 
+Whoosh's query parser is capable of parsing different and/or additional syntax
+through the use of plug-ins. See :doc:`parsing`.
+
 
 Individual terms and phrases
 ============================
@@ -30,6 +33,13 @@ Find documents containing the phrase ``all was well``::
 
 Note that a field must store Position information for phrase searching to work in
 that field.
+
+Normally when you specify a phrase, the maximum difference in position between
+each word in the phrase is 1 (that is, the words must be right next to each
+other in the document). For example, the following matches if a document has
+``library`` within 5 words after ``whoosh``::
+
+    "whoosh library"~5
 
 
 Boolean operators
