@@ -59,81 +59,98 @@ class PreloadedUnionMatcher(CombinationMatcher):
     """Instead of Instead of marching the sub-matchers along in parallel, this
     matcher pre-reads the scores for EVERY MATCHING DOCUMENT, trading memory
     for speed.
+    
+    This is faster than the implementation using a binary tree of
+    :class:`~whoosh.matching.binary.UnionMatcher` objects (possibly just
+    because of less overhead), but it doesn't allow getting information about
+    the "current" document other than the score, because there isn't really a
+    current document, just an array of scores.
     """
 
     def __init__(self, submatchers, doccount, boost=1.0, scored=True):
         CombinationMatcher.__init__(self, submatchers, boost=boost)
 
         self._doccount = doccount
-        active = [subm for subm in self._submatchers if subm.is_active()]
-        if not active:
-            self._docnum = doccount
-        else:
-            self._docnum = min(m.id() for m in active)
 
-        a = array("f", (0 for _ in xrange(doccount)))
-        for m in submatchers:
-            while m.is_active():
-                if scored:
-                    score = m.score() * boost
-                else:
-                    score = boost
-                a[m.id()] = score
-                m.next()
+        a = array("d")
+        active = [subm for subm in self._submatchers if subm.is_active()]
+        if active:
+            offset = self._docnum = min(m.id() for m in active)
+            for m in active:
+                while m.is_active():
+                    if scored:
+                        score = m.score() * boost
+                    else:
+                        score = boost
+
+                    docnum = m.id()
+                    place = docnum - offset
+                    if len(a) <= place:
+                        a.extend(0 for _ in xrange(place - len(a) + 1))
+                    a[place] += score
+                    m.next()
+            self._a = a
+            self._offset = offset
+        else:
+            self._docnum = 0
+            self._offset = 0
         self._a = a
 
     def is_active(self):
-        return self._docnum < self._doccount
+        return self._docnum - self._offset < len(self._a)
 
     def id(self):
         return self._docnum
 
     def score(self):
-        return self._a[self._docnum]
+        return self._a[self._docnum - self._offset]
 
     def next(self):
         a = self._a
-        doccount = self._doccount
-        docnum = self._docnum
+        offset = self._offset
+        place = self._docnum - offset
 
-        docnum += 1
-        while docnum < doccount and a[docnum] == 0:
-            docnum += 1
-        self._docnum = docnum
+        place += 1
+        while place < len(a) and a[place] == 0:
+            place += 1
+        self._docnum = place + offset
 
     def max_quality(self):
-        return max(self._a)
+        return max(self._a[self._docnum - self._offset:])
 
     def block_quality(self):
-        return max(self._a)
+        return self.max_quality()
 
     def skip_to(self, docnum):
-        a = self._a
-        doccount = self._doccount
-        while docnum < doccount and a[docnum] == 0:
-            docnum += 1
+        if docnum < self._docnum:
+            return
+
         self._docnum = docnum
+        if self._a[docnum - self._offset] == 0:
+            self.next()
 
     def skip_to_quality(self, minquality):
         a = self._a
-        docnum = self._docnum
-        doccount = self._doccount
+        offset = self._offset
+        place = self._docnum - offset
 
         skipped = 0
-        while docnum < doccount and a[docnum] <= minquality:
-            docnum += 1
+        while place < len(a) and a[place] <= minquality:
+            place += 1
             skipped = 1
 
+        self._docnum = place + offset
         return skipped
 
     def all_ids(self):
         a = self._a
-        docnum = self._docnum
-        doccount = self._doccount
-        while docnum < doccount:
-            if a[docnum] > 0:
-                yield docnum
-            docnum += 1
+        offset = self._offset
+        place = self._docnum - offset
+
+        while place < len(a):
+            if a[place] > 0:
+                yield place + offset
+            place += 1
 
 
 class ArrayUnionMatcher(CombinationMatcher):
@@ -158,7 +175,7 @@ class ArrayUnionMatcher(CombinationMatcher):
             partsize = doccount
         self._partsize = partsize
 
-        self._a = array("f", (0 for _ in xrange(self._partsize)))
+        self._a = array("d", (0 for _ in xrange(self._partsize)))
         self._docnum = self._min_id()
         self._read_part()
 

@@ -3,9 +3,11 @@ import copy
 from datetime import datetime, timedelta
 
 from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
+from nose.tools import assert_almost_equal  # @UnresolvedImport
 
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
-from whoosh.compat import u, xrange, text_type, permutations
+from whoosh.compat import u, text_type
+from whoosh.compat import xrange, permutations, izip_longest
 from whoosh.filedb.filestore import RamStorage
 
 
@@ -112,7 +114,9 @@ def test_ors():
             q.binary_matcher = True
             r2 = [(hit.docnum, hit.score) for hit in s.search(q, limit=None)]
 
-            assert_equal(r1, r2)
+            for item1, item2 in izip_longest(r1, r2):
+                assert_equal(item1[0], item2[0])
+                assert_equal(item1[1], item2[1])
 
 
 def test_not():
