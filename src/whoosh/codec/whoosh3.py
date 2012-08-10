@@ -95,6 +95,11 @@ class W3Codec(base.CodecWithGraph):
     def supports_columns(self):
         return True
 
+    @classmethod
+    def column_filename(cls, segment, fieldname):
+        ext = "".join((".", fieldname, ".", cls.COLUMN_EXT))
+        return segment.make_filename(ext)
+
     # Segments and generations
 
     def new_segment(self, storage, indexname):
@@ -205,6 +210,9 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
             sf.clear()
         self._indoc = False
 
+    def _column_filename(self, fieldname):
+        return W3Codec.column_filename(self._segment, fieldname)
+
     def close(self):
         if self._indoc is not None:
             # Called close without calling finish_doc
@@ -215,8 +223,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         # Finish open columns and close the columns writer
         for writer in self._colwriters.values():
             writer.finish(self._doccount)
-        colfile = self._create_file(W3Codec.COLUMN_EXT)
-        self._cols.save_as_compound(colfile)
+        self._cols.save_as_files(self._storage, self._column_filename)
 
         # If vectors were written, close the vector writers
         if self._vpostfile:
@@ -326,16 +333,15 @@ class W3PerDocReader(base.PerDocumentReader):
         self._segment = segment
         self._doccount = segment.doc_count_all()
 
-        self._colfile = segment.open_file(storage, W3Codec.COLUMN_EXT)
-        self._cols = compound.CompoundStorage(self._colfile, use_mmap=False)
         self._vpostfile = None
-
+        self._colfiles = {}
         self._readers = {}
         self._minlengths = {}
         self._maxlengths = {}
 
     def close(self):
-        self._cols.close()
+        for colfile, _, _ in self._colfiles.values():
+            colfile.close()
         if self._vpostfile:
             self._vpostfile.close()
 
@@ -359,11 +365,20 @@ class W3PerDocReader(base.PerDocumentReader):
     # Columns
 
     def has_column(self, fieldname):
-        return self._cols.file_exists(fieldname)
+        filename = W3Codec.column_filename(self._segment, fieldname)
+        return self._storage.file_exists(filename)
+
+    def _get_column_file(self, fieldname):
+        filename = W3Codec.column_filename(self._segment, fieldname)
+        length = self._storage.file_length(filename)
+        colfile = self._storage.open_file(filename)
+        return colfile, 0, length
 
     def column_reader(self, fieldname, column):
-        offset, length = self._cols.range(fieldname)
-        return column.reader(self._colfile, offset, length, self._doccount)
+        if fieldname not in self._colfiles:
+            self._colfiles[fieldname] = self._get_column_file(fieldname)
+        colfile, offset, length = self._colfiles[fieldname]
+        return column.reader(colfile, offset, length, self._doccount)
 
     # Lengths
 
