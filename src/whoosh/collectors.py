@@ -286,8 +286,7 @@ class ScoredCollector(Collector):
 
     def prepare(self, top_searcher, q, context):
         # This collector requires a valid matcher at each step
-        Collector.prepare(self, top_searcher, q,
-                          context.set(needs_current=True))
+        Collector.prepare(self, top_searcher, q, context)
 
         if top_searcher.weighting.use_final:
             self.final_fn = top_searcher.weighting.final

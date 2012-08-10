@@ -135,6 +135,9 @@ class Matcher(object):
         else:
             yield t
 
+    def is_leaf(self):
+        return not bool(self.children())
+
     def children(self):
         """Returns an (possibly empty) list of the submatchers of this
         matcher.
