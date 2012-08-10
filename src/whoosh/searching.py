@@ -63,10 +63,11 @@ class TimeLimit(Exception):
 # Context class
 
 class SearchContext(object):
-    needs_current = False
-    weighting = None
+    """A container for information about the current search that may be used
+    by the collector or the query objects to change how they operate.
+    """
 
-    def __init__(self, **kwargs):
+    def __init__(self, needs_current=False, weighting=None, top_query=None):
         """
         :param needs_current: if True, the search requires that the matcher
             tree be "valid" and able to access information about the current
@@ -78,7 +79,12 @@ class SearchContext(object):
         :param weighting: the Weighting object to use for scoring documents.
         """
 
-        self.__dict__.update(kwargs)
+        self.needs_current = needs_current
+        self.weighting = weighting
+        self.top_query = top_query
+
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.__dict__)
 
     def set(self, **kwargs):
         ctx = copy.copy(self)

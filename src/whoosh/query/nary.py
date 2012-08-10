@@ -353,9 +353,17 @@ class Or(CompoundQuery):
             ms = [m for m in ms if m.is_active()]
             if not ms:
                 return matching.NullMatcher()
-            # Make an ArrayUnionMatcher object
-            m = matching.ArrayUnionMatcher(ms, searcher.doc_count_all(),
-                                           boost=self.boost, scored=scored)
+
+            doccount = searcher.doc_count_all()
+            # Hackish optimization: if all the sub-matchers are leaf matchers,
+            # preload all scores for speed
+            if all(m.is_leaf() for m in ms):
+                m = matching.PreloadedUnionMatcher(ms, doccount,
+                                                   boost=self.boost,
+                                                   scored=scored)
+            else:
+                m = matching.ArrayUnionMatcher(ms, doccount, boost=self.boost,
+                                               scored=scored)
 
         # If a scaling factor was given, wrap the matcher in a CoordMatcher
         # to alter scores based on term coordination

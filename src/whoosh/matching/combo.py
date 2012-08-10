@@ -55,10 +55,91 @@ class CombinationMatcher(mcore.Matcher):
         return sum(m.score() for m in self._submatchers) * self._boost
 
 
+class PreloadedUnionMatcher(CombinationMatcher):
+    """Instead of Instead of marching the sub-matchers along in parallel, this
+    matcher pre-reads the scores for EVERY MATCHING DOCUMENT, trading memory
+    for speed.
+    """
+
+    def __init__(self, submatchers, doccount, boost=1.0, scored=True):
+        CombinationMatcher.__init__(self, submatchers, boost=boost)
+
+        self._doccount = doccount
+        active = [subm for subm in self._submatchers if subm.is_active()]
+        if not active:
+            self._docnum = doccount
+        else:
+            self._docnum = min(m.id() for m in active)
+
+        a = array("f", (0 for _ in xrange(doccount)))
+        for m in submatchers:
+            while m.is_active():
+                if scored:
+                    score = m.score() * boost
+                else:
+                    score = boost
+                a[m.id()] = score
+                m.next()
+        self._a = a
+
+    def is_active(self):
+        return self._docnum < self._doccount
+
+    def id(self):
+        return self._docnum
+
+    def score(self):
+        return self._a[self._docnum]
+
+    def next(self):
+        a = self._a
+        doccount = self._doccount
+        docnum = self._docnum
+
+        docnum += 1
+        while docnum < doccount and a[docnum] == 0:
+            docnum += 1
+        self._docnum = docnum
+
+    def max_quality(self):
+        return max(self._a)
+
+    def block_quality(self):
+        return max(self._a)
+
+    def skip_to(self, docnum):
+        a = self._a
+        doccount = self._doccount
+        while docnum < doccount and a[docnum] == 0:
+            docnum += 1
+        self._docnum = docnum
+
+    def skip_to_quality(self, minquality):
+        a = self._a
+        docnum = self._docnum
+        doccount = self._doccount
+
+        skipped = 0
+        while docnum < doccount and a[docnum] <= minquality:
+            docnum += 1
+            skipped = 1
+
+        return skipped
+
+    def all_ids(self):
+        a = self._a
+        docnum = self._docnum
+        doccount = self._doccount
+        while docnum < doccount:
+            if a[docnum] > 0:
+                yield docnum
+            docnum += 1
+
+
 class ArrayUnionMatcher(CombinationMatcher):
-    """Instead of marching the sub-matchers along in parallel, pre-reads the
-    scores for a large block of documents at a time from each matcher,
-    accumulating the scores in an array.
+    """Instead of marching the sub-matchers along in parallel, this matcher
+    pre-reads the scores for a large block of documents at a time from each
+    matcher, accumulating the scores in an array.
     
     This is faster than the implementation using a binary tree of
     :class:`~whoosh.matching.binary.UnionMatcher` objects (possibly just
@@ -68,10 +149,13 @@ class ArrayUnionMatcher(CombinationMatcher):
     """
 
     def __init__(self, submatchers, doccount, boost=1.0, scored=True,
-                 partsize=256):
+                 partsize=2048):
         CombinationMatcher.__init__(self, submatchers, boost=boost)
         self._scored = scored
         self._doccount = doccount
+
+        if not partsize:
+            partsize = doccount
         self._partsize = partsize
 
         self._a = array("f", (0 for _ in xrange(self._partsize)))
@@ -84,7 +168,11 @@ class ArrayUnionMatcher(CombinationMatcher):
                    self._scored, self._partsize))
 
     def _min_id(self):
-        return min(subm.id() for subm in self._submatchers if subm.is_active())
+        active = [subm for subm in self._submatchers if subm.is_active()]
+        if active:
+            return min(subm.id() for subm in active)
+        else:
+            return self._doccount
 
     def _read_part(self):
         scored = self._scored
@@ -196,100 +284,5 @@ class ArrayUnionMatcher(CombinationMatcher):
 
     def score(self):
         return self._a[self._docnum - self._offset]
-
-
-# Failed experiment -- an intersection matcher that keeps a list of submatchers
-# is slower than using a binary tree
-
-#class ComboIntersectionMatcher(CombinationMatcher):
-#    def __init__(self, submatchers, boost=1.0):
-#        CombinationMatcher.__init__(self, submatchers, boost=boost)
-#        self._find_next()
-#
-#    def _find_next(self):
-#        ms = self._submatchers
-#        if len(ms) < 2:
-#            return
-#
-#        while self.is_active():
-#            ms.sort(key=lambda m: m.id())
-#            lastid = ms[-1].id()
-#            if ms[0].id() == lastid:
-#                break
-#            for i in xrange(len(ms) - 1):
-#                ms[i].skip_to(lastid)
-#
-#    def is_active(self):
-#        return all(m.is_active() for m in self._submatchers)
-#
-#    def id(self):
-#        return self._submatchers[0].id()
-#
-#    def skip_to(self, id_):
-#        if not self.is_active():
-#            raise mcore.ReadTooFar
-#        for m in self._submatchers:
-#            m.skip_to(id_)
-#        self._find_next()
-#
-#    def block_quality(self):
-#        return sum(m.block_quality() for m in self._submatchers) * self._boost
-#
-#    def replace(self, minquality=0):
-#        if not self.is_active():
-#            return mcore.NullMatcher()
-#        if minquality > self.max_quality():
-#            # If the combined quality of the sub-matchers can't contribute,
-#            # return an inactive matcher
-#            return mcore.NullMatcher()
-#
-#        ms = [m.replace() for m in self._submatchers]
-#        if not all(m.is_active() for m in ms):
-#            return mcore.NullMatcher()
-#
-#        return self.__class__(ms, boost=self._boost)
-#
-#    def skip_to_quality(self, minquality):
-#        if not self.is_active():
-#            raise mcore.ReadTooFar
-#
-#        ms = self._submatchers
-#        if len(ms) == 1:
-#            return ms[0].skip_to_quality(minquality)
-#
-#        skipped = 0
-#        while self.is_active() and self.block_quality() <= minquality:
-#            ms.sort(key=lambda m: m.score())
-#            restq = sum(m.block_quality() for m in ms[1:])
-#            sk = ms[0].skip_to_quality(minquality - restq)
-#            skipped += sk
-#            if not sk:
-#                ms[0].next()
-#            self._find_next()
-#        return skipped
-#
-#    def next(self):
-#        if not self.is_active():
-#            raise mcore.ReadTooFar
-#
-#        for m in self._submatchers:
-#            m.next()
-#        self._find_next()
-#
-#    def spans(self):
-#        spans = set()
-#        for m in self._submatchers:
-#            spans |= set(m.spans())
-#        return sorted(spans)
-
-
-
-
-
-
-
-
-
-
 
 
