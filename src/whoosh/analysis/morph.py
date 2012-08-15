@@ -61,9 +61,11 @@ class StemFilter(Filter):
 
     is_morph = True
 
-    def __init__(self, stemfn=stem, ignore=None, cachesize=50000):
+    def __init__(self, stemfn=stem, lang=None, ignore=None, cachesize=50000):
         """
         :param stemfn: the function to use for stemming.
+        :param lang: if not None, overrides the stemfn with a language stemmer
+            from the ``whoosh.lang.snowball`` package.
         :param ignore: a set/list of words that should not be stemmed. This is
             converted into a frozenset. If you omit this argument, all tokens
             are stemmed.
@@ -72,6 +74,7 @@ class StemFilter(Filter):
         """
 
         self.stemfn = stemfn
+        self.lang = lang
         self.ignore = frozenset() if ignore is None else frozenset(ignore)
         self.cachesize = cachesize
         # clear() sets the _stem attr to a cached wrapper around self.stemfn
@@ -100,13 +103,19 @@ class StemFilter(Filter):
         self.clear()
 
     def clear(self):
+        if self.lang:
+            from whoosh.lang import stemmer_for_language
+            stemfn = stemmer_for_language(self.lang)
+        else:
+            stemfn = self.stemfn
+
         if isinstance(self.cachesize, integer_types) and self.cachesize != 0:
             if self.cachesize < 0:
-                self._stem = unbound_cache(self.stemfn)
+                self._stem = unbound_cache(stemfn)
             elif self.cachesize > 1:
-                self._stem = lru_cache(self.cachesize)(self.stemfn)
+                self._stem = lru_cache(self.cachesize)(stemfn)
         else:
-            self._stem = self.stemfn
+            self._stem = stemfn
 
     def cache_info(self):
         if self.cachesize <= 1:

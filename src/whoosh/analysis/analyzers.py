@@ -261,7 +261,6 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
     """
 
     from whoosh.lang import NoStemmer, NoStopWords
-    from whoosh.lang import stemmer_for_language
     from whoosh.lang import stopwords_for_language
 
     # Make the start of the chain
@@ -277,8 +276,7 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
 
     # Add a stemming filter
     try:
-        stemfn = stemmer_for_language(lang)
-        chain = chain | StemFilter(stemfn=stemfn, cachesize=cachesize)
+        chain = chain | StemFilter(lang=lang, cachesize=cachesize)
     except NoStemmer:
         pass
 
