@@ -364,6 +364,22 @@ def test_update2():
             assert_equal(results, "0 1 2 3 4 5 6 7 8 9")
 
 
+def test_update_numeric():
+    schema = fields.Schema(num=fields.NUMERIC(unique=True, stored=True),
+                           text=fields.ID(stored=True))
+    with TempIndex(schema, "updatenum") as ix:
+        nums = list(range(10)) * 3
+        random.shuffle(nums)
+        for num in nums:
+            with ix.writer() as w:
+                w.update_document(num=num, text=text_type(num))
+
+        with ix.searcher() as s:
+            results = [d["text"] for _, d in s.iter_docs()]
+            results = " ".join(sorted(results))
+            assert_equal(results, "0 1 2 3 4 5 6 7 8 9")
+
+
 def test_reindex():
     SAMPLE_DOCS = [
         {'id': u('test1'),
