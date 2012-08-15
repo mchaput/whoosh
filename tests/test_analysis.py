@@ -7,6 +7,7 @@ from nose.tools import assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, qparser
 from whoosh.compat import u, unichr, text_type
+from whoosh.compat import dumps
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import skip_if_unavailable
 
@@ -394,5 +395,7 @@ def test_language_analyzer():
         assert_equal(words, target)
 
 
-
+def test_pickleability():
+    ana = analysis.LanguageAnalyzer("en")
+    pick = dumps(ana, -1)
 
