@@ -152,9 +152,8 @@ the additional searches will be faster because the searcher will cache the
 results of running the filter query
 
 You can also specify a ``mask`` keyword argument to specify a set of documents
-that are not permitted in the results.
+that are not permitted in the results::
 
-::
     with myindex.searcher() as s:
         qp = qparser.QueryParser("content", myindex.schema)
         user_q = qp.parse(query_string)
@@ -223,9 +222,8 @@ facet". If a document has an empty collapse key, it will never be collapsed,
 but otherwise only the top N documents with the same collapse key will appear
 in the results.
 
-See :doc:`/facets` for information on facets.
+See :doc:`/facets` for information on facets::
 
-::
     with myindex.searcher() as s:
         # Set the facet to collapse on and the maximum number of documents per
         # facet value (default is 1)
