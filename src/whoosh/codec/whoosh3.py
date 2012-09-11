@@ -97,7 +97,7 @@ class W3Codec(base.CodecWithGraph):
 
     @classmethod
     def column_filename(cls, segment, fieldname):
-        ext = "".join((".", fieldname, ".", cls.COLUMN_EXT))
+        ext = "".join((".", fieldname, cls.COLUMN_EXT))
         return segment.make_filename(ext)
 
     # Segments and generations

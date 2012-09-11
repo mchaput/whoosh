@@ -870,7 +870,7 @@ class KEYWORD(FieldType):
 
     def __init__(self, stored=False, lowercase=False, commas=False,
                  vector=None, scorable=False, unique=False, field_boost=1.0,
-                 spelling=False):
+                 spelling=False, sortable=False):
         """
         :param stored: Whether to store the value of the field with the
             document.
@@ -897,6 +897,9 @@ class KEYWORD(FieldType):
         else:
             vector = None
         self.vector = vector
+
+        if sortable:
+            self.column_type = self.default_column()
 
 
 class TEXT(FieldType):

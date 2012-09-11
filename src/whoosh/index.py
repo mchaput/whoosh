@@ -85,7 +85,7 @@ class EmptyIndexError(IndexError):
 def create_in(dirname, schema, indexname=None):
     """Convenience function to create an index in a directory. Takes care of
     creating a FileStorage object for you.
-    
+
     :param dirname: the path string of the directory in which to create the
         index.
     :param schema: a :class:`whoosh.fields.Schema` object describing the
@@ -110,7 +110,7 @@ def open_dir(dirname, indexname=None, readonly=False, schema=None):
     directory in containing the index. indexname is the name of the index to
     create; you only need to specify this if you have multiple indexes within
     the same storage object.
-    
+
     :param dirname: the path string of the directory in which to create the
         index.
     :param indexname: the name of the index to create; you only need to specify
@@ -127,7 +127,7 @@ def open_dir(dirname, indexname=None, readonly=False, schema=None):
 
 def exists_in(dirname, indexname=None):
     """Returns True if dirname contains a Whoosh index.
-    
+
     :param dirname: the file path of a directory.
     :param indexname: the name of the index. If None, the default index name is
         used.
@@ -146,7 +146,7 @@ def exists_in(dirname, indexname=None):
 
 def exists(storage, indexname=None):
     """Deprecated; use ``storage.index_exists()``.
-    
+
     :param storage: a store.Storage object.
     :param indexname: the name of the index. If None, the default index name is
         used.
@@ -161,15 +161,15 @@ def version_in(dirname, indexname=None):
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
     number of the on-disk format used for the index -- e.g. -102.
-    
+
     The second number (format version) may be useful for figuring out if you
     need to recreate an index because the format has changed. However, you can
     just try to open the index and see if you get an IndexVersionError
     exception.
-    
+
     Note that the release and format version are available as attributes on the
     Index object in Index.release and Index.version.
-    
+
     :param dirname: the file path of a directory containing an index.
     :param indexname: the name of the index. If None, the default index name is
         used.
@@ -186,15 +186,15 @@ def version(storage, indexname=None):
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
     number of the on-disk format used for the index -- e.g. -102.
-    
+
     The second number (format version) may be useful for figuring out if you
     need to recreate an index because the format has changed. However, you can
     just try to open the index and see if you get an IndexVersionError
     exception.
-    
+
     Note that the release and format version are available as attributes on the
     Index object in Index.release and Index.version.
-    
+
     :param storage: a store.Storage object.
     :param indexname: the name of the index. If None, the default index name is
         used.
@@ -227,7 +227,7 @@ class Index(object):
 
     def add_field(self, fieldname, fieldspec):
         """Adds a field to the index's schema.
-        
+
         :param fieldname: the name of the field to add.
         :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
             object.
@@ -258,7 +258,7 @@ class Index(object):
         """Returns a new Index object representing the latest generation
         of this index (if this object is the latest generation, or the backend
         doesn't support versioning, returns self).
-        
+
         :returns: :class:`Index`
         """
         return self
@@ -268,7 +268,7 @@ class Index(object):
         this index. Returns False if this object is not the latest generation
         (that is, someone else has updated the index since you opened this
         object).
-        
+
         :param rtype: bool
         """
         return True
@@ -282,7 +282,7 @@ class Index(object):
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never had any
         documents successfully written to it.
-        
+
         :param rtype: bool
         """
         raise NotImplementedError
@@ -316,7 +316,7 @@ class Index(object):
     def searcher(self, **kwargs):
         """Returns a Searcher object for this index. Keyword arguments are
         passed to the Searcher object's constructor.
-        
+
         :rtype: :class:`whoosh.searching.Searcher`
         """
 
@@ -345,7 +345,7 @@ class Index(object):
 
     def reader(self, reuse=None):
         """Returns an IndexReader object for this index.
-        
+
         :param reuse: an existing reader. Some implementations may recycle
             resources from this existing reader to create the new reader. Note
             that any resources in the "recycled" reader that are not used by
@@ -357,7 +357,7 @@ class Index(object):
 
     def writer(self, **kwargs):
         """Returns an IndexWriter object for this index.
-        
+
         :rtype: :class:`whoosh.writing.IndexWriter`
         """
         raise NotImplementedError
