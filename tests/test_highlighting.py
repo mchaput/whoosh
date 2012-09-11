@@ -1,3 +1,5 @@
+# coding: utf-8
+
 from __future__ import with_statement
 
 from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
@@ -5,6 +7,7 @@ from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
 from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
+from whoosh.util.testing import TempStorage
 
 
 _doc = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet " +
@@ -237,14 +240,5 @@ def test_highlight_wildcards():
         hit = r[0]
         assert_equal(hit.highlights("text"),
                      "alfa bravo CHARLIE delta COOKIE echo")
-
-
-
-
-
-
-
-
-
 
 

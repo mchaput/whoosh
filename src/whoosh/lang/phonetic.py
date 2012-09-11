@@ -1,4 +1,4 @@
-#encoding: utf8
+#encoding: utf-8
 
 """
 This module contains quasi-phonetic encoders for words in different languages.
