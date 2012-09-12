@@ -958,7 +958,7 @@ class CollapseCollector(WrappingCollector):
         offset = child.offset
         for sub_docnum in child.matches():
             # Collapsing category key
-            ckey = keyer.key_for(matcher, sub_docnum)
+            ckey = keyer.key_to_name(keyer.key_for(matcher, sub_docnum))
             if not ckey:
                 # If the document isn't in a collapsing category, just add it
                 child.collect(sub_docnum)
@@ -972,8 +972,6 @@ class CollapseCollector(WrappingCollector):
                     # Otherwise, use the results order
                     sortkey = child.sort_key(sub_docnum)
 
-                # Get human-readable key name
-                ckey = keyer.key_to_name(ckey)
                 # Current list of best docs for this collapse key
                 best = lists[ckey]
                 add = False
