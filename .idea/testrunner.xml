@@ -2,7 +2,7 @@
 <project version="4">
   <component name="TestRunnerService">
     <option name="projectConfiguration" value="Nosetests" />
-    <option name="PROJECT_CONFIGURATION" value="Nosetests" />
+    <option name="PROJECT_TEST_RUNNER" value="Nosetests" />
   </component>
 </project>
 
