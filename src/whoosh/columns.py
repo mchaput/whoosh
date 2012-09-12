@@ -106,7 +106,7 @@ def make_array(typecode, size=0, default=None):
 
 class Column(object):
     """Represents a "column" of rows mapping docnums to document values.
-    
+
     The interface requires that you store the start offset of the column, the
     length of the column data, and the number of documents (rows) separately,
     and pass them to the reader object.
@@ -117,7 +117,7 @@ class Column(object):
     def writer(self, dbfile):
         """Returns a :class:`ColumnWriter` object you can use to use to create
         a column of this type on disk.
-        
+
         :param dbfile: the :class:`~whoosh.filedb.structfile.StructFile` to
             write to.
         """
@@ -127,7 +127,7 @@ class Column(object):
     def reader(self, dbfile, basepos, length, doccount):
         """Returns a :class:`ColumnReader` object you can use to read a column
         of this type from disk.
-        
+
         :param dbfile: the :class:`~whoosh.filedb.structfile.StructFile` to
             read from.
         :param basepos: the offset within the file at which the column starts.
@@ -198,10 +198,10 @@ class ColumnReader(object):
 
 class VarBytesColumn(Column):
     """Stores variable length byte strings. See also :class:`RefBytesColumn`.
-    
+
     The current implementation limits the total length of all document values
     a segment to 2 GB.
-    
+
     The default value is an empty bytestring (``b''``).
     """
 
@@ -369,7 +369,7 @@ class RefBytesColumn(Column):
     pointer into the unique list. For fields where the number of possible
     values is smaller than the number of documents (for example,
     "category" or "chapter"), this saves significant space.
-    
+
     This column type supports a maximum of 65535 unique values across all
     documents in a segment. You should generally use this column type where the
     number of unique values is in no danger of approaching that number (for
@@ -1021,7 +1021,7 @@ class MultiColumnReader(ColumnReader):
 class TranslatingColumnReader(ColumnReader):
     """Calls a function to "translate" values from an underlying column reader
     object before returning them.
-    
+
     ``IndexReader`` objects can wrap a column reader with this object to call
     ``FieldType.from_column_value`` on the stored column value before returning
     it the the user.
@@ -1048,6 +1048,9 @@ class TranslatingColumnReader(ColumnReader):
 
     def __getitem__(self, docnum):
         return self._translate(self._reader[docnum])
+
+    def sort_key(self, docnum, reverse=False):
+        return self._reader.sort_key(docnum, reverse=reverse)
 
     def __iter__(self):
         translate = self._translate
@@ -1128,7 +1131,7 @@ class PickleColumn(WrappedColumn):
     """Converts arbitrary objects to pickled bytestrings and stores them using
     the wrapped column (usually a :class:`VarBytesColumn` or
     :class:`CompressedBytesColumn`).
-    
+
     If you can express the value you want to store as a number or bytestring,
     you should use the appropriate column type to avoid the time and size
     overhead of pickling and unpickling.
