@@ -1349,18 +1349,19 @@ def test_too_many_prefix_positions():
 def test_collapse():
     from whoosh import collectors
 
+    # id, text, size, tag
     domain = [("a", "blah blah blah", 5, "x"),
               ("b", "blah", 3, "y"),
               ("c", "blah blah blah blah", 2, "z"),
               ("d", "blah blah", 4, "x"),
-              ("e", "bloop", 1, ""),
+              ("e", "bloop", 1, "-"),
               ("f", "blah blah blah blah blah", 6, "x"),
               ("g", "blah", 8, "w"),
-              ("h", "blah blah", 7, "")]
+              ("h", "blah blah", 7, "=")]
 
     schema = fields.Schema(id=fields.STORED, text=fields.TEXT,
                            size=fields.NUMERIC,
-                           tag=fields.KEYWORD)
+                           tag=fields.KEYWORD(sortable=True))
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         for id, text, size, tag in domain:
@@ -1383,6 +1384,9 @@ def test_collapse():
         r = col.results()
         assert_equal(" ".join(hit["id"] for hit in r), "f c h b g")
 
+        r = s.search(query.Every(), sortedby="size")
+        assert_equal(" ".join(hit["id"] for hit in r), "e c b d a f h g")
+
         col = s.collector(sortedby="size")
         col = collectors.CollapseCollector(col, "tag")
         s.search_with_collector(query.Every(), col)
@@ -1390,11 +1394,49 @@ def test_collapse():
         assert_equal(" ".join(hit["id"] for hit in r), "e c b d h g")
 
 
+def test_collapse_length():
+    domain = u("alfa apple agnostic aplomb arc "
+               "bravo big braid beer "
+               "charlie crouch car "
+               "delta dog "
+               "echo "
+               "foxtrot fold flip "
+               "golf gym goop"
+               ).split()
+
+    schema = fields.Schema(key=fields.ID(sortable=True),
+                           word=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for word in domain:
+            w.add_document(key=word[0], word=word)
+
+    with ix.searcher() as s:
+        q = query.Every()
+
+        def check(r):
+            words = " ".join(hit["word"] for hit in r)
+            assert_equal(words, "alfa bravo charlie delta echo foxtrot golf")
+            assert_equal(r.scored_length(), 7)
+            assert_equal(len(r), 7)
+
+        r = s.search(q, collapse="key", collapse_limit=1, limit=None)
+        check(r)
+
+        r = s.search(q, collapse="key", collapse_limit=1, limit=50)
+        check(r)
+
+        r = s.search(q, collapse="key", collapse_limit=1, limit=10)
+        check(r)
+
+
 def test_collapse_order():
     from whoosh import sorting
 
-    schema = fields.Schema(id=fields.STORED, price=fields.NUMERIC,
-                           rating=fields.NUMERIC, tag=fields.ID)
+    schema = fields.Schema(id=fields.STORED,
+                           price=fields.NUMERIC(sortable=True),
+                           rating=fields.NUMERIC(sortable=True),
+                           tag=fields.ID(sortable=True))
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         w.add_document(id="a", price=10, rating=1, tag=u("x"))
@@ -1457,7 +1499,23 @@ def test_coord():
         assert_equal([hit["id"] for hit in r], [4, 5, 3, 6, 1, 8, 2, 7])
 
 
-def test_version_field():
-    pass
+def test_keyword_search():
+    schema = fields.Schema(tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(tags=u("keyword1 keyword2 keyword3 keyword4 keyword5"))
+
+    with ix.searcher() as s:
+        r = s.search_page(query.Term("tags", "keyword3"), 1)
+        assert r
+
+
+
+
+
+
+
+
+
 
 

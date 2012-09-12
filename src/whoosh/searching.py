@@ -651,26 +651,26 @@ class Searcher(object):
         :class:`whoosh.collectors.Collector` object based on the given
         arguments. You can use this object with
         :meth:`Searcher.search_with_collector` to search.
-        
+
         See the documentation for the :meth:`Searcher.search` method for a
         description of the parameters.
-        
+
         This method may be useful to get a basic collector object and then wrap
         it with another collector from ``whoosh.collectors`` or with a custom
         collector of your own::
-        
+
             # Equivalent of
             # results = mysearcher.search(myquery, limit=10)
             # but with a time limt...
 
             # Create a TopCollector
             c = mysearcher.collector(limit=10)
-            
+
             # Wrap it with a TimeLimitedCollector with a time limit of
             # 10.5 seconds
             from whoosh.collectors import TimeLimitedCollector
             c = TimeLimitedCollector(c, 10.5)
-            
+
             # Search using the custom collector
             results = mysearcher.search_with_collector(myquery, c)
         """
@@ -768,20 +768,20 @@ class Searcher(object):
         """Low-level method: runs a :class:`whoosh.query.Query` object on this
         searcher using the given :class:`whoosh.collectors.Collector` object
         to collect the results::
-        
+
             myquery = query.Term("content", "cabbage")
-        
+
             uc = collectors.UnlimitedCollector()
             tc = TermsCollector(uc)
-            
+
             mysearcher.search_with_collector(myquery, tc)
             print(tc.docterms)
             print(tc.results())
-        
+
         Note that this method does not return a :class:`Results` object. You
         need to access the collector to get a results object or other
         information the collector might hold after the search.
-        
+
         :param query: a :class:`whoosh.query.Query` object to use to match
             documents.
         :param collector: a :class:`whoosh.collectors.Collector` object to feed
@@ -793,14 +793,7 @@ class Searcher(object):
         # Allow collector to set up based on the top-level information
         collector.prepare(self, q, context)
 
-        # Get a list of (subsearcher, offset) tuples (if the searcher is
-        # atomic, it's a list of one)
-        if self.is_atomic():
-            subsearchers = [(self, 0)]
-        else:
-            subsearchers = self.subsearchers
-
-        collector.run(subsearchers)
+        collector.run()
 
     def correct_query(self, q, qstring, correctors=None, allfields=False,
                       terms=None, prefix=0, maxdist=2):
@@ -929,6 +922,8 @@ class Results(object):
         self._facetmaps = facetmaps or {}
         self.runtime = runtime
         self.highlighter = highlighter or highlight.Highlighter()
+        self.collector = None
+        self._total = None
         self._char_cache = {}
 
     def __repr__(self):
@@ -950,9 +945,9 @@ class Results(object):
         the result set instead of an exact number.
         """
 
-        if self.docset is None:
-            self._load_docs()
-        return len(self.docset)
+        if self._total is None:
+            self._total = self.collector.count()
+        return self._total
 
     def __getitem__(self, n):
         if isinstance(n, slice):
@@ -976,9 +971,7 @@ class Results(object):
         """Returns True if the given document number matched the query.
         """
 
-        if self.docset is None:
-            self._load_docs()
-        return docnum in self.docset
+        return docnum in self.docs()
 
     def __nonzero__(self):
         return not self.is_empty()
@@ -1063,48 +1056,35 @@ class Results(object):
                            % (name, self.facet_names()))
         return self._facetmaps[name].as_dict()
 
-    def _load_docs(self):
-        # If self.docset is None, that means this results object was created
-        # block optimizations on, which means we didn't record the matching
-        # documents because we might have skipped some blocks. SOOO, we have to
-        # go back and use docs_for_query to get just the matching docnums. This
-        # is much faster than getting the scored results, but might still be
-        # noticeable for complex queries and/or a large index.
-
-        docset = set(self.searcher.docs_for_query(self.q))
-
-        # Apply the filter and mask, if any, from the original search
-        if hasattr(self, "allowed") and isinstance(self.allowed, (list, tuple, set)):
-            docset.intersection_update(self.allowed)
-        if hasattr(self, "restricted") and isinstance(self.restricted, (list, tuple, set)):
-            docset.difference_update(self.restricted)
-
-        self.docset = docset
-
     def has_exact_length(self):
         """Returns True if this results object already knows the exact number
         of matching documents.
         """
 
-        return self.docset is not None
+        if self.collector:
+            return self.collector.computes_count()
+        else:
+            return self._total is not None
 
     def estimated_length(self):
         """The estimated maximum number of matching documents, or the
         exact number of matching documents if it's known.
         """
 
-        if self.docset is not None:
-            return len(self.docset)
-        return self.q.estimate_size(self.searcher.reader())
+        if self.has_exact_length():
+            return len(self)
+        else:
+            return self.q.estimate_size(self.searcher.reader())
 
     def estimated_min_length(self):
         """The estimated minimum number of matching documents, or the
         exact number of matching documents if it's known.
         """
 
-        if self.docset is not None:
-            return len(self.docset)
-        return self.q.estimate_min_size(self.searcher.reader())
+        if self.has_exact_length():
+            return len(self)
+        else:
+            return self.q.estimate_min_size(self.searcher.reader())
 
     def scored_length(self):
         """Returns the number of scored documents in the results, equal to or
@@ -1128,7 +1108,7 @@ class Results(object):
         """
 
         if self.docset is None:
-            self._load_docs()
+            self.docset = set(self.collector.all_ids())
         return self.docset
 
     def copy(self):

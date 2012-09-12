@@ -57,12 +57,12 @@ documents just counts up the number of matches::
         def prepare(self, top_searcher, q, context):
             # Always call super method in prepare
             Collector.prepare(self, top_searcher, q, context)
-            
+
             self.count = 0
-        
+
         def collect(self, sub_docnum):
             self.count += 1
-    
+
     c = CountingCollector()
     mysearcher.search_with_collector(myquery, c)
     print(c.count)
@@ -83,8 +83,17 @@ from heapq import heapify, heappush, heapreplace
 
 from whoosh import sorting
 from whoosh.compat import abstractmethod, iteritems, itervalues, xrange
-from whoosh.searching import Hit, Results, TimeLimit
+from whoosh.searching import Results, TimeLimit
 from whoosh.util import now
+
+
+# Functions
+
+def ilen(iterator):
+    total = 0
+    for _ in iterator:
+        total += 1
+    return total
 
 
 # Base class
@@ -93,22 +102,13 @@ class Collector(object):
     """Base class for collectors.
     """
 
-    def run(self, subsearchers):
-        # Collect matches for each sub-searcher
-        try:
-            for subsearcher, offset in subsearchers:
-                self.set_subsearcher(subsearcher, offset)
-                self.collect_matches()
-        finally:
-            self.finish()
-
     def prepare(self, top_searcher, q, context):
         """This method is called before a search.
-        
+
         Subclasses can override this to perform set-up work, but
         they should still call the superclass's method because it sets several
         necessary attributes on the collector object:
-        
+
         self.top_searcher
             The top-level searcher.
         self.q
@@ -119,7 +119,7 @@ class Collector(object):
             call to ``collect()``. If this is ``False``, the collector is free
             to use faster methods that don't necessarily keep the matcher
             updated, such as ``matcher.all_ids()``.
-        
+
         :param top_searcher: the top-level :class:`whoosh.searching.Searcher`
             object.
         :param q: the :class:`whoosh.query.Query` object being searched for.
@@ -135,14 +135,34 @@ class Collector(object):
         self.runtime = None
         self.docset = set()
 
+    def subsearchers(self):
+        """Returns a list of ``(subsearcher, offset)`` tuples (if the searcher
+        is atomic, it's a list of one).
+        """
+
+        top_searcher = self.top_searcher
+        if top_searcher.is_atomic():
+            return [(top_searcher, 0)]
+        else:
+            return top_searcher.subsearchers
+
+    def run(self):
+        # Collect matches for each sub-searcher
+        try:
+            for subsearcher, offset in self.subsearchers():
+                self.set_subsearcher(subsearcher, offset)
+                self.collect_matches()
+        finally:
+            self.finish()
+
     def set_subsearcher(self, subsearcher, offset):
         """This method is called each time the collector starts on a new
         sub-searcher.
-        
+
         Subclasses can override this to perform set-up work, but
         they should still call the superclass's method because it sets several
         necessary attributes on the collector object:
-        
+
         self.subsearcher
             The current sub-searcher. If the top-level searcher is atomic, this
             is the same as the top-level searcher.
@@ -159,6 +179,38 @@ class Collector(object):
         self.subsearcher = subsearcher
         self.offset = offset
         self.matcher = self.q.matcher(subsearcher, self.context)
+
+    def computes_count(self):
+        """Returns True if the collector naturally computes the exact number of
+        matching documents. Collectors that use block optimizations will return
+        False since they might skip blocks containing matching documents.
+
+        Note that if this method returns False you can still call :meth:`count`,
+        but it means that method might have to do more work to calculate the
+        number of matching documents.
+        """
+
+        return True
+
+    def all_ids(self):
+        """Returns a sequence of docnums matched in this collector. (Only valid
+        after the collector is run.)
+
+        The default implementation is based on the docset. If a collector does
+        not maintain the docset, it will need to override this method.
+        """
+
+        return self.docset
+
+    def count(self):
+        """Returns the total number of documents matched in this collector.
+        (Only valid after the collector is run.)
+
+        The default implementation is based on the docset. If a collector does
+        not maintain the docset, it will need to override this method.
+        """
+
+        return len(self.docset)
 
     def collect_matches(self):
         """This method calls :meth:`Collector.matches` and then for each
@@ -179,14 +231,14 @@ class Collector(object):
         an object to use as a "sorting key" for the given document (such as the
         document's score, a key generated by a facet, or just None). Subclasses
         must implement this method.
-        
+
         If you want the score for the current document, use
         ``self.matcher.score()``.
-        
+
         Overriding methods should add the current document offset
         (``self.offset``) to the ``sub_docnum`` to get the top-level document
         number for the matching document to add to results.
-        
+
         :param sub_docnum: the document number of the current match within the
             current sub-searcher. You must add ``self.offset`` to this number
             to get the document's top-level document number.
@@ -204,7 +256,7 @@ class Collector(object):
         this method can use ``self.matcher`` to get information, for example
         the score. Otherwise, it should only use the provided ``sub_docnum``,
         since the matcher may be in an inconsistent state.
-        
+
         Subclasses must implement this method.
         """
 
@@ -243,11 +295,11 @@ class Collector(object):
 
     def finish(self):
         """This method is called after a search.
-        
+
         Subclasses can override this to perform set-up work, but
         they should still call the superclass's method because it sets several
         necessary attributes on the collector object:
-        
+
         self.runtime
             The time (in seconds) the search took.
         """
@@ -257,8 +309,10 @@ class Collector(object):
     def _results(self, items, **kwargs):
         # Fills in a Results object with the invariant information and the
         # given "items" (a list of (score, docnum) tuples)
-        return Results(self.top_searcher, self.q, items, runtime=self.runtime,
-                       **kwargs)
+        r = Results(self.top_searcher, self.q, items, **kwargs)
+        r.runtime = self.runtime
+        r.collector = self
+        return r
 
     @abstractmethod
     def results(self):
@@ -275,13 +329,13 @@ class ScoredCollector(Collector):
     """Base class for collectors that sort the results based on document score.
     """
 
-    def __init__(self, replace=10, **kwargs):
+    def __init__(self, replace=10):
         """
         :param replace: Number of matches between attempts to replace the
             matcher with a more efficient version.
         """
 
-        Collector.__init__(self, **kwargs)
+        Collector.__init__(self)
         self.replace = replace
 
     def prepare(self, top_searcher, q, context):
@@ -305,6 +359,18 @@ class ScoredCollector(Collector):
 
     def sort_key(self, sub_docnum):
         return 0 - self.matcher.score()
+
+    def _collect(self, global_docnum, score):
+        # Concrete subclasses should override this method to collect matching
+        # documents
+
+        raise NotImplementedError
+
+    def _use_block_quality(self):
+        # Concrete subclasses should override this method to return True if the
+        # collector should use block quality optimizations
+
+        return False
 
     def collect(self, sub_docnum):
         # Do common work to calculate score and top-level document number
@@ -374,15 +440,33 @@ class TopCollector(ScoredCollector):
         ScoredCollector.__init__(self, **kwargs)
         self.limit = limit
         self.usequality = usequality
+        self.total = 0
 
     def _use_block_quality(self):
         return (self.usequality
                 and not self.top_searcher.weighting.use_final
                 and self.matcher.supports_block_quality())
 
+    def computes_count(self):
+        return not self._use_block_quality()
+
+    def all_ids(self):
+        # Since this collector can skip blocks, it doesn't track the total
+        # number of matching documents, so if the user asks for all matched
+        # docs we need to re-run the search using docs_for_query
+
+        return self.top_searcher.docs_for_query(self.q)
+
+    def count(self):
+        if self.computes_count():
+            return self.total
+        else:
+            return ilen(self.all_ids())
+
     # ScoredCollector.collect calls this
     def _collect(self, global_docnum, score):
         items = self.items
+        self.total += 1
 
         # Document numbers are negated before putting them in the heap so that
         # higher document numbers have lower "priority" in the queue. Lower
@@ -439,9 +523,6 @@ class UnlimitedCollector(ScoredCollector):
         ScoredCollector.__init__(self)
         self.reverse = reverse
 
-    def _use_block_quality(self):
-        return False
-
     # ScoredCollector.collect calls this
     def _collect(self, global_docnum, score):
         self.items.append((score, global_docnum))
@@ -465,14 +546,14 @@ class SortingCollector(Collector):
     information.
     """
 
-    def __init__(self, sortedby, limit=10, reverse=False, **kwargs):
+    def __init__(self, sortedby, limit=10, reverse=False):
         """
         :param sortedby: see :doc:`/facets`.
         :param reverse: If True, reverse the overall results. Note that you
             can reverse individual facets in a multi-facet sort key as well.
         """
 
-        Collector.__init__(self, **kwargs)
+        Collector.__init__(self)
         self.sortfacet = sorting.MultiFacet.from_sortedby(sortedby)
         self.limit = limit
         self.reverse = reverse
@@ -496,7 +577,7 @@ class SortingCollector(Collector):
 
     def collect(self, sub_docnum):
         global_docnum = self.offset + sub_docnum
-        sortkey = self.categorizer.key_for(self.matcher, sub_docnum)
+        sortkey = self.sort_key(sub_docnum)
         self.items.append((sortkey, global_docnum))
         self.docset.add(global_docnum)
         return sortkey
@@ -534,11 +615,21 @@ class WrappingCollector(Collector):
     def __init__(self, child):
         self.child = child
 
+    @property
+    def top_searcher(self):
+        return self.child.top_searcher
+
     def prepare(self, top_searcher, q, context):
         self.child.prepare(top_searcher, q, context)
 
     def set_subsearcher(self, subsearcher, offset):
         self.child.set_subsearcher(subsearcher, offset)
+
+    def all_ids(self):
+        return self.child.all_ids()
+
+    def count(self):
+        return self.child.count()
 
     def collect_matches(self):
         for sub_docnum in self.matches():
@@ -565,24 +656,24 @@ class WrappingCollector(Collector):
 class FilterCollector(WrappingCollector):
     """A collector that lets you allow and/or restrict certain document numbers
     in the results::
-    
+
         uc = collectors.UnlimitedCollector()
-    
+
         ins = query.Term("chapter", "rendering")
         outs = query.Term("status", "restricted")
         fc = FilterCollector(uc, allow=ins, restrict=outs)
-        
+
         mysearcher.search_with_collector(myquery, fc)
         print(fc.results())
 
     This collector discards a document if:
-    
+
     * The allowed set is not None and a document number is not in the set, or
     * The restrict set is not None and a document number is in the set.
-    
+
     (So, if the same document number is in both sets, that document will be
     discarded.)
-    
+
     If you have a reference to the collector, you can use
     ``FilterCollector.filtered_count`` to get the number of matching documents
     filtered out of the results by the collector.
@@ -618,6 +709,25 @@ class FilterCollector(WrappingCollector):
         self.offset = offset
         self.child.set_subsearcher(subsearcher, offset)
 
+    def all_ids(self):
+        child = self.child
+
+        _allow = self._allow
+        _restrict = self._restrict
+
+        for global_docnum in child.all_ids():
+            if ((_allow and global_docnum not in _allow)
+                or (_restrict and global_docnum in _restrict)):
+                    continue
+            yield global_docnum
+
+    def count(self):
+        child = self.child
+        if child.computes_count():
+            return child.count() - self.filtered_count
+        else:
+            return ilen(self.all_ids())
+
     def collect_matches(self):
         child = self.child
         _allow = self._allow
@@ -652,14 +762,14 @@ class FacetCollector(WrappingCollector):
     """A collector that creates groups of documents based on
     :class:`whoosh.sorting.Facet` objects. See :doc:`/facets` for more
     information.
-    
+
     This collector is used if you specify a ``groupedby`` parameter in the
     :meth:`whoosh.searching.Searcher.search` method. You can use the
     :meth:`whoosh.searching.Results.groups` method to access the facet groups.
-    
+
     If you have a reference to the collector can also use
     ``FacetedCollector.facetmaps`` to access the groups directly::
-    
+
         uc = collectors.UnlimitedCollector()
         fc = FacetedCollector(uc, sorting.FieldFacet("category"))
         mysearcher.search_with_collector(myquery, fc)
@@ -742,20 +852,20 @@ class CollapseCollector(WrappingCollector):
     """A collector that collapses results based on a facet. That is, it
     eliminates all but the top N results that share the same facet key.
     Documents with an empty key for the facet are never eliminated.
-    
+
     The "top" results within each group is determined by the result ordering
     (e.g. highest score in a scored search) or an optional second "ordering"
     facet.
-    
-    If you have a reference to the collector can also use
+
+    If you have a reference to the collector you can use
     ``CollapseCollector.collapsed_counts`` to access the number of documents
     eliminated based on each key::
-    
+
         tc = TopCollector(limit=20)
         cc = CollapseCollector(tc, "group", limit=3)
         mysearcher.search_with_collector(myquery, cc)
         print(cc.collapsed_counts)
-    
+
     See :ref:`collapsing` for more information.
     """
 
@@ -766,7 +876,7 @@ class CollapseCollector(WrappingCollector):
             All but the top N documents that share a key will be eliminated
             from the results.
         :param limit: the maximum number of documents to keep for each key.
-        :param orderfacet: an optional :class:`whoosh.sorting.Facet` to use
+        :param order: an optional :class:`whoosh.sorting.Facet` to use
             to determine the "top" document(s) to keep when collapsing. The
             default (``orderfaceet=None``) uses the results order (e.g. the
             highest score in a scored search).
@@ -795,6 +905,8 @@ class CollapseCollector(WrappingCollector):
         # Dictionary mapping keys to the number of documents that have been
         # filtered out with that key
         self.collapsed_counts = defaultdict(int)
+        # Total number of documents filtered out by collapsing
+        self.collapsed_total = 0
 
         # If the keyer or orderer require a valid matcher, tell the child
         # collector we need it
@@ -810,6 +922,30 @@ class CollapseCollector(WrappingCollector):
         if self.orderer:
             self.orderer.set_searcher(subsearcher, offset)
 
+    def all_ids(self):
+        child = self.child
+        limit = self.limit
+        counters = defaultdict(int)
+
+        for subsearcher, offset in child.subsearchers():
+            self.set_subsearcher(subsearcher, offset)
+            matcher = child.matcher
+            keyer = self.keyer
+            for sub_docnum in child.matches():
+                ckey = keyer.key_for(matcher, sub_docnum)
+                if ckey is not None:
+                    if ckey in counters and counters[ckey] >= limit:
+                        continue
+                    else:
+                        counters[ckey] += 1
+                yield offset + sub_docnum
+
+    def count(self):
+        if self.child.computes_count():
+            return self.child.count() - self.collapsed_total
+        else:
+            return ilen(self.all_ids())
+
     def collect_matches(self):
         lists = self.lists
         limit = self.limit
@@ -818,11 +954,12 @@ class CollapseCollector(WrappingCollector):
         collapsed_counts = self.collapsed_counts
 
         child = self.child
+        matcher = child.matcher
         offset = child.offset
         for sub_docnum in child.matches():
             # Collapsing category key
-            ckey = keyer.key_to_name(keyer.key_for(child.matcher, sub_docnum))
-            if ckey is None:
+            ckey = keyer.key_for(matcher, sub_docnum)
+            if not ckey:
                 # If the document isn't in a collapsing category, just add it
                 child.collect(sub_docnum)
             else:
@@ -835,6 +972,8 @@ class CollapseCollector(WrappingCollector):
                     # Otherwise, use the results order
                     sortkey = child.sort_key(sub_docnum)
 
+                # Get human-readable key name
+                ckey = keyer.key_to_name(ckey)
                 # Current list of best docs for this collapse key
                 best = lists[ckey]
                 add = False
@@ -847,8 +986,6 @@ class CollapseCollector(WrappingCollector):
                     # the "least-best" document
                     # Tell the child collector to remove the document
                     child.remove(best.pop()[1])
-                    # Remember that a document was filtered
-                    collapsed_counts[ckey] += 1
                     add = True
 
                 if add:
@@ -857,6 +994,7 @@ class CollapseCollector(WrappingCollector):
                 else:
                     # Remember that a document was filtered
                     collapsed_counts[ckey] += 1
+                    self.collapsed_total += 1
 
     def results(self):
         r = self.child.results()
@@ -869,14 +1007,14 @@ class CollapseCollector(WrappingCollector):
 class TimeLimitCollector(WrappingCollector):
     """A collector that raises a :class:`TimeLimit` exception if the search
     does not complete within a certain number of seconds::
-    
+
         uc = collectors.UnlimitedCollector()
         tlc = TimeLimitedCollector(uc, timelimit=5.8)
         try:
             mysearcher.search_with_collector(myquery, tlc)
         except collectors.TimeLimit:
             print("The search ran out of time!")
-        
+
         # We can still get partial results from the collector
         print(tlc.results())
     """
@@ -937,13 +1075,13 @@ class TimeLimitCollector(WrappingCollector):
 class TermsCollector(WrappingCollector):
     """A collector that remembers which terms appeared in which terms appeared
     in each matched document.
-    
+
     This collector is used if you specify ``terms=True`` in the
     :meth:`whoosh.searching.Searcher.search` method.
-    
+
     If you have a reference to the collector can also use
     ``TermsCollector.termslist`` to access the term lists directly::
-    
+
         uc = collectors.UnlimitedCollector()
         tc = TermsCollector(uc)
         mysearcher.search_with_collector(myquery, tc)

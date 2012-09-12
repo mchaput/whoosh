@@ -28,9 +28,8 @@
 from array import array
 from collections import defaultdict
 
-from whoosh.compat import string_type, u
+from whoosh.compat import string_type
 from whoosh.compat import iteritems, izip, xrange
-from whoosh.util.times import long_to_datetime
 
 
 # Faceting objects
@@ -43,7 +42,7 @@ class FacetType(object):
 
     def categorizer(self, global_searcher):
         """Returns a :class:`Categorizer` corresponding to this facet.
-        
+
         :param global_searcher: A parent searcher. You can use this searcher if
             you need global document ID references.
         """
@@ -69,22 +68,22 @@ class FacetType(object):
 class Categorizer(object):
     """Base class for categorizer objects which compute a key value for a
     document based on certain criteria, for use in sorting/faceting.
-    
+
     Categorizers are created by FacetType objects through the
     :meth:`FacetType.categorizer` method. The
     :class:`whoosh.searching.Searcher` object passed to the ``categorizer``
     method may be a composite searcher (that is, wrapping a multi-reader), but
     categorizers are always run **per-segment**, with segment-relative document
     numbers.
-    
+
     The collector will call a categorizer's ``set_searcher`` method as it
     searches each segment to let the cateogorizer set up whatever segment-
     specific data it needs.
-    
+
     ``Collector.allow_overlap`` should be ``True`` if the caller can use the
     ``keys_for`` method instead of ``key_for`` to group documents into
     potentially overlapping groups. The default is ``False``.
-    
+
     If a categorizer subclass can categorize the document using only the
     document number, it should set ``Collector.needs_current`` to ``False``
     (this is the default) and NOT USE the given matcher in the ``key_for`` or
@@ -110,7 +109,7 @@ class Categorizer(object):
 
     def key_for(self, matcher, segment_docnum):
         """Returns a key for the current match.
-        
+
         :param matcher: a :class:`whoosh.matching.Matcher` object. If
             ``self.needs_current`` is ``False``, DO NOT use this object,
             since it may be inconsistent. Use the given ``segment_docnum``
@@ -129,10 +128,10 @@ class Categorizer(object):
 
     def keys_for(self, matcher, segment_docnum):
         """Yields a series of keys for the current match.
-        
+
         This method will be called instead of ``key_for`` if
         ``self.allow_overlap`` is ``True``.
-        
+
         :param matcher: a :class:`whoosh.matching.Matcher` object. If
             ``self.needs_current`` is ``False``, DO NOT use this object,
             since it may be inconsistent. Use the given ``segment_docnum``
@@ -161,14 +160,14 @@ class Categorizer(object):
 
 class FieldFacet(FacetType):
     """Sorts/facest by the contents of a field.
-    
+
     For example, to sort by the contents of the "path" field in reverse order,
     and facet by the contents of the "tag" field::
-    
+
         paths = FieldFacet("path", reverse=True)
         tags = FieldFacet("tag")
         results = searcher.search(myquery, sortedby=paths, groupedby=tags)
-    
+
     This facet returns different categorizers based on the field type.
     """
 
@@ -191,8 +190,6 @@ class FieldFacet(FacetType):
         return self.fieldname
 
     def categorizer(self, global_searcher):
-        from whoosh.fields import DATETIME
-
         # The searcher we're passed here may wrap a multireader, but the
         # actual key functions will always be called per-segment following a
         # Categorizer.set_searcher method call
@@ -265,7 +262,7 @@ class PostingCategorizer(Categorizer):
     inefficient. Instead of relying on this categorizer you should plan for
     which fields you'll want to sort on and set ``sortable=True`` in their
     field type.
-    
+
     This object builds an array caching the order of all documents according to
     the field, then uses the cached order as a numeric key. This is useful when
     a field cache is not available, and also for reversed fields (since field
@@ -356,7 +353,7 @@ class OverlappingCategorizer(Categorizer):
             except KeyError:
                 return []
         elif self._use_column:
-            return self._columnreader[docid]
+            return self._creader[docid]
         else:
             return self._lists[docid] or None
 
@@ -368,7 +365,7 @@ class OverlappingCategorizer(Categorizer):
             except KeyError:
                 return None
         elif self._use_column:
-            return self._columnreader.sort_key(docid)
+            return self._creader.sort_key(docid)
         else:
             ls = self._lists[docid]
             if ls:
@@ -432,12 +429,12 @@ class QueryFacet(FacetType):
 class RangeFacet(QueryFacet):
     """Sorts/facets based on numeric ranges. For textual ranges, use
     :class:`QueryFacet`.
-    
+
     For example, to facet the "price" field into $100 buckets, up to $1000::
-    
+
         prices = RangeFacet("price", 0, 1000, 100)
         results = searcher.search(myquery, groupedby=prices)
-        
+
     The ranges/buckets are always **inclusive** at the start and **exclusive**
     at the end.
     """
@@ -517,18 +514,18 @@ class DateRangeFacet(RangeFacet):
     of the range, and ``timedelta`` or ``relativedelta`` objects as the gap(s),
     and it generates :class:`~whoosh.query.DateRange` queries instead of
     :class:`~whoosh.query.TermRange` queries.
-    
+
     For example, to facet a "birthday" range into 5 year buckets::
-    
+
         from datetime import datetime
         from whoosh.support.relativedelta import relativedelta
-        
+
         startdate = datetime(1920, 0, 0)
         enddate = datetime.now()
         gap = relativedelta(years=5)
         bdays = DateRangeFacet("birthday", startdate, enddate, gap)
         results = searcher.search(myquery, groupedby=bdays)
-        
+
     The ranges/buckets are always **inclusive** at the start and **exclusive**
     at the end.
     """
@@ -541,10 +538,10 @@ class DateRangeFacet(RangeFacet):
 
 class ScoreFacet(FacetType):
     """Uses a document's score as a sorting criterion.
-    
+
     For example, to sort by the ``tag`` field, and then within that by relative
     score::
-    
+
         tag_score = MultiFacet(["tag", ScoreFacet()])
         results = searcher.search(myquery, sortedby=tag_score)
     """
@@ -576,14 +573,14 @@ class FunctionFacet(FacetType):
     """Lets you pass an arbitrary function that will compute the key. This may
     be easier than subclassing FacetType and Categorizer to set up the desired
     behavior.
-    
+
     The function is called with the arguments ``(searcher, docid)``, where the
     ``searcher`` may be a composite searcher, and the ``docid`` is an absolute
     index document number (not segment-relative).
-    
+
     For example, to use the number of words in the document's "content" field
     as the sorting/faceting key::
-    
+
         fn = lambda s, docid: s.doc_field_length(docid, "content")
         lengths = FunctionFacet(fn)
     """
@@ -610,7 +607,7 @@ class FunctionFacet(FacetType):
 class StoredFieldFacet(FacetType):
     """Lets you sort/group using the value in an unindexed, stored field (e.g.
     STORED). This is usually slower than using an indexed field.
-    
+
     For fields where the stored value is a space-separated list of keywords,
     (e.g. ``"tag1 tag2 tag3"``), you can use the ``allow_overlap`` keyword
     argument to allow overlapped faceting on the result of calling the
@@ -668,20 +665,20 @@ class StoredFieldFacet(FacetType):
 
 class MultiFacet(FacetType):
     """Sorts/facets by the combination of multiple "sub-facets".
-    
+
     For example, to sort by the value of the "tag" field, and then (for
     documents where the tag is the same) by the value of the "path" field::
-    
+
         facet = MultiFacet(FieldFacet("tag"), FieldFacet("path")
         results = searcher.search(myquery, sortedby=facet)
-        
+
     As a shortcut, you can use strings to refer to field names, and they will
     be assumed to be field names and turned into FieldFacet objects::
-    
+
         facet = MultiFacet("tag", "path")
-        
+
     You can also use the ``add_*`` methods to add criteria to the multifacet::
-    
+
         facet = MultiFacet()
         facet.add_field("tag")
         facet.add_field("path", reverse=True)
@@ -772,17 +769,17 @@ class MultiFacet(FacetType):
 class Facets(object):
     """Maps facet names to :class:`FacetType` objects, for creating multiple
     groupings of documents.
-    
+
     For example, to group by tag, and **also** group by price range::
-    
+
         facets = Facets()
         facets.add_field("tag")
         facets.add_facet("price", RangeFacet("price", 0, 1000, 100))
         results = searcher.search(myquery, groupedby=facets)
-        
+
         tag_groups = results.groups("tag")
         price_groups = results.groups("price")
-    
+
     (To group by the combination of multiple facets, use :class:`MultiFacet`.)
     """
 
@@ -832,7 +829,7 @@ class Facets(object):
 
     def add_query(self, name, querydict, **kwargs):
         """Adds a :class:`QueryFacet` under the given ``name``.
-        
+
         :param name: a name for the facet.
         :param querydict: a dictionary mapping keys to
             :class:`whoosh.query.Query` objects.
@@ -868,21 +865,21 @@ class Facets(object):
 class FacetMap(object):
     """Base class for objects holding the results of grouping search results by
     a Facet. Use an object's ``as_dict()`` method to access the results.
-    
+
     You can pass a subclass of this to the ``maptype`` keyword argument when
     creating a ``FacetType`` object to specify what information the facet
     should record about the group. For example::
-    
+
         # Record each document in each group in its sorted order
         myfacet = FieldFacet("size", maptype=OrderedList)
-        
+
         # Record only the count of documents in each group
         myfacet = FieldFacet("size", maptype=Count)
     """
 
     def add(self, groupname, docid, sortkey):
         """Adds a document to the facet results.
-        
+
         :param groupname: the name of the group to add this document to.
         :param docid: the document number of the document to add.
         :param sortkey: a value representing the sort position of the document
@@ -904,7 +901,7 @@ class FacetMap(object):
 class OrderedList(FacetMap):
     """Stores a list of document numbers for each group, in the same order as
     they appear in the search results.
-    
+
     The ``as_dict`` method returns a dictionary mapping group names to lists
     of document numbers.
     """
@@ -930,7 +927,7 @@ class UnorderedList(FacetMap):
     This is slightly faster and uses less memory than
     :class:`OrderedListResult` if you don't care about the ordering of the
     documents within groups.
-    
+
     The ``as_dict`` method returns a dictionary mapping group names to lists
     of document numbers.
     """
@@ -950,7 +947,7 @@ class UnorderedList(FacetMap):
 
 class Count(FacetMap):
     """Stores the number of documents in each group.
-    
+
     The ``as_dict`` method returns a dictionary mapping group names to
     integers.
     """
@@ -971,7 +968,7 @@ class Count(FacetMap):
 class Best(FacetMap):
     """Stores the "best" document in each group (that is, the one with the
     highest sort key).
-    
+
     The ``as_dict`` method returns a dictionary mapping group names to
     docnument numbers.
     """
@@ -1003,7 +1000,7 @@ class Sorter(object):
     moved into the :class:`FacetType` classes in Whoosh 2.0. The old Sorter API
     is still supported for backwards-compatibility, but it simply forwards to
     the regular searching API.
-    
+
     See :doc:`/facets` for information on the new API.
     """
 
