@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import threading, time
 
-from nose.tools import assert_equal  # @UnresolvedImport
+from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 
 from whoosh.util.filelock import try_for
 from whoosh.util.numeric import length_to_byte, byte_to_length
@@ -85,6 +85,43 @@ def test_double_barrel_lru():
     assert_equal(test.cache_info(), (4, 6, 5, 6))
     test.cache_clear()
     assert_equal(test.cache_info(), (0, 0, 5, 0))
+
+
+def test_version_object():
+    from whoosh.util.versions import SimpleVersion as sv
+
+    assert_equal(sv.parse("1"), sv(1))
+    assert_equal(sv.parse("1.2"), sv(1, 2))
+    assert_equal(sv.parse("1.2b"), sv(1, 2, ex="b"))
+    assert_equal(sv.parse("1.2rc"), sv(1, 2, ex="rc"))
+    assert_equal(sv.parse("1.2b3"), sv(1, 2, ex="b", exnum=3))
+    assert_equal(sv.parse("1.2.3"), sv(1, 2, 3))
+    assert_equal(sv.parse("1.2.3a"), sv(1, 2, 3, "a"))
+    assert_equal(sv.parse("1.2.3rc"), sv(1, 2, 3, "rc"))
+    assert_equal(sv.parse("1.2.3a4"), sv(1, 2, 3, "a", 4))
+    assert_equal(sv.parse("1.2.3rc2"), sv(1, 2, 3, "rc", 2))
+    assert_equal(sv.parse("999.999.999c999"), sv(999, 999, 999, "c", 999))
+
+    assert_equal(sv.parse("1.2"), sv.parse("1.2"))
+    assert_not_equal(sv("1.2"), sv("1.3"))
+    assert sv.parse("1.0") < sv.parse("1.1")
+    assert sv.parse("1.0") < sv.parse("2.0")
+    assert sv.parse("1.2.3a4") < sv.parse("1.2.3a5")
+    assert sv.parse("1.2.3a5") > sv.parse("1.2.3a4")
+    assert sv.parse("1.2.3c99") < sv.parse("1.2.4")
+    assert sv.parse("1.2.3a4") != sv.parse("1.2.3a5")
+    assert sv.parse("1.2.3a5") != sv.parse("1.2.3a4")
+    assert sv.parse("1.2.3c99") != sv.parse("1.2.4")
+    assert sv.parse("1.2.3a4") <= sv.parse("1.2.3a5")
+    assert sv.parse("1.2.3a5") >= sv.parse("1.2.3a4")
+    assert sv.parse("1.2.3c99") <= sv.parse("1.2.4")
+    assert sv.parse("1.2") <= sv.parse("1.2")
+
+    assert_equal(sv(1, 2, 3).to_int(), 17213488128)
+    assert_equal(sv.from_int(17213488128), sv(1, 2, 3))
+
+
+
 
 
 
