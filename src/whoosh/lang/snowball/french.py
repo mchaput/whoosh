@@ -1,6 +1,6 @@
-from __future__ import unicode_literals
-
 from .bases import _StandardStemmer
+
+from whoosh.compat import u
 
 
 class FrenchStemmer(_StandardStemmer):
@@ -23,7 +23,7 @@ class FrenchStemmer(_StandardStemmer):
            http://snowball.tartarus.org/algorithms/french/stemmer.html
     """
 
-    __vowels = "aeiouy\xE2\xE0\xEB\xE9\xEA\xE8\xEF\xEE\xF4\xFB\xF9"
+    __vowels = u("aeiouy\xE2\xE0\xEB\xE9\xEA\xE8\xEF\xEE\xF4\xFB\xF9")
     __step1_suffixes = ('issements', 'issement', 'atrices', 'atrice',
                         'ateurs', 'ations', 'logies', 'usions',
                         'utions', 'ements', 'amment', 'emment',
@@ -31,26 +31,26 @@ class FrenchStemmer(_StandardStemmer):
                         'ateur', 'ation', 'logie', 'usion', 'ution',
                         'ences', 'ement', 'euses', 'ments', 'ance',
                         'iqUe', 'isme', 'able', 'iste', 'ence',
-                        'it\xE9s', 'ives', 'eaux', 'euse', 'ment',
-                        'eux', 'it\xE9', 'ive', 'ifs', 'aux', 'if')
+                        u('it\xE9s'), 'ives', 'eaux', 'euse', 'ment',
+                        'eux', u('it\xE9'), 'ive', 'ifs', 'aux', 'if')
     __step2a_suffixes = ('issaIent', 'issantes', 'iraIent', 'issante',
                          'issants', 'issions', 'irions', 'issais',
                          'issait', 'issant', 'issent', 'issiez', 'issons',
                          'irais', 'irait', 'irent', 'iriez', 'irons',
-                         'iront', 'isses', 'issez', '\xEEmes',
-                         '\xEEtes', 'irai', 'iras', 'irez', 'isse',
-                         'ies', 'ira', '\xEEt', 'ie', 'ir', 'is',
+                         'iront', 'isses', 'issez', u('\xEEmes'),
+                         u('\xEEtes'), 'irai', 'iras', 'irez', 'isse',
+                         'ies', 'ira', u('\xEEt'), 'ie', 'ir', 'is',
                          'it', 'i')
     __step2b_suffixes = ('eraIent', 'assions', 'erions', 'assent',
-                         'assiez', '\xE8rent', 'erais', 'erait',
+                         'assiez', u('\xE8rent'), 'erais', 'erait',
                          'eriez', 'erons', 'eront', 'aIent', 'antes',
                          'asses', 'ions', 'erai', 'eras', 'erez',
-                         '\xE2mes', '\xE2tes', 'ante', 'ants',
-                         'asse', '\xE9es', 'era', 'iez', 'ais',
-                         'ait', 'ant', '\xE9e', '\xE9s', 'er',
-                         'ez', '\xE2t', 'ai', 'as', '\xE9', 'a')
-    __step4_suffixes = ('i\xE8re', 'I\xE8re', 'ion', 'ier', 'Ier',
-                        'e', '\xEB')
+                         u('\xE2mes'), u('\xE2tes'), 'ante', 'ants',
+                         'asse', u('\xE9es'), 'era', 'iez', 'ais',
+                         'ait', 'ant', u('\xE9e'), u('\xE9s'), 'er',
+                         'ez', u('\xE2t'), 'ai', 'as', u('\xE9'), 'a')
+    __step4_suffixes = (u('i\xE8re'), u('I\xE8re'), 'ion', 'ier', 'Ier',
+                        'e', u('\xEB'))
 
     def stem(self, word):
         """
@@ -129,8 +129,8 @@ class FrenchStemmer(_StandardStemmer):
                         if "abl" in r2 or "iqU" in r2:
                             word = word[:-3]
 
-                    elif word[-3:] in ("i\xE8r", "I\xE8r"):
-                        if "i\xE8r" in rv or "I\xE8r" in rv:
+                    elif word[-3:] in (u("i\xE8r"), u("I\xE8r")):
+                        if u("i\xE8r") in rv or u("I\xE8r") in rv:
                             word = "".join((word[:-3], "i"))
 
                 elif suffix == "amment" and suffix in rv:
@@ -188,7 +188,7 @@ class FrenchStemmer(_StandardStemmer):
                     word = "".join((word[:-len(suffix)], "ent"))
                     step1_success = True
 
-                elif suffix in ("it\xE9", "it\xE9s") and suffix in r2:
+                elif suffix in (u("it\xE9"), u("it\xE9s")) and suffix in r2:
                     word = word[:-len(suffix)]
                     step1_success = True
 
@@ -241,20 +241,20 @@ class FrenchStemmer(_StandardStemmer):
                             word = word[:-4]
                             step2b_success = True
 
-                        elif suffix in ('eraIent', 'erions', '\xE8rent',
+                        elif suffix in ('eraIent', 'erions', u('\xE8rent'),
                                         'erais', 'erait', 'eriez',
                                         'erons', 'eront', 'erai', 'eras',
-                                        'erez', '\xE9es', 'era', 'iez',
-                                        '\xE9e', '\xE9s', 'er', 'ez',
-                                        '\xE9'):
+                                        'erez', u('\xE9es'), 'era', 'iez',
+                                        u('\xE9e'), u('\xE9s'), 'er', 'ez',
+                                        u('\xE9')):
                             word = word[:-len(suffix)]
                             step2b_success = True
 
                         elif suffix in ('assions', 'assent', 'assiez',
                                         'aIent', 'antes', 'asses',
-                                        '\xE2mes', '\xE2tes', 'ante',
+                                        u('\xE2mes'), u('\xE2tes'), 'ante',
                                         'ants', 'asse', 'ais', 'ait',
-                                        'ant', '\xE2t', 'ai', 'as',
+                                        'ant', u('\xE2t'), 'ai', 'as',
                                         'a'):
                             word = word[:-len(suffix)]
                             rv = rv[:-len(suffix)]
@@ -267,13 +267,13 @@ class FrenchStemmer(_StandardStemmer):
         if step1_success or step2a_success or step2b_success:
             if word[-1] == "Y":
                 word = "".join((word[:-1], "i"))
-            elif word[-1] == "\xE7":
+            elif word[-1] == u("\xE7"):
                 word = "".join((word[:-1], "c"))
 
         # STEP 4: Residual suffixes
         else:
             if (len(word) >= 2 and word[-1] == "s" and
-                word[-2] not in "aiou\xE8s"):
+                word[-2] not in u("aiou\xE8s")):
                 word = word[:-1]
 
             for suffix in self.__step4_suffixes:
@@ -283,14 +283,14 @@ class FrenchStemmer(_StandardStemmer):
                             rv[-4] in "st"):
                             word = word[:-3]
 
-                        elif suffix in ("ier", "i\xE8re", "Ier",
-                                        "I\xE8re"):
+                        elif suffix in ("ier", u("i\xE8re"), "Ier",
+                                        u("I\xE8re")):
                             word = "".join((word[:-len(suffix)], "i"))
 
                         elif suffix == "e":
                             word = word[:-1]
 
-                        elif suffix == "\xEB" and word[-3:-1] == "gu":
+                        elif suffix == u("\xEB") and word[-3:-1] == "gu":
                             word = word[:-1]
                         break
 
@@ -303,7 +303,7 @@ class FrenchStemmer(_StandardStemmer):
             if word[-i] not in self.__vowels:
                 i += 1
             else:
-                if i != 1 and word[-i] in ("\xE9", "\xE8"):
+                if i != 1 and word[-i] in (u("\xE9"), u("\xE8")):
                     word = "".join((word[:-i], "e", word[-i + 1:]))
                 break
 
