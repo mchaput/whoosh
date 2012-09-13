@@ -59,7 +59,7 @@ class PreloadedUnionMatcher(CombinationMatcher):
     """Instead of Instead of marching the sub-matchers along in parallel, this
     matcher pre-reads the scores for EVERY MATCHING DOCUMENT, trading memory
     for speed.
-    
+
     This is faster than the implementation using a binary tree of
     :class:`~whoosh.matching.binary.UnionMatcher` objects (possibly just
     because of less overhead), but it doesn't allow getting information about
@@ -126,7 +126,8 @@ class PreloadedUnionMatcher(CombinationMatcher):
             return
 
         self._docnum = docnum
-        if self._a[docnum - self._offset] == 0:
+        i = docnum - self._offset
+        if i < len(self._a) and self._a[i] == 0:
             self.next()
 
     def skip_to_quality(self, minquality):
@@ -157,7 +158,7 @@ class ArrayUnionMatcher(CombinationMatcher):
     """Instead of marching the sub-matchers along in parallel, this matcher
     pre-reads the scores for a large block of documents at a time from each
     matcher, accumulating the scores in an array.
-    
+
     This is faster than the implementation using a binary tree of
     :class:`~whoosh.matching.binary.UnionMatcher` objects (possibly just
     because of less overhead), but it doesn't allow getting information about
