@@ -242,3 +242,24 @@ def test_highlight_wildcards():
                      "alfa bravo CHARLIE delta COOKIE echo")
 
 
+def test_highlight_ngrams():
+    schema = fields.Schema(text=fields.NGRAMWORDS(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("Multiplication and subtraction are good"))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("text", ix.schema)
+        q = qp.parse(u("multiplication"))
+        r = s.search(q)
+        assert_equal(r.scored_length(), 1)
+
+        r.fragmenter = highlight.SentenceFragmenter()
+        r.formatter = highlight.UppercaseFormatter()
+        snippet = r[0].highlights("text")
+        assert_equal(snippet, "MULTIPLICATIon and subtracTION are good")
+
+
+
+
+
