@@ -84,9 +84,13 @@ class W3Codec(base.CodecWithGraph):
         return W3PerDocReader(storage, segment)
 
     def terms_reader(self, storage, segment):
-        tifile = segment.open_file(storage, self.TERMS_EXT)
+        tiname = segment.make_filename(self.TERMS_EXT)
+        tilen = storage.file_length(tiname)
+        tifile = storage.open_file(tiname)
+
         postfile = segment.open_file(storage, self.POSTS_EXT)
-        return W3TermsReader(tifile, postfile)
+
+        return W3TermsReader(tifile, tilen, postfile)
 
     # Graph methods from CodecWithGraph
 
@@ -456,9 +460,9 @@ class W3PerDocReader(base.PerDocumentReader):
 
 
 class W3TermsReader(base.TermsReader):
-    def __init__(self, dbfile, postfile):
+    def __init__(self, dbfile, length, postfile):
         self._dbfile = dbfile
-        self._tindex = filetables.OrderedHashReader(dbfile)
+        self._tindex = filetables.OrderedHashReader(dbfile, length)
         self._fieldmap = self._tindex.extras["fieldmap"]
         self._postfile = postfile
 
@@ -541,9 +545,12 @@ class W3TermsReader(base.TermsReader):
 
 # Support objects
 
-# Block writer/reader
-
 class BlockWriter(object):
+    """This object writes posting lists to the postings file. It groups postings
+    into blocks and tracks block level statistics to makes it easier to skip
+    through the postings.
+    """
+
     def __init__(self, postfile, format_, blocklimit, byteids=False,
                  compression=3):
         self._postfile = postfile
@@ -554,39 +561,66 @@ class BlockWriter(object):
         self._terminfo = None
 
     def __len__(self):
+        # Returns the number of unwritten buffered postings
         return len(self._ids)
 
     def min_id(self):
+        # First ID in the buffered block
         return self._ids[0]
 
     def max_id(self):
+        # Last ID in the buffered block
         return self._ids[-1]
 
     def min_length(self):
+        # Shortest field length in the buffered block
         return self._minlength
 
     def max_length(self):
+        # Longest field length in the buffered block
         return self._maxlength
 
     def max_weight(self):
+        # Highest weight in the buffered block
         return self._maxweight
 
     def start(self, terminfo):
+        # Start a new term
         if self._terminfo:
+            # If self._terminfo is not None, that means we are already in a term
             raise Exception("Called start in a term")
+        # Reset block count
         self.blockcount = 0
+        # Reset block buffer
         self.new_block()
+        # Remember terminfo object passed to us
         self._terminfo = terminfo
+        # Remember where we started in the posting file
+        self._startoffset = self._postfile.tell()
 
     def new_block(self):
+        # Reset block buffer
+
+        # List of IDs (docnums for regular posting list, terms for vector PL)
         self._ids = [] if self._byteids else array("I")
+        # List of weights
         self._weights = array("f")
+        # List of encoded payloads
         self._values = []
+        # Statistics
         self._minlength = None
         self._maxlength = 0
         self._maxweight = 0
 
     def add(self, id_, weight, vbytes, length=None):
+        # Add a posting to the buffered block
+
+        # If the number of buffered postings == the block limit, write out the
+        # buffered block and reset before adding this one
+        if len(self._ids) >= self._blocklimit:
+            self._write_block()
+
+        # Check types
         if self._byteids:
             assert isinstance(id_, string_type), "id_=%r" % id_
         else:
@@ -595,56 +629,86 @@ class BlockWriter(object):
         assert isinstance(vbytes, bytes_type), "vbytes=%r" % vbytes
         assert length is None or isinstance(length, integer_types)
 
-        values = self._values
-        minlength = self._minlength
-
         self._ids.append(id_)
         self._weights.append(weight)
 
         if weight > self._maxweight:
             self._maxweight = weight
         if vbytes:
-            values.append(vbytes)
+            self._values.append(vbytes)
         if length:
+            minlength = self._minlength
             if minlength is None or length < minlength:
                 self._minlength = length
             if length > self._maxlength:
                 self._maxlength = length
 
-        if len(self._ids) >= self._blocklimit:
-            self._write_block()
+    def _write_block(self, last=False):
+        # Write the buffered block to the postings file
 
-    def finish_inline(self):
+        # If this is the first block, write a small header first
+        if not self.blockcount:
+            self._postfile.write(WHOOSH3_HEADER_MAGIC)
+
+        # Add this block's statistics to the terminfo object, which tracks the
+        # overall statistics for all term postings
         self._terminfo.add_block(self)
-        self._terminfo = None
-        return (tuple(self._ids), tuple(self._weights), tuple(self._values))
 
-    def finish(self):
+        # Minify the IDs, weights, and values, and put them in a tuple
+        data = (self._mini_ids(), self._mini_weights(), self._mini_values())
+        # Pickle the tuple
+        databytes = dumps(data)
+        # If the pickle is less than 20 bytes, don't bother compressing
+        if len(databytes) < 20:
+            comp = 0
+        # Compress the pickle (if self._compression > 0)
+        comp = self._compression
+        if comp:
+            databytes = zlib.compress(databytes, comp)
+
+        # Make a tuple of block info. The posting reader can check this info
+        # and decide whether to skip the block without having to decompress the
+        # full block data
+        #
+        # - Number of postings in block
+        # - Last ID in block
+        # - Maximum weight in block
+        # - Compression level
+        # - Minimum length byte
+        # - Maximum length byte
+        ids = self._ids
+        infobytes = dumps((len(ids), ids[-1], self._maxweight, comp,
+                           length_to_byte(self._minlength),
+                           length_to_byte(self._maxlength),
+                           ))
+
+        # Write block length
         postfile = self._postfile
+        blocklength = len(infobytes) + len(databytes)
+        if last:
+            # If this is the last block, use a negative number
+            blocklength *= -1
+        postfile.write_int(blocklength)
+        # Write block info
+        postfile.write(infobytes)
+        # Write block data
+        postfile.write(databytes)
 
-        if self._ids:
-            # If there are leftover items in the current block, write them out
-            self._write_block()
-
-        if self.blockcount:
-            # Seek back to the start of this list of posting blocks and write
-            # the number of blocks
-            postfile.flush()
-            here = postfile.tell()
-            postfile.seek(self._startoffset + 4)
-            postfile.write_uint(self.blockcount)
-            postfile.seek(here)
-
-        self._terminfo = None
-        return self._startoffset
+        self.blockcount += 1
+        # Reset block buffer
+        self.new_block()
 
     def _mini_ids(self):
+        # Minify IDs
+
         ids = self._ids
         if not self._byteids:
             ids = delta_encode(ids)
         return tuple(ids)
 
     def _mini_weights(self):
+        # Minify weights
+
         weights = self._weights
 
         if all(w == 1.0 for w in weights):
@@ -655,6 +719,8 @@ class BlockWriter(object):
             return tuple(weights)
 
     def _mini_values(self):
+        # Minify values
+
         fixedsize = self._format.fixed_value_size()
         values = self._values
 
@@ -666,71 +732,63 @@ class BlockWriter(object):
             vs = emptybytes.join(values)
         return vs
 
-    def _write_header(self):
-        postfile = self._postfile
+    def finish_inline(self):
+        # Finish the current term and return the buffered posting data as a
+        # tuple suitable for inlining in the term file
 
-        self._startoffset = postfile.tell()
-        postfile.write(WHOOSH3_HEADER_MAGIC)  # Posting list header
-        postfile.write_uint(0)  # Block count
+        self._terminfo.add_block(self)
+        self._terminfo = None
+        return (tuple(self._ids), tuple(self._weights), tuple(self._values))
 
-    def _write_block(self):
-        postfile = self._postfile
-        terminfo = self._terminfo
-        ids = self._ids
-        comp = self._compression
+    def finish(self):
+        # Finish the current term and write the buffered posting data to the
+        # postings file
 
-        if not self.blockcount:
-            self._write_header()
+        # If there are leftover items in the current block, write them out
+        if self._ids:
+            self._write_block(last=True)
 
-        terminfo.add_block(self)
-
-        data = (self._mini_ids(), self._mini_weights(), self._mini_values())
-        databytes = dumps(data)
-        if len(databytes) < 20:
-            comp = 0
-        if comp:
-            databytes = zlib.compress(databytes, comp)
-
-        infobytes = dumps((len(ids), ids[-1], self._maxweight, comp,
-                           length_to_byte(self._minlength),
-                           length_to_byte(self._maxlength),
-                           ))
-
-        # Write block length
-        postfile.write_int(len(infobytes) + len(databytes))
-        # Write block contents
-        postfile.write(infobytes)
-        postfile.write(databytes)
-
-        self.blockcount += 1
-        self.new_block()
+        # Set self._terminfo to None to indicate that we're currently not
+        # writing a term
+        self._terminfo = None
+        # Return the starting point of the finished term's postings
+        return self._startoffset
 
 
 class W3LeafMatcher(LeafMatcher):
+    """Reads on-disk postings from the postings file and presents the
+    :class:`whoosh.matching.Matcher` interface.
+    """
+
     def __init__(self, postfile, startoffset, format_, scorer=None,
                  term=None, byteids=False):
         self._postfile = postfile
         self._startoffset = startoffset
         self.format = format_
+        self._fixedsize = format_.fixed_value_size()
         self.scorer = scorer
         self._term = term
         self._byteids = byteids
 
-        self._fixedsize = format_.fixed_value_size()
+        # Read the header tag at the start of the postings
         self._read_header()
+        # "Reset" to read the first block
         self.reset()
 
     def _read_header(self):
+        # Seek to the start of the postings and check the header tag
         postfile = self._postfile
 
         postfile.seek(self._startoffset)
         magic = postfile.read(4)
         if magic != WHOOSH3_HEADER_MAGIC:
-            raise Exception("Can't read a block with signature %r" % magic)
-        self._blockcount = postfile.read_uint()
+            raise Exception("Block tag error %r" % magic)
+
+        # Remember the base offset (start of postings, after the header)
         self._baseoffset = postfile.tell()
 
     def reset(self):
+        # Reset block stats
         self._blocklength = None
         self._maxid = None
         self._maxweight = None
@@ -738,39 +796,62 @@ class W3LeafMatcher(LeafMatcher):
         self._minlength = None
         self._maxlength = None
 
-        self._currentblock = 0
+        self._lastblock = False
+        self._atend = False
+        # Consume first block
         self._goto(self._baseoffset)
 
     def _goto(self, position):
+        # Read the posting block at the given position
+
         postfile = self._postfile
 
+        # Reset block data -- we'll lazy load the data from the new block as
+        # needed
         self._data = None
         self._ids = None
         self._weights = None
         self._values = None
+        # Reset pointer into the block
         self._i = 0
 
+        # Seek to the start of the block
         postfile.seek(position)
+        # Read the block length
         length = postfile.read_int()
+        # If the block length is negative, that means this is the last block
+        if length < 0:
+            self._lastblock = True
+            length *= -1
+
+        # Remember the offset of the next block
         self._nextoffset = position + _INT_SIZE + length
+        # Read the pickled block info tuple
         info = postfile.read_pickle()
+        # Remember the offset of the block's data
         self._dataoffset = postfile.tell()
 
+        # Decompose the info tuple to set the current block info
         (self._blocklength, self._maxid, self._maxweight, self._compression,
          mnlen, mxlen) = info
         self._minlength = byte_to_length(mnlen)
         self._maxlength = byte_to_length(mxlen)
 
     def _next_block(self):
-        if self._currentblock >= self._blockcount:
+        if self._atend:
+            # We were already at the end, and yet somebody called _next_block()
+            # again, so something is wrong somewhere
             raise Exception("No next block")
-        self._currentblock += 1
-        if self._currentblock == self._blockcount:
+        elif self._lastblock:
             # Reached the end of the postings
-            return
-        self._goto(self._nextoffset)
+            self._atend = True
+        else:
+            # Go to the next block
+            self._goto(self._nextoffset)
 
     def _skip_to_block(self, skipwhile):
+        # Skip blocks as long as the skipwhile() function returns True
+
         skipped = 0
         while self.is_active() and skipwhile():
             self._next_block()
@@ -778,16 +859,41 @@ class W3LeafMatcher(LeafMatcher):
         return skipped
 
     def is_active(self):
-        return (self._currentblock < self._blockcount
-                and self._i < self._blocklength)
+        return not self._atend and self._i < self._blocklength
 
     def id(self):
+        # Get the current ID (docnum for regular postings, term for vector)
+
+        # If we haven't loaded the block IDs yet, load them now
         if self._ids is None:
             self._read_ids()
+
         return self._ids[self._i]
 
+    def weight(self):
+        # Get the weight for the current posting
+
+        # If we haven't loaded the block weights yet, load them now
+        if self._weights is None:
+            self._read_weights()
+
+        return self._weights[self._i]
+
+    def value(self):
+        # Get the value for the current posting
+
+        # If we haven't loaded the block values yet, load them now
+        if self._values is None:
+            self._read_values()
+
+        return self._values[self._i]
+
     def next(self):
+        # Move to the next posting
+
+        # Increment the in-block pointer
         self._i += 1
+        # If we reached the end of the block, move to the next block
         if self._i == self._blocklength:
             self._next_block()
             return True
@@ -795,6 +901,8 @@ class W3LeafMatcher(LeafMatcher):
             return False
 
     def skip_to(self, targetid):
+        # Skip to the next ID equal to or greater than the given target ID
+
         if not self.is_active():
             raise ReadTooFar
 
@@ -813,23 +921,24 @@ class W3LeafMatcher(LeafMatcher):
             self.next()
 
     def skip_to_quality(self, minquality):
+        # Skip blocks until we find one that might exceed the given minimum
+        # quality
+
         block_quality = self.block_quality
+
+        # If the quality of this block is already higher than the minimum,
+        # do nothing
         if block_quality() > minquality:
             return 0
+
+        # Skip blocks as long as the block quality is not greater than the
+        # minimum
         return self._skip_to_block(lambda: block_quality() <= minquality)
 
-    def weight(self):
-        if self._weights is None:
-            self._read_weights()
-        return self._weights[self._i]
-
-    def value(self):
-        if self._values is None:
-            self._read_values()
-        return self._values[self._i]
-
     def block_min_id(self):
-        return self.id(0)
+        if self._ids is None:
+            self._read_ids()
+        return self._ids[0]
 
     def block_max_id(self):
         return self._maxid
@@ -844,40 +953,51 @@ class W3LeafMatcher(LeafMatcher):
         return self._maxweight
 
     def _read_data(self):
-        postfile = self._postfile
-        postfile.seek(self._dataoffset)
-        b = postfile.read(self._nextoffset - self._dataoffset)
+        # Load block data tuple from disk
+
+        datalen = self._nextoffset - self._dataoffset
+        b = self._postfile.get(self._dataoffset, datalen)
+
+        # Decompress the pickled data if necessary
         if self._compression:
             b = zlib.decompress(b)
+
+        # Unpickle the data tuple and save it in an attribute
         self._data = loads(b)
 
     def _read_ids(self):
+        # If we haven't loaded the data from disk yet, load it now
         if self._data is None:
             self._read_data()
         ids = self._data[0]
 
+        # De-minify the IDs
         if not self._byteids:
             ids = tuple(delta_decode(ids))
 
         self._ids = ids
 
     def _read_weights(self):
+        # If we haven't loaded the data from disk yet, load it now
         if self._data is None:
             self._read_data()
-        postcount = self._blocklength
-        wts = self._data[1]
+        weights = self._data[1]
 
-        if wts is None:
+        # De-minify the weights
+        postcount = self._blocklength
+        if weights is None:
             self._weights = array("f", (1.0 for _ in xrange(postcount)))
-        elif isinstance(wts, float):
-            self._weights = array("f", (wts for _ in xrange(postcount)))
+        elif isinstance(weights, float):
+            self._weights = array("f", (weights for _ in xrange(postcount)))
         else:
-            self._weights = wts
+            self._weights = weights
 
     def _read_values(self):
+        # If we haven't loaded the data from disk yet, load it now
         if self._data is None:
             self._read_data()
 
+        # De-minify the values
         fixedsize = self._fixedsize
         vs = self._data[2]
         if fixedsize is None or fixedsize < 0:

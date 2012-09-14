@@ -12,6 +12,17 @@ from whoosh.filedb.filetables import OrderedHashWriter, OrderedHashReader
 from whoosh.util.testing import TempStorage
 
 
+def test_hash_single():
+    st = RamStorage()
+    hw = HashWriter(st.create_file("test.hsh"))
+    hw.add(b("alfa"), b("bravo"))
+    hw.close()
+
+    hr = HashReader.open(st, "test.hsh")
+    assert_equal(hr.get(b("alfa")), b("bravo"))
+    assert_equal(hr.get(b("foo")), None)
+
+
 def test_hash():
     with TempStorage("hash") as st:
         hwf = st.create_file("test.hsh")
@@ -20,11 +31,25 @@ def test_hash():
         hw.add(b("glonk"), b("baz"))
         hw.close()
 
-        hrf = st.open_file("test.hsh")
-        hr = HashReader(hrf)
+        hr = HashReader.open(st, "test.hsh")
         assert_equal(hr.get(b("foo")), b("bar"))
         assert_equal(hr.get(b("baz")), None)
         hr.close()
+
+
+def test_hash_extras():
+    st = RamStorage()
+    hw = HashWriter(st.create_file("test.hsh"))
+    hw.extras["test"] = 100
+    hw.add(b("foo"), b("bar"))
+    hw.add(b("glonk"), b("baz"))
+    hw.close()
+
+    hr = HashReader.open(st, "test.hsh")
+    assert_equal(hr.extras["test"], 100)
+    assert_equal(hr.get(b("foo")), b("bar"))
+    assert_equal(hr.get(b("baz")), None)
+    hr.close()
 
 
 def test_hash_contents():
@@ -37,14 +62,21 @@ def test_hash_contents():
     samp = set((b(k), b(v)) for k, v in samp)
 
     with TempStorage("hashcontents") as st:
-        hwf = st.create_file("test.hsh")
-        hw = HashWriter(hwf)
+        hw = HashWriter(st.create_file("test.hsh"))
         hw.add_all(samp)
         hw.close()
 
-        hrf = st.open_file("test.hsh")
-        hr = HashReader(hrf)
+        hr = HashReader.open(st, "test.hsh")
+
+        probes = list(samp)
+        random.shuffle(probes)
+        for key, value in probes:
+            assert_equal(hr[key], value)
+
+        assert_equal(set(hr.keys()), set([k for k, v in samp]))
+        assert_equal(set(hr.values()), set([v for k, v in samp]))
         assert_equal(set(hr.items()), samp)
+
         hr.close()
 
 
@@ -62,33 +94,29 @@ def test_random_hash():
     with TempStorage("randomhash") as st:
         samp = dict((randstring(), randstring()) for _ in xrange(times))
 
-        hwf = st.create_file("test.hsh")
-        hw = HashWriter(hwf)
+        hw = HashWriter(st.create_file("test.hsh"))
         for k, v in iteritems(samp):
             hw.add(k, v)
         hw.close()
 
         keys = list(samp.keys())
         random.shuffle(keys)
-        hrf = st.open_file("test.hsh")
-        hr = HashReader(hrf)
+        hr = HashReader.open(st, "test.hsh")
         for k in keys:
             assert_equal(hr[k], samp[k])
         hr.close()
 
 
-def test_ordered_hash():
+def test_random_access():
     times = 10000
     with TempStorage("orderedhash") as st:
-        hwf = st.create_file("test.hsh")
-        hw = HashWriter(hwf)
+        hw = HashWriter(st.create_file("test.hsh"))
         hw.add_all((b("%08x" % x), b(str(x))) for x in xrange(times))
         hw.close()
 
         keys = list(range(times))
         random.shuffle(keys)
-        hrf = st.open_file("test.hsh")
-        hr = HashReader(hrf)
+        hr = HashReader.open(st, "test.hsh")
         for x in keys:
             assert_equal(hr[b("%08x" % x)], b(str(x)))
         hr.close()
@@ -99,16 +127,14 @@ def test_ordered_closest():
             'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike', 'november']
     # Make into bytes for Python 3
     keys = [b(k) for k in keys]
-    values = [b('')] * len(keys)
+    values = [str(len(k)).encode("ascii") for k in keys]
 
     with TempStorage("orderedclosest") as st:
-        hwf = st.create_file("test.hsh")
-        hw = OrderedHashWriter(hwf)
+        hw = OrderedHashWriter(st.create_file("test.hsh"))
         hw.add_all(zip(keys, values))
         hw.close()
 
-        hrf = st.open_file("test.hsh")
-        hr = OrderedHashReader(hrf)
+        hr = OrderedHashReader.open(st, "test.hsh")
         ck = hr.closest_key
         assert_equal(ck(b('')), b('alfa'))
         assert_equal(ck(b(' ')), b('alfa'))
