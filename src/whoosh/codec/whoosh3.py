@@ -1146,7 +1146,7 @@ class W3Segment(base.Segment):
             if self._deleted is None:
                 self._deleted = set()
             self._deleted.add(docnum)
-        elif self._deleted is not None and docnum in self.deleted:
+        elif self._deleted is not None and docnum in self._deleted:
             self._deleted.clear(docnum)
 
     def is_deleted(self, docnum):
