@@ -59,31 +59,31 @@ class UnknownFieldError(Exception):
 
 class FieldType(object):
     """Represents a field configuration.
-    
+
     The FieldType object supports the following attributes:
-    
+
     * format (formats.Format): the storage format for the field's contents.
-    
+
     * analyzer (analysis.Analyzer): the analyzer to use to turn text into
       terms.
-    
+
     * vector (formats.Format): the storage format for the field's vectors
       (forward index), or None if the field should not store vectors.
-    
+
     * scorable (boolean): whether searches against this field may be scored.
       This controls whether the index stores per-document field lengths for
       this field.
-          
+
     * stored (boolean): whether the content of this field is stored for each
       document. For example, in addition to indexing the title of a document,
       you usually want to store the title so it can be presented as part of
       the search results.
-         
+
     * unique (boolean): whether this field's value is unique to each document.
       For example, 'path' or 'ID'. IndexWriter.update_document() will use
       fields marked as 'unique' to find the previous version of a document
       being updated.
-      
+
     * multitoken_query is a string indicating what kind of query to use when
       a "word" in a user query parses into multiple tokens. The string is
       interpreted by the query parser. The strings understood by the default
@@ -91,7 +91,7 @@ class FieldType(object):
       with an AND query), "or" (join the tokens with OR), "phrase" (join
       the tokens with a phrase query), and "default" (use the query parser's
       default join type).
-    
+
     The constructor for the base field type simply lets you supply your own
     configured field format, vector format, and scorable and stored values.
     Subclasses may configure some or all of this for you.
@@ -154,7 +154,7 @@ class FieldType(object):
     def index(self, value, **kwargs):
         """Returns an iterator of (btext, frequency, weight, encoded_value)
         tuples for each unique word in the input value.
-        
+
         The default implementation uses the ``analyzer`` attribute to tokenize
         the value into strings, then encodes them into bytes using UTF-8.
         """
@@ -176,7 +176,7 @@ class FieldType(object):
 
     def process_text(self, qstring, mode='', **kwargs):
         """Analyzes the given string and returns an iterator of token texts.
-        
+
         >>> field = fields.TEXT()
         >>> list(field.process_text("The ides of March"))
         ["ides", "march"]
@@ -257,7 +257,7 @@ class FieldType(object):
         """Returns an iterator of the "sortable" tokens in the given reader and
         field. These values can be used for sorting. The default implementation
         simply returns all tokens in the field.
-        
+
         This can be overridden by field types such as NUMERIC where some values
         in a field are not useful for sorting.
         """
@@ -269,12 +269,12 @@ class FieldType(object):
     def separate_spelling(self):
         """Returns True if this field requires special handling of the words
         that go into the field's word graph.
-        
+
         The default behavior is to return True if the field is "spelled" but
         not indexed, or if the field is indexed but the analyzer has
         morphological transformations (e.g. stemming). Exotic field types may
         need to override this behavior.
-        
+
         This method should return False if the field does not support spelling
         (i.e. the ``spelling`` attribute is False).
         """
@@ -284,7 +284,7 @@ class FieldType(object):
     def spellable_words(self, value):
         """Returns an iterator of each unique word (in sorted order) in the
         input value, suitable for inclusion in the field's word graph.
-        
+
         The default behavior is to call the field analyzer with the keyword
         argument ``no_morph=True``, which should make the analyzer skip any
         morphological transformation filters (e.g. stemming) to preserve the
@@ -311,7 +311,7 @@ class FieldType(object):
     def supports(self, name):
         """Returns True if the underlying format supports the given posting
         value type.
-        
+
         >>> field = TEXT()
         >>> field.supports("positions")
         True
@@ -393,32 +393,32 @@ class NUMERIC(FieldType):
     """Special field type that lets you index integer or floating point
     numbers in relatively short fixed-width terms. The field converts numbers
     to sortable bytes for you before indexing.
-    
+
     You specify the numeric type of the field (``int`` or ``float``) when you
     create the ``NUMERIC`` object. The default is ``int``. For ``int``, you can
     specify a size in bits (``32`` or ``64``). For both ``int`` and ``float``
     you can specify a ``signed`` keyword argument (default is ``True``).
-    
+
     >>> schema = Schema(path=STORED, position=NUMERIC(int, 64, signed=False))
     >>> ix = storage.create_index(schema)
     >>> with ix.writer() as w:
     ...     w.add_document(path="/a", position=5820402204)
     ...
-    
+
     You can also use the NUMERIC field to store Decimal instances by specifying
     a type of ``int`` or ``long`` and the ``decimal_places`` keyword argument.
     This simply multiplies each number by ``(10 ** decimal_places)`` before
     storing it as an integer. Of course this may throw away decimal prcesision
     (by truncating, not rounding) and imposes the same maximum value limits as
     ``int``/``long``, but these may be acceptable for certain applications.
-    
+
     >>> from decimal import Decimal
     >>> schema = Schema(path=STORED, position=NUMERIC(int, decimal_places=4))
     >>> ix = storage.create_index(schema)
     >>> with ix.writer() as w:
     ...     w.add_document(path="/a", position=Decimal("123.45")
     ...
-    
+
     """
 
     def __init__(self, numtype=int, bits=32, stored=False, unique=False,
@@ -636,14 +636,14 @@ class NUMERIC(FieldType):
 class DATETIME(NUMERIC):
     """Special field type that lets you index datetime objects. The field
     converts the datetime objects to sortable text for you before indexing.
-    
+
     Since this field is based on Python's datetime module it shares all the
     limitations of that module, such as the inability to represent dates before
     year 1 in the proleptic Gregorian calendar. However, since this field
     stores datetimes as an integer number of microseconds, it could easily
     represent a much wider range of dates if the Python datetime implementation
     ever supports them.
-    
+
     >>> schema = Schema(path=STORED, date=DATETIME)
     >>> ix = storage.create_index(schema)
     >>> w = ix.writer()
@@ -764,7 +764,7 @@ class DATETIME(NUMERIC):
 class BOOLEAN(FieldType):
     """Special field type that lets you index boolean values (True and False).
     The field converts the boolean values to text for you before indexing.
-    
+
     >>> schema = Schema(path=STORED, done=BOOLEAN)
     >>> ix = storage.create_index(schema)
     >>> w = ix.writer()
@@ -1098,7 +1098,7 @@ class MetaSchema(type):
 class Schema(object):
     """Represents the collection of fields in an index. Maps field names to
     FieldType objects which define the behavior of each field.
-    
+
     Low-level parts of the index use field numbers instead of field names for
     compactness. This class has several methods for converting between the
     field name, field number, and field object itself.
@@ -1109,9 +1109,9 @@ class Schema(object):
         fieldtype pairs. The fieldtype can be an instantiated FieldType object,
         or a FieldType sub-class (in which case the Schema will instantiate it
         with the default constructor before adding it).
-        
+
         For example::
-        
+
             s = Schema(content = TEXT,
                        title = TEXT(stored = True),
                        tags = KEYWORD(stored = True))
@@ -1208,7 +1208,7 @@ class Schema(object):
 
     def add(self, name, fieldtype, glob=False):
         """Adds a field to this schema.
-        
+
         :param name: The name of the field.
         :param fieldtype: An instantiated fields.FieldType object, or a
             FieldType subclass. If you pass an instantiated object, the schema
@@ -1299,27 +1299,27 @@ class SchemaClass(with_metaclass(MetaSchema, Schema)):
 
     """Allows you to define a schema using declarative syntax, similar to
     Django models::
-    
+
         class MySchema(SchemaClass):
             path = ID
             date = DATETIME
             content = TEXT
-            
+
     You can use inheritance to share common fields between schemas::
-    
+
         class Parent(SchemaClass):
             path = ID(stored=True)
             date = DATETIME
-            
+
         class Child1(Parent):
             content = TEXT(positions=False)
-            
+
         class Child2(Parent):
             tags = KEYWORD
-    
+
     This class overrides ``__new__`` so instantiating your sub-class always
     results in an instance of ``Schema``.
-    
+
     >>> class MySchema(SchemaClass):
     ...     title = TEXT(stored=True)
     ...     content = TEXT
@@ -1370,6 +1370,3 @@ def merge_schemas(schemas):
     for i in xrange(1, len(schemas)):
         schema = merge_schema(schema, schemas[i])
     return schema
-
-
-

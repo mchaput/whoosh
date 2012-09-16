@@ -77,5 +77,3 @@ if sys.version_info[0] < 3:
     emptybytes = ""
 else:
     emptybytes = "".encode("latin-1")
-
-

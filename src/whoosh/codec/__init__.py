@@ -30,4 +30,3 @@ def default_codec(*args, **kwargs):
     from whoosh.codec.whoosh3 import W3Codec
 
     return W3Codec(*args, **kwargs)
-

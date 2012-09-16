@@ -64,7 +64,7 @@ class Filter(Composable):
     """Base class for Filter objects. A Filter subclass must implement a
     filter() method that takes a single argument, which is an iterator of Token
     objects, and yield a series of Token objects in return.
-    
+
     Filters that do morphological transformation of tokens (e.g. stemming)
     should set their ``is_morph`` attribute to True.
     """
@@ -117,11 +117,11 @@ class MultiFilter(Filter):
     def __init__(self, **kwargs):
         """Use keyword arguments to associate mode attribute values with
         instantiated filters.
-        
+
         >>> iwf_for_index = IntraWordFilter(mergewords=True, mergenums=False)
         >>> iwf_for_query = IntraWordFilter(mergewords=False, mergenums=False)
         >>> mf = MultiFilter(index=iwf_for_index, query=iwf_for_query)
-        
+
         This class expects that the value of the mode attribute is consistent
         among all tokens in a token stream.
         """
@@ -141,10 +141,10 @@ class MultiFilter(Filter):
 
 class TeeFilter(Filter):
     """Interleaves the results of two or more filters (or filter chains).
-    
+
     NOTE: because it needs to create copies of each token for each sub-filter,
     this filter is quite slow.
-    
+
     >>> target = "ALFA BRAVO CHARLIE"
     >>> # In one branch, we'll lower-case the tokens
     >>> f1 = LowercaseFilter()
@@ -153,10 +153,10 @@ class TeeFilter(Filter):
     >>> ana = RegexTokenizer(r"\S+") | TeeFilter(f1, f2)
     >>> [token.text for token in ana(target)]
     ["alfa", "AFLA", "bravo", "OVARB", "charlie", "EILRAHC"]
-    
+
     To combine the incoming token stream with the output of a filter chain, use
     ``TeeFilter`` and make one of the filters a :class:`PassFilter`.
-    
+
     >>> f1 = PassFilter()
     >>> f2 = BiWordFilter()
     >>> ana = RegexTokenizer(r"\S+") | TeeFilter(f1, f2) | LowercaseFilter()
@@ -195,7 +195,7 @@ class TeeFilter(Filter):
 
 class ReverseTextFilter(Filter):
     """Reverses the text of each token.
-    
+
     >>> ana = RegexTokenizer() | ReverseTextFilter()
     >>> [token.text for token in ana("hello there")]
     ["olleh", "ereht"]
@@ -209,7 +209,7 @@ class ReverseTextFilter(Filter):
 
 class LowercaseFilter(Filter):
     """Uses unicode.lower() to lowercase token text.
-    
+
     >>> rext = RegexTokenizer()
     >>> stream = rext("This is a TEST")
     >>> [token.text for token in LowercaseFilter(stream)]
@@ -235,7 +235,7 @@ class StripFilter(Filter):
 class StopFilter(Filter):
     """Marks "stop" words (words too common to index) in the stream (and by
     default removes them).
-    
+
     >>> rext = RegexTokenizer()
     >>> stream = rext("this is a test")
     >>> stopper = StopFilter()
@@ -311,19 +311,19 @@ class CharsetFilter(Filter):
     """Translates the text of tokens by calling unicode.translate() using the
     supplied character mapping object. This is useful for case and accent
     folding.
-    
+
     The ``whoosh.support.charset`` module has a useful map for accent folding.
-    
+
     >>> from whoosh.support.charset import accent_map
     >>> retokenizer = RegexTokenizer()
     >>> chfilter = CharsetFilter(accent_map)
     >>> [t.text for t in chfilter(retokenizer(u'café'))]
     [u'cafe']
-    
+
     Another way to get a character mapping object is to convert a Sphinx
     charset table file using
     :func:`whoosh.support.charset.charset_table_to_dict`.
-    
+
     >>> from whoosh.support.charset import charset_table_to_dict
     >>> from whoosh.support.charset import default_charset
     >>> retokenizer = RegexTokenizer()
@@ -331,7 +331,7 @@ class CharsetFilter(Filter):
     >>> chfilter = CharsetFilter(charmap)
     >>> [t.text for t in chfilter(retokenizer(u'Stra\\xdfe'))]
     [u'strase']
-    
+
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
@@ -361,10 +361,10 @@ class CharsetFilter(Filter):
 class DelimitedAttributeFilter(Filter):
     """Looks for delimiter characters in the text of each token and stores the
     data after the delimiter in a named attribute on the token.
-    
+
     The defaults are set up to use the ``^`` character as a delimiter and store
     the value after the ``^`` as the boost for the token.
-    
+
     >>> daf = DelimitedAttributeFilter(delimiter="^", attribute="boost")
     >>> ana = RegexTokenizer("\\\\S+") | DelimitedAttributeFilter()
     >>> for t in ana(u("image render^2 file^0.5"))
@@ -372,7 +372,7 @@ class DelimitedAttributeFilter(Filter):
     'image' 1.0
     'render' 2.0
     'file' 0.5
-    
+
     Note that you need to make sure your tokenizer includes the delimiter and
     data as part of the token!
     """
@@ -424,17 +424,17 @@ class DelimitedAttributeFilter(Filter):
 
 class SubstitutionFilter(Filter):
     """Performs a regular expression substitution on the token text.
-    
+
     This is especially useful for removing text from tokens, for example
     hyphens::
-    
+
         ana = RegexTokenizer(r"\\S+") | SubstitutionFilter("-", "")
-        
+
     Because it has the full power of the re.sub() method behind it, this filter
     can perform some fairly complex transformations. For example, to take
     tokens like ``'a=b', 'c=d', 'e=f'`` and change them to ``'b=a', 'd=c',
     'f=e'``::
-    
+
         # Analyzer that swaps the text on either side of an equal sign
         rt = RegexTokenizer(r"\\S+")
         sf = SubstitutionFilter("([^/]*)/(./*)", r"\\2/\\1")
@@ -463,13 +463,3 @@ class SubstitutionFilter(Filter):
         for t in tokens:
             t.text = pattern.sub(replacement, t.text)
             yield t
-
-
-
-
-
-
-
-
-
-

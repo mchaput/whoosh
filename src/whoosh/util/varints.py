@@ -94,7 +94,7 @@ def decode_signed_varint(i):
 def read_varint(readfn):
     """
     Reads a variable-length encoded integer.
-    
+
     :param readfn: a callable that reads a given number of bytes,
         like file.read().
     """

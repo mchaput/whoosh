@@ -75,25 +75,3 @@ toc_loaders = {-110: load_110_toc}
 
 # Map segment class names to functions to load the segment
 segment_loaders = {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

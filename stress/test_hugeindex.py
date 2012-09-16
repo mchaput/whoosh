@@ -12,12 +12,12 @@ from whoosh.support.testing import TempStorage
 def test_huge_postfile():
     with TempStorage("hugeindex") as st:
         pf = st.create_file("test.pst")
-        
+
         gb5 = 5 * 1024 * 1024 * 1024
         pf.seek(gb5)
         pf.write("\x00\x00\x00\x00")
         assert_equal(pf.tell(), gb5 + 4)
-        
+
         fpw = FilePostingWriter(pf)
         format = formats.Frequency(None)
         offset = fpw.start(format)
@@ -26,7 +26,7 @@ def test_huge_postfile():
         posttotal = fpw.finish()
         assert_equal(posttotal, 10)
         fpw.close()
-        
+
         pf = st.open_file("test.pst")
         pfr = FilePostingReader(pf, offset, format)
         i = 0

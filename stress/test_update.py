@@ -16,7 +16,7 @@ def test_many_updates():
             w = ix.writer()
             w.update_document(key=text_type(num))
             w.commit()
-        
+
         with ix.searcher() as s:
             result = [d["key"] for d in s.search(query.Every())]
             assert_equal(len(result), len(set(result)))

@@ -7,7 +7,7 @@ from optparse import OptionParser
 from os import system
 
 # Script to build and upload a release of Whoosh to PyPI and build
-# and upload the 
+# and upload the
 
 def build_docs():
     system("python setup.py build_sphinx")
@@ -30,7 +30,7 @@ def upload_pypi(tag=None):
         opts = {"base": "http://svn.whoosh.ca/projects/whoosh",
                 "tag": tag,
                 "msg": "Tagging trunk as %s" % tag}
-        
+
         system('svn copy %(base)s/trunk %(base)s/tags/%(tag)s -m "%(msg)s"' % opts)
 
 
@@ -45,26 +45,26 @@ if __name__ == '__main__':
                       help="Configuration file",
                       metavar="INIFILE",
                       default="whoosh.ini")
-    
+
     parser.add_option("-d", "--no-docs", dest="dodocs",
                       help="Don't build or upload docs",
                       action="store_false",
                       default=True)
-    
+
     parser.add_option("-D", "--no-build-docs", dest="builddocs",
                       help="Skip building docs",
                       action="store_false",
                       default=True)
-    
+
     parser.add_option("-t", "--tag", dest="tag",
                       help="Tag the trunk as this",
                       default=None)
-    
+
     (options, args) = parser.parse_args()
-    
+
     cp = ConfigParser()
     cp.read(options.configfile)
-    
+
     if options.dodocs:
         upload_docs(cp.get("website", "username"),
                     cp.get("website", "server"),

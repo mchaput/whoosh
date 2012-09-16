@@ -425,10 +425,3 @@ def test_within_unicode():
     gr = fst.GraphReader(st.open_file("test"))
     s = list(fst.within(gr, u("\uc774.\ud76c")))
     assert_equal(s, [u("\uc774\uc124\ud76c")])
-
-
-
-
-
-
-

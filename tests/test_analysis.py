@@ -398,4 +398,3 @@ def test_language_analyzer():
 def test_pickleability():
     ana = analysis.LanguageAnalyzer("en")
     pick = dumps(ana, -1)
-

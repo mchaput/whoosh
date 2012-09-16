@@ -1153,7 +1153,3 @@ class W3Segment(base.Segment):
         if self._deleted is None:
             return False
         return docnum in self._deleted
-
-
-
-

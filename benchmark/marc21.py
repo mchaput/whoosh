@@ -294,6 +294,3 @@ if __name__ == "__main__":
             limit = None
         search(qstring, options.ixdir, options.basedir, limit=limit,
                optimize=options.optimize, scores=options.scores)
-
-
-

@@ -90,7 +90,7 @@ class Values(object):
         means for this class. For example, a string implementation would return
         the common shared prefix, for an int implementation it would return
         the minimum of the two numbers.
-        
+
         If there is no common part, this method should return None.
         """
 
@@ -416,7 +416,7 @@ class Node(object):
 
 class ComboNode(Node):
     """Base class for nodes that blend the nodes of two different graphs.
-    
+
     Concrete subclasses need to implement the ``edge()`` method and possibly
     override the ``accept`` property.
     """
@@ -470,11 +470,11 @@ class IntersectionNode(ComboNode):
 class BaseCursor(object):
     """Base class for a cursor-type object for navigating an FST/word graph,
     represented by a :class:`GraphReader` object.
-    
+
     >>> cur = GraphReader(dawgfile).cursor()
     >>> for key in cur.follow():
     ...   print(repr(key))
-    
+
     The cursor "rests" on arcs in the FSA/FST graph, rather than nodes.
     """
 
@@ -896,7 +896,7 @@ class UncompiledNode(object):
 class Arc(object):
     """
     Represents a directed arc between two nodes in an FSA/FST graph.
-    
+
     The ``lastarc`` attribute is True if this is the last outgoing arc from the
     previous node.
     """
@@ -942,20 +942,20 @@ class Arc(object):
 
 class GraphWriter(object):
     """Writes an FSA/FST graph to disk.
-    
+
     Call ``insert(key)`` to insert keys into the graph. You must
     insert keys in sorted order. Call ``close()`` to finish the graph and close
     the file.
-    
+
     >>> gw = GraphWriter(my_file)
     >>> gw.insert("alfa")
     >>> gw.insert("bravo")
     >>> gw.insert("charlie")
     >>> gw.close()
-    
+
     The graph writer can write separate graphs for multiple fields. Use
     ``start_field(name)`` and ``finish_field()`` to separate fields.
-    
+
     >>> gw = GraphWriter(my_file)
     >>> gw.start_field("content")
     >>> gw.insert("alfalfa")
@@ -1034,7 +1034,7 @@ class GraphWriter(object):
 
     def insert(self, key, value=None):
         """Inserts the given key into the graph.
-        
+
         :param key: a sequence of bytes objects, a bytes object, or a string.
         :param value: an optional value to encode in the graph along with the
             key. If the writer was not instantiated with a value type, passing
@@ -1548,5 +1548,3 @@ def dump_graph(graph, address=None, tab=0, out=None):
                   % (arc.label, arc.target, arc.accept, arc.value))
         if arc.target is not None:
             dump_graph(graph, arc.target, tab + 1, out=out)
-
-

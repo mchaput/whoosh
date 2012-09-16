@@ -341,6 +341,3 @@ def test_span_characters():
                 startchar, endchar = span.startchar, span.endchar
                 assert_equal(orig[startchar:endchar], "bravo echo")
             m.next()
-
-
-

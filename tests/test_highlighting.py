@@ -258,8 +258,3 @@ def test_highlight_ngrams():
         r.formatter = highlight.UppercaseFormatter()
         snippet = r[0].highlights("text")
         assert_equal(snippet, "MULTIPLICATIon and subtracTION are good")
-
-
-
-
-

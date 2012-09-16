@@ -100,43 +100,43 @@ def synonyms(word2nums, num2words, word):
 class Thesaurus(object):
     """Represents the WordNet synonym database, either loaded into memory
     from the wn_s.pl Prolog file, or stored on disk in a Whoosh index.
-    
+
     This class allows you to parse the prolog file "wn_s.pl" from the WordNet prolog
     download into an object suitable for looking up synonyms and performing query
     expansion.
 
     http://wordnetcode.princeton.edu/3.0/WNprolog-3.0.tar.gz
-    
+
     To load a Thesaurus object from the wn_s.pl file...
-    
+
     >>> t = Thesaurus.from_filename("wn_s.pl")
-    
+
     To save the in-memory Thesaurus to a Whoosh index...
-    
+
     >>> from whoosh.filedb.filestore import FileStorage
     >>> fs = FileStorage("index")
     >>> t.to_storage(fs)
-    
+
     To load a Thesaurus object from a Whoosh index...
-    
+
     >>> t = Thesaurus.from_storage(fs)
-    
+
     The Thesaurus object is thus usable in two ways:
-    
+
     * Parse the wn_s.pl file into memory (Thesaurus.from_*) and then look up
       synonyms in memory. This has a startup cost for parsing the file, and uses
       quite a bit of memory to store two large dictionaries, however synonym
       look-ups are very fast.
-      
+
     * Parse the wn_s.pl file into memory (Thesaurus.from_filename) then save it to
       an index (to_storage). From then on, open the thesaurus from the saved
       index (Thesaurus.from_storage). This has a large cost for storing the index,
       but after that it is faster to open the Thesaurus (than re-parsing the file)
       but slightly slower to look up synonyms.
-    
+
     Here are timings for various tasks on my (fast) Windows machine, which might
     give an idea of relative costs for in-memory vs. on-disk.
-    
+
     ================================================ ================
     Task                                             Approx. time (s)
     ================================================ ================
@@ -146,7 +146,7 @@ class Thesaurus(object):
     Look up synonyms for "light" (in memory)         0.0011
     Look up synonyms for "light" (loaded from disk)  0.0028
     ================================================ ================
-    
+
     Basically, if you can afford spending the memory necessary to parse the
     Thesaurus and then cache it, it's faster. Otherwise, use an on-disk index.
     """
@@ -160,7 +160,7 @@ class Thesaurus(object):
     def from_file(cls, fileobj):
         """Creates a Thesaurus object from the given file-like object, which should
         contain the WordNet wn_s.pl file.
-        
+
         >>> f = open("wn_s.pl")
         >>> t = Thesaurus.from_file(f)
         >>> t.synonyms("hail")
@@ -175,7 +175,7 @@ class Thesaurus(object):
     def from_filename(cls, filename):
         """Creates a Thesaurus object from the given filename, which should
         contain the WordNet wn_s.pl file.
-        
+
         >>> t = Thesaurus.from_filename("wn_s.pl")
         >>> t.synonyms("hail")
         ['acclaim', 'come', 'herald']
@@ -191,13 +191,13 @@ class Thesaurus(object):
     def from_storage(cls, storage, indexname="THES"):
         """Creates a Thesaurus object from the given storage object,
         which should contain an index created by Thesaurus.to_storage().
-        
+
         >>> from whoosh.filedb.filestore import FileStorage
         >>> fs = FileStorage("index")
         >>> t = Thesaurus.from_storage(fs)
         >>> t.synonyms("hail")
         ['acclaim', 'come', 'herald']
-        
+
         :param storage: A :class:`whoosh.store.Storage` object from
             which to load the index.
         :param indexname: A name for the index. This allows you to
@@ -212,12 +212,12 @@ class Thesaurus(object):
     def to_storage(self, storage, indexname="THES"):
         """Creates am index in the given storage object from the
         synonyms loaded from a WordNet file.
-        
+
         >>> from whoosh.filedb.filestore import FileStorage
         >>> fs = FileStorage("index")
         >>> t = Thesaurus.from_filename("wn_s.pl")
         >>> t.to_storage(fs)
-        
+
         :param storage: A :class:`whoosh.store.Storage` object in
             which to save the index.
         :param indexname: A name for the index. This allows you to
@@ -230,7 +230,7 @@ class Thesaurus(object):
 
     def synonyms(self, word):
         """Returns a list of synonyms for the given word.
-        
+
         >>> thesaurus.synonyms("hail")
         ['acclaim', 'come', 'herald']
         """
@@ -247,9 +247,9 @@ if __name__ == "__main__":
     st = FileStorage("c:/testindex")
 
 #    th = Thesaurus.from_filename("c:/wordnet/wn_s.pl")
-#    
+#
 #    th.to_storage(st)
-#    
+#
 #    t = clock()
 #    print th.synonyms("light")
 #    print(clock() - t)

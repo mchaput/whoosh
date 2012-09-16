@@ -492,5 +492,3 @@ class Variations(ExpandingTerm):
         if q.fieldname == fieldname and q.text == oldtext:
             q.text = newtext
         return q
-
-

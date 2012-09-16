@@ -114,6 +114,3 @@ def test_more_like():
             docnum = s.document_number(id="3")
             r = s.more_like(docnum, "text")
             assert_equal([hit["id"] for hit in r], ["5", "4"])
-
-
-

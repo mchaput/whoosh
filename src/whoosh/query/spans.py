@@ -92,9 +92,9 @@ class Span(object):
     @classmethod
     def merge(cls, spans):
         """Merges overlapping and touches spans in the given list of spans.
-        
+
         Note that this modifies the original list.
-        
+
         >>> spans = [Span(1,2), Span(3)]
         >>> Span.merge(spans)
         >>> spans
@@ -172,7 +172,7 @@ class SpanWrappingMatcher(wrappers.WrappingMatcher):
     """An abstract matcher class that wraps a "regular" matcher. This matcher
     uses the sub-matcher's matching logic, but only matches documents that have
     matching spans, i.e. where ``_get_spans()`` returns a non-empty list.
-    
+
     Subclasses must implement the ``_get_spans()`` method, which returns a list
     of valid spans for the current document.
     """
@@ -245,7 +245,7 @@ class SpanQuery(Query):
     (for example, SpanNear wraps an And query, because SpanNear requires that
     the two sub-queries occur in the same documents. The wrapped query is
     stored in the ``q`` attribute.
-    
+
     Subclasses usually only need to implement the initializer to set the
     wrapped query, and ``matcher()`` to return a span-aware matcher object.
     """
@@ -320,28 +320,28 @@ class SpanNear(SpanQuery):
     """Matches queries that occur near each other. By default, only matches
     queries that occur right next to each other (slop=1) and in order
     (ordered=True).
-    
+
     For example, to find documents where "whoosh" occurs next to "library"
     in the "text" field::
-    
+
         from whoosh import query, spans
         t1 = query.Term("text", "whoosh")
         t2 = query.Term("text", "library")
         q = spans.SpanNear(t1, t2)
-        
+
     To find documents where "whoosh" occurs at most 5 positions before
     "library"::
-    
+
         q = spans.SpanNear(t1, t2, slop=5)
-        
+
     To find documents where "whoosh" occurs at most 5 positions before or after
     "library"::
-    
+
         q = spans.SpanNear(t1, t2, slop=5, ordered=False)
-        
+
     You can use the ``phrase()`` class method to create a tree of SpanNear
     queries to match a list of terms::
-    
+
         q = spans.SpanNear.phrase("text", ["whoosh", "search", "library"],
                                   slop=2)
     """
@@ -397,12 +397,12 @@ class SpanNear(SpanQuery):
     @classmethod
     def phrase(cls, fieldname, words, slop=1, ordered=True):
         """Returns a tree of SpanNear queries to match a list of terms.
-        
+
         This class method is a convenience for constructing a phrase query
         using a binary tree of SpanNear queries::
-        
+
             SpanNear.phrase("content", ["alfa", "bravo", "charlie", "delta"])
-        
+
         :param fieldname: the name of the field to search in.
         :param words: a sequence of texts to search for.
         :param slop: the number of positions within which the terms must
@@ -536,10 +536,10 @@ class SpanNot(SpanBiQuery):
     """Matches spans from the first query only if they don't overlap with
     spans from the second query. If there are no non-overlapping spans, the
     document does not match.
-    
+
     For example, to match documents that contain "bear" at most 2 places after
     "apple" in the "text" field but don't have "cute" between them::
-    
+
         from whoosh import query, spans
         t1 = query.Term("text", "apple")
         t2 = query.Term("text", "bear")
@@ -585,10 +585,10 @@ class SpanNot(SpanBiQuery):
 class SpanContains(SpanBiQuery):
     """Matches documents where the spans of the first query contain any spans
     of the second query.
-    
+
     For example, to match documents where "apple" occurs at most 10 places
     before "bear" in the "text" field and "cute" is between them::
-    
+
         from whoosh import query, spans
         t1 = query.Term("text", "apple")
         t2 = query.Term("text", "bear")
@@ -633,10 +633,10 @@ class SpanContains(SpanBiQuery):
 class SpanBefore(SpanBiQuery):
     """Matches documents where the spans of the first query occur before any
     spans of the second query.
-    
+
     For example, to match documents where "apple" occurs anywhere before
     "bear"::
-    
+
         from whoosh import query, spans
         t1 = query.Term("text", "apple")
         t2 = query.Term("text", "bear")
@@ -668,15 +668,15 @@ class SpanBefore(SpanBiQuery):
 class SpanCondition(SpanBiQuery):
     """Matches documents that satisfy both subqueries, but only uses the spans
     from the first subquery.
-    
+
     This is useful when you want to place conditions on matches but not have
     those conditions affect the spans returned.
-    
+
     For example, to get spans for the term ``alfa`` in documents that also
     must contain the term ``bravo``::
-    
+
         SpanCondition(Term("text", u"alfa"), Term("text", u"bravo"))
-    
+
     """
 
     def __init__(self, a, b):
@@ -692,8 +692,3 @@ class SpanCondition(SpanBiQuery):
 
         def _get_spans(self):
             return self.a.spans()
-
-
-
-
-

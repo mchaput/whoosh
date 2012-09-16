@@ -37,8 +37,8 @@ class Tagger(object):
 
     def match(self, parser, text, pos):
         """This method should see if this tagger matches the query string at
-        the given position. If it matches, it should return 
-        
+        the given position. If it matches, it should return
+
         :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
         :param text: the text being parsed.
         :param pos: the position in the text at which the tagger should try to
@@ -67,7 +67,7 @@ class RegexTagger(Tagger):
     def create(self, parser, match):
         """When the regular expression matches, this method is called to
         translate the regex match object into a syntax node.
-        
+
         :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
         :param match: the regex match object.
         """
@@ -91,9 +91,3 @@ class FnTagger(RegexTagger):
 
     def create(self, parser, match):
         return self.fn(**match.groupdict())
-
-
-
-
-
-

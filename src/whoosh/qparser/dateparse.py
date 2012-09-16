@@ -188,7 +188,7 @@ class Sequence(MultiBase):
 class Combo(Sequence):
     """Parses a sequence of elements in order and combines the dates parsed
     by the sub-elements somehow. The default behavior is to accept two dates
-    from the sub-elements and turn them into a range. 
+    from the sub-elements and turn them into a range.
     """
 
     def __init__(self, elements, fn=None, sep="(\\s+|\\s*,\\s*)", min=2, max=2,
@@ -411,10 +411,10 @@ class ToEnd(ParserBase):
 class Regex(ParserBase):
     """Matches a regular expression and maps named groups in the pattern to
     datetime attributes using a function or overridden method.
-    
+
     There are two points at which you can customize the behavior of this class,
     either by supplying functions to the initializer or overriding methods.
-    
+
     * The ``modify`` function or ``modify_props`` method takes a ``Props``
       object containing the named groups and modifies its values (in place).
     * The ``fn`` function or ``props_to_date`` method takes a ``Props`` object
@@ -726,7 +726,7 @@ class English(DateParser):
 
 class DateParserPlugin(plugins.Plugin):
     """Adds more powerful parsing of DATETIME fields.
-    
+
     >>> parser.add_plugin(DateParserPlugin())
     >>> parser.parse(u"date:'last tuesday'")
     """

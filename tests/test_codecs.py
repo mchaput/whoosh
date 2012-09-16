@@ -687,24 +687,3 @@ def test_memory_multiwrite():
     assert_equal([sf["line"] for sf in reader.all_stored_fields()], domain)
     assert_equal(" ".join(reader.field_terms("line")),
                  "alfa bravo charlie delta echo foxtrot india juliet")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

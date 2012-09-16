@@ -389,7 +389,3 @@ def test_prefix_address():
 
             sugs = s.suggest("f2", u("aa"), maxdist=2, prefix=2)
             assert_equal(sorted(sugs), ["aa12", "aa34", "aa56", "aa78"])
-
-
-
-

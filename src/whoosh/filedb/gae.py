@@ -9,7 +9,7 @@ Use at your own risk, but please report any problems to me so I can fix them.
 To create a new index::
 
     from whoosh.filedb.gae import DataStoreStorage
-    
+
     ix = DataStoreStorage().create_index(schema)
 
 To open an existing index::

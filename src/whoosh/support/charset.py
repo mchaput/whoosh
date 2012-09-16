@@ -12,12 +12,12 @@ from whoosh.compat import izip, u, iteritems, unichr
 
 # This is a straightforward accent-folding charset taken from Carlos Bueno's
 # article "Accent Folding for Auto-Complete", for use with CharsetFilter.
-# 
+#
 # http://www.alistapart.com/articles/accent-folding-for-auto-complete/
 #
 # See the article for information and caveats. The code is lifted directly
 # from here:
-# 
+#
 # http://github.com/aristus/accent-folding/blob/master/accent_fold.py
 
 accent_map = {
@@ -1259,24 +1259,24 @@ U+FF10..U+FF19->0..9, U+FF21..U+FF3A->a..z, U+FF41..U+FF5A->a..z, 0..9, A..Z->a.
 #
 # A->a
 #     Single char mapping, declares source char 'A' as allowed to occur within keywords
-#     and maps it to destination char 'a' (but does not declare 'a' as allowed). 
+#     and maps it to destination char 'a' (but does not declare 'a' as allowed).
 # A..Z->a..z
 #     Range mapping, declares all chars in source range as allowed and maps them to
 #     the destination range. Does not declare destination range as allowed. Also checks
-#     ranges' lengths (the lengths must be equal). 
+#     ranges' lengths (the lengths must be equal).
 # a
 #     Stray char mapping, declares a character as allowed and maps it to itself.
-#     Equivalent to a->a single char mapping. 
+#     Equivalent to a->a single char mapping.
 # a..z
 #     Stray range mapping, declares all characters in range as allowed and maps them to
-#     themselves. Equivalent to a..z->a..z range mapping. 
+#     themselves. Equivalent to a..z->a..z range mapping.
 # A..Z/2
 #     Checkerboard range map. Maps every pair of chars to the second char.
 #     More formally, declares odd characters in range as allowed and maps them to the
 #     even ones; also declares even characters as allowed and maps them to themselves.
 #     For instance, A..Z/2 is equivalent to A->B, B->B, C->D, D->D, ..., Y->Z, Z->Z.
 #     This mapping shortcut is helpful for a number of Unicode blocks where uppercase
-#     and lowercase letters go in such interleaved order instead of contiguous chunks. 
+#     and lowercase letters go in such interleaved order instead of contiguous chunks.
 
 _dewhite = re.compile(r"\s")
 _char = r"((?:U\+[0-9A-Fa-f]{4,6})|.)"
@@ -1303,7 +1303,7 @@ def charset_table_to_dict(tablestring):
     returns a mapping object (a defaultdict, actually) of the kind expected by
     the unicode.translate() method: that is, it maps a character number to a unicode
     character or None if the character is not a valid word character.
-    
+
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """

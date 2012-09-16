@@ -176,14 +176,14 @@ class IndexWriter(object):
         :meth:`~IndexWriter.start_group` and :meth:`~IndexWriter.end_group` for
         you, allowing you to use a ``with`` statement to group hierarchical
         documents::
-        
+
             with myindex.writer() as w:
                 with w.group():
                     w.add_document(kind="class", name="Accumulator")
                     w.add_document(kind="method", name="add")
                     w.add_document(kind="method", name="get_result")
                     w.add_document(kind="method", name="close")
-                
+
                 with w.group():
                     w.add_document(kind="class", name="Calculator")
                     w.add_document(kind="method", name="add")
@@ -197,7 +197,7 @@ class IndexWriter(object):
     def start_group(self):
         """Start indexing a group of hierarchical documents. The backend should
         ensure that these documents are all added to the same segment::
-        
+
             with myindex.writer() as w:
                 w.start_group()
                 w.add_document(kind="class", name="Accumulator")
@@ -205,7 +205,7 @@ class IndexWriter(object):
                 w.add_document(kind="method", name="get_result")
                 w.add_document(kind="method", name="close")
                 w.end_group()
-                
+
                 w.start_group()
                 w.add_document(kind="class", name="Calculator")
                 w.add_document(kind="method", name="add")
@@ -213,7 +213,7 @@ class IndexWriter(object):
                 w.add_document(kind="method", name="get_result")
                 w.add_document(kind="method", name="close")
                 w.end_group()
-        
+
         A more convenient way to group documents is to use the
         :meth:`~IndexWriter.group` method and the ``with`` statement.
         """
@@ -846,22 +846,22 @@ class SegmentWriter(IndexWriter):
 
     def commit(self, mergetype=None, optimize=None, merge=None):
         """Finishes writing and saves all additions and changes to disk.
-        
+
         There are four possible ways to use this method::
-        
+
             # Merge small segments but leave large segments, trying to
             # balance fast commits with fast searching:
             writer.commit()
-        
+
             # Merge all segments into a single segment:
             writer.commit(optimize=True)
-            
+
             # Don't merge any existing segments:
             writer.commit(merge=False)
-            
+
             # Use a custom merge function
             writer.commit(mergetype=my_merge_function)
-        
+
         :param mergetype: a custom merge function taking a Writer object and
             segment list as arguments, and returning a new segment list. If you
             supply a ``mergetype`` function, the values of the ``optimize`` and
@@ -1006,10 +1006,10 @@ def add_spelling(ix, fieldnames, commit=True):
     """Adds spelling files to an existing index that was created without
     them, and modifies the schema so the given fields have the ``spelling``
     attribute. Only works on filedb indexes.
-    
+
     >>> ix = index.open_dir("testindex")
     >>> add_spelling(ix, ["content", "tags"])
-    
+
     :param ix: a :class:`whoosh.filedb.fileindex.FileIndex` object.
     :param fieldnames: a list of field names to create word graphs for.
     :param force: if True, overwrites existing word graph files. This is only
@@ -1072,7 +1072,7 @@ class BufferedWriter(IndexWriter):
     >>> writer.add_document(...)
     >>> # Before the writer goes out of scope, call close() on it
     >>> writer.close()
-    
+
     .. note::
         This object stores documents in memory and may keep an underlying
         writer open, so you must explicitly call the
@@ -1225,12 +1225,3 @@ class BufferedWriter(IndexWriter):
 
 # Backwards compatibility with old name
 BatchWriter = BufferedWriter
-
-
-
-
-
-
-
-
-

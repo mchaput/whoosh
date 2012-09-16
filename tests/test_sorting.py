@@ -857,26 +857,3 @@ def test_filtered_grouped():
                        query.Term("text", "delta")])
         r = s.search(query.Every(), filter=f, groupedby="tag", limit=None)
         assert_equal(len(r), 24)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

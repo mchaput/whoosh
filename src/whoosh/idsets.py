@@ -242,7 +242,7 @@ class BaseBitSet(DocIdSet):
 
 class OnDiskBitSet(BaseBitSet):
     """A DocIdSet backed by an array of bits on disk.
-    
+
     >>> st = RamStorage()
     >>> f = st.create_file("test.bin")
     >>> bs = BitSet([1, 10, 15, 7, 2])
@@ -549,8 +549,3 @@ class SortedIntSet(DocIdSet):
 
         pos = bisect_right(data, i)
         return data[pos]
-
-
-
-
-
