@@ -124,7 +124,7 @@ class DatastoreStorage(Storage):
         return sum(self.file_length(f) for f in self.list())
 
     def file_exists(self, name):
-        return DatastoreFile.get_by_key_name(name) != None
+        return DatastoreFile.get_by_key_name(name) is not None
 
     def file_length(self, name):
         return len(DatastoreFile.get_by_key_name(name).value)
