@@ -111,7 +111,7 @@ class adatetime(object):
             if month is not None and (month < 1 or month > 12):
                 raise TimeError("month must be in 1..12")
 
-            if day is not None and  day < 1:
+            if day is not None and day < 1:
                 raise TimeError("day must be greater than 1")
             if (year is not None and month is not None and day is not None
                 and day > calendar.monthrange(year, month)[1]):
