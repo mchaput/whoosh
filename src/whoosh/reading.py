@@ -46,6 +46,7 @@ from whoosh.system import emptybytes
 class TermNotFound(Exception):
     pass
 
+
 class NoGraphError(Exception):
     pass
 
