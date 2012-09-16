@@ -118,7 +118,6 @@ class BaseScorer(object):
 
         raise NotImplementedError(self.__class__.__name__)
 
-
     def block_quality(self, matcher):
         """Returns the *maximum limit* on the possible score the matcher can
         give **in its current "block"** (whatever concept of "block" the

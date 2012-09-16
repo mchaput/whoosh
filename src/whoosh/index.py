@@ -702,7 +702,6 @@ class TOC(object):
 
         return schema, segments
 
-
     def write(self, storage, indexname):
         schema = ensure_schema(self.schema)
         schema.clean()
