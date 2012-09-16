@@ -215,7 +215,7 @@ class StructFile(object):
     def read_byte(self):
         return ord(self.read(1))
 
-    def write_pickle(self, obj, protocol= -1):
+    def write_pickle(self, obj, protocol=-1):
         """Writes a pickled representation of obj to the wrapped file.
         """
         dump_pickle(obj, self.file, protocol)

@@ -78,10 +78,10 @@ class ParserBase(object):
         else:
             return e
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         raise NotImplementedError
 
-    def date_from(self, text, dt=None, pos=0, debug= -9999):
+    def date_from(self, text, dt=None, pos=0, debug=-9999):
         if dt is None:
             dt = datetime.now()
 
@@ -132,7 +132,7 @@ class Sequence(MultiBase):
             self.sep_expr = None
         self.progressive = progressive
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         d = adatetime()
         first = True
         foundall = False
@@ -210,7 +210,7 @@ class Combo(Sequence):
         self.min = min
         self.max = max
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         dates = []
         first = True
 
@@ -265,7 +265,7 @@ class Choice(MultiBase):
     """Returns the date from the first of its sub-elements that matches.
     """
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         print_debug(debug, "Choice %s text=%r", self.name, text[pos:])
         for e in self.elements:
             print_debug(debug, "Choice %s trying=%r", self.name, e)
@@ -310,7 +310,7 @@ class Bag(MultiBase):
         self.allof = allof
         self.anyof = anyof
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         first = True
         d = adatetime()
         seen = [False] * len(self.elements)
@@ -373,7 +373,7 @@ class Optional(ParserBase):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.element)
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         try:
             d, pos = self.element.parse(text, dt, pos, debug + 1)
         except TimeError:
@@ -396,7 +396,7 @@ class ToEnd(ParserBase):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.element)
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         try:
             d, pos = self.element.parse(text, dt, pos, debug + 1)
         except TimeError:
@@ -433,7 +433,7 @@ class Regex(ParserBase):
     def __repr__(self):
         return "<%r>" % (self.pattern,)
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         m = self.expr.match(text, pos)
         if not m:
             return (None, None)
@@ -618,7 +618,7 @@ class DateParser(object):
     def get_parser(self):
         return self.all
 
-    def parse(self, text, dt, pos=0, debug= -9999):
+    def parse(self, text, dt, pos=0, debug=-9999):
         parser = self.get_parser()
 
         d, newpos = parser.parse(text, dt, pos=pos, debug=debug)
@@ -627,7 +627,7 @@ class DateParser(object):
 
         return (d, newpos)
 
-    def date_from(self, text, basedate=None, pos=0, debug= -9999, toend=True):
+    def date_from(self, text, basedate=None, pos=0, debug=-9999, toend=True):
         if basedate is None:
             basedate = datetime.utcnow()
 
@@ -674,12 +674,12 @@ class English(DateParser):
                            name="time")
 
         def tomorrow_to_date(p, dt):
-            d = dt.date() + timedelta(days= +1)
+            d = dt.date() + timedelta(days=+1)
             return adatetime(year=d.year, month=d.month, day=d.day)
         tomorrow = Regex("tomorrow", tomorrow_to_date)
 
         def yesterday_to_date(p, dt):
-            d = dt.date() + timedelta(days= -1)
+            d = dt.date() + timedelta(days=-1)
             return adatetime(year=d.year, month=d.month, day=d.day)
         yesterday = Regex("yesterday", yesterday_to_date)
 
