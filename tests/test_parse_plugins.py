@@ -568,11 +568,3 @@ def test_sequence_plugin():
     assert_equal(q[1].slop, 2)
     assert_equal(q[1][1].__class__, query.FuzzyTerm)
     assert_equal(q[1][1].maxdist, 3)
-
-
-
-
-
-
-
-

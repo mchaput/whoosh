@@ -36,7 +36,7 @@ from whoosh.analysis.tokenizers import Tokenizer, RegexTokenizer
 
 class NgramTokenizer(Tokenizer):
     """Splits input text into N-grams instead of words.
-    
+
     >>> ngt = NgramTokenizer(4)
     >>> [token.text for token in ngt("hi there")]
     ["hi t", "i th", " the", "ther", "here"]
@@ -45,7 +45,7 @@ class NgramTokenizer(Tokenizer):
     words, so the grams emitted by it will contain whitespace, punctuation,
     etc. You may want to massage the input or add a custom filter to this
     tokenizer's output.
-    
+
     Alternatively, if you only want sub-word grams without whitespace, you
     could combine a RegexTokenizer with NgramFilter instead.
     """
@@ -118,7 +118,7 @@ class NgramTokenizer(Tokenizer):
 
 class NgramFilter(Filter):
     """Splits token text into N-grams.
-    
+
     >>> rext = RegexTokenizer()
     >>> stream = rext("hello there")
     >>> ngf = NgramFilter(4)
@@ -222,7 +222,7 @@ class NgramFilter(Filter):
 
 def NgramAnalyzer(minsize, maxsize=None):
     """Composes an NgramTokenizer and a LowercaseFilter.
-    
+
     >>> ana = NgramAnalyzer(4)
     >>> [token.text for token in ana("hi there")]
     ["hi t", "i th", " the", "ther", "here"]
@@ -235,4 +235,3 @@ def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
     if not tokenizer:
         tokenizer = RegexTokenizer()
     return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
-

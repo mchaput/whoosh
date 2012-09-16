@@ -33,21 +33,21 @@ involved in analysis:
   a string and yield Token objects (actually, the same token object over and
   over, for performance reasons) corresponding to the tokens (words) in the
   text.
-      
+
   Every tokenizer is a callable that takes a string and returns an iterator of
   tokens.
 
 * Filters take the tokens from the tokenizer and perform various
   transformations on them. For example, the LowercaseFilter converts all tokens
   to lowercase, which is usually necessary when indexing regular English text.
-      
+
   Every filter is a callable that takes a token generator and returns a token
   generator.
 
 * Analyzers are convenience functions/classes that "package up" a tokenizer and
   zero or more filters into a single unit. For example, the StandardAnalyzer
   combines a RegexTokenizer, LowercaseFilter, and StopFilter.
-    
+
   Every analyzer is a callable that takes a string and returns a token
   iterator. (So Tokenizers can be used as Analyzers if you don't need any
   filtering).
@@ -67,9 +67,3 @@ from whoosh.analysis.morph import *
 from whoosh.analysis.intraword import *
 from whoosh.analysis.ngrams import *
 from whoosh.analysis.analyzers import *
-
-
-
-
-
-

@@ -76,7 +76,7 @@ class LockBase(object):
 
     def acquire(self, blocking=False):
         """Acquire the lock. Returns True if the lock was acquired.
-        
+
         :param blocking: if True, call blocks until the lock is acquired.
             This may not be available on all platforms. On Windows, this is
             actually just a delay of 10 seconds, rechecking every second.

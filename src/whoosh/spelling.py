@@ -87,7 +87,7 @@ class Corrector(object):
     def _suggestions(self, text, maxdist, prefix):
         """Low-level method that yields a series of (score, "suggestion")
         tuples.
-        
+
         :param text: the text to check.
         :param maxdist: the maximum edit distance.
         :param prefix: require suggestions to share a prefix of this length
@@ -99,7 +99,7 @@ class Corrector(object):
 
 class ReaderCorrector(Corrector):
     """Suggests corrections based on the content of a field in a reader.
-    
+
     Ranks suggestions by the edit distance, then by highest to lowest
     frequency.
     """
@@ -123,7 +123,7 @@ class ReaderCorrector(Corrector):
 class GraphCorrector(Corrector):
     """Suggests corrections based on the content of a raw
     :class:`whoosh.fst.GraphReader` object.
-    
+
     By default ranks suggestions based on the edit distance.
     """
 
@@ -151,11 +151,11 @@ class MultiCorrector(Corrector):
 
 def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
     """Writes a word graph file from a list of words.
-    
+
     >>> # Open a word list file with one word on each line, and write the
     >>> # word graph to a graph file
     >>> wordlist_to_graph_file("mywords.txt", "mywords.dawg")
-    
+
     :param wordlist: an iterable containing the words for the graph. The words
         must be in sorted order.
     :param dbfile: a filename string or file-like object to write the word
@@ -183,7 +183,7 @@ def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
 class Correction(object):
     """Represents the corrected version of a user query string. Has the
     following attributes:
-    
+
     ``query``
         The corrected :class:`whoosh.query.Query` object.
     ``string``
@@ -194,16 +194,16 @@ class Correction(object):
         The original user query string.
     ``tokens``
         A list of token objects representing the corrected words.
-    
+
     You can also use the :meth:`Correction.format_string` to reformat the
     corrected query string using a :class:`whoosh.highlight.Formatter` class.
     For example, to display the corrected query string as HTML with the
     changed words emphasized::
-    
+
         from whoosh import highlight
-        
+
         correction = mysearcher.correct_query(q, qstring)
-        
+
         hf = highlight.HtmlFormatter(classname="change")
         html = correction.format_string(hf)
     """
@@ -242,7 +242,7 @@ class QueryCorrector(object):
     def correct_query(self, q, qstring):
         """Returns a :class:`Correction` object representing the corrected
         form of the given query.
-        
+
         :param q: the original :class:`whoosh.query.Query` tree to be
             corrected.
         :param qstring: the original user query. This may be None if the

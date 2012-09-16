@@ -19,7 +19,7 @@ from whoosh.util import now
 
 class Enron(Spec):
     name = "enron"
-    
+
     enron_archive_url = "http://www.cs.cmu.edu/~enron/enron_mail_082109.tar.gz"
     enron_archive_filename = "enron_mail_082109.tar.gz"
     cache_filename = "enron_cache.pickle"
@@ -29,20 +29,20 @@ class Enron(Spec):
 
     main_field = "body"
     headline_field = "subject"
-    
+
     field_order = ("subject", "date", "from", "to", "cc", "bcc", "body")
-    
+
     cachefile = None
 
     # Functions for downloading and then reading the email archive and caching
     # the messages in an easier-to-digest format
-    
+
     def download_archive(self, archive):
         print("Downloading Enron email archive to %r..." % archive)
         t = now()
         urlretrieve(self.enron_archive_url, archive)
         print("Downloaded in ", now() - t, "seconds")
-    
+
     @staticmethod
     def get_texts(archive):
         archive = tarfile.open(archive, "r:gz")
@@ -55,7 +55,7 @@ class Enron(Spec):
             if f is not None:
                 text = f.read()
                 yield text
-    
+
     @staticmethod
     def get_messages(archive, headers=True):
         header_to_field = Enron.header_to_field
@@ -74,13 +74,13 @@ class Enron(Spec):
                     if v:
                         d[fn] = v.decode("latin_1")
             yield d
-    
+
     def cache_messages(self, archive, cache):
         print("Caching messages in %s..." % cache)
-        
+
         if not os.path.exists(archive):
             raise Exception("Archive file %r does not exist" % archive)
-        
+
         t = now()
         f = open(cache, "wb")
         c = 0
@@ -94,21 +94,21 @@ class Enron(Spec):
     def setup(self):
         archive = os.path.abspath(os.path.join(self.options.dir, self.enron_archive_filename))
         cache = os.path.abspath(os.path.join(self.options.dir, self.cache_filename))
-    
+
         if not os.path.exists(archive):
             self.download_archive(archive)
         else:
             print("Archive is OK")
-        
+
         if not os.path.exists(cache):
             self.cache_messages(archive, cache)
         else:
             print("Cache is OK")
-    
+
     def documents(self):
         if not os.path.exists(self.cache_filename):
             raise Exception("Message cache does not exist, use --setup")
-        
+
         f = open(self.cache_filename, "rb")
         try:
             while True:
@@ -118,7 +118,7 @@ class Enron(Spec):
         except EOFError:
             pass
         f.close()
-    
+
     def whoosh_schema(self):
         ana = analysis.StemmingAnalyzer(maxsize=40, cachesize=None)
         storebody = self.options.storebody
@@ -148,20 +148,20 @@ class Enron(Spec):
         conn.add_field_action('cc', xappy.FieldActions.INDEX_EXACT)
         conn.add_field_action('bcc', xappy.FieldActions.INDEX_EXACT)
         return conn
-    
+
     def zcatalog_setup(self, cat):
         from zcatalog import indexes
         for name in ("date", "frm"):
             cat[name] = indexes.FieldIndex(field_name=name)
         for name in ("to", "subject", "cc", "bcc", "body"):
             cat[name] = indexes.TextIndex(field_name=name)
-    
+
     def process_document_whoosh(self, d):
         d["filepos"] = self.filepos
         if self.options.storebody:
             mf = self.main_field
             d["_stored_%s" % mf] = compress(d[mf], 9)
-    
+
     def process_result_whoosh(self, d):
         mf = self.main_field
         if mf in d:
@@ -174,11 +174,11 @@ class Enron(Spec):
             dd = load(self.cachefile)
             d.fields()[mf] = dd[mf]
         return d
-            
+
     def process_document_xapian(self, d):
         d[self.main_field] = " ".join([d.get(name, "") for name
                                        in self.field_order])
-    
+
 
 
 if __name__=="__main__":

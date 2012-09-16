@@ -112,10 +112,10 @@ def skip_if(cond):
 def skip_if_unavailable(modulename, attr=None):
     """A Nose test decorator that only runs the decorated test if a module
     can be imported::
-    
+
         @skip_if_unavailable("multiprocessing")
         def test_mp():
-    
+
     Raises ``SkipTest`` if the module cannot be imported.
     """
 
@@ -156,7 +156,3 @@ def check_abstract_methods(base, subclass):
             if is_abstract_method(oattr):
                 raise Exception("%s.%s not overridden"
                                 % (subclass.__name__, attrname))
-
-
-
-

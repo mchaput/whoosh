@@ -72,4 +72,3 @@ classes = {"da": DanishStemmer,
            "es": SpanishStemmer,
            "sv": SwedishStemmer,
            }
-

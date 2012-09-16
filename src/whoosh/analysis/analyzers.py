@@ -117,11 +117,11 @@ def IDAnalyzer(lowercase=False):
 
 def KeywordAnalyzer(lowercase=False, commas=False):
     """Parses whitespace- or comma-separated tokens.
-    
+
     >>> ana = KeywordAnalyzer()
     >>> [token.text for token in ana("Hello there, this is a TEST")]
     ["Hello", "there,", "this", "is", "a", "TEST"]
-    
+
     :param lowercase: whether to lowercase the tokens.
     :param commas: if True, items are separated by commas rather than
         whitespace.
@@ -145,11 +145,11 @@ def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
 
 def SimpleAnalyzer(expression=default_pattern, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter.
-    
+
     >>> ana = SimpleAnalyzer()
     >>> [token.text for token in ana("Hello there, this is a TEST")]
     ["hello", "there", "this", "is", "a", "test"]
-    
+
     :param expression: The regular expression pattern to use to extract tokens.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
@@ -162,7 +162,7 @@ def StandardAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      minsize=2, maxsize=None, gaps=False):
     """Composes a RegexTokenizer with a LowercaseFilter and optional
     StopFilter.
-    
+
     >>> ana = StandardAnalyzer()
     >>> [token.text for token in ana("Testing is testing and testing")]
     ["testing", "testing", "testing"]
@@ -189,11 +189,11 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      ignore=None, cachesize=50000):
     """Composes a RegexTokenizer with a lower case filter, an optional stop
     filter, and a stemming filter.
-    
+
     >>> ana = StemmingAnalyzer()
     >>> [token.text for token in ana("Testing is testing and testing")]
     ["test", "test", "test"]
-    
+
     :param expression: The regular expression pattern to use to extract tokens.
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
@@ -221,11 +221,11 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
                   mergewords=False, mergenums=False):
     """Composes a RegexTokenizer with an IntraWordFilter, LowercaseFilter, and
     StopFilter.
-    
+
     >>> ana = FancyAnalyzer()
     >>> [token.text for token in ana("Should I call getInt or get_real?")]
     ["should", "call", "getInt", "get", "int", "get_real", "get", "real"]
-    
+
     :param expression: The regular expression pattern to use to extract tokens.
     :param stoplist: A list of stop words. Set this to None to disable
         the stop word filter.
@@ -247,11 +247,11 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
                      cachesize=50000):
     """Configures a simple analyzer for the given language, with a
     LowercaseFilter, StopFilter, and StemFilter.
-    
+
     >>> ana = LanguageAnalyzer("es")
     >>> [token.text for token in ana("Por el mar corren las liebres")]
     ['mar', 'corr', 'liebr']
-    
+
     :param expression: The regular expression pattern to use to extract tokens.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
@@ -281,8 +281,3 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
         pass
 
     return chain
-
-
-
-
-

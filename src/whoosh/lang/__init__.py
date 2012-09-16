@@ -124,6 +124,3 @@ def stopwords_for_language(lang):
         return stoplists[tlc]
 
     raise Exception("No stop-word list available for %r" % lang)
-
-
-

@@ -86,7 +86,7 @@ class HashWriter(object):
     are used to index into one of 256 hash tables. This is basically the CDB
     algorithm, but unlike CDB this object writes all data serially (it doesn't
     seek backwards to overwrite information at the end).
-    
+
     Also unlike CDB, this format uses 64-bit file pointers, so the file length
     is essentially unlimited. However, each key and value must be less than
     2 GB in length.
@@ -541,18 +541,3 @@ class OrderedHashReader(HashReader):
         dbfile = self.dbfile
         for keypos, keylen, datapos, datalen in self.ranges_from(key):
             yield (dbfile.get(keypos, keylen), dbfile.get(datapos, datalen))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

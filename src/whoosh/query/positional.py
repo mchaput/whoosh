@@ -37,7 +37,7 @@ from whoosh.query import qcore, terms, nary
 class Sequence(nary.CompoundQuery):
     """Matches documents containing a list of sub-queries in adjacent
     positions.
-    
+
     This object has no sanity check to prevent you from using queries in
     different fields.
     """
@@ -238,9 +238,3 @@ class Phrase(qcore.Query):
         if self.boost != 1.0:
             m = matching.WrappingMatcher(m, boost=self.boost)
         return m
-
-
-
-
-
-

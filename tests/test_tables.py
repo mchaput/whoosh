@@ -187,10 +187,3 @@ def test_checksum_file():
     assert_equal(cf.read_ushort(), 32959)
     assert_equal(cf.checksum(), target)
     cf.close()
-
-
-
-
-
-
-

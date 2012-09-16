@@ -444,17 +444,3 @@ class PlainSegment(base.Segment):
 
     def should_assemble(self):
         return False
-
-
-
-
-
-
-
-
-
-
-
-
-
-

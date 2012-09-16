@@ -384,7 +384,3 @@ class NestedChildren(WrappingQuery):
 
         def spans(self):
             return []
-
-
-
-
