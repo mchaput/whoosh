@@ -119,10 +119,3 @@ def test_version_object():
 
     assert_equal(sv(1, 2, 3).to_int(), 17213488128)
     assert_equal(sv.from_int(17213488128), sv(1, 2, 3))
-
-
-
-
-
-
-

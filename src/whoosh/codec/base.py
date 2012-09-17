@@ -333,7 +333,7 @@ class Segment(object):
     """Do not instantiate this object directly. It is used by the Index object
     to hold information about a segment. A list of objects of this class are
     pickled as part of the TOC file.
-    
+
     The TOC file stores a minimal amount of information -- mostly a list of
     Segment objects. Segments are the real reverse indexes. Having multiple
     segments allows quick incremental indexing: just create a new segment for
@@ -649,13 +649,3 @@ class FieldWriterWithGraph(FieldWriter):
     def _close_graph(self):
         if hasattr(self, "_gwriter") and self._gwriter:
             self._gwriter.close()
-
-
-
-
-
-
-
-
-
-

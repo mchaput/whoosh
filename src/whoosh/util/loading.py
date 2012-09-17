@@ -54,7 +54,7 @@ class RenamingUnpickler(pickle.Unpickler):
 
 def find_object(name, blacklist=None, whitelist=None):
     """Imports and returns an object given a fully qualified name.
-    
+
     >>> find_object("whoosh.analysis.StopFilter")
     <class 'whoosh.analysis.StopFilter'>
     """
@@ -82,7 +82,3 @@ def find_object(name, blacklist=None, whitelist=None):
     mod = __import__(modname, fromlist=[clsname])
     cls = getattr(mod, clsname)
     return cls
-
-
-
-

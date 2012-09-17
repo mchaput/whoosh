@@ -65,6 +65,3 @@ def test_simple_compound_nomap():
 #        CompoundStorage.assemble(f, st, ["a", "b"])
 #
 #        f = CompoundStorage(st, "f")
-
-
-

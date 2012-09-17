@@ -21,9 +21,3 @@ def test_add():
         r = s.search(query.Term("text", u("charlie")))
         assert_equal([hit["id"] for hit in r], [1, 3])
         assert_equal(len(r), 2)
-
-
-
-
-
-

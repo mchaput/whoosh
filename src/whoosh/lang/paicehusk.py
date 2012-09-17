@@ -211,7 +211,7 @@ tulo2v.   { -olut > -olv }
 tsis0.    { protect  -sist }
 tsi3>     { -ist > -   }
 tt1.      { -tt > -t   }
-uqi3.     { -iqu > -   } 
+uqi3.     { -iqu > -   }
 ugo1.     { -ogu > -og }
 vis3j>    { -siv > -j  }
 vie0.     { protect  -eiv }

@@ -104,7 +104,7 @@ def natural_key(s):
     ``name5`` will come before ``name10`` and ``1`` will come before ``A``).
     This function is designed to be used as the ``key`` argument to sorting
     functions.
-    
+
     :param s: the str/unicode string to convert.
     :rtype: tuple
     """
@@ -128,6 +128,3 @@ def rcompile(pattern, flags=0, verbose=False):
     if verbose:
         flags |= re.VERBOSE
     return re.compile(pattern, re.UNICODE | flags)
-
-
-

@@ -105,7 +105,7 @@ class Fragment(object):
         available).
     """
 
-    def __init__(self, text, matches, startchar=0, endchar= -1):
+    def __init__(self, text, matches, startchar=0, endchar=-1):
         """
         :param text: the source text of the fragment.
         :param matches: a list of objects which have ``startchar`` and
@@ -896,19 +896,3 @@ class Highlighter(object):
         fragments = top_fragments(fragments, top, self.scorer, self.order)
         output = self.formatter.format(fragments)
         return output
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

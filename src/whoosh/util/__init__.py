@@ -42,10 +42,10 @@ else:
 def make_binary_tree(fn, args, **kwargs):
     """Takes a function/class that takes two positional arguments and a list of
     arguments and returns a binary tree of results/instances.
-    
+
     >>> make_binary_tree(UnionMatcher, [matcher1, matcher2, matcher3])
     UnionMatcher(matcher1, UnionMatcher(matcher2, matcher3))
-    
+
     Any keyword arguments given to this function are passed to the class
     initializer.
     """
@@ -109,4 +109,3 @@ def synchronized(func):
             return func(self, *args, **kwargs)
 
     return synchronized_wrapper
-

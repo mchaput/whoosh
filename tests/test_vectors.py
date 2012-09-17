@@ -103,7 +103,3 @@ def test_add_vectored_field():
         docnum2 = s.document_number(id="b")
         assert not s.has_vector(docnum2, "f1")
         assert s.has_vector(docnum2, "f2")
-
-
-
-

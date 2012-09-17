@@ -300,7 +300,7 @@ class Query(object):
 
     def all_terms(self, phrases=True):
         """Returns a set of all terms in this query tree.
-        
+
         This method exists for backwards-compatibility. Use iter_all_terms()
         instead.
 
@@ -316,7 +316,7 @@ class Query(object):
         call this method using :meth:`Query.has_terms`.
 
         To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
-        
+
         :param exreader: a reader to use to expand multiterm queries such as
             prefixes and wildcards. The default is None meaning do not expand.
         """
@@ -329,7 +329,7 @@ class Query(object):
     def existing_terms(self, ixreader, phrases=True, expand=False):
         """Returns a set of all byteterms in this query tree that exist in
         the given ixreader.
-        
+
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
         :param phrases: Whether to add words found in Phrase queries.
         :param expand: If True, queries that match multiple terms
@@ -385,7 +385,7 @@ class Query(object):
         >>> # the index
         >>> [t for t in q.iter_all_terms() if r.doc_frequency(t[0], t[1]) < 5]
         [("title", "charlie")]
-        
+
         :param phrases: Whether to add words found in Phrase queries.
         :param expand: If True, queries that match multiple terms
             (such as :class:`Wildcard` and :class:`Prefix`) will return all
@@ -427,7 +427,7 @@ class Query(object):
         indexing into the original user query.
 
         To get all tokens for a query tree, use :meth:`Query.all_tokens`.
-        
+
         :param exreader: a reader to use to expand multiterm queries such as
             prefixes and wildcards. The default is None meaning do not expand.
         """
@@ -695,4 +695,3 @@ class Every(Query):
             doclist = sorted(doclist)
 
         return matching.ListMatcher(doclist, all_weights=self.boost)
-

@@ -84,7 +84,7 @@ class Format(object):
         token. For example, in a Frequency format, the value string would be
         the same as frequency; in a Positions format, the value string would
         encode a list of token positions at which "tokentext" occured.
-        
+
         :param value: The unicode text to index.
         :param analyzer: The analyzer to use to process the text.
         """
@@ -130,7 +130,7 @@ class Existence(Format):
     """Only indexes whether a given term occurred in a given document; it does
     not store frequencies or positions. This is useful for fields that should
     be searchable but not scorable, such as file path.
-    
+
     Supports: frequency, weight (always reports frequency = 1).
     """
 
@@ -161,7 +161,7 @@ class Existence(Format):
 
 class Frequency(Format):
     """Stores frequency information for each posting.
-    
+
     Supports: frequency, weight.
     """
 
@@ -209,7 +209,7 @@ class Frequency(Format):
 class Positions(Format):
     """Stores position information in each posting, to allow phrase searching
     and "near" queries.
-    
+
     Supports: frequency, weight, positions, position_boosts (always reports
     position boost = 1.0).
     """
@@ -266,7 +266,7 @@ class Positions(Format):
 class Characters(Positions):
     """Stores token position and character start and end information for each
     posting.
-    
+
     Supports: frequency, weight, positions, position_boosts (always reports
     position boost = 1.0), characters.
     """
@@ -339,7 +339,7 @@ class Characters(Positions):
 class PositionBoosts(Positions):
     """A format that stores positions and per-position boost information
     in each posting.
-    
+
     Supports: frequency, weight, positions, position_boosts.
     """
 
@@ -406,7 +406,7 @@ class PositionBoosts(Positions):
 class CharacterBoosts(Characters):
     """A format that stores positions, character start and end, and
     per-position boost information in each posting.
-    
+
     Supports: frequency, weight, positions, position_boosts, characters,
     character_boosts.
     """
@@ -479,20 +479,3 @@ class CharacterBoosts(Characters):
         poses = [(pos, sc, ec, boost) for pos, (sc, ec, boost)
                  in sorted(s.items())]
         return self.encode(poses)[0]  # encode() returns value, summedboost
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

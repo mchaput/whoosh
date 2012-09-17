@@ -47,7 +47,7 @@ class Tokenizer(Composable):
 class IDTokenizer(Tokenizer):
     """Yields the entire input string as a single token. For use in indexed but
     untokenized fields, such as a document's path.
-    
+
     >>> idt = IDTokenizer()
     >>> [token.text for token in idt("/a/b 123 alpha")]
     ["/a/b 123 alpha"]
@@ -74,7 +74,7 @@ class IDTokenizer(Tokenizer):
 class RegexTokenizer(Tokenizer):
     """
     Uses a regular expression to extract tokens from text.
-    
+
     >>> rex = RegexTokenizer()
     >>> [token.text for token in rex(u("hi there 3.141 big-time under_score"))]
     ["hi", "there", "3.141", "big", "time", "under_score"]
@@ -189,20 +189,20 @@ class CharsetTokenizer(Tokenizer):
     Characters that map to None are considered token break characters. For all
     other characters the map is used to translate the character. This is useful
     for case and accent folding.
-    
+
     This tokenizer loops character-by-character and so will likely be much
     slower than :class:`RegexTokenizer`.
-    
+
     One way to get a character mapping object is to convert a Sphinx charset
     table file using :func:`whoosh.support.charset.charset_table_to_dict`.
-    
+
     >>> from whoosh.support.charset import charset_table_to_dict
     >>> from whoosh.support.charset import default_charset
     >>> charmap = charset_table_to_dict(default_charset)
     >>> chtokenizer = CharsetTokenizer(charmap)
     >>> [t.text for t in chtokenizer(u'Stra\\xdfe ABC')]
     [u'strase', u'abc']
-    
+
     The Sphinx charset table format is described at
     http://www.sphinxsearch.com/docs/current.html#conf-charset-table.
     """
@@ -292,7 +292,7 @@ class CharsetTokenizer(Tokenizer):
 
 def SpaceSeparatedTokenizer():
     """Returns a RegexTokenizer that splits tokens by whitespace.
-    
+
     >>> sst = SpaceSeparatedTokenizer()
     >>> [token.text for token in sst("hi there big-time, what's up")]
     ["hi", "there", "big-time,", "what's", "up"]
@@ -303,10 +303,10 @@ def SpaceSeparatedTokenizer():
 
 def CommaSeparatedTokenizer():
     """Splits tokens by commas.
-    
+
     Note that the tokenizer calls unicode.strip() on each match of the regular
     expression.
-    
+
     >>> cst = CommaSeparatedTokenizer()
     >>> [token.text for token in cst("hi there, what's , up")]
     ["hi there", "what's", "up"]
@@ -331,6 +331,3 @@ class PathTokenizer(Tokenizer):
         for match in self.expr.finditer(value):
             token.text = value[:match.end()]
             yield token
-
-
-

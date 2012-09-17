@@ -8,11 +8,11 @@ class VulgarTongue(Spec):
     name = "dictionary"
     filename = "dcvgr10.txt.gz"
     headline_field = "head"
-    
+
     def documents(self):
         path = os.path.join(self.options.dir, self.filename)
         f = gzip.GzipFile(path)
-        
+
         head = body = None
         for line in f:
             line = line.decode("latin1")
@@ -22,10 +22,10 @@ class VulgarTongue(Spec):
                 head, body = line.split(".", 1)
             else:
                 body += line
-                
+
         if head:
             yield {"head": head, "body": head + body}
-    
+
     def whoosh_schema(self):
         ana = analysis.StemmingAnalyzer()
         #ana = analysis.StandardAnalyzer()

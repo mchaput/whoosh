@@ -364,4 +364,3 @@ class MultiSegmentWriter(MpWriter):
     def __init__(self, *args, **kwargs):
         MpWriter.__init__(self, *args, **kwargs)
         self.multisegment = True
-

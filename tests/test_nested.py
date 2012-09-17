@@ -315,11 +315,3 @@ def test_nested_children():
         f = sorting.StoredFieldFacet("song_name")
         r = s.search(zq, sortedby=f)
         assert_equal([hit["track"] for hit in r], [3, 2, 1])
-
-
-
-
-
-
-
-

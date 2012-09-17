@@ -36,9 +36,9 @@ class SyntaxNode(object):
     parsed user query string. The AST is an intermediate step, generated
     from the query string, then converted into a :class:`whoosh.query.Query`
     tree by calling the ``query()`` method on the nodes.
-    
+
     Instances have the following required attributes:
-    
+
     ``has_fieldname``
         True if this node has a ``fieldname`` attribute.
     ``has_text``
@@ -103,7 +103,7 @@ class SyntaxNode(object):
         """Sets the fieldname associated with this node. If ``override`` is
         False (the default), the fieldname will only be replaced if this node
         does not already have a fieldname set.
-        
+
         For nodes that don't have a fieldname, this is a no-op.
         """
 
@@ -116,7 +116,7 @@ class SyntaxNode(object):
 
     def set_boost(self, boost):
         """Sets the boost associated with this node.
-        
+
         For nodes that don't have a boost, this is a no-op.
         """
 
@@ -189,16 +189,16 @@ class FieldnameNode(SyntaxNode):
 class GroupNode(SyntaxNode):
     """Base class for abstract syntax tree node types that group together
     sub-nodes.
-    
+
     Instances have the following attributes:
-    
+
     ``merging``
         True if side-by-side instances of this group can be merged into a
         single group.
     ``qclass``
         If a subclass doesn't override ``query()``, the base class will simply
         wrap this class around the queries returned by the subnodes.
-    
+
     This class implements a number of list methods for operating on the
     subnodes.
     """
@@ -244,11 +244,11 @@ class GroupNode(SyntaxNode):
 
     def empty_copy(self):
         """Returns an empty copy of this group.
-        
+
         This is used in the common pattern where a filter creates an new
         group and then adds nodes from the input group to it if they meet
         certain criteria, then returns the new group::
-        
+
             def remove_whitespace(parser, group):
                 newgroup = group.empty_copy()
                 for node in group:
@@ -481,9 +481,9 @@ class RangeNode(SyntaxNode):
 class TextNode(SyntaxNode):
     """Intermediate base class for basic nodes that search for text, such as
     term queries, wildcards, prefixes, etc.
-    
+
     Instances have the following attributes:
-    
+
     ``qclass``
         If a subclass does not override ``query()``, the base class will use
         this class to construct the query.
@@ -538,7 +538,7 @@ class WordNode(TextNode):
 
 class Operator(SyntaxNode):
     """Base class for PrefixOperator, PostfixOperator, and InfixOperator.
-    
+
     Operators work by moving the nodes they apply to (e.g. for prefix operator,
     the previous node, for infix operator, the nodes on either side, etc.) into
     a group node. The group provides the code for what to do with the nodes.

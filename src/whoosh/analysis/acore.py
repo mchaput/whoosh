@@ -70,18 +70,18 @@ class Token(object):
     """
     Represents a "token" (usually a word) extracted from the source text being
     indexed.
-    
+
     See "Advanced analysis" in the user guide for more information.
-    
+
     Because object instantiation in Python is slow, tokenizers should create
     ONE SINGLE Token object and YIELD IT OVER AND OVER, changing the attributes
     each time.
-    
+
     This trick means that consumers of tokens (i.e. filters) must never try to
     hold onto the token object between loop iterations, or convert the token
     generator into a list. Instead, save the attributes between iterations,
     not the object::
-    
+
         def RemoveDuplicatesFilter(self, stream):
             # Removes duplicate words.
             lasttext = None
@@ -148,13 +148,3 @@ class Composable(object):
 
     def has_morph(self):
         return self.is_morph
-
-
-
-
-
-
-
-
-
-

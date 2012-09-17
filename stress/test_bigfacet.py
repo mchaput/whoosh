@@ -46,5 +46,3 @@ with ix.searcher() as s:
     facet = sorting.StoredFieldFacet("tags", allow_overlap=True)
     r = s.search(q, groupedby={"tags": facet})
     print r.runtime
-
-

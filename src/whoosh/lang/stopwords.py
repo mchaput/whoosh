@@ -281,5 +281,3 @@ stoplists = {
     niye o sanki şey siz şu tüm ve veya ya yani
     """.split()),
 }
-
-

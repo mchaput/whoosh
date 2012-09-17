@@ -510,15 +510,3 @@ def test_hit_column():
         assert_equal(len(r), 1)
         hit = r[0]
         assert_equal(hit["text"], "alfa bravo charlie")
-
-
-
-
-
-
-
-
-
-
-
-

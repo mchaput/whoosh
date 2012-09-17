@@ -37,4 +37,3 @@ setup(
     "Topic :: Text Processing :: Indexing",
     ],
 )
-

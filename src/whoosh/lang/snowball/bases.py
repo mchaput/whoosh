@@ -131,6 +131,3 @@ class _StandardStemmer(object):
                 rv = word[3:]
 
         return rv
-
-
-

@@ -281,16 +281,3 @@ def test_ref_switch():
             assert issubclass(w[-1].category, UserWarning)
     else:
         rw(65537)
-
-
-
-
-
-
-
-
-
-
-
-
-

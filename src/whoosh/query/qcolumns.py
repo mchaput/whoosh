@@ -32,7 +32,7 @@ from whoosh.query import Query
 class ColumnQuery(Query):
     """A query that matches per-document values stored in a column rather than
     terms in the inverted index.
-    
+
     This may be useful in special circumstances, but note that this is MUCH
     SLOWER than searching an indexed field.
     """
@@ -115,16 +115,3 @@ class ColumnMatcher(ConstantScoreMatcher):
         if self._score <= minquality:
             self._i = len(self.creader)
             return True
-
-
-
-
-
-
-
-
-
-
-
-
-

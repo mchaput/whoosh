@@ -10,7 +10,7 @@ class Reuters(Spec):
     filename = "reuters21578.txt.gz"
     main_field = "text"
     headline_text = "headline"
-    
+
     def whoosh_schema(self):
         #ana = analysis.StemmingAnalyzer()
         ana = analysis.StandardAnalyzer()
@@ -18,21 +18,21 @@ class Reuters(Spec):
                                headline=fields.STORED,
                                text=fields.TEXT(analyzer=ana, stored=True))
         return schema
-    
+
     def zcatalog_setup(self, cat):
         from zcatalog import indexes  #@UnresolvedImport
         cat["id"] = indexes.FieldIndex(field_name="id")
         cat["headline"] = indexes.TextIndex(field_name="headline")
         cat["body"] = indexes.TextIndex(field_name="text")
-    
+
     def documents(self):
         path = os.path.join(self.options.dir, self.filename)
         f = gzip.GzipFile(path)
-        
+
         for line in f:
             id, text = line.decode("latin1").split("\t")
             yield {"id": id, "text": text, "headline": text[:70]}
 
-        
+
 if __name__ == "__main__":
     Bench().run(Reuters)

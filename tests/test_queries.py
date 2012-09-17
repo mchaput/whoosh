@@ -413,17 +413,3 @@ def test_patterns():
         q = query.Regex("word", "ah*i")
         assert_equal(q.simplify(r).__unicode__(), "(word:ahi OR word:aim)")
         assert_equal(q._find_prefix(q.text), "a")
-
-
-
-
-
-
-
-
-
-
-
-
-
-

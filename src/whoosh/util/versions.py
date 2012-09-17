@@ -83,11 +83,11 @@ class BaseVersion(object):
 
 class SimpleVersion(BaseVersion):
     """An object that parses version numbers such as::
-    
+
         12.2.5b
-    
+
     The filter supports a limited subset of PEP 386 versions including::
-    
+
         1
         1.2
         1.2c
@@ -163,6 +163,3 @@ class SimpleVersion(BaseVersion):
         exnum = n & 1023
 
         return cls(major, minor, release, ex, exnum)
-
-
-

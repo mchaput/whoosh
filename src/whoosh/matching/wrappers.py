@@ -520,7 +520,7 @@ class SingleTermMatcher(WrappingMatcher):
 class CoordMatcher(WrappingMatcher):
     """Modifies the computed score to penalize documents that don't match all
     terms in the matcher tree.
-    
+
     Because this matcher modifies the score, it may give unexpected results
     when compared to another matcher returning the unmodified score.
     """
@@ -562,14 +562,3 @@ class CoordMatcher(WrappingMatcher):
             matching += 1
 
         return self._sqr(score, matching)
-
-
-
-
-
-
-
-
-
-
-
