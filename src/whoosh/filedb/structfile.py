@@ -25,12 +25,11 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os
 from array import array
 from copy import copy
 from struct import calcsize
 
-from whoosh.compat import BytesIO
+from whoosh.compat import BytesIO, bytes_type
 from whoosh.compat import dump as dump_pickle
 from whoosh.compat import load as load_pickle
 from whoosh.compat import array_frombytes, array_tobytes
@@ -346,7 +345,7 @@ class BufferFile(StructFile):
         return BufferFile(self.get(position, length), name=name)
 
     def get(self, position, length):
-        return self._buf[position:position + length]
+        return bytes_type(self._buf[position:position + length])
 
     def get_array(self, position, typecode, length):
         a = array(typecode)
