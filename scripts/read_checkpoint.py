@@ -49,6 +49,3 @@ with ix.searcher() as s:
         assert r[0]["dt"] == dt
 
 print("Done")
-
-
-

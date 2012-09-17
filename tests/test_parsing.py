@@ -1000,19 +1000,3 @@ def test_spacespace_and():
     assert_equal(len(q), 2)
     assert_equal(q[0], query.Term("f", "A"))
     assert_equal(q[1], query.Term("f", "B"))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

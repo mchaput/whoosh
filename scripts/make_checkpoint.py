@@ -54,6 +54,3 @@ with ix.writer() as w:
         print("Deleted", path, w.delete_by_term("path", path))
 
 print(counter, ix.doc_count())
-
-
-

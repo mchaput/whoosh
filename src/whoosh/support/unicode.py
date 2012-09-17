@@ -25,7 +25,7 @@ _blockdata = '''
 # Note:   When comparing block names, casing, whitespace, hyphens,
 #         and underbars are ignored.
 #         For example, "Latin Extended-A" and "latin extended a" are equivalent
-#         For more information on the comparison of property values, 
+#         For more information on the comparison of property values,
 #            see UCD.html.
 #
 #  All code points not explicitly listed for Block
@@ -257,7 +257,7 @@ def blockname(ch):
 
 def blocknum(ch):
     """Returns the unicode block number for ch, or None if ch has no block.
-    
+
     >>> blocknum(u'a')
     0
     >>> blocknum(unichr(0x0b80))

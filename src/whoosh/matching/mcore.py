@@ -605,5 +605,3 @@ class LeafMatcher(Matcher):
 
     def score(self):
         return self.scorer.score(self)
-
-

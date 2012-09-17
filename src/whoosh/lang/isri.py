@@ -380,5 +380,3 @@ class ISRIStemmer(object):
             if self.stm.startswith(sp1):
                 self.stm = self.stm[1:]
                 return self.stm
-
-

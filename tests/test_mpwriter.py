@@ -268,10 +268,3 @@ def test_batchsize_eq_doccount():
         with ix.writer(procs=4, batchsize=10) as w:
             for i in xrange(10):
                 w.add_document(a=u(str(i)))
-
-
-
-
-
-
-

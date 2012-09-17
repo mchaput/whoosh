@@ -145,7 +145,7 @@ def split_ranges(intsize, step, start, end):
     into a sequence of trie ranges of the form ``(start, end, shift)``. The
     consumer of these tuples is expected to shift the ``start`` and ``end``
     right by ``shift``.
-    
+
     This is used for generating term ranges for a numeric field. The queries
     for the edges of the range are generated at high precision and large blocks
     in the middle are generated at low precision.
@@ -315,5 +315,3 @@ def length_to_byte(length):
         return bisect_left(_length_byte_cache, length)
 
 byte_to_length = _length_byte_cache.__getitem__
-
-

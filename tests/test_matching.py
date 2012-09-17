@@ -500,14 +500,3 @@ def test_arrayunion():
     assert_equal(aum.id(), 50)
     aum.skip_to(550)
     assert_equal(aum.id(), 600)
-
-
-
-
-
-
-
-
-
-
-

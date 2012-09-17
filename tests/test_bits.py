@@ -186,8 +186,3 @@ def test_ondisk():
     f.seek(0)
     b = BitSet.from_disk(f, size)
     assert_equal(list(b), list(bs))
-
-
-
-
-

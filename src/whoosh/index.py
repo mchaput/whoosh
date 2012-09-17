@@ -702,7 +702,6 @@ class TOC(object):
 
         return schema, segments
 
-
     def write(self, storage, indexname):
         schema = ensure_schema(self.schema)
         schema.clean()
@@ -732,7 +731,3 @@ class TOC(object):
         stream.write_uint(stream.checksum())
         stream.close()
         storage.rename_file(tempfilename, tocfilename, safe=True)
-
-
-
-

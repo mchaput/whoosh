@@ -14,12 +14,12 @@ def test_readwrite():
                   "november", "oscar", "papa", "quebec", "romeo", "sierra",
                   "tango", "uniform", "victor", "whiskey", "xray", "yankee",
                   "zulu")
-        
+
         class WriterThread(threading.Thread):
             def run(self):
                 ix = st.create_index(dir, schema)
                 num = 0
-                
+
                 for i in xrange(50):
                     print(i)
                     w = ix.writer()
@@ -28,9 +28,9 @@ def test_readwrite():
                         w.add_document(id=text_type(num), content=content)
                         num += 1
                     w.commit()
-                    
+
                     time.sleep(0.1)
-        
+
         class SearcherThread(threading.Thread):
             def run(self):
                 print(self.name + " starting")
@@ -43,7 +43,7 @@ def test_readwrite():
                     ix.close()
                     time.sleep(0.1)
                 print(self.name + " done")
-        
+
         wt = WriterThread()
         wt.start()
         time.sleep(0.5)

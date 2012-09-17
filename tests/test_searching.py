@@ -1508,14 +1508,3 @@ def test_keyword_search():
     with ix.searcher() as s:
         r = s.search_page(query.Term("tags", "keyword3"), 1)
         assert r
-
-
-
-
-
-
-
-
-
-
-

@@ -193,5 +193,3 @@ class WeightingQuery(WrappingQuery):
         # Replace the passed-in weighting with the one configured on this query
         context.set(weighting=self.weighting)
         return self.child.matcher(searcher, context)
-
-

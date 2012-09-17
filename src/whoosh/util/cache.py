@@ -56,7 +56,7 @@ def lru_cache(maxsize=100):
     LRU algorithm that keeps a primary and secondary dict. Keys are checked
     in the primary dict, and then the secondary. Once the primary dict fills
     up, the secondary dict is cleared and the two dicts are swapped.
-    
+
     This function duplicates (more-or-less) the protocol of the
     ``functools.lru_cache`` decorator in the Python 3.2 standard library.
 

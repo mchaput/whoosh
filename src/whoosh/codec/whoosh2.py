@@ -2222,4 +2222,3 @@ def text_to_sortable_long(text):
     #assert len(text) == 17
     #return long(text[1:], 16)
     return from_base85(text[1:])
-

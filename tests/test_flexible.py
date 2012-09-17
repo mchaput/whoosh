@@ -104,9 +104,3 @@ def test_optimize_away():
 
 if __name__ == "__main__":
     test_addfield()
-
-
-
-
-
-

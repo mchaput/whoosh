@@ -899,7 +899,7 @@ def variations(word):
     """Given an English word, returns a collection of morphological variations
     on the word by algorithmically adding and removing suffixes. The variation
     list may contain non-words (e.g. render -> renderment).
-    
+
     >>> variations("pull")
     set(['pull', 'pullings', 'pullnesses', 'pullful', 'pullment', 'puller', ... ])
     """

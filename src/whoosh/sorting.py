@@ -1016,4 +1016,3 @@ class Sorter(object):
         return self.searcher.search(q, sortedby=self.multi, limit=limit,
                                     reverse=reverse, filter=filter, mask=mask,
                                     groupedby=groupedby)
-

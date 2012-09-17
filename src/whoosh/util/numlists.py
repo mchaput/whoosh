@@ -358,6 +358,3 @@ class GInts(NumberEncoding):
 #        for n in self.read_nums(f, (i + 1) - base):
 #            pass
 #        return n
-
-
-

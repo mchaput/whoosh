@@ -37,14 +37,14 @@ class CompoundWordFilter(Filter):
     """Given a set of words (or any object with a ``__contains__`` method),
     break any tokens in the stream that are composites of words in the word set
     into their individual parts.
-    
+
     Given the correct set of words, this filter can break apart run-together
     words and trademarks (e.g. "turbosquid", "applescript"). It can also be
     useful for agglutinative languages such as German.
-    
+
     The ``keep_compound`` argument lets you decide whether to keep the
     compound word in the token stream along with the word segments.
-    
+
     >>> cwf = CompoundWordFilter(wordset, keep_compound=True)
     >>> analyzer = RegexTokenizer(r"\S+") | cwf
     >>> [t.text for t in analyzer("I do not like greeneggs and ham")
@@ -101,18 +101,18 @@ class CompoundWordFilter(Filter):
 
 class BiWordFilter(Filter):
     """Merges adjacent tokens into "bi-word" tokens, so that for example::
-    
+
         "the", "sign", "of", "four"
-        
+
     becomes::
-    
+
         "the-sign", "sign-of", "of-four"
-        
+
     This can be used to create fields for pseudo-phrase searching, where if
     all the terms match the document probably contains the phrase, but the
     searching is faster than actually doing a phrase search on individual word
     terms.
-    
+
     The ``BiWordFilter`` is much faster than using the otherwise equivalent
     ``ShingleFilter(2)``.
     """
@@ -170,19 +170,19 @@ class BiWordFilter(Filter):
 class ShingleFilter(Filter):
     """Merges a certain number of adjacent tokens into multi-word tokens, so
     that for example::
-    
+
         "better", "a", "witty", "fool", "than", "a", "foolish", "wit"
-        
+
     with ``ShingleFilter(3, ' ')`` becomes::
-    
+
         'better a witty', 'a witty fool', 'witty fool than', 'fool than a',
         'than a foolish', 'a foolish wit'
-    
+
     This can be used to create fields for pseudo-phrase searching, where if
     all the terms match the document probably contains the phrase, but the
     searching is faster than actually doing a phrase search on individual word
     terms.
-    
+
     If you're using two-word shingles, you should use the functionally
     equivalent ``BiWordFilter`` instead because it's faster than
     ``ShingleFilter``.
@@ -223,7 +223,7 @@ class IntraWordFilter(Filter):
     """Splits words into subwords and performs optional transformations on
     subword groups. This filter is funtionally based on yonik's
     WordDelimiterFilter in Solr, but shares no code with it.
-    
+
     * Split on intra-word delimiters, e.g. `Wi-Fi` -> `Wi`, `Fi`.
     * When splitwords=True, split on case transitions,
       e.g. `PowerShot` -> `Power`, `Shot`.
@@ -232,47 +232,47 @@ class IntraWordFilter(Filter):
     * Leading and trailing delimiter characters are ignored.
     * Trailing possesive "'s" removed from subwords,
       e.g. `O'Neil's` -> `O`, `Neil`.
-    
+
     The mergewords and mergenums arguments turn on merging of subwords.
-    
+
     When the merge arguments are false, subwords are not merged.
-    
+
     * `PowerShot` -> `0`:`Power`, `1`:`Shot` (where `0` and `1` are token
       positions).
-    
+
     When one or both of the merge arguments are true, consecutive runs of
     alphabetic and/or numeric subwords are merged into an additional token with
     the same position as the last sub-word.
-    
+
     * `PowerShot` -> `0`:`Power`, `1`:`Shot`, `1`:`PowerShot`
     * `A's+B's&C's` -> `0`:`A`, `1`:`B`, `2`:`C`, `2`:`ABC`
     * `Super-Duper-XL500-42-AutoCoder!` -> `0`:`Super`, `1`:`Duper`, `2`:`XL`,
       `2`:`SuperDuperXL`,
       `3`:`500`, `4`:`42`, `4`:`50042`, `5`:`Auto`, `6`:`Coder`,
       `6`:`AutoCoder`
-    
+
     When using this filter you should use a tokenizer that only splits on
     whitespace, so the tokenizer does not remove intra-word delimiters before
     this filter can see them, and put this filter before any use of
     LowercaseFilter.
-    
+
     >>> rt = RegexTokenizer(r"\\S+")
     >>> iwf = IntraWordFilter()
     >>> lcf = LowercaseFilter()
     >>> analyzer = rt | iwf | lcf
-    
+
     One use for this filter is to help match different written representations
     of a concept. For example, if the source text contained `wi-fi`, you
     probably want `wifi`, `WiFi`, `wi-fi`, etc. to match. One way of doing this
     is to specify mergewords=True and/or mergenums=True in the analyzer used
     for indexing, and mergewords=False / mergenums=False in the analyzer used
     for querying.
-    
+
     >>> iwf_i = IntraWordFilter(mergewords=True, mergenums=True)
     >>> iwf_q = IntraWordFilter(mergewords=False, mergenums=False)
     >>> iwf = MultiFilter(index=iwf_i, query=iwf_q)
     >>> analyzer = RegexTokenizer(r"\S+") | iwf | LowercaseFilter()
-    
+
     (See :class:`MultiFilter`.)
     """
 

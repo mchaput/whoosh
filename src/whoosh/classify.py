@@ -119,7 +119,7 @@ class Expander(object):
 
     def add(self, vector):
         """Adds forward-index information about one of the "top N" documents.
-        
+
         :param vector: A series of (text, weight) tuples, such as is
             returned by Reader.vector_as("weight", docnum, fieldname).
         """
@@ -156,7 +156,7 @@ class Expander(object):
 
     def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.
-        
+
         :param number: The number of terms to return.
         :param normalize: Whether to normalize the weights.
         :returns: A list of ("term", weight) tuples.
@@ -370,5 +370,3 @@ def swin(data, size):
         clusters.append((left, right, j - i, v))
     clusters.sort(key=lambda x: (0 - x[2], x[3]))
     return clusters
-
-

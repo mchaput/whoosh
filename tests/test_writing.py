@@ -393,15 +393,3 @@ class test_add_reader_spelling():
                          "modeling opening polling pressing quitting "
                          "rendering ripping rolling timing tying undoing "
                          "writing yelling")
-
-
-
-
-
-
-
-
-
-
-
-

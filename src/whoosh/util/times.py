@@ -40,11 +40,11 @@ def relative_days(current_wday, wday, dir):
     """Returns the number of days (positive or negative) to the "next" or
     "last" of a certain weekday. ``current_wday`` and ``wday`` are numbers,
     i.e. 0 = monday, 1 = tuesday, 2 = wednesday, etc.
-    
+
     >>> # Get the number of days to the next tuesday, if today is Sunday
     >>> relative_days(6, 1, 1)
     2
-    
+
     :param current_wday: the number of the current weekday.
     :param wday: the target weekday.
     :param dir: -1 for the "last" (past) weekday, 1 for the "next" (future)
@@ -111,7 +111,7 @@ class adatetime(object):
             if month is not None and (month < 1 or month > 12):
                 raise TimeError("month must be in 1..12")
 
-            if day is not None and  day < 1:
+            if day is not None and day < 1:
                 raise TimeError("day must be greater than 1")
             if (year is not None and month is not None and day is not None
                 and day > calendar.monthrange(year, month)[1]):
@@ -162,7 +162,7 @@ class adatetime(object):
     def replace(self, **kwargs):
         """Returns a copy of this object with the attributes given as keyword
         arguments replaced.
-        
+
         >>> adt = adatetime(year=2009, month=10, day=31)
         >>> adt.replace(year=2010)
         (2010, 10, 31, None, None, None, None)
@@ -179,9 +179,9 @@ class adatetime(object):
     def floor(self):
         """Returns a ``datetime`` version of this object with all unspecified
         (None) attributes replaced by their lowest values.
-        
+
         This method raises an error if the ``adatetime`` object has no year.
-        
+
         >>> adt = adatetime(year=2009, month=5)
         >>> adt.floor()
         datetime.datetime(2009, 5, 1, 0, 0, 0, 0)
@@ -210,9 +210,9 @@ class adatetime(object):
     def ceil(self):
         """Returns a ``datetime`` version of this object with all unspecified
         (None) attributes replaced by their highest values.
-        
+
         This method raises an error if the ``adatetime`` object has no year.
-        
+
         >>> adt = adatetime(year=2009, month=5)
         >>> adt.floor()
         datetime.datetime(2009, 5, 30, 23, 59, 59, 999999)
@@ -241,13 +241,13 @@ class adatetime(object):
     def disambiguated(self, basedate):
         """Returns either a ``datetime`` or unambiguous ``timespan`` version
         of this object.
-        
+
         Unless this ``adatetime`` object is full specified down to the
         microsecond, this method will return a timespan built from the "floor"
         and "ceil" of this object.
-        
+
         This method raises an error if the ``adatetime`` object has no year.
-        
+
         >>> adt = adatetime(year=2009, month=10, day=31)
         >>> adt.disambiguated()
         timespan(datetime(2009, 10, 31, 0, 0, 0, 0), datetime(2009, 10, 31, 23, 59 ,59, 999999)
@@ -291,7 +291,7 @@ class timespan(object):
 
     def disambiguated(self, basedate, debug=0):
         """Returns an unambiguous version of this object.
-        
+
         >>> start = adatetime(year=2009, month=2)
         >>> end = adatetime(year=2009, month=10)
         >>> ts = timespan(start, end)
