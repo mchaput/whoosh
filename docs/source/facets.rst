@@ -3,7 +3,7 @@ Sorting and faceting
 ====================
 
 .. note::
-    The API for sorting and faceting changed in Whoosh 2.0.
+    The API for sorting and faceting changed in Whoosh 3.0.
 
 Overview
 ========
@@ -22,74 +22,186 @@ documents first. You can use the ``sortedby`` keyword argument to order the
 results by some other criteria instead, such as the value of a field.
 
 
-A note about sorting by fields
-------------------------------
+Making fields sortable
+----------------------
 
-When sorting by fields, the **indexed terms** in the field are used as the
-"value" to sort by, **not** the stored values. For example, take this index::
+In order to sort on a field, you should create the field using the
+``sortable=True`` keyword argument::
 
-    schema = fields.Schema(title=fields.TEXT(stored=True))
-    ix = index.create_in("indexdir", schema)
-    w = ix.writer()
-    w.add_document(title=u"Best Bet")
-    w.add_document(title=u"First Action")
-    w.commit()
+    schema = fields.Schema(title=fields.TEXT(sortable=True),
+                           content=fields.TEXT,
+                           modified=fields.DATETIME(sortable=True)
+                           )
 
-If you sort this index by "title", you might expect the results to be
-"Best Bet" followed by "First Action", but in fact it will be the reverse! This
-is because Whoosh is sorting by **terms**, not the original text you indexed.
-For fields with multiple terms, it just picks the (alphabetically) first one,
-so the document containing "action" sorts before the one with "best".
+This requires a bit of thought about which
 
-For this reason, you don't want to sort by TEXT fields. Instad, you should set
-up separate, single-term fields that you can sort by. You can duplicate content
-if you want to be able to sort by the original value of a TEXT field::
+It's possible to sort on a field that doesn't have ``sortable=True``, but this
+requires Whoosh to load the unique terms in the field into memory. Using
+``sortable`` is much more efficient.
+
+
+About column types
+------------------
+
+When you create a field using ``sortable=True``, you are telling Whoosh to store
+per-document values for that field in a *column*. A column object specifies the
+format to use to store the per-document values on disk.
+
+The :mod:`whoosh.columns` module contains several different column object
+implementations. Each field type specifies a reasonable default column type (for
+example, the default for text fields is :class:`whoosh.columns.VarBytesColumn`,
+the default for numeric fields is :class:`whoosh.columns.NumericColumn`).
+However, if you want maximum efficiency you may want to use a different column
+type for a field.
+
+For example, if all document values in a field are a fixed length, you can use a
+:class:`whoosh.columns.FixedBytesColumn`. If you have a field where many
+documents share a relatively small number of possible values (an example might
+be a "category" field, or "month" or other enumeration type fields), you might
+want to use :class:`whoosh.columns.RefBytesColumn` (which can handle both
+variable and fixed-length values). There are column types for storing
+per-document bit values, structs, pickled objects, and compressed byte values.
+
+To specify a custom column object for a field, pass it as the ``sortable``
+keyword argument instead of ``True``::
+
+    from whoosh import columns, fields
+
+    category_col = columns.RefBytesColumn()
+    schema = fields.Schema(title=fields.TEXT(sortable=True),
+                           category=fields.KEYWORD(sortable=category_col)
+
+
+Using a COLUMN field for custom sort keys
+-----------------------------------------
+
+When you add a document with a sortable field, Whoosh uses the value you pass
+for the field as the sortable value. For example, if "title" is a sortable
+field, and you add this document::
+
+    writer.add_document(title="Mr. Palomar")
+
+...then ``Mr. Palomar`` is stored in the field column as the sorting key for the
+document.
+
+This is usually good, but sometimes you need to "massage" the sortable key so
+it's different from the value the user searches and/or sees in the interface.
+For example, if you allow the user to sort by title, you might want to use
+different values for the visible title and the value used for sorting::
+
+    # Visible title
+    title = "The Unbearable Lightness of Being"
+
+    # Sortable title: converted to lowercase (to prevent different ordering
+    # depending on uppercase/lowercase), with initial article moved to the end
+    sort_title = "unbearable lightness of being, the"
+
+The best way to do this is to use an additional field just for sorting. You can
+use the :class:`whoosh.fields.COLUMN` field type to create a field that is not
+indexed or stored, it only holds per-document column values::
 
     schema = fields.Schema(title=fields.TEXT(stored=True),
-                           sort_title=fields.ID)
+                           sort_title=fields.COLUMN(columns.VarBytesColumn())
+                           )
+
+The single argument to the :class:`whoosh.fields.COLUMN` initializer is a
+:class:`whoosh.columns.ColumnType` object. You can use any of the various
+column types in the :mod:`whoosh.columns` module.
+
+As another example, say you are indexing documents that have a custom sorting
+order associated with each document, such as a "priority" number::
+
+    name=Big Wheel
+    price=100
+    priority=1
+
+    name=Toss Across
+    price=40
+    priority=3
+
+    name=Slinky
+    price=25
+    priority=2
+    ...
+
+You can use a column field with a numeric column object to hold the "priority"
+and use it for sorting::
+
+    schema = fields.Schema(name=fields.TEXT(stored=True),
+                           price=fields.NUMERIC(stored=True),
+                           priority=fields.COLUMN(columns.NumericColumn("i"),
+                           )
+
+(Note that :class:`columns.NumericColumn` takes a type code character like the
+codes used by Python's ``struct`` and ``array`` modules.)
+
+
+Making existing fields sortable
+-------------------------------
+
+If you have an existing index from before the ``sortable`` argument was added
+in Whoosh 3.0, or you didn't think you needed a field to be sortable but now
+you find that you need to sort it, you can add "sortability" to an existing
+index using the :func:`whoosh.sorting.add_sortable` utility function::
+
+    from whoosh import columns, fields, index, sorting
+
+    # Say we have an existing index with this schema
+    schema = fields.Schema(title=fields.TEXT,
+                           price=fields.NUMERIC)
+
+    # To use add_sortable, first open a writer for the index
+    ix = index.open_dir("indexdir")
+    with ix.writer() as w:
+        # Add sortable=True to the "price" field using field terms as the
+        # sortable values
+        sorting.add_sortable(w, "price", sorting.FieldFacet("price"))
+
+        # Add sortable=True to the "title" field using the
+        # stored field values as the sortable value
+        sorting.add_sortable(w, "title", sorting.StoredFieldFacet("title"))
+
+You can specify a custom column type when you call ``add_sortable`` using the
+``column`` keyword argument::
+
+    add_sortable(w, "chapter", sorting.FieldFacet("chapter"),
+                 column=columns.RefBytesColumn())
+
+See the documentation for :func:`~whoosh.sorting.add_sortable` for more
+information.
+
+
+Sorting search results
+----------------------
+
+When you tell Whoosh to sort by a field (or fields), it uses the per-document
+values in the field's column as sorting keys for the documents.
+
+Normally search results are sorted by descending relevance score. You can tell
+Whoosh to use a different ordering by passing the ``sortedby`` keyword argument
+to the :meth:`~whoosh.searching.Searcher.search` method::
+
+    from whoosh import fields, index, qparser
+
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           price=fields.NUMERIC(sortable=True))
     ix = index.create_in("indexdir", schema)
-    w = ix.writer()
-    for title in titles:
-        w.add_document(title=title, sort_title=title)
-    w.commit()
 
-    # ...
+    with ix.writer() as w:
+        w.add_document(title="Big Deal", price=20)
+        w.add_document(title="Mr. Big", price=10)
+        w.add_document(title="Big Top", price=15)
 
-    results = my_searcher.search(my_query, sortedby="sort_title")
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("big", ix.schema)
+        q = qp.parse(user_query_string)
 
-Using a separate field for sorting allows you to "massage" the sort values,
-since they don't need to be displayed to the user. For example, you can
-convert the sort value to lowercase (to prevent uppercase letters from sorting
-before lowercase letters) and remove spaces to prevent them from affecting the
-sort order::
+        # Sort search results from lowest to highest price
+        results = searcher.search(q, sortedby="price")
+        for hit in results:
+            print(hit["title"])
 
-    for title in titles:
-        sort_title = title.lower().replace(" ", "")
-        w.add_document(title=title, sort_title=sort_title)
-
-Alternatively, you can store the field contents and use a
-:class:`whoosh.sorting.StoredFieldFacet` to sort by the stored value. This
-means you don't need to use a separate field, but it is usually slower than
-sorting by an indexed field, and doesn't give you the chance to massage the
-sort values::
-
-    schema = fiels.Schema(title=fields.TEXT(stored=True))
-
-    # ...
-
-    for title in titles:
-        w.add_document(title=title)
-
-    # ...
-
-    sff = sorting.StoredFieldFacet("title")
-    results = my_searcher.search(my_query, sortedby=sff)
-
-
-The sortedby keyword argument
------------------------------
-
-You can use the following objects as ``sortedby`` values:
+You can use any of the following objects as ``sortedby`` values:
 
 A ``FacetType`` object
     Uses this object to sort the documents. See below for the available facet
@@ -140,6 +252,32 @@ Sort by the "category" field, then by the document's score::
     cats = sorting.FieldFacet("category")
     scores = sorting.ScoreFacet()
     results = searcher.search(myquery, sortedby=[cats, scores])
+
+
+Accessing column values
+-----------------------
+
+Per-document column values are available in :class:`~whoosh.searching.Hit`
+objects just like stored field values::
+
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           price=fields.NUMERIC(sortable=True))
+
+    ...
+
+    results = searcher.search(myquery)
+    for hit in results:
+        print(hit["title"], hit["price")
+
+ADVANCED: if you want to access abitrary per-document values quickly you can get
+a column reader object::
+
+    with ix.searcher() as s:
+        reader = s.reader()
+
+        colreader = s.reader().column_reader("price")
+        for docnum in reader.all_doc_ids():
+            print(colreader[docnum])
 
 
 Grouping

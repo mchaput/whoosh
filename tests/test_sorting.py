@@ -582,28 +582,6 @@ def test_sort_filter():
                          [d for d in source if d["group"] == "bravo"])
 
 
-def test_custom_sort():
-    schema = fields.Schema(name=fields.ID(stored=True),
-                           price=fields.NUMERIC,
-                           quant=fields.NUMERIC)
-
-    with TempIndex(schema, "customsort") as ix:
-        with ix.writer() as w:
-            w.add_document(name=u("A"), price=200, quant=9)
-            w.add_document(name=u("E"), price=300, quant=4)
-            w.add_document(name=u("F"), price=200, quant=8)
-            w.add_document(name=u("D"), price=150, quant=5)
-            w.add_document(name=u("B"), price=250, quant=11)
-            w.add_document(name=u("C"), price=200, quant=10)
-
-        with ix.searcher() as s:
-            cs = s.sorter()
-            cs.add_field("price")
-            cs.add_field("quant", reverse=True)
-            r = cs.sort_query(query.Every(), limit=None)
-            assert_equal([hit["name"] for hit in r], list(u("DCAFBE")))
-
-
 def test_sorting_function():
     schema = fields.Schema(id=fields.STORED,
                            text=fields.TEXT(stored=True, vector=True))
@@ -857,3 +835,39 @@ def test_filtered_grouped():
                        query.Term("text", "delta")])
         r = s.search(query.Every(), filter=f, groupedby="tag", limit=None)
         assert_equal(len(r), 24)
+
+
+def test_add_sortable():
+    st = RamStorage()
+    schema = fields.Schema(chapter=fields.ID(stored=True), price=fields.NUMERIC)
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        w.add_document(chapter=u("alfa"), price=100)
+        w.add_document(chapter=u("bravo"), price=200)
+        w.add_document(chapter=u("charlie"), price=300)
+        w.add_document(chapter=u("delta"), price=400)
+    with ix.writer() as w:
+        w.add_document(chapter=u("bravo"), price=500)
+        w.add_document(chapter=u("alfa"), price=600)
+        w.add_document(chapter=u("delta"), price=100)
+        w.add_document(chapter=u("charlie"), price=200)
+        w.merge = False
+
+    with ix.reader() as r:
+        assert not r.has_column("chapter")
+        assert not r.has_column("price")
+
+    with ix.writer() as w:
+        sorting.add_sortable(w, "chapter", sorting.StoredFieldFacet("chapter"))
+        sorting.add_sortable(w, "price", sorting.FieldFacet("price"))
+        w.schema.test = 100
+
+    with ix.reader() as r:
+        assert r.has_column("chapter")
+        assert r.has_column("price")
+
+        chapr = r.column_reader("chapter")
+        pricer = r.column_reader("price")
+        assert_equal(chapr[0], "alfa")
+        assert_equal(pricer[0], 100)
+

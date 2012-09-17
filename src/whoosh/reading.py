@@ -149,6 +149,22 @@ class IndexReader(object):
         """
         raise NotImplementedError
 
+    def codec(self):
+        """Returns the :class:`whoosh.codec.base.Codec` object used to read
+        this reader's segment. If this reader is not atomic
+        (``reader.is_atomic() == True``), returns None.
+        """
+
+        return None
+
+    def segment(self):
+        """Returns the :class:`whoosh.index.Segment` object used by this reader.
+        If this reader is not atomic (``reader.is_atomic() == True``), returns
+        None.
+        """
+
+        return None
+
     def is_atomic(self):
         return True
 
@@ -588,6 +604,12 @@ class SegmentReader(IndexReader):
         if not self._graph:
             self._graph = self._codec.graph_reader(self._files, self._segment)
         return self._graph
+
+    def codec(self):
+        return self._codec
+
+    def segment(self):
+        return self._segment
 
     def has_deletions(self):
         return self._perdoc.has_deletions()

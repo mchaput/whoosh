@@ -164,6 +164,12 @@ class Searcher(object):
             if ss is subsearcher:
                 return offset
 
+    def leaf_searchers(self):
+        if self.is_atomic():
+            return [(self, 0)]
+        else:
+            return self.subsearchers
+
     def is_atomic(self):
         return self.reader().is_atomic()
 
@@ -610,17 +616,6 @@ class Searcher(object):
         qp = QueryParser(defaultfield, schema=self.ixreader.schema)
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
-
-    def sorter(self, *args, **kwargs):
-        """This method is deprecated. Instead of using a Sorter, configure a
-        :class:`whoosh.sorting.FieldFacet` or
-        :class:`whoosh.sorting.MultiFacet` and pass it to the
-        :meth:`Searcher.search` method's ``sortedby`` keyword argument.
-
-        See :doc:`/facets`.
-        """
-
-        return sorting.Sorter(self, *args, **kwargs)
 
     def docs_for_query(self, q, for_deletion=False):
         """Returns an iterator of document numbers for documents matching the

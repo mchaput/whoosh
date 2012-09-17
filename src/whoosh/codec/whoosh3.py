@@ -390,6 +390,9 @@ class W3PerDocReader(base.PerDocumentReader):
         if fieldname in self._readers:
             return self._readers[fieldname]
         else:
+            if not self.has_column(fieldname):
+                return None
+
             reader = self.column_reader(fieldname, column)
             self._readers[fieldname] = reader
             return reader
@@ -398,13 +401,15 @@ class W3PerDocReader(base.PerDocumentReader):
         if docnum > self._doccount:
             raise IndexError("Asked for docnum %r of %d"
                              % (docnum, self._doccount))
+
         lenfield = _lenfield(fieldname)
-        if self.has_column(lenfield):
-            reader = self._cached_reader(lenfield, LENGTHS_COLUMN)
-            lbyte = reader[docnum]
-            if lbyte:
-                return byte_to_length(lbyte)
-        return default
+        reader = self._cached_reader(lenfield, LENGTHS_COLUMN)
+        if reader is None:
+            return default
+
+        lbyte = reader[docnum]
+        if lbyte:
+            return byte_to_length(lbyte)
 
     def field_length(self, fieldname):
         return self._segment._fieldlengths.get(fieldname, 0)
