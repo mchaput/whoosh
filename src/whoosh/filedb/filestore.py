@@ -54,25 +54,18 @@ class Storage(object):
     different forms of storage (for example, in RAM, in a database, in a single
     file) to be used transparently.
 
-    Creation of the storage object is usually straightforward. For example, to
-    create a :class:`FileStorage` object:
+    For example, to create a :class:`FileStorage` object::
 
-        dirname = "indexdir"
+        # Create a storage object
+        st = FileStorage("indexdir")
         # Create the directory if it doesn't already exist
-        os.mkdir(dirname)
-        # Create a storage object using the directory
-        st = FileStorage(dirname)
+        st.create()
 
-    You can also use the :meth:`Storage.create` class method to make it slightly
-    easier to swap storage implementations. The ``create()`` method handles
-    set-up of the storage object. Ffor example, ``FileStorage.create()`` creates
-    the directory. A database implementation might create tables. Note that the
-    arguments to ``create()`` will vary with the implementation.
-
-        dirname = "indexdir"
-        # Use the create class method to have the FileStorage object create the
-        # directory for me
-        st = FileStorage.create(dirname)
+    The :meth:`Storage.create` method makes it slightly easier to swap storage
+    implementations. The ``create()`` method handles set-up of the storage
+    object. For example, ``FileStorage.create()`` creates the directory. A
+    database implementation might create tables. This is designed to let you
+    avoid putting implementation-specific setup code in your application.
     """
 
     readonly = False
@@ -81,28 +74,25 @@ class Storage(object):
     def __iter__(self):
         return iter(self.list())
 
-    @classmethod
-    def create(cls, *args, **kwargs):
-        """Creates any required implementation-specific resources and returns
-        a storage object. For example, a filesystem-based implementation might
-        create a directory, and a database implementation might open a
-        connection and create tables.
+    def create(self):
+        """Creates any required implementation-specific resources. For example,
+        a filesystem-based implementation might create a directory, while a
+        database implementation might create tables. For example::
 
-        The arguments are implementation-specific.
+            from whoosh.filedb.filestore import FileStorage
+            # Create a storage object
+            st = FileStorage("indexdir")
+            # Create any necessary resources
+            st.create()
 
-        Once a storage has been created using this class method, you can later
-        open it using the object initializer.
+        This method returns ``self`` so you can also say::
 
-        >>> from whoosh.filedb.filestore import FileStorage
-        >>> # Create a storage object
-        >>> st = FileStorage.create("indexdir")
-        >>> # Open an existing storage object
-        >>> st = FileStorage("indexdir")
+            st = FileStorage("indexdir").create()
 
         :return: a :class:`Storage` instance.
         """
 
-        return cls(*args, **kwargs)
+        return self
 
     def destroy(self, *args, **kwargs):
         """Removes any implementation-specific resources related to this storage
@@ -232,11 +222,11 @@ class Storage(object):
         raise NotImplementedError
 
     def file_modified(self, name):
-        """Returns the last-modified time (as a ctime-type integer) of the
-        given file in this storage.
+        """Returns the last-modified time of the given file in this storage (as
+        a "ctime" UNIX timestamp).
 
         :param name: the name to check.
-        :return: a ctime integer.
+        :return: a "ctime" number.
         """
 
         raise NotImplementedError
@@ -310,13 +300,6 @@ class OverlayStorage(Storage):
         self.a = a
         self.b = b
 
-    @classmethod
-    def create(cls, *args, **kwargs):
-        raise Exception("Can't create an overlay storage")
-
-    def destroy(self, *args, **kwargs):
-        raise Exception("Can't destroy an overlay storage")
-
     def create_index(self, *args, **kwargs):
         self.b.create_index(*args, **kwargs)
 
@@ -373,14 +356,18 @@ class OverlayStorage(Storage):
 
 class FileStorage(Storage):
     """Storage object that stores the index as files in a directory on disk.
+
+    Prior to version 3, the initializer would raise an IOError if the directory
+    did not exist. As of version 3, the object does not check if the
+    directory exists at initialization. This change is to support using the
+    :meth:`FileStorage.create` method.
     """
 
     supports_mmap = True
 
     def __init__(self, path, supports_mmap=True, readonly=False, debug=False):
         """
-        :param path: a path to a directory. This object will raise an
-            ``IOError`` if the directory does not exist.
+        :param path: a path to a directory.
         :param supports_mmap: if True (the default), use the ``mmap`` module to
             open memory mapped files. You can open the storage object with
             ``supports_mmap=False`` to force Whoosh to open files normally
@@ -395,54 +382,44 @@ class FileStorage(Storage):
         self._debug = debug
         self.locks = {}
 
-        if not os.path.exists(path):
-            raise IOError("Directory %s does not exist" % path)
-
     def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, repr(self.folder))
+        return "%s(%r)" % (self.__class__.__name__, self.folder)
 
-    @classmethod
-    def create(cls, dirpath, supports_mmap=True, makedir=True):
-        """Creates the given directory path and returns a FileStorage object
-        pointing to it.
+    def create(self):
+        """Creates this storage object's directory path using ``os.makedirs`` if
+        it doesn't already exist.
 
-        By default, this method will create a directory at the given path (using
-        ``os.makedirs``). If you prefer the method to cause an error if the
-        directory doesn't exist, pass ``makedir=False``::
+        >>> from whoosh.filedb.filestore import FileStorage
+        >>> st = FileStorage("indexdir")
+        >>> st.create()
 
-            from whoosh.filedb.filestore import FileStorage
-            st = FileStorage.create("indexdir", makedir=False)
+        This method returns ``self``, you can say::
 
-        Or, simply create handle the creation of the directory yourself and open
-        the storage object using the initializer::
+            st = FileStorage("indexdir").create()
+
+        Note that you can simply create handle the creation of the directory
+        yourself and open the storage object using the initializer::
 
             dirname = "indexdir"
             os.mkdir(dirname)
             st = FileStorage(dirname)
 
-        Once you've created a storage object with this method, you can later
-        open it using the initializer.
-
-        >>> # Create a storage object
-        >>> st = FileStorage.create("indexdir")
-        >>> # Open an existing storage object
-        >>> st = FileStorage("indexdir")
+        However, using the ``create()`` method allows you to potentially swap in
+        other storage implementations more easily.
 
         :return: a :class:`Storage` instance.
         """
 
-        dirpath = os.path.abspath(dirpath)
-        if not os.path.exists(dirpath):
-            # If the given directory does not already exist, try to create it
-            try:
-                os.makedirs(dirpath)
-            except IOError:
-                e = sys.exc_info()[1]
-                # If we get an error because someone created the path between
-                # when we checked for it and when we tried to create it, ignore
-                # the error
-                if e.errno != errno.EEXIST:
-                    raise
+        dirpath = os.path.abspath(self.folder)
+        # If the given directory does not already exist, try to create it
+        try:
+            os.makedirs(dirpath)
+        except IOError:
+            # This is necessary for compatibility between Py2 and Py3
+            e = sys.exc_info()[1]
+            # If we get an error because the path already exists, ignore it
+            if e.errno != errno.EEXIST:
+                raise
 
         # Raise an exception if the given path is not a directory
         if not os.path.isdir(dirpath):
@@ -450,7 +427,7 @@ class FileStorage(Storage):
             e.errno = errno.ENOTDIR
             raise e
 
-        return cls(dirpath, supports_mmap=supports_mmap)
+        return self
 
     def destroy(self):
         """Removes any files in this storage object and then removes the
@@ -561,10 +538,6 @@ class RamStorage(Storage):
         self.files = {}
         self.locks = {}
         self.folder = ''
-
-    @classmethod
-    def create(cls):
-        return cls()
 
     def destroy(self):
         del self.files
