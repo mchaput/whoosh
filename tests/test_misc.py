@@ -1,11 +1,35 @@
 from __future__ import with_statement
-import threading, time
+import os, threading, time
 
 from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
 
+from whoosh.compat import u
 from whoosh.util.filelock import try_for
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempStorage
+
+
+def test_storage_creation():
+    import tempfile, uuid
+    from whoosh import fields
+    from whoosh.filedb.filestore import FileStorage
+
+    schema = fields.Schema(text=fields.TEXT)
+    uid = uuid.uuid4()
+    dirpath = os.path.join(tempfile.gettempdir(), str(uid))
+    assert not os.path.exists(dirpath)
+
+    st = FileStorage(dirpath)
+    st.create()
+    assert os.path.exists(dirpath)
+
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo"))
+        w.add_document(text=u("bracho charlie"))
+
+    st.destroy()
+    assert not os.path.exists(dirpath)
 
 
 def test_filelock_simple():
