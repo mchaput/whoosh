@@ -316,9 +316,6 @@ class Query(object):
         call this method using :meth:`Query.has_terms`.
 
         To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
-
-        :param exreader: a reader to use to expand multiterm queries such as
-            prefixes and wildcards. The default is None meaning do not expand.
         """
 
         return iter(())
@@ -387,9 +384,6 @@ class Query(object):
         [("title", "charlie")]
 
         :param phrases: Whether to add words found in Phrase queries.
-        :param expand: If True, queries that match multiple terms
-            (such as :class:`Wildcard` and :class:`Prefix`) will return all
-            matching expansions.
         """
 
         for q in self.leaves():

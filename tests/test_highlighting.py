@@ -2,7 +2,7 @@
 
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_raises  #@UnresolvedImport
+from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.compat import u
