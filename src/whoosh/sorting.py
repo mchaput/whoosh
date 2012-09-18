@@ -989,30 +989,77 @@ class Best(FacetMap):
         return self.bestids
 
 
-#
-#
-#
-#
-# Legacy sorting object
+# Helper functions
 
-class Sorter(object):
-    """This is a legacy interface. The functionality of the Sorter object was
-    moved into the :class:`FacetType` classes in Whoosh 2.0. The old Sorter API
-    is still supported for backwards-compatibility, but it simply forwards to
-    the regular searching API.
+def add_sortable(writer, fieldname, facet, column=None):
+    """Adds a per-document value column to an existing field which was created
+    without the ``sortable`` keyword argument.
 
-    See :doc:`/facets` for information on the new API.
+    >>> from whoosh import index, sorting
+    >>> ix = index.open_dir("indexdir")
+    >>> with ix.writer() as w:
+    ...   facet = sorting.FieldFacet("price")
+    ...   sorting.add_sortable(w, "price", facet)
+    ...
+
+    :param writer: a :class:`whoosh.writing.IndexWriter` object.
+    :param fieldname: the name of the field to add the per-document sortable
+        values to. If this field doesn't exist in the writer's schema, the
+        function will add a :class:`whoosh.fields.COLUMN` field to the schema,
+        and you must specify the column object to using the ``column`` keyword
+        argument.
+    :param facet: a :class:`FacetType` object to use to generate the
+        per-document values.
+    :param column: a :class:`whosh.columns.ColumnType` object to use to store
+        the per-document values. If you don't specify a column object, the
+        function will use the default column type for the given field.
     """
 
-    def __init__(self, searcher):
-        self.searcher = searcher
-        self.multi = MultiFacet()
+    storage = writer.storage
+    schema = writer.schema
 
-    def add_field(self, fieldname, reverse=False):
-        self.multi.add_field(fieldname, reverse=reverse)
+    field = None
+    if fieldname in schema:
+        field = schema[fieldname]
+        if field.column_type:
+            raise Exception("%r field is already sortable" % fieldname)
 
-    def sort_query(self, q, limit=None, reverse=False, filter=None, mask=None,
-                   groupedby=None):
-        return self.searcher.search(q, sortedby=self.multi, limit=limit,
-                                    reverse=reverse, filter=filter, mask=mask,
-                                    groupedby=groupedby)
+    if column:
+        if fieldname not in schema:
+            from whoosh.fields import COLUMN
+            field = COLUMN(column)
+            schema.add(fieldname, field)
+    else:
+        if fieldname in schema:
+            column = field.default_column()
+        else:
+            raise Exception("Field %r does not exist" % fieldname)
+
+    searcher = writer.searcher()
+    catter = facet.categorizer(searcher)
+    for subsearcher, docoffset in searcher.leaf_searchers():
+        catter.set_searcher(subsearcher, docoffset)
+        reader = subsearcher.reader()
+
+        if reader.has_column(fieldname):
+            raise Exception("%r field already has a column" % fieldname)
+
+        codec = reader.codec()
+        segment = reader.segment()
+
+        colname = codec.column_filename(segment, fieldname)
+        colfile = storage.create_file(colname)
+        try:
+            colwriter = column.writer(colfile)
+            for docnum in reader.all_doc_ids():
+                v = catter.key_to_name(catter.key_for(None, docnum))
+                cv = field.to_column_value(v)
+                colwriter.add(docnum, cv)
+            colwriter.finish(reader.doc_count_all())
+        finally:
+            colfile.close()
+
+    field.column_type = column
+
+
+

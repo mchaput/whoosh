@@ -135,21 +135,10 @@ class Collector(object):
         self.runtime = None
         self.docset = set()
 
-    def subsearchers(self):
-        """Returns a list of ``(subsearcher, offset)`` tuples (if the searcher
-        is atomic, it's a list of one).
-        """
-
-        top_searcher = self.top_searcher
-        if top_searcher.is_atomic():
-            return [(top_searcher, 0)]
-        else:
-            return top_searcher.subsearchers
-
     def run(self):
         # Collect matches for each sub-searcher
         try:
-            for subsearcher, offset in self.subsearchers():
+            for subsearcher, offset in self.top_searcher.leaf_searchers():
                 self.set_subsearcher(subsearcher, offset)
                 self.collect_matches()
         finally:
