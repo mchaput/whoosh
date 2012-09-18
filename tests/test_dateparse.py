@@ -137,24 +137,24 @@ def test_plustime(rt=english.plusdate):
                  basedate + timedelta(seconds=20))
 
     assert_equal(rt.date_from("- 2 h", basedate),
-                 basedate + timedelta(hours= -2))
+                 basedate + timedelta(hours=-2))
     assert_equal(rt.date_from("- 25 minutes", basedate),
-                 basedate + timedelta(minutes= -25))
+                 basedate + timedelta(minutes=-25))
     assert_equal(rt.date_from("-400 secs", basedate),
-                 basedate + timedelta(seconds= -400))
+                 basedate + timedelta(seconds=-400))
 
     assert_equal(rt.date_from("+1hr 5m", basedate),
                  basedate + timedelta(hours=1, minutes=5))
     assert_equal(rt.date_from("-8hr 12m", basedate),
-                 basedate + timedelta(hours= -8, minutes= -12))
+                 basedate + timedelta(hours=-8, minutes=-12))
     assert_equal(rt.date_from("+1hr 5s", basedate),
                  basedate + timedelta(hours=1, seconds=5))
     assert_equal(rt.date_from("+1hr 12m 5s", basedate),
                  basedate + timedelta(hours=1, minutes=12, seconds=5))
     assert_equal(rt.date_from("-1hr 5s", basedate),
-                 basedate + timedelta(hours= -1, seconds= -5))
+                 basedate + timedelta(hours=-1, seconds=-5))
     assert_equal(rt.date_from("-1hr 12m 5s", basedate),
-                 basedate + timedelta(hours= -1, minutes= -12, seconds= -5))
+                 basedate + timedelta(hours=-1, minutes=-12, seconds=-5))
 
 
 def test_relative_days():
@@ -210,22 +210,22 @@ def test_reldate(p=english.plusdate):
                  basedate + relativedelta(days=5))
 
     assert_equal(p.date_from("-6yr", basedate),
-                 basedate + relativedelta(years= -6))
+                 basedate + relativedelta(years=-6))
     assert_equal(p.date_from("- 7 mons", basedate),
-                 basedate + relativedelta(months= -7))
+                 basedate + relativedelta(months=-7))
     assert_equal(p.date_from("-8 wks", basedate),
-                 basedate + relativedelta(weeks= -8))
+                 basedate + relativedelta(weeks=-8))
     assert_equal(p.date_from("- 9 dy", basedate),
-                 basedate + relativedelta(days= -9))
+                 basedate + relativedelta(days=-9))
 
     assert_equal(p.date_from("+1y 12mo 400d", basedate),
                  basedate + relativedelta(years=1, months=12, days=400))
     assert_equal(p.date_from("-7mo 8d", basedate),
-                 basedate + relativedelta(months= -7, days= -8))
+                 basedate + relativedelta(months=-7, days=-8))
     assert_equal(p.date_from("+5wks 2d", basedate),
                  basedate + relativedelta(weeks=5, days=2))
     assert_equal(p.date_from("-1y 1w", basedate),
-                 basedate + relativedelta(years= -1, weeks= -1))
+                 basedate + relativedelta(years=-1, weeks=-1))
 
     assert_equal(p.date_from("+1y 2d 5h 12s", basedate),
                  basedate + relativedelta(years=1, days=2, hours=5,
@@ -286,7 +286,7 @@ def test_ranges(p=english.torange):
                          dict(year=None, month=10, day=12))
 
     assert_datespan(p.date_from("-2d to +1w", basedate),
-                         basedate + relativedelta(days= -2),
+                         basedate + relativedelta(days=-2),
                          basedate + relativedelta(weeks=1))
 
 

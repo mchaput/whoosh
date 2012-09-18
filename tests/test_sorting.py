@@ -34,12 +34,12 @@ else:
 
 
 docs = ({"id": u("zulu"), "num": 100, "tag": u("one"), "frac": 0.75},
-        {"id": u("xray"), "num":-5, "tag": u("three"), "frac": 2.0},
+        {"id": u("xray"), "num": -5, "tag": u("three"), "frac": 2.0},
         {"id": u("yankee"), "num": 3, "tag": u("two"), "frac": 5.5},
 
         {"id": u("alfa"), "num": 7, "tag": u("three"), "frac": 2.25},
         {"id": u("tango"), "num": 2, "tag": u("two"), "frac": 1.75},
-        {"id": u("foxtrot"), "num":-800, "tag": u("two"), "frac": 3.25},
+        {"id": u("foxtrot"), "num": -800, "tag": u("two"), "frac": 3.25},
 
         {"id": u("sierra"), "num": 1, "tag": u("one"), "frac": 4.75},
         {"id": u("whiskey"), "num": 0, "tag": u("three"), "frac": 5.25},
