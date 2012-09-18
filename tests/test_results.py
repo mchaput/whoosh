@@ -212,6 +212,7 @@ def test_pages():
         assert_equal(r.pagenum, 2)
         assert_equal(r.pagelen, 2)
 
+
 def test_pages_with_filter():
     from whoosh.scoring import Frequency
 
