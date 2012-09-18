@@ -567,9 +567,9 @@ def test_plaintext_codec():
                        d=u("rolling timing yelling"))
         w.add_document(a=u("charlie delta echo"), b=5.5, c=300,
                        d=u("using opening pulling"))
-        w.add_document(a=u("delta echo foxtrot"), b=True, c= -100,
+        w.add_document(a=u("delta echo foxtrot"), b=True, c=-100,
                        d=u("aching selling dipping"))
-        w.add_document(a=u("echo foxtrot india"), b=None, c= -200,
+        w.add_document(a=u("echo foxtrot india"), b=None, c=-200,
                        d=u("filling going hopping"))
 
     with ix.reader() as r:
@@ -630,9 +630,9 @@ def test_memory_codec():
                        d=u("rolling timing yelling"))
         w.add_document(a=u("charlie delta echo"), b=5.5, c=300,
                        d=u("using opening pulling"))
-        w.add_document(a=u("delta echo foxtrot"), b=True, c= -100,
+        w.add_document(a=u("delta echo foxtrot"), b=True, c=-100,
                        d=u("aching selling dipping"))
-        w.add_document(a=u("echo foxtrot india"), b=None, c= -200,
+        w.add_document(a=u("echo foxtrot india"), b=None, c=-200,
                        d=u("filling going hopping"))
 
     reader = codec.reader(schema)
