@@ -489,6 +489,14 @@ class FileIndex(Index):
     def schema(self):
         return self._current_schema()
 
+    @property
+    def release(self):
+        return self._read_toc().release
+
+    @property
+    def version(self):
+        return self._read_toc().version
+
     @classmethod
     def _reader(self, storage, schema, segments, generation, reuse=None):
         # Returns a reader for the given segments, possibly reusing already
