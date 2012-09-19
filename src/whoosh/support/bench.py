@@ -322,11 +322,11 @@ class SolrModule(Module):
 
 class ZcatalogModule(Module):
     def indexer(self, **kwargs):
-        from ZODB.FileStorage import FileStorage  #@UnresolvedImport
-        from ZODB.DB import DB  #@UnresolvedImport
-        from zcatalog import catalog  #@UnresolvedImport
-        from zcatalog import indexes  #@UnresolvedImport
-        import transaction  #@UnresolvedImport
+        from ZODB.FileStorage import FileStorage  # @UnresolvedImport
+        from ZODB.DB import DB  # @UnresolvedImport
+        from zcatalog import catalog  # @UnresolvedImport
+        from zcatalog import indexes  # @UnresolvedImport
+        import transaction  # @UnresolvedImport
 
         dir = os.path.join(self.options.dir, "%s_zcatalog"
                            % self.options.indexname)
@@ -352,21 +352,21 @@ class ZcatalogModule(Module):
         self.cat.index_doc(doc)
         self.zcatalog_count += 1
         if self.zcatalog_count >= 100:
-            import transaction  #@UnresolvedImport
+            import transaction  # @UnresolvedImport
             transaction.commit()
             self.zcatalog_count = 0
 
     def finish(self, **kwargs):
-        import transaction  #@UnresolvedImport
+        import transaction  # @UnresolvedImport
         transaction.commit()
         del self.zcatalog_count
 
     def searcher(self):
-        from ZODB.FileStorage import FileStorage  #@UnresolvedImport
-        from ZODB.DB import DB  #@UnresolvedImport
-        from zcatalog import catalog  #@UnresolvedImport
-        from zcatalog import indexes  #@UnresolvedImport
-        import transaction  #@UnresolvedImport
+        from ZODB.FileStorage import FileStorage  # @UnresolvedImport
+        from ZODB.DB import DB  # @UnresolvedImport
+        from zcatalog import catalog  # @UnresolvedImport
+        from zcatalog import indexes  # @UnresolvedImport
+        import transaction  # @UnresolvedImport
 
         path = os.path.join(self.options.dir, "%s_zcatalog"
                             % self.options.indexname, "index")

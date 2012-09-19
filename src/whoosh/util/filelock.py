@@ -92,7 +92,7 @@ class FcntlLock(LockBase):
     """
 
     def acquire(self, blocking=False):
-        import fcntl  #@UnresolvedImport
+        import fcntl  # @UnresolvedImport
 
         flags = os.O_CREAT | os.O_WRONLY
         self.fd = os.open(self.filename, flags)
@@ -117,7 +117,7 @@ class FcntlLock(LockBase):
         if self.fd is None:
             raise Exception("Lock was not acquired")
 
-        import fcntl  #@UnresolvedImport
+        import fcntl  # @UnresolvedImport
         fcntl.flock(self.fd, fcntl.LOCK_UN)
         os.close(self.fd)
         self.fd = None
@@ -128,7 +128,7 @@ class MsvcrtLock(LockBase):
     """
 
     def acquire(self, blocking=False):
-        import msvcrt  #@UnresolvedImport
+        import msvcrt  # @UnresolvedImport
 
         flags = os.O_CREAT | os.O_WRONLY
         mode = msvcrt.LK_NBLCK
@@ -148,7 +148,7 @@ class MsvcrtLock(LockBase):
             return False
 
     def release(self):
-        import msvcrt  #@UnresolvedImport
+        import msvcrt  # @UnresolvedImport
 
         if self.fd is None:
             raise Exception("Lock was not acquired")
