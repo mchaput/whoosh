@@ -9,7 +9,7 @@ from whoosh.compat import b, u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.writing import IndexingError
 from whoosh.util.numeric import length_to_byte, byte_to_length
-from whoosh.util.testing import TempIndex
+from whoosh.util.testing import TempIndex, TempStorage
 
 
 def test_creation():
@@ -45,6 +45,28 @@ def test_empty_commit():
 
         w = ix.writer()
         w.commit()
+
+
+def test_version_in():
+    from whoosh import __version__
+    from whoosh import index
+
+    with TempStorage("versionin") as st:
+        assert not index.exists(st)
+
+        schema = fields.Schema(text=fields.TEXT)
+        ix = st.create_index(schema)
+        assert index.exists(st)
+        assert ix.is_empty()
+
+        v = index.version(st)
+        assert_equal(v[0], __version__)
+        assert_equal(v[1], index._CURRENT_TOC_VERSION)
+
+        with ix.writer() as w:
+            w.add_document(text=u("alfa"))
+
+        assert not ix.is_empty()
 
 
 def _check_writer(name, writer_fn):
