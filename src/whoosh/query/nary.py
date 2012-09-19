@@ -175,30 +175,20 @@ class CompoundQuery(qcore.Query):
 
         return self.__class__(subqs, boost=self.boost)
 
-    def _split_queries(self):
-        from whoosh.query import Not
-
-        subs = [q for q in self.subqueries if not isinstance(q, Not)]
-        nots = [q.query for q in self.subqueries if isinstance(q, Not)]
-        return (subs, nots)
-
     def simplify(self, ixreader):
-        subs, nots = self._split_queries()
-
+        subs = self.subqueries
         if subs:
-            subs = self.__class__([subq.simplify(ixreader) for subq in subs],
-                                  boost=self.boost).normalize()
-            if nots:
-                nots = Or(nots).simplify().normalize()
-                return AndNot(subs, nots)
-            else:
-                return subs
+            q = self.__class__([subq.simplify(ixreader) for subq in subs],
+                                boost=self.boost).normalize()
         else:
-            return qcore.NullQuery
+            q = qcore.NullQuery
+        return q
 
     def matcher(self, searcher, context=None):
-        # Pull any queries inside a Not() out into their own list
-        subs, nots = self._split_queries()
+        # This method does a little sanity checking and then passes the info
+        # down to the _matcher() method which subclasses must implement
+
+        subs = self.subqueries
         if not subs:
             return matching.NullMatcher()
 
@@ -206,19 +196,12 @@ class CompoundQuery(qcore.Query):
             m = subs[0].matcher(searcher, context)
         else:
             m = self._matcher(subs, searcher, context)
-
-        # If there were queries inside Not(), make a matcher for them and
-        # wrap the matchers in an AndNotMatcher
-        if nots:
-            if len(nots) == 1:
-                notq = nots[0]
-            else:
-                notq = Or(nots)
-            notm = notq.matcher(searcher, searcher.boolean_context())
-            if notm.is_active():
-                m = matching.AndNotMatcher(m, notm)
-
         return m
+
+    def _matcher(self, subs, searcher, context):
+        # Subclasses must implement this method
+
+        raise NotImplementedError
 
     def _tree_matcher(self, subs, mcls, searcher, context, q_weight_fn,
                       **kwargs):
