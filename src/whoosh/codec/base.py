@@ -354,6 +354,7 @@ class Segment(object):
     def __init__(self, indexname):
         self.indexname = indexname
         self.segid = self._random_id()
+        self.compound = False
 
     @classmethod
     def _random_id(cls, size=12):
@@ -574,7 +575,12 @@ class MultiPerDocumentReader(PerDocumentReader):
 # Extended base classes
 
 class PerDocWriterWithColumns(PerDocumentWriter):
-    # Requires attributes _storage, _segment, _docnum
+    def __init__(self):
+        PerDocumentWriter.__init__(self)
+        # Implementations need to set these attributes
+        self._storage = None
+        self._segment = None
+        self._docnum = None
 
     @abstractmethod
     def _has_column(self, fieldname):
@@ -611,7 +617,13 @@ class CodecWithGraph(Codec):
 
 
 class FieldWriterWithGraph(FieldWriter):
-    # Requires attributes _storage, _segment, _fieldobj
+    def __init__(self):
+        FieldWriter.__init__(self)
+        # Implementations need to set these attributes
+        self._storage = None
+        self._segment = None
+        self._fieldname = None
+        self._fieldobj = None
 
     FST_EXT = CodecWithGraph.FST_EXT
 
