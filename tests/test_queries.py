@@ -422,7 +422,7 @@ def test_or_nots1():
     st = RamStorage()
     ix = st.create_index(schema)
     with ix.writer() as w:
-        w.add_document(a=u("alfa"), b=("charlie"))
+        w.add_document(a=u("alfa"), b=u("charlie"))
 
     with ix.searcher() as s:
         q = query.And([query.Term("a", "alfa"),

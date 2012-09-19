@@ -98,12 +98,14 @@ class CompoundQuery(qcore.Query):
         return sum(q.estimate_size(ixreader) for q in self.subqueries)
 
     def estimate_min_size(self, ixreader):
-        subs, nots = self._split_queries()
-        subs_min = min(q.estimate_min_size(ixreader) for q in subs)
-        if nots:
-            nots_sum = sum(q.estimate_size(ixreader) for q in nots)
-            subs_min = max(0, subs_min - nots_sum)
-        return subs_min
+        from whoosh.query import Not
+
+        subs = self.subqueries
+        for sub in subs:
+            if isinstance(sub, Not):
+                return 0
+
+        return min(q.estimate_min_size(ixreader) for q in subs)
 
     def normalize(self):
         from whoosh.query import Every, TermRange, NumericRange
