@@ -218,6 +218,45 @@ def test_unicode_blocks():
 
 
 def test_double_metaphone():
+    from whoosh.lang.dmetaphone import double_metaphone
+
+    names = {'maurice': ('MRS', None),
+             'aubrey': ('APR', None),
+             'cambrillo': ('KMPRL', 'KMPR'),
+             'heidi': ('HT', None),
+             'katherine': ('K0RN', 'KTRN'),
+             'Thumbail': ('0MPL', 'TMPL'),
+             'catherine': ('K0RN', 'KTRN'),
+             'richard': ('RXRT', 'RKRT'),
+             'bob': ('PP', None),
+             'eric': ('ARK', None),
+             'geoff': ('JF', 'KF'),
+             'Through': ('0R', 'TR'),
+             'Schwein': ('XN', 'XFN'),
+             'dave': ('TF', None),
+             'ray': ('R', None),
+             'steven': ('STFN', None),
+             'bryce': ('PRS', None),
+             'randy': ('RNT', None),
+             'bryan': ('PRN', None),
+             'Rapelje': ('RPL', None),
+             'brian': ('PRN', None),
+             'otto': ('AT', None),
+             'auto': ('AT', None),
+             'Dallas': ('TLS', None),
+             'maisey': ('MS', None),
+             'zhang': ('JNK', None),
+             'Chile': ('XL', None),
+             'Jose': ('HS', None),
+             'Arnow': ('ARN', 'ARNF'),
+             'solilijs': ('SLLS', None),
+             'Parachute': ('PRKT', None),
+             'Nowhere': ('NR', None),
+             'Tux': ('TKS', None)}
+    for name in names.keys():
+        dmn = double_metaphone(name)
+    assert_equal(dmn, names[name])
+
     mf = (analysis.RegexTokenizer()
           | analysis.LowercaseFilter()
           | analysis.DoubleMetaphoneFilter())
@@ -398,3 +437,5 @@ def test_language_analyzer():
 def test_pickleability():
     ana = analysis.LanguageAnalyzer("en")
     pick = dumps(ana, -1)
+
+
