@@ -74,6 +74,13 @@ class Storage(object):
     def __iter__(self):
         return iter(self.list())
 
+    def __enter__(self):
+        self.create()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def create(self):
         """Creates any required implementation-specific resources. For example,
         a filesystem-based implementation might create a directory, while a
@@ -88,6 +95,9 @@ class Storage(object):
         This method returns ``self`` so you can also say::
 
             st = FileStorage("indexdir").create()
+
+        Storage implementations should be written so that calling create() a
+        second time on the same storage
 
         :return: a :class:`Storage` instance.
         """
@@ -542,6 +552,9 @@ class RamStorage(Storage):
     def destroy(self):
         del self.files
         del self.locks
+
+    def close(self):
+        self.destroy()
 
     def list(self):
         return list(self.files.keys())
