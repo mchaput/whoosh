@@ -553,9 +553,6 @@ class RamStorage(Storage):
         del self.files
         del self.locks
 
-    def close(self):
-        self.destroy()
-
     def list(self):
         return list(self.files.keys())
 
