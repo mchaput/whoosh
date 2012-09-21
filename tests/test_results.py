@@ -322,7 +322,7 @@ def test_resultspage():
         assert rp.is_last_page()
 
         assert_raises(ValueError, s.search_page, q, 0)
-        assert_raises(ValueError, s.search_page, q, 7)
+        assert_equal(s.search_page(q, 10).pagenum, 6)
 
         rp = s.search_page(query.Term("content", "glonk"), 1)
         assert_equal(len(rp), 0)

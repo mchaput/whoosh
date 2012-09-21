@@ -1557,13 +1557,9 @@ class ResultsPage(object):
             raise ValueError("pagenum must be >= 1")
 
         self.pagecount = int(ceil(self.total / pagelen))
-        if pagenum > 1 and pagenum > self.pagecount:
-            raise ValueError("Asked for page %s of %s"
-                             % (pagenum, self.pagecount))
+        self.pagenum = min(self.pagecount, pagenum)
 
-        self.pagenum = pagenum
-
-        offset = (pagenum - 1) * pagelen
+        offset = (self.pagenum - 1) * pagelen
         if (offset + pagelen) > self.total:
             pagelen = self.total - offset
         self.offset = offset
