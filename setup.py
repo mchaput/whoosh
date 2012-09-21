@@ -11,7 +11,7 @@ if __name__ == "__main__":
         name="Whoosh",
         version=versionstring(),
         package_dir={'': 'src'},
-        packages=find_packages(),
+        packages=find_packages("src"),
 
         author="Matt Chaput",
         author_email="matt@whoosh.ca",
