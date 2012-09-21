@@ -8,13 +8,13 @@ Use at your own risk, but please report any problems to me so I can fix them.
 
 To create a new index::
 
-    from whoosh.filedb.gae import DataStoreStorage
+    from whoosh.filedb.gae import DatastoreStorage
 
-    ix = DataStoreStorage().create_index(schema)
+    ix = DatastoreStorage().create_index(schema)
 
 To open an existing index::
 
-    ix = DataStoreStorage().open_index()
+    ix = DatastoreStorage().open_index()
 """
 
 from google.appengine.api import memcache  # @UnresolvedImport
