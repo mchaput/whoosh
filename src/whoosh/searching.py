@@ -34,7 +34,7 @@ import copy
 import weakref
 from math import ceil
 
-from whoosh import classify, highlight, query, scoring, sorting
+from whoosh import classify, highlight, query, scoring
 from whoosh.compat import iteritems, itervalues, iterkeys, xrange
 from whoosh.idsets import DocIdSet, BitSet
 from whoosh.reading import TermNotFound
@@ -182,6 +182,7 @@ class Searcher(object):
         """
 
         if self.has_parent():
+            # Call the weak reference to get the parent searcher
             return self.parent()
         else:
             return self
@@ -200,14 +201,14 @@ class Searcher(object):
         return self._doccount
 
     def field_length(self, fieldname):
-        if self.parent:
-            return self.parent().field_length(fieldname)
+        if self.has_parent():
+            return self.get_parent().field_length(fieldname)
         else:
             return self.reader().field_length(fieldname)
 
     def max_field_length(self, fieldname):
-        if self.parent:
-            return self.parent().max_field_length(fieldname)
+        if self.has_parent():
+            return self.get_parent().max_field_length(fieldname)
         else:
             return self.reader().max_field_length(fieldname)
 
@@ -777,7 +778,7 @@ class Searcher(object):
         need to access the collector to get a results object or other
         information the collector might hold after the search.
 
-        :param query: a :class:`whoosh.query.Query` object to use to match
+        :param q: a :class:`whoosh.query.Query` object to use to match
             documents.
         :param collector: a :class:`whoosh.collectors.Collector` object to feed
             the results into.
@@ -865,6 +866,7 @@ class Searcher(object):
         :rtype: :class:`whoosh.spelling.Correction`
         """
 
+        # Dictionary of custom per-field correctors
         if correctors is None:
             correctors = {}
 
@@ -873,16 +875,21 @@ class Searcher(object):
         else:
             fieldnames = [name for name, field in self.schema.items()
                           if field.spelling]
+
+        # Fill in default corrector objects for fields that don't have a custom
+        # one in the "correctors" dictionary
         for fieldname in fieldnames:
             if fieldname not in correctors:
-                correctors[fieldname] = self.corrector(fieldname)
+                correctors[fieldname] = self.reader().corrector(fieldname)
 
+        # Get any terms in the query in the fields we're correcting
         if terms is None:
             terms = []
             for token in q.all_tokens():
                 if token.fieldname in correctors:
                     terms.append((token.fieldname, token.text))
 
+        # Make q query corrector
         from whoosh import spelling
 
         sqc = spelling.SimpleQueryCorrector(correctors, terms)
