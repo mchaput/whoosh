@@ -126,6 +126,9 @@ class DatastoreStorage(Storage):
     def file_exists(self, name):
         return DatastoreFile.get_by_key_name(name) is not None
 
+    def file_modified(self, name):
+        return -1  # -1 means that we do not support this
+
     def file_length(self, name):
         return len(DatastoreFile.get_by_key_name(name).value)
 
