@@ -4,14 +4,6 @@
 
 .. automodule:: whoosh.index
 
-Globals
-=======
-
-.. data:: _index_version
-
-    The version number of the index format which this version of Whoosh
-    writes.
-
 
 Functions
 =========
