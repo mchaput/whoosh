@@ -131,7 +131,6 @@ def exists_in(dirname, indexname=None):
     :param dirname: the file path of a directory.
     :param indexname: the name of the index. If None, the default index name is
         used.
-    :param rtype: bool
     """
 
     if os.path.exists(dirname):
@@ -150,7 +149,6 @@ def exists(storage, indexname=None):
     :param storage: a store.Storage object.
     :param indexname: the name of the index. If None, the default index name is
         used.
-    :param rtype: bool
     """
 
     return storage.index_exists(indexname)
@@ -162,10 +160,11 @@ def version_in(dirname, indexname=None):
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
     number of the on-disk format used for the index -- e.g. -102.
 
-    The second number (format version) may be useful for figuring out if you
-    need to recreate an index because the format has changed. However, you can
-    just try to open the index and see if you get an IndexVersionError
-    exception.
+    You should avoid attaching significance to the second number (the index
+    version). This is simply a version number for the TOC file and probably
+    should not have been exposed in a public interface. The best way to check
+    if the current version of Whoosh can open an index is to actually try to
+    open it and see if it raises a ``whoosh.index.IndexVersionError`` exception.
 
     Note that the release and format version are available as attributes on the
     Index object in Index.release and Index.version.
@@ -187,10 +186,11 @@ def version(storage, indexname=None):
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
     number of the on-disk format used for the index -- e.g. -102.
 
-    The second number (format version) may be useful for figuring out if you
-    need to recreate an index because the format has changed. However, you can
-    just try to open the index and see if you get an IndexVersionError
-    exception.
+    You should avoid attaching significance to the second number (the index
+    version). This is simply a version number for the TOC file and probably
+    should not have been exposed in a public interface. The best way to check
+    if the current version of Whoosh can open an index is to actually try to
+    open it and see if it raises a ``whoosh.index.IndexVersionError`` exception.
 
     Note that the release and format version are available as attributes on the
     Index object in Index.release and Index.version.
@@ -268,8 +268,6 @@ class Index(object):
         this index. Returns False if this object is not the latest generation
         (that is, someone else has updated the index since you opened this
         object).
-
-        :param rtype: bool
         """
         return True
 
@@ -282,8 +280,6 @@ class Index(object):
     def is_empty(self):
         """Returns True if this index is empty (that is, it has never had any
         documents successfully written to it.
-
-        :param rtype: bool
         """
         raise NotImplementedError
 
@@ -474,6 +470,8 @@ class FileIndex(Index):
         lock the index.
         """
 
+        print("storage=", self.storage)
+        print("locks=", self.storage.locks)
         return self.storage.lock(self.indexname + "_" + name)
 
     def _read_toc(self):
@@ -498,7 +496,7 @@ class FileIndex(Index):
         return self._read_toc().version
 
     @classmethod
-    def _reader(self, storage, schema, segments, generation, reuse=None):
+    def _reader(cls, storage, schema, segments, generation, reuse=None):
         # Returns a reader for the given segments, possibly reusing already
         # opened readers
         from whoosh.reading import SegmentReader, MultiReader, EmptyReader
