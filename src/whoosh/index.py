@@ -470,8 +470,6 @@ class FileIndex(Index):
         lock the index.
         """
 
-        print("storage=", self.storage)
-        print("locks=", self.storage.locks)
         return self.storage.lock(self.indexname + "_" + name)
 
     def _read_toc(self):
