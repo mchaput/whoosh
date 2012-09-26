@@ -570,9 +570,12 @@ class ScoreFacet(FacetType):
 
 
 class FunctionFacet(FacetType):
-    """Lets you pass an arbitrary function that will compute the key. This may
-    be easier than subclassing FacetType and Categorizer to set up the desired
-    behavior.
+    """This facet type is low-level. In most cases you should use
+    :class:`TranslateFacet` instead.
+
+    This facet type ets you pass an arbitrary function that will compute the
+    key. This may be easier than subclassing FacetType and Categorizer to set up
+    the desired behavior.
 
     The function is called with the arguments ``(searcher, docid)``, where the
     ``searcher`` may be a composite searcher, and the ``docid`` is an absolute
@@ -602,6 +605,64 @@ class FunctionFacet(FacetType):
 
         def key_for(self, matcher, docid):
             return self.fn(self.global_searcher, docid + self.offset)
+
+
+class TranslateFacet(FacetType):
+    """Lets you specify a function to compute the key based on a key generated
+    by a wrapped facet.
+
+    This is useful if you want to use a custom ordering of a sortable field. For
+    example, if you want to use an implementation of the Unicode Collation
+    Algorithm (UCA) to sort a field using the rules from a particular language::
+
+        from pyuca import Collator
+
+        # The Collator object has a sort_key() method which takes a unicode
+        # string and returns a sort key
+        c = Collator("allkeys.txt")
+
+        # Make a facet object for the field you want to sort on
+        facet = sorting.FieldFacet("name")
+        # Wrap the facet in a TranslateFacet with the translation function
+        # (the Collator object's sort_key method)
+        facet = sorting.TranslateFacet(c.sort_key, facet)
+
+        # Use the facet to sort the search results
+        results = searcher.search(myquery, sortedby=facet)
+
+    You can pass multiple facets to the
+    """
+
+    def __init__(self, fn, *facets):
+        """
+        :param fn: The function to apply. For each matching document, this
+            function will be called with the values of the given facets as
+            arguments.
+        :param facets: One or more :class:`FacetType` objects. These facets are
+            used to compute facet value(s) for a matching document, and then the
+            value(s) is/are passed to the function.
+        """
+        self.fn = fn
+        self.facets = facets
+        self.maptype = None
+
+    def categorizer(self, global_searcher):
+        catters = [facet.categorizer(global_searcher) for facet in self.facets]
+        return self.TranslateCategorizer(self.fn, catters)
+
+    class TranslateCategorizer(Categorizer):
+        def __init__(self, fn, catters):
+            self.fn = fn
+            self.catters = catters
+
+        def set_searcher(self, segment_searcher, docoffset):
+            for catter in self.catters:
+                catter.set_searcher(segment_searcher, docoffset)
+
+        def key_for(self, matcher, segment_docnum):
+            keys = [catter.key_for(matcher, segment_docnum)
+                    for catter in self.catters]
+            return self.fn(*keys)
 
 
 class StoredFieldFacet(FacetType):
