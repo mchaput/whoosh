@@ -615,6 +615,48 @@ def test_sorting_function():
             assert_equal(tks.count("alfa"), tks.count("bravo"))
 
 
+class test_translate():
+    domain = [("alfa", 100, 50), ("bravo", 20, 80), ("charlie", 10, 10),
+              ("delta", 82, 39), ("echo", 20, 73), ("foxtrot", 81, 59),
+              ("golf", 39, 93), ("hotel", 57, 48), ("india", 84, 75),
+              ]
+
+    schema = fields.Schema(name=fields.TEXT(sortable=True),
+                           a=fields.NUMERIC(sortable=True),
+                           b=fields.NUMERIC(sortable=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for name, a, b in domain:
+            w.add_document(name=name, a=a, b=b)
+
+    with ix.searcher() as s:
+        q = query.Every()
+
+        # Baseline: just sort by a field
+        r = s.search(q, sortedby="a")
+        assert_equal(" ".join([hit["name"] for hit in r]),
+                     "charlie bravo echo golf hotel foxtrot delta india alfa")
+
+        # Sort by reversed name
+        target = [x[0] for x in sorted(domain, key=lambda x: x[0][::-1])]
+        print(target)
+        tf = sorting.TranslateFacet(lambda name: name[::-1],
+                                    sorting.FieldFacet("name"))
+        r = s.search(q, sortedby=tf)
+        assert_equal([hit["name"] for hit in r], target)
+
+        # Sort by average of a and b
+        def avg(a, b):
+            return (a + b) / 2
+
+        target = [x[0] for x in sorted(domain, key=lambda x: (x[1] + x[2]) / 2)]
+        af = sorting.FieldFacet("a")
+        bf = sorting.FieldFacet("b")
+        tf = sorting.TranslateFacet(avg, af, bf)
+        r = s.search(q, sortedby=tf)
+        assert_equal([hit["name"] for hit in r], target)
+
+
 def test_sorted_groups():
     schema = fields.Schema(a=fields.STORED, b=fields.TEXT, c=fields.ID)
     ix = RamStorage().create_index(schema)

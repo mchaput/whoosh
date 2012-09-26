@@ -709,6 +709,62 @@ should accept a single argument (the stored value) and return a list or tuple
 of grouping keys.
 
 
+Using a custom sort order
+=========================
+
+It is sometimes useful to have a custom sort order per-search. For example,
+different languages use different sort orders. If you have a function to return
+the sorting order you want for a given field value, such as an implementation of
+the Unicode Collation Algorithm (UCA), you can customize the sort order
+for the user's language.
+
+The :class:`whoosh.sorting.TranslateFacet` lets you apply a function to the
+value of another facet. This lets you "translate" a field value into an
+arbitrary sort key, such as with UCA::
+
+    from pyuca import Collator
+
+    # The Collator object has a sort_key() method which takes a unicode
+    # string and returns a sort key
+    c = Collator("allkeys.txt")
+
+    # Make a facet object for the field you want to sort on
+    nf = sorting.FieldFacet("name")
+
+    # Wrap the facet in a TranslateFacet with the translation function
+    # (the Collator object's sort_key method)
+    tf = sorting.TranslateFacet(facet, c.sort_key)
+
+    # Use the facet to sort the search results
+    results = searcher.search(myquery, sortedby=tf)
+
+(You can pass multiple "wrapped" facets to the ``TranslateFacet``, and it will
+call the function with the values of the facets as multiple arguments.)
+
+The TranslateFacet can also be very useful with numeric fields to sort on the
+output of some formula::
+
+    # Sort based on the average of two numeric fields
+    def average(a, b):
+        return (a + b) / 2.0
+
+    # Create two facets for the fields and pass them with the function to
+    # TranslateFacet
+    af = sorting.FieldFacet("age")
+    wf = sorting.FieldFacet("weight")
+    facet = sorting.TranslateFacet(average, af, wf)
+
+    results = searcher.search(myquery. sortedby=facet)
+
+Remember that you can still sort by multiple facets. For example, you could sort
+by a numeric value transformed by a quantizing function first, and then if that
+is equal sort by the value of another field::
+
+    # Sort by a quantized size first, then by name
+    tf = sorting.TranslateFacet(quantize, sorting.FieldFacet("size"))
+    results = searcher.search(myquery, sortedby=[tf, "name"])
+
+
 Expert: writing your own facet
 ==============================
 
