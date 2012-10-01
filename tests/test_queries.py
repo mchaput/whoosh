@@ -1,6 +1,7 @@
 from __future__ import with_statement
 
 from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
+from whoosh.util.testing import TempIndex
 
 import copy
 
@@ -449,3 +450,21 @@ def test_or_nots2():
                       ])
         r = s.search(q)
         assert_equal(len(r), 1)
+
+
+def test_or_nots3():
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           itemtype=fields.ID(stored=True))
+    with TempIndex(schema, "ornot") as ix:
+        w = ix.writer()
+        w.add_document(title=u("a1"), itemtype=u("a"))
+        w.add_document(title=u("a2"), itemtype=u("a"))
+        w.add_document(title=u("b1"), itemtype=u("b"))
+        w.commit()
+
+        q = Term('itemtype', 'a') | Not(Term('itemtype', 'a'))
+
+        with ix.searcher() as s:
+            r = " ".join([hit["title"] for hit in s.search(q)])
+            assert r == "a1 a2 b1"
+
