@@ -1,8 +1,7 @@
 from __future__ import with_statement
 from datetime import datetime, timedelta
 
-from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
-from nose.tools import assert_raises  # @UnresolvedImport
+import pytest
 
 from whoosh import fields, qparser, query
 from whoosh.compat import long_type, u, b, xrange
@@ -13,15 +12,15 @@ from whoosh.util import times
 def test_schema_eq():
     a = fields.Schema()
     b = fields.Schema()
-    assert_equal(a, b)
+    assert a == b
 
     a = fields.Schema(id=fields.ID)
     b = a.copy()
-    assert_equal(a["id"], b["id"])
-    assert_equal(a, b)
+    assert a["id"] == b["id"]
+    assert a == b
 
     c = fields.Schema(id=fields.TEXT)
-    assert_not_equal(a, c)
+    assert a != c
 
 
 def test_creation1():
@@ -33,8 +32,7 @@ def test_creation1():
     s.add("quick", fields.NGRAM)
     s.add("note", fields.STORED)
 
-    assert_equal(s.names(), ["content", "note", "path", "quick", "tags",
-                             "title"])
+    assert s.names() == ["content", "note", "path", "quick", "tags", "title"]
     assert "content" in s
     assert "buzz" not in s
     assert isinstance(s["tags"], fields.KEYWORD)
@@ -45,7 +43,7 @@ def test_creation2():
                       b=fields.ID,
                       c=fields.KEYWORD(scorable=True))
 
-    assert_equal(s.names(), ["a", "b", "c"])
+    assert s.names() == ["a", "b", "c"]
     assert "a" in s
     assert "b" in s
     assert "c" in s
@@ -59,13 +57,13 @@ def test_declarative():
         date = fields.DATETIME
 
     ix = RamStorage().create_index(MySchema)
-    assert_equal(ix.schema.names(), ["content", "date", "path", "title"])
+    assert ix.schema.names() == ["content", "date", "path", "title"]
 
     ix = RamStorage().create_index(MySchema())
-    assert_equal(ix.schema.names(), ["content", "date", "path", "title"])
+    assert ix.schema.names() == ["content", "date", "path", "title"]
 
-    assert_raises(fields.FieldConfigurationError, RamStorage().create_index,
-                  object())
+    with pytest.raises(fields.FieldConfigurationError):
+        RamStorage().create_index(object())
 
 
 def test_declarative_inherit():
@@ -80,13 +78,15 @@ def test_declarative_inherit():
         title = fields.TEXT
 
     s = Grandchild()
-    assert_equal(s.names(), ["content", "date", "path", "title"])
+    assert s.names() == ["content", "date", "path", "title"]
 
 
 def test_badnames():
     s = fields.Schema()
-    assert_raises(fields.FieldConfigurationError, s.add, "_test", fields.ID)
-    assert_raises(fields.FieldConfigurationError, s.add, "a f", fields.ID)
+    with pytest.raises(fields.FieldConfigurationError):
+        s.add("_test", fields.ID)
+    with pytest.raises(fields.FieldConfigurationError):
+        s.add("a f", fields.ID)
 
 
 #def test_numeric_support():
@@ -95,7 +95,7 @@ def test_badnames():
 #    floatf = fields.NUMERIC(float, shift_step=0)
 #
 #    def roundtrip(obj, num):
-#        assert_equal(obj.from_bytes(obj.to_bytes(num)), num)
+#        assert obj.from_bytes(obj.to_bytes(num)), num)
 #
 #    roundtrip(intf, 0)
 #    roundtrip(intf, 12345)
@@ -121,7 +121,7 @@ def test_badnames():
 #        shuffle(scrabled)
 #        round = [obj.from_text(t) for t
 #                 in sorted([obj.to_text(n) for n in scrabled])]
-#        assert_equal(round, rng)
+#        assert round, rng)
 #
 #    roundtrip_sort(intf, -100, 100, 1)
 #    roundtrip_sort(longf, -58902, 58249, 43)
@@ -135,16 +135,16 @@ def test_index_numeric():
     with ix.writer() as w:
         w.add_document(a=1, b=1)
     with ix.searcher() as s:
-        assert_equal(list(s.lexicon("a")),
+        assert list(s.lexicon("a")) == \
                      [b('\x00\x00\x00\x00\x01'), b('\x04\x00\x00\x00\x00'),
                       b('\x08\x00\x00\x00\x00'), b('\x0c\x00\x00\x00\x00'),
                       b('\x10\x00\x00\x00\x00'), b('\x14\x00\x00\x00\x00'),
-                      b('\x18\x00\x00\x00\x00'), b('\x1c\x00\x00\x00\x00')])
-        assert_equal(list(s.lexicon("b")),
+                      b('\x18\x00\x00\x00\x00'), b('\x1c\x00\x00\x00\x00')]
+        assert list(s.lexicon("b")) == \
                      [b('\x00\x80\x00\x00\x01'), b('\x04\x08\x00\x00\x00'),
                       b('\x08\x00\x80\x00\x00'), b('\x0c\x00\x08\x00\x00'),
                       b('\x10\x00\x00\x80\x00'), b('\x14\x00\x00\x08\x00'),
-                      b('\x18\x00\x00\x00\x80'), b('\x1c\x00\x00\x00\x08')])
+                      b('\x18\x00\x00\x00\x80'), b('\x1c\x00\x00\x00\x08')]
 
 
 def test_numeric():
@@ -166,20 +166,20 @@ def test_numeric():
 
         q = qp.parse(u("5820"))
         r = s.search(q)
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["id"], "a")
+        assert len(r) == 1
+        assert r[0]["id"] == "a"
 
     with ix.searcher() as s:
         r = s.search(qp.parse("floating:4.5"))
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["id"], "d")
+        assert len(r) == 1
+        assert r[0]["id"] == "d"
 
     q = qp.parse("integer:*")
-    assert_equal(q.__class__, query.Every)
-    assert_equal(q.fieldname, "integer")
+    assert q.__class__ == query.Every
+    assert q.field() == "integer"
 
     q = qp.parse("integer:5?6")
-    assert_equal(q, query.NullQuery)
+    assert q == query.NullQuery
 
 
 def test_decimal_numeric():
@@ -189,7 +189,7 @@ def test_decimal_numeric():
     schema = fields.Schema(id=fields.ID(stored=True), deci=f)
     ix = RamStorage().create_index(schema)
 
-    # assert_equal(f.from_text(f.to_text(Decimal("123.56"))), Decimal("123.56"))
+    # assert f.from_text(f.to_text(Decimal("123.56"))), Decimal("123.56"))
 
     w = ix.writer()
     w.add_document(id=u("a"), deci=Decimal("123.56"))
@@ -202,12 +202,12 @@ def test_decimal_numeric():
         qp = qparser.QueryParser("deci", schema)
         q = qp.parse(u("123.56"))
         r = s.search(q)
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["id"], "a")
+        assert len(r) == 1
+        assert r[0]["id"] == "a"
 
         r = s.search(qp.parse(u("0.536255")))
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["id"], "b")
+        assert len(r) == 1
+        assert r[0]["id"] == "b"
 
 
 def test_numeric_parsing():
@@ -215,22 +215,22 @@ def test_numeric_parsing():
 
     qp = qparser.QueryParser("number", schema)
     q = qp.parse(u("[10 to *]"))
-    assert_equal(q, query.NullQuery)
+    assert q == query.NullQuery
 
     q = qp.parse(u("[to 400]"))
     assert q.__class__ is query.NumericRange
-    assert_equal(q.start, None)
-    assert_equal(q.end, 400)
+    assert q.start is None
+    assert q.end == 400
 
     q = qp.parse(u("[10 to]"))
     assert q.__class__ is query.NumericRange
-    assert_equal(q.start, 10)
-    assert_equal(q.end, None)
+    assert q.start == 10
+    assert q.end is None
 
     q = qp.parse(u("[10 to 400]"))
     assert q.__class__ is query.NumericRange
-    assert_equal(q.start, 10)
-    assert_equal(q.end, 400)
+    assert q.start == 10
+    assert q.end == 400
 
 
 def test_numeric_ranges():
@@ -248,7 +248,7 @@ def test_numeric_ranges():
         def check(qs, target):
             q = qp.parse(qs)
             result = [s.stored_fields(d)["id"] for d in q.docs(s)]
-            assert_equal(result, target)
+            assert result == target
 
         # Note that range() is always inclusive-exclusive
         check("[10 to 390]", list(range(10, 390 + 1)))
@@ -305,7 +305,7 @@ def test_decimal_ranges():
                 target.append(str(count))
                 count += inc
 
-            assert_equal(result, target)
+            assert result == target
 
         check("[10.2 to 80.8]", "10.2", "80.8")
         check("{10.2 to 80.8]", "10.4", "80.8")
@@ -328,7 +328,7 @@ def test_nontext_document():
     with ix.searcher() as s:
         def check(kwargs, target):
             result = [d['id'] for d in s.documents(**kwargs)]
-            assert_equal(result, target)
+            assert result == target
 
         check({"num": 49}, [49])
         check({"date": dt + timedelta(days=30)}, [30])
@@ -373,21 +373,21 @@ def test_datetime():
         qp = qparser.QueryParser("id", schema)
 
         r = s.search(qp.parse("date:20100523"))
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["id"], "5-23")
+        assert len(r) == 1
+        assert r[0]["id"] == "5-23"
         assert r[0]["date"].__class__ is datetime
-        assert_equal(r[0]["date"].month, 5)
-        assert_equal(r[0]["date"].day, 23)
+        assert r[0]["date"].month == 5
+        assert r[0]["date"].day == 23
 
         r = s.search(qp.parse("date:'2010 02'"))
-        assert_equal(len(r), 27)
+        assert len(r) == 27
 
         q = qp.parse(u("date:[2010-05 to 2010-08]"))
         startdt = datetime(2010, 5, 1, 0, 0, 0, 0)
         enddt = datetime(2010, 8, 31, 23, 59, 59, 999999)
         assert q.__class__ is query.NumericRange
-        assert_equal(q.start, times.datetime_to_long(startdt))
-        assert_equal(q.end, times.datetime_to_long(enddt))
+        assert q.start == times.datetime_to_long(startdt)
+        assert q.end == times.datetime_to_long(enddt)
 
 
 def test_boolean():
@@ -407,23 +407,23 @@ def test_boolean():
         qp = qparser.QueryParser("id", schema)
 
         r = s.search(qp.parse("done:true"))
-        assert_equal(sorted([d["id"] for d in r]), ["a", "c", "e"])
+        assert sorted([d["id"] for d in r]) == ["a", "c", "e"]
         assert all(d["done"] for d in r)
 
         r = s.search(qp.parse("done:yes"))
-        assert_equal(sorted([d["id"] for d in r]), ["a", "c", "e"])
+        assert sorted([d["id"] for d in r]) == ["a", "c", "e"]
         assert all(d["done"] for d in r)
 
         q = qp.parse("done:false")
-        assert_equal(q.__class__, query.Term)
-        assert_equal(q.text, False)
-        assert_equal(schema["done"].to_bytes(False), b("f"))
+        assert q.__class__ == query.Term
+        assert q.text is False
+        assert schema["done"].to_bytes(False) == b("f")
         r = s.search(q)
-        assert_equal(sorted([d["id"] for d in r]), ["b", "d"])
+        assert sorted([d["id"] for d in r]) == ["b", "d"]
         assert not any(d["done"] for d in r)
 
         r = s.search(qp.parse("done:no"))
-        assert_equal(sorted([d["id"] for d in r]), ["b", "d"])
+        assert sorted([d["id"] for d in r]) == ["b", "d"]
         assert not any(d["done"] for d in r)
 
 
@@ -442,10 +442,10 @@ def test_boolean2():
         qf = qparser.QueryParser('b', None).parse(u('f'))
         qt = qparser.QueryParser('b', None).parse(u('t'))
         r = s.search(qf)
-        assert_equal(len(r), 3)
+        assert len(r) == 3
 
-        assert_equal([d["b"] for d in s.search(qt)], [True])
-        assert_equal([d["b"] for d in s.search(qf)], [False] * 3)
+        assert [d["b"] for d in s.search(qt)] == [True]
+        assert [d["b"] for d in s.search(qf)] == [False] * 3
 
 
 def test_boolean3():
@@ -461,7 +461,7 @@ def test_boolean3():
     with ix.searcher() as s:
         q = query.Term("b", schema["b"].to_bytes(True))
         ts = [hit["t"] for hit in s.search(q)]
-        assert_equal(ts, ["with hardcopy"])
+        assert ts == ["with hardcopy"]
 
 
 def test_boolean_strings():
@@ -483,7 +483,7 @@ def test_boolean_strings():
         def check(qs, nums):
             q = qp.parse(qs)
             r = s.search(q, limit=None)
-            assert_equal([hit["i"] for hit in r], nums)
+            assert [hit["i"] for hit in r] == nums
 
         trues = [0, 1, 4, 5]
         falses = [2, 3, 6, 7]
@@ -518,13 +518,13 @@ def test_boolean_find_deleted():
         reader = s.reader()
         for docnum in xrange(s.doc_count_all()):
             b = s.stored_fields(docnum)["b"]
-            assert_equal(b, reader.is_deleted(docnum))
+            assert b == reader.is_deleted(docnum)
 
         # Try doing a search for documents where b=True
         qp = qparser.QueryParser("b", ix.schema)
         q = qp.parse("b:t")
         r = s.search(q, limit=None)
-        assert_equal(len(r), 0)
+        assert len(r) == 0
 
         # Make sure Every query doesn't match deleted docs
         r = s.search(qp.parse("*"), limit=None)
@@ -551,7 +551,8 @@ def test_missing_field():
     ix = RamStorage().create_index(schema)
 
     with ix.searcher() as s:
-        assert_raises(KeyError, s.document_numbers, id=u("test"))
+        with pytest.raises(KeyError):
+            s.document_numbers(id=u("test"))
 
 
 def test_token_boost():
@@ -559,6 +560,6 @@ def test_token_boost():
     ana = RegexTokenizer() | DoubleMetaphoneFilter()
     field = fields.TEXT(analyzer=ana, phrase=False)
     results = list(field.index(u("spruce view")))
-    assert_equal(results, [(b('SPRS'), 1, 1.0, b('\x00\x00\x00\x01')),
-                           (b('FF'), 1, 0.5, b('\x00\x00\x00\x01')),
-                           (b('F'), 1, 1.0, b('\x00\x00\x00\x01'))])
+    assert results == [(b('SPRS'), 1, 1.0, b('\x00\x00\x00\x01')),
+                       (b('FF'), 1, 0.5, b('\x00\x00\x00\x01')),
+                       (b('F'), 1, 1.0, b('\x00\x00\x00\x01'))]

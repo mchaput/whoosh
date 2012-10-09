@@ -1,7 +1,5 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import analysis, classify, fields, formats
 from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
@@ -43,8 +41,8 @@ def test_add_text():
     with ix.reader() as r:
         exp = classify.Expander(r, "content")
         exp.add_text(text)
-        assert_equal([t[0] for t in exp.expanded_terms(3)],
-                     ["particles", "velocity", "field"])
+        assert ([t[0] for t in exp.expanded_terms(3)]
+                == ["particles", "velocity", "field"])
 
 
 def test_keyterms():
@@ -52,16 +50,15 @@ def test_keyterms():
     with ix.searcher() as s:
         docnum = s.document_number(path="/a")
         keys = list(s.key_terms([docnum], "content", numterms=3))
-        assert_equal([t[0] for t in keys],
-                     [u("collision"), u("calculations"), u("damped")])
+        assert ([t[0] for t in keys]
+                == [u("collision"), u("calculations"), u("damped")])
 
 
 def test_keyterms_from_text():
     ix = create_index()
     with ix.searcher() as s:
         keys = list(s.key_terms_from_text("content", text))
-        assert_equal([t[0] for t in keys],
-                     ["particles", "velocity", "field"])
+        assert [t[0] for t in keys] == ["particles", "velocity", "field"]
 
 
 def test_more_like_this():
@@ -81,7 +78,7 @@ def test_more_like_this():
         with ix.searcher() as s:
             docnum = s.document_number(id=u("1"))
             r = s.more_like(docnum, "text", **kwargs)
-            assert_equal([hit["id"] for hit in r], ["6", "2", "3"])
+            assert [hit["id"] for hit in r] == ["6", "2", "3"]
 
     schema = fields.Schema(id=fields.ID(stored=True),
                            text=fields.TEXT(stored=True))
@@ -113,4 +110,4 @@ def test_more_like():
         with ix.searcher() as s:
             docnum = s.document_number(id="3")
             r = s.more_like(docnum, "text")
-            assert_equal([hit["id"] for hit in r], ["5", "4"])
+            assert [hit["id"] for hit in r] == ["5", "4"]

@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import random, time, threading
 
-from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
+import pytest
 
 from whoosh import analysis, fields, query, writing
 from whoosh.compat import u, xrange, text_type
@@ -22,8 +22,7 @@ def test_no_stored():
         w.commit()
 
         with ix.reader() as r:
-            assert_equal(sorted([int(id) for id in r.lexicon("id")]),
-                         list(range(20)))
+            assert sorted([int(id) for id in r.lexicon("id")]) == list(range(20))
 
 
 def test_asyncwriter():
@@ -50,8 +49,7 @@ def test_asyncwriter():
 
         # Check whether all documents made it into the index.
         with ix.reader() as r:
-            assert_equal(sorted([int(id) for id in r.lexicon("id")]),
-                         list(range(20)))
+            assert sorted([int(id) for id in r.lexicon("id")]) == list(range(20))
 
 
 def test_asyncwriter_no_stored():
@@ -78,8 +76,7 @@ def test_asyncwriter_no_stored():
 
         # Check whether all documents made it into the index.
         with ix.reader() as r:
-            assert_equal(sorted([int(id) for id in r.lexicon("id")]),
-                         list(range(20)))
+            assert sorted([int(id) for id in r.lexicon("id")]) == list(range(20))
 
 
 def test_updates():
@@ -88,7 +85,7 @@ def test_updates():
     for _ in xrange(10):
         with ix.writer() as w:
             w.update_document(id=u("a"))
-    assert_equal(ix.doc_count(), 1)
+    assert ix.doc_count() == 1
 
 
 def test_buffered():
@@ -105,7 +102,7 @@ def test_buffered():
         time.sleep(0.5)
         w.close()
 
-        assert_equal(len(ix._segments()), 10)
+        assert len(ix._segments()) == 10
 
 
 def test_buffered_search():
@@ -119,7 +116,7 @@ def test_buffered_search():
 
         with w.searcher() as s:
             r = s.search(query.Term("text", u("tango")))
-            assert_equal(sorted([d["id"] for d in r]), [2, 3])
+            assert sorted([d["id"] for d in r]) == [2, 3]
 
         w.add_document(id=5, text=u("foxtrot golf hotel"))
         w.add_document(id=6, text=u("india tango juliet"))
@@ -128,7 +125,7 @@ def test_buffered_search():
 
         with w.searcher() as s:
             r = s.search(query.Term("text", u("tango")))
-            assert_equal(sorted([d["id"] for d in r]), [2, 3, 6, 7])
+            assert sorted([d["id"] for d in r]) == [2, 3, 6, 7]
 
         w.close()
 
@@ -146,10 +143,10 @@ def test_buffered_update():
         with w.reader() as r:
             sfs = [sf for _, sf in r.iter_docs()]
             sfs = sorted(sfs, key=lambda x: x["id"])
-            assert_equal(sfs, [{'id': u('a'), 'payload': u('9a')},
-                               {'id': u('b'), 'payload': u('9b')},
-                               {'id': u('c'), 'payload': u('9c')}])
-            assert_equal(r.doc_count(), 3)
+            assert sfs == [{'id': u('a'), 'payload': u('9a')},
+                           {'id': u('b'), 'payload': u('9b')},
+                           {'id': u('c'), 'payload': u('9c')}]
+            assert r.doc_count() == 3
 
         w.close()
 
@@ -173,9 +170,8 @@ def test_buffered_threads():
         w.close()
 
         with ix.reader() as r:
-            assert_equal(r.doc_count(), 4)
-            assert_equal(sorted([d["name"] for d in r.all_stored_fields()]),
-                         domain)
+            assert r.doc_count() == 4
+            assert sorted([d["name"] for d in r.all_stored_fields()]) == domain
 
 
 def test_fractional_weights():
@@ -193,7 +189,7 @@ def test_fractional_weights():
         for word in s.lexicon("f"):
             p = s.postings("f", word)
             wts.append(p.weight())
-        assert_equal(wts, [0.5, 1.5, 2.0, 1.5])
+        assert wts == [0.5, 1.5, 2.0, 1.5]
 
     # Try again with Frequency format
     schema = fields.Schema(f=fields.TEXT(analyzer=ana, phrase=False))
@@ -207,7 +203,7 @@ def test_fractional_weights():
         for word in s.lexicon("f"):
             p = s.postings("f", word)
             wts.append(p.weight())
-        assert_equal(wts, [0.5, 1.5, 2.0, 1.5])
+        assert wts == [0.5, 1.5, 2.0, 1.5]
 
 
 def test_cancel_delete():
@@ -266,7 +262,8 @@ def test_delete_nonexistant():
 
         try:
             w = ix.writer()
-            assert_raises(IndexingError, w.delete_document, 5)
+            with pytest.raises(IndexingError):
+                w.delete_document(5)
         finally:
             w.cancel()
 
@@ -279,7 +276,8 @@ def test_delete_nonexistant():
 
         try:
             w = ix.writer()
-            assert_raises(IndexingError, w.delete_document, 5)
+            with pytest.raises(IndexingError):
+                w.delete_document(5)
         finally:
             w.cancel()
 
@@ -296,7 +294,7 @@ def test_add_field():
 
         with ix.searcher() as s:
             fs = s.document(b=u("india"))
-            assert_equal(fs, {"b": "india", "cat": "juliet"})
+            assert fs == {"b": "india", "cat": "juliet"}
 
 
 def test_add_reader():
@@ -325,38 +323,36 @@ def test_add_reader():
                            b=u("umber violet weird xray"))
 
         with ix.reader() as r:
-            assert_equal(r.doc_count_all(), 4)
+            assert r.doc_count_all() == 4
 
             sfs = list(r.all_stored_fields())
-            assert_equal(sfs, [{"i": u("4"),
-                                "a": u("hotel india juliet kilo")},
-                               {"i": u("5"), "a":
-                                u("india juliet kilo lima")},
-                               {"i": u("0"), "a":
-                                u("alfa bravo charlie delta")},
-                               {"i": u("2"), "a":
-                                u("charlie delta echo foxtrot")},
-                               ])
+            assert sfs == [{"i": u("4"),
+                            "a": u("hotel india juliet kilo")},
+                           {"i": u("5"), "a":
+                            u("india juliet kilo lima")},
+                           {"i": u("0"), "a":
+                            u("alfa bravo charlie delta")},
+                           {"i": u("2"), "a":
+                            u("charlie delta echo foxtrot")},
+                           ]
 
-            assert_equal(" ".join(r.field_terms("a")),
-                         "alfa bravo charlie delta echo foxtrot hotel india "
-                         "juliet kilo lima")
+            assert " ".join(r.field_terms("a")) == "alfa bravo charlie delta echo foxtrot hotel india juliet kilo lima"
 
             vs = []
             for docnum in r.all_doc_ids():
                 v = r.vector(docnum, "b")
                 vs.append(list(v.all_ids()))
-            assert_equal(vs, [["quick", "rhubarb", "soggy", "trap"],
-                              ["umber", "violet", "weird", "xray"],
-                              ["able", "baker", "coxwell", "dog"],
-                              ["india", "joker", "king", "loopy"]
-                              ])
+            assert vs == [["quick", "rhubarb", "soggy", "trap"],
+                          ["umber", "violet", "weird", "xray"],
+                          ["able", "baker", "coxwell", "dog"],
+                          ["india", "joker", "king", "loopy"]
+                          ]
 
             gr = r.word_graph("a")
-            assert_equal(list(gr.flatten_strings()),
-                         ["alfa", "bravo", "charlie", "delta", "echo",
-                          "foxtrot", "hotel", "india", "juliet", "kilo",
-                          "lima", ])
+            assert list(gr.flatten_strings()) == ["alfa", "bravo", "charlie",
+                                                  "delta", "echo", "foxtrot",
+                                                  "hotel", "india", "juliet",
+                                                  "kilo", "lima"]
 
 
 class test_add_reader_spelling():
@@ -381,15 +377,13 @@ class test_add_reader_spelling():
 
         with ix.searcher() as s:
             gr = s.reader().word_graph("a")
-            assert_equal(" ".join(gr.flatten_strings()),
-                         "compositing enabling eyeing flying indicating "
-                         "modeling opening polling pressing quitting "
-                         "rendering ripping rolling timing tying undoing "
-                         "writing yelling")
+            assert " ".join(gr.flatten_strings()) == ("compositing enabling eyeing flying indicating "
+                                                      "modeling opening polling pressing quitting "
+                                                      "rendering ripping rolling timing tying undoing "
+                                                      "writing yelling")
 
             gr = s.reader().word_graph("b")
-            assert_equal(" ".join(gr.flatten_strings()),
-                         "compositing enabling eyeing flying indicating "
-                         "modeling opening polling pressing quitting "
-                         "rendering ripping rolling timing tying undoing "
-                         "writing yelling")
+            assert " ".join(gr.flatten_strings()) == ("compositing enabling eyeing flying indicating "
+                                                      "modeling opening polling pressing quitting "
+                                                      "rendering ripping rolling timing tying undoing "
+                                                      "writing yelling")

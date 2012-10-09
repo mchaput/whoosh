@@ -2,8 +2,6 @@ from __future__ import with_statement
 import random
 from array import array
 
-from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
-
 from whoosh import analysis, fields, formats, query
 from whoosh.compat import u, b, text_type
 from whoosh.compat import array_tobytes, xrange
@@ -123,20 +121,19 @@ def test_stored_fields():
         seg.set_doc_count(4)
 
         pdr = codec.per_document_reader(st, seg)
-        assert_equal(pdr.doc_count_all(), 4)
-        assert_equal(pdr.stored_fields(0), {"a": "hello", "b": "there"})
+        assert pdr.doc_count_all() == 4
+        assert pdr.stored_fields(0) == {"a": "hello", "b": "there"}
         # Note: access out of order
-        assert_equal(pdr.stored_fields(3), {"a": "alfa", "b": "bravo"})
-        assert_equal(pdr.stored_fields(1),
-                     {"a": "one", "b": "two", "c": "three"})
+        assert pdr.stored_fields(3), {"a": "alfa", "b": "bravo"}
+        assert pdr.stored_fields(1) == {"a": "one", "b": "two", "c": "three"}
 
         sfs = list(pdr.all_stored_fields())
-        assert_equal(len(sfs), 4)
-        assert_equal(sfs, [{"a": "hello", "b": "there"},
-                           {"a": "one", "b": "two", "c": "three"},
-                           {},
-                           {"a": "alfa", "b": "bravo"},
-                           ])
+        assert len(sfs) == 4
+        assert sfs == [{"a": "hello", "b": "there"},
+                       {"a": "one", "b": "two", "c": "three"},
+                       {},
+                       {"a": "alfa", "b": "bravo"},
+                       ]
         pdr.close()
 
 
@@ -156,8 +153,8 @@ def test_termindex():
     for i, (fieldname, text) in enumerate(terms):
         assert (fieldname, b(text)) in tr
         ti = tr.term_info(fieldname, b(text))
-        assert_equal(ti.weight(), i)
-        assert_equal(ti.doc_frequency(), 1)
+        assert ti.weight() == i
+        assert ti.doc_frequency() == 1
 
 
 def test_w2_block():
@@ -185,16 +182,15 @@ def test_w2_block():
     m = tr.matcher("a", b("b"), schema["a"].format)
     block = m.block
     block.read_ids()
-    assert_equal(block.min_length(), 1)
-    assert_equal(block.max_length(), 5)
-    assert_equal(block.max_weight(), 5.0)
-    assert_equal(block.min_id(), 0)
-    assert_equal(block.max_id(), 4)
-    assert_equal(list(block.ids), [0, 1, 2, 3, 4])
-    assert_equal(list(block.read_weights()), [2.0, 5.0, 3.0, 4.0, 1.0])
-    assert_equal(list(block.read_values()), [b("test1"), b("test2"),
-                                             b("test3"), b("test4"), b("test5")
-                                             ])
+    assert block.min_length() == 1
+    assert block.max_length() == 5
+    assert block.max_weight() == 5.0
+    assert block.min_id() == 0
+    assert block.max_id() == 4
+    assert list(block.ids) == [0, 1, 2, 3, 4]
+    assert list(block.read_weights()) == [2.0, 5.0, 3.0, 4.0, 1.0]
+    assert list(block.read_values()) == [b("test1"), b("test2"), b("test3"),
+                                         b("test4"), b("test5")]
 
     seg = codec.new_segment(st, "test")
     fw = codec.field_writer(st, seg)
@@ -212,20 +208,20 @@ def test_w2_block():
     m = tr.matcher("a", b("b"), schema["a"].format)
     block = m.block
     block.read_ids()
-    assert_equal(len(block), 4)
-    assert_equal(list(block.ids), [0, 1, 2, 5])
-    assert_equal(list(block.weights), [1.0, 2.0, 12.0, 6.5])
-    assert_equal(block.values, None)
-    assert_equal(block.min_length(), 1)
-    assert_equal(block.max_length(), blen(420))
-    assert_equal(block.max_weight(), 12.0)
+    assert len(block) == 4
+    assert list(block.ids) == [0, 1, 2, 5]
+    assert list(block.weights) == [1.0, 2.0, 12.0, 6.5]
+    assert block.values is None
+    assert block.min_length() == 1
+    assert block.max_length() == blen(420)
+    assert block.max_weight() == 12.0
 
     ti = tr.term_info("a", b("b"))
-    assert_equal(ti.weight(), 21.5)
-    assert_equal(ti.doc_frequency(), 4)
-    assert_equal(ti.min_length(), 1)
-    assert_equal(ti.max_length(), blen(420))
-    assert_equal(ti.max_weight(), 12.0)
+    assert ti.weight() == 21.5
+    assert ti.doc_frequency() == 4
+    assert ti.min_length() == 1
+    assert ti.max_length() == blen(420)
+    assert ti.max_weight() == 12.0
 
 
 def test_docwriter_one():
@@ -239,8 +235,8 @@ def test_docwriter_one():
     seg.set_doc_count(1)
 
     pdr = codec.per_document_reader(st, seg)
-    assert_equal(pdr.doc_field_length(0, "text"), 4)
-    assert_equal(pdr.stored_fields(0), {"text": "Testing one two three"})
+    assert pdr.doc_field_length(0, "text") == 4
+    assert pdr.stored_fields(0) == {"text": "Testing one two three"}
 
 
 def test_docwriter_two():
@@ -259,15 +255,15 @@ def test_docwriter_two():
     seg.set_doc_count(2)
 
     pdr = codec.per_document_reader(st, seg)
-    assert_equal(pdr.doc_field_length(0, "title"), 2)
-    assert_equal(pdr.doc_field_length(0, "text"), 4)
-    assert_equal(pdr.doc_field_length(1, "title"), 3)
-    assert_equal(pdr.doc_field_length(1, "text"), 1)
+    assert pdr.doc_field_length(0, "title") == 2
+    assert pdr.doc_field_length(0, "text") == 4
+    assert pdr.doc_field_length(1, "title") == 3
+    assert pdr.doc_field_length(1, "text") == 1
 
-    assert_equal(pdr.stored_fields(0),
-                 {"title": ("a", "b"), "text": "Testing one two three"})
-    assert_equal(pdr.stored_fields(1),
-                 {"title": "The second document", "text": 500})
+    assert (pdr.stored_fields(0)
+            == {"title": ("a", "b"), "text": "Testing one two three"})
+    assert (pdr.stored_fields(1)
+            == {"title": "The second document", "text": 500})
 
 
 def test_vector():
@@ -283,7 +279,7 @@ def test_vector():
     seg.set_doc_count(1)
 
     pdr = codec.per_document_reader(st, seg)
-    assert_equal(pdr.stored_fields(0), {})
+    assert pdr.stored_fields(0) == {}
 
     m = pdr.vector(0, "title", field.vector)
     assert m.is_active()
@@ -291,7 +287,7 @@ def test_vector():
     while m.is_active():
         ps.append((m.id(), m.weight(), m.value()))
         m.next()
-    assert_equal(ps, [(u("alfa"), 1.0, b("t1")), (u("bravo"), 2.0, b("t2"))])
+    assert ps == [(u("alfa"), 1.0, b("t1")), (u("bravo"), 2.0, b("t2"))]
 
 
 def test_vector_values():
@@ -309,8 +305,8 @@ def test_vector_values():
 
     vr = codec.per_document_reader(st, seg)
     m = vr.vector(0, "f1", field.vector)
-    assert_equal(list(m.items_as("frequency")), [("alfa", 2), ("bravo", 1),
-                                                 ("charlie", 1)])
+    assert (list(m.items_as("frequency"))
+            == [("alfa", 2), ("bravo", 1), ("charlie", 1)])
 
 
 def test_no_lengths():
@@ -330,9 +326,9 @@ def test_no_lengths():
     seg.set_doc_count(3)
 
     pdr = codec.per_document_reader(st, seg)
-    assert_equal(pdr.doc_field_length(0, "name"), 0)
-    assert_equal(pdr.doc_field_length(1, "name"), 0)
-    assert_equal(pdr.doc_field_length(2, "name"), 0)
+    assert pdr.doc_field_length(0, "name") == 0
+    assert pdr.doc_field_length(1, "name") == 0
+    assert pdr.doc_field_length(2, "name") == 0
 
 
 def test_store_zero():
@@ -346,7 +342,7 @@ def test_store_zero():
     seg.set_doc_count(1)
 
     sr = codec.per_document_reader(st, seg)
-    assert_equal(sr.stored_fields(0), {"name": 0})
+    assert sr.stored_fields(0) == {"name": 0}
 
 
 def test_fieldwriter_single_term():
@@ -364,13 +360,13 @@ def test_fieldwriter_single_term():
     tr = codec.terms_reader(st, seg)
     assert ("text", b("alfa")) in tr
     ti = tr.term_info("text", b("alfa"))
-    assert_equal(ti.weight(), 1.5)
-    assert_equal(ti.doc_frequency(), 1)
-    assert_equal(ti.min_length(), 1)
-    assert_equal(ti.max_length(), 1)
-    assert_equal(ti.max_weight(), 1.5)
-    assert_equal(ti.min_id(), 0)
-    assert_equal(ti.max_id(), 0)
+    assert ti.weight() == 1.5
+    assert ti.doc_frequency() == 1
+    assert ti.min_length() == 1
+    assert ti.max_length() == 1
+    assert ti.max_weight() == 1.5
+    assert ti.min_id() == 0
+    assert ti.max_id() == 0
 
 
 def test_fieldwriter_two_terms():
@@ -393,25 +389,25 @@ def test_fieldwriter_two_terms():
     tr = codec.terms_reader(st, seg)
     assert ("text", b("alfa")) in tr
     ti = tr.term_info("text", b("alfa"))
-    assert_equal(ti.weight(), 3.0)
-    assert_equal(ti.doc_frequency(), 2)
-    assert_equal(ti.min_length(), 1)
-    assert_equal(ti.max_length(), 2)
-    assert_equal(ti.max_weight(), 2.0)
-    assert_equal(ti.min_id(), 0)
-    assert_equal(ti.max_id(), 1)
+    assert ti.weight() == 3.0
+    assert ti.doc_frequency() == 2
+    assert ti.min_length() == 1
+    assert ti.max_length() == 2
+    assert ti.max_weight() == 2.0
+    assert ti.min_id() == 0
+    assert ti.max_id() == 1
     assert ("text", b("bravo")) in tr
     ti = tr.term_info("text", b("bravo"))
-    assert_equal(ti.weight(), 5.0)
-    assert_equal(ti.doc_frequency(), 2)
-    assert_equal(ti.min_length(), 2)
-    assert_equal(ti.max_length(), 3)
-    assert_equal(ti.max_weight(), 3.0)
-    assert_equal(ti.min_id(), 0)
-    assert_equal(ti.max_id(), 2)
+    assert ti.weight() == 5.0
+    assert ti.doc_frequency() == 2
+    assert ti.min_length() == 2
+    assert ti.max_length() == 3
+    assert ti.max_weight() == 3.0
+    assert ti.min_id() == 0
+    assert ti.max_id() == 2
 
     m = tr.matcher("text", b("bravo"), field.format)
-    assert_equal(list(m.all_ids()), [0, 2])
+    assert list(m.all_ids()) == [0, 2]
 
 
 def test_fieldwriter_multiblock():
@@ -432,22 +428,22 @@ def test_fieldwriter_multiblock():
 
     tr = codec.terms_reader(st, seg)
     ti = tr.term_info("text", b("alfa"))
-    assert_equal(ti.weight(), 15.0)
-    assert_equal(ti.doc_frequency(), 5)
-    assert_equal(ti.min_length(), 1)
-    assert_equal(ti.max_length(), 5)
-    assert_equal(ti.max_weight(), 5.0)
-    assert_equal(ti.min_id(), 0)
-    assert_equal(ti.max_id(), 4)
+    assert ti.weight() == 15.0
+    assert ti.doc_frequency() == 5
+    assert ti.min_length() == 1
+    assert ti.max_length() == 5
+    assert ti.max_weight() == 5.0
+    assert ti.min_id() == 0
+    assert ti.max_id() == 4
 
     ps = []
     m = tr.matcher("text", b("alfa"), field.format)
     while m.is_active():
         ps.append((m.id(), m.weight(), m.value()))
         m.next()
-    assert_equal(ps, [(0, 2.0, b("test1")), (1, 5.0, b("test2")),
-                      (2, 3.0, b("test3")), (3, 4.0, b("test4")),
-                      (4, 1.0, b("test5"))])
+    assert ps == [(0, 2.0, b("test1")), (1, 5.0, b("test2")),
+                  (2, 3.0, b("test3")), (3, 4.0, b("test4")),
+                  (4, 1.0, b("test5"))]
 
 
 def test_term_values():
@@ -466,9 +462,8 @@ def test_term_values():
 
     tr = codec.terms_reader(st, seg)
     ps = [(term, ti.weight(), ti.doc_frequency()) for term, ti in tr.items()]
-    assert_equal(ps, [(("f1", b("alfa")), 2.0, 1),
-                      (("f1", b("bravo")), 1.0, 1),
-                      (("f1", b("charlie")), 1.0, 1)])
+    assert ps == [(("f1", b("alfa")), 2.0, 1), (("f1", b("bravo")), 1.0, 1),
+                  (("f1", b("charlie")), 1.0, 1)]
 
 
 def test_skip():
@@ -487,15 +482,15 @@ def test_skip():
 
     tr = codec.terms_reader(st, seg)
     m = tr.matcher("f1", b("test"), fieldobj.format)
-    assert_equal(m.id(), 1)
+    assert m.id() == 1
     m.skip_to(220)
-    assert_equal(m.id(), 283)
+    assert m.id() == 283
     m.skip_to(1)
-    assert_equal(m.id(), 283)
+    assert m.id() == 283
     m.skip_to(1000)
-    assert_equal(m.id(), 1024)
+    assert m.id() == 1024
     m.skip_to(1800)
-    assert_equal(m.id(), 1800)
+    assert m.id() == 1800
 
 
 def test_spelled_field():
@@ -517,8 +512,8 @@ def test_spelled_field():
     assert gr.has_root("text")
     cur = gr.cursor("text")
     strings = list(cur.flatten_strings())
-    assert_equal(type(strings[0]), text_type)
-    assert_equal(strings, ["special", "specific"])
+    assert type(strings[0]) == text_type
+    assert strings == ["special", "specific"]
 
 
 def test_special_spelled_field():
@@ -541,11 +536,10 @@ def test_special_spelled_field():
     fw.close()
 
     tr = codec.terms_reader(st, seg)
-    assert_equal(list(tr.terms()), [("text", b("special")),
-                                    ("text", b("specific"))])
+    assert list(tr.terms()) == [("text", b("special")), ("text", b("specific"))]
 
     cur = codec.graph_reader(st, seg).cursor("text")
-    assert_equal(list(cur.flatten_strings()), ["specials", "specifically"])
+    assert list(cur.flatten_strings()) == ["specials", "specifically"]
 
 
 @skip_if_unavailable("ast")
@@ -575,7 +569,7 @@ def test_plaintext_codec():
     with ix.reader() as r:
         assert r.has_column("a")
         c = r.column_reader("a")
-        assert_equal(c[2], u("charlie delta echo"))
+        assert c[2] == u("charlie delta echo")
 
     w = ix.writer(codec=PlainTextCodec())
     w.commit(optimize=True)
@@ -584,32 +578,32 @@ def test_plaintext_codec():
         reader = s.reader()
 
         r = s.search(query.Term("a", "delta"))
-        assert_equal(len(r), 3)
-        assert_equal([hit["b"] for hit in r], [1000, 5.5, True])
+        assert len(r) == 3
+        assert [hit["b"] for hit in r] == [1000, 5.5, True]
 
-        assert_equal(" ".join(s.field_terms("a")),
-                     "alfa bravo charlie delta echo foxtrot india")
+        assert (" ".join(s.field_terms("a"))
+                == "alfa bravo charlie delta echo foxtrot india")
 
-        assert_equal(reader.doc_field_length(2, "a"), 3)
+        assert reader.doc_field_length(2, "a"), 3
 
         cfield = schema["c"]
-        assert_equal(type(cfield), fields.NUMERIC)
+        assert type(cfield), fields.NUMERIC
         sortables = list(cfield.sortable_terms(reader, "c"))
-        assert_not_equal(sortables, [])
-        assert_equal([cfield.from_bytes(t) for t in sortables],
-                     [-200, -100, 100, 200, 300])
+        assert sortables
+        assert ([cfield.from_bytes(t) for t in sortables]
+                == [-200, -100, 100, 200, 300])
 
         assert reader.has_column("a")
         c = reader.column_reader("a")
-        assert_equal(c[2], u("charlie delta echo"))
+        assert c[2] == u("charlie delta echo")
 
         assert reader.has_column("c")
         c = reader.column_reader("c")
-        assert_equal(list(c), [100, 200, 300, -100, -200])
+        assert list(c) == [100, 200, 300, -100, -200]
 
         assert s.has_vector(2, "a")
         v = s.vector(2, "a")
-        assert_equal(" ".join(v.all_ids()), "charlie delta echo")
+        assert " ".join(v.all_ids()) == "charlie delta echo"
 
 
 def test_memory_codec():
@@ -641,30 +635,30 @@ def test_memory_codec():
     assert ("a", "delta") in reader
     q = query.Term("a", "delta")
     r = s.search(q)
-    assert_equal(len(r), 3)
-    assert_equal([hit["b"] for hit in r], [1000, 5.5, True])
+    assert len(r) == 3
+    assert [hit["b"] for hit in r] == [1000, 5.5, True]
 
-    assert_equal(" ".join(s.field_terms("a")),
-                 "alfa bravo charlie delta echo foxtrot india")
+    assert (" ".join(s.field_terms("a"))
+            == "alfa bravo charlie delta echo foxtrot india")
 
     cfield = schema["c"]
     c_sortables = cfield.sortable_terms(reader, "c")
     c_values = [cfield.from_bytes(t) for t in c_sortables]
-    assert_equal(c_values, [-200, -100, 100, 200, 300])
+    assert c_values, [-200, -100, 100, 200, 300]
 
     c_values = list(reader.column_reader("c"))
-    assert_equal(c_values, [100, 200, 300, -100, -200])
+    assert c_values == [100, 200, 300, -100, -200]
 
     assert s.has_vector(2, "a")
     v = s.vector(2, "a")
-    assert_equal(" ".join(v.all_ids()), "charlie delta echo")
+    assert " ".join(v.all_ids()) == "charlie delta echo"
 
     assert reader.has_word_graph("d")
     gr = reader.word_graph("d")
-    assert_equal(" ".join(gr.flatten_strings()),
-                 "aching dipping echoing filling going hopping opening "
-                 "pulling quelling rolling selling timing using whining "
-                 "yelling")
+    assert (" ".join(gr.flatten_strings()) ==
+            "aching dipping echoing filling going hopping opening "
+            "pulling quelling rolling selling timing using whining "
+            "yelling")
 
 
 def test_memory_multiwrite():
@@ -684,6 +678,6 @@ def test_memory_multiwrite():
             w.add_document(line=u(line))
 
     reader = codec.reader(schema)
-    assert_equal([sf["line"] for sf in reader.all_stored_fields()], domain)
-    assert_equal(" ".join(reader.field_terms("line")),
-                 "alfa bravo charlie delta echo foxtrot india juliet")
+    assert [sf["line"] for sf in reader.all_stored_fields()] == domain
+    assert (" ".join(reader.field_terms("line"))
+            == "alfa bravo charlie delta echo foxtrot india juliet")

@@ -1,7 +1,5 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh.compat import b
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.filedb.filestore import RamStorage
@@ -29,18 +27,18 @@ def _test_simple_compound(st):
     f = CompoundStorage(st.open_file("f"))
     with f.open_file("a") as af:
         for x in alist:
-            assert_equal(x, af.read_int())
-        assert_equal(af.read(), b(''))
+            assert x == af.read_int()
+        assert af.read() == b('')
 
     with f.open_file("b") as bf:
         for x in blist:
-            assert_equal(x, bf.read_varint())
-        assert_equal(bf.read(), b(''))
+            assert x == bf.read_varint()
+        assert bf.read() == b('')
 
     with f.open_file("c") as cf:
         for x in clist:
-            assert_equal(x, cf.read_int())
-        assert_equal(cf.read(), b(''))
+            assert x == cf.read_int()
+        assert cf.read() == b('')
 
 
 def test_simple_compound_mmap():

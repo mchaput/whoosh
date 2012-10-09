@@ -3,8 +3,6 @@
 from __future__ import with_statement
 import random
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh.compat import b, xrange, iteritems
 from whoosh.filedb.filestore import RamStorage
 from whoosh.filedb.filetables import HashReader, HashWriter
@@ -19,8 +17,8 @@ def test_hash_single():
     hw.close()
 
     hr = HashReader.open(st, "test.hsh")
-    assert_equal(hr.get(b("alfa")), b("bravo"))
-    assert_equal(hr.get(b("foo")), None)
+    assert hr.get(b("alfa")) == b("bravo")
+    assert hr.get(b("foo")) is None
 
 
 def test_hash():
@@ -32,8 +30,8 @@ def test_hash():
         hw.close()
 
         hr = HashReader.open(st, "test.hsh")
-        assert_equal(hr.get(b("foo")), b("bar"))
-        assert_equal(hr.get(b("baz")), None)
+        assert hr.get(b("foo")) == b("bar")
+        assert hr.get(b("baz")) is None
         hr.close()
 
 
@@ -46,9 +44,9 @@ def test_hash_extras():
     hw.close()
 
     hr = HashReader.open(st, "test.hsh")
-    assert_equal(hr.extras["test"], 100)
-    assert_equal(hr.get(b("foo")), b("bar"))
-    assert_equal(hr.get(b("baz")), None)
+    assert hr.extras["test"] == 100
+    assert hr.get(b("foo")) == b("bar")
+    assert hr.get(b("baz")) is None
     hr.close()
 
 
@@ -71,11 +69,11 @@ def test_hash_contents():
         probes = list(samp)
         random.shuffle(probes)
         for key, value in probes:
-            assert_equal(hr[key], value)
+            assert hr[key] == value
 
-        assert_equal(set(hr.keys()), set([k for k, v in samp]))
-        assert_equal(set(hr.values()), set([v for k, v in samp]))
-        assert_equal(set(hr.items()), samp)
+        assert set(hr.keys()) == set([k for k, v in samp])
+        assert set(hr.values()) == set([v for k, v in samp])
+        assert set(hr.items()) == samp
 
         hr.close()
 
@@ -103,7 +101,7 @@ def test_random_hash():
         random.shuffle(keys)
         hr = HashReader.open(st, "test.hsh")
         for k in keys:
-            assert_equal(hr[k], samp[k])
+            assert hr[k] == samp[k]
         hr.close()
 
 
@@ -118,7 +116,7 @@ def test_random_access():
         random.shuffle(keys)
         hr = HashReader.open(st, "test.hsh")
         for x in keys:
-            assert_equal(hr[b("%08x" % x)], b(str(x)))
+            assert hr[b("%08x" % x)] == b(str(x))
         hr.close()
 
 
@@ -136,17 +134,45 @@ def test_ordered_closest():
 
         hr = OrderedHashReader.open(st, "test.hsh")
         ck = hr.closest_key
-        assert_equal(ck(b('')), b('alfa'))
-        assert_equal(ck(b(' ')), b('alfa'))
-        assert_equal(ck(b('alfa')), b('alfa'))
-        assert_equal(ck(b('bravot')), b('charlie'))
-        assert_equal(ck(b('charlie')), b('charlie'))
-        assert_equal(ck(b('kiloton')), b('lima'))
-        assert_equal(ck(b('oskar')), None)
-        assert_equal(list(hr.keys()), keys)
-        assert_equal(list(hr.values()), values)
-        assert_equal(list(hr.keys_from(b('f'))), keys[5:])
+        assert ck(b('')) == b('alfa')
+        assert ck(b(' ')) == b('alfa')
+        assert ck(b('alfa')) == b('alfa')
+        assert ck(b('bravot')) == b('charlie')
+        assert ck(b('charlie')) == b('charlie')
+        assert ck(b('kiloton')) == b('lima')
+        assert ck(b('oskar')) is None
+        assert list(hr.keys()) == keys
+        assert list(hr.values()) == values
+        assert list(hr.keys_from(b('f'))) == keys[5:]
         hr.close()
+
+
+def test_extras():
+    st = RamStorage()
+    hw = HashWriter(st.create_file("test"))
+    hw.extras["test"] = 100
+    hw.extras["blah"] = "foo"
+    hw.close()
+
+    hr = HashReader(st.open_file("test"), st.file_length("test"))
+    assert hr.extras["test"] == 100
+    assert hr.extras["blah"] == "foo"
+    hr.close()
+
+    hw = OrderedHashWriter(st.create_file("test"))
+    hw.extras["test"] = 100
+    hw.extras["blah"] = "foo"
+    hw.close()
+
+    hr = HashReader(st.open_file("test"), st.file_length("test"))
+    assert hr.extras["test"] == 100
+    assert hr.extras["blah"] == "foo"
+    hr.close()
+
+    hr = OrderedHashReader(st.open_file("test"), st.file_length("test"))
+    assert hr.extras["test"] == 100
+    assert hr.extras["blah"] == "foo"
+    hr.close()
 
 
 def test_checksum_file():
@@ -174,16 +200,16 @@ def test_checksum_file():
     f = st.create_file("test")
     cf = ChecksumFile(f)
     wr(cf)
-    assert_equal(cf.checksum(), target)
+    assert cf.checksum() == target
     f.close()
 
     # Read the file with checksumming
     f = st.open_file("test")
     cf = ChecksumFile(f)
-    assert_equal(cf.read(7), b("Testing"))
-    assert_equal(cf.read_int(), -100)
-    assert_equal(cf.read_varint(), 10395)
-    assert_equal(cf.read_string(), b("Hello"))
-    assert_equal(cf.read_ushort(), 32959)
-    assert_equal(cf.checksum(), target)
+    assert cf.read(7) == b("Testing")
+    assert cf.read_int() == -100
+    assert cf.read_varint() == 10395
+    assert cf.read_string() == b("Hello")
+    assert cf.read_ushort() == 32959
+    assert cf.checksum() == target
     cf.close()

@@ -1,8 +1,4 @@
 from __future__ import with_statement
-
-from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
-from whoosh.util.testing import TempIndex
-
 import copy
 
 from whoosh import fields, qparser, query
@@ -32,15 +28,16 @@ from whoosh.query.spans import SpanFirst
 from whoosh.query.spans import SpanNear
 from whoosh.query.spans import SpanNot
 from whoosh.query.spans import SpanOr
+from whoosh.util.testing import TempIndex
 
 
 def test_all_terms():
     q = QueryParser("a", None).parse(u('hello b:there c:"my friend"'))
     ts = q.all_terms(phrases=False)
-    assert_equal(sorted(ts), [("a", "hello"), ("b", "there")])
+    assert sorted(ts) == [("a", "hello"), ("b", "there")]
     ts = q.all_terms(phrases=True)
-    assert_equal(sorted(ts), [("a", "hello"), ("b", "there"), ("c", "friend"),
-                              ("c", "my")])
+    assert sorted(ts) == [("a", "hello"), ("b", "there"), ("c", "friend"),
+                          ("c", "my")]
 
 
 def test_existing_terms():
@@ -56,11 +53,10 @@ def test_existing_terms():
     q = QueryParser("value", None).parse(u('alfa hotel tango "sierra bravo"'))
 
     ts = q.existing_terms(r, phrases=False)
-    assert_equal(sorted(ts), [("value", b("alfa")), ("value", b("hotel"))])
+    assert sorted(ts) == [("value", b("alfa")), ("value", b("hotel"))]
 
     ts = q.existing_terms(r)
-    assert_equal(sorted(ts), [("value", b("alfa")), ("value", b("bravo")),
-                              ("value", b("hotel"))])
+    assert sorted(ts) == [("value", b("alfa")), ("value", b("bravo")), ("value", b("hotel"))]
 
 
 def test_wildcard_existing_terms():
@@ -83,29 +79,29 @@ def test_wildcard_existing_terms():
 
     q = qp.parse(u("b*"))
     ts = q.existing_terms(r)
-    assert_equal(ts, set())
+    assert ts == set()
     ts = q.existing_terms(r, expand=True)
-    assert_equal(words(ts), b("bear boggle bravo"))
+    assert words(ts) == b("bear boggle bravo")
 
     q = qp.parse(u("[a TO f]"))
     ts = q.existing_terms(r)
-    assert_equal(ts, set())
+    assert ts == set()
     ts = q.existing_terms(r, expand=True)
-    assert_equal(words(ts), b("alfa bear boggle bravo charlie delta echo"))
+    assert words(ts) == b("alfa bear boggle bravo charlie delta echo")
 
     q = query.Variations("value", "render")
     ts = q.existing_terms(r, expand=False)
-    assert_equal(ts, set([("value", b("render"))]))
+    assert ts == set([("value", b("render"))])
     ts = q.existing_terms(r, expand=True)
-    assert_equal(words(ts), b("render rendering renders"))
+    assert words(ts) == b("render rendering renders")
 
 
 def test_replace():
     q = And([Or([Term("a", "b"), Term("b", "c")], boost=1.2),
              Variations("a", "b", boost=2.0)])
     q = q.replace("a", "b", "BB")
-    assert_equal(q, And([Or([Term("a", "BB"), Term("b", "c")], boost=1.2),
-                         Variations("a", "BB", boost=2.0)]))
+    assert q == And([Or([Term("a", "BB"), Term("b", "c")], boost=1.2),
+                     Variations("a", "BB", boost=2.0)])
 
 
 def test_apply():
@@ -118,8 +114,8 @@ def test_apply():
     before = And([Not(Term("a", u("b"))), Variations("a", u("c")),
                   Not(FuzzyTerm("a", u("d")))])
     after = visit(before)
-    assert_equal(after, And([Not(Term("a", u("B"))), Variations("a", u("C")),
-                             Not(FuzzyTerm("a", u("D")))]))
+    assert after == And([Not(Term("a", u("B"))), Variations("a", u("C")),
+                         Not(FuzzyTerm("a", u("D")))])
 
     def term2var(q):
         if isinstance(q, Term):
@@ -130,9 +126,9 @@ def test_apply():
     q = And([Term("f", "alfa"), Or([Term("f", "bravo"),
                                     Not(Term("f", "charlie"))])])
     q = term2var(q)
-    assert_equal(q, And([Variations('f', 'alfa'),
-                         Or([Variations('f', 'bravo'),
-                             Not(Variations('f', 'charlie'))])]))
+    assert q == And([Variations('f', 'alfa'),
+                     Or([Variations('f', 'bravo'),
+                         Not(Variations('f', 'charlie'))])])
 
 
 def test_accept():
@@ -145,15 +141,13 @@ def test_accept():
                                          Phrase("a", [u("e"), u("f")])]),
                   Phrase("a", [u("g"), u("h")], boost=0.25)])
     after = before.accept(boost_phrases)
-    assert_equal(after,
-                 And([Term("a", u("b")),
-                      Or([Term("c", u("d")), Phrase("a", [u("e"), u("f")],
-                                                    boost=2.0)]),
-                      Phrase("a", [u("g"), u("h")], boost=0.5)]))
+    assert after == And([Term("a", u("b")),
+                         Or([Term("c", u("d")), Phrase("a", [u("e"), u("f")], boost=2.0)]),
+                             Phrase("a", [u("g"), u("h")], boost=0.5)])
 
     before = Phrase("a", [u("b"), u("c")], boost=2.5)
     after = before.accept(boost_phrases)
-    assert_equal(after, Phrase("a", [u("b"), u("c")], boost=5.0))
+    assert after == Phrase("a", [u("b"), u("c")], boost=5.0)
 
 
 def test_simplify():
@@ -171,41 +165,41 @@ def test_simplify():
                   Term('v', 'bee', boost=2.0),
                   Term('v', 'brie', boost=2.0)]),
               Term('v', 'juliet')])
-    assert_equal(q1.simplify(r), q2)
+    assert q1.simplify(r) == q2
 
 
 def test_merge_ranges():
     q = And([TermRange("f1", u("a"), None), TermRange("f1", None, u("z"))])
-    assert_equal(q.normalize(), TermRange("f1", u("a"), u("z")))
+    assert q.normalize() == TermRange("f1", u("a"), u("z"))
 
     q = And([NumericRange("f1", None, u("aaaaa")),
              NumericRange("f1", u("zzzzz"), None)])
-    assert_equal(q.normalize(), q)
+    assert q.normalize() == q
 
     q = And([TermRange("f1", u("a"), u("z")), TermRange("f1", "b", "x")])
-    assert_equal(q.normalize(), TermRange("f1", u("a"), u("z")))
+    assert q.normalize() == TermRange("f1", u("a"), u("z"))
 
     q = And([TermRange("f1", u("a"), u("m")), TermRange("f1", u("f"), u("q"))])
-    assert_equal(q.normalize(), TermRange("f1", u("f"), u("m")))
+    assert q.normalize() == TermRange("f1", u("f"), u("m"))
 
     q = Or([TermRange("f1", u("a"), u("m")), TermRange("f1", u("f"), u("q"))])
-    assert_equal(q.normalize(), TermRange("f1", u("a"), u("q")))
+    assert q.normalize() == TermRange("f1", u("a"), u("q"))
 
     q = Or([TermRange("f1", u("m"), None), TermRange("f1", None, u("n"))])
-    assert_equal(q.normalize(), Every("f1"))
+    assert q.normalize() == Every("f1")
 
     q = And([Every("f1"), Term("f1", "a"), Variations("f1", "b")])
-    assert_equal(q.normalize(), Every("f1"))
+    assert q.normalize() == Every("f1")
 
     q = Or([Term("f1", u("q")), TermRange("f1", u("m"), None),
             TermRange("f1", None, u("n"))])
-    assert_equal(q.normalize(), Every("f1"))
+    assert q.normalize() == Every("f1")
 
     q = And([Or([Term("f1", u("a")), Term("f1", u("b"))]), Every("f1")])
-    assert_equal(q.normalize(), Every("f1"))
+    assert q.normalize() == Every("f1")
 
     q = And([Term("f1", u("a")), And([Or([Every("f1")])])])
-    assert_equal(q.normalize(), Every("f1"))
+    assert q.normalize() == Every("f1")
 
 
 def test_normalize_compound():
@@ -220,29 +214,28 @@ def test_normalize_compound():
 
     q = nq(7)
     q = q.normalize()
-    assert_equal(q, Or([Term("a", u("a")), Term("a", u("b"))]))
+    assert q == Or([Term("a", u("a")), Term("a", u("b"))])
 
 
 def test_duplicates():
     q = And([Term("a", u("b")), Term("a", u("b"))])
-    assert_equal(q.normalize(), Term("a", u("b")))
+    assert q.normalize() == Term("a", u("b"))
 
     q = And([Prefix("a", u("b")), Prefix("a", u("b"))])
-    assert_equal(q.normalize(), Prefix("a", u("b")))
+    assert q.normalize() == Prefix("a", u("b"))
 
     q = And([Variations("a", u("b")), And([Variations("a", u("b")),
                                            Term("a", u("b"))])])
-    assert_equal(q.normalize(),
-                 And([Variations("a", u("b")), Term("a", u("b"))]))
+    assert q.normalize() == And([Variations("a", u("b")), Term("a", u("b"))])
 
     q = And([Term("a", u("b")), Prefix("a", u("b")),
              Term("a", u("b"), boost=1.1)])
-    assert_equal(q.normalize(), q)
+    assert q.normalize() == q
 
     # Wildcard without * or ? normalizes to Term
     q = And([Wildcard("a", u("b")),
              And([Wildcard("a", u("b")), Term("a", u("b"))])])
-    assert_equal(q.normalize(), Term("a", u("b")))
+    assert q.normalize() == Term("a", u("b"))
 
 
 # TODO: FIX THIS
@@ -250,9 +243,9 @@ def test_duplicates():
 def test_query_copy_hash():
     def do(q1, q2):
         q1a = copy.deepcopy(q1)
-        assert_equal(q1, q1a)
-        assert_equal(hash(q1), hash(q1a))
-        assert_not_equal(q1, q2)
+        assert q1 == q1a
+        assert hash(q1) == hash(q1a)
+        assert q1 != q2
 
     do(Term("a", u("b"), boost=1.1), Term("a", u("b"), boost=1.5))
     do(And([Term("a", u("b")), Term("c", u("d"))], boost=1.1),
@@ -329,10 +322,10 @@ def test_query_copy_hash():
 def test_requires():
     a = Term("f", u("a"))
     b = Term("f", u("b"))
-    assert_equal(And([a, b]).requires(), set([a, b]))
-    assert_equal(Or([a, b]).requires(), set())
-    assert_equal(AndMaybe(a, b).requires(), set([a]))
-    assert_equal(a.requires(), set([a]))
+    assert And([a, b]).requires() == set([a, b])
+    assert Or([a, b]).requires() == set()
+    assert AndMaybe(a, b).requires() == set([a])
+    assert a.requires() == set([a])
 
 
 def test_highlight_daterange():
@@ -362,15 +355,13 @@ def test_highlight_daterange():
 
     s = ix.searcher()
     r = s.search(Term('content', u('train')), terms=True)
-    assert_equal(len(r), 1)
-    assert_equal(r[0]["id"], "2")
-    assert_equal(r[0].highlights("content"),
-                 'for a life changing ' +
-                 '<b class="match term0">train</b> journey')
+    assert len(r) == 1
+    assert r[0]["id"] == "2"
+    assert r[0].highlights("content") == 'for a life changing <b class="match term0">train</b> journey'
 
     r = s.search(DateRange('released', datetime(2007, 1, 1), None))
-    assert_equal(len(r), 1)
-    assert_equal(r[0].highlights("content"), '')
+    assert len(r) == 1
+    assert r[0].highlights("content") == ''
 
 
 def test_patterns():
@@ -383,37 +374,33 @@ def test_patterns():
             w.add_document(word=word)
 
     with ix.reader() as r:
-        assert_equal(list(r.field_terms("word")), domain)
+        assert list(r.field_terms("word")) == domain
 
-        assert_equal(list(r.expand_prefix("word", "al")),
-                     [b("alembic"), b("all")])
+        assert list(r.expand_prefix("word", "al")) == [b("alembic"), b("all")]
         q = query.Prefix("word", "al")
-        assert_equal(q.simplify(r).__unicode__(), "(word:alembic OR word:all)")
+        assert q.simplify(r).__unicode__() == "(word:alembic OR word:all)"
 
         q = query.Wildcard("word", "a*[ae]")
-        assert_equal(q.simplify(r).__unicode__(),
-                     "(word:able OR word:acre OR word:adage OR " +
-                     "word:amiga OR word:ampere)")
-        assert_equal(q._find_prefix(q.text), "a")
+        assert q.simplify(r).__unicode__() == "(word:able OR word:acre OR word:adage OR word:amiga OR word:ampere)"
+        assert q._find_prefix(q.text) == "a"
 
         q = query.Regex("word", "am.*[ae]")
-        assert_equal(q.simplify(r).__unicode__(),
-                     "(word:amiga OR word:ampere)")
-        assert_equal(q._find_prefix(q.text), "am")
+        assert q.simplify(r).__unicode__() == "(word:amiga OR word:ampere)"
+        assert q._find_prefix(q.text) == "am"
 
         q = query.Regex("word", "able|ago")
-        assert_equal(q.simplify(r).__unicode__(), "(word:able OR word:ago)")
-        assert_equal(q._find_prefix(q.text), "")
+        assert q.simplify(r).__unicode__() == "(word:able OR word:ago)"
+        assert q._find_prefix(q.text) == ""
 
         # special case: ? may mean "zero occurences"
         q = query.Regex("word", "ah?i")
-        assert_equal(q.simplify(r).__unicode__(), "(word:ahi OR word:aim)")
-        assert_equal(q._find_prefix(q.text), "a")
+        assert q.simplify(r).__unicode__() == "(word:ahi OR word:aim)"
+        assert q._find_prefix(q.text) == "a"
 
         # special case: * may mean "zero occurences"
         q = query.Regex("word", "ah*i")
-        assert_equal(q.simplify(r).__unicode__(), "(word:ahi OR word:aim)")
-        assert_equal(q._find_prefix(q.text), "a")
+        assert q.simplify(r).__unicode__() == "(word:ahi OR word:aim)"
+        assert q._find_prefix(q.text) == "a"
 
 
 def test_or_nots1():
@@ -432,7 +419,7 @@ def test_or_nots1():
                                  ])
                        ])
         r = s.search(q)
-        assert_equal(len(r), 1)
+        assert len(r) == 1
 
 
 def test_or_nots2():
@@ -449,7 +436,7 @@ def test_or_nots2():
                       query.Not(query.Term("b", "alfa"))
                       ])
         r = s.search(q)
-        assert_equal(len(r), 1)
+        assert len(r) == 1
 
 
 def test_or_nots3():

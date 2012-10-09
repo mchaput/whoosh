@@ -1,7 +1,5 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import fields
 from whoosh.compat import u, b
 from whoosh.util.testing import TempIndex
@@ -25,8 +23,8 @@ def test_addfield():
 
         with ix.searcher() as s:
             assert ("id", "d") in s.reader()
-            assert_equal(s.document(id="d"), {"id": "d", "added": "fourth"})
-            assert_equal(s.document(id="b"), {"id": "b"})
+            assert s.document(id="d") == {"id": "d", "added": "fourth"}
+            assert s.document(id="b") == {"id": "b"}
 
 
 def test_addfield_spelling():
@@ -46,8 +44,8 @@ def test_addfield_spelling():
         w.commit(merge=False)
 
         with ix.searcher() as s:
-            assert_equal(s.document(id=u("d")), {"id": "d", "added": "fourth"})
-            assert_equal(s.document(id=u("b")), {"id": "b"})
+            assert s.document(id=u("d")) == {"id": "d", "added": "fourth"}
+            assert s.document(id=u("b")) == {"id": "b"}
 
 
 def test_removefield():
@@ -62,7 +60,7 @@ def test_removefield():
         w.commit()
 
         with ix.searcher() as s:
-            assert_equal(s.document(id=u("c")), {"id": "c", "city": "cairo"})
+            assert s.document(id=u("c")) == {"id": "c", "city": "cairo"}
 
         w = ix.writer()
         w.remove_field("content")
@@ -70,12 +68,12 @@ def test_removefield():
         w.commit()
 
         ixschema = ix._current_schema()
-        assert_equal(ixschema.names(), ["id"])
-        assert_equal(ixschema.stored_names(), ["id"])
+        assert ixschema.names() == ["id"]
+        assert ixschema.stored_names() == ["id"]
 
         with ix.searcher() as s:
             assert ("content", b("charlie")) not in s.reader()
-            assert_equal(s.document(id=u("c")), {"id": u("c")})
+            assert s.document(id=u("c")) == {"id": u("c")}
 
 
 def test_optimize_away():
@@ -90,7 +88,7 @@ def test_optimize_away():
         w.commit()
 
         with ix.searcher() as s:
-            assert_equal(s.document(id=u("c")), {"id": "c", "city": "cairo"})
+            assert s.document(id=u("c")) == {"id": "c", "city": "cairo"}
 
         w = ix.writer()
         w.remove_field("content")
@@ -99,7 +97,7 @@ def test_optimize_away():
 
         with ix.searcher() as s:
             assert ("content", u("charlie")) not in s.reader()
-            assert_equal(s.document(id=u("c")), {"id": u("c")})
+            assert s.document(id=u("c")) == {"id": u("c")}
 
 
 if __name__ == "__main__":

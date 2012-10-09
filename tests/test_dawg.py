@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
+import pytest
 
 import random
 from array import array
@@ -35,18 +35,25 @@ def enlist(string):
 
 def test_empty_fieldname():
     gw = fst.GraphWriter(RamStorage().create_file("test"))
-    assert_raises(ValueError, gw.start_field, "")
-    assert_raises(ValueError, gw.start_field, None)
-    assert_raises(ValueError, gw.start_field, 0)
+    with pytest.raises(ValueError):
+        gw.start_field("")
+    with pytest.raises(ValueError):
+        gw.start_field(None)
+    with pytest.raises(ValueError):
+        gw.start_field(0)
 
 
 def test_empty_key():
     gw = fst.GraphWriter(RamStorage().create_file("test"))
     gw.start_field("_")
-    assert_raises(KeyError, gw.insert, b(""))
-    assert_raises(KeyError, gw.insert, "")
-    assert_raises(KeyError, gw.insert, u(""))
-    assert_raises(KeyError, gw.insert, [])
+    with pytest.raises(KeyError):
+        gw.insert(b(""))
+    with pytest.raises(KeyError):
+        gw.insert("")
+    with pytest.raises(KeyError):
+        gw.insert(u(""))
+    with pytest.raises(KeyError):
+        gw.insert([])
 
 
 def test_keys_out_of_order():
@@ -54,13 +61,14 @@ def test_keys_out_of_order():
     gw = fst.GraphWriter(f)
     gw.start_field("test")
     gw.insert("alfa")
-    assert_raises(KeyError, gw.insert, "abba")
+    with pytest.raises(KeyError):
+        gw.insert("abba")
 
 
 def test_duplicate_keys():
     st = gwrite(enlist("alfa bravo bravo bravo charlie"))
     cur = fst.Cursor(greader(st))
-    assert_equal(list(cur.flatten_strings()), ["alfa", "bravo", "charlie"])
+    assert list(cur.flatten_strings()) == ["alfa", "bravo", "charlie"]
 
 
 def test_inactive_raise():
@@ -68,23 +76,23 @@ def test_inactive_raise():
     cur = fst.Cursor(greader(st))
     while cur.is_active():
         cur.next_arc()
-    assert_raises(fst.InactiveCursor, cur.label)
-    assert_raises(fst.InactiveCursor, cur.prefix)
-    assert_raises(fst.InactiveCursor, cur.prefix_bytes)
-    assert_raises(fst.InactiveCursor, list, cur.peek_key())
-    assert_raises(fst.InactiveCursor, cur.peek_key_bytes)
-    assert_raises(fst.InactiveCursor, cur.stopped)
-    assert_raises(fst.InactiveCursor, cur.value)
-    assert_raises(fst.InactiveCursor, cur.accept)
-    assert_raises(fst.InactiveCursor, cur.at_last_arc)
-    assert_raises(fst.InactiveCursor, cur.next_arc)
-    assert_raises(fst.InactiveCursor, cur.follow)
-    assert_raises(fst.InactiveCursor, cur.switch_to, b("a"))
-    assert_raises(fst.InactiveCursor, cur.skip_to, b("a"))
-    assert_raises(fst.InactiveCursor, list, cur.flatten())
-    assert_raises(fst.InactiveCursor, list, cur.flatten_v())
-    assert_raises(fst.InactiveCursor, list, cur.flatten_strings())
-    assert_raises(fst.InactiveCursor, cur.find_path, b("a"))
+    pytest.raises(fst.InactiveCursor, cur.label)
+    pytest.raises(fst.InactiveCursor, cur.prefix)
+    pytest.raises(fst.InactiveCursor, cur.prefix_bytes)
+    pytest.raises(fst.InactiveCursor, list, cur.peek_key())
+    pytest.raises(fst.InactiveCursor, cur.peek_key_bytes)
+    pytest.raises(fst.InactiveCursor, cur.stopped)
+    pytest.raises(fst.InactiveCursor, cur.value)
+    pytest.raises(fst.InactiveCursor, cur.accept)
+    pytest.raises(fst.InactiveCursor, cur.at_last_arc)
+    pytest.raises(fst.InactiveCursor, cur.next_arc)
+    pytest.raises(fst.InactiveCursor, cur.follow)
+    pytest.raises(fst.InactiveCursor, cur.switch_to, b("a"))
+    pytest.raises(fst.InactiveCursor, cur.skip_to, b("a"))
+    pytest.raises(fst.InactiveCursor, list, cur.flatten())
+    pytest.raises(fst.InactiveCursor, list, cur.flatten_v())
+    pytest.raises(fst.InactiveCursor, list, cur.flatten_strings())
+    pytest.raises(fst.InactiveCursor, cur.find_path, b("a"))
 
 
 def test_types():
@@ -96,42 +104,42 @@ def test_types():
              (fst.IntListValues, [0, 6, 97], []))
 
     for t, v, z in types:
-        assert_equal(t.common(None, v), None)
-        assert_equal(t.common(v, None), None)
-        assert_equal(t.common(None, None), None)
-        assert_equal(t.subtract(v, None), v)
-        assert_equal(t.subtract(None, v), None)
-        assert_equal(t.subtract(None, None), None)
-        assert_equal(t.add(v, None), v)
-        assert_equal(t.add(None, v), v)
-        assert_equal(t.add(None, None), None)
+        assert t.common(None, v) is None
+        assert t.common(v, None) is None
+        assert t.common(None, None) is None
+        assert t.subtract(v, None) == v
+        assert t.subtract(None, v) is None
+        assert t.subtract(None, None) is None
+        assert t.add(v, None) == v
+        assert t.add(None, v) == v
+        assert t.add(None, None) is None
         f = st.create_file("test")
         t.write(f, v)
         t.write(f, z)
         f.close()
         f = st.open_file("test")
-        assert_equal(t.read(f), v)
-        assert_equal(t.read(f), z)
+        assert t.read(f) == v
+        assert t.read(f) == z
 
-    assert_equal(fst.IntValues.common(100, 20), 20)
-    assert_equal(fst.IntValues.add(20, 80), 100)
-    assert_equal(fst.IntValues.subtract(100, 80), 20)
+    assert fst.IntValues.common(100, 20) == 20
+    assert fst.IntValues.add(20, 80) == 100
+    assert fst.IntValues.subtract(100, 80) == 20
 
-    assert_equal(fst.BytesValues.common(b("abc"), b("abc")), b("abc"))
-    assert_equal(fst.BytesValues.common(b("abcde"), b("abfgh")), b("ab"))
-    assert_equal(fst.BytesValues.common(b("abcde"), b("ab")), b("ab"))
-    assert_equal(fst.BytesValues.common(b("ab"), b("abcde")), b("ab"))
-    assert_equal(fst.BytesValues.common(None, b("abcde")), None)
-    assert_equal(fst.BytesValues.common(b("ab"), None), None)
+    assert fst.BytesValues.common(b("abc"), b("abc")) == b("abc")
+    assert fst.BytesValues.common(b("abcde"), b("abfgh")) == b("ab")
+    assert fst.BytesValues.common(b("abcde"), b("ab")) == b("ab")
+    assert fst.BytesValues.common(b("ab"), b("abcde")) == b("ab")
+    assert fst.BytesValues.common(None, b("abcde")) is None
+    assert fst.BytesValues.common(b("ab"), None) is None
 
     a1 = array("i", [0, 12, 123, 42])
     a2 = array("i", [0, 12, 420])
     cm = array("i", [0, 12])
-    assert_equal(fst.ArrayValues.common(a1, a1), a1)
-    assert_equal(fst.ArrayValues.common(a1, a2), cm)
-    assert_equal(fst.ArrayValues.common(a2, a1), cm)
-    assert_equal(fst.ArrayValues.common(None, a1), None)
-    assert_equal(fst.ArrayValues.common(a2, None), None)
+    assert fst.ArrayValues.common(a1, a1) == a1
+    assert fst.ArrayValues.common(a1, a2) == cm
+    assert fst.ArrayValues.common(a2, a1) == cm
+    assert fst.ArrayValues.common(None, a1) is None
+    assert fst.ArrayValues.common(a2, None) is None
 
 
 def _fst_roundtrip(domain, t):
@@ -147,7 +155,7 @@ def _fst_roundtrip(domain, t):
         f = st.open_file("test")
         gr = fst.GraphReader(f, vtype=t)
         cur = fst.Cursor(gr)
-        assert_equal(list(cur.flatten_v()), domain)
+        assert list(cur.flatten_v()) == domain
         f.close()
 
 
@@ -224,7 +232,7 @@ def test_words():
         gwrite(words, st)
         gr = greader(st)
         cur = fst.Cursor(gr)
-        assert_equal(list(cur.flatten_strings()), words)
+        assert list(cur.flatten_strings()) == words
         gr.close()
 
 
@@ -249,7 +257,7 @@ def test_random():
         for key in sample:
             cur.reset()
             cur.find_path(key)
-            assert_equal(cur.prefix_bytes(), key)
+            assert cur.prefix_bytes() == key
         gr.close()
 
 
@@ -262,7 +270,7 @@ def test_shared_suffix():
 
     cur1.find_path(b("blo"))
     cur2.find_path(b("glo"))
-    assert_equal(cur1.stack[-1].target, cur2.stack[-1].target)
+    assert cur1.stack[-1].target == cur2.stack[-1].target
 
 
 def test_fields():
@@ -283,8 +291,8 @@ def test_fields():
         gr = fst.GraphReader(st.open_file("test"))
         cur1 = fst.Cursor(gr, gr.root("f1"))
         cur2 = fst.Cursor(gr, gr.root("f2"))
-        assert_equal(list(cur1.flatten_strings()), ["a", "aa", "ab"])
-        assert_equal(list(cur2.flatten_strings()), ["ba", "baa", "bab"])
+        assert list(cur1.flatten_strings()) == ["a", "aa", "ab"]
+        assert list(cur2.flatten_strings()) == ["ba", "baa", "bab"]
         gr.close()
 
 
@@ -294,63 +302,62 @@ def test_within():
         gr = greader(st)
         s = set(fst.within(gr, "01", k=1))
         gr.close()
-    assert_equal(s, set(["0", "00", "01", "011", "010",
-                         "001", "10", "101", "1", "11"]))
+    assert s == set(["0", "00", "01", "011", "010", "001", "10", "101", "1", "11"])
 
 
 def test_within_match():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(fst.within(gr, "def")), set(["def"]))
+    assert set(fst.within(gr, "def")) == set(["def"])
 
 
 def test_within_insert():
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
     s = set(fst.within(gr, "0"))
-    assert_equal(s, set(["00", "01", "10"]))
+    assert s == set(["00", "01", "10"])
 
 
 def test_within_delete():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(fst.within(gr, "df")), set(["def"]))
+    assert set(fst.within(gr, "df")) == set(["def"])
 
     st = gwrite(enlist("0"))
     gr = greader(st)
-    assert_equal(list(fst.within(gr, "01")), ["0"])
+    assert list(fst.within(gr, "01")) == ["0"]
 
 
 def test_within_replace():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
-    assert_equal(set(fst.within(gr, "dez")), set(["def"]))
+    assert set(fst.within(gr, "dez")) == set(["def"])
 
     st = gwrite(enlist("00 01 10 11"))
     gr = greader(st)
     s = set(fst.within(gr, "00"))
-    assert_equal(s, set(["00", "10", "01"]), s)
+    assert s == set(["00", "10", "01"])
 
 
 def test_within_transpose():
     st = gwrite(enlist("abc def ghi"))
     gr = greader(st)
     s = set(fst.within(gr, "dfe"))
-    assert_equal(s, set(["def"]))
+    assert s == set(["def"])
 
 
 def test_within_k2():
     st = gwrite(enlist("abc bac cba"))
     gr = greader(st)
     s = set(fst.within(gr, "cb", k=2))
-    assert_equal(s, set(["abc", "cba"]))
+    assert s == set(["abc", "cba"])
 
 
 def test_within_prefix():
     st = gwrite(enlist("aabc aadc babc badc"))
     gr = greader(st)
     s = set(fst.within(gr, "aaxc", prefix=2))
-    assert_equal(s, set(["aabc", "aadc"]))
+    assert s == set(["aabc", "aadc"])
 
 
 def test_skip():
@@ -359,16 +366,16 @@ def test_skip():
     cur = gr.cursor()
     while not cur.stopped():
         cur.follow()
-    assert_equal(cur.prefix_bytes(), b("abcd"))
+    assert cur.prefix_bytes() == b("abcd")
     assert cur.accept()
 
     cur = gr.cursor()
     while not cur.stopped():
         cur.follow()
-    assert_equal(cur.prefix_bytes(), b("abcd"))
+    assert cur.prefix_bytes() == b("abcd")
     cur.skip_to(b("cdaa"))
-    assert_equal(cur.peek_key_bytes(), b("cdqr1"))
-    assert_equal(cur.prefix_bytes(), b("cdq"))
+    assert cur.peek_key_bytes() == b("cdqr1")
+    assert cur.prefix_bytes() == b("cdq")
 
     cur = gr.cursor()
     while not cur.stopped():
@@ -389,7 +396,7 @@ def test_insert_bytes():
     gw.close()
 
     cur = fst.GraphReader(st.open_file("test")).cursor()
-    assert_equal(list(cur.flatten()), domain)
+    assert list(cur.flatten()) == domain
 
 
 def test_insert_unicode():
@@ -406,7 +413,7 @@ def test_insert_unicode():
     gw.close()
 
     cur = fst.GraphReader(st.open_file("test")).cursor()
-    assert_equal(list(cur.flatten_strings()), domain)
+    assert list(cur.flatten_strings()) == domain
 
 
 def test_within_unicode():
@@ -424,4 +431,4 @@ def test_within_unicode():
 
     gr = fst.GraphReader(st.open_file("test"))
     s = list(fst.within(gr, u("\uc774.\ud76c")))
-    assert_equal(s, [u("\uc774\uc124\ud76c")])
+    assert s == [u("\uc774\uc124\ud76c")]

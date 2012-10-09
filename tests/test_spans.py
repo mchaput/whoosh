@@ -1,7 +1,5 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import analysis, fields, formats
 from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
@@ -53,7 +51,7 @@ def test_multimatcher():
             content = s.stored_fields(m.id())["content"].split()
             spans = m.spans()
             for span in spans:
-                assert_equal(content[span.start], "bravo")
+                assert content[span.start] == "bravo"
             m.next()
 
 
@@ -82,7 +80,7 @@ def test_excludematcher():
             content = s.stored_fields(m.id())["content"].split()
             spans = m.spans()
             for span in spans:
-                assert_equal(content[span.start], "bravo")
+                assert content[span.start] == "bravo"
             m.next()
 
 
@@ -101,12 +99,12 @@ def test_span_term():
                 sps = m.spans()
                 ids.add(id)
                 original = list(s.stored_fields(id)["text"])
-                assert word in original, "%r not in %r" % (word, original)
+                assert word in original
 
                 if word != "bravo":
-                    assert_equal(len(sps), 1)
-                assert_equal(original.index(word), sps[0].start)
-                assert_equal(original.index(word), sps[0].end)
+                    assert len(sps) == 1
+                assert original.index(word) == sps[0].start
+                assert original.index(word) == sps[0].end
                 m.next()
 
             for i, ls in enumerate(alllists):
@@ -125,10 +123,10 @@ def test_span_first():
             while m.is_active():
                 sps = m.spans()
                 original = s.stored_fields(m.id())["text"]
-                assert_equal(original[0], word)
-                assert_equal(len(sps), 1)
-                assert_equal(sps[0].start, 0)
-                assert_equal(sps[0].end, 0)
+                assert original[0] == word
+                assert len(sps) == 1
+                assert sps[0].start == 0
+                assert sps[0].end == 0
                 m.next()
 
         q = spans.SpanFirst(Term("text", "bravo"), limit=1)
@@ -136,7 +134,7 @@ def test_span_first():
         while m.is_active():
             orig = s.stored_fields(m.id())["text"]
             for sp in m.spans():
-                assert_equal(orig[sp.start], "bravo")
+                assert orig[sp.start] == "bravo"
             m.next()
 
 
@@ -152,16 +150,15 @@ def test_span_near():
         for orig, sps in test(spans.SpanNear(Term("text", "alfa"),
                                              Term("text", "bravo"),
                                              ordered=True)):
-            assert_equal(orig[sps[0].start], "alfa")
-            assert_equal(orig[sps[0].end], "bravo")
+            assert orig[sps[0].start] == "alfa"
+            assert orig[sps[0].end] == "bravo"
 
         for orig, sps in test(spans.SpanNear(Term("text", "alfa"),
                                              Term("text", "bravo"),
                                              ordered=False)):
             first = orig[sps[0].start]
             second = orig[sps[0].end]
-            assert (first == "alfa" and second == "bravo"
-                            or (first == "bravo" and second == "alfa"))
+            assert ((first == "alfa" and second == "bravo") or (first == "bravo" and second == "alfa"))
 
         for orig, sps in test(spans.SpanNear(Term("text", "bravo"),
                                              Term("text", "bravo"),
@@ -199,8 +196,7 @@ def test_near_unordered():
         q = spans.SpanNear(Term("text", "bravo"), Term("text", "charlie"),
                            ordered=False)
         r = sorted(d["text"] for d in s.search(q))
-        assert_equal(r, [u('alfa bravo charlie delta echo'),
-                             u('alfa charlie bravo delta echo')])
+        assert r == [u('alfa bravo charlie delta echo'), u('alfa charlie bravo delta echo')]
 
 
 def test_span_near2():
@@ -218,7 +214,7 @@ def test_span_near2():
 
     with ix.searcher() as s:
         m = nq2.matcher(s)
-        assert_equal(m.spans(), [spans.Span(1, 8)])
+        assert m.spans() == [spans.Span(1, 8)]
 
 
 def test_span_not():
@@ -234,7 +230,7 @@ def test_span_not():
             i1 = orig.index("alfa")
             i2 = orig.index("charlie")
             dist = i2 - i1
-            assert dist > 0 and dist < 3
+            assert 0 < dist < 3
             if "bravo" in orig:
                 assert orig.index("bravo") != i1 + 1
             m.next()
@@ -268,13 +264,13 @@ def test_span_contains():
             ls.append(" ".join(orig))
             m.next()
         ls.sort()
-        assert_equal(ls, ['alfa bravo echo charlie', 'alfa bravo echo charlie',
-                          'alfa delta echo charlie', 'alfa echo bravo charlie',
-                          'alfa echo bravo charlie', 'alfa echo charlie bravo',
-                          'alfa echo charlie bravo', 'alfa echo charlie delta',
-                          'alfa echo delta charlie', 'bravo alfa echo charlie',
-                          'bravo alfa echo charlie', 'delta alfa echo charlie',
-                          ])
+        assert ls == ['alfa bravo echo charlie', 'alfa bravo echo charlie',
+                      'alfa delta echo charlie', 'alfa echo bravo charlie',
+                      'alfa echo bravo charlie', 'alfa echo charlie bravo',
+                      'alfa echo charlie bravo', 'alfa echo charlie delta',
+                      'alfa echo delta charlie', 'bravo alfa echo charlie',
+                      'bravo alfa echo charlie', 'delta alfa echo charlie',
+                      ]
 
 
 def test_span_before():
@@ -300,7 +296,7 @@ def test_span_condition():
             assert "alfa" in orig
             assert "charlie" in orig
             for span in m.spans():
-                assert_equal(orig[span.start], "alfa")
+                assert orig[span.start] == "alfa"
             m.next()
 
 
@@ -339,5 +335,5 @@ def test_span_characters():
             orig = " ".join(s.stored_fields(m.id())["text"])
             for span in m.spans():
                 startchar, endchar = span.startchar, span.endchar
-                assert_equal(orig[startchar:endchar], "bravo echo")
+                assert orig[startchar:endchar] == "bravo echo"
             m.next()
