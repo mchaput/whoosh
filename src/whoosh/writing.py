@@ -613,7 +613,7 @@ class SegmentWriter(IndexWriter):
                 for word in reader.word_graph(fieldname).flatten():
                     # Adding a post where docnum=None marks it as a separate
                     # spelling word
-                    add_post((fieldname, word, None, None, None))
+                    add_post((fieldname, word, -1, -1, emptybytes))
 
     def write_postings(self, lengths, items, startdoc, docmap):
         items = self._process_posts(items, startdoc, docmap)
@@ -715,12 +715,12 @@ class SegmentWriter(IndexWriter):
             if field.separate_spelling():
                 # For fields which use different morphemes for spelling,
                 # insert fake postings for the spellable words, where
-                # docnum=None means "this is a spelling word"
+                # docnum=-1 means "this is a spelling word"
 
                 # TODO: think of something less hacktacular
                 for word in field.spellable_words(value):
                     word = utf8encode(word)[0]
-                    add_post((fieldname, word, None, None, emptybytes))
+                    add_post((fieldname, word, -1, -1, emptybytes))
 
             vformat = field.vector
             if vformat:

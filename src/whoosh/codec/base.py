@@ -39,6 +39,12 @@ from whoosh.filedb.compound import CompoundStorage
 from whoosh.system import emptybytes
 
 
+# Exceptions
+
+class OutOfOrderError(Exception):
+    pass
+
+
 # Base classes
 
 class Codec(object):
@@ -118,6 +124,10 @@ class PerDocumentWriter(object):
 
 class FieldWriter(object):
     def add_postings(self, schema, lengths, items):
+        # This method translates a generator of (fieldname, btext, docnum, w, v)
+        # postings into calls to start_field(), start_term(), add(),
+        # finish_term(), finish_field(), etc.
+
         start_field = self.start_field
         start_term = self.start_term
         add = self.add
@@ -129,42 +139,61 @@ class FieldWriter(object):
         else:
             dfl = lambda docnum, fieldname: 0
 
+        # The fieldname of the previous posting
         lastfn = None
+        # The bytes text of the previous posting
         lasttext = None
+        # The (fieldname, btext) of the previous spelling posting
+        lastspell = None
         for fieldname, btext, docnum, weight, value in items:
-            # Items where docnum is None indicate words that should be added
-            # to the spelling graph
-            if docnum is None and (fieldname != lastfn or btext != lasttext):
-                # TODO: how to decode the btext bytes?
-                self.add_spell_word(fieldname, btext.decode("utf8"))
-                lastfn = fieldname
-                lasttext = btext
-                continue
+            # Check for out-of-order postings. This is convoluted because Python
+            # 3 removed the ability to compare a string to None
+            if lastfn is not None and fieldname < lastfn:
+                raise OutOfOrderError("Field %r .. %r" % (lastfn, fieldname))
+            if fieldname == lastfn and lasttext and btext < lasttext:
+                raise OutOfOrderError("Term %s:%r .. %s:%r"
+                                      % (lastfn, lasttext, fieldname, btext))
 
-            # This comparison is so convoluted because Python 3 removed the
-            # ability to compare a string to None
-            if ((lastfn is not None and fieldname < lastfn)
-                or (fieldname == lastfn and lasttext is not None
-                    and btext < lasttext)):
-                raise Exception("Postings are out of order: %r:%s .. %r:%s" %
-                                (lastfn, lasttext, fieldname, btext))
-            if fieldname != lastfn or btext != lasttext:
+            # If the fieldname of this posting is different from the last one,
+            # tell the writer we're starting a new field
+            if fieldname != lastfn:
                 if lasttext is not None:
                     finish_term()
-                if fieldname != lastfn:
-                    if lastfn is not None:
-                        finish_field()
-                    start_field(fieldname, schema[fieldname])
-                    lastfn = fieldname
+                if lastfn is not None and fieldname != lastfn:
+                    finish_field()
+                start_field(fieldname, schema[fieldname])
+                lastfn = fieldname
+                lasttext = None
+
+            # HACK: items where docnum == -1 indicate words that should be added
+            # to the spelling graph, not the postings
+            if docnum == -1:
+                spellterm = (fieldname, btext)
+                # There can be duplicates of spelling terms, so only add a spell
+                # term if it's greater than the last one
+                if lastspell is None or spellterm > lastspell:
+                    # TODO: how to decode the btext bytes?
+                    self.add_spell_word(fieldname, btext.decode("utf8"))
+                    lastspell = spellterm
+                continue
+
+            # If this term is different from the term in the previous posting,
+            # tell the writer to start a new term
+            if btext != lasttext:
+                if lasttext is not None:
+                    finish_term()
                 start_term(btext)
                 lasttext = btext
-            length = dfl(docnum, fieldname)
 
+            # Add this posting
+            length = dfl(docnum, fieldname)
             if value is None:
                 value = emptybytes
             add(docnum, weight, value, length)
+
         if lasttext is not None:
             finish_term()
+        if lastfn is not None:
             finish_field()
 
     @abstractmethod
