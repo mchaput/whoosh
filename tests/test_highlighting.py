@@ -2,7 +2,7 @@
 
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
+import pytest
 
 from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.compat import u
@@ -20,9 +20,7 @@ def test_null_fragment():
     nf = highlight.WholeFragmenter()
     uc = highlight.UppercaseFormatter()
     htext = highlight.highlight(_doc, terms, sa, nf, uc)
-    assert_equal(htext,
-                 "alfa BRAVO charlie delta echo foxtrot golf hotel " +
-                 "INDIA juliet kilo lima")
+    assert htext == "alfa BRAVO charlie delta echo foxtrot golf hotel INDIA juliet kilo lima"
 
 
 def test_sentence_fragment():
@@ -33,9 +31,7 @@ def test_sentence_fragment():
     sf = highlight.SentenceFragmenter()
     uc = highlight.UppercaseFormatter()
     htext = highlight.highlight(text, terms, sa, sf, uc)
-    assert_equal(htext,
-                 "This is the first SENTENCE...This SENTENCE is the " +
-                 "second...Third SENTENCE here")
+    assert htext == "This is the first SENTENCE...This SENTENCE is the second...Third SENTENCE here"
 
 
 def test_context_fragment():
@@ -44,7 +40,7 @@ def test_context_fragment():
     cf = highlight.ContextFragmenter(surround=6)
     uc = highlight.UppercaseFormatter()
     htext = highlight.highlight(_doc, terms, sa, cf, uc)
-    assert_equal(htext, "alfa BRAVO charlie...hotel INDIA juliet")
+    assert htext == "alfa BRAVO charlie...hotel INDIA juliet"
 
 
 def test_context_at_start():
@@ -53,7 +49,7 @@ def test_context_at_start():
     cf = highlight.ContextFragmenter(surround=15)
     uc = highlight.UppercaseFormatter()
     htext = highlight.highlight(_doc, terms, sa, cf, uc)
-    assert_equal(htext, "ALFA bravo charlie delta echo foxtrot")
+    assert htext == "ALFA bravo charlie delta echo foxtrot"
 
 
 def test_html_format():
@@ -62,9 +58,7 @@ def test_html_format():
     cf = highlight.ContextFragmenter(surround=6)
     hf = highlight.HtmlFormatter()
     htext = highlight.highlight(_doc, terms, sa, cf, hf)
-    assert_equal(htext,
-                 'alfa <strong class="match term0">bravo</strong> charlie...' +
-                 'hotel <strong class="match term1">india</strong> juliet')
+    assert htext == 'alfa <strong class="match term0">bravo</strong> charlie...hotel <strong class="match term1">india</strong> juliet'
 
 
 def test_html_escape():
@@ -74,9 +68,7 @@ def test_html_escape():
     hf = highlight.HtmlFormatter()
     htext = highlight.highlight(u('alfa <bravo "charlie"> delta'), terms, sa,
                                 wf, hf)
-    assert_equal(htext,
-                 'alfa &lt;<strong class="match term0">bravo</strong>' +
-                 ' "charlie"&gt; delta')
+    assert htext == 'alfa &lt;<strong class="match term0">bravo</strong> "charlie"&gt; delta'
 
 
 def test_maxclasses():
@@ -85,11 +77,7 @@ def test_maxclasses():
     cf = highlight.ContextFragmenter(surround=6)
     hf = highlight.HtmlFormatter(tagname="b", termclass="t", maxclasses=2)
     htext = highlight.highlight(_doc, terms, sa, cf, hf)
-    assert_equal(htext,
-                 '<b class="match t0">alfa</b> <b class="match t1">' +
-                 'bravo</b> <b class="match t0">charlie</b>...' +
-                 '<b class="match t1">delta</b> ' +
-                 '<b class="match t0">echo</b> foxtrot')
+    assert htext == '<b class="match t0">alfa</b> <b class="match t1">bravo</b> <b class="match t0">charlie</b>...<b class="match t1">delta</b> <b class="match t0">echo</b> foxtrot'
 
 
 def test_workflow_easy():
@@ -110,13 +98,12 @@ def test_workflow_easy():
         parser = qparser.QueryParser("title", schema=ix.schema)
         q = parser.parse(u("man"))
         r = s.search(q, terms=True)
-        assert_equal(len(r), 2)
+        assert len(r) == 2
 
         r.fragmenter = highlight.WholeFragmenter()
         r.formatter = highlight.UppercaseFormatter()
         outputs = [hit.highlights("title") for hit in r]
-        assert_equal(outputs, ["The invisible MAN",
-                               "The MAN who wasn't there"])
+        assert outputs == ["The invisible MAN", "The MAN who wasn't there"]
 
 
 def test_workflow_manual():
@@ -143,7 +130,7 @@ def test_workflow_manual():
 
         # Perform the search
         r = s.search(q)
-        assert_equal(len(r), 2)
+        assert len(r) == 2
 
         # Use the same analyzer as the field uses. To be sure, you can
         # do schema[fieldname].analyzer. Be careful not to do this
@@ -162,8 +149,7 @@ def test_workflow_manual():
             text = d["title"]
             outputs.append(highlight.highlight(text, terms, analyzer, nf, fmt))
 
-        assert_equal(outputs, ["The invisible MAN",
-                               "The MAN who wasn't there"])
+        assert outputs == ["The invisible MAN", "The MAN who wasn't there"]
 
 
 def test_unstored():
@@ -174,7 +160,8 @@ def test_unstored():
     w.commit()
 
     hit = ix.searcher().search(query.Term("text", "bravo"))[0]
-    assert_raises(KeyError, hit.highlights, "tags")
+    with pytest.raises(KeyError):
+        hit.highlights("tags")
 
 
 def test_multifilter():
@@ -191,8 +178,7 @@ def test_multifilter():
     with ix.searcher() as s:
         assert ("text", "5000") in s.reader()
         hit = s.search(query.Term("text", "5000"))[0]
-        assert_equal(hit.highlights("text"),
-                     'Our BabbleTron<b class="match term0">5000</b> is great')
+        assert hit.highlights("text") == 'Our BabbleTron<b class="match term0">5000</b> is great'
 
 
 def test_pinpoint():
@@ -212,17 +198,14 @@ def test_pinpoint():
         hi.formatter = highlight.UppercaseFormatter()
 
         assert not hi.can_load_chars(r, "text")
-        assert_equal(hi.highlight_hit(hit, "text"),
-                     "golf hotel india JULIET kilo lima mike november")
+        assert hi.highlight_hit(hit, "text") == "golf hotel india JULIET kilo lima mike november"
 
         hi.fragmenter = highlight.PinpointFragmenter()
         assert hi.can_load_chars(r, "text")
-        assert_equal(hi.highlight_hit(hit, "text"),
-                     "ot golf hotel india JULIET kilo lima mike nove")
+        assert hi.highlight_hit(hit, "text") == "ot golf hotel india JULIET kilo lima mike nove"
 
         hi.fragmenter.autotrim = True
-        assert_equal(hi.highlight_hit(hit, "text"),
-                     "golf hotel india JULIET kilo lima mike")
+        assert hi.highlight_hit(hit, "text") == "golf hotel india JULIET kilo lima mike"
 
 
 def test_highlight_wildcards():
@@ -235,11 +218,10 @@ def test_highlight_wildcards():
         qp = qparser.QueryParser("text", ix.schema)
         q = qp.parse(u("c*"))
         r = s.search(q)
-        assert_equal(r.scored_length(), 1)
+        assert r.scored_length() == 1
         r.formatter = highlight.UppercaseFormatter()
         hit = r[0]
-        assert_equal(hit.highlights("text"),
-                     "alfa bravo CHARLIE delta COOKIE echo")
+        assert hit.highlights("text") == "alfa bravo CHARLIE delta COOKIE echo"
 
 
 def test_highlight_ngrams():
@@ -252,9 +234,9 @@ def test_highlight_ngrams():
         qp = qparser.QueryParser("text", ix.schema)
         q = qp.parse(u("multiplication"))
         r = s.search(q)
-        assert_equal(r.scored_length(), 1)
+        assert r.scored_length() == 1
 
         r.fragmenter = highlight.SentenceFragmenter()
         r.formatter = highlight.UppercaseFormatter()
         snippet = r[0].highlights("text")
-        assert_equal(snippet, "MULTIPLICATIon and subtracTION are good")
+        assert snippet == "MULTIPLICATIon and subtracTION are good"

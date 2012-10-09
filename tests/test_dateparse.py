@@ -1,5 +1,3 @@
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh.qparser.dateparse import *
 
 
@@ -12,7 +10,7 @@ def assert_adatetime(at, **kwargs):
     for key in adatetime.units:
         val = getattr(at, key)
         target = kwargs.get(key)
-        assert_equal(val, target, "at.%s=%r not %r in %r" % (key, val, target, at))
+        assert val == target, "at.%s=%r not %r in %r" % (key, val, target, at)
 
 
 def assert_timespan(ts, sargs, eargs):
@@ -26,14 +24,14 @@ def assert_unamb(ts, **kwargs):
 def assert_unamb_span(ts, sargs, eargs):
     startdt = adatetime(**sargs).floor()
     enddt = adatetime(**eargs).ceil()
-    assert_equal(ts.start, startdt, "start %s != %s" % (ts.start, startdt))
-    assert_equal(ts.end, enddt, "end %s != %s" % (ts.end, enddt))
+    assert ts.start == startdt, "start %s != %s" % (ts.start, startdt)
+    assert ts.end == enddt, "end %s != %s" % (ts.end, enddt)
 
 
 def assert_datespan(ts, startdate, enddate):
     assert ts.__class__ is timespan
-    assert_equal(ts.start, startdate)
-    assert_equal(ts.end, enddate)
+    assert ts.start == startdate
+    assert ts.end == enddate
 
 
 #
@@ -126,62 +124,51 @@ def test_dmy(d=english.dmy):
     assert_adatetime(d.date_from("this month", basedate), year=2010, month=9)
     assert_adatetime(d.date_from("this year", basedate), year=2010)
 
-    assert_equal(d.date_from("now", basedate), basedate)
+    assert d.date_from("now", basedate) == basedate
 
 
 def test_plustime(rt=english.plusdate):
-    assert_equal(rt.date_from("+1hr", basedate), basedate + timedelta(hours=1))
-    assert_equal(rt.date_from("+5mins", basedate),
-                 basedate + timedelta(minutes=5))
-    assert_equal(rt.date_from("+20s", basedate),
-                 basedate + timedelta(seconds=20))
+    assert rt.date_from("+1hr", basedate) == basedate + timedelta(hours=1)
+    assert rt.date_from("+5mins", basedate) == basedate + timedelta(minutes=5)
+    assert rt.date_from("+20s", basedate) == basedate + timedelta(seconds=20)
 
-    assert_equal(rt.date_from("- 2 h", basedate),
-                 basedate + timedelta(hours=-2))
-    assert_equal(rt.date_from("- 25 minutes", basedate),
-                 basedate + timedelta(minutes=-25))
-    assert_equal(rt.date_from("-400 secs", basedate),
-                 basedate + timedelta(seconds=-400))
+    assert rt.date_from("- 2 h", basedate) == basedate + timedelta(hours=-2)
+    assert rt.date_from("- 25 minutes", basedate) == basedate + timedelta(minutes=-25)
+    assert rt.date_from("-400 secs", basedate) == basedate + timedelta(seconds=-400)
 
-    assert_equal(rt.date_from("+1hr 5m", basedate),
-                 basedate + timedelta(hours=1, minutes=5))
-    assert_equal(rt.date_from("-8hr 12m", basedate),
-                 basedate + timedelta(hours=-8, minutes=-12))
-    assert_equal(rt.date_from("+1hr 5s", basedate),
-                 basedate + timedelta(hours=1, seconds=5))
-    assert_equal(rt.date_from("+1hr 12m 5s", basedate),
-                 basedate + timedelta(hours=1, minutes=12, seconds=5))
-    assert_equal(rt.date_from("-1hr 5s", basedate),
-                 basedate + timedelta(hours=-1, seconds=-5))
-    assert_equal(rt.date_from("-1hr 12m 5s", basedate),
-                 basedate + timedelta(hours=-1, minutes=-12, seconds=-5))
+    assert rt.date_from("+1hr 5m", basedate) == basedate + timedelta(hours=1, minutes=5)
+    assert rt.date_from("-8hr 12m", basedate) == basedate + timedelta(hours=-8, minutes=-12)
+    assert rt.date_from("+1hr 5s", basedate) == basedate + timedelta(hours=1, seconds=5)
+    assert rt.date_from("+1hr 12m 5s", basedate) == basedate + timedelta(hours=1, minutes=12, seconds=5)
+    assert rt.date_from("-1hr 5s", basedate) == basedate + timedelta(hours=-1, seconds=-5)
+    assert rt.date_from("-1hr 12m 5s", basedate) == basedate + timedelta(hours=-1, minutes=-12, seconds=-5)
 
 
 def test_relative_days():
     # "next monday" on monday
-    assert_equal(relative_days(0, 0, 1), 7)
+    assert relative_days(0, 0, 1) == 7
     # "last monday" on monday
-    assert_equal(relative_days(0, 0, -1), -7)
+    assert relative_days(0, 0, -1) == -7
     # "next tuesday" on wednesday
-    assert_equal(relative_days(2, 1, 1), 6)
+    assert relative_days(2, 1, 1) == 6
     # "last tuesday" on wednesay
-    assert_equal(relative_days(2, 1, -1), -1)
+    assert relative_days(2, 1, -1) == -1
     # "last monday" on sunday
-    assert_equal(relative_days(6, 0, -1), -6)
+    assert relative_days(6, 0, -1) == -6
     # "next monday" on sunday
-    assert_equal(relative_days(6, 0, 1), 1)
+    assert relative_days(6, 0, 1) == 1
     # "next wednesday" on tuesday
-    assert_equal(relative_days(1, 2, 1), 1)
+    assert relative_days(1, 2, 1) == 1
     # "last wednesday" on tuesday
-    assert_equal(relative_days(1, 2, -1), -6)
+    assert relative_days(1, 2, -1) == -6
     # "last wednesday" on thursday
-    assert_equal(relative_days(3, 2, -1), -1)
+    assert relative_days(3, 2, -1) == -1
     # "next wednesday" on thursday
-    assert_equal(relative_days(3, 2, 1), 6)
+    assert relative_days(3, 2, 1) == 6
     # "last wednesday" on tuesday
-    assert_equal(relative_days(1, 2, -1), -6)
+    assert relative_days(1, 2, -1) == -6
     # "next wednesday" on tuesday
-    assert_equal(relative_days(1, 2, 1), 1)
+    assert relative_days(1, 2, 1) == 1
 
 
 def test_dayname(p=english.dayname):
@@ -198,38 +185,23 @@ def test_dayname(p=english.dayname):
 
 
 def test_reldate(p=english.plusdate):
-    assert_equal(p.date_from("+1y", basedate),
-                 basedate + relativedelta(years=1))
-    assert_equal(p.date_from("+2mo", basedate),
-                 basedate + relativedelta(months=2))
-    assert_equal(p.date_from("+3w", basedate),
-                 basedate + relativedelta(weeks=3))
-    assert_equal(p.date_from("+5d", basedate),
-                 basedate + relativedelta(days=5))
-    assert_equal(p.date_from("+5days", basedate),
-                 basedate + relativedelta(days=5))
+    assert p.date_from("+1y", basedate) == basedate + relativedelta(years=1)
+    assert p.date_from("+2mo", basedate) == basedate + relativedelta(months=2)
+    assert p.date_from("+3w", basedate) == basedate + relativedelta(weeks=3)
+    assert p.date_from("+5d", basedate) == basedate + relativedelta(days=5)
+    assert p.date_from("+5days", basedate) == basedate + relativedelta(days=5)
 
-    assert_equal(p.date_from("-6yr", basedate),
-                 basedate + relativedelta(years=-6))
-    assert_equal(p.date_from("- 7 mons", basedate),
-                 basedate + relativedelta(months=-7))
-    assert_equal(p.date_from("-8 wks", basedate),
-                 basedate + relativedelta(weeks=-8))
-    assert_equal(p.date_from("- 9 dy", basedate),
-                 basedate + relativedelta(days=-9))
+    assert p.date_from("-6yr", basedate) == basedate + relativedelta(years=-6)
+    assert p.date_from("- 7 mons", basedate) == basedate + relativedelta(months=-7)
+    assert p.date_from("-8 wks", basedate) == basedate + relativedelta(weeks=-8)
+    assert p.date_from("- 9 dy", basedate) == basedate + relativedelta(days=-9)
 
-    assert_equal(p.date_from("+1y 12mo 400d", basedate),
-                 basedate + relativedelta(years=1, months=12, days=400))
-    assert_equal(p.date_from("-7mo 8d", basedate),
-                 basedate + relativedelta(months=-7, days=-8))
-    assert_equal(p.date_from("+5wks 2d", basedate),
-                 basedate + relativedelta(weeks=5, days=2))
-    assert_equal(p.date_from("-1y 1w", basedate),
-                 basedate + relativedelta(years=-1, weeks=-1))
+    assert p.date_from("+1y 12mo 400d", basedate) == basedate + relativedelta(years=1, months=12, days=400)
+    assert p.date_from("-7mo 8d", basedate) == basedate + relativedelta(months=-7, days=-8)
+    assert p.date_from("+5wks 2d", basedate) == basedate + relativedelta(weeks=5, days=2)
+    assert p.date_from("-1y 1w", basedate) == basedate + relativedelta(years=-1, weeks=-1)
 
-    assert_equal(p.date_from("+1y 2d 5h 12s", basedate),
-                 basedate + relativedelta(years=1, days=2, hours=5,
-                                          seconds=12))
+    assert p.date_from("+1y 2d 5h 12s", basedate) == basedate + relativedelta(years=1, days=2, hours=5, seconds=12)
 
 
 def test_bundle_subs(p=english.bundle):

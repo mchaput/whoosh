@@ -166,6 +166,12 @@ class Query(object):
     # in this query
     error = None
 
+    def __unicode__(self):
+        raise NotImplementedError
+
+    def __getitem__(self, item):
+        raise NotImplementedError
+
     def __or__(self, query):
         """Allows you to use | between query objects to wrap them in an Or
         query.

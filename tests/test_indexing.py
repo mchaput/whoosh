@@ -1,10 +1,11 @@
 from __future__ import with_statement
-from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 import random
 from collections import defaultdict
 from datetime import datetime
 
-from whoosh import analysis, fields, qparser, query
+import pytest
+
+from whoosh import analysis, fields, index, qparser, query
 from whoosh.compat import b, u, xrange, text_type, PY3, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.writing import IndexingError
@@ -60,8 +61,8 @@ def test_version_in():
         assert ix.is_empty()
 
         v = index.version(st)
-        assert_equal(v[0], __version__)
-        assert_equal(v[1], index._CURRENT_TOC_VERSION)
+        assert v[0] == __version__
+        assert v[1] == index._CURRENT_TOC_VERSION
 
         with ix.writer() as w:
             w.add_document(text=u("alfa"))
@@ -89,7 +90,7 @@ def _check_writer(name, writer_fn):
                 rset = sorted([hit["id"] for hit
                                in s.search(query.Term("text", word),
                                            limit=None)])
-                assert_equal(rset, docs[word])
+                assert rset == docs[word]
 
 
 def test_simple_indexing():
@@ -111,9 +112,8 @@ def test_integrity():
     w.commit()
 
     tr = ix.reader()
-    assert_equal(ix.doc_count_all(), 3)
-    assert_equal(" ".join(tr.field_terms("name")),
-                 "alpha beta brown one two yellow")
+    assert ix.doc_count_all() == 3
+    assert " ".join(tr.field_terms("name")) == "alpha beta brown one two yellow"
 
 
 def test_lengths():
@@ -131,11 +131,10 @@ def test_lengths():
         with ix.reader() as dr:
             ls1 = [dr.doc_field_length(i, "f1")
                    for i in xrange(0, len(lengths))]
-            assert_equal(ls1, [0] * len(lengths))
+            assert ls1 == [0] * len(lengths)
             ls2 = [dr.doc_field_length(i, "f2")
                    for i in xrange(0, len(lengths))]
-            assert_equal(ls2, [byte_to_length(length_to_byte(l))
-                               for l in lengths])
+            assert ls2 == [byte_to_length(length_to_byte(l)) for l in lengths]
 
 
 def test_many_lengths():
@@ -152,8 +151,8 @@ def test_many_lengths():
     for i, word in enumerate(domain):
         target = byte_to_length(length_to_byte((i + 1) ** 6))
         ti = s.term_info("text", word)
-        assert_equal(ti.min_length(), target)
-        assert_equal(ti.max_length(), target)
+        assert ti.min_length() == target
+        assert ti.max_length() == target
 
 
 def test_lengths_ram():
@@ -168,18 +167,18 @@ def test_lengths_ram():
     w.commit()
 
     dr = ix.reader()
-    assert_equal(dr.stored_fields(0)["f1"], "A B C D E")
-    assert_equal(dr.doc_field_length(0, "f1"), 5)
-    assert_equal(dr.doc_field_length(1, "f1"), 8)
-    assert_equal(dr.doc_field_length(2, "f1"), 3)
-    assert_equal(dr.doc_field_length(0, "f2"), 3)
-    assert_equal(dr.doc_field_length(1, "f2"), 4)
-    assert_equal(dr.doc_field_length(2, "f2"), 7)
+    assert dr.stored_fields(0)["f1"] == "A B C D E"
+    assert dr.doc_field_length(0, "f1") == 5
+    assert dr.doc_field_length(1, "f1") == 8
+    assert dr.doc_field_length(2, "f1") == 3
+    assert dr.doc_field_length(0, "f2") == 3
+    assert dr.doc_field_length(1, "f2") == 4
+    assert dr.doc_field_length(2, "f2") == 7
 
-    assert_equal(dr.field_length("f1"), 16)
-    assert_equal(dr.field_length("f2"), 14)
-    assert_equal(dr.max_field_length("f1"), 8)
-    assert_equal(dr.max_field_length("f2"), 7)
+    assert dr.field_length("f1") == 16
+    assert dr.field_length("f2") == 14
+    assert dr.max_field_length("f1") == 8
+    assert dr.max_field_length("f2") == 7
 
 
 def test_merged_lengths():
@@ -202,10 +201,10 @@ def test_merged_lengths():
         w.commit(merge=False)
 
         with ix.reader() as dr:
-            assert_equal(dr.stored_fields(0)["f1"], u("A B C"))
-            assert_equal(dr.doc_field_length(0, "f1"), 3)
-            assert_equal(dr.doc_field_length(2, "f2"), 6)
-            assert_equal(dr.doc_field_length(4, "f1"), 5)
+            assert dr.stored_fields(0)["f1"] == u("A B C")
+            assert dr.doc_field_length(0, "f1") == 3
+            assert dr.doc_field_length(2, "f2") == 6
+            assert dr.doc_field_length(4, "f1") == 5
 
 
 def test_frequency_keyword():
@@ -220,28 +219,25 @@ def test_frequency_keyword():
     w.commit()
 
     with ix.reader() as tr:
-        assert_equal(tr.doc_frequency("content", u("B")), 2)
-        assert_equal(tr.frequency("content", u("B")), 5)
-        assert_equal(tr.doc_frequency("content", u("E")), 2)
-        assert_equal(tr.frequency("content", u("E")), 2)
-        assert_equal(tr.doc_frequency("content", u("A")), 1)
-        assert_equal(tr.frequency("content", u("A")), 1)
-        assert_equal(tr.doc_frequency("content", u("D")), 3)
-        assert_equal(tr.frequency("content", u("D")), 4)
-        assert_equal(tr.doc_frequency("content", u("F")), 1)
-        assert_equal(tr.frequency("content", u("F")), 1)
-        assert_equal(tr.doc_frequency("content", u("Z")), 0)
-        assert_equal(tr.frequency("content", u("Z")), 0)
+        assert tr.doc_frequency("content", u("B")) == 2
+        assert tr.frequency("content", u("B")) == 5
+        assert tr.doc_frequency("content", u("E")) == 2
+        assert tr.frequency("content", u("E")) == 2
+        assert tr.doc_frequency("content", u("A")) == 1
+        assert tr.frequency("content", u("A")) == 1
+        assert tr.doc_frequency("content", u("D")) == 3
+        assert tr.frequency("content", u("D")) == 4
+        assert tr.doc_frequency("content", u("F")) == 1
+        assert tr.frequency("content", u("F")) == 1
+        assert tr.doc_frequency("content", u("Z")) == 0
+        assert tr.frequency("content", u("Z")) == 0
 
         stats = [(fname, text, ti.doc_frequency(), ti.weight())
                  for (fname, text), ti in tr]
 
-        assert_equal(stats, [("content", b("A"), 1, 1),
-                             ("content", b("B"), 2, 5),
-                             ("content", b("C"), 2, 2),
-                             ("content", b("D"), 3, 4),
-                             ("content", b("E"), 2, 2),
-                             ("content", b("F"), 1, 1)])
+        assert stats == [("content", b("A"), 1, 1), ("content", b("B"), 2, 5),
+                         ("content", b("C"), 2, 2), ("content", b("D"), 3, 4),
+                         ("content", b("E"), 2, 2), ("content", b("F"), 1, 1)]
 
 
 def test_frequency_text():
@@ -256,28 +252,28 @@ def test_frequency_text():
     w.commit()
 
     with ix.reader() as tr:
-        assert_equal(tr.doc_frequency("content", u("bravo")), 2)
-        assert_equal(tr.frequency("content", u("bravo")), 5)
-        assert_equal(tr.doc_frequency("content", u("echo")), 2)
-        assert_equal(tr.frequency("content", u("echo")), 2)
-        assert_equal(tr.doc_frequency("content", u("alfa")), 1)
-        assert_equal(tr.frequency("content", u("alfa")), 1)
-        assert_equal(tr.doc_frequency("content", u("delta")), 3)
-        assert_equal(tr.frequency("content", u("delta")), 4)
-        assert_equal(tr.doc_frequency("content", u("foxtrot")), 1)
-        assert_equal(tr.frequency("content", u("foxtrot")), 1)
-        assert_equal(tr.doc_frequency("content", u("zulu")), 0)
-        assert_equal(tr.frequency("content", u("zulu")), 0)
+        assert tr.doc_frequency("content", u("bravo")) == 2
+        assert tr.frequency("content", u("bravo")) == 5
+        assert tr.doc_frequency("content", u("echo")) == 2
+        assert tr.frequency("content", u("echo")) == 2
+        assert tr.doc_frequency("content", u("alfa")) == 1
+        assert tr.frequency("content", u("alfa")) == 1
+        assert tr.doc_frequency("content", u("delta")) == 3
+        assert tr.frequency("content", u("delta")) == 4
+        assert tr.doc_frequency("content", u("foxtrot")) == 1
+        assert tr.frequency("content", u("foxtrot")) == 1
+        assert tr.doc_frequency("content", u("zulu")) == 0
+        assert tr.frequency("content", u("zulu")) == 0
 
         stats = [(fname, text, ti.doc_frequency(), ti.weight())
-             for (fname, text), ti in tr]
+                 for (fname, text), ti in tr]
 
-        assert_equal(stats, [("content", b("alfa"), 1, 1),
-                             ("content", b("bravo"), 2, 5),
-                             ("content", b("charlie"), 2, 2),
-                             ("content", b("delta"), 3, 4),
-                             ("content", b("echo"), 2, 2),
-                             ("content", b("foxtrot"), 1, 1)])
+        assert stats == [("content", b("alfa"), 1, 1),
+                         ("content", b("bravo"), 2, 5),
+                         ("content", b("charlie"), 2, 2),
+                         ("content", b("delta"), 3, 4),
+                         ("content", b("echo"), 2, 2),
+                         ("content", b("foxtrot"), 1, 1)]
 
 
 def test_deletion():
@@ -293,12 +289,11 @@ def test_deletion():
         w.commit()
 
         w = ix.writer()
-        count = w.delete_by_term("key", u("B"))
-        assert_equal(count, 1)
+        assert w.delete_by_term("key", u("B")) == 1
         w.commit(merge=False)
 
-        assert_equal(ix.doc_count_all(), 3)
-        assert_equal(ix.doc_count(), 2)
+        assert ix.doc_count_all() == 3
+        assert ix.doc_count() == 2
 
         w = ix.writer()
         w.add_document(key=u("A"), name=u("Yellow brown"),
@@ -312,17 +307,15 @@ def test_deletion():
         # This will match both documents with key == B, one of which is already
         # deleted. This should not raise an error.
         w = ix.writer()
-        count = w.delete_by_term("key", u("B"))
-        assert_equal(count, 1)
+        assert w.delete_by_term("key", u("B")) == 1
         w.commit()
 
         ix.optimize()
-        assert_equal(ix.doc_count_all(), 4)
-        assert_equal(ix.doc_count(), 4)
+        assert ix.doc_count_all() == 4
+        assert ix.doc_count() == 4
 
         with ix.reader() as tr:
-            assert_equal(" ".join(tr.field_terms("name")),
-                         "brown one two yellow")
+            assert " ".join(tr.field_terms("name")) == "brown one two yellow"
 
 
 def test_writer_reuse():
@@ -336,13 +329,13 @@ def test_writer_reuse():
     w.commit()
 
     # You can't re-use a commited/canceled writer
-    assert_raises(IndexingError, w.add_document, key=u("D"))
-    assert_raises(IndexingError, w.update_document, key=u("B"))
-    assert_raises(IndexingError, w.delete_document, 0)
-    assert_raises(IndexingError, w.add_reader, None)
-    assert_raises(IndexingError, w.add_field, "name", fields.ID)
-    assert_raises(IndexingError, w.remove_field, "key")
-    assert_raises(IndexingError, w.searcher)
+    pytest.raises(IndexingError, w.add_document, key=u("D"))
+    pytest.raises(IndexingError, w.update_document, key=u("B"))
+    pytest.raises(IndexingError, w.delete_document, 0)
+    pytest.raises(IndexingError, w.add_reader, None)
+    pytest.raises(IndexingError, w.add_field, "name", fields.ID)
+    pytest.raises(IndexingError, w.remove_field, "key")
+    pytest.raises(IndexingError, w.searcher)
 
 
 def test_update():
@@ -383,7 +376,7 @@ def test_update2():
         with ix.searcher() as s:
             results = [d["key"] for _, d in s.iter_docs()]
             results = " ".join(sorted(results))
-            assert_equal(results, "0 1 2 3 4 5 6 7 8 9")
+            assert results == "0 1 2 3 4 5 6 7 8 9"
 
 
 def test_update_numeric():
@@ -399,7 +392,7 @@ def test_update_numeric():
         with ix.searcher() as s:
             results = [d["text"] for _, d in s.iter_docs()]
             results = " ".join(sorted(results))
-            assert_equal(results, "0 1 2 3 4 5 6 7 8 9")
+            assert results == "0 1 2 3 4 5 6 7 8 9"
 
 
 def test_reindex():
@@ -422,9 +415,9 @@ def test_reindex():
             writer.commit()
 
         reindex()
-        assert_equal(ix.doc_count_all(), 3)
+        assert ix.doc_count_all() == 3
         reindex()
-        assert_equal(ix.doc_count_all(), 3)
+        assert ix.doc_count_all() == 3
 
 
 def test_noscorables1():
@@ -487,17 +480,17 @@ def test_multi():
         writer.add_document(id=u("A"), content=u(" foxtrot golf hotel india"))
         writer.commit(merge=False)
 
-        assert_equal(ix.doc_count(), 6)
+        assert ix.doc_count() == 6
 
         with ix.searcher() as s:
             r = s.search(query.Prefix("content", u("d")), optimize=False)
-            assert_equal(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
+            assert sorted([d["id"] for d in r]) == ["4", "5", "8", "9"]
 
             r = s.search(query.Prefix("content", u("d")))
-            assert_equal(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
+            assert sorted([d["id"] for d in r]) == ["4", "5", "8", "9"]
 
             r = s.search(query.Prefix("content", u("d")), limit=None)
-            assert_equal(sorted([d["id"] for d in r]), ["4", "5", "8", "9"])
+            assert sorted([d["id"] for d in r]) == ["4", "5", "8", "9"]
 
 
 def test_deleteall():
@@ -522,13 +515,13 @@ def test_deleteall():
         with ix.searcher() as s:
             r = s.search(query.Or([query.Term("text", u("alfa")),
                                    query.Term("text", u("bravo"))]))
-            assert_equal(len(r), 0)
+            assert len(r) == 0
 
         ix.optimize()
-        assert_equal(ix.doc_count_all(), 0)
+        assert ix.doc_count_all() == 0
 
         with ix.reader() as r:
-            assert_equal(list(r), [])
+            assert list(r) == []
 
 
 def test_simple_stored():
@@ -538,7 +531,7 @@ def test_simple_stored():
         w.add_document(a=u("alfa"), b=u("bravo"))
     with ix.searcher() as s:
         sf = s.stored_fields(0)
-        assert_equal(sf, {"a": "alfa"})
+        assert sf == {"a": "alfa"}
 
 
 def test_single():
@@ -550,9 +543,9 @@ def test_single():
 
         with ix.searcher() as s:
             assert ("text", u("alfa")) in s.reader()
-            assert_equal(list(s.documents(id="1")), [{"id": "1"}])
-            assert_equal(list(s.documents(text="alfa")), [{"id": "1"}])
-            assert_equal(list(s.all_stored_fields()), [{"id": "1"}])
+            assert list(s.documents(id="1")) == [{"id": "1"}]
+            assert list(s.documents(text="alfa")) == [{"id": "1"}]
+            assert list(s.all_stored_fields()) == [{"id": "1"}]
 
 
 def test_indentical_fields():
@@ -564,12 +557,12 @@ def test_indentical_fields():
         w.commit()
 
         with ix.searcher() as s:
-            assert_equal(list(s.lexicon("f1")), [b("alfa")])
-            assert_equal(list(s.lexicon("f2")), [b("alfa")])
-            assert_equal(list(s.lexicon("f3")), [b("alfa")])
-            assert_equal(list(s.documents(f1="alfa")), [{"id": 1}])
-            assert_equal(list(s.documents(f2="alfa")), [{"id": 1}])
-            assert_equal(list(s.documents(f3="alfa")), [{"id": 1}])
+            assert list(s.lexicon("f1")) == [b("alfa")]
+            assert list(s.lexicon("f2")) == [b("alfa")]
+            assert list(s.lexicon("f3")) == [b("alfa")]
+            assert list(s.documents(f1="alfa")) == [{"id": 1}]
+            assert list(s.documents(f2="alfa")) == [{"id": 1}]
+            assert list(s.documents(f3="alfa")) == [{"id": 1}]
 
 
 def test_multivalue():
@@ -587,7 +580,7 @@ def test_multivalue():
     with ix.reader() as r:
         assert ("num", 3) in r
         assert ("date", datetime(2003, 3, 3)) in r
-        assert_equal(" ".join(r.field_terms("txt")), "a b c")
+        assert " ".join(r.field_terms("txt")) == "a b c"
 
 
 def test_multi_language():
@@ -632,15 +625,15 @@ def test_multi_language():
         qp = qparser.QueryParser("content", schema)
         q = qp.parse("dreaming")
         r = s.search(q)
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["content"], "Such stuff as dreams are made on")
+        assert len(r) == 1
+        assert r[0]["content"] == "Such stuff as dreams are made on"
 
         schema["content"].analyzer = analyzers["pig"]
         qp = qparser.QueryParser("content", schema)
         q = qp.parse("otnay")
         r = s.search(q)
-        assert_equal(len(r), 1)
-        assert_equal(r[0]["content"], "Otay ebay, roay otnay otay ebay")
+        assert len(r) == 1
+        assert r[0]["content"] == "Otay ebay, roay otnay otay ebay"
 
 
 def test_doc_boost():
@@ -654,7 +647,7 @@ def test_doc_boost():
 
     with ix.searcher() as s:
         r = s.search(query.Term("a", "alfa"))
-        assert_equal([hit["id"] for hit in r], [1, 0, 2])
+        assert [hit["id"] for hit in r] == [1, 0, 2]
 
     w = ix.writer()
     w.add_document(id=3, a=u("alfa"), b=u("bottle"))
@@ -663,4 +656,9 @@ def test_doc_boost():
 
     with ix.searcher() as s:
         r = s.search(query.Term("a", "alfa"))
-        assert_equal([hit["id"] for hit in r], [1, 0, 3, 2])
+        assert [hit["id"] for hit in r] == [1, 0, 3, 2]
+
+
+
+
+

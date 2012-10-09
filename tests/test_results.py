@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal, assert_not_equal, assert_raises
+import pytest
 
 from whoosh import analysis, fields, formats, highlight, qparser, query
 from whoosh.compat import u, xrange, text_type, permutations
@@ -23,12 +23,12 @@ def test_score_retrieval():
 
     with ix.searcher() as s:
         results = s.search(query.Term("content", "white"))
-        assert_equal(len(results), 2)
-        assert_equal(results[0]['title'], u("Miss Mary"))
-        assert_equal(results[1]['title'], u("Snow White"))
-        assert_not_equal(results.score(0), None)
-        assert_not_equal(results.score(0), 0)
-        assert_not_equal(results.score(0), 1)
+        assert len(results) == 2
+        assert results[0]['title'] == u("Miss Mary")
+        assert results[1]['title'] == u("Snow White")
+        assert results.score(0) is not None
+        assert results.score(0) != 0
+        assert results.score(0) != 1
 
 
 def test_resultcopy():
@@ -45,9 +45,9 @@ def test_resultcopy():
 
     with ix.searcher() as s:
         r = s.search(qparser.QueryParser("a", None).parse(u("charlie")))
-        assert_equal(len(r), 3)
+        assert len(r) == 3
         rcopy = r.copy()
-        assert_equal(r.top_n, rcopy.top_n)
+        assert r.top_n == rcopy.top_n
 
 
 def test_resultslength():
@@ -66,9 +66,9 @@ def test_resultslength():
 
     with ix.searcher() as s:
         r = s.search(query.Term("value", u("alfa")), limit=3)
-        assert_equal(len(r), 5)
-        assert_equal(r.scored_length(), 3)
-        assert_equal(r[10:], [])
+        assert len(r) == 5
+        assert r.scored_length() == 3
+        assert r[10:] == []
 
 
 def test_combine():
@@ -92,12 +92,12 @@ def test_combine():
 
         def check(r1, methodname, r2, ids):
             getattr(r1, methodname)(r2)
-            assert_equal(idsof(r1), ids)
+            assert idsof(r1) == ids
 
         def rfor(t):
             return s.search(query.Term("value", t))
 
-        assert_equal(idsof(rfor(u("foxtrot"))), "345")
+        assert idsof(rfor(u("foxtrot"))) == "345"
         check(rfor(u("foxtrot")), "extend", rfor("charlie"), "345812")
         check(rfor(u("foxtrot")), "filter", rfor("juliet"), "5")
         check(rfor(u("charlie")), "filter", rfor("foxtrot"), "3")
@@ -122,7 +122,7 @@ def test_results_filter():
     with ix.searcher() as s:
         def check(r, target):
             result = "".join(s.stored_fields(d)["id"] for d in r.docs())
-            assert_equal(result, target)
+            assert result == target
 
         r = s.search(query.Term("words", u("alfa")))
         r.filter(s.search(query.Term("words", u("bottom"))))
@@ -151,8 +151,8 @@ def test_extend_empty():
         r2c = r2.copy()
         # Extend r1 with r2
         r1c.extend(r2c)
-        assert_equal([hit["id"] for hit in r1c], [2, 3, 4])
-        assert_equal(r1c.scored_length(), 3)
+        assert [hit["id"] for hit in r1c] == [2, 3, 4]
+        assert r1c.scored_length() == 3
 
 
 def test_extend_filtered():
@@ -170,19 +170,19 @@ def test_extend_filtered():
 
     with ix.searcher() as s:
         r1 = s.search(query.Term("text", u("alfa")), filter=set([1, 4]))
-        assert_equal(r1.allowed, set([1, 4]))
-        assert_equal(len(r1.top_n), 0)
+        assert r1.allowed == set([1, 4])
+        assert len(r1.top_n) == 0
 
         r2 = s.search(query.Term("text", u("bravo")))
-        assert_equal(len(r2.top_n), 3)
-        assert_equal(hits(r2), [1, 2, 4])
+        assert len(r2.top_n) == 3
+        assert hits(r2) == [1, 2, 4]
 
         r3 = r1.copy()
-        assert_equal(r3.allowed, set([1, 4]))
-        assert_equal(len(r3.top_n), 0)
+        assert r3.allowed == set([1, 4])
+        assert len(r3.top_n) == 0
         r3.extend(r2)
-        assert_equal(len(r3.top_n), 3)
-        assert_equal(hits(r3), [1, 2, 4])
+        assert len(r3.top_n) == 3
+        assert hits(r3) == [1, 2, 4]
 
 
 def test_pages():
@@ -203,14 +203,14 @@ def test_pages():
     with ix.searcher(weighting=Frequency) as s:
         q = query.Term("c", u("alfa"))
         r = s.search(q)
-        assert_equal([d["id"] for d in r], ["1", "2", "3", "4", "5", "6"])
+        assert [d["id"] for d in r] == ["1", "2", "3", "4", "5", "6"]
         r = s.search_page(q, 2, pagelen=2)
-        assert_equal([d["id"] for d in r], ["3", "4"])
+        assert [d["id"] for d in r] == ["3", "4"]
 
         r = s.search_page(q, 2, pagelen=4)
-        assert_equal(r.total, 6)
-        assert_equal(r.pagenum, 2)
-        assert_equal(r.pagelen, 2)
+        assert r.total == 6
+        assert r.pagenum == 2
+        assert r.pagelen == 2
 
 
 def test_pages_with_filter():
@@ -234,9 +234,9 @@ def test_pages_with_filter():
         q = query.Term("c", u("alfa"))
         filterq = query.Term("type", u("even"))
         r = s.search(q, filter=filterq)
-        assert_equal([d["id"] for d in r], ["2", "4", "6"])
+        assert [d["id"] for d in r] == ["2", "4", "6"]
         r = s.search_page(q, 2, pagelen=2, filter=filterq)
-        assert_equal([d["id"] for d in r], ["6"])
+        assert [d["id"] for d in r] == ["6"]
 
 
 def test_extra_slice():
@@ -249,7 +249,7 @@ def test_extra_slice():
 
     with ix.searcher() as s:
         r = s.search(query.Every(), limit=5)
-        assert_equal(r[6:7], [])
+        assert r[6:7] == []
 
 
 def test_page_counts():
@@ -268,27 +268,28 @@ def test_page_counts():
         q = query.Every("id")
 
         r = s.search(q)
-        assert_equal(len(r), 10)
+        assert len(r) == 10
 
-        assert_raises(ValueError, s.search_page, q, 0)
-
-        r = s.search_page(q, 1, 5)
-        assert_equal(len(r), 10)
-        assert_equal(r.pagecount, 2)
+        with pytest.raises(ValueError):
+            s.search_page(q, 0)
 
         r = s.search_page(q, 1, 5)
-        assert_equal(len(r), 10)
-        assert_equal(r.pagecount, 2)
+        assert len(r) == 10
+        assert r.pagecount == 2
+
+        r = s.search_page(q, 1, 5)
+        assert len(r) == 10
+        assert r.pagecount == 2
 
         r = s.search_page(q, 2, 5)
-        assert_equal(len(r), 10)
-        assert_equal(r.pagecount, 2)
-        assert_equal(r.pagenum, 2)
+        assert len(r) == 10
+        assert r.pagecount == 2
+        assert r.pagenum == 2
 
         r = s.search_page(q, 1, 10)
-        assert_equal(len(r), 10)
-        assert_equal(r.pagecount, 1)
-        assert_equal(r.pagenum, 1)
+        assert len(r) == 10
+        assert r.pagecount == 1
+        assert r.pagenum == 1
 
 
 def test_resultspage():
@@ -307,25 +308,26 @@ def test_resultspage():
         tops = list(r)
 
         rp = s.search_page(q, 1, pagelen=5)
-        assert_equal(rp.scored_length(), 5)
-        assert_equal(list(rp), tops[0:5])
-        assert_equal(rp[10:], [])
+        assert rp.scored_length() == 5
+        assert list(rp) == tops[0:5]
+        assert rp[10:] == []
 
         rp = s.search_page(q, 2, pagelen=5)
-        assert_equal(list(rp), tops[5:10])
+        assert list(rp) == tops[5:10]
 
         rp = s.search_page(q, 1, pagelen=10)
-        assert_equal(len(rp), 54)
-        assert_equal(rp.pagecount, 6)
+        assert len(rp) == 54
+        assert rp.pagecount == 6
         rp = s.search_page(q, 6, pagelen=10)
-        assert_equal(len(list(rp)), 4)
+        assert len(list(rp)) == 4
         assert rp.is_last_page()
 
-        assert_raises(ValueError, s.search_page, q, 0)
-        assert_equal(s.search_page(q, 10).pagenum, 6)
+        with pytest.raises(ValueError):
+            s.search_page(q, 0)
+        assert s.search_page(q, 10).pagenum == 6
 
         rp = s.search_page(query.Term("content", "glonk"), 1)
-        assert_equal(len(rp), 0)
+        assert len(rp) == 0
         assert rp.is_last_page()
 
 
@@ -367,7 +369,7 @@ def test_snippets():
         r.fragmenter = highlight.SentenceFragmenter()
         r.formatter = highlight.UppercaseFormatter()
 
-        assert_equal(sorted([hit.highlights("text", top=1) for hit in r]), sorted(target))
+        assert sorted([hit.highlights("text", top=1) for hit in r]) == sorted(target)
 
 
 def test_keyterms():
@@ -387,12 +389,12 @@ def test_keyterms():
         docnum = s.document_number(path=u("b"))
         keyterms = list(s.key_terms([docnum], "content"))
         assert len(keyterms) > 0
-        assert_equal(keyterms[0][0], "distinctive")
+        assert keyterms[0][0] == "distinctive"
 
         r = s.search(query.Term("path", u("b")))
         keyterms2 = list(r.key_terms("content"))
         assert len(keyterms2) > 0
-        assert_equal(keyterms2[0][0], "distinctive")
+        assert keyterms2[0][0] == "distinctive"
 
 
 def test_lengths():
@@ -413,11 +415,11 @@ def test_lengths():
     with ix.searcher() as s:
         q = query.Or([query.Term("text", u("needle")), query.Term("text", u("charlie"))])
         r = s.search(q, limit=2)
-        assert_equal(r.has_exact_length(), False)
-        assert_equal(r.estimated_length(), 7)
-        assert_equal(r.estimated_min_length(), 3)
-        assert_equal(r.scored_length(), 2)
-        assert_equal(len(r), 6)
+        assert not r.has_exact_length()
+        assert r.estimated_length() == 7
+        assert r.estimated_min_length() == 3
+        assert r.scored_length() == 2
+        assert len(r) == 6
 
 
 def test_lengths2():
@@ -435,10 +437,10 @@ def test_lengths2():
     with ix.searcher() as s:
         q = query.Or([query.Term("text", u("bravo")), query.Term("text", u("charlie"))])
         r = s.search(q, limit=None)
-        assert_equal(len(r), count)
+        assert len(r) == count
 
         r = s.search(q, limit=3)
-        assert_equal(len(r), count)
+        assert len(r) == count
 
 
 def test_stability():
@@ -457,7 +459,7 @@ def test_stability():
             # Only un-optimized results are stable
             r = s.search(q, limit=i + 1, optimize=False)
             docnums = [hit.docnum for hit in r]
-            assert_equal(docnums[:-1], last)
+            assert docnums[:-1] == last
             last = docnums
 
 
@@ -480,7 +482,7 @@ def test_terms():
     def txts(tset):
         return sorted(fieldobj.from_bytes(t[1]) for t in tset)
 
-    assert_equal(txts(r.matched_terms()), ["bravo", "charlie", "foxtrot"])
+    assert txts(r.matched_terms()) == ["bravo", "charlie", "foxtrot"]
     for hit in r:
         value = hit["text"]
         for txt in txts(hit.matched_terms()):
@@ -496,9 +498,10 @@ def test_hit_column():
 
     with ix.searcher() as s:
         r = s.search(query.Term("text", "alfa"))
-        assert_equal(len(r), 1)
+        assert len(r) == 1
         hit = r[0]
-        assert_raises(KeyError, hit.__getitem__, "text")
+        with pytest.raises(KeyError):
+            _ = hit["text"]
 
     # With column
     schema = fields.Schema(text=fields.TEXT(sortable=True))
@@ -508,6 +511,6 @@ def test_hit_column():
 
     with ix.searcher() as s:
         r = s.search(query.Term("text", "alfa"))
-        assert_equal(len(r), 1)
+        assert len(r) == 1
         hit = r[0]
-        assert_equal(hit["text"], "alfa bravo charlie")
+        assert hit["text"] == "alfa bravo charlie"

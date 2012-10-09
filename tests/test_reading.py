@@ -1,8 +1,6 @@
 from __future__ import with_statement
 import random, threading, time
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import analysis, fields, formats, reading
 from whoosh.compat import b, u, xrange
 from whoosh.reading import SegmentReader
@@ -75,15 +73,15 @@ def test_readers():
 
     def t(ix):
         r = ix.reader()
-        assert_equal(list(r.all_stored_fields()), stored)
-        assert_equal(sorted(_stats(r)), target)
+        assert list(r.all_stored_fields()) == stored
+        assert sorted(_stats(r)) == target
 
     ix = _one_segment_index()
-    assert_equal(len(ix._segments()), 1)
+    assert len(ix._segments()) == 1
     t(ix)
 
     ix = _multi_segment_index()
-    assert_equal(len(ix._segments()), 3)
+    assert len(ix._segments()) == 3
     t(ix)
 
 
@@ -100,31 +98,21 @@ def test_term_inspection():
     writer.commit()
 
     reader = ix.reader()
-    assert_equal(" ".join(reader.field_terms("content")),
-                 "aa ab ax bb cc dd ee")
-    assert_equal(list(reader.expand_prefix("content", "a")),
-                 [b('aa'), b('ab'), b('ax')])
-    assert_equal(set(reader.all_terms()),
-                 set([('content', b('aa')), ('content', b('ab')),
-                      ('content', b('ax')), ('content', b('bb')),
-                      ('content', b('cc')), ('content', b('dd')),
-                      ('content', b('ee')), ('title', b('document')),
-                      ('title', b('my')), ('title', b('other'))]))
+    assert " ".join(reader.field_terms("content")) == "aa ab ax bb cc dd ee"
+    assert list(reader.expand_prefix("content", "a")) == [b('aa'), b('ab'), b('ax')]
+    assert set(reader.all_terms()) == set([('content', b('aa')), ('content', b('ab')),
+                                           ('content', b('ax')), ('content', b('bb')),
+                                           ('content', b('cc')), ('content', b('dd')),
+                                           ('content', b('ee')), ('title', b('document')),
+                                           ('title', b('my')), ('title', b('other'))])
     # (text, doc_freq, index_freq)
-    assert_equal(_fstats(reader.iter_field("content")),
-                 [(b('aa'), 2, 6), (b('ab'), 1, 1), (b('ax'), 1, 2),
-                  (b('bb'), 2, 5), (b('cc'), 2, 3), (b('dd'), 2, 2),
-                  (b('ee'), 2, 4)])
-    assert_equal(_fstats(reader.iter_field("content", prefix="c")),
-                 [(b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)])
-    assert_equal(list(reader.most_frequent_terms("content")),
-                 [(6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')),
-                  (2, b('dd'))])
-    assert_equal(list(reader.most_frequent_terms("content", prefix="a")),
-                 [(6, b('aa')), (2, b('ax')), (1, b('ab'))])
-    assert_equal(list(reader.most_distinctive_terms("content", 3)),
-                 [(1.3862943611198906, b('ax')), (0.6931471805599453, b('ab')),
-                  (0.0, b('ee'))])
+    assert _fstats(reader.iter_field("content")) == [(b('aa'), 2, 6), (b('ab'), 1, 1), (b('ax'), 1, 2),
+                                                     (b('bb'), 2, 5), (b('cc'), 2, 3), (b('dd'), 2, 2),
+                                                     (b('ee'), 2, 4)]
+    assert _fstats(reader.iter_field("content", prefix="c")) == [(b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)]
+    assert list(reader.most_frequent_terms("content")) == [(6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')), (2, b('dd'))]
+    assert list(reader.most_frequent_terms("content", prefix="a")) == [(6, b('aa')), (2, b('ax')), (1, b('ab'))]
+    assert list(reader.most_distinctive_terms("content", 3)) == [(1.3862943611198906, b('ax')), (0.6931471805599453, b('ab')), (0.0, b('ee'))]
 
 
 def test_vector_postings():
@@ -141,9 +129,9 @@ def test_vector_postings():
     r = ix.reader()
 
     terms = list(r.vector_as("weight", 0, "content"))
-    assert_equal(terms, [(u('brown'), 1.0), (u('dogs'), 1.0), (u('fox'), 1.0),
-                         (u('jumped'), 1.0), (u('lazy'), 1.0),
-                         (u('over'), 1.0), (u('quick'), 1.0)])
+    assert terms == [(u('brown'), 1.0), (u('dogs'), 1.0), (u('fox'), 1.0),
+                     (u('jumped'), 1.0), (u('lazy'), 1.0),
+                     (u('over'), 1.0), (u('quick'), 1.0)]
 
 
 def test_stored_fields():
@@ -159,15 +147,11 @@ def test_stored_fields():
     writer.commit()
 
     with ix.searcher() as sr:
-        assert_equal(sr.stored_fields(0),
-                     {"a": u("1"), "b": "a", "d": u("Alfa")})
-        assert_equal(sr.stored_fields(2),
-                     {"a": u("3"), "b": "c", "d": u("Charlie")})
+        assert sr.stored_fields(0) == {"a": u("1"), "b": "a", "d": u("Alfa")}
+        assert sr.stored_fields(2) == {"a": u("3"), "b": "c", "d": u("Charlie")}
 
-        assert_equal(sr.document(a=u("1")),
-                     {"a": u("1"), "b": "a", "d": u("Alfa")})
-        assert_equal(sr.document(a=u("2")),
-                     {"a": u("2"), "b": "b", "d": u("Bravo")})
+        assert sr.document(a=u("1")) == {"a": u("1"), "b": "a", "d": u("Alfa")}
+        assert sr.document(a=u("2")) == {"a": u("2"), "b": "b", "d": u("Bravo")}
 
 
 def test_stored_fields2():
@@ -177,7 +161,7 @@ def test_stored_fields2():
                            path=fields.ID(stored=True))
 
     storedkeys = ["content", "path", "summary", "title"]
-    assert_equal(storedkeys, schema.stored_names())
+    assert storedkeys == schema.stored_names()
 
     ix = RamStorage().create_index(schema)
 
@@ -219,11 +203,11 @@ def test_all_stored_fields():
     w.commit(merge=False)
 
     with ix.searcher() as s:
-        assert_equal(s.doc_count_all(), 4)
-        assert_equal(s.doc_count(), 2)
+        assert s.doc_count_all() == 4
+        assert s.doc_count() == 2
         sfs = list((sf["a"], sf["b"]) for sf in s.all_stored_fields())
-        assert_equal(sfs, [("alfa", "bravo"), ("apple", "bear"),
-                           ("alpaca", "beagle"), ("aim", "box")])
+        assert sfs == [("alfa", "bravo"), ("apple", "bear"),
+                       ("alpaca", "beagle"), ("aim", "box")]
 
 
 def test_first_id():
@@ -238,7 +222,7 @@ def test_first_id():
 
     r = ix.reader()
     docid = r.first_id("path", u("/b"))
-    assert_equal(r.stored_fields(docid), {"path": "/b"})
+    assert r.stored_fields(docid) == {"path": "/b"}
 
     ix = RamStorage().create_index(schema)
     w = ix.writer()
@@ -260,9 +244,9 @@ def test_first_id():
     w.commit(merge=False)
 
     r = ix.reader()
-    assert_equal(r.__class__, reading.MultiReader)
+    assert r.__class__ == reading.MultiReader
     docid = r.first_id("path", u("/e"))
-    assert_equal(r.stored_fields(docid), {"path": "/e"})
+    assert r.stored_fields(docid) == {"path": "/e"}
 
 
 class RecoverReader(threading.Thread):
@@ -314,9 +298,7 @@ def test_nonexclusive_read():
         def fn():
             for _ in xrange(5):
                 r = ix.reader()
-                assert_equal(list(r.field_terms("text")),
-                             ["document", "five", "four", "one", "test",
-                              "three", "two"])
+                assert list(r.field_terms("text")) == ["document", "five", "four", "one", "test", "three", "two"]
                 r.close()
 
         ths = [threading.Thread(target=fn) for _ in xrange(5)]
@@ -335,8 +317,8 @@ def test_doc_count():
     w.commit()
 
     r = ix.reader()
-    assert_equal(r.doc_count(), 10)
-    assert_equal(r.doc_count_all(), 10)
+    assert r.doc_count() == 10
+    assert r.doc_count_all() == 10
 
     w = ix.writer()
     w.delete_document(2)
@@ -346,8 +328,8 @@ def test_doc_count():
     w.commit()
 
     r = ix.reader()
-    assert_equal(r.doc_count(), 6)
-    assert_equal(r.doc_count_all(), 10)
+    assert r.doc_count() == 6
+    assert r.doc_count_all() == 10
 
     w = ix.writer()
     for i in xrange(10, 15):
@@ -355,8 +337,8 @@ def test_doc_count():
     w.commit(merge=False)
 
     r = ix.reader()
-    assert_equal(r.doc_count(), 11)
-    assert_equal(r.doc_count_all(), 15)
+    assert r.doc_count() == 11
+    assert r.doc_count_all() == 15
 
     w = ix.writer()
     w.delete_document(10)
@@ -365,13 +347,13 @@ def test_doc_count():
     w.commit(merge=False)
 
     r = ix.reader()
-    assert_equal(r.doc_count(), 8)
-    assert_equal(r.doc_count_all(), 15)
+    assert r.doc_count() == 8
+    assert r.doc_count_all() == 15
 
     ix.optimize()
     r = ix.reader()
-    assert_equal(r.doc_count(), 8)
-    assert_equal(r.doc_count_all(), 8)
+    assert r.doc_count() == 8
+    assert r.doc_count_all() == 8
 
 
 def test_reader_subclasses():

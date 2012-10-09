@@ -1,8 +1,6 @@
 from __future__ import with_statement
 import inspect, random, sys
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import columns, fields, query
 from whoosh.compat import b, u, BytesIO, bytes_type, text_type
 from whoosh.compat import izip, xrange, dumps, loads
@@ -51,9 +49,9 @@ def test_multistream():
 
     f = st.open_file("test")
     msr = compound.CompoundStorage(f)
-    assert_equal(msr.open_file("a").read(), b("123456789abc"))
-    assert_equal(msr.open_file("b").read(), b("abcdefghijk"))
-    assert_equal(msr.open_file("c").read(), b("AaBbCcDdEeFfGgHh"))
+    assert msr.open_file("a").read() == b("123456789abc")
+    assert msr.open_file("b").read() == b("abcdefghijk")
+    assert msr.open_file("c").read() == b("AaBbCcDdEeFfGgHh")
 
 
 def test_random_multistream():
@@ -88,7 +86,7 @@ def test_random_multistream():
         f = st.open_file("test")
         msr = compound.CompoundStorage(f)
         for name, value in domain.items():
-            assert_equal(msr.open_file(name).read(), value)
+            assert msr.open_file(name).read() == value
         msr.close()
 
 
@@ -106,9 +104,9 @@ def _rt(c, values, default):
 
     f = st.open_file("test1")
     r = c.reader(f, 5, length, len(values))
-    assert_equal(values, list(r))
+    assert values == list(r)
     for x in range(len(values)):
-        assert_equal(values[x], r[x])
+        assert values[x] == r[x]
     f.close()
 
     # Sparse
@@ -127,12 +125,12 @@ def _rt(c, values, default):
 
     f = st.open_file("test2")
     r = c.reader(f, 5, length, doccount)
-    assert_equal(target, list(r))
+    assert target == list(r)
     for x in range(doccount):
-        assert_equal(target[x], r[x])
+        assert target[x] == r[x]
 
     lr = r.load()
-    assert_equal(target, list(lr))
+    assert target == list(lr)
     f.close()
 
 
@@ -182,10 +180,10 @@ def test_multivalue():
 
     with ix.reader() as r:
         scr = r.column_reader("s")
-        assert_equal(list(scr), ["alfa", "juliet"])
+        assert list(scr) == ["alfa", "juliet"]
 
         ncr = r.column_reader("n")
-        assert_equal(list(ncr), [100, 10])
+        assert list(ncr) == [100, 10]
 
 
 def test_column_field():
@@ -202,12 +200,12 @@ def test_column_field():
             assert r.has_column("b")
 
             cra = r.column_reader("a")
-            assert_equal(cra[0], u("alfa bravo"))
-            assert_equal(type(cra[0]), text_type)
+            assert cra[0] == u("alfa bravo")
+            assert type(cra[0]) == text_type
 
             crb = r.column_reader("b")
-            assert_equal(crb[0], b("charlie delta"))
-            assert_equal(type(crb[0]), bytes_type)
+            assert crb[0] == b("charlie delta")
+            assert type(crb[0]) == bytes_type
 
 
 def test_column_query():
@@ -228,16 +226,16 @@ def test_column_query():
                 return [s.stored_fields(docnum)["id"] for docnum in q.docs(s)]
 
             q = query.ColumnQuery("a", u("bravo"))
-            assert_equal(check(q), [2])
+            assert check(q) == [2]
 
             q = query.ColumnQuery("b", 30)
-            assert_equal(check(q), [3])
+            assert check(q) == [3]
 
             q = query.ColumnQuery("a", lambda v: v != u("delta"))
-            assert_equal(check(q), [1, 2, 3, 5, 6])
+            assert check(q) == [1, 2, 3, 5, 6]
 
             q = query.ColumnQuery("b", lambda v: v > 30)
-            assert_equal(check(q), [4, 5, 6])
+            assert check(q) == [4, 5, 6]
 
 
 def test_ref_switch():
@@ -262,9 +260,9 @@ def test_ref_switch():
             v = cr[i]
             # Column ignores additional unique values after 65535
             if i <= 65535 - 1:
-                assert_equal(v, str(i).encode("latin1"))
+                assert v == str(i).encode("latin1")
             else:
-                assert_equal(v, b(''))
+                assert v == b('')
         f.close()
 
     rw(255)
@@ -277,7 +275,7 @@ def test_ref_switch():
             warnings.simplefilter("always")
             rw(65537)
 
-            assert_equal(len(w), 2)
+            assert len(w) == 2
             assert issubclass(w[-1].category, UserWarning)
     else:
         rw(65537)

@@ -1,5 +1,4 @@
 from __future__ import with_statement
-from nose.tools import assert_equal  # @ UnresolvedImport
 
 from whoosh import fields, query, sorting
 from whoosh.compat import u
@@ -36,7 +35,7 @@ def test_nested_parent():
         q = query.NestedParent(pq, cq)
 
         r = s.search(q)
-        assert_equal(sorted([hit["name"] for hit in r]), ["Mac mini", "iPad"])
+        assert sorted([hit["name"] for hit in r]) == ["Mac mini", "iPad"]
 
 
 def test_scoring():
@@ -65,8 +64,7 @@ def test_scoring():
         q = query.NestedParent(query.Term("kind", "class"),
                                query.Term("name", "add"))
         r = s.search(q)
-        assert_equal([hit["name"] for hit in r], ["Calculator", "Index",
-                                                  "Accumulator"])
+        assert [hit["name"] for hit in r] == ["Calculator", "Index", "Accumulator"]
 
 
 def test_missing():
@@ -100,8 +98,7 @@ def test_missing():
                                query.Term("name", "add"))
 
         r = s.search(q)
-        assert_equal([hit["name"] for hit in r],
-                     ["Calculator", "Index", "Accumulator", "Deleter"])
+        assert [hit["name"] for hit in r] == ["Calculator", "Index", "Accumulator", "Deleter"]
 
     with ix.writer() as w:
         w.delete_by_term("name", "Accumulator")
@@ -109,10 +106,10 @@ def test_missing():
 
     with ix.searcher() as s:
         pq = query.Term("kind", "class")
-        assert_equal(len(list(pq.docs(s))), 2)
+        assert len(list(pq.docs(s))) == 2
         q = query.NestedParent(pq, query.Term("name", "add"))
         r = s.search(q)
-        assert_equal([hit["name"] for hit in r], ["Index", "Deleter"])
+        assert [hit["name"] for hit in r] == ["Index", "Deleter"]
 
 
 def test_nested_delete():
@@ -150,13 +147,12 @@ def test_nested_delete():
     # Check that Accumulator AND ITS METHODS are deleted
     with ix.searcher() as s:
         r = s.search(query.Term("kind", "class"))
-        assert_equal(sorted(hit["name"] for hit in r),
-                     ["Calculator", "Deleter", "Index"])
+        assert sorted(hit["name"] for hit in r) == ["Calculator", "Deleter", "Index"]
 
         names = [fs["name"] for _, fs in s.iter_docs()]
-        assert_equal(names, ["Index", "add document", "add reader", "close",
-                             "Calculator", "add", "add all", "add some",
-                             "multiply", "close", "Deleter", "add", "delete"])
+        assert names == ["Index", "add document", "add reader", "close",
+                         "Calculator", "add", "add all", "add some",
+                         "multiply", "close", "Deleter", "add", "delete"]
 
     # Delete any class with a close method
     with ix.writer() as w:
@@ -167,7 +163,7 @@ def test_nested_delete():
     # Check the CLASSES AND METHODS are gone
     with ix.searcher() as s:
         names = [fs["name"] for _, fs in s.iter_docs()]
-        assert_equal(names, ["Deleter", "add", "delete"])
+        assert names == ["Deleter", "add", "delete"]
 
 
 def test_all_parents_deleted():
@@ -233,7 +229,7 @@ def test_everything_is_a_parent():
         cq = query.Or([query.Term("name", "two"), query.Term("name", "four")])
         q = query.NestedParent(pq, cq)
         r = s.search(q)
-        assert_equal([hit["id"] for hit in r], [1, 3, 5, 7, 9, 11])
+        assert [hit["id"] for hit in r] == [1, 3, 5, 7, 9, 11]
 
 
 def test_no_parents():
@@ -300,18 +296,18 @@ def test_nested_children():
         aq = query.Term("album_name", "november")
 
         r = s.search(query.NestedChildren(pq, pq), limit=None)
-        assert_equal(len(r), 9)
-        assert_equal([str(hit["t"]) for hit in r], ["track"] * 9)
+        assert len(r) == 9
+        assert [str(hit["t"]) for hit in r] == ["track"] * 9
 
         ncq = query.NestedChildren(pq, aq)
-        assert_equal(list(ncq.docs(s)), [5, 6, 7])
+        assert list(ncq.docs(s)) == [5, 6, 7]
         r = s.search(ncq, limit=None)
-        assert_equal(len(r), 3)
-        assert_equal([str(hit["song_name"]) for hit in r],
-                     ["papa quebec romeo", "sierra tango ultra",
-                      "victor whiskey xray"])
+        assert len(r) == 3
+        assert [str(hit["song_name"]) for hit in r] == ["papa quebec romeo",
+                                                        "sierra tango ultra",
+                                                        "victor whiskey xray"]
 
         zq = query.NestedChildren(pq, query.Term("album_name", "zulu"))
         f = sorting.StoredFieldFacet("song_name")
         r = s.search(zq, sortedby=f)
-        assert_equal([hit["track"] for hit in r], [3, 2, 1])
+        assert [hit["track"] for hit in r] == [3, 2, 1]

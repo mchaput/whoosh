@@ -3,8 +3,6 @@ import inspect
 from random import choice, randint
 import sys
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import fields, query, scoring
 from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
@@ -80,4 +78,4 @@ def test_compatibility():
 
     s = ix.searcher(weighting=LegacyWeighting())
     r = s.search(query.Term("text", u("bravo")))
-    assert_equal(r.score(0), 2.25)
+    assert r.score(0) == 2.25

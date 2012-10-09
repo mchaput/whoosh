@@ -1,7 +1,5 @@
 from __future__ import with_statement
 
-from nose.tools import assert_equal  # @UnresolvedImport
-
 from whoosh import fields, formats
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
@@ -30,8 +28,7 @@ def test_vector_reading():
         writer.commit()
 
         with ix.reader() as r:
-            assert_equal(list(r.vector_as("frequency", 0, "content")),
-                         [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
+            assert list(r.vector_as("frequency", 0, "content")) == [(u('black'), 1), (u('hole'), 1), (u('story'), 2)]
 
 
 def test_vector_merge():
@@ -55,14 +52,12 @@ def test_vector_merge():
 
             docnum = s.document_number(title=u("one"))
             vec = list(r.vector_as("frequency", docnum, "content"))
-            assert_equal(vec,
-                         [(u('black'), 1), (u('hole'), 1), (u('story'), 2)])
+            assert vec == [(u('black'), 1), (u('hole'), 1), (u('story'), 2)]
 
             docnum = s.document_number(title=u("two"))
 
             vec = list(r.vector_as("frequency", docnum, "content"))
-            assert_equal(vec,
-                         [(u('along'), 1), (u('book'), 1), (u('read'), 1)])
+            assert vec == [(u('along'), 1), (u('book'), 1), (u('read'), 1)]
 
 
 def test_vector_unicode():
@@ -82,8 +77,7 @@ def test_vector_unicode():
 
     with ix.reader() as r:
         vec = list(r.vector_as("frequency", 0, "content"))
-        assert_equal(vec, [(u('\u13ac\u13ad\u13ae'), 1),
-                           (u('\u13af\u13b0\u13b1'), 1)])
+        assert vec == [(u('\u13ac\u13ad\u13ae'), 1), (u('\u13af\u13b0\u13b1'), 1)]
 
 
 def test_add_vectored_field():
