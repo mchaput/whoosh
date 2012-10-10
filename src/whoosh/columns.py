@@ -202,7 +202,8 @@ class VarBytesColumn(Column):
     The current implementation limits the total length of all document values
     a segment to 2 GB.
 
-    The default value is an empty bytestring (``b''``).
+    The default value (the value returned for a document that didn't have a
+    value assigned to it at indexing time) is an empty bytestring (``b''``).
     """
 
     _default = emptybytes

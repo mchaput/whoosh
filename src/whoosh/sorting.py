@@ -667,7 +667,8 @@ class TranslateFacet(FacetType):
 
 class StoredFieldFacet(FacetType):
     """Lets you sort/group using the value in an unindexed, stored field (e.g.
-    STORED). This is usually slower than using an indexed field.
+    :class:`whoosh.fields.STORED`). This is usually slower than using an indexed
+    field.
 
     For fields where the stored value is a space-separated list of keywords,
     (e.g. ``"tag1 tag2 tag3"``), you can use the ``allow_overlap`` keyword

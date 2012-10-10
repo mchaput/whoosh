@@ -25,6 +25,10 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+This module implements a "codec" for writing/reading Whoosh 3 indexes.
+"""
+
 import struct
 from array import array
 from collections import defaultdict
@@ -49,14 +53,20 @@ except ImportError:
     zlib = None
 
 
+# This byte sequence is written at the start of a posting list to identify the
+# codec/version
 WHOOSH3_HEADER_MAGIC = b("W3Bl")
 
+# Column type to store field length info
 LENGTHS_COLUMN = columns.NumericColumn("B", default=0)
+# Column type to store pointers to vector posting lists
 VECTOR_COLUMN = columns.NumericColumn("I", default=0)
+# Column type to store values of stored fields
 STORED_COLUMN = columns.PickleColumn(columns.CompressedBytesColumn())
 
 
 class W3Codec(base.CodecWithGraph):
+    # File extensions
     TERMS_EXT = ".trm"  # Term index
     POSTS_EXT = ".pst"  # Term postings
     VPOSTS_EXT = ".vps"  # Vector postings
@@ -92,7 +102,7 @@ class W3Codec(base.CodecWithGraph):
 
         return W3TermsReader(tifile, tilen, postfile)
 
-    # Graph methods from CodecWithGraph
+    # Graph methods provided by CodecWithGraph
 
     # Columns
 
