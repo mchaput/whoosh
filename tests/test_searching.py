@@ -1505,3 +1505,30 @@ def test_keyword_search():
     with ix.searcher() as s:
         r = s.search_page(query.Term("tags", "keyword3"), 1)
         assert r
+
+
+def test_groupedby_with_terms():
+    schema = fields.Schema(content=fields.TEXT, organism=fields.ID)
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(organism=u("mus"), content=u("IPFSTD1 IPFSTD_kdwq134 Kaminski-all Study00:00:00"))
+        w.add_document(organism=u("mus"), content=u("IPFSTD1 IPFSTD_kdwq134 Kaminski-all Study"))
+        w.add_document(organism=u("hs"), content=u("This is the first document we've added!"))
+
+    with ix.searcher() as s:
+        q = qparser.QueryParser("content", schema=ix.schema).parse(u("IPFSTD1"))
+        r = s.search(q, groupedby=["organism"], terms=True)
+        assert len(r) == 2
+        assert r.groups("organism") == {"mus": [1, 0]}
+        assert r.has_matched_terms()
+        assert r.matched_terms() == set([('content', 'ipfstd1')])
+
+
+
+
+
+
+
+
+
