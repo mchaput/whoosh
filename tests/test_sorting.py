@@ -611,7 +611,7 @@ class test_translate():
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         for name, a, b in domain:
-            w.add_document(name=name, a=a, b=b)
+            w.add_document(name=u(name), a=a, b=b)
 
     with ix.searcher() as s:
         q = query.Every()
