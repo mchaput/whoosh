@@ -1,8 +1,6 @@
 from __future__ import with_statement
 from random import randint, choice, sample
 
-from nose.tools import assert_equal, assert_not_equal  # @UnresolvedImport
-
 from whoosh import fields, matching, qparser, query
 from whoosh.compat import b, u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
@@ -19,7 +17,7 @@ def _keys(searcher, docnums):
 def test_nullmatcher():
     nm = matching.NullMatcher()
     assert not nm.is_active()
-    assert_equal(list(nm.all_ids()), [])
+    assert list(nm.all_ids()) == []
 
 
 def test_listmatcher():
@@ -30,17 +28,17 @@ def test_listmatcher():
     while lm.is_active():
         ls.append((lm.id(), lm.score()))
         lm.next()
-    assert_equal(ls, [(1, 1.0), (2, 1.0), (5, 1.0), (9, 1.0), (10, 1.0)])
+    assert ls == [(1, 1.0), (2, 1.0), (5, 1.0), (9, 1.0), (10, 1.0)]
 
     lm = matching.ListMatcher(ids)
-    assert_equal(list(lm.all_ids()), ids)
+    assert list(lm.all_ids()) == ids
 
     lm = matching.ListMatcher(ids, position=3)
     ls = []
     while lm.is_active():
         ls.append(lm.id())
         lm.next()
-    assert_equal(ls, [9, 10])
+    assert ls == [9, 10]
 
     lm = matching.ListMatcher(ids)
     for _ in xrange(3):
@@ -50,19 +48,18 @@ def test_listmatcher():
     while lm.is_active():
         ls.append(lm.id())
         lm.next()
-    assert_equal(ls, [9, 10])
+    assert ls == [9, 10]
 
 
 def test_listmatcher_skip_to_quality_identical_scores():
     ids = [1, 2, 5, 9, 10]
-
     lm = matching.ListMatcher(ids, scorer=WeightScorer(1.0))
     lm.skip_to_quality(0.3)
     ls = []
     while lm.is_active():
         ls.append((lm.id(), lm.score()))
         lm.next()
-    assert_equal(ls, [(1, 1.0), (2, 1.0), (5, 1.0), (9, 1.0), (10, 1.0)])
+    assert ls == [(1, 1.0), (2, 1.0), (5, 1.0), (9, 1.0), (10, 1.0)]
 
 
 def test_wrapper():
@@ -72,31 +69,31 @@ def test_wrapper():
     while wm.is_active():
         ls.append((wm.id(), wm.score()))
         wm.next()
-    assert_equal(ls, [(1, 2.0), (2, 2.0), (5, 2.0), (9, 2.0), (10, 2.0)])
+    assert ls == [(1, 2.0), (2, 2.0), (5, 2.0), (9, 2.0), (10, 2.0)]
 
     ids = [1, 2, 5, 9, 10]
     wm = matching.WrappingMatcher(matching.ListMatcher(ids), boost=2.0)
-    assert_equal(list(wm.all_ids()), ids)
+    assert list(wm.all_ids()) == ids
 
 
 def test_filter():
     lm = lambda: matching.ListMatcher(list(range(2, 10)))
 
     fm = matching.FilterMatcher(lm(), frozenset([3, 9]))
-    assert_equal(list(fm.all_ids()), [3, 9])
+    assert list(fm.all_ids()) == [3, 9]
 
     fm = matching.FilterMatcher(lm(), frozenset([1, 5, 9, 13]))
-    assert_equal(list(fm.all_ids()), [5, 9])
+    assert list(fm.all_ids()) == [5, 9]
 
 
 def test_exclude():
     em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
                                 frozenset([2, 9]), exclude=True)
-    assert_equal(list(em.all_ids()), [1, 5, 10])
+    assert list(em.all_ids()) == [1, 5, 10]
 
     em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
                                 frozenset([2, 9]), exclude=True)
-    assert_equal(list(em.all_ids()), [1, 5, 10])
+    assert list(em.all_ids()) == [1, 5, 10]
 
     em = matching.FilterMatcher(matching.ListMatcher([1, 2, 5, 9, 10]),
                                 frozenset([2, 9]), exclude=True)
@@ -107,7 +104,7 @@ def test_exclude():
     while em.is_active():
         ls.append(em.id())
         em.next()
-    assert_equal(ls, [10])
+    assert ls == [10]
 
 
 def test_simple_union():
@@ -118,13 +115,12 @@ def test_simple_union():
     while um.is_active():
         ls.append((um.id(), um.score()))
         um.next()
-    assert_equal(ls, [(0, 1.0), (1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0),
-                      (90, 1.0)])
+    assert ls == [(0, 1.0), (1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0), (90, 1.0)]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
     um = matching.UnionMatcher(lm1, lm2)
-    assert_equal(list(um.all_ids()), [0, 1, 4, 10, 20, 90])
+    assert list(um.all_ids()) == [0, 1, 4, 10, 20, 90]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -136,7 +132,7 @@ def test_simple_union():
     while um.is_active():
         ls.append(um.id())
         um.next()
-    assert_equal(ls, [4, 10, 20, 90])
+    assert ls == [4, 10, 20, 90]
 
 
 def test_simple_intersection():
@@ -147,12 +143,12 @@ def test_simple_intersection():
     while im.is_active():
         ls.append((im.id(), im.score()))
         im.next()
-    assert_equal(ls, [(4, 2.0), (20, 2.0)])
+    assert ls == [(4, 2.0), (20, 2.0)]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
     im = matching.IntersectionMatcher(lm1, lm2)
-    assert_equal(list(im.all_ids()), [4, 20])
+    assert list(im.all_ids()) == [4, 20]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -164,7 +160,7 @@ def test_simple_intersection():
     while im.is_active():
         ls.append(im.id())
         im.next()
-    assert_equal(ls, [])
+    assert not ls
 
 
 def test_andnot():
@@ -175,17 +171,17 @@ def test_andnot():
     while anm.is_active():
         ls.append((anm.id(), anm.score()))
         anm.next()
-    assert_equal(ls, [(1, 1.0), (10, 1.0), (90, 1.0)])
+    assert ls == [(1, 1.0), (10, 1.0), (90, 1.0)]
 
     echo_lm = matching.ListMatcher([0, 1, 2, 3, 4])
     bravo_lm = matching.ListMatcher([0, 1])
     anm = matching.AndNotMatcher(echo_lm, bravo_lm)
-    assert_equal(list(anm.all_ids()), [2, 3, 4])
+    assert list(anm.all_ids()) == [2, 3, 4]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
     anm = matching.AndNotMatcher(lm1, lm2)
-    assert_equal(list(anm.all_ids()), [1, 10, 90])
+    assert list(anm.all_ids()) == [1, 10, 90]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -197,7 +193,7 @@ def test_andnot():
     while anm.is_active():
         ls.append(anm.id())
         anm.next()
-    assert_equal(ls, [90])
+    assert ls == [90]
 
 
 def test_require():
@@ -208,12 +204,12 @@ def test_require():
     while rm.is_active():
         ls.append((rm.id(), rm.score()))
         rm.next()
-    assert_equal(ls, [(4, 1.0), (20, 1.0)])
+    assert ls == [(4, 1.0), (20, 1.0)]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
     rm = matching.RequireMatcher(lm1, lm2)
-    assert_equal(list(rm.all_ids()), [4, 20])
+    assert list(rm.all_ids()) == [4, 20]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -225,7 +221,7 @@ def test_require():
     while rm.is_active():
         ls.append(rm.id())
         rm.next()
-    assert_equal(ls, [])
+    assert not ls
 
 
 def test_andmaybe():
@@ -236,12 +232,12 @@ def test_andmaybe():
     while amm.is_active():
         ls.append((amm.id(), amm.score()))
         amm.next()
-    assert_equal(ls, [(1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0), (90, 1.0)])
+    assert ls == [(1, 1.0), (4, 2.0), (10, 1.0), (20, 2.0), (90, 1.0)]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
     amm = matching.AndMaybeMatcher(lm1, lm2)
-    assert_equal(list(amm.all_ids()), [1, 4, 10, 20, 90])
+    assert list(amm.all_ids()) == [1, 4, 10, 20, 90]
 
     lm1 = matching.ListMatcher([1, 4, 10, 20, 90])
     lm2 = matching.ListMatcher([0, 4, 20])
@@ -253,7 +249,7 @@ def test_andmaybe():
     while amm.is_active():
         ls.append(amm.id())
         amm.next()
-    assert_equal(ls, [10, 20, 90])
+    assert ls == [10, 20, 90]
 
 
 def test_intersection():
@@ -276,11 +272,11 @@ def test_intersection():
     with ix.searcher() as s:
         q = And([Term("value", u("bravo")), Term("value", u("delta"))])
         m = q.matcher(s)
-        assert_equal(_keys(s, m.all_ids()), ["a", "e"])
+        assert _keys(s, m.all_ids()) == ["a", "e"]
 
         q = And([Term("value", u("bravo")), Term("value", u("alpha"))])
         m = q.matcher(s)
-        assert_equal(_keys(s, m.all_ids()), ["a", "b", "d"])
+        assert _keys(s, m.all_ids()) == ["a", "b", "d"]
 
 
 def test_random_intersections():
@@ -311,14 +307,14 @@ def test_random_intersections():
             # Add a (docnum, string) tuple to the documents list
             documents.append((docnum, doc))
         w.commit()
-    assert_not_equal(len(ix._segments()), 1)
+    assert len(ix._segments()) != 1
 
     testcount = 20
     testlimits = (2, 5)
 
     with ix.searcher() as s:
         for i in xrange(s.doc_count_all()):
-            assert_not_equal(s.stored_fields(i).get("key"), None)
+            assert s.stored_fields(i).get("key") is not None
 
         for _ in xrange(testcount):
             # Create a random list of words and manually do an intersection of
@@ -346,10 +342,10 @@ def test_random_intersections():
                 m2.next()
 
             # Check that the two methods return the same list
-            assert_equal(ids1, ids2)
+            assert ids1 == ids2
 
             # Check that the IDs match the ones we manually calculated
-            assert_equal(_keys(s, ids1), target)
+            assert _keys(s, ids1) == target
 
 
 def test_union():
@@ -358,7 +354,7 @@ def test_union():
     s3 = matching.ListMatcher([10, 100, 200])
     target = [1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 100, 200]
     um = matching.UnionMatcher(s1, matching.UnionMatcher(s2, s3))
-    assert_equal(target, list(um.all_ids()))
+    assert target == list(um.all_ids())
 
 
 def test_union_scores():
@@ -371,7 +367,7 @@ def test_union_scores():
     while um.is_active():
         result.append((um.id(), um.score()))
         um.next()
-    assert_equal(target, result)
+    assert target == result
 
 
 def test_random_union():
@@ -390,7 +386,7 @@ def test_random_union():
             matchers.append(matching.ListMatcher(sorted(nums)))
         target = sorted(target)
         um = make_binary_tree(matching.UnionMatcher, matchers)
-        assert_equal(list(um.all_ids()), target)
+        assert list(um.all_ids()) == target
 
 
 def test_inverse():
@@ -400,7 +396,7 @@ def test_inverse():
     while inv.is_active():
         ids.append(inv.id())
         inv.next()
-    assert_equal(ids, [0, 2, 3, 4, 6, 7, 8, 9, 12, 14])
+    assert ids == [0, 2, 3, 4, 6, 7, 8, 9, 12, 14]
 
 
 def test_inverse_skip():
@@ -412,7 +408,7 @@ def test_inverse_skip():
     while inv.is_active():
         ids.append(inv.id())
         inv.next()
-    assert_equal([8, 9, 12, 14], ids)
+    assert ids == [8, 9, 12, 14]
 
 
 def test_empty_andnot():
@@ -420,13 +416,13 @@ def test_empty_andnot():
     neg = matching.NullMatcher()
     anm = matching.AndNotMatcher(pos, neg)
     assert not anm.is_active()
-    assert_equal(list(anm.all_ids()), [])
+    assert not list(anm.all_ids())
 
     pos = matching.ListMatcher([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     neg = matching.NullMatcher()
     ans = matching.AndNotMatcher(pos, neg)
     ids = list(ans.all_ids())
-    assert_equal(ids, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert ids == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 
 def test_random_andnot():
@@ -445,7 +441,7 @@ def test_random_andnot():
 
         anm = matching.AndNotMatcher(pos, neg)
         ids = list(anm.all_ids())
-        assert_equal(ids, matched)
+        assert ids == matched
 
 
 def test_current_terms():
@@ -463,8 +459,7 @@ def test_current_terms():
         m = q.matcher(s)
 
         while m.is_active():
-            assert_equal(sorted(m.matching_terms()),
-                         [("text", b("alfa")), ("text", b("charlie"))])
+            assert sorted(m.matching_terms()) == [("text", b("alfa")), ("text", b("charlie"))]
             m.next()
 
 
@@ -487,16 +482,16 @@ def test_exclusion():
         q = qp.parse("NOT (date:(19500101000000))")
 
         r = s.search(q, limit=None)
-        assert_equal(len(r), 39)  # Total number of matched documents
-        assert_equal(r.scored_length(), 39)  # Number of docs in the results
+        assert len(r) == 39  # Total number of matched documents
+        assert r.scored_length() == 39  # Number of docs in the results
 
 
 def test_arrayunion():
     l1 = matching.ListMatcher([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
     l2 = matching.ListMatcher([100, 200, 300, 400, 500, 600])
     aum = matching.ArrayUnionMatcher([l1, l2], 600, partsize=5)
-    assert_equal(aum.id(), 10)
+    assert aum.id() == 10
     aum.skip_to(45)
-    assert_equal(aum.id(), 50)
+    assert aum.id() == 50
     aum.skip_to(550)
-    assert_equal(aum.id(), 600)
+    assert aum.id() == 600

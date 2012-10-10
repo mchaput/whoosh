@@ -5,10 +5,9 @@ from __future__ import with_statement
 import pytest
 
 from whoosh import analysis, fields, qparser
-from whoosh.compat import u, unichr, text_type
+from whoosh.compat import u, unichr
 from whoosh.compat import dumps
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import skip_if_unavailable
 
 
 def test_regextokenizer():
@@ -413,7 +412,6 @@ def test_ngrams():
                       ("lm", 14, 16)]
 
 
-@skip_if_unavailable("__future__", "unicode_literals")
 def test_language_analyzer():
     domain = [("da", u("Jeg gik mig over s\xf8 og land"),
                [u('gik'), u('s\xf8'), u('land')]),

@@ -2,13 +2,15 @@ from __future__ import with_statement
 import random
 from array import array
 
+import pytest
+
 from whoosh import analysis, fields, formats, query
 from whoosh.compat import u, b, text_type
 from whoosh.compat import array_tobytes, xrange
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.numeric import byte_to_length, length_to_byte
-from whoosh.util.testing import skip_if_unavailable, TempStorage
+from whoosh.util.testing import TempStorage
 
 
 def _make_codec(**kwargs):
@@ -542,8 +544,8 @@ def test_special_spelled_field():
     assert list(cur.flatten_strings()) == ["specials", "specifically"]
 
 
-@skip_if_unavailable("ast")
 def test_plaintext_codec():
+    pytest.importorskip("ast")
     from whoosh.codec.plaintext import PlainTextCodec
 
     ana = analysis.StemmingAnalyzer()
