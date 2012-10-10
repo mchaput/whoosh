@@ -392,9 +392,10 @@ class QueryFacet(FacetType):
         self.querydict = querydict
         self.other = other
         self.maptype = maptype
+        self.allow_overlap = allow_overlap
 
     def categorizer(self, global_searcher):
-        return self.QueryCategorizer(self.querydict, self.other)
+        return self.QueryCategorizer(self.querydict, self.other, self.allow_overlap)
 
     class QueryCategorizer(Categorizer):
         def __init__(self, querydict, other, allow_overlap=False):

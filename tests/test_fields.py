@@ -559,7 +559,8 @@ def test_token_boost():
     from whoosh.analysis import RegexTokenizer, DoubleMetaphoneFilter
     ana = RegexTokenizer() | DoubleMetaphoneFilter()
     field = fields.TEXT(analyzer=ana, phrase=False)
-    results = list(field.index(u("spruce view")))
-    assert results == [(b('SPRS'), 1, 1.0, b('\x00\x00\x00\x01')),
+    results = sorted(field.index(u("spruce view")))
+    assert results == [(b('F'), 1, 1.0, b('\x00\x00\x00\x01')),
                        (b('FF'), 1, 0.5, b('\x00\x00\x00\x01')),
-                       (b('F'), 1, 1.0, b('\x00\x00\x00\x01'))]
+                       (b('SPRS'), 1, 1.0, b('\x00\x00\x00\x01')),
+                       ]
