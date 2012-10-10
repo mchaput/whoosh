@@ -167,7 +167,7 @@ class Query(object):
     error = None
 
     def __unicode__(self):
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
 
     def __getitem__(self, item):
         raise NotImplementedError
@@ -560,6 +560,9 @@ class _NullQuery(Query):
 
     def __init__(self):
         self.error = None
+
+    def __unicode__(self):
+        return u("<_NullQuery>")
 
     def __call__(self):
         return self
