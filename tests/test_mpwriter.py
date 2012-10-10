@@ -211,6 +211,7 @@ def test_merge_multi():
 
 
 def test_no_score_no_store():
+    check_multi()
     from whoosh.multiproc import MpWriter
 
     schema = fields.Schema(a=fields.ID, b=fields.KEYWORD)
