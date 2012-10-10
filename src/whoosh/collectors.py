@@ -613,6 +613,9 @@ class WrappingCollector(Collector):
 
     def set_subsearcher(self, subsearcher, offset):
         self.child.set_subsearcher(subsearcher, offset)
+        self.subsearcher = subsearcher
+        self.matcher = self.child.matcher
+        self.offset = self.child.offset
 
     def all_ids(self):
         return self.child.all_ids()
@@ -693,10 +696,6 @@ class FilterCollector(WrappingCollector):
         self._allow = ftc(allow) if allow else None
         self._restrict = ftc(restrict) if restrict else None
         self.filtered_count = 0
-
-    def set_subsearcher(self, subsearcher, offset):
-        self.offset = offset
-        self.child.set_subsearcher(subsearcher, offset)
 
     def all_ids(self):
         child = self.child
@@ -799,12 +798,11 @@ class FacetCollector(WrappingCollector):
         self.child.prepare(top_searcher, q, context)
 
     def set_subsearcher(self, subsearcher, offset):
-        child = self.child
-        child.set_subsearcher(subsearcher, offset)
+        WrappingCollector.set_subsearcher(self, subsearcher, offset)
 
         # Tell each categorizer about the new subsearcher and offset
         for categorizer in itervalues(self.categorizers):
-            categorizer.set_searcher(child.subsearcher, child.offset)
+            categorizer.set_searcher(self.child.subsearcher, self.child.offset)
 
     def collect(self, sub_docnum):
         matcher = self.child.matcher
@@ -906,7 +904,9 @@ class CollapseCollector(WrappingCollector):
                            context.set(needs_current=needs_current))
 
     def set_subsearcher(self, subsearcher, offset):
-        self.child.set_subsearcher(subsearcher, offset)
+        WrappingCollector.set_subsearcher(self, subsearcher, offset)
+
+        # Tell the keyer and (optional) orderer about the new subsearcher
         self.keyer.set_searcher(subsearcher, offset)
         if self.orderer:
             self.orderer.set_searcher(subsearcher, offset)
@@ -1094,10 +1094,10 @@ class TermsCollector(WrappingCollector):
         self.docterms = defaultdict(list)
 
     def set_subsearcher(self, subsearcher, offset):
-        child = self.child
-        child.set_subsearcher(subsearcher, offset)
+        WrappingCollector.set_subsearcher(self, subsearcher, offset)
+
         # Store a list of all the term matchers in the matcher tree
-        self.termmatchers = list(child.matcher.term_matchers())
+        self.termmatchers = list(self.child.matcher.term_matchers())
 
     def collect(self, sub_docnum):
         child = self.child
