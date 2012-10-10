@@ -266,12 +266,9 @@ def test_query_facet2():
         q3 = query.TermRange("v", "g", "i")
 
         facets = sorting.Facets()
-        facets.add_query("myfacet", {"a-c": q1, "d-f": q2, "g-i": q3},
-                         allow_overlap=True)
+        facets.add_query("myfacet", {"a-c": q1, "d-f": q2, "g-i": q3}, allow_overlap=True)
         r = s.search(query.Every(), groupedby=facets)
-        assert r.groups("myfacet") == {'a-c': [0, 1, 2, 7, 8],
-                                       'd-f': [4, 5],
-                                       'g-i': [3, 6]}
+        assert r.groups("myfacet") == {'a-c': [0, 1, 2, 7, 8], 'd-f': [4, 5], 'g-i': [3, 6]}
 
 
 def test_missing_field_facet():

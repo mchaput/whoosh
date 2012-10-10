@@ -467,7 +467,7 @@ def test_function_plugin():
         def __unicode__(self):
             qs = "|".join(str(q) for q in self.children)
             args = ",".join(self.args)
-            kwargs = ",".join("%s:%s" % item for item in self.kwargs.items())
+            kwargs = ",".join(sorted("%s:%s" % item for item in self.kwargs.items()))
             return u("<%s %s %s>") % (qs, args, kwargs)
 
         __str__ = __unicode__
