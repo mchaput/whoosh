@@ -251,14 +251,14 @@ def test_query_facet():
                                      "g-i": [0, 3, 6]}
 
 
-def test_query_facet2():
+def test_query_facet_overlap():
     domain = u("abcdefghi")
-    schema = fields.Schema(v=fields.KEYWORD(stored=True))
+    schema = fields.Schema(v=fields.KEYWORD(stored=True), num=fields.NUMERIC(stored=True))
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         for i, ltr in enumerate(domain):
-            v = "%s %s" % (ltr, domain[0 - i])
-            w.add_document(v=v)
+            v = "%s %s" % (ltr, domain[8 - i])
+            w.add_document(num=i, v=v)
 
     with ix.searcher() as s:
         q1 = query.TermRange("v", "a", "c")
@@ -268,7 +268,10 @@ def test_query_facet2():
         facets = sorting.Facets()
         facets.add_query("myfacet", {"a-c": q1, "d-f": q2, "g-i": q3}, allow_overlap=True)
         r = s.search(query.Every(), groupedby=facets)
-        assert r.groups("myfacet") == {'a-c': [0, 1, 2, 7, 8], 'd-f': [4, 5], 'g-i': [3, 6]}
+        gr = r.groups("myfacet")
+        assert r.groups("myfacet") == {'a-c': [0, 1, 2, 6, 7, 8],
+                                       'd-f': [3, 4, 5],
+                                       'g-i': [0, 1, 2, 6, 7, 8]}
 
 
 def test_missing_field_facet():
@@ -619,9 +622,7 @@ class test_translate():
 
         # Sort by reversed name
         target = [x[0] for x in sorted(domain, key=lambda x: x[0][::-1])]
-        print(target)
-        tf = sorting.TranslateFacet(lambda name: name[::-1],
-                                    sorting.FieldFacet("name"))
+        tf = sorting.TranslateFacet(lambda name: name[::-1], sorting.FieldFacet("name"))
         r = s.search(q, sortedby=tf)
         assert [hit["name"] for hit in r] == target
 
