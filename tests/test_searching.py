@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
-from whoosh.compat import u, text_type
+from whoosh.compat import b, u, text_type
 from whoosh.compat import xrange, permutations, izip_longest
 from whoosh.filedb.filestore import RamStorage
 
@@ -1522,7 +1522,7 @@ def test_groupedby_with_terms():
         assert len(r) == 2
         assert r.groups("organism") == {"mus": [1, 0]}
         assert r.has_matched_terms()
-        assert r.matched_terms() == set([('content', 'ipfstd1')])
+        assert r.matched_terms() == set([('content', b('ipfstd1'))])
 
 
 
