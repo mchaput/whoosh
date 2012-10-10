@@ -91,49 +91,6 @@ class TempIndex(TempStorage):
         return fstore.create_index(self.schema, indexname=self.basename)
 
 
-def skip_if(cond):
-    """A Nose test decorator that skips the decorated test if the given
-    function returns True at runtime.
-    """
-
-    def decorating_function(testfn):
-        @wraps(testfn)
-        def wrapper(*args, **kwargs):
-            from nose.plugins.skip import SkipTest
-            if cond():
-                raise SkipTest
-            else:
-                return testfn(*args, **kwargs)
-
-        return wrapper
-    return decorating_function
-
-
-def skip_if_unavailable(modulename, attr=None):
-    """A Nose test decorator that only runs the decorated test if a module
-    can be imported::
-
-        @skip_if_unavailable("multiprocessing")
-        def test_mp():
-
-    Raises ``SkipTest`` if the module cannot be imported.
-    """
-
-    def cantimport():
-        try:
-            if attr:
-                mod = __import__(modulename, fromlist=[attr])
-                return not hasattr(mod, attr)
-            else:
-                __import__(modulename)
-        except ImportError:
-            return True
-        else:
-            return False
-
-    return skip_if(cantimport)
-
-
 def is_abstract_method(attr):
     """Returns True if the given object has __isabstractmethod__ == True.
     """
