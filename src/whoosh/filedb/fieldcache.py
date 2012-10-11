@@ -94,7 +94,7 @@ class FieldCache(object):
     """Keeps a list of the sorted text values of a field and an array of ints
     where each place in the array corresponds to a document, and the value
     at a place in the array is a pointer to a text in the list of texts.
-    
+
     This structure allows fast sorting and grouping of documents by associating
     each document with a value through the array.
     """
@@ -130,6 +130,7 @@ class FieldCache(object):
         """
 
         orderlen = len(self.order)
+        total = 0
         if self.typecode == "B":
             total = orderlen
         elif self.typecode in "Ii":
@@ -149,15 +150,12 @@ class FieldCache(object):
     @classmethod
     def from_field(cls, ixreader, fieldname):
         """Creates an in-memory field cache from a reader.
-        
+
         >>> r = ix.reader()
         >>> fc = FieldCache.from_field(r, "chapter")
-        
+
         :param ixreader: a :class:`whoosh.reading.IndexReader` object.
         :param fieldname: the name of the field to cache.
-        :param key: a key function to use to order the values of the field,
-            as in the built-in sort functions, or None to use the lexical
-            ordering.
         :param default: the value to use for documents without the field.
         """
 
@@ -225,7 +223,7 @@ class FieldCache(object):
     def from_file(cls, dbfile):
         """Loads an in-memory field cache from a saved file created with
         :meth:`FieldCache.to_file`.
-        
+
         >>> fc = FieldCache.from_file(f)
         """
 
@@ -249,7 +247,7 @@ class FieldCache(object):
 
     def to_file(self, dbfile):
         """Saves an in-memory field cache to a file.
-        
+
         >>> fc = FieldCache.from_field(r, "tag")
         >>> fc.to_file(f)
         """
@@ -266,6 +264,7 @@ class FieldCache(object):
             dbfile.write_pickle(self.texts)
 
             # Compact the order array if possible
+            newcode = self.order.typecode
             if len(self.texts) < 255:
                 newcode = "B"
             elif len(self.texts) < 65535:
@@ -314,7 +313,7 @@ class FieldCache(object):
     def groups(self, docnums, counts=False):
         """Returns a dictionary mapping key values to document numbers. If
         ``counts`` is True, the returned dictionary maps key values to the
-        number of documents in that 
+        number of documents in that
         """
 
         defaulttype = int if counts else list
@@ -333,7 +332,7 @@ class FieldCache(object):
     def scored_groups(self, scores_and_docnums, limit=None):
         """Takes a sequence of (score, docnum) pairs and returns a dictionary
         mapping key values to sorted lists of (score, docnum) pairs.
-        
+
         If you specify the ``limit`` keyword, the sorted lists will contain
         only the ``limit`` highest-scoring items.
         """
@@ -422,6 +421,7 @@ class FieldCacheWriter(object):
         dbfile.write(b("l."))
 
         # Compact the order array if possible
+        code = order.typecode
         if self.hastexts:
             if keycount < 255:
                 code = "B"
@@ -534,7 +534,7 @@ class DefaultFieldCachingPolicy(FieldCachingPolicy):
         :param gzip_caches: if True, field caches saved to disk by this object
             will be compressed. Loading compressed caches is very slow, so you
             should not turn this option on.
-        :param fcclass: 
+        :param fcclass:
         """
 
         self.basename = basename
