@@ -95,9 +95,9 @@ def test_or():
 
 
 def test_not():
-    _run_query(query.Or([query.Term("value", u("red")),
-                         query.Term("name", u("yellow")),
-                         query.Not(query.Term("name", u("quick")))]),
+    _run_query(query.And([query.Or([query.Term("value", u("red")),
+                                    query.Term("name", u("yellow"))]),
+                          query.Not(query.Term("name", u("quick")))]),
                [u("A"), u("E")])
 
 

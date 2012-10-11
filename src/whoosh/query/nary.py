@@ -97,12 +97,14 @@ class CompoundQuery(qcore.Query):
         return sum(q.estimate_size(ixreader) for q in self.subqueries)
 
     def estimate_min_size(self, ixreader):
-        subs, nots = self._split_queries()
-        subs_min = min(q.estimate_min_size(ixreader) for q in subs)
-        if nots:
-            nots_sum = sum(q.estimate_size(ixreader) for q in nots)
-            subs_min = max(0, subs_min - nots_sum)
-        return subs_min
+        from whoosh.query import Not
+
+        subs = self.subqueries
+        for sub in subs:
+            if isinstance(sub, Not):
+                return 0
+
+        return min(q.estimate_min_size(ixreader) for q in subs)
 
     def normalize(self):
         from whoosh.query import Every, TermRange, NumericRange
@@ -174,62 +176,49 @@ class CompoundQuery(qcore.Query):
 
         return self.__class__(subqs, boost=self.boost)
 
-    def _split_queries(self):
-        from whoosh.query import Not
-
-        subs = [q for q in self.subqueries if not isinstance(q, Not)]
-        nots = [q.query for q in self.subqueries if isinstance(q, Not)]
-        return (subs, nots)
-
     def simplify(self, ixreader):
-        subs, nots = self._split_queries()
-
+        subs = self.subqueries
         if subs:
-            subs = self.__class__([subq.simplify(ixreader) for subq in subs],
-                                  boost=self.boost).normalize()
-            if nots:
-                nots = Or(nots).simplify().normalize()
-                return AndNot(subs, nots)
-            else:
-                return subs
+            q = self.__class__([subq.simplify(ixreader) for subq in subs],
+                                boost=self.boost).normalize()
         else:
-            return qcore.NullQuery
+            q = qcore.NullQuery
+        return q
 
-    def _matcher(self, matchercls, q_weight_fn, searcher, weighting=None,
-                 **kwargs):
+    def matcher(self, searcher, weighting=None):
+        # This method does a little sanity checking and then passes the info
+        # down to the _matcher() method which subclasses must implement
+
+        subs = self.subqueries
+        if not subs:
+            return matching.NullMatcher()
+
+        if len(subs) == 1:
+            m = subs[0].matcher(searcher, weighting=weighting)
+        else:
+            m = self._matcher(subs, searcher, weighting)
+        return m
+
+    def _matcher(self, subs, searcher, weighting):
+        # Subclasses must implement this method
+
+        raise NotImplementedError
+
+    def _tree_matcher(self, subs, mcls, searcher, weighting, q_weight_fn,
+                      **kwargs):
         # q_weight_fn is a function which is called on each query and returns a
         # "weight" value which is used to build a huffman-like matcher tree. If
         # q_weight_fn is None, an order-preserving binary tree is used instead.
-
-        # Pull any queries inside a Not() out into their own list
-        subs, nots = self._split_queries()
-
-        if not subs:
-            return matching.NullMatcher()
 
         # Create a matcher from the list of subqueries
         subms = [q.matcher(searcher, weighting=weighting) for q in subs]
         if len(subms) == 1:
             m = subms[0]
         elif q_weight_fn is None:
-            m = make_binary_tree(matchercls, subms)
+            m = make_binary_tree(mcls, subms, **kwargs)
         else:
             w_subms = [(q_weight_fn(q), m) for q, m in zip(subs, subms)]
-            m = make_weighted_tree(matchercls, w_subms)
-
-        # If there were queries inside Not(), make a matcher for them and
-        # wrap the matchers in an AndNotMatcher
-        if nots:
-            if len(nots) == 1:
-                notm = nots[0].matcher(searcher)
-            else:
-                r = searcher.reader()
-                notms = [(q.estimate_size(r), q.matcher(searcher))
-                         for q in nots]
-                notm = make_weighted_tree(matching.UnionMatcher, notms)
-
-            if notm.is_active():
-                m = matching.AndNotMatcher(m, notm)
+            m = make_weighted_tree(mcls, w_subms, **kwargs)
 
         # If this query had a boost, add a wrapping matcher to apply the boost
         if self.boost != 1.0:
@@ -261,11 +250,11 @@ class And(CompoundQuery):
     def estimate_size(self, ixreader):
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
-    def matcher(self, searcher, weighting=None):
+    def _matcher(self, subs, searcher, weighting):
         r = searcher.reader()
-        return self._matcher(matching.IntersectionMatcher,
-                             lambda q: 0 - q.estimate_size(r), searcher,
-                             weighting=weighting)
+        q_weight_fn = lambda q: 0 - q.estimate_size(r)
+        return self._tree_matcher(subs, matching.IntersectionMatcher, searcher,
+                                  weighting, q_weight_fn)
 
 
 class Or(CompoundQuery):
@@ -309,10 +298,13 @@ class Or(CompoundQuery):
         else:
             return set()
 
-    def matcher(self, searcher, weighting=None):
+    def _matcher(self, subs, searcher, weighting):
+        # Make a binary tree of UnionMatcher objects
         r = searcher.reader()
-        return self._matcher(self.matcher_class, lambda q: q.estimate_size(r),
-                             searcher, weighting=weighting)
+        q_weight_fn = lambda q: q.estimate_size(r)
+        m = self._tree_matcher(subs, matching.UnionMatcher, searcher,
+                               weighting, q_weight_fn)
+        return m
 
 
 class DisjunctionMax(CompoundQuery):
@@ -346,11 +338,12 @@ class DisjunctionMax(CompoundQuery):
         else:
             return set()
 
-    def matcher(self, searcher, weighting=None):
+    def _matcher(self, subs, searcher, weighting):
         r = searcher.reader()
-        return self._matcher(matching.DisjunctionMaxMatcher,
-                             lambda q: q.estimate_size(r), searcher,
-                             weighting=weighting, tiebreak=self.tiebreak)
+        q_weight_fn = lambda q: q.estimate_size(r)
+        return self._tree_matcher(subs, matching.DisjunctionMaxMatcher,
+                                  searcher, weighting, q_weight_fn,
+                                  tiebreak=self.tiebreak)
 
 
 # Boolean queries
@@ -438,10 +431,10 @@ class Otherwise(BinaryQuery):
 
     JOINT = " OTHERWISE "
 
-    def matcher(self, searcher):
-        m = self.a.matcher(searcher)
+    def matcher(self, searcher, weighting=None):
+        m = self.a.matcher(searcher, weighting=weighting)
         if not m.is_active():
-            m = self.b.matcher(searcher)
+            m = self.b.matcher(searcher, weighting=weighting)
         return m
 
 
