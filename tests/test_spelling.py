@@ -380,5 +380,27 @@ def test_prefix_address():
             assert sorted(sugs) == ["aa12", "aa34", "aa56", "aa78"]
 
 
+def test_missing_suggestion():
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(content=fields.TEXT(analyzer=ana, spelling=True),
+                           organism=fields.ID)
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(organism=u("hs"), content=u("cells"))
+        w.add_document(organism=u("hs"), content=u("cell"))
+
+    with ix.searcher() as s:
+        r = s.reader()
+        assert r.has_word_graph("content")
+        gr = r.word_graph("content")
+        assert list(gr.flatten()) == ["cell", "cells"]
+
+        c = s.corrector("content")
+        # Note that corrector won't suggest the word you submit even though it's
+        # in the index
+        assert c.suggest("cell") == ["cells"]
+
+
 
 
