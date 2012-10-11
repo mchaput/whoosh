@@ -145,6 +145,8 @@ class FieldWriter(object):
         lasttext = None
         # The (fieldname, btext) of the previous spelling posting
         lastspell = None
+        # The field object for the current field
+        fieldobj = None
         for fieldname, btext, docnum, weight, value in items:
             # Check for out-of-order postings. This is convoluted because Python
             # 3 removed the ability to compare a string to None
@@ -161,7 +163,8 @@ class FieldWriter(object):
                     finish_term()
                 if lastfn is not None and fieldname != lastfn:
                     finish_field()
-                start_field(fieldname, schema[fieldname])
+                fieldobj = schema[fieldname]
+                start_field(fieldname, fieldobj)
                 lastfn = fieldname
                 lasttext = None
 
@@ -172,8 +175,8 @@ class FieldWriter(object):
                 # There can be duplicates of spelling terms, so only add a spell
                 # term if it's greater than the last one
                 if lastspell is None or spellterm > lastspell:
-                    # TODO: how to decode the btext bytes?
-                    self.add_spell_word(fieldname, btext.decode("utf8"))
+                    spellword = fieldobj.from_bytes(btext)
+                    self.add_spell_word(fieldname, spellword)
                     lastspell = spellterm
                 continue
 

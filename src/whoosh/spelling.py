@@ -114,8 +114,8 @@ class ReaderCorrector(Corrector):
         for sug in self.reader.terms_within(fieldname, text, maxdist,
                                             prefix=prefix):
             # Higher scores are better, so negate the distance and frequency
-            f = freq(fieldname, sug)
-            assert f, "Suggestion %s:%r not in index" % (fieldname, sug)
+            # TODO: store spelling frequencies in the graph
+            f = freq(fieldname, sug) or 1
             score = 0 - (maxdist + (1.0 / f * 0.5))
             yield (score, sug)
 
