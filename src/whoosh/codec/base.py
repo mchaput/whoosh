@@ -41,7 +41,7 @@ from whoosh.matching import Matcher, ReadTooFar
 from whoosh.reading import TermInfo
 from whoosh.spans import Span
 from whoosh.system import (_INT_SIZE, _FLOAT_SIZE, pack_long, unpack_long,
-                           IS_LITTLE)
+                           IS_LITTLE, emptybytes)
 from whoosh.util import byte_to_length, length_to_byte
 
 
@@ -120,46 +120,76 @@ class PerDocumentWriter(object):
 
 class FieldWriter(object):
     def add_postings(self, schema, lengths, items):
+        # This method translates a generator of (fieldname, btext, docnum, w, v)
+        # postings into calls to start_field(), start_term(), add(),
+        # finish_term(), finish_field(), etc.
+
         start_field = self.start_field
         start_term = self.start_term
         add = self.add
         finish_term = self.finish_term
         finish_field = self.finish_field
 
-        # items = (fieldname, text, docnum, weight, valuestring) ...
-        lastfn = None
-        lasttext = None
-        dfl = lengths.doc_field_length
-        for fieldname, text, docnum, weight, valuestring in items:
-            # Items where docnum is None indicate words that should be added
-            # to the spelling graph
-            if docnum is None and (fieldname != lastfn or text != lasttext):
-                self.add_spell_word(fieldname, text)
-                lastfn = fieldname
-                lasttext = text
-                continue
+        if lengths:
+            dfl = lengths.doc_field_length
+        else:
+            dfl = lambda docnum, fieldname: 0
 
-            # This comparison is so convoluted because Python 3 removed the
-            # ability to compare a string to None
-            if ((lastfn is not None and fieldname < lastfn)
-                or (fieldname == lastfn and lasttext is not None
-                    and text < lasttext)):
-                raise Exception("Postings are out of order: %r:%s .. %r:%s" %
-                                (lastfn, lasttext, fieldname, text))
-            if fieldname != lastfn or text != lasttext:
+        # The fieldname of the previous posting
+        lastfn = None
+        # The bytes text of the previous posting
+        lasttext = None
+        # The (fieldname, btext) of the previous spelling posting
+        lastspell = None
+        for fieldname, btext, docnum, weight, value in items:
+            # Check for out-of-order postings. This is convoluted because Python
+            # 3 removed the ability to compare a string to None
+            if lastfn is not None and fieldname < lastfn:
+                raise Exception("Field %r .. %r" % (lastfn, fieldname))
+            if fieldname == lastfn and lasttext and btext < lasttext:
+                raise Exception("Term %s:%r .. %s:%r"
+                                % (lastfn, lasttext, fieldname, btext))
+
+            # If the fieldname of this posting is different from the last one,
+            # tell the writer we're starting a new field
+            if fieldname != lastfn:
                 if lasttext is not None:
                     finish_term()
-                if fieldname != lastfn:
-                    if lastfn is not None:
-                        finish_field()
-                    start_field(fieldname, schema[fieldname])
-                    lastfn = fieldname
-                start_term(text)
-                lasttext = text
+                if lastfn is not None and fieldname != lastfn:
+                    finish_field()
+                start_field(fieldname, schema[fieldname])
+                lastfn = fieldname
+                lasttext = None
+
+            # HACK: items where docnum=None indicate words that should be added
+            # to the spelling graph, not the postings
+            if docnum is None:
+                spellterm = (fieldname, btext)
+                # There can be duplicates of spelling terms, so only add a spell
+                # term if it's greater than the last one
+                if lastspell is None or spellterm > lastspell:
+                    # TODO: how to decode the btext bytes?
+                    self.add_spell_word(fieldname, btext.decode("utf8"))
+                    lastspell = spellterm
+                continue
+
+            # If this term is different from the term in the previous posting,
+            # tell the writer to start a new term
+            if btext != lasttext:
+                if lasttext is not None:
+                    finish_term()
+                start_term(btext)
+                lasttext = btext
+
+            # Add this posting
             length = dfl(docnum, fieldname)
-            add(docnum, weight, valuestring, length)
+            if value is None:
+                value = emptybytes
+            add(docnum, weight, value, length)
+
         if lasttext is not None:
             finish_term()
+        if lastfn is not None:
             finish_field()
 
     def start_field(self, fieldname, fieldobj):
@@ -576,7 +606,7 @@ class Segment(object):
     """Do not instantiate this object directly. It is used by the Index object
     to hold information about a segment. A list of objects of this class are
     pickled as part of the TOC file.
-    
+
     The TOC file stores a minimal amount of information -- mostly a list of
     Segment objects. Segments are the real reverse indexes. Having multiple
     segments allows quick incremental indexing: just create a new segment for
