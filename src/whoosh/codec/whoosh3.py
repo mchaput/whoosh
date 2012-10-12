@@ -33,7 +33,7 @@ import struct
 from array import array
 from collections import defaultdict
 
-from whoosh import columns
+from whoosh import columns, formats
 from whoosh.compat import b, bytes_type, string_type, integer_types
 from whoosh.compat import dumps, loads, iteritems, xrange
 from whoosh.codec import base
@@ -43,7 +43,7 @@ from whoosh.reading import TermInfo, TermNotFound
 from whoosh.system import emptybytes
 from whoosh.system import _SHORT_SIZE, _INT_SIZE, _LONG_SIZE, _FLOAT_SIZE
 from whoosh.system import pack_ushort, unpack_ushort
-from whoosh.system import pack_long, unpack_long
+from whoosh.system import pack_int, unpack_int, pack_long, unpack_long
 from whoosh.util.numlists import delta_encode, delta_decode
 from whoosh.util.numeric import length_to_byte, byte_to_length
 
@@ -60,7 +60,9 @@ WHOOSH3_HEADER_MAGIC = b("W3Bl")
 # Column type to store field length info
 LENGTHS_COLUMN = columns.NumericColumn("B", default=0)
 # Column type to store pointers to vector posting lists
-VECTOR_COLUMN = columns.NumericColumn("I", default=0)
+VECTOR_COLUMN = columns.NumericColumn("I")
+# Column type to store vector posting list lengths
+VECTOR_LEN_COLUMN = columns.NumericColumn("i")
 # Column type to store values of stored fields
 STORED_COLUMN = columns.PickleColumn(columns.CompressedBytesColumn())
 
@@ -79,14 +81,31 @@ class W3Codec(base.CodecWithGraph):
 
     # Per-document value writer
     def per_document_writer(self, storage, segment):
-        return W3PerDocWriter(storage, segment, blocklimit=self._blocklimit,
-                              compression=self._compression)
+        return W3PerDocWriter(self, storage, segment)
 
     # Inverted index writer
     def field_writer(self, storage, segment):
-        return W3FieldWriter(storage, segment, blocklimit=self._blocklimit,
-                             compression=self._compression,
-                             inlinelimit=self._inlinelimit)
+        return W3FieldWriter(self, storage, segment)
+
+    # Postings
+
+    def postings_writer(self, dbfile, byteids=False):
+        return W3PostingsWriter(dbfile, blocklimit=self._blocklimit,
+                                byteids=byteids, compression=self._compression,
+                                inlinelimit=self._inlinelimit)
+
+    def postings_reader(self, dbfile, terminfo, format_, term=None, scorer=None):
+        if terminfo.is_inlined():
+            # If the postings were inlined into the terminfo object, pull them
+            # out and use a ListMatcher to wrap them in a Matcher interface
+            ids, weights, values = terminfo.inlined_postings()
+            m = ListMatcher(ids, weights, values, format_, scorer=scorer,
+                            term=term, terminfo=terminfo)
+        else:
+            offset, length = terminfo.extent()
+            m = W3LeafMatcher(dbfile, offset, length, format_, term=term,
+                              scorer=scorer)
+        return m
 
     # Readers
 
@@ -100,7 +119,7 @@ class W3Codec(base.CodecWithGraph):
 
         postfile = segment.open_file(storage, self.POSTS_EXT)
 
-        return W3TermsReader(tifile, tilen, postfile)
+        return W3TermsReader(self, tifile, tilen, postfile)
 
     # Graph methods provided by CodecWithGraph
 
@@ -133,11 +152,10 @@ def _lenfield(fieldname):
 # Per-doc information writer
 
 class W3PerDocWriter(base.PerDocWriterWithColumns):
-    def __init__(self, storage, segment, blocklimit=128, compression=3):
+    def __init__(self, codec, storage, segment):
+        self._codec = codec
         self._storage = storage
         self._segment = segment
-        self._blocklimit = blocklimit
-        self._compression = compression
 
         self._cols = compound.CompoundWriter()
         self._colwriters = {}
@@ -205,17 +223,18 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
             self._prep_vectors()
 
         # Write vector postings
-        bwriter = BlockWriter(self._vpostfile, fieldobj.vector,
-                              self._blocklimit, byteids=True,
-                              compression=self._compression)
-        bwriter.start(W3TermInfo())
+        vpostwriter = self._codec.postings_writer(self._vpostfile, byteids=True)
+        vpostwriter.start_postings(fieldobj.vector, W3TermInfo())
         for text, weight, vbytes in items:
-            bwriter.add(text, weight, vbytes)
-        offset = bwriter.finish()
+            vpostwriter.add_posting(text, weight, vbytes)
+        # finish_postings() returns terminfo object
+        vinfo = vpostwriter.finish_postings()
 
-        # Add row to vector column
-        vecfield = _vecfield(fieldname)
+        # Add row to vector lookup column
+        vecfield = _vecfield(fieldname)  # Compute vector column name
+        offset, length = vinfo.extent()
         self.add_column_value(vecfield, VECTOR_COLUMN, offset)
+        self.add_column_value(vecfield + "L", VECTOR_LEN_COLUMN, length)
 
     def finish_doc(self):
         sf = self._storedfields
@@ -247,13 +266,10 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
 
 
 class W3FieldWriter(base.FieldWriterWithGraph):
-    def __init__(self, storage, segment, blocklimit=128, compression=3,
-                 inlinelimit=1):
+    def __init__(self, codec, storage, segment):
+        self._codec = codec
         self._storage = storage
         self._segment = segment
-        self._blocklimit = blocklimit
-        self._compression = compression
-        self._inlinelimit = inlinelimit
 
         self._fieldname = None
         self._fieldid = None
@@ -268,8 +284,7 @@ class W3FieldWriter(base.FieldWriterWithGraph):
 
         self._postfile = self._create_file(W3Codec.POSTS_EXT)
 
-        self._blockwriter = None
-        self._terminfo = None
+        self._postwriter = None
         self._infield = False
         self.is_closed = False
 
@@ -291,36 +306,26 @@ class W3FieldWriter(base.FieldWriterWithGraph):
 
         # Set up graph for this field if necessary
         self._start_graph_field(fieldname, fieldobj)
-        # Start a new blockwriter for this field
-        self._blockwriter = BlockWriter(self._postfile, self._format,
-                                        self._blocklimit,
-                                        compression=self._compression)
+        # Start a new postwriter for this field
+        self._postwriter = self._codec.postings_writer(self._postfile)
 
     def start_term(self, btext):
-        if self._blockwriter is None:
+        if self._postwriter is None:
             raise Exception("Called start_term before start_field")
         self._btext = btext
-        self._terminfo = W3TermInfo()
-        self._blockwriter.start(self._terminfo)
+        self._postwriter.start_postings(self._fieldobj.format,  W3TermInfo())
         # Add the word to the graph if necessary
         self._insert_graph_key(btext)
 
     def add(self, docnum, weight, vbytes, length):
-        self._blockwriter.add(docnum, weight, vbytes, length)
+        self._postwriter.add_posting(docnum, weight, vbytes, length)
 
     def finish_term(self):
-        blockwriter = self._blockwriter
-        blockcount = blockwriter.blockcount
-        terminfo = self._terminfo
+        terminfo = self._postwriter.finish_postings()
 
-        if blockcount < 1 and len(blockwriter) < self._inlinelimit:
-            # Inline the single block
-            postings = blockwriter.finish_inline()
-        else:
-            postings = blockwriter.finish()
-
+        # Add row to term info table
         keybytes = pack_ushort(self._fieldid) + self._btext
-        valbytes = terminfo.to_bytes(postings)
+        valbytes = terminfo.to_bytes()
         self._tindex.add(keybytes, valbytes)
 
     # FieldWriterWithGraph.add_spell_word
@@ -329,7 +334,7 @@ class W3FieldWriter(base.FieldWriterWithGraph):
         if not self._infield:
             raise Exception("Called finish_field before start_field")
         self._infield = False
-        self._blockwriter = None
+        self._postwriter = None
         self._finish_graph_field()
 
     def close(self):
@@ -446,22 +451,35 @@ class W3PerDocReader(base.PerDocumentReader):
         f = self._segment.open_file(self._storage, W3Codec.VPOSTS_EXT)
         self._vpostfile = f
 
-    def _vector_offset(self, docnum, fieldname):
+    def _vector_extent(self, docnum, fieldname):
         if docnum > self._doccount:
             raise IndexError("Asked for document %r of %d"
                              % (docnum, self._doccount))
-        reader = self._cached_reader(_vecfield(fieldname), VECTOR_COLUMN)
-        return reader[docnum]
+        vecfield = _vecfield(fieldname)  # Compute vector column name
+
+        # Get the offset from the vector offset column
+        offset = self._cached_reader(vecfield, VECTOR_COLUMN)[docnum]
+
+        # Get the length from the length column, if it exists, otherwise return
+        # -1 for the length (backwards compatibility with old dev versions)
+        lreader = self._cached_reader(vecfield + "L", VECTOR_COLUMN)
+        if lreader:
+            length = [docnum]
+        else:
+            length = -1
+
+        return offset, length
 
     def has_vector(self, docnum, fieldname):
         return (self.has_column(_vecfield(fieldname))
-                 and self._vector_offset(docnum, fieldname) != 0)
+                and self._vector_extent(docnum, fieldname))
 
     def vector(self, docnum, fieldname, format_):
         if self._vpostfile is None:
             self._prep_vectors()
-        offset = self._vector_offset(docnum, fieldname)
-        m = W3LeafMatcher(self._vpostfile, offset, format_, byteids=True)
+        offset, length = self._vector_extent(docnum, fieldname)
+        m = W3LeafMatcher(self._vpostfile, offset, length, format_,
+                          byteids=True)
         return m
 
     # Stored fields
@@ -475,7 +493,8 @@ class W3PerDocReader(base.PerDocumentReader):
 
 
 class W3TermsReader(base.TermsReader):
-    def __init__(self, dbfile, length, postfile):
+    def __init__(self, codec, dbfile, length, postfile):
+        self._codec = codec
         self._dbfile = dbfile
         self._tindex = filetables.OrderedHashReader(dbfile, length)
         self._fieldmap = self._tindex.extras["fieldmap"]
@@ -540,94 +559,56 @@ class W3TermsReader(base.TermsReader):
 
     def matcher(self, fieldname, tbytes, format_, scorer=None):
         terminfo = self.term_info(fieldname, tbytes)
-        p = terminfo.postings
-        term = (fieldname, tbytes)
-        if isinstance(p, integer_types):
-            # p is an offset into the posting file
-            pr = W3LeafMatcher(self._postfile, p, format_, scorer=scorer,
-                               term=term)
-        else:
-            # p is an inlined tuple of (ids, weights, values)
-            docids, weights, values = p
-            pr = ListMatcher(docids, weights, values, format_, scorer=scorer,
-                             term=term, terminfo=terminfo)
-        return pr
+        m = self._codec.postings_reader(self._postfile, terminfo, format_,
+                                        term=(fieldname, tbytes), scorer=scorer)
+        return m
 
     def close(self):
         self._tindex.close()
         self._postfile.close()
 
 
-# Support objects
+# Postings
 
-class BlockWriter(object):
+class W3PostingsWriter(base.PostingsWriter):
     """This object writes posting lists to the postings file. It groups postings
     into blocks and tracks block level statistics to makes it easier to skip
     through the postings.
     """
 
-    def __init__(self, postfile, format_, blocklimit, byteids=False,
-                 compression=3):
+    def __init__(self, postfile, blocklimit, byteids=False, compression=3,
+                 inlinelimit=1):
         self._postfile = postfile
-        self._format = format_
         self._blocklimit = blocklimit
         self._byteids = byteids
         self._compression = compression
+        self._inlinelimit = inlinelimit
+
+        self._blockcount = 0
+        self._format = None
         self._terminfo = None
 
-    def __len__(self):
-        # Returns the number of unwritten buffered postings
-        return len(self._ids)
+    def written(self):
+        return self._blockcount > 0
 
-    def min_id(self):
-        # First ID in the buffered block
-        return self._ids[0]
-
-    def max_id(self):
-        # Last ID in the buffered block
-        return self._ids[-1]
-
-    def min_length(self):
-        # Shortest field length in the buffered block
-        return self._minlength
-
-    def max_length(self):
-        # Longest field length in the buffered block
-        return self._maxlength
-
-    def max_weight(self):
-        # Highest weight in the buffered block
-        return self._maxweight
-
-    def start(self, terminfo):
+    def start_postings(self, format_, terminfo):
         # Start a new term
         if self._terminfo:
             # If self._terminfo is not None, that means we are already in a term
             raise Exception("Called start in a term")
+
+        assert isinstance(format_, formats.Format)
+        self._format = format_
         # Reset block count
-        self.blockcount = 0
-        # Reset block buffer
-        self.new_block()
+        self._blockcount = 0
+        # Reset block bufferg
+        self._new_block()
         # Remember terminfo object passed to us
         self._terminfo = terminfo
         # Remember where we started in the posting file
         self._startoffset = self._postfile.tell()
 
-    def new_block(self):
-        # Reset block buffer
-
-        # List of IDs (docnums for regular posting list, terms for vector PL)
-        self._ids = [] if self._byteids else array("I")
-        # List of weights
-        self._weights = array("f")
-        # List of encoded payloads
-        self._values = []
-        # Statistics
-        self._minlength = None
-        self._maxlength = 0
-        self._maxweight = 0
-
-    def add(self, id_, weight, vbytes, length=None):
+    def add_posting(self, id_, weight, vbytes, length=None):
         # Add a posting to the buffered block
 
         # If the number of buffered postings == the block limit, write out the
@@ -658,11 +639,46 @@ class BlockWriter(object):
             if length > self._maxlength:
                 self._maxlength = length
 
+    def finish_postings(self):
+        terminfo = self._terminfo
+        # If we have fewer than "inlinelimit" postings in this posting list,
+        # "inline" the postings into the terminfo instead of writing them to
+        # the posting file
+        if not self.written() and len(self) < self._inlinelimit:
+            terminfo.add_block(self)
+            terminfo.set_inline(self._ids, self._weights, self._values)
+        else:
+            # If there are leftover items in the current block, write them out
+            if self._ids:
+                self._write_block(last=True)
+            startoffset = self._startoffset
+            length = self._postfile.tell() - startoffset
+            terminfo.set_extent(startoffset, length)
+
+        # Clear self._terminfo to indicate we're between terms
+        self._terminfo = None
+        # Return the current terminfo object
+        return terminfo
+
+    def _new_block(self):
+        # Reset block buffer
+
+        # List of IDs (docnums for regular posting list, terms for vector PL)
+        self._ids = [] if self._byteids else array("I")
+        # List of weights
+        self._weights = array("f")
+        # List of encoded payloads
+        self._values = []
+        # Statistics
+        self._minlength = None
+        self._maxlength = 0
+        self._maxweight = 0
+
     def _write_block(self, last=False):
         # Write the buffered block to the postings file
 
         # If this is the first block, write a small header first
-        if not self.blockcount:
+        if not self._blockcount:
             self._postfile.write(WHOOSH3_HEADER_MAGIC)
 
         # Add this block's statistics to the terminfo object, which tracks the
@@ -709,9 +725,11 @@ class BlockWriter(object):
         # Write block data
         postfile.write(databytes)
 
-        self.blockcount += 1
+        self._blockcount += 1
         # Reset block buffer
-        self.new_block()
+        self._new_block()
+
+    # Methods to reduce the byte size of the various lists
 
     def _mini_ids(self):
         # Minify IDs
@@ -737,6 +755,7 @@ class BlockWriter(object):
         # Minify values
 
         fixedsize = self._format.fixed_value_size()
+        print "format=", self._format, "***fixedsize=", fixedsize
         values = self._values
 
         if fixedsize is None or fixedsize < 0:
@@ -747,27 +766,31 @@ class BlockWriter(object):
             vs = emptybytes.join(values)
         return vs
 
-    def finish_inline(self):
-        # Finish the current term and return the buffered posting data as a
-        # tuple suitable for inlining in the term file
+    # Block stats methods
 
-        self._terminfo.add_block(self)
-        self._terminfo = None
-        return (tuple(self._ids), tuple(self._weights), tuple(self._values))
+    def __len__(self):
+        # Returns the number of unwritten buffered postings
+        return len(self._ids)
 
-    def finish(self):
-        # Finish the current term and write the buffered posting data to the
-        # postings file
+    def min_id(self):
+        # First ID in the buffered block
+        return self._ids[0]
 
-        # If there are leftover items in the current block, write them out
-        if self._ids:
-            self._write_block(last=True)
+    def max_id(self):
+        # Last ID in the buffered block
+        return self._ids[-1]
 
-        # Set self._terminfo to None to indicate that we're currently not
-        # writing a term
-        self._terminfo = None
-        # Return the starting point of the finished term's postings
-        return self._startoffset
+    def min_length(self):
+        # Shortest field length in the buffered block
+        return self._minlength
+
+    def max_length(self):
+        # Longest field length in the buffered block
+        return self._maxlength
+
+    def max_weight(self):
+        # Highest weight in the buffered block
+        return self._maxweight
 
 
 class W3LeafMatcher(LeafMatcher):
@@ -775,16 +798,17 @@ class W3LeafMatcher(LeafMatcher):
     :class:`whoosh.matching.Matcher` interface.
     """
 
-    def __init__(self, postfile, startoffset, format_, scorer=None,
-                 term=None, byteids=False):
+    def __init__(self, postfile, startoffset, length, format_, term=None,
+                 byteids=None, scorer=None):
         self._postfile = postfile
         self._startoffset = startoffset
+        self._length = length
         self.format = format_
-        self._fixedsize = format_.fixed_value_size()
-        self.scorer = scorer
         self._term = term
         self._byteids = byteids
+        self.scorer = scorer
 
+        self._fixedsize = self.format.fixed_value_size()
         # Read the header tag at the start of the postings
         self._read_header()
         # "Reset" to read the first block
@@ -1014,6 +1038,7 @@ class W3LeafMatcher(LeafMatcher):
 
         # De-minify the values
         fixedsize = self._fixedsize
+        print "data=", self._data, "format=", self.format, "fixed=", fixedsize
         vs = self._data[2]
         if fixedsize is None or fixedsize < 0:
             self._values = vs
@@ -1038,6 +1063,12 @@ class W3TermInfo(TermInfo):
     # I   | Maximum (last) ID
     _struct = struct.Struct("!BfIBBfII")
 
+    def __init__(self, *args, **kwargs):
+        TermInfo.__init__(self, *args, **kwargs)
+        self._offset = None
+        self._length = None
+        self._inlined = None
+
     def add_block(self, block):
         self._weight += sum(block._weights)
         self._df += len(block)
@@ -1054,8 +1085,24 @@ class W3TermInfo(TermInfo):
             self._minid = block.min_id()
         self._maxid = block.max_id()
 
-    def to_bytes(self, postings):
-        isinlined = int(isinstance(postings, tuple))
+    def set_extent(self, offset, length):
+        self._offset = offset
+        self._length = length
+
+    def extent(self):
+        return self._offset, self._length
+
+    def set_inlined(self, ids, weights, values):
+        self._inlined = (tuple(ids), tuple(weights), tuple(values))
+
+    def is_inlined(self):
+        return self._inlined is not None
+
+    def inlined_postings(self):
+        return self._inlined
+
+    def to_bytes(self):
+        isinlined = self.is_inlined()
 
         # Encode the lengths as 0-255 values
         minlength = (0 if self._minlength is None
@@ -1073,9 +1120,9 @@ class W3TermInfo(TermInfo):
 
         if isinlined:
             # Postings are inlined - dump them using the pickle protocol
-            postbytes = dumps(postings, -1)
+            postbytes = dumps(self._inlined, -1)
         else:
-            postbytes = pack_long(postings)
+            postbytes = pack_long(self._offset) + pack_int(self._length)
         st += postbytes
         return st
 
@@ -1096,10 +1143,13 @@ class W3TermInfo(TermInfo):
 
         if flags:
             # Postings are stored inline
-            terminfo.postings = loads(s[st.size:])
+            terminfo._inlined = loads(s[st.size:])
         else:
-            # Last bytes are pointer into posting file
-            terminfo.postings = unpack_long(s[st.size:st.size + _LONG_SIZE])[0]
+            # Last bytes are pointer into posting file and length
+            offpos = st.size
+            lenpos = st.size + _LONG_SIZE
+            terminfo._offset = unpack_long(s[offpos:lenpos])[0]
+            terminfo._length = unpack_int(s[lenpos:lenpos + _INT_SIZE])
 
         return terminfo
 

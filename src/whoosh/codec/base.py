@@ -62,6 +62,16 @@ class Codec(object):
     def field_writer(self, storage, segment):
         raise NotImplementedError
 
+    # Postings
+
+    @abstractmethod
+    def postings_writer(self, dbfile, byteids=False):
+        raise NotImplementedError
+
+    @abstractmethod
+    def postings_reader(self, dbfile, terminfo, format_, term=None, scorer=None):
+        raise NotImplementedError
+
     # Index readers
 
     @abstractmethod
@@ -223,6 +233,28 @@ class FieldWriter(object):
 
     def close(self):
         pass
+
+
+# Postings
+
+class PostingsWriter(object):
+    @abstractmethod
+    def start_postings(self, format_, terminfo):
+        raise NotImplementedError
+
+    @abstractmethod
+    def add_posting(self, id_, weight, vbytes, length=None):
+        raise NotImplementedError
+
+    def finish_postings(self):
+        pass
+
+    @abstractmethod
+    def written(self):
+        """Returns True if this object has already written to disk.
+        """
+
+        raise NotImplementedError
 
 
 # Reader classes

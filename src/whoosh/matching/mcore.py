@@ -209,12 +209,13 @@ class Matcher(object):
         """
 
         i = 0
-        while self.is_active():
-            yield self.id()
-            self.next()
+        m = self
+        while m.is_active():
+            yield m.id()
+            m.next()
             i += 1
             if i == 10:
-                self = self.replace()
+                m = m.replace()
                 i = 0
 
     def all_items(self):
@@ -227,12 +228,13 @@ class Matcher(object):
         """
 
         i = 0
+        m = self
         while self.is_active():
-            yield (self.id(), self.value())
-            self.next()
+            yield (m.id(), m.value())
+            m.next()
             i += 1
             if i == 10:
-                self = self.replace()
+                m = m.replace()
                 i = 0
 
     def items_as(self, astype):
