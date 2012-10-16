@@ -343,6 +343,7 @@ class CharsetFilter(Filter):
         :param charmap: a dictionary mapping from integer character numbers to
             unicode characters, as required by the unicode.translate() method.
         """
+
         self.charmap = charmap
 
     def __eq__(self, other):

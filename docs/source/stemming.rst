@@ -169,7 +169,7 @@ unless you need to use a charset to tokenize terms::
     from whoosh.support.charset import accent_map
 
     # For example, to add an accent-folding filter to a stemming analyzer:
-    my_analyzer = StemmingAnalyzer | CharsetFilter(accent_map)
+    my_analyzer = StemmingAnalyzer() | CharsetFilter(accent_map)
 
     # To use this analyzer in your schema:
     my_schema = fields.Schema(content=fields.TEXT(analyzer=my_analyzer))
@@ -191,7 +191,7 @@ required by ``CharsetTokenizer`` and ``CharsetFilter``::
     from whoosh.analysis import CharsetFilter
     from whoosh.support.charset import default_charset, charset_table_to_dict
     charmap = charset_table_to_dict(default_charset)
-    my_analyzer = StemmingAnalyzer | CharsetFilter(charmap)
+    my_analyzer = StemmingAnalyzer() | CharsetFilter(charmap)
 
 (The Sphinx charset table format is described at
 http://www.sphinxsearch.com/docs/current.html#conf-charset-table )

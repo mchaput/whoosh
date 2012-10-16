@@ -432,8 +432,18 @@ def test_language_analyzer():
         assert words == target
 
 
-def test_pickleability():
+def test_la_pickleability():
     ana = analysis.LanguageAnalyzer("en")
+    _ = dumps(ana, -1)
+
+
+def test_charset_pickeability():
+    from whoosh.support import charset
+    charmap = charset.charset_table_to_dict(charset.default_charset)
+    ana = analysis.StandardAnalyzer() | analysis.CharsetFilter(charmap)
+    _ = dumps(ana, -1)
+
+    ana = analysis.CharsetTokenizer(charmap)
     _ = dumps(ana, -1)
 
 
