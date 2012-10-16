@@ -1376,4 +1376,4 @@ def charset_table_to_dict(tablestring):
                 continue
 
             raise Exception("Don't know what to do with %r" % item)
-    return map
+    return dict(map)

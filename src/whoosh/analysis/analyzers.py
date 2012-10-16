@@ -204,7 +204,7 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
     :param ignore: a set of words to not stem.
     :param cachesize: the maximum number of stemmed words to cache. The larger
         this number, the faster stemming will be but the more memory it will
-        use.
+        use. Use None for no cache, or -1 for an unbounded cache.
     """
 
     ret = RegexTokenizer(expression=expression, gaps=gaps)
