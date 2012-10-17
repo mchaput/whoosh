@@ -8,7 +8,7 @@ See :class:`whoosh.analysis.CharsetTokenizer` and :class:`whoosh.analysis.Charse
 from collections import defaultdict
 import re
 
-from whoosh.compat import izip, u, iteritems, unichr
+from whoosh.compat import izip, u, iteritems, unichr, xrange
 
 # This is a straightforward accent-folding charset taken from Carlos Bueno's
 # article "Accent Folding for Auto-Complete", for use with CharsetFilter.
