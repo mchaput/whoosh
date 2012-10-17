@@ -2,7 +2,7 @@ from __future__ import with_statement
 import gzip
 
 from whoosh import analysis, fields, fst, highlight, spelling
-from whoosh.compat import u, permutations
+from whoosh.compat import b, u, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
 from whoosh.util.testing import TempIndex
@@ -394,7 +394,7 @@ def test_missing_suggestion():
         r = s.reader()
         assert r.has_word_graph("content")
         gr = r.word_graph("content")
-        assert list(gr.flatten()) == ["cell", "cells"]
+        assert list(gr.flatten()) == [b("cell"), b("cells")]
 
         c = s.corrector("content")
         # Note that corrector won't suggest the word you submit even though it's
