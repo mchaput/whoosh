@@ -91,6 +91,7 @@ class NumberEncoding(object):
 
     def get(self, f, pos, i):
         f.seek(pos)
+        n = None
         for n in self.read_nums(f, i + 1):
             pass
         return n
@@ -330,7 +331,7 @@ class GInts(NumberEncoding):
         """
 
         count = 0
-
+        key = None
         for _ in xrange(n):
             if count == 0:
                 key = f.read_byte()

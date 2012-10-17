@@ -36,7 +36,7 @@ from whoosh.externalsort import SortingPool
 from whoosh.fields import UnknownFieldError
 from whoosh.index import LockError
 from whoosh.system import emptybytes
-from whoosh.util import fib
+from whoosh.util import fib, random_name
 from whoosh.util.filelock import try_for
 from whoosh.util.text import utf8encode
 
@@ -111,10 +111,25 @@ class PostingPool(SortingPool):
     # Subclass whoosh.externalsort.SortingPool to use knowledge of
     # postings to set run size in bytes instead of items
 
-    def __init__(self, limitmb=128, **kwargs):
+    namechars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+    def __init__(self, tempstore, segment, limitmb=128, **kwargs):
         SortingPool.__init__(self, **kwargs)
+        self.tempstore = tempstore
+        self.segment = segment
         self.limit = limitmb * 1024 * 1024
         self.currentsize = 0
+
+    def _new_run(self):
+        path = "%s.run" % random_name()
+        f = self.tempstore.create_file(path).raw_file()
+        return path, f
+
+    def _open_run(self, path):
+        return self.tempstore.open_file(path).raw_file()
+
+    def _remove_run(self, path):
+        return self.tempstore.delete_file(path)
 
     def add(self, item):
         # item = (fieldname, tbytes, docnum, weight, vbytes)
@@ -493,13 +508,14 @@ class SegmentWriter(IndexWriter):
         self._setup_doc_offsets()
 
         # Internals
-        poolprefix = "whoosh_%s_" % self.indexname
-        self.pool = PostingPool(limitmb=limitmb, prefix=poolprefix)
-        newsegment = self.newsegment = codec.new_segment(self.storage,
-                                                         self.indexname)
+        self._tempstorage = self.storage.temp_storage("%s.tmp" % self.indexname)
+        newsegment = codec.new_segment(self.storage, self.indexname)
+        self.newsegment = newsegment
         self.compound = compound and newsegment.should_assemble()
         self.is_closed = False
         self._added = False
+        self.pool = PostingPool(self._tempstorage, self.newsegment,
+                                limitmb=limitmb)
 
         # Set up writers
         self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
@@ -550,6 +566,9 @@ class SegmentWriter(IndexWriter):
                 newdoc = startdoc + docnum
 
             yield (fieldname, text, newdoc, weight, vbytes)
+
+    def temp_storage(self):
+        return self._tempstorage
 
     def add_field(self, fieldname, fieldspec, **kwargs):
         self._check_state()
@@ -839,6 +858,7 @@ class SegmentWriter(IndexWriter):
     def _finish(self):
         if self.writelock:
             self.writelock.release()
+        self._tempstorage.destroy()
         self.is_closed = True
         #self.storage.close()
 
@@ -873,22 +893,21 @@ class SegmentWriter(IndexWriter):
         """
 
         self._check_state()
-        try:
-            # Merge old segments if necessary
-            finalsegments = self._merge_segments(mergetype, optimize, merge)
-            if self._added:
-                # Flush the current segment being written and add it to the
-                # list of remaining segments returned by the merge policy
-                # function
-                finalsegments.append(self._finalize_segment())
-            else:
-                # Close segment files
-                self._close_segment()
-            # Write TOC
-            self._commit_toc(finalsegments)
-        finally:
-            # Final cleanup
-            self._finish()
+        # Merge old segments if necessary
+        finalsegments = self._merge_segments(mergetype, optimize, merge)
+        if self._added:
+            # Flush the current segment being written and add it to the
+            # list of remaining segments returned by the merge policy
+            # function
+            finalsegments.append(self._finalize_segment())
+        else:
+            # Close segment files
+            self._close_segment()
+        # Write TOC
+        self._commit_toc(finalsegments)
+
+        # Final cleanup
+        self._finish()
 
     def cancel(self):
         self._check_state()

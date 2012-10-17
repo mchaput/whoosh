@@ -26,13 +26,14 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import os, tempfile
+import os
 from multiprocessing import Process, Queue, cpu_count
 
 from whoosh.compat import xrange, iteritems, pickle
 from whoosh.codec import base
 from whoosh.writing import PostingPool, SegmentWriter
 from whoosh.externalsort import imerge
+from whoosh.util import random_name
 
 
 def finish_subsegment(writer, k=64):
@@ -133,15 +134,17 @@ class SubWriterTask(Process):
         # the only command codes is 0=add_document
 
         writer = self.writer
+        tempstorage = writer.temp_storage()
+
         load = pickle.load
-        with open(filename, "rb") as f:
+        with tempstorage.open_file(filename).raw_file() as f:
             for _ in xrange(doc_count):
                 # Load the next pickled tuple from the file
                 code, args = load(f)
                 assert code == 0
                 writer.add_document(**args)
         # Remove the job file
-        os.remove(filename)
+        tempstorage.delete_file(filename)
 
     def cancel(self):
         self.running = False
@@ -191,8 +194,9 @@ class MpWriter(SegmentWriter):
         docbuffer = self.docbuffer
         dump = pickle.dump
         length = len(docbuffer)
-        fd, filename = tempfile.mkstemp(".doclist")
-        with os.fdopen(fd, "wb") as f:
+
+        filename = "%s.doclist" % random_name()
+        with self.temp_storage().create_file(filename).raw_file() as f:
             for item in docbuffer:
                 dump(item, f, -1)
 
@@ -229,7 +233,7 @@ class MpWriter(SegmentWriter):
         # Note that SortingPool._read_run() automatically deletes the run file
         # when it's finished
 
-        gen = PostingPool._read_run(path)
+        gen = self.pool._read_run(path)
         # If offset is 0, just return the items unchanged
         if not offset:
             return gen
@@ -249,43 +253,44 @@ class MpWriter(SegmentWriter):
                                  merge=merge)
 
     def _commit(self, mergetype, optimize, merge):
-        try:
-            # Index the remaining documents in the doc buffer
-            if self.docbuffer:
-                self._enqueue()
-            # Tell the tasks to finish
-            for task in self.tasks:
-                self.jobqueue.put(None)
+        # Index the remaining documents in the doc buffer
+        if self.docbuffer:
+            self._enqueue()
+        # Tell the tasks to finish
+        for task in self.tasks:
+            self.jobqueue.put(None)
 
-            # Merge existing segments
-            finalsegments = self._merge_segments(mergetype, optimize, merge)
+        # Merge existing segments
+        finalsegments = self._merge_segments(mergetype, optimize, merge)
 
-            # Wait for the subtasks to finish
-            for task in self.tasks:
-                task.join()
+        # Wait for the subtasks to finish
+        for task in self.tasks:
+            task.join()
 
-            # Pull a (run_file_name, segment) tuple off the result queue for
-            # each sub-task, representing the final results of the task
-            results = []
-            for task in self.tasks:
-                results.append(self.resultqueue.get(timeout=5))
+        # Pull a (run_file_name, segment) tuple off the result queue for
+        # each sub-task, representing the final results of the task
+        results = []
+        for task in self.tasks:
+            results.append(self.resultqueue.get(timeout=5))
 
-            if self.multisegment:
-                finalsegments += [s for _, s in results]
-                if self._added:
-                    finalsegments.append(self._finalize_segment())
-                else:
-                    self._close_segment()
+        if self.multisegment:
+            finalsegments += [s for _, s in results]
+            if self._added:
+                finalsegments.append(self._finalize_segment())
             else:
-                # Merge the posting sources from the sub-writers and my
-                # postings into this writer
-                self._merge_subsegments(results, mergetype)
                 self._close_segment()
-                self._assemble_segment()
-                finalsegments.append(self.get_segment())
-            self._commit_toc(finalsegments)
-        finally:
-            self._finish()
+            assert self.perdocwriter.is_closed
+        else:
+            # Merge the posting sources from the sub-writers and my
+            # postings into this writer
+            self._merge_subsegments(results, mergetype)
+            self._close_segment()
+            self._assemble_segment()
+            finalsegments.append(self.get_segment())
+            assert self.perdocwriter.is_closed
+
+        self._commit_toc(finalsegments)
+        self._finish()
 
     def _merge_subsegments(self, results, mergetype):
         storage = self.storage
@@ -344,19 +349,20 @@ class SerialMpWriter(MpWriter):
     def _commit(self, mergetype, optimize, merge):
         # Pull a (run_file_name, segment) tuple off the result queue for each
         # sub-task, representing the final results of the task
-        try:
-            # Merge existing segments
-            finalsegments = self._merge_segments(mergetype, optimize, merge)
-            results = []
-            for writer in self.tasks:
-                results.append(finish_subsegment(writer))
-            self._merge_subsegments(results, mergetype)
-            self._close_segment()
-            self._assemble_segment()
-            finalsegments.append(self.get_segment())
-            self._commit_toc(finalsegments)
-        finally:
-            self._finish()
+
+        # Merge existing segments
+        finalsegments = self._merge_segments(mergetype, optimize, merge)
+        results = []
+        for writer in self.tasks:
+            results.append(finish_subsegment(writer))
+
+        self._merge_subsegments(results, mergetype)
+        self._close_segment()
+        self._assemble_segment()
+        finalsegments.append(self.get_segment())
+
+        self._commit_toc(finalsegments)
+        self._finish()
 
 
 # For compatibility with old multiproc module

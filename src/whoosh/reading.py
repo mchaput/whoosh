@@ -165,6 +165,14 @@ class IndexReader(object):
 
         return None
 
+    def storage(self):
+        """Returns the :class:`whoosh.filedb.filestore.Storage` object used by
+        this reader to read its files. If the reader is not atomic,
+        (``reader.is_atomic() == True``), returns None.
+        """
+
+        return None
+
     def is_atomic(self):
         return True
 
@@ -576,7 +584,6 @@ class SegmentReader(IndexReader):
         self.schema = schema
         self.is_closed = False
 
-        self._storage = storage
         self._segment = segment
         self._segid = self._segment.segment_id()
         self._gen = generation
@@ -590,19 +597,19 @@ class SegmentReader(IndexReader):
             # Use an overlay here instead of just the compound storage, in rare
             # circumstances a segment file may be added after the segment is
             # written
-            self._files = OverlayStorage(files, self._storage)
+            self._storage = OverlayStorage(files, storage)
         else:
-            self._files = storage
+            self._storage = storage
 
         # Get subreaders from codec
         self._codec = codec if codec else segment.codec()
-        self._terms = self._codec.terms_reader(self._files, segment)
-        self._perdoc = self._codec.per_document_reader(self._files, segment)
+        self._terms = self._codec.terms_reader(self._storage, segment)
+        self._perdoc = self._codec.per_document_reader(self._storage, segment)
         self._graph = None  # Lazy open with self._get_graph()
 
     def _get_graph(self):
         if not self._graph:
-            self._graph = self._codec.graph_reader(self._files, self._segment)
+            self._graph = self._codec.graph_reader(self._storage, self._segment)
         return self._graph
 
     def codec(self):
@@ -610,6 +617,9 @@ class SegmentReader(IndexReader):
 
     def segment(self):
         return self._segment
+
+    def storage(self):
+        return self._storage
 
     def has_deletions(self):
         return self._perdoc.has_deletions()
@@ -645,8 +655,8 @@ class SegmentReader(IndexReader):
 
         # It's possible some weird codec that doesn't use storage might have
         # passed None instead of a storage object
-        if self._files:
-            self._files.close()
+        if self._storage:
+            self._storage.close()
 
         self.is_closed = True
 

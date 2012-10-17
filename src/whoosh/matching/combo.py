@@ -34,7 +34,6 @@ from whoosh.matching import mcore
 
 class CombinationMatcher(mcore.Matcher):
     def __init__(self, submatchers, boost=1.0):
-        assert submatchers, submatchers
         self._submatchers = submatchers
         self._boost = boost
 

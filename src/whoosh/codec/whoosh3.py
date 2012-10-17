@@ -157,7 +157,8 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         self._storage = storage
         self._segment = segment
 
-        self._cols = compound.CompoundWriter()
+        tempst = storage.temp_storage("%s.tmp" % segment.indexname)
+        self._cols = compound.CompoundWriter(tempst)
         self._colwriters = {}
         self._create_column("_stored", STORED_COLUMN)
 
@@ -277,10 +278,9 @@ class W3FieldWriter(base.FieldWriterWithGraph):
         self._fieldobj = None
         self._format = None
 
-        self._fieldmap = {}
         _tifile = self._create_file(W3Codec.TERMS_EXT)
         self._tindex = filetables.OrderedHashWriter(_tifile)
-        self._tindex.extras["fieldmap"] = self._fieldmap
+        self._fieldmap = self._tindex.extras["fieldmap"] = {}
 
         self._postfile = self._create_file(W3Codec.POSTS_EXT)
 
@@ -755,7 +755,6 @@ class W3PostingsWriter(base.PostingsWriter):
         # Minify values
 
         fixedsize = self._format.fixed_value_size()
-        print "format=", self._format, "***fixedsize=", fixedsize
         values = self._values
 
         if fixedsize is None or fixedsize < 0:
@@ -1038,7 +1037,6 @@ class W3LeafMatcher(LeafMatcher):
 
         # De-minify the values
         fixedsize = self._fixedsize
-        print "data=", self._data, "format=", self.format, "fixed=", fixedsize
         vs = self._data[2]
         if fixedsize is None or fixedsize < 0:
             self._values = vs

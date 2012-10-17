@@ -40,7 +40,7 @@ def test_multistream():
               ("b", "ijk"), ("c", "fGgHh"), ("a", "9abc")]
 
     st = RamStorage()
-    msw = compound.CompoundWriter()
+    msw = compound.CompoundWriter(st)
     files = dict((name, msw.create_file(name)) for name in "abc")
     for name, data in domain:
         files[name].write(b(data))
@@ -70,7 +70,7 @@ def test_random_multistream():
     outfiles = dict((name, BytesIO(value)) for name, value in domain.items())
 
     with TempStorage() as st:
-        msw = compound.CompoundWriter(buffersize=4096)
+        msw = compound.CompoundWriter(st, buffersize=4096)
         mfiles = {}
         for name in domain:
             mfiles[name] = msw.create_file(name)

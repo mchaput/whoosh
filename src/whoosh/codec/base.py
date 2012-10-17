@@ -29,7 +29,6 @@
 This module contains base classes/interfaces for "codec" objects.
 """
 
-import random
 from bisect import bisect_right
 
 from whoosh import columns
@@ -37,6 +36,7 @@ from whoosh.compat import text_type
 from whoosh.compat import abstractmethod, izip, xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.system import emptybytes
+from whoosh.util import random_name
 
 
 # Exceptions
@@ -94,6 +94,39 @@ class Codec(object):
     @abstractmethod
     def new_segment(self, storage, indexname):
         raise NotImplementedError
+
+
+class WrappingCodec(Codec):
+    def __init__(self, child):
+        self._child = child
+
+    def per_document_writer(self, storage, segment):
+        return self._child.per_document_writer(storage, segment)
+
+    def field_writer(self, storage, segment):
+        return self._child.field_writer(storage, segment)
+
+    def postings_writer(self, dbfile, byteids=False):
+        return self._child.postings_writer(dbfile, byteids=byteids)
+
+    def postings_reader(self, dbfile, terminfo, format_, term=None, scorer=None):
+        return self._child.postings_reader(dbfile, terminfo, format_, term=term,
+                                           scorer=scorer)
+
+    def terms_reader(self, storage, segment):
+        return self._child.terms_reader(storage, segment)
+
+    def per_document_reader(self, storage, segment):
+        return self._child.per_document_reader(storage, segment)
+
+    def supports_graph(self):
+        return self._child.supports_graph()
+
+    def graph_reader(self, storage, segment):
+        return self._child.graph_reader(storage, segment)
+
+    def new_segment(self, storage, indexname):
+        return self._child.new_segment(storage, indexname)
 
 
 # Writer classes
@@ -407,8 +440,6 @@ class Segment(object):
     along the way).
     """
 
-    # These must be valid separate characters in CASE-INSENSTIVE filenames
-    IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
     # Extension for compound segment files
     COMPOUND_EXT = ".seg"
 
@@ -421,12 +452,11 @@ class Segment(object):
         self.compound = False
 
     @classmethod
-    def _random_id(cls, size=12):
-        return "".join(random.choice(cls.IDCHARS) for _ in xrange(size))
+    def _random_id(cls, size=16):
+        return random_name(size=size)
 
     def __repr__(self):
-        return "<%s %s>" % (self.__class__.__name__,
-                            self.segment_id())
+        return "<%s %s>" % (self.__class__.__name__, self.segment_id())
 
     def codec(self):
         raise NotImplementedError
