@@ -86,6 +86,9 @@ class StructFile(object):
     def __iter__(self):
         return iter(self.file)
 
+    def raw_file(self):
+        return self.file
+
     def read(self, *args, **kwargs):
         return self.file.read(*args, **kwargs)
 
@@ -356,19 +359,13 @@ class BufferFile(StructFile):
 
 
 class ChecksumFile(StructFile):
-    def __init__(self, child):
-        self._child = child
+    def __init__(self, *args, **kwargs):
+        StructFile.__init__(self, *args, **kwargs)
         self._check = 0
         self._crc32 = __import__("zlib").crc32
 
-    def __getattr__(self, name):
-        if name in self.__dict__:
-            return self.__dict__[name]
-        else:
-            return getattr(self._child, name)
-
     def __iter__(self):
-        for line in self._child:
+        for line in self.file:
             self._check = self._crc32(line, self._check)
             yield line
 
@@ -376,13 +373,13 @@ class ChecksumFile(StructFile):
         raise Exception("Cannot seek on a ChecksumFile")
 
     def read(self, *args, **kwargs):
-        b = self._child.read(*args, **kwargs)
+        b = self.file.read(*args, **kwargs)
         self._check = self._crc32(b, self._check)
         return b
 
     def write(self, b):
         self._check = self._crc32(b, self._check)
-        self._child.write(b)
+        self.file.write(b)
 
     def checksum(self):
         return self._check & 0xffffffff

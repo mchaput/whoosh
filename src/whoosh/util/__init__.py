@@ -26,17 +26,23 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import re, sys, time
+import random, sys, time
 from bisect import insort, bisect_left
 from functools import wraps
 
-from whoosh.compat import string_type
+
+# These must be valid separate characters in CASE-INSENSTIVE filenames
+IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
 if sys.platform == 'win32':
     now = time.clock
 else:
     now = time.time
+
+
+def random_name(size=28):
+    return "".join(random.choice(IDCHARS) for _ in xrange(size))
 
 
 def make_binary_tree(fn, args, **kwargs):

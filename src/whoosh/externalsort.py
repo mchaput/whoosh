@@ -100,8 +100,6 @@ class SortingPool(object):
     tuples, lists, and dicts).
     """
 
-    filenamechars = "abcdefghijklmnopqrstuvwxyz_1234567890"
-
     def __init__(self, maxsize=1000000, tempdir=None, prefix="",
                  suffix=".run"):
         """
@@ -129,10 +127,14 @@ class SortingPool(object):
         f = os.fdopen(fd, "wb")
         return path, f
 
-    @staticmethod
-    def _read_run(path):
-        import os.path
-        f = open(path, "rb")
+    def _open_run(self, path):
+        return open(path, "rb")
+
+    def _remove_run(self, path):
+        os.remove(path)
+
+    def _read_run(self, path):
+        f = self._open_run(path)
         try:
             while True:
                 yield load(f)
@@ -140,11 +142,10 @@ class SortingPool(object):
             return
         finally:
             f.close()
-            os.remove(path)
+            self._remove_run(path)
 
-    @classmethod
-    def _merge_runs(cls, paths):
-        iters = [cls._read_run(path) for path in paths]
+    def _merge_runs(self, paths):
+        iters = [self._read_run(path) for path in paths]
         for item in imerge(iters):
             yield item
 

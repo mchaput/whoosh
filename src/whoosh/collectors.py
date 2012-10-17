@@ -394,7 +394,11 @@ class ScoredCollector(Collector):
                         break
                     usequality = self._use_block_quality()
                     replacecounter = self.replace
-                    minscore = self.minscore
+
+                    if self.minscore != minscore:
+                        checkquality = True
+                        minscore = self.minscore
+
                 replacecounter -= 1
 
             # If we're using block quality optimizations, and the checkquality

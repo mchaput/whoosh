@@ -25,12 +25,13 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import errno, os, random, sys
+import errno, os, sys, tempfile
 from threading import Lock
 
 from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import BufferFile, StructFile
 from whoosh.index import _DEF_INDEX_NAME, EmptyIndexError
+from whoosh.util import random_name
 from whoosh.util.filelock import FileLock
 
 
@@ -197,15 +198,6 @@ class Storage(object):
 
         raise NotImplementedError
 
-    def create_temp(self):
-        """Creates a randomly-named temporary file.
-
-        :return: a :class:`whoosh.filedb.structfile.StructFile` instance.
-        """
-
-        name = hex(random.getrandbits(128))[2:] + ".tmp"
-        return name, self.create_file(name)
-
     def open_file(self, name, *args, **kwargs):
         """Opens a file with the given name in this storage.
 
@@ -300,6 +292,18 @@ class Storage(object):
 
         pass
 
+    def temp_storage(self, name=None):
+        """Creates a new storage object for temporary files. You can call
+        :meth:`Storage.destroy` on the new storage when you're finished with
+        it.
+
+        :param name: a name for the new storage. This may be optional or
+            required depending on the storage implementation.
+        :rtype: :class:`Storage`
+        """
+
+        raise NotImplementedError
+
 
 class OverlayStorage(Storage):
     """Overlays two storage objects. Reads are processed from the first if it
@@ -318,9 +322,6 @@ class OverlayStorage(Storage):
 
     def create_file(self, *args, **kwargs):
         return self.b.create_file(*args, **kwargs)
-
-    def create_temp(self, *args, **kwargs):
-        return self.b.create_temp(*args, **kwargs)
 
     def open_file(self, name, *args, **kwargs):
         if self.a.file_exists(name):
@@ -362,6 +363,9 @@ class OverlayStorage(Storage):
     def optimize(self):
         self.a.optimize()
         self.b.optimize()
+
+    def temp_storage(self, name=None):
+        return self.b.temp_storage(name=name)
 
 
 class FileStorage(Storage):
@@ -424,7 +428,7 @@ class FileStorage(Storage):
         # If the given directory does not already exist, try to create it
         try:
             os.makedirs(dirpath)
-        except IOError:
+        except OSError:
             # This is necessary for compatibility between Py2 and Py3
             e = sys.exc_info()[1]
             # If we get an error because the path already exists, ignore it
@@ -491,14 +495,18 @@ class FileStorage(Storage):
     def _fpath(self, fname):
         return os.path.abspath(os.path.join(self.folder, fname))
 
-    def clean(self):
+    def clean(self, ignore=False):
         if self.readonly:
             raise ReadOnlyError
 
         path = self.folder
         files = self.list()
         for fname in files:
-            os.remove(os.path.join(path, fname))
+            try:
+                os.remove(os.path.join(path, fname))
+            except OSError:
+                if not ignore:
+                    raise
 
     def list(self):
         try:
@@ -536,6 +544,12 @@ class FileStorage(Storage):
 
     def lock(self, name):
         return FileLock(self._fpath(name))
+
+    def temp_storage(self, name=None):
+        name = name or "%s.tmp" % random_name()
+        path = os.path.join(self.folder, name)
+        tempstore = FileStorage(path)
+        return tempstore.create()
 
 
 class RamStorage(Storage):
@@ -605,6 +619,25 @@ class RamStorage(Storage):
             self.locks[name] = Lock()
         return self.locks[name]
 
+    def temp_storage(self, name=None):
+        tdir = tempfile.gettempdir()
+        name = name or "%s.tmp" % random_name()
+        path = os.path.join(tdir, name)
+        tempstore = FileStorage(path)
+        return tempstore.create()
+
+
+def copy_storage(sourcestore, deststore):
+    """Copies the files from the source storage object to the destination
+    storage object using ``shutil.copyfileobj``.
+    """
+    from shutil import copyfileobj
+
+    for name in sourcestore.list():
+        with sourcestore.open_file(name) as source:
+            with deststore.create_file(name) as dest:
+                copyfileobj(source, dest)
+
 
 def copy_to_ram(storage):
     """Copies the given FileStorage object into a new RamStorage object.
@@ -612,12 +645,6 @@ def copy_to_ram(storage):
     :rtype: :class:`RamStorage`
     """
 
-    import shutil
     ram = RamStorage()
-    for name in storage.list():
-        f = storage.open_file(name)
-        r = ram.create_file(name)
-        shutil.copyfileobj(f.file, r.file)
-        f.close()
-        r.close()
+    copy_storage(storage, ram)
     return ram

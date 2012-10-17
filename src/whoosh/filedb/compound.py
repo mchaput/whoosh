@@ -26,7 +26,6 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import errno, sys
-from tempfile import TemporaryFile
 from threading import Lock
 from shutil import copyfileobj
 
@@ -39,6 +38,7 @@ from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import BufferFile, StructFile
 from whoosh.filedb.filestore import FileStorage
 from whoosh.system import emptybytes
+from whoosh.util import random_name
 
 
 class CompoundStorage(FileStorage):
@@ -217,6 +217,8 @@ class SubFile(object):
             pos = self._pos + where
         elif whence == 2:  # From end
             pos = self._length - where
+        else:
+            raise ValueError
 
         self._pos = pos
 
@@ -225,9 +227,11 @@ class SubFile(object):
 
 
 class CompoundWriter(object):
-    def __init__(self, buffersize=32 * 1024):
+    def __init__(self, tempstorage, buffersize=32 * 1024):
         assert isinstance(buffersize, int)
-        self._temp = TemporaryFile()
+        self._tempstorage = tempstorage
+        self._tempname = "%s.ctmp" % random_name()
+        self._temp = tempstorage.create_file(self._tempname, mode="w+b")
         self._buffersize = buffersize
         self._streams = {}
 
@@ -250,6 +254,7 @@ class CompoundWriter(object):
 
             yield (name, gen)
         temp.close()
+        self._tempstorage.delete_file(self._tempname)
 
     def save_as_compound(self, dbfile):
         basepos = dbfile.tell()
