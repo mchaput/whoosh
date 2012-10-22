@@ -32,7 +32,7 @@ from math import log
 from bisect import bisect_left, bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh import columns, fst
+from whoosh import columns, fst, scoring
 from whoosh.compat import abstractmethod
 from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.filedb.filestore import OverlayStorage
@@ -415,7 +415,7 @@ class IndexReader(object):
                 m.next()
 
     @abstractmethod
-    def postings(self, fieldname, text, scorer=None):
+    def postings(self, fieldname, text):
         """Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
 
@@ -1066,7 +1066,9 @@ class MultiReader(IndexReader):
     def doc_frequency(self, fieldname, text):
         return sum(r.doc_frequency(fieldname, text) for r in self.readers)
 
-    def postings(self, fieldname, text, scorer=None):
+    def postings(self, fieldname, text):
+        # This method does not add a scorer; for that, use Searcher.postings()
+
         postreaders = []
         docoffsets = []
         term = (fieldname, text)
@@ -1074,16 +1076,14 @@ class MultiReader(IndexReader):
         for i, r in enumerate(self.readers):
             if term in r:
                 offset = self.doc_offsets[i]
-
-                # Get a posting reader for the term and add it to the list
-                pr = r.postings(fieldname, text, scorer=scorer)
+                pr = r.postings(fieldname, text)
                 postreaders.append(pr)
                 docoffsets.append(offset)
 
         if not postreaders:
             raise TermNotFound(fieldname, text)
-        else:
-            return MultiMatcher(postreaders, docoffsets)
+
+        return MultiMatcher(postreaders, docoffsets)
 
     def first_id(self, fieldname, text):
         for i, r in enumerate(self.readers):

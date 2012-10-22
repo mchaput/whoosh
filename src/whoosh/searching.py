@@ -67,7 +67,8 @@ class SearchContext(object):
     by the collector or the query objects to change how they operate.
     """
 
-    def __init__(self, needs_current=False, weighting=None, top_query=None):
+    def __init__(self, needs_current=False, weighting=None, top_query=None,
+                 limit=0):
         """
         :param needs_current: if True, the search requires that the matcher
             tree be "valid" and able to access information about the current
@@ -77,11 +78,14 @@ class SearchContext(object):
             means they should advanced the matcher doc-by-doc rather than using
             shortcut methods such as all_ids().
         :param weighting: the Weighting object to use for scoring documents.
+        :param top_query: a reference to the top-level query object.
+        :param limit: the number of results requested by the user.
         """
 
         self.needs_current = needs_current
         self.weighting = weighting
         self.top_query = top_query
+        self.limit = limit
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.__dict__)
@@ -285,8 +289,30 @@ class Searcher(object):
         """
 
         weighting = weighting or self.weighting
-        scorer = weighting.scorer(self, fieldname, text, qf=qf)
-        return self.ixreader.postings(fieldname, text, scorer=scorer)
+        globalscorer = weighting.scorer(self, fieldname, text, qf=qf)
+
+        if self.is_atomic():
+            return self.ixreader.postings(fieldname, text, scorer=globalscorer)
+        else:
+            from whoosh.matching import MultiMatcher
+
+            matchers = []
+            docoffsets = []
+            term = (fieldname, text)
+            for subsearcher, offset in self.subsearchers:
+                r = subsearcher.reader()
+                if term in r:
+                    # Make a segment-specific scorer; the scorer should call
+                    # searcher.parent() to get global stats
+                    scorer = weighting.scorer(subsearcher, fieldname, text, qf=qf)
+                    m = r.postings(fieldname, text, scorer=scorer)
+                    matchers.append(m)
+                    docoffsets.append(offset)
+
+            if not matchers:
+                raise TermNotFound(fieldname, text)
+
+            return MultiMatcher(matchers, docoffsets, globalscorer)
 
     def idf(self, fieldname, text):
         """Calculates the Inverse Document Frequency of the current term (calls
@@ -760,7 +786,7 @@ class Searcher(object):
         # Return the results object from the collector
         return c.results()
 
-    def search_with_collector(self, q, collector):
+    def search_with_collector(self, q, collector, context=None):
         """Low-level method: runs a :class:`whoosh.query.Query` object on this
         searcher using the given :class:`whoosh.collectors.Collector` object
         to collect the results::
@@ -785,7 +811,7 @@ class Searcher(object):
         """
 
         # Get the search context object from the searcher
-        context = self.context()
+        context = context or self.context()
         # Allow collector to set up based on the top-level information
         collector.prepare(self, q, context)
 
