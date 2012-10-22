@@ -120,7 +120,7 @@ class MultiMatcher(mcore.Matcher):
     """Serializes the results of a list of sub-matchers.
     """
 
-    def __init__(self, matchers, idoffsets, current=0):
+    def __init__(self, matchers, idoffsets, scorer=None, current=0):
         """
         :param matchers: a list of Matcher objects.
         :param idoffsets: a list of offsets corresponding to items in the
@@ -129,6 +129,7 @@ class MultiMatcher(mcore.Matcher):
 
         self.matchers = matchers
         self.offsets = idoffsets
+        self.scorer = scorer
         self.current = current
         self._next_matcher()
 
@@ -171,7 +172,8 @@ class MultiMatcher(mcore.Matcher):
             # contribute
             while (m.is_active()
                    and m.matchers[m.current].max_quality() < minquality):
-                m = self.__class__(self.matchers, self.offsets, m.current + 1)
+                m = self.__class__(self.matchers, self.offsets, self.scorer,
+                                   m.current + 1)
                 m._next_matcher()
 
         if not m.is_active():
@@ -247,7 +249,7 @@ class MultiMatcher(mcore.Matcher):
         return self.matchers[self.current].weight()
 
     def score(self):
-        return self.matchers[self.current].score()
+        return self.scorer.score(self)
 
 
 def ExcludeMatcher(child, excluded, boost=1.0):
