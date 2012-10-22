@@ -1525,6 +1525,32 @@ def test_groupedby_with_terms():
         assert r.matched_terms() == set([('content', b('ipfstd1'))])
 
 
+def test_score_length():
+    schema = fields.Schema(a=fields.TEXT, b=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=u("alfa bravo charlie"))
+        w.add_document(b=u("delta echo foxtrot"))
+        w.add_document(a=u("golf hotel india"))
+
+    with ix.writer() as w:
+        w.merge = False
+        w.add_document(b=u("juliet kilo lima"))
+        # In the second segment, there is an "a" field here, but in the
+        # corresponding document in the first segment, the field doesn't exist,
+        # so if the scorer is getting segment offsets wrong, scoring this
+        # document will error
+        w.add_document(a=u("mike november oskar"))
+        w.add_document(b=u("papa quebec romeo"))
+
+    with ix.searcher() as s:
+        assert not s.is_atomic()
+        p = s.postings("a", "mike")
+        while p.is_active():
+            docnum = p.id()
+            score = p.score()
+            p.next()
+
 
 
 
