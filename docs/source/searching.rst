@@ -33,7 +33,7 @@ The Searcher object is the main high-level interface for reading the index. It
 has lots of useful methods for getting information about the index, such as
 ``lexicon(fieldname)``.
 
->>> list(searcher.lexicon("content")) [u"document", u"index", u"whoosh]
+>>> list(searcher.lexicon("content")) [u"document", u"index", u"whoosh"]
 
 However, the most important method on the Searcher object is
 :meth:`~whoosh.searching.Searcher.search`, which takes a
