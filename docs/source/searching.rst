@@ -33,7 +33,10 @@ The Searcher object is the main high-level interface for reading the index. It
 has lots of useful methods for getting information about the index, such as
 ``lexicon(fieldname)``.
 
->>> list(searcher.lexicon("content")) [u"document", u"index", u"whoosh"]
+::
+
+    >>> list(searcher.lexicon("content"))
+    [u"document", u"index", u"whoosh"]
 
 However, the most important method on the Searcher object is
 :meth:`~whoosh.searching.Searcher.search`, which takes a
@@ -76,18 +79,29 @@ The :class:`~whoosh.searching.Results` object acts like a list of the matched
 documents. You can use it to access the stored fields of each hit document, to
 display to the user.
 
->>> # Show the best hit's stored fields >>> results[0] {"title": u"Hello World
-in Python", "path": u"/a/b/c"} >>> results[0:2] [{"title": u"Hello World in
-Python", "path": u"/a/b/c"}, {"title": u"Foo", "path": u"/bar"}]
+::
+
+    >>> # Show the best hit's stored fields
+    >>> results[0]
+    {"title": u"Hello World in Python", "path": u"/a/b/c"}
+    >>> results[0:2]
+    [{"title": u"Hello World in Python", "path": u"/a/b/c"},
+    {"title": u"Foo", "path": u"/bar"}]
 
 By default, ``Searcher.search(myquery)`` limits the number of hits to 20, So the
 number of scored hits in the ``Results`` object may be less than the number of
 matching documents in the index.
 
->>> # How many documents in the entire index would have matched? >>>
-len(results) 27 >>> # How many scored and sorted documents in this Results
-object? >>> # This will often be less than len() if the number of hits was
-limited >>> # (the default). >>> results.scored_length() 10
+::
+
+    >>> # How many documents in the entire index would have matched?
+    >>> len(results)
+    27
+    >>> # How many scored and sorted documents in this Results object?
+    >>> # This will often be less than len() if the number of hits was limited
+    >>> # (the default).
+    >>> results.scored_length()
+    10
 
 Calling ``len(Results)`` runs a fast (unscored) version of the query again to
 figure out the total number of matching documents. This is usually very fast
@@ -152,17 +166,19 @@ the additional searches will be faster because the searcher will cache the
 results of running the filter query
 
 You can also specify a ``mask`` keyword argument to specify a set of documents
-that are not permitted in the results::
+that are not permitted in the results.
+
+::
 
     with myindex.searcher() as s:
         qp = qparser.QueryParser("content", myindex.schema)
         user_q = qp.parse(query_string)
-   
+        
         # Only show documents in the "rendering" chapter
         allow_q = query.Term("chapter", "rendering")
         # Don't show any documents where the "tag" field contains "todo"
         restrict_q = query.Term("tag", "todo")
-      
+        
         results = s.search(user_q, filter=allow_q, mask=restrict_q)
 
 (If you specify both a ``filter`` and a ``mask``, and a matching document
@@ -174,11 +190,11 @@ To find out how many results were filtered out of the results, use
     with myindex.searcher() as s:
         qp = qparser.QueryParser("content", myindex.schema)
         user_q = qp.parse(query_string)
-      
+        
         # Filter documents older than 7 days
         old_q = query.DateRange("created", None, datetime.now() - timedelta(days=7))
         results = s.search(user_q, mask=old_q)
-      
+        
         print("Filtered out %d older documents" % results.filtered_count)
 
 
@@ -190,7 +206,7 @@ search record which terms in the query matched which documents::
 
     with myindex.searcher() as s:
         results = s.seach(myquery, terms=True)
-      
+
 You can then get information about which terms matched from the
 :class:`whoosh.searching.Results` and :class:`whoosh.searching.Hit` objects::
 
@@ -222,7 +238,9 @@ facet". If a document has an empty collapse key, it will never be collapsed,
 but otherwise only the top N documents with the same collapse key will appear
 in the results.
 
-See :doc:`/facets` for information on facets::
+See :doc:`/facets` for information on facets.
+
+::
 
     with myindex.searcher() as s:
         # Set the facet to collapse on and the maximum number of documents per
@@ -304,9 +322,12 @@ arguments.
 This is especially useful for fields such as dates/times, identifiers, paths,
 and so on.
 
->>> list(searcher.documents(indexeddate=u"20051225")) [{"title": u"Christmas
-presents"}, {"title": u"Turkey dinner report"}] >>> print
-searcher.document(path=u"/a/b/c") {"title": "Document C"}
+::
+
+    >>> list(searcher.documents(indexeddate=u"20051225"))
+    [{"title": u"Christmas presents"}, {"title": u"Turkey dinner report"}]
+    >>> print searcher.document(path=u"/a/b/c")
+    {"title": "Document C"}
 
 These methods have some limitations:
 
