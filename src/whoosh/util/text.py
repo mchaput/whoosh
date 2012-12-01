@@ -58,7 +58,7 @@ def prefix_encode(a, b):
     the prefix it shares with a, followed by the suffix encoded as UTF-8.
     """
     i = first_diff(a, b)
-    return chr(i) + b[i:].encode("utf8")
+    return chr(i) + b[i:].encode("utf-8")
 
 
 def prefix_encode_all(ls):
@@ -71,7 +71,7 @@ def prefix_encode_all(ls):
     last = u('')
     for w in ls:
         i = first_diff(last, w)
-        yield chr(i) + w[i:].encode("utf8")
+        yield chr(i) + w[i:].encode("utf-8")
         last = w
 
 
@@ -82,7 +82,7 @@ def prefix_decode_all(ls):
     last = u('')
     for w in ls:
         i = ord(w[0])
-        decoded = last[:i] + w[1:].decode("utf8")
+        decoded = last[:i] + w[1:].decode("utf-8")
         yield decoded
         last = decoded
 
