@@ -169,7 +169,7 @@ class FieldWriter(object):
                 # term if it's greater than the last one
                 if lastspell is None or spellterm > lastspell:
                     # TODO: how to decode the btext bytes?
-                    self.add_spell_word(fieldname, btext.decode("utf8"))
+                    self.add_spell_word(fieldname, btext.decode("utf-8"))
                     lastspell = spellterm
                 continue
 

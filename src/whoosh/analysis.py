@@ -1,4 +1,4 @@
-# coding: utf8
+# coding: utf-8
 
 # Copyright 2007 Matt Chaput. All rights reserved.
 #

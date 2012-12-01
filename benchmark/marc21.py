@@ -160,7 +160,7 @@ def pubyear(d):
 
 
 def uni(v):
-    return u"" if v is None else v.decode("utf8", "replace")
+    return u"" if v is None else v.decode("utf-8", "replace")
 
 
 # Indexing and searching
@@ -288,7 +288,7 @@ if __name__ == "__main__":
                    glob=options.glob)
 
     if args:
-        qstring = " ".join(args).decode("utf8")
+        qstring = " ".join(args).decode("utf-8")
         limit = int(options.limit)
         if limit < 1:
             limit = None

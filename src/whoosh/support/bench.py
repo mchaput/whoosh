@@ -175,7 +175,7 @@ class WhooshModule(Module):
                                           schema=ix.schema)
 
     def query(self):
-        qstring = " ".join(self.args).decode("utf8")
+        qstring = " ".join(self.args).decode("utf-8")
         return self.parser.parse(qstring)
 
     def find(self, q):
