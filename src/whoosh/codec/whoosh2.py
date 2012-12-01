@@ -673,7 +673,7 @@ class W2FieldWriter(base.FieldWriter):
         self.text = text
         self.terminfo = FileTermInfo()
         if self.spelling:
-            self.dawg.insert(text.decode("utf8"))  # TODO: how to decode bytes?
+            self.dawg.insert(text.decode("utf-8"))  # TODO: how to decode bytes?
         self._start_blocklist()
 
     def add(self, docnum, weight, valuestring, length):

@@ -65,7 +65,7 @@ def test_random_termkeys():
         a = array("H", (random.randint(0, 0xd7ff) for _ in xrange(1, 20)))
         return array_tobytes(a).decode("utf-16")
 
-    domain = sorted(set([(random_fieldname(), random_btext().encode("utf8"))
+    domain = sorted(set([(random_fieldname(), random_btext().encode("utf-8"))
                          for _ in xrange(1000)]))
 
     st, codec, seg = _make_codec()
