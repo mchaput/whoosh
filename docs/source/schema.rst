@@ -31,9 +31,9 @@ Whoosh provides some useful predefined field types:
     This type is for body text. It indexes (and optionally stores) the text and
     stores term positions to allow phrase searching.
 
-    ``TEXT`` fields use StandardAnalyzer? by default. To specify a different
+    ``TEXT`` fields use :class:`~whoosh.analysis.StandardAnalyzer` by default. To specify a different
     analyzer, use the ``analyzer`` keyword argument to the constructor, e.g.
-    ``TEXT(analyzer=analysis.StemmingAnalyzer())``. See TextAnalysis?.
+    ``TEXT(analyzer=analysis.StemmingAnalyzer())``. See :doc:`analysis`.
 
     By default, ``TEXT`` fields store position information for each indexed term, to
     allow you to search for phrases. If you don't need to be able to search for
@@ -44,7 +44,7 @@ Whoosh provides some useful predefined field types:
     the body text in the search index. Usually you have the indexed documents
     themselves available to read or link to based on the search results, so you
     don't need to store their text in the search index. However, in some
-    circumstances it can be useful (see HighlightingResults?). Use
+    circumstances it can be useful (see :doc:`highlight`). Use
     ``TEXT(stored=True)`` to specify that the text should be stored in the index.
 
 :class:`whoosh.fields.KEYWORD`
