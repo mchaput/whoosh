@@ -59,7 +59,7 @@ Whoosh provides some useful predefined field types:
     By default, the keywords are space separated. To separate the keywords by
     commas instead (to allow keywords containing spaces), use ``commas=True``.
 
-    If you users will use the keyword field for searching, use ``scorable=True``.
+    If your users will use the keyword field for searching, use ``scorable=True``.
 
 :class:`whoosh.fields.ID`
     The ID field type simply indexes (and optionally stores) the entire value of
