@@ -10,7 +10,7 @@ The schema specifies the fields of documents in an index.
 Each document can have multiple fields, such as title, content, url, date, etc.
 
 Some fields can be indexed, and some fields can be stored with the document so
-the contents of the field so the field value is available in search results.
+the field value is available in search results.
 Some fields will be both indexed and stored.
 
 The schema is the set of all possible fields in a document. Each individual
