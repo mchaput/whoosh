@@ -183,7 +183,7 @@ Dynamic fields let you associate a field type with any field name that matches
 a given "glob" (a name pattern containing ``*``, ``?``, and/or ``[abc]``
 wildcards).
 
-You can add dynamic fields to a new schema using the add() method with the
+You can add dynamic fields to a new schema using the ``add()`` method with the
 ``glob`` keyword set to True::
 
     schema = fields.Schema(...)
@@ -207,7 +207,7 @@ the glob as the name::
     writer.commit()
 
 For example, to allow documents to contain any field name that ends in ``_id``
-and associate it with the ID field type::
+and associate it with the ``ID`` field type::
 
     schema = fields.Schema(path=fields.ID)
     schema.add("*_id", fields.ID, glob=True)
@@ -254,7 +254,7 @@ format       fields.Format   Defines what kind of information a field records
                              on disk.
 vector       fields.Format   Optional: if defined, the format in which to store
                              per-document forward-index information for this field.
-scorable     bool            If True, the length of (number of terms in)the field in
+scorable     bool            If True, the length of (number of terms in) the field in
                              each document is stored in the index. Slightly misnamed,
                              since field lengths are not required for all scoring.
                              However, field lengths are required to get proper
@@ -322,10 +322,10 @@ Positions       Stores the number of times each term appears in each document,
                 and at what positions.
 =============== ================================================================
 
-The STORED field type uses the Stored format (which does nothing, so STORED
-fields are not indexed). The ID type uses the Existence format. The KEYWORD type
-uses the Frequency format. The TEXT type uses the Positions format if it is
-instantiated with phrase=True (the default), or Frequency if phrase=False.
+The ``STORED`` field type uses the ``Stored`` format (which does nothing, so ``STORED``
+fields are not indexed). The ``ID`` type uses the ``Existence`` format. The ``KEYWORD`` type
+uses the ``Frequency`` format. The ``TEXT`` type uses the ``Positions`` format if it is
+instantiated with ``phrase=True`` (the default), or ``Frequency`` if ``phrase=False``.
 
 In addition, the following formats are implemented for the possible convenience
 of expert users, but are not currently used in Whoosh:
