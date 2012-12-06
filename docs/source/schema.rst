@@ -31,35 +31,35 @@ Whoosh provides some useful predefined field types:
     This type is for body text. It indexes (and optionally stores) the text and
     stores term positions to allow phrase searching.
 
-    TEXT fields use StandardAnalyzer? by default. To specify a different
-    analyzer, use the analyzer keyword argument to the constructor, e.g.
-    TEXT(analyzer=analysis.StemmingAnalyzer()). See TextAnalysis?.
+    ``TEXT`` fields use StandardAnalyzer? by default. To specify a different
+    analyzer, use the ``analyzer`` keyword argument to the constructor, e.g.
+    ``TEXT(analyzer=analysis.StemmingAnalyzer())``. See TextAnalysis?.
 
-    By default, TEXT fields store position information for each indexed term, to
+    By default, ``TEXT`` fields store position information for each indexed term, to
     allow you to search for phrases. If you don't need to be able to search for
     phrases in a text field, you can turn off storing term positions to save
-    space. Use TEXT(phrase=False).
+    space. Use ``TEXT(phrase=False)``.
 
-    By default, TEXT fields are not stored. Usually you will not want to store
+    By default, ``TEXT`` fields are not stored. Usually you will not want to store
     the body text in the search index. Usually you have the indexed documents
     themselves available to read or link to based on the search results, so you
     don't need to store their text in the search index. However, in some
     circumstances it can be useful (see HighlightingResults?). Use
-    TEXT(stored=True) to specify that the text should be stored in the index.
+    ``TEXT(stored=True)`` to specify that the text should be stored in the index.
 
 :class:`whoosh.fields.KEYWORD`
     This field type is designed for space- or comma-separated keywords. This
     type is indexed and searchable (and optionally stored). To save space, it
     does not support phrase searching.
 
-    To store the value of the field in the index, use stored=True in the
+    To store the value of the field in the index, use ``stored=True`` in the
     constructor. To automatically lowercase the keywords before indexing them,
-    use lowercase=True.
+    use ``lowercase=True``.
 
     By default, the keywords are space separated. To separate the keywords by
-    commas instead (to allow keywords containing spaces), use commas=True.
+    commas instead (to allow keywords containing spaces), use ``commas=True``.
 
-    If you users will use the keyword field for searching, use scorable=True.
+    If you users will use the keyword field for searching, use ``scorable=True``.
 
 :class:`whoosh.fields.ID`
     The ID field type simply indexes (and optionally stores) the entire value of
