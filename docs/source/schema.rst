@@ -62,16 +62,16 @@ Whoosh provides some useful predefined field types:
     If your users will use the keyword field for searching, use ``scorable=True``.
 
 :class:`whoosh.fields.ID`
-    The ID field type simply indexes (and optionally stores) the entire value of
+    The ``ID`` field type simply indexes (and optionally stores) the entire value of
     the field as a single unit (that is, it doesn't break it up into individual
     terms). This type of field does not store frequency information, so it's
     quite compact, but not very useful for scoring.
 
-    Use ID for fields like url or path (the URL or file path of a document),
+    Use ``ID`` for fields like url or path (the URL or file path of a document),
     date, category -- fields where the value must be treated as a whole, and
     each document only has one value for the field.
 
-    By default, ID fields are not stored. Use ID(stored=True) to specify that
+    By default, ``ID`` fields are not stored. Use ``ID(stored=True)`` to specify that
     the value of the field should be stored with the document for use in the
     search results. For example, you would want to store the value of a url
     field so you could provide links to the original in your search results.
@@ -113,8 +113,8 @@ To create a schema::
                     tags=KEYWORD)
 
 If you aren't specifying any constructor keyword arguments to one of the
-predefined fields, you can leave off the brackets (e.g. fieldname=TEXT instead
-of fieldname=TEXT()). Whoosh will instantiate the class for you.
+predefined fields, you can leave off the brackets (e.g. ``fieldname=TEXT`` instead
+of ``fieldname=TEXT()``). Whoosh will instantiate the class for you.
 
 Alternatively you can create a schema declaratively using the ``SchemaClass``
 base class::
