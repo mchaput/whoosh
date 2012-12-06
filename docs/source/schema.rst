@@ -144,8 +144,8 @@ on the ``Writer`` object::
     writer.remove_field("content")
     writer.commit()
 
-(If you're going to modify the schema _and_ add documents using the same
-writer, you must call ``add_field()`` and/or ``remove_field`` _before_ you
+(If you're going to modify the schema *and* add documents using the same
+writer, you must call ``add_field()`` and/or ``remove_field`` *before* you
 add any documents.)
 
 These methods are also on the ``Index`` object as a convenience, but when you
@@ -156,7 +156,7 @@ more than one field, it's much more efficient to create the writer yourself::
     ix.add_field("fieldname", fields.KEYWORD)
 
 In the ``filedb`` backend, removing a field simply removes that field from the
-_schema_ -- the index will not get smaller, data about that field will remain
+*schema* -- the index will not get smaller, data about that field will remain
 in the index until you optimize. Optimizing will compact the index, removing
 references to the deleted field as it goes::
 
