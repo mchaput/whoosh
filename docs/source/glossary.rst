@@ -31,7 +31,7 @@ Glossary
         in search results. For example, you typically want to store the "title" field so
         your search results can display it.
 
-    Forward index:
+    Forward index
         A table listing every document and the words that appear in the document.
         Whoosh lets you store *term vectors* that are a kind of forward index.
 
