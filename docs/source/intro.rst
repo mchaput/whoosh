@@ -32,7 +32,7 @@ Whoosh is a fast, pure Python search engine library.
 The primary design impetus of Whoosh is that it is pure Python. You should be able to
 use Whoosh anywhere you can use Python, no compiler or Java required.
 
-Like one if its ancestors, Lucene, Whoosh is not really a search engine, it's a programmer
+Like one of its ancestors, Lucene, Whoosh is not really a search engine, it's a programmer
 library for creating a search engine [1]_.
 
 Practically no important behavior of Whoosh is hard-coded. Indexing
