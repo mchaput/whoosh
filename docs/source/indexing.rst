@@ -79,7 +79,7 @@ a time can have a writer open.
 .. note::
 
     Because opening a writer locks the index for writing, in a multi-threaded
-    or multi-process environment your code needs to be aware than opening a
+    or multi-process environment your code needs to be aware that opening a
     writer may raise an exception (``whoosh.store.LockError``) if a writer is
     already open. Whoosh includes a couple of example implementations
     (:class:`whoosh.writing.AsyncWriter` and
