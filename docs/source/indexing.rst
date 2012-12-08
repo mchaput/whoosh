@@ -111,7 +111,7 @@ You don't have to fill in a value for every field. Whoosh doesn't care if you
 leave out a field from a document.
 
 Indexed fields must be passed a unicode value. Fields that are stored but not
-indexed (i.e. the STORED field type) can be passed any pickle-able object.
+indexed (i.e. the ``STORED`` field type) can be passed any pickle-able object.
 
 Whoosh will happily allow you to add documents with identical values, which can
 be useful or annoying depending on what you're using the library for::
@@ -120,7 +120,7 @@ be useful or annoying depending on what you're using the library for::
     writer.add_document(path=u"/a", title=u"A", content=u"Deja vu!")
 
 This adds two documents to the index with identical path and title fields. See
-"updating documents" below for information on the update_document method, which
+"updating documents" below for information on the ``update_document`` method, which
 uses "unique" fields to replace old documents instead of appending.
 
 
@@ -129,7 +129,7 @@ Indexing and storing different values for the same field
 
 If you have a field that is both indexed and stored, you can index a unicode
 value but store a different object if necessary (it's usually not, but sometimes
-this is really useful) using a "special" keyword argument _stored_<fieldname>.
+this is really useful) using a "special" keyword argument ``_stored_<fieldname>``.
 The normal value will be analyzed and indexed, but the "stored" value will show
 up in the results::
 
@@ -157,7 +157,7 @@ If you want to close the writer without committing the changes, call
 Keep in mind that while you have a writer open (including a writer you opened
 and is still in scope), no other thread or process can get a writer or modify
 the index. A writer also keeps several open files. So you should always remember
-to call either commit() or cancel() when you're done with a writer object.
+to call either ``commit()`` or ``cancel()`` when you're done with a writer object.
 
 
 Merging segments
@@ -175,7 +175,7 @@ Lucene.)
 So, having a few segments is more efficient than rewriting the entire index
 every time you add some documents. But searching multiple segments does slow
 down searching somewhat, and the more segments you have, the slower it gets. So
-Whoosh has an algorithm that runs when you call commit() that looks for small
+Whoosh has an algorithm that runs when you call ``commit()`` that looks for small
 segments it can merge together to make fewer, bigger segments.
 
 To prevent Whoosh from merging segments during a commit, use the ``merge``
@@ -215,13 +215,13 @@ to disk.
 
 ``is_deleted(docnum)``
 
-    Low-level method, returns True if the document with the given internal
+    Low-level method, returns ``True`` if the document with the given internal
     number is deleted.
 
 ``delete_by_term(fieldname, termtext)``
 
     Deletes any documents where the given (indexed) field contains the given
-    term. This is mostly useful for ID or KEYWORD fields.
+    term. This is mostly useful for ``ID`` or ``KEYWORD`` fields.
 
 ``delete_by_query(query)``
 
@@ -275,11 +275,11 @@ field(s) to search for documents to delete::
 The "unique" field(s) must be indexed.
 
 If no existing document matches the unique fields of the document you're
-updating, update_document acts just like add_document.
+updating, ``update_document`` acts just like ``add_document``.
 
-"Unique" fields and update_document are simply convenient shortcuts for deleting
+"Unique" fields and ``update_document`` are simply convenient shortcuts for deleting
 and adding. Whoosh has no inherent concept of a unique identifier, and in no way
-enforces uniqueness when you use add_document.
+enforces uniqueness when you use ``add_document``.
 
 
 Incremental indexing
@@ -314,8 +314,8 @@ Indexing everything from scratch is pretty easy. Here's a simple example::
 
 
     def add_doc(writer, path):
-      fileobj=open(path, "rb")
-      content=fileobj.read()
+      fileobj = open(path, "rb")
+      content = fileobj.read()
       fileobj.close()
       writer.add_document(path=path, content=content)
 
@@ -331,8 +331,8 @@ simplicity::
       return Schema(path=ID(unique=True, stored=True), time=STORED, content=TEXT)
 
     def add_doc(writer, path):
-      fileobj=open(path, "rb")
-      content=fileobj.read()
+      fileobj = open(path, "rb")
+      content = fileobj.read()
       fileobj.close()
       modtime = os.path.getmtime(path)
       writer.add_document(path=path, content=content, time=modtime)
@@ -389,7 +389,7 @@ incremental indexing::
 
           writer.commit()
 
-The incremental_index function:
+The ``incremental_index`` function:
 
 * Loops through all the paths that are currently indexed.
 
