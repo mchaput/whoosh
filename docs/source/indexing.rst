@@ -225,12 +225,14 @@ to disk.
 
 ``delete_by_query(query)``
 
-    Deletes any documents that match the given query.::
+    Deletes any documents that match the given query.
 
-        # Delete document by its path -- this field must be indexed
-        ix.delete_by_term('path', u'/a/b/c')
-        # Save the deletion to disk
-        ix.commit()
+::
+
+    # Delete document by its path -- this field must be indexed
+    ix.delete_by_term('path', u'/a/b/c')
+    # Save the deletion to disk
+    ix.commit()
 
 In the ``filedb`` backend, "deleting" a document simply adds the document number
 to a list of deleted documents stored with the index. When you search the index,
