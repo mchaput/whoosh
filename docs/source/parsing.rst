@@ -168,7 +168,8 @@ performance::
 
     parser.remove_plugin_class(qparser.WildcardPlugin)
 
-See :doc:`/api/qparser` for information about the plugins included with .
+See :doc:`/api/qparser` for information about the plugins included with
+Whoosh's query parser.
 
 
 Changing the AND, OR, ANDNOT, ANDMAYBE, and NOT syntax
