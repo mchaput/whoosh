@@ -43,6 +43,8 @@ Using the default parser
 To create a :class:`whoosh.qparser.QueryParser` object, pass it the name of the
 *default field* to search and the schema of the index you'll be searching.
 
+::
+
     from whoosh.qparser import QueryParser
 
     parser = QueryParser("content", schema=myindex.schema)
