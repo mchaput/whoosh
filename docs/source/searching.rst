@@ -119,7 +119,7 @@ number of matching documents without calling ``len()``::
         low = results.estimated_min_length()
         high = results.estimated_length()
 
-        print("Scored", found, "of between", low, "and", "high", "documents")
+        print("Scored", found, "of between", low, "and", high, "documents")
 
 
 Scoring and sorting
