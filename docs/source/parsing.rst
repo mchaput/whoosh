@@ -6,7 +6,7 @@ Overview
 ========
 
 The job of a query parser is to convert a *query string* submitted by a user
-into *query objects* (objects from the :mod:`whoosh.query` module) which
+into *query objects* (objects from the :mod:`whoosh.query` module).
 
 For example, the user query:
 
