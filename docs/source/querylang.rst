@@ -180,7 +180,7 @@ Making a term from literal text
 ===============================
 
 If you need to include characters in a term that are normally treated specially
-the by the parser, such as spaces, colons, or brackets, you can enclose the term
+by the parser, such as spaces, colons, or brackets, you can enclose the term
 in single quotes::
 
     path:'MacHD:My Documents'
