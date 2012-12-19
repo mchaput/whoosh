@@ -113,7 +113,7 @@ About time zones and basetime
 =============================
 
 The best way to deal with time zones is to always index ``datetime``\ s in naive
-UTC form. Any ``tzinfo`` attribute on the ``datetime`` object is _ignored_
+UTC form. Any ``tzinfo`` attribute on the ``datetime`` object is *ignored*
 by the indexer. If you are working with local datetimes, you should convert them
 to naive UTC datetimes before indexing.
 
