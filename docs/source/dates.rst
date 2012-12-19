@@ -68,7 +68,7 @@ With the ``DateParserPlugin``, users can use date queries such as::
     now to +2h
     -1y6mo to +2 yrs 23d
 
-Normally, as with other types of queries containing spaces, the users needs
+Normally, as with other types of queries containing spaces, the users need
 to quote date queries containing spaces using single quotes::
 
     render date:'last tuesday' command
