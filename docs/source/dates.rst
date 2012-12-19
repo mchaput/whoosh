@@ -80,7 +80,7 @@ try to parse dates from unquoted text following a date field prefix::
     qp.add_plugin(DateParserPlugin(free=True))
 
 This allows the user to type a date query with spaces and special characters
-following the name of date filed and a colon. The date query can be mixed
+following the name of date field and a colon. The date query can be mixed
 with other types of queries without quotes::
 
     date:last tuesday
