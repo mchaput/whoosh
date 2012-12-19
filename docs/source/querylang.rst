@@ -118,7 +118,7 @@ Inexact terms
 Use "globs" (wildcard expressions using ``?`` to represent a single character
 and ``*`` to represent any number of characters) to match terms::
 
-    te?t test* *b?g*``
+    te?t test* *b?g*
 
 Note that a wildcard starting with ``?`` or ``*`` is very slow. Note also that
 these wildcards only match *individual terms*. For example, the query::
