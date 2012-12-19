@@ -9,7 +9,8 @@ Whoosh lets you index and search dates/times using the
 :class:`whoosh.fields.DATETIME` field type. Instead of passing text for the
 field in ``add_document()``, you use a Python ``datetime.datetime`` object::
 
-    from datetime import datetime, timedelta from whoosh import fields, index
+    from datetime import datetime, timedelta
+    from whoosh import fields, index
 
     schema = fields.Schema(title=fields.TEXT, content=fields.TEXT,
                            date=fields.DATETIME)
