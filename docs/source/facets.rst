@@ -197,7 +197,7 @@ to the :meth:`~whoosh.searching.Searcher.search` method::
         q = qp.parse(user_query_string)
 
         # Sort search results from lowest to highest price
-        results = searcher.search(q, sortedby="price")
+        results = s.search(q, sortedby="price")
         for hit in results:
             print(hit["title"])
 
