@@ -267,7 +267,7 @@ objects just like stored field values::
 
     results = searcher.search(myquery)
     for hit in results:
-        print(hit["title"], hit["price")
+        print(hit["title"], hit["price"])
 
 ADVANCED: if you want to access abitrary per-document values quickly you can get
 a column reader object::
