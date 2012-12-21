@@ -5,7 +5,7 @@ Stemming, variations, and accent folding
 The problem
 ===========
 
-The indexed text will often have contain words in different form than the one
+The indexed text will often contain words in different form than the one
 the user searches for. For example, if the user searches for ``render``, we
 would like the search to match not only documents that contain the ``render``,
 but also ``renders``, ``rendering``, ``rendered``, etc.
