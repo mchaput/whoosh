@@ -167,7 +167,7 @@ Whoosh includes several mechanisms for adding character folding to an analyzer.
 
 The :class:`whoosh.analysis.CharsetFilter` applies a character map to token
 text. For example, it will filter the tokens ``u'café', u'resumé', ...`` to
-``u'cafe', u'resume', ...``. This is the usually the method you'll want to use
+``u'cafe', u'resume', ...``. This is usually the method you'll want to use
 unless you need to use a charset to tokenize terms::
 
     from whoosh.analysis import CharsetFilter, StemmingAnalyzer
