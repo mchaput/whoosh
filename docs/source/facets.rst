@@ -33,8 +33,6 @@ In order to sort on a field, you should create the field using the
                            modified=fields.DATETIME(sortable=True)
                            )
 
-This requires a bit of thought about which
-
 It's possible to sort on a field that doesn't have ``sortable=True``, but this
 requires Whoosh to load the unique terms in the field into memory. Using
 ``sortable`` is much more efficient.
