@@ -286,9 +286,10 @@ be removed from the stream or left in.
 The ``analysis.unstopped()`` filter function takes a token generator and yields
 only the tokens whose ``stopped`` attribute is ``False``.
 
-Note: even if you leave stopped words in the stream in an analyzer you use for
-indexing, the indexer will ignore any tokens where the ``stopped`` attribute is
-``True``.
+.. note::
+    Even if you leave stopped words in the stream in an analyzer you use for
+    indexing, the indexer will ignore any tokens where the ``stopped``
+    attribute is ``True``.
 
 
 Implementation notes
