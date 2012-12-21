@@ -10,7 +10,7 @@ Overview
 
 Sorting and faceting search results in Whoosh is based on **facets**. Each
 facet associates a value with each document in the search results, allowing you
-to sort by the keys or use them group the documents. Whoosh includes a variety
+to sort by the keys or use them to group the documents. Whoosh includes a variety
 of **facet types** you can use for sorting and grouping (see below).
 
 
