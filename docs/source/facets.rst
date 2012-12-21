@@ -361,7 +361,7 @@ To group results by the *intersected values of multiple fields*, use a
 ``('tag2', 'small')``, ``('tag1', 'medium')``, and so on::
 
     # Generate a grouping from the combination of the "tag" and "size" fields
-    mf = MultiField("tag", "size")
+    mf = MultiFacet("tag", "size")
     results = searcher.search(myquery, groupedby={"tag/size": mf})
 
 
