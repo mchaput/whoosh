@@ -310,8 +310,8 @@ category they're interested in, similarly to how the Spotlight quick results
 work on Mac OS X.
 
 
-The groupedby keyword argument
-------------------------------
+The ``groupedby`` keyword argument
+----------------------------------
 
 You can use the following objects as ``groupedby`` values:
 
