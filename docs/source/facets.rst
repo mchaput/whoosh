@@ -465,7 +465,7 @@ multi-valued fields, use the ``allow_overlap=True`` keyword argument::
 This supports overlapping group membership where documents have more than one
 term in a field (e.g. KEYWORD fields). If you don't need overlapping, don't
 use ``allow_overlap`` because it's *much* slower and uses more memory (see
-the secion on ``allow_overlap`` below.
+the secion on ``allow_overlap`` below).
 
 
 QueryFacet
@@ -488,7 +488,7 @@ group names using prefix queries::
 
 By default, ``QueryFacet`` only supports **non-overlapping** grouping, where a
 document cannot belong to multiple facets at the same time (each document will
-be sorted into one category arbitrarily.) To get overlapping groups with
+be sorted into one category arbitrarily). To get overlapping groups with
 multi-valued fields, use the ``allow_overlap=True`` keyword argument::
 
     facet = sorting.QueryFacet(querydict, allow_overlap=True)
