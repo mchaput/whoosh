@@ -51,12 +51,12 @@ To create a :class:`whoosh.qparser.QueryParser` object, pass it the name of the
 
 .. tip::
 
-    You can instantiate a QueryParser object without specifying a schema,
+    You can instantiate a ``QueryParser`` object without specifying a schema,
     however the parser will not process the text of the user query. This is
     useful for debugging, when you want to see how QueryParser will build a
     query, but don't want to make up a schema just for testing.
 
-Once you have a QueryParser object, you can call ``parse()`` on it to parse a
+Once you have a ``QueryParser`` object, you can call ``parse()`` on it to parse a
 query string into a query object::
 
     >>> parser.parse(u"alpha OR beta gamma")
@@ -329,7 +329,7 @@ QueryParser arguments
 
 QueryParser supports two extra keyword arguments:
 
-group
+``group``
     The query class to use to join sub-queries when the user doesn't explicitly
     specify a boolean operator, such as ``AND`` or ``OR``. This lets you change
     the default operator from ``AND`` to ``OR``.
@@ -338,7 +338,7 @@ group
     :class:`whoosh.qparser.OrGroup` class (*not* an instantiated object) unless
     you've written your own custom grouping syntax you want to use.
 
-termclass
+``termclass``
     The query class to use to wrap single terms.
 
     This must be a :class:`whoosh.query.Query` subclass (*not* an instantiated
@@ -349,8 +349,10 @@ termclass
     :class:`whoosh.query.Variations`, or if you've written a custom term class
     you want the parser to use instead of the ones shipped with Whoosh.
 
->>> from whoosh.qparser import QueryParser, OrGroup
->>> orparser = QueryParser("content", schema=myschema, group=OrGroup)
+::
+
+    >>> from whoosh.qparser import QueryParser, OrGroup
+    >>> orparser = QueryParser("content", schema=myschema, group=OrGroup)
 
 
 Configuring plugins
@@ -363,7 +365,7 @@ replace default plugins with re-configured or rewritten versions.
 The :meth:`whoosh.qparser.QueryParser.add_plugin`,
 :meth:`whoosh.qparser.QueryParser.remove_plugin_class`, and
 :meth:`whoosh.qparser.QueryParser.replace_plugin` methods let you manipulate
-the plugins in a QueryParser object.
+the plugins in a ``QueryParser`` object.
 
 See :doc:`/api/qparser` for information about the available plugins.
 
@@ -373,7 +375,7 @@ See :doc:`/api/qparser` for information about the available plugins.
 Creating custom operators
 -------------------------
 
-* Decide whether you want a PrefixOperator, PostfixOperator, or InfixOperator.
+* Decide whether you want a ``PrefixOperator``, ``PostfixOperator``, or ``InfixOperator``.
 
 * Create a new :class:`whoosh.qparser.syntax.GroupNode` subclass to hold
   nodes affected by your operator. This object is responsible for generating

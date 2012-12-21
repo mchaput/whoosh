@@ -283,7 +283,7 @@ Formats
 A ``Format`` object defines what kind of information a field records about each
 term, and how the information is stored on disk.
 
-For example, the Existence format would store postings like this:
+For example, the ``Existence`` format would store postings like this:
 
 ==== ====
 Doc
@@ -293,7 +293,7 @@ Doc
 30
 ==== ====
 
-Whereas the Positions format would store postings like this:
+Whereas the ``Positions`` format would store postings like this:
 
 ===== =============
 Doc   Positions
@@ -303,8 +303,8 @@ Doc   Positions
 30    ``[7,12]``
 ===== =============
 
-The indexing code passes the unicode string for a field to the field's Format
-object. The Format object calls its analyzer (see text analysis) to break the
+The indexing code passes the unicode string for a field to the field's ``Format``
+object. The ``Format`` object calls its analyzer (see text analysis) to break the
 string into tokens, then encodes information about each token.
 
 Whoosh ships with the following pre-defined formats.
@@ -367,8 +367,8 @@ Doc        Postings
 3          ``[(text=apple, freq=1)]``
 ========== ======================================================
 
-If you set FieldType.vector to a Format object, the indexing code will use the
-Format object to store information about the terms in each document. Currently
+If you set ``FieldType.vector`` to a ``Format`` object, the indexing code will use the
+``Format`` object to store information about the terms in each document. Currently
 by default Whoosh does not make use of term vectors at all, but they are
 available to expert users who want to implement their own field types.
 

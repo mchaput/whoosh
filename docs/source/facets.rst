@@ -326,7 +326,7 @@ A field name string
 A list or tuple of field name strings
     Sets up multiple field grouping criteria.
 
-A dictionary mapping facet names to FacetType objects
+A dictionary mapping facet names to ``FacetType`` objects
     Sets up multiple grouping criteria.
 
 A ``Facets`` object

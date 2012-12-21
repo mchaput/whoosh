@@ -11,23 +11,25 @@ search blog entries.
 A quick introduction
 ====================
 
->>> from whoosh.index import create_in
->>> from whoosh.fields import *
->>> schema = Schema(title=TEXT(stored=True), path=ID(stored=True), content=TEXT)
->>> ix = create_in("indexdir", schema)
->>> writer = ix.writer()
->>> writer.add_document(title=u"First document", path=u"/a",
-...                     content=u"This is the first document we've added!")
->>> writer.add_document(title=u"Second document", path=u"/b",
-...                     content=u"The second one is even more interesting!")
->>> writer.commit()
->>> from whoosh.qparser import QueryParser
->>> with ix.searcher() as searcher:
-...     query = QueryParser("content", ix.schema).parse("first")
-...     results = searcher.search(query)
-...     results[0]
-...
-{"title": u"First document", "path": u"/a"}
+::
+
+    >>> from whoosh.index import create_in
+    >>> from whoosh.fields import *
+    >>> schema = Schema(title=TEXT(stored=True), path=ID(stored=True), content=TEXT)
+    >>> ix = create_in("indexdir", schema)
+    >>> writer = ix.writer()
+    >>> writer.add_document(title=u"First document", path=u"/a",
+    ...                     content=u"This is the first document we've added!")
+    >>> writer.add_document(title=u"Second document", path=u"/b",
+    ...                     content=u"The second one is even more interesting!")
+    >>> writer.commit()
+    >>> from whoosh.qparser import QueryParser
+    >>> with ix.searcher() as searcher:
+    ...     query = QueryParser("content", ix.schema).parse("first")
+    ...     results = searcher.search(query)
+    ...     results[0]
+    ...
+    {"title": u"First document", "path": u"/a"}
 
 
 The ``Index`` and ``Schema`` objects
@@ -49,7 +51,7 @@ This schema has two fields, "title" and "content"::
 You only need to do create the schema once, when you create the index. The
 schema is pickled and stored with the index.
 
-When you create the Schema object, you use keyword arguments to map field names
+When you create the ``Schema`` object, you use keyword arguments to map field names
 to field types. The list of fields and their types defines what you are indexing
 and what's searchable. Whoosh comes with some very useful predefined field
 types, and you can easily create your own.
@@ -124,8 +126,8 @@ convenience function::
 The ``IndexWriter`` object
 ==========================
 
-OK, so we've got an Index object, now we can start adding documents. The
-writer() method of the Index object returns an ``IndexWriter`` object that lets
+OK, so we've got an ``Index`` object, now we can start adding documents. The
+``writer()`` method of the ``Index`` object returns an ``IndexWriter`` object that lets
 you add documents to the index. The IndexWriter's ``add_document(**kwargs)``
 method accepts keyword arguments where the field name is mapped to a value::
 
@@ -144,7 +146,7 @@ Two important notes:
   leave out a field from a document.
 
 * Indexed text fields must be passed a unicode value. Fields that are stored
-  but not indexed (STORED field type) can be passed any pickle-able object.
+  but not indexed (``STORED`` field type) can be passed any pickle-able object.
 
 If you have a text field that is both indexed and stored, you can index a
 unicode value but store a different object if necessary (it's usually not, but
@@ -164,7 +166,7 @@ Once your documents are committed to the index, you can search for them.
 The ``Searcher`` object
 =======================
 
-To begin searching the index, we'll need a Searcher object::
+To begin searching the index, we'll need a ``Searcher`` object::
 
     searcher = ix.searcher()
 

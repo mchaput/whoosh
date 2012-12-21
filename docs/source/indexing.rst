@@ -66,7 +66,7 @@ directory and then recreate it.)
 Indexing documents
 ==================
 
-Once you've created an Index object, you can add documents to the index with an
+Once you've created an ``Index`` object, you can add documents to the index with an
 ``IndexWriter`` object. The easiest way to get the ``IndexWriter`` is to call
 ``Index.writer()``::
 
@@ -192,7 +192,7 @@ Since optimizing rewrites all the information in the index, it can be slow on
 a large index. It's generally better to rely on Whoosh's merging algorithm than
 to optimize all the time.
 
-(The Index object also has an ``optimize()`` method that lets you optimize the
+(The ``Index`` object also has an ``optimize()`` method that lets you optimize the
 index (merge all the segments together). It simply creates a writer and calls
 ``commit(optimize=True)`` on it.)
 

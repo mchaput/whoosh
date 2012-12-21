@@ -8,9 +8,9 @@ Concurrency
 The ``FileIndex`` object is "stateless" and should be share-able between
 threads.
 
-A Reader object (which underlies the Searcher object) wraps open files and often
+A ``Reader`` object (which underlies the ``Searcher`` object) wraps open files and often
 individual methods rely on consistent file cursor positions (e.g. they do two
-file.read()s in a row, so if another thread moves the cursor between the two
+``file.read()``\ s in a row, so if another thread moves the cursor between the two
 read calls Bad Things would happen). You should use one Reader/Searcher per
 thread in your code.
 

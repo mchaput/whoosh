@@ -5,11 +5,11 @@ How to search
 Once you've created an index and added documents to it, you can search for those
 documents.
 
-The Searcher object
+The ``Searcher`` object
 ===================
 
 To get a :class:`whoosh.searching.Searcher` object, call ``searcher()`` on your
-Index object::
+``Index`` object::
 
     searcher = myindex.searcher()
 
@@ -29,7 +29,7 @@ This is of course equivalent to::
     finally:
         searcher.close()
 
-The Searcher object is the main high-level interface for reading the index. It
+The ``Searcher`` object is the main high-level interface for reading the index. It
 has lots of useful methods for getting information about the index, such as
 ``lexicon(fieldname)``.
 
@@ -38,7 +38,7 @@ has lots of useful methods for getting information about the index, such as
     >>> list(searcher.lexicon("content"))
     [u"document", u"index", u"whoosh"]
 
-However, the most important method on the Searcher object is
+However, the most important method on the ``Searcher`` object is
 :meth:`~whoosh.searching.Searcher.search`, which takes a
 :class:`whoosh.query.Query` object and returns a
 :class:`~whoosh.searching.Results` object::
@@ -315,7 +315,7 @@ Convenience methods
 ===================
 
 The :meth:`~whoosh.searching.Searcher.document` and
-:meth:`~whoosh.searching.Searcher.documents` methods on the Searcher object let
+:meth:`~whoosh.searching.Searcher.documents` methods on the ``Searcher`` object let
 you retrieve the stored fields of documents matching terms you pass in keyword
 arguments.
 
@@ -373,7 +373,7 @@ twice and combine the results::
     # to the top of the combined results.
     results.upgrade_and_extend(allresults)
 
-The Results object supports the following methods:
+The ``Results`` object supports the following methods:
 
 ``Results.extend(results)``
     Adds the documents in 'results' on to the end of the list of result

@@ -188,7 +188,7 @@ Limitations
   dates before year 1 on the proleptic Gregorian calendar. The ``DATETIME``
   field supports practically unlimited dates, so if the ``datetime`` object
   is every improved it could support it. An alternative possibility might
-  be to add support for mxDateTime objects someday.
+  be to add support for ``mxDateTime`` objects someday.
 
 * The ``DateParserPlugin`` currently only has support for English dates.
   The architecture supports creation of parsers for other languages, and I

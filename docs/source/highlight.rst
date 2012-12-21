@@ -271,13 +271,13 @@ you change the ``fragmenter``, ``scorer``, ``order``, and/or ``formatter``::
     hi = highlight.Highlighter(fragmenter=my_cf, scorer=sds)
 
 You can then use the :meth:`whoosh.highlight.Highlighter.highlight_hit` method
-to get highlights for a Hit object::
+to get highlights for a ``Hit`` object::
 
     for hit in results:
         print(hit["title"])
         print(hi.highlight_hit(hit))
 
-(When you assign to a Results object's ``fragmenter``, ``scorer``, ``order``,
+(When you assign to a ``Results`` object's ``fragmenter``, ``scorer``, ``order``,
 or ``formatter`` attributes, you're actually changing the values on the
 results object's default ``Highlighter`` object.)
 
