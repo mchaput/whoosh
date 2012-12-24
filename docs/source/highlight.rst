@@ -373,36 +373,36 @@ an analyzer::
     excerpts = highlight(text, terms, analyzer, fragmenter, formatter, top=3,
                          scorer=BasicFragmentScorer, minscore=1, order=FIRST)
 
-text
+``text``
     The original text of the document.
 
-terms
+``terms``
     A sequence or set containing the query words to match, e.g. ("render",
     "shader").
 
-analyzer
+``analyzer``
     The analyzer to use to break the document text into tokens for matching
     against the query terms. This is usually the analyzer for the field the
     query terms are in.
 
-fragmenter
+``fragmenter``
     A :class:`whoosh.highlight.Fragmenter` object, see below.
 
-formatter
+``formatter``
     A :class:`whoosh.highlight.Formatter` object, see below.
 
-top
+``top``
     The number of fragments to include in the output.
 
-scorer
+``scorer``
     A :class:`whoosh.highlight.FragmentScorer` object. The only scorer currently
     included with Whoosh is :class:`~whoosh.highlight.BasicFragmentScorer`, the
     default.
 
-minscore
+``minscore``
     The minimum score a fragment must have to be considered for inclusion.
 
-order
+``order``
     An ordering function that determines the order of the "top" fragments in the
     output text.
 
