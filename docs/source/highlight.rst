@@ -91,7 +91,7 @@ To turn off the character limit::
 If you instantiate a custom fragmenter, you can set the character limit on it
 directly::
 
-    sf = highlights.SentenceFragmenter(charlimit=100000)
+    sf = highlight.SentenceFragmenter(charlimit=100000)
     results.fragmenter = sf
 
 See below for information on customizing the highlights.
@@ -111,7 +111,7 @@ You can use the ``top`` keyword argument to control the number of fragments
 returned in each snippet::
 
     # Show a maximum of 5 fragments from the document
-    print hit.highlight("content", top=5)
+    print hit.highlights("content", top=5)
 
 
 Fragment size
@@ -152,10 +152,10 @@ The ``highlight`` module has the following pre-made fragmenters:
     are highlighting a short bit of text and don't need to fragment it.
 
 The different fragmenters have different options. For example, the default
-:class:`~whoosh.highlights.ContextFragmenter` lets you set the maximum
+:class:`~whoosh.highlight.ContextFragmenter` lets you set the maximum
 fragment size and the size of the context to add on either side::
 
-    my_cf = highlights.ContextFragmenter(maxchars=100, surround=30)
+    my_cf = highlight.ContextFragmenter(maxchars=100, surround=30)
 
 See the :mod:`whoosh.highlight` docs for more information.
 
