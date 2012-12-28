@@ -20,7 +20,7 @@ Eliminate words shorter/longer than N
 
 Use a :class:`~whoosh.analysis.StopFilter` and the ``minsize`` and ``maxsize``
 keyword arguments. If you just want to filter based on size and not common
-words, set the ``stoplist`` to None::
+words, set the ``stoplist`` to ``None``::
 
     sf = analysis.StopFilter(stoplist=None, minsize=2, maxsize=40)
 
