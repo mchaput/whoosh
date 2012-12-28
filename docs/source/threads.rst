@@ -27,7 +27,7 @@ it locks the index. If you try to open a writer on the same index in another
 thread/process, it will raise ``whoosh.store.LockError``.
 
 In a multi-threaded or multi-process environment your code needs to be aware
-than opening a writer may raise this exception if a writer is already open.
+that opening a writer may raise this exception if a writer is already open.
 Whoosh includes a couple of example implementations
 (:class:`whoosh.writing.AsyncWriter` and :class:`whoosh.writing.BufferedWriter`)
 of ways to work around the write lock.

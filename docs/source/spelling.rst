@@ -28,7 +28,7 @@ real "spell checker" since it doesn't do the kind of sophisticated
 phonetic matching or semantic/contextual analysis a good spell checker
 might. However, it is still very useful.
 
-There are a two main strategies for correcting words:
+There are two main strategies for correcting words:
 
 *   Use the terms from an index field.
 
