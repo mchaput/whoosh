@@ -146,7 +146,7 @@ As an alternative, you might display the *estimated* total hits::
         low = results.estimated_min_length()
         high = results.estimated_length()
 
-        print("Scored", found, "of between", low, "and", "high", "documents")
+        print("Scored", found, "of between", low, "and", high, "documents")
 
 
 Which terms matched in each hit?
