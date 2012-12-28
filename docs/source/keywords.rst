@@ -58,7 +58,7 @@ Usage
   field is either vectored or stored*.
 
   Use the :meth:`~whoosh.searching.Searcher.document_number` or
-  :meth:`~whoosh.searching.Searcher.document_number` methods of the
+  :meth:`~whoosh.searching.Searcher.document_numbers` methods of the
   :class:`whoosh.searching.Searcher` object to get the document numbers for the
   document(s) you want to extract keywords from.
 
