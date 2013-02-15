@@ -83,8 +83,16 @@ class GrowableArray(object):
 # Number list encoding base class
 
 class NumberEncoding(object):
+    maxint = None
+
+    def write_nums(self, f, numbers):
+        raise NotImplementedError
+
+    def read_nums(self, f, n):
+        raise NotImplementedError
+
     def write_deltas(self, f, numbers):
-        return self.write_nums(f, delta_encode(numbers))
+        return self.write_nums(f, list(delta_encode(numbers)))
 
     def read_deltas(self, f, n):
         return delta_decode(self.read_nums(f, n))
@@ -100,6 +108,10 @@ class NumberEncoding(object):
 # Fixed width encodings
 
 class FixedEncoding(NumberEncoding):
+    _encode = None
+    _decode = None
+    size = None
+
     def write_nums(self, f, numbers):
         _encode = self._encode
 
