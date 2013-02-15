@@ -381,9 +381,17 @@ class PerDocumentReader(object):
     def has_column(self, fieldname):
         return False
 
+    def list_columns(self):
+        raise NotImplementedError
+
     # Don't need to override this if supports_columns() returns False
     def column_reader(self, fieldname, column):
         raise NotImplementedError
+
+    # Bitmaps
+
+    def field_docs(self, fieldname):
+        return None
 
     # Lengths
 
@@ -461,12 +469,15 @@ class Segment(object):
     def codec(self):
         raise NotImplementedError
 
+    def index_name(self):
+        return self.indexname
+
     def segment_id(self):
         if hasattr(self, "name"):
             # Old segment class
             return self.name
         else:
-            return "%s_%s" % (self.indexname, self.segid)
+            return "%s_%s" % (self.index_name(), self.segid)
 
     def is_compound(self):
         if not hasattr(self, "compound"):
@@ -507,6 +518,7 @@ class Segment(object):
         CompoundStorage.assemble(cfile, storage, segfiles)
         for name in segfiles:
             storage.delete_file(name)
+        self.compound = True
 
     def open_compound_file(self, storage):
         name = self.make_filename(self.COMPOUND_EXT)
@@ -531,6 +543,9 @@ class Segment(object):
 
         return self.doc_count_all() - self.deleted_count()
 
+    def set_doc_count(self, doccount):
+        raise NotImplementedError
+
     def has_deletions(self):
         """
         Returns True if any documents in this segment are deleted.
@@ -544,6 +559,10 @@ class Segment(object):
         Returns the total number of deleted documents in this segment.
         """
 
+        raise NotImplementedError
+
+    @abstractmethod
+    def deleted_docs(self):
         raise NotImplementedError
 
     @abstractmethod
@@ -567,6 +586,70 @@ class Segment(object):
 
     def should_assemble(self):
         return True
+
+
+# Wrapping Segment
+
+class WrappingSegment(Segment):
+    def __init__(self, child):
+        self._child = child
+
+    def codec(self):
+        return self._child.codec()
+
+    def index_name(self):
+        return self._child.index_name()
+
+    def segment_id(self):
+        return self._child.segment_id()
+
+    def is_compound(self):
+        return self._child.is_compound()
+
+    def should_assemble(self):
+        return self._child.should_assemble()
+
+    def make_filename(self, ext):
+        return self._child.make_filename(ext)
+
+    def list_files(self, storage):
+        return self._child.list_files(storage)
+
+    def create_file(self, storage, ext, **kwargs):
+        return self._child.create_file(storage, ext, **kwargs)
+
+    def open_file(self, storage, ext, **kwargs):
+        return self._child.open_file(storage, ext, **kwargs)
+
+    def create_compound_file(self, storage):
+        return self._child.create_compound_file(storage)
+
+    def open_compound_file(self, storage):
+        return self._child.open_compound_file(storage)
+
+    def delete_document(self, docnum, delete=True):
+        return self._child.delete_document(docnum, delete=delete)
+
+    def has_deletions(self):
+        return self._child.has_deletions()
+
+    def deleted_count(self):
+        return self._child.deleted_count()
+
+    def deleted_docs(self):
+        return self._child.deleted_docs()
+
+    def is_deleted(self, docnum):
+        return self._child.is_deleted(docnum)
+
+    def set_doc_count(self, doccount):
+        self._child.set_doc_count(doccount)
+
+    def doc_count(self):
+        return self._child.doc_count()
+
+    def doc_count_all(self):
+        return self._child.doc_count_all()
 
 
 # Multi per doc reader
@@ -701,7 +784,7 @@ class CodecWithGraph(Codec):
         return True
 
     def graph_reader(self, storage, segment):
-        from whoosh.fst import GraphReader
+        from whoosh.automata.fst import GraphReader
         from whoosh.reading import NoGraphError
 
         filename = segment.make_filename(self.FST_EXT)
@@ -722,7 +805,7 @@ class FieldWriterWithGraph(FieldWriter):
     FST_EXT = CodecWithGraph.FST_EXT
 
     def _prep_graph(self):
-        from whoosh.fst import GraphWriter
+        from whoosh.automata.fst import GraphWriter
 
         gf = self._segment.create_file(self._storage, self.FST_EXT)
         self._gwriter = GraphWriter(gf)
