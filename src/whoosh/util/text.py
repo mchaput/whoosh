@@ -27,7 +27,7 @@
 
 import codecs, re
 
-from whoosh.compat import string_type, u
+from whoosh.compat import string_type, u, byte
 
 
 # Note: these functions return a tuple of (text, length), so when you call
@@ -40,25 +40,27 @@ utf8decode = codecs.getdecoder("utf-8")
 # Prefix encoding functions
 
 def first_diff(a, b):
-    """Returns the position of the first differing character in the strings
-    a and b. For example, first_diff('render', 'rending') == 4. This function
+    """
+    Returns the position of the first differing character in the sequences a
+    and b. For example, first_diff('render', 'rending') == 4. This function
     limits the return value to 255 so the difference can be encoded in a single
     byte.
     """
 
     i = 0
-    for i in xrange(0, len(a)):
-        if a[i] != b[i] or i == 255:
-            break
+    while i <= 255 and i < len(a) and i < len(b) and a[i] == b[i]:
+        i += 1
     return i
 
 
 def prefix_encode(a, b):
-    """Compresses string b as an integer (encoded in a byte) representing
-    the prefix it shares with a, followed by the suffix encoded as UTF-8.
     """
+    Compresses bytestring b as a byte representing the prefix it shares with a,
+    followed by the suffix bytes.
+    """
+
     i = first_diff(a, b)
-    return chr(i) + b[i:].encode("utf8")
+    return byte(i) + b[i:]
 
 
 def prefix_encode_all(ls):
