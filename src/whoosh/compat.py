@@ -36,6 +36,9 @@ if sys.version_info[0] < 3:
     bytes_type = str
     unichr = unichr
     from urllib import urlretrieve
+    
+    def byte(num):
+        return chr(num)
 
     def u(s):
         return unicode(s, "unicode_escape")
@@ -80,6 +83,9 @@ else:
     bytes_type = bytes
     unichr = chr
     from urllib.request import urlretrieve
+    
+    def byte(num):
+        return bytes((num,))
 
     def u(s):
         if isinstance(s, bytes):
