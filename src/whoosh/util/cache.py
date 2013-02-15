@@ -26,11 +26,22 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
+import functools, random
 from array import array
-from functools import wraps
+from heapq import nsmallest
+from operator import itemgetter
 from threading import Lock
+from time import time
 
-from whoosh.compat import xrange
+from whoosh.compat import iteritems, xrange
+
+
+try:
+    from collections import Counter
+except ImportError:
+    class Counter(dict):
+        def __missing__(self, key):
+            return 0
 
 
 def unbound_cache(func):
@@ -39,7 +50,7 @@ def unbound_cache(func):
 
     cache = {}
 
-    @wraps(func)
+    @functools.wraps(func)
     def caching_wrapper(*args):
         try:
             return cache[args]
@@ -52,6 +63,155 @@ def unbound_cache(func):
 
 
 def lru_cache(maxsize=100):
+    """A simple cache that, when the cache is full, deletes the least recently
+    used 10% of the cached values.
+
+    This function duplicates (more-or-less) the protocol of the
+    ``functools.lru_cache`` decorator in the Python 3.2 standard library.
+
+    Arguments to the cached function must be hashable.
+
+    View the cache statistics tuple ``(hits, misses, maxsize, currsize)``
+    with f.cache_info().  Clear the cache and statistics with f.cache_clear().
+    Access the underlying function with f.__wrapped__.
+    """
+
+    def decorating_function(user_function):
+        stats = [0, 0]  # Hits, misses
+        data = {}
+        lastused = {}
+
+        @functools.wraps(user_function)
+        def wrapper(*args):
+            try:
+                result = data[args]
+                stats[0] += 1  # Hit
+            except KeyError:
+                stats[1] += 1  # Miss
+                if len(data) == maxsize:
+                    for k, _ in nsmallest(maxsize // 10 or 1,
+                                          iteritems(lastused),
+                                          key=itemgetter(1)):
+                        del data[k]
+                        del lastused[k]
+                data[args] = user_function(*args)
+                result = data[args]
+            finally:
+                lastused[args] = time()
+            return result
+
+        def cache_info():
+            return stats[0], stats[1], maxsize, len(data)
+
+        def cache_clear():
+            data.clear()
+            lastused.clear()
+
+        wrapper.cache_info = cache_info
+        wrapper.cache_clear = cache_clear
+        return wrapper
+    return decorating_function
+
+
+def lfu_cache(maxsize=100):
+    """A simple cache that, when the cache is full, deletes the least frequently
+    used 10% of the cached values.
+
+    This function duplicates (more-or-less) the protocol of the
+    ``functools.lru_cache`` decorator in the Python 3.2 standard library.
+
+    Arguments to the cached function must be hashable.
+
+    View the cache statistics tuple ``(hits, misses, maxsize, currsize)``
+    with f.cache_info().  Clear the cache and statistics with f.cache_clear().
+    Access the underlying function with f.__wrapped__.
+    """
+
+    def decorating_function(user_function):
+        stats = [0, 0]  # Hits, misses
+        data = {}
+        usecount = Counter()
+
+        @functools.wraps(user_function)
+        def wrapper(*args):
+            try:
+                result = data[args]
+                stats[0] += 1  # Hit
+            except KeyError:
+                stats[1] += 1  # Miss
+                if len(data) == maxsize:
+                    for k, _ in nsmallest(maxsize // 10 or 1,
+                                          iteritems(usecount),
+                                          key=itemgetter(1)):
+                        del data[k]
+                        del usecount[k]
+                data[args] = user_function(*args)
+                result = data[args]
+            finally:
+                usecount[args] += 1
+            return result
+
+        def cache_info():
+            return stats[0], stats[1], maxsize, len(data)
+
+        def cache_clear():
+            data.clear()
+            usecount.clear()
+
+        wrapper.cache_info = cache_info
+        wrapper.cache_clear = cache_clear
+        return wrapper
+    return decorating_function
+
+
+def random_cache(maxsize=100):
+    """A very simple cache that, when the cache is filled, deletes 10% of the
+    cached values AT RANDOM.
+
+    This function duplicates (more-or-less) the protocol of the
+    ``functools.lru_cache`` decorator in the Python 3.2 standard library.
+
+    Arguments to the cached function must be hashable.
+
+    View the cache statistics tuple ``(hits, misses, maxsize, currsize)``
+    with f.cache_info().  Clear the cache and statistics with f.cache_clear().
+    Access the underlying function with f.__wrapped__.
+    """
+
+    def decorating_function(user_function):
+        stats = [0, 0]  # hits, misses
+        data = {}
+
+        @functools.wraps(user_function)
+        def wrapper(*args):
+            try:
+                result = data[args]
+                stats[0] += 1  # Hit
+            except KeyError:
+                stats[1] += 1  # Miss
+                if len(data) == maxsize:
+                    keys = data.keys()
+                    for i in xrange(maxsize // 10 or 1):
+                        n = random.randint(0, len(keys) - 1)
+                        k = keys.pop(n)
+                        del data[k]
+                data[args] = user_function(*args)
+                result = data[args]
+            return result
+
+        def cache_info():
+            return stats[0], stats[1], maxsize, len(data)
+
+        def cache_clear():
+            data.clear()
+
+        wrapper.cache_info = cache_info
+        wrapper.cache_clear = cache_clear
+        return wrapper
+    return decorating_function
+
+
+def db_lru_cache(maxsize=100):
     """Double-barrel least-recently-used cache decorator. This is a simple
     LRU algorithm that keeps a primary and secondary dict. Keys are checked
     in the primary dict, and then the secondary. Once the primary dict fills
@@ -71,7 +231,7 @@ def lru_cache(maxsize=100):
         # Cache1, Cache2, Pointer, Hits, Misses
         stats = [{}, {}, 0, 0, 0]
 
-        @wraps(user_function)
+        @functools.wraps(user_function)
         def wrapper(*args):
             ptr = stats[2]
             a = stats[ptr]
@@ -94,8 +254,7 @@ def lru_cache(maxsize=100):
                 return result
 
         def cache_info():
-            """Report cache statistics"""
-            return (stats[3], stats[4], maxsize, len(stats[0]) + len(stats[1]))
+            return stats[3], stats[4], maxsize, len(stats[0]) + len(stats[1])
 
         def cache_clear():
             """Clear the cache and cache statistics"""
@@ -128,7 +287,6 @@ def clockface_lru_cache(maxsize=100):
     """
 
     def decorating_function(user_function):
-
         stats = [0, 0, 0]  # hits, misses, hand
         data = {}
 
@@ -139,7 +297,7 @@ def clockface_lru_cache(maxsize=100):
             clock_refs = array("B", (0 for _ in xrange(maxsize)))
             lock = Lock()
 
-            @wraps(user_function)
+            @functools.wraps(user_function)
             def wrapper(*args):
                 key = args
                 try:
@@ -186,7 +344,7 @@ def clockface_lru_cache(maxsize=100):
                 return result
 
         else:
-            @wraps(user_function)
+            @functools.wraps(user_function)
             def wrapper(*args):
                 key = args
                 try:
@@ -199,8 +357,7 @@ def clockface_lru_cache(maxsize=100):
                 return result
 
         def cache_info():
-            """Report cache statistics"""
-            return (stats[0], stats[1], maxsize, len(data))
+            return stats[0], stats[1], maxsize, len(data)
 
         def cache_clear():
             """Clear the cache and cache statistics"""
@@ -213,5 +370,5 @@ def clockface_lru_cache(maxsize=100):
         wrapper.cache_info = cache_info
         wrapper.cache_clear = cache_clear
         return wrapper
-
     return decorating_function
+
