@@ -684,6 +684,9 @@ class BitColumn(Column):
                 bitset = OnDiskBitSet(dbfile, basepos, length - 1)
             self._bitset = bitset
 
+        def id_set(self):
+            return self._bitset
+
         def __repr__(self):
             return "<Bit.Reader>"
 
@@ -1002,11 +1005,11 @@ class MultiColumnReader(ColumnReader):
             self._doccount += len(r)
 
     def _document_reader(self, docnum):
-        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
+        return max(0, bisect_right(self._doc_offsets, docnum) - 1)
 
     def _reader_and_docnum(self, docnum):
         rnum = self._document_reader(docnum)
-        offset = self.doc_offsets[rnum]
+        offset = self._doc_offsets[rnum]
         return rnum, docnum - offset
 
     def __getitem__(self, docnum):
