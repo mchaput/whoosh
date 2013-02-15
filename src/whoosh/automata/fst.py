@@ -905,7 +905,7 @@ class Arc(object):
                  "endpos")
 
     def __init__(self, label=None, target=None, value=None, accept=False,
-                 acceptval=None):
+                 acceptval=None, lastarc=None, endpos=None):
         """
         :param label: The label bytes for this arc. For a word graph, this will
             be a character.
@@ -921,9 +921,9 @@ class Arc(object):
         self.target = target
         self.value = value
         self.accept = accept
-        self.lastarc = None
         self.acceptval = acceptval
-        self.endpos = None
+        self.lastarc = lastarc
+        self.endpos = endpos
 
     def __repr__(self):
         return "<%r-%s %s%s>" % (self.label, self.target,
@@ -936,6 +936,12 @@ class Arc(object):
             and self.value == other.value and self.label == other.label):
             return True
         return False
+
+    def copy(self):
+        # This is faster than using the copy module
+        return Arc(label=self.label, target=self.target, value=self.value,
+                   accept=self.accept, acceptval=self.acceptval,
+                   lastarc=self.lastarc, endpos=self.endpos)
 
 
 # Graph writer
@@ -1251,27 +1257,28 @@ class BaseGraphReader(object):
     # Convenience methods
 
     def list_arcs(self, address):
-        return list(copy.copy(arc) for arc in self.iter_arcs(address))
+        return list(arc.copy() for arc in self.iter_arcs(address))
 
     def arc_dict(self, address):
-        return dict((arc.label, copy.copy(arc))
+        return dict((arc.label, arc.copy())
                     for arc in self.iter_arcs(address))
 
     def find_path(self, path, arc=None, address=None):
         path = to_labels(path)
 
         if arc:
-            address = arc.target
+            address = address if address is not None else arc.target
         else:
             arc = Arc()
 
         if address is None:
             address = self._root
 
+        find_arc = self.find_arc
         for label in path:
             if address is None:
                 return None
-            if not self.find_arc(address, label, arc):
+            if not find_arc(address, label, arc):
                 return None
             address = arc.target
         return arc
@@ -1333,6 +1340,8 @@ class GraphReader(BaseGraphReader):
                 break
 
     def find_arc(self, address, label, arc=None):
+        # Overrides the default scanning implementation
+
         arc = arc or Arc()
         dbfile = self.dbfile
         dbfile.seek(address)

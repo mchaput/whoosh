@@ -52,7 +52,7 @@ class Corrector(object):
             enough terms in the field within ``maxdist`` of the given word, the
             returned list will be shorter than this number.
         :param maxdist: the largest edit distance from the given word to look
-            at. Numbers higher than 2 are not very effective or efficient.
+            at. Values higher than 2 are not very effective or efficient.
         :param prefix: require suggestions to share a prefix of this length
             with the given word. This is often justifiable since most
             misspellings do not involve the first letter of the word. Using a
@@ -122,7 +122,7 @@ class ReaderCorrector(Corrector):
 
 class GraphCorrector(Corrector):
     """Suggests corrections based on the content of a raw
-    :class:`whoosh.fst.GraphReader` object.
+    :class:`whoosh.automata.fst.GraphReader` object.
 
     By default ranks suggestions based on the edit distance.
     """
@@ -304,130 +304,3 @@ class SimpleQueryCorrector(QueryCorrector):
                     corrected_tokens.append(token)
 
         return Correction(q, qstring, corrected_q, corrected_tokens)
-
-
-#
-#
-#
-#
-# Old, obsolete spell checker - DO NOT USE
-
-class SpellChecker(object):
-    """This feature is obsolete.
-    """
-
-    def __init__(self, storage, indexname="SPELL",
-                 booststart=2.0, boostend=1.0,
-                 mingram=3, maxgram=4,
-                 minscore=0.5):
-        self.storage = storage
-        self.indexname = indexname
-
-        self._index = None
-
-        self.booststart = booststart
-        self.boostend = boostend
-        self.mingram = mingram
-        self.maxgram = maxgram
-        self.minscore = minscore
-
-    def index(self, create=False):
-        from whoosh import index
-        if create or not self._index:
-            create = create or not index.exists(self.storage,
-                                                indexname=self.indexname)
-            if create:
-                self._index = self.storage.create_index(self._schema(),
-                                                        self.indexname)
-            else:
-                self._index = self.storage.open_index(self.indexname)
-        return self._index
-
-    def _schema(self):
-        # Creates a schema given this object's mingram and maxgram attributes.
-
-        from whoosh.fields import Schema, FieldType, ID, STORED
-        from whoosh.formats import Frequency
-        from whoosh.analysis import SimpleAnalyzer
-
-        idtype = ID()
-        freqtype = FieldType(Frequency(), SimpleAnalyzer())
-
-        fls = [("word", STORED), ("score", STORED)]
-        for size in xrange(self.mingram, self.maxgram + 1):
-            fls.extend([("start%s" % size, idtype),
-                        ("end%s" % size, idtype),
-                        ("gram%s" % size, freqtype)])
-
-        return Schema(**dict(fls))
-
-    def suggestions_and_scores(self, text, weighting=None):
-        if weighting is None:
-            weighting = scoring.TF_IDF()
-
-        grams = defaultdict(list)
-        for size in xrange(self.mingram, self.maxgram + 1):
-            key = "gram%s" % size
-            nga = analysis.NgramAnalyzer(size)
-            for t in nga(text):
-                grams[key].append(t.text)
-
-        queries = []
-        for size in xrange(self.mingram, min(self.maxgram + 1, len(text))):
-            key = "gram%s" % size
-            gramlist = grams[key]
-            queries.append(query.Term("start%s" % size, gramlist[0],
-                                      boost=self.booststart))
-            queries.append(query.Term("end%s" % size, gramlist[-1],
-                                      boost=self.boostend))
-            for gram in gramlist:
-                queries.append(query.Term(key, gram))
-
-        q = query.Or(queries)
-        ix = self.index()
-        s = ix.searcher(weighting=weighting)
-        try:
-            result = s.search(q, limit=None)
-            return [(fs["word"], fs["score"], result.score(i))
-                    for i, fs in enumerate(result)
-                    if fs["word"] != text]
-        finally:
-            s.close()
-
-    def suggest(self, text, number=3, usescores=False):
-        if usescores:
-            def keyfn(a):
-                return 0 - (1 / distance(text, a[0])) * a[1]
-        else:
-            def keyfn(a):
-                return distance(text, a[0])
-
-        suggestions = self.suggestions_and_scores(text)
-        suggestions.sort(key=keyfn)
-        return [word for word, _, weight in suggestions[:number]
-                if weight >= self.minscore]
-
-    def add_field(self, ix, fieldname):
-        r = ix.reader()
-        try:
-            self.add_scored_words((w, terminfo.weight())
-                                  for w, terminfo in r.iter_field(fieldname))
-        finally:
-            r.close()
-
-    def add_words(self, ws, score=1):
-        self.add_scored_words((w, score) for w in ws)
-
-    def add_scored_words(self, ws):
-        writer = self.index().writer()
-        for text, score in ws:
-            fields = {"word": text, "score": score}
-            for size in xrange(self.mingram, self.maxgram + 1):
-                nga = analysis.NgramAnalyzer(size)
-                gramlist = [t.text for t in nga(text)]
-                if len(gramlist) > 0:
-                    fields["start%s" % size] = gramlist[0]
-                    fields["end%s" % size] = gramlist[-1]
-                    fields["gram%s" % size] = " ".join(gramlist)
-            writer.add_document(**fields)
-        writer.commit()
